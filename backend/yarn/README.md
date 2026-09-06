@@ -34,11 +34,12 @@ backend/
 │   │   ├── xml_generator.py     # Точечная модификация capacity-scheduler.xml с санитизацией
 │   │   └── yarn_client.py       # REST API клиент YARN RM с поддержкой Kerberos SPNEGO и HA
 │   └── main.py                  # Входная точка FastAPI, безопасный CORS, Security Headers, /healthz
-├── tests/                       # Автоматические тесты на pytest
+├── tests/                       # Автоматические тесты (pytest - 42 теста)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_capacity_scheduler.py # Тесты балансировки и генерации XML
 │   ├── test_change_requests.py   # Тесты CRUD хранилища заявок
 │   └── test_security.py          # Тесты безопасности (инъекции, BOLA, ACL, валидация)
+├── pyproject.toml               # Конфигурация пакета hadoop-explorer-yarn
 └── requirements.txt             # Зависимости Python
 ```
 

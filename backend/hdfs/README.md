@@ -32,11 +32,15 @@ backend/
 │   │   └── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, /healthz
-├── tests/                       # Автоматические тесты (pytest)
+├── tests/                       # Автоматические тесты (pytest - 39 тестов)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_acl.py              # Тесты проверки прав доступа
 │   ├── test_api.py              # Тесты основных API эндпоинтов
+│   ├── test_common_modules.py   # Тесты интеграции с backend/common
+│   ├── test_cross_cluster_copy.py # Тесты надежности межкластерного копирования
+│   ├── test_parquet_orc_preview.py # Тесты предпросмотра Parquet и ORC
 │   └── test_security.py         # Тесты CSRF, Security Headers, Rate Limit, Auth
+├── pyproject.toml               # Конфигурация пакета hadoop-explorer-hdfs
 └── requirements.txt             # Зависимости Python
 ```
 

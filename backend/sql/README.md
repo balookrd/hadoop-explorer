@@ -39,10 +39,11 @@ backend/
 │   │   └── trino_engine.py      # Клиент Trino DB API с поддержкой impersonation
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, /healthz
-├── tests/                       # Автоматические тесты (pytest)
+├── tests/                       # Автоматические тесты (pytest - 31 тест)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_ai_service.py       # Тесты ИИ-линтера, Mock-анализатора и AI API
-│   └── test_backend.py          # Тесты безопасности, аутентификации, CSRF, каталога и запросов
+│   └── test_backend.py          # Тесты безопасности, аутентификации, CSRF, каталога, ACL и запросов
+├── pyproject.toml               # Конфигурация пакета hadoop-explorer-sql
 └── requirements.txt             # Зависимости Python
 ```
 
