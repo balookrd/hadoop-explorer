@@ -21,11 +21,11 @@ class QueryHistory(Base):
     progress_percent = Column(Float, default=0.0)
     error_message = Column(Text, nullable=True)
     columns = Column(JSON, nullable=True)  # Список имен и типов колонок
-    
+
     # Персистентность и управление очередью
     is_in_queue = Column(Boolean, default=True, index=True)  # Виден ли в очереди задач
     has_cached_result = Column(Boolean, default=False)       # Сохранены ли строки на диске
-    
+
     created_at = Column(DateTime, default=utcnow, index=True)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)

@@ -266,7 +266,7 @@ class QueryManager:
 
         query_id = str(uuid.uuid4())
         processed_query = self._sanitize_and_limit_query(query_text)
-        
+
         ctx = ExecutionContext(query_id, cluster, user, processed_query)
         self.active_executions[query_id] = ctx
 
@@ -307,7 +307,7 @@ class QueryManager:
 
             ctx.status = "RUNNING"
             started_at = datetime.datetime.now(datetime.timezone.utc)
-            
+
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     update(QueryHistory)

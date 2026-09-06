@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hadoop-explorer-yarn"
+version = "1.0.0"
+description = "YARN Explorer Service (Capacity Scheduler & Change Requests) for Hadoop Explorer Platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "hadoop-explorer-common",
+    "psycopg2-binary>=2.9.9",
+    "fakeredis>=2.20.0",
+    "defusedxml>=0.7.1",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.9",
+    "krb5>=0.6.0",
+    "gssapi>=1.8.3; sys_platform != 'win32'",
+    "requests-kerberos>=0.14.0",
+    "kerberos>=1.3.0",
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    "python-dateutil>=2.9.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]

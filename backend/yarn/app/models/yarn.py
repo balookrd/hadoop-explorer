@@ -25,13 +25,13 @@ class PartitionResourceConfig(BaseModel):
     max_capacity: float = Field(..., description="Максимальная емкость (%)")
     is_elastic: bool = Field(False, description="Эластичная ли очередь (max_capacity > capacity)")
     elasticity_ratio: float = Field(1.0, description="Коэффициент эластичности (max_capacity / capacity)")
-    
+
     # Раздельные ресурсы RAM и vCPU
     memory_mb: Optional[int] = Field(None, description="Гарантированная память (RAM) в MB")
     vcores: Optional[int] = Field(None, description="Гарантированные ядра (vCPU)")
     max_memory_mb: Optional[int] = Field(None, description="Максимальная память (RAM) в MB")
     max_vcores: Optional[int] = Field(None, description="Максимальные ядра (vCPU)")
-    
+
     memory_percent: Optional[float] = Field(None, description="Процент памяти (RAM) от родителя")
     vcore_percent: Optional[float] = Field(None, description="Процент ядер (vCPU) от родителя")
     max_memory_percent: Optional[float] = Field(None, description="Макс. процент памяти (RAM) от родителя")
@@ -57,7 +57,7 @@ class QueueNode(BaseModel):
     accessible_node_labels: Optional[List[str]] = None
     default_node_label_expression: Optional[str] = None
     partitions: Dict[str, PartitionResourceConfig] = Field(default_factory=dict)
-    
+
     # Текущие метрики использования из YARN RM
     current_used_resources: ResourceAllocation = Field(default_factory=ResourceAllocation)
     allocated_resources: ResourceAllocation = Field(default_factory=ResourceAllocation)
@@ -65,7 +65,7 @@ class QueueNode(BaseModel):
     num_applications: int = 0
     num_active_applications: int = 0
     num_pending_applications: int = 0
-    
+
     children: List["QueueNode"] = Field(default_factory=list)
 
 
@@ -91,7 +91,7 @@ class BranchBalance(BaseModel):
     is_balanced: bool
     status: str  # "ok", "underallocated", "overallocated"
     message: str
-    
+
     # Раздельный баланс по RAM и vCPU
     total_children_memory_mb: Optional[int] = None
     unallocated_memory_mb: Optional[int] = None
@@ -178,15 +178,15 @@ class DiffItem(BaseModel):
     parent_path: Optional[str] = None
     partition: str
     action: str  # created, modified, deleted, unchanged
-    
+
     live_capacity: Optional[float] = None
     draft_capacity: Optional[float] = None
     delta_capacity: Optional[float] = None
-    
+
     live_max_capacity: Optional[float] = None
     draft_max_capacity: Optional[float] = None
     delta_max_capacity: Optional[float] = None
-    
+
     # RAM diff
     live_memory_mb: Optional[int] = None
     draft_memory_mb: Optional[int] = None
@@ -199,7 +199,7 @@ class DiffItem(BaseModel):
 
     live_type: Optional[QueueType] = None
     draft_type: Optional[QueueType] = None
-    
+
     live_state: Optional[QueueState] = None
     draft_state: Optional[QueueState] = None
 

@@ -198,7 +198,7 @@ def parse_hdfs_error(error_raw: Any, status_code: int = 500) -> Tuple[str, str]:
                 "ALL": "полный доступ"
             }.get(acc.upper(), acc)
             return (f"Отказано в доступе: у пользователя '{u}' нет прав на {access_ru} для '{path}'.", "AccessControlException")
-        
+
         return (f"Отказано в доступе (Permission denied): {first_meaningful_line}", "AccessControlException")
 
     # FileAlreadyExistsException
@@ -490,7 +490,7 @@ class HdfsClient:
                     self.cluster.service_principal,
                     self.cluster.keytab_path
                 )
-            
+
             # Если есть сохраненный hadoop.auth cookie, подставляем его для быстрого доступа
             if "hadoop.auth" in self._auth_cookies:
                 headers["Cookie"] = f"hadoop.auth={self._auth_cookies['hadoop.auth']}"
@@ -522,7 +522,7 @@ class HdfsClient:
             params.update(extra_params)
 
         clean_path = path.strip("/")
-        
+
         # Пробуем доступные NameNodes
         last_exception = None
         for attempt in range(len(self.cluster.webhdfs_urls)):

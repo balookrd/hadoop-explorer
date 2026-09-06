@@ -6,6 +6,8 @@
 
 [![Tests](https://img.shields.io/badge/tests-112%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20Charts-326CE5.svg)](helm/)
@@ -19,6 +21,7 @@
 - [Обзор платформы](#-обзор-платформы)
 - [Архитектура монорепозитория](#-архитектура-монорепозитория)
 - [Выделенные общие модули](#-выделенные-общие-модули)
+- [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
 - [Быстрый старт: Раздельные демо-стенды](#-быстрый-старт-раздельные-демо-стенды)
 - [Сборка Docker-контейнеров](#-сборка-docker-контейнеров)
@@ -123,6 +126,32 @@ hadoop-explorer/
 - **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
 - **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
 - **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`) и всплывающих уведомлений (`NotificationToast`).
+
+---
+
+## ⚡ Менеджер зависимостей Python (uv workspaces)
+
+Монорепозиторий использует современный инструмент **`uv`** с поддержкой **PEP 517 / PEP 621 Workspaces**:
+
+- **Корневой `pyproject.toml`** определяет единый воркспейс со всеми сервисами:
+  - `backend/common` (`hadoop-explorer-common`)
+  - `backend/hdfs` (`hadoop-explorer-hdfs`)
+  - `backend/sql` (`hadoop-explorer-sql`)
+  - `backend/yarn` (`hadoop-explorer-yarn`)
+- **Единое виртуальное окружение** `.venv` для мгновенной синхронизации всех зависимостей.
+- **Быстрый линтинг и форматирование** через **Ruff**.
+
+### Основные команды:
+```bash
+# Синхронизация единого окружения и всех пакетов воркспейса
+make venv       # или uv sync --all-packages
+
+# Проверка линтером Ruff
+make lint       # или uv run ruff check backend
+
+# Автоформатирование кода
+make format     # или uv run ruff format backend
+```
 
 ---
 
@@ -273,6 +302,10 @@ make test-yarn
 
 | Команда | Описание |
 |---|---|
+| `make venv` / `make sync` | Синхронизация единого uv-окружения (`.venv`) и всех пакетов воркспейса |
+| `make install-dev` | Установка зависимостей и инструментов разработки |
+| `make lint` | Проверка кодовой базы линтером Ruff |
+| `make format` | Автоматическое форматирование кода с помощью Ruff |
 | `make test` | Запуск всех 112 модульных и интеграционных тестов |
 | `make test-hdfs` | Запуск 39 тестов сервиса HDFS Explorer |
 | `make test-sql` | Запуск 31 теста сервиса SQL Explorer |

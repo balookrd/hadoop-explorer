@@ -224,7 +224,7 @@ async def stream_query_results(
                 event = await queue.get()
                 payload = json.dumps(event, default=str)
                 yield f"data: {payload}\n\n"
-                
+
                 if event.get("type") in ("stream_end", "error") or event.get("status") in ("FINISHED", "FAILED", "CANCELLED"):
                     break
         finally:

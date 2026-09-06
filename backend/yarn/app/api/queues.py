@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings

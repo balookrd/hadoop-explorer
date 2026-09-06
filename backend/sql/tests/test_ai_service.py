@@ -54,7 +54,7 @@ async def test_mock_sql_analyzer_rules():
 @pytest.mark.asyncio
 async def test_mock_sql_analyzer_explain_optimize_and_format():
     sql = "SELECT custkey, name FROM tpch.sf1.customer WHERE acctbal > 5000"
-    
+
     # Explain
     explain_res = MockSQLAnalyzer.explain(sql, dialect="trino")
     assert "tpch.sf1.customer" in explain_res.tables_used

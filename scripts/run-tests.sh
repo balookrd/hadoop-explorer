@@ -6,10 +6,16 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 find_pytest() {
   local service="$1"
-  if [ -x "$ROOT_DIR/backend/venv/bin/pytest" ]; then
+  if [ -x "$ROOT_DIR/.venv/bin/pytest" ]; then
+    echo "$ROOT_DIR/.venv/bin/pytest"
+  elif [ -x "$ROOT_DIR/backend/.venv/bin/pytest" ]; then
+    echo "$ROOT_DIR/backend/.venv/bin/pytest"
+  elif [ -x "$ROOT_DIR/backend/venv/bin/pytest" ]; then
     echo "$ROOT_DIR/backend/venv/bin/pytest"
   elif [ -x "$ROOT_DIR/../$service-explorer/backend/venv/bin/pytest" ]; then
     echo "$ROOT_DIR/../$service-explorer/backend/venv/bin/pytest"
+  elif command -v uv >/dev/null 2>&1; then
+    echo "uv run --project $ROOT_DIR pytest"
   else
     which pytest 2>/dev/null || echo "pytest"
   fi
@@ -26,7 +32,7 @@ run_hdfs() {
   (cd "$ROOT_DIR/backend/hdfs" && \
    HDFS_CONFIG_PATH=config/config.yaml \
    PYTHONPATH=".:$ROOT_DIR" \
-   "$pt" tests)
+   $pt tests)
 }
 
 run_sql() {
@@ -38,7 +44,7 @@ run_sql() {
   (cd "$ROOT_DIR/backend/sql" && \
    CONFIG_PATH=config/config.yaml \
    PYTHONPATH=".:$ROOT_DIR" \
-   "$pt" tests)
+   $pt tests)
 }
 
 run_yarn() {
@@ -50,7 +56,7 @@ run_yarn() {
   (cd "$ROOT_DIR/backend/yarn" && \
    CONFIG_PATH=config/config.yaml \
    PYTHONPATH=".:$ROOT_DIR" \
-   "$pt" tests)
+   $pt tests)
 }
 
 case "$APP" in

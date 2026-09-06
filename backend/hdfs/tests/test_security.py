@@ -249,7 +249,6 @@ async def test_mock_users_password_hash(monkeypatch):
     """
     import hashlib
     from app.core.config import settings, MockUser
-    from app.core.ldap_auth import ldap_client
 
     salt = "testsalt"
     iterations = 1000
@@ -502,7 +501,6 @@ async def test_streaming_upload_archive_and_download_zip():
 async def test_mock_users_strict_isolation_hdfs(monkeypatch):
     """Проверка строгой изоляции mock-пользователей: вход разрешен ТОЛЬКО при mode == 'mock'."""
     from app.core.config import settings
-    from app.core.ldap_auth import ldap_client
 
     # Мокаем authenticate_ldap чтобы не делать сетевой запрос
     monkeypatch.setattr(ldap_client, "authenticate_ldap", lambda u, p: None)

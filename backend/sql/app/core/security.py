@@ -63,7 +63,7 @@ def get_client_ip(request: Request) -> str:
     """
     if not request.client or not request.client.host:
         return "unknown"
-    
+
     direct_ip = request.client.host
     if is_trusted_proxy(direct_ip):
         forwarded_for = request.headers.get("X-Forwarded-For")
@@ -74,7 +74,7 @@ def get_client_ip(request: Request) -> str:
         real_ip = request.headers.get("X-Real-IP")
         if real_ip:
             return real_ip.strip()
-            
+
     return direct_ip
 
 

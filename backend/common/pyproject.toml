@@ -5,12 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hadoop-explorer-common"
 version = "1.0.0"
-description = "Common security, models and utilities for Hadoop Explorer"
+description = "Common security, models, database and utilities for Hadoop Explorer"
+readme = "README.md"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
     "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "pyyaml>=6.0.2",
     "pyjwt>=2.9.0",
     "cryptography>=43.0.0",
+    "ldap3>=2.9.1",
+    "pyspnego>=0.11.1",
+    "requests-kerberos>=0.14.0",
     "sqlalchemy>=2.0.32",
-    "ldap3>=2.9.1"
+    "redis>=5.0.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "models*", "db*"]

@@ -1,4 +1,5 @@
-.PHONY: help test test-hdfs test-sql test-yarn build build-hdfs build-sql build-yarn \
+.PHONY: help venv sync install-dev lint format test test-hdfs test-sql test-yarn \
+        build build-hdfs build-sql build-yarn \
         frontend-build frontend-install demo-hdfs demo-sql demo-yarn demo-all \
         demo-hdfs-stop demo-sql-stop demo-yarn-stop demo-all-stop helm-lint helm-package
 
@@ -9,6 +10,12 @@ help:
 	@echo "========================================================================"
 	@echo "                   HADOOP EXPLORER PLATFORM CLI                         "
 	@echo "========================================================================"
+	@echo "  Окружение Python (uv workspaces):"
+	@echo "    make venv / make sync - Синхронизация единого uv-окружения (.venv)"
+	@echo "    make install-dev      - Установка всех пакетов и dev-зависимостей"
+	@echo "    make lint             - Проверка линтером Ruff"
+	@echo "    make format           - Автоформатирование кода с помощью Ruff"
+	@echo ""
 	@echo "  Тестирование:"
 	@echo "    make test             - Запуск всех 112 модульных тестов платформы"
 	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer (39 тестов)"
@@ -39,6 +46,21 @@ help:
 	@echo "    make helm-lint        - Проверка синтаксиса всех Helm-чартов"
 	@echo "    make helm-package     - Упаковка чартов для деплоя"
 	@echo "========================================================================"
+
+venv:
+	uv sync --all-packages
+
+sync:
+	uv sync --all-packages
+
+install-dev:
+	uv sync --all-packages
+
+lint:
+	uv run ruff check backend
+
+format:
+	uv run ruff format backend
 
 test:
 	./scripts/run-tests.sh all

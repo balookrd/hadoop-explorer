@@ -1,0 +1,86 @@
+[project]
+name = "hadoop-explorer"
+version = "1.0.0"
+description = "Hadoop Explorer Platform - Unified Enterprise Big Data Web Platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "hadoop-explorer-common",
+    "hadoop-explorer-hdfs",
+    "hadoop-explorer-sql",
+    "hadoop-explorer-yarn",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
+    "httpx>=0.27.0",
+]
+
+[tool.uv.workspace]
+members = [
+    "backend/common",
+    "backend/hdfs",
+    "backend/sql",
+    "backend/yarn",
+]
+
+[tool.uv.sources]
+hadoop-explorer-common = { workspace = true }
+hadoop-explorer-hdfs = { workspace = true }
+hadoop-explorer-sql = { workspace = true }
+hadoop-explorer-yarn = { workspace = true }
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "backend/hdfs/tests",
+    "backend/sql/tests",
+    "backend/yarn/tests",
+]
+pythonpath = [
+    ".",
+    "backend",
+    "backend/common",
+    "backend/hdfs",
+    "backend/sql",
+    "backend/yarn",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "**/__pycache__",
+    "dist",
+    "build",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+]
+ignore = [
+    "E501", # line too long
+    "E402", # module level import not at top of file
+    "E712", # comparison to True/False in SQLAlchemy queries
+    "F401", # unused import (common in tests/re-exports)
+    "F841", # unused variable
+    "W293", # blank line contains whitespace
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

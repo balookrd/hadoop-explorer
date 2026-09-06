@@ -17,7 +17,7 @@ def authenticate_spnego(negotiate_token_b64: str) -> Optional[Dict[str, Any]]:
 
     try:
         in_token = base64.b64decode(negotiate_token_b64)
-        
+
         # Инициализация контекста SPNEGO на стороне сервера
         server_ctx = spnego.server(
             service=cfg.service_principal or "HTTP",
@@ -31,7 +31,7 @@ def authenticate_spnego(negotiate_token_b64: str) -> Optional[Dict[str, Any]]:
             client_principal = server_ctx.client_principal
             # Преобразуем "username@REALM" -> "username"
             username = client_principal.split("@")[0] if client_principal else "unknown"
-            
+
             return {
                 "username": username,
                 "display_name": username,

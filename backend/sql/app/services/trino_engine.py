@@ -78,7 +78,7 @@ class TrinoExecutionEngine:
         cursor = None
         try:
             yield {"type": "status", "status": "CONNECTING", "message": f"Подключение к Trino ({self.cluster.name})..."}
-            
+
             def _connect_and_run():
                 c = self._get_connection(user_login)
                 cur = c.cursor()
@@ -118,7 +118,7 @@ class TrinoExecutionEngine:
                 # Преобразуем кортежи в списки для JSON сериализации
                 serializable_rows = [list(row) for row in rows_batch]
                 total_rows += len(serializable_rows)
-                
+
                 yield {
                     "type": "rows",
                     "rows": serializable_rows,
