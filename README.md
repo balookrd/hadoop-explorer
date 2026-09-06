@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="images/logo_white.png" alt="Hadoop Explorer Logo" width="340" />
+<img src="images/logo_white.png" alt="Hadoop Explorer Platform" width="380" />
 
-# Hadoop Explorer Platform
-
-**Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop**
+<p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
 [![Tests](https://img.shields.io/badge/tests-98%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
