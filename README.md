@@ -1,6 +1,8 @@
-# Hadoop Explorer Platform
-
 <div align="center">
+
+<img src="images/logo_white.png" alt="Hadoop Explorer Logo" width="340" />
+
+# Hadoop Explorer Platform
 
 **Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop**
 
