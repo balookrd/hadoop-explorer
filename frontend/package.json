@@ -1,0 +1,17 @@
+{
+  "name": "hadoop-explorer-monorepo",
+  "private": true,
+  "workspaces": [
+    "common",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:all": "npm run build --workspace=apps/hdfs && npm run build --workspace=apps/sql && npm run build --workspace=apps/yarn",
+    "build:hdfs": "npm run build --workspace=apps/hdfs",
+    "build:sql": "npm run build --workspace=apps/sql",
+    "build:yarn": "npm run build --workspace=apps/yarn",
+    "dev:hdfs": "npm run dev --workspace=apps/hdfs",
+    "dev:sql": "npm run dev --workspace=apps/sql",
+    "dev:yarn": "npm run dev --workspace=apps/yarn"
+  }
+}

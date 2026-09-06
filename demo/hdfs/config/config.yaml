@@ -1,0 +1,54 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  clusters_config_path: "/app/config/clusters.yaml"
+
+security:
+  secret_key: "demo-jwt-secret-key-for-hdfs-explorer-testing"
+  algorithm: "HS256"
+  access_token_expire_minutes: 480
+  cookie_name: "hdfs_explorer_session"
+  cookie_secure: false
+  cookie_samesite: "lax"
+
+auth:
+  mode: "hybrid"
+
+ldap:
+  enabled: true
+  server_uri: "ldap://ldap:389"
+  use_ssl: false
+  verify_cert: false
+  ca_cert_file: ""
+  bind_dn: "cn=admin,dc=example,dc=com"
+  bind_password: "admin"
+  user_search_base: "ou=users,dc=example,dc=com"
+  user_search_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+  username_attribute: "uid"
+  email_attribute: "mail"
+  display_name_attribute: "cn"
+  group_search_base: "ou=groups,dc=example,dc=com"
+  group_search_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+  group_attribute: "cn"
+  use_user_memberof: false
+  memberof_attribute: "memberOf"
+
+# Fallback мок-пользователи (не используются при включенном LDAP)
+mock_users: []
+
+kerberos_sso:
+  enabled: false
+  service_principal: "HTTP/hdfs-explorer@EXAMPLE.COM"
+  keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+
+acl:
+  allow_all_authenticated: false
+  allowed_groups:
+    - "domain users"
+    - "hadoop-admins"
+    - "data-engineers"
+    - "analytics"
+  allowed_users: []
+  admin_groups:
+    - "hadoop-admins"

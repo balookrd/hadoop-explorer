@@ -1,0 +1,17 @@
+# ==============================================================================
+# Hadoop Explorer Platform - Umbrella Chart Values
+# ==============================================================================
+
+global:
+  environment: "production"
+  ingressDomain: "hadoop.example.com"
+
+# Включение / отключение отдельных компонентов платформы:
+hdfs-explorer:
+  enabled: true
+
+sql-explorer:
+  enabled: true
+
+yarn-explorer:
+  enabled: true

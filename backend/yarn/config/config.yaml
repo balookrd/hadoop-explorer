@@ -1,0 +1,159 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  # Разрешенные origins для безопасного CORS
+  cors_origins:
+    - "http://localhost:8000"
+    - "http://127.0.0.1:8000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+auth:
+  # Режим аутентификации: mock (для локального тестирования/dev), ldaps_only, kerberos_only, hybrid
+  mode: "mock"
+  mock_users:
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Александр Админов"
+      email: "admin@company.local"
+      groups: ["hadoop-admins", "platform-team"]
+    - username: "writer_user"
+      password: "password123"
+      display_name: "Владимир Инженеров"
+      email: "writer@company.local"
+      groups: ["yarn-operators", "dev-leads"]
+    - username: "reader_user"
+      password: "password123"
+      display_name: "Екатерина Наблюдателева"
+      email: "reader@company.local"
+      groups: ["bi-analysts", "junior-devs"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldaps://ad.company.local:636"
+    use_ssl: true
+    bind_dn: "cn=svc_yarn_explorer,ou=services,dc=company,dc=local"
+    bind_password: "ServicePasswordHere"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+    user_display_name_attr: "displayName"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=group)(member={user_dn}))"
+    group_name_attr: "cn"
+    ca_cert_file: null
+    verify_cert: true
+    allow_insecure_ssl: false
+
+  kerberos:
+    enabled: true
+    keytab_file: "/etc/security/keytabs/yarn-explorer.keytab"
+    service_principal: "HTTP/yarn-explorer.company.local@COMPANY.LOCAL"
+
+  jwt:
+    secret_key: "yarn-explorer-super-secret-key-change-in-production-random-hash"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  # Глобальный доступ к UI
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+
+  # Глобальные роли по умолчанию
+  roles:
+    admin:
+      users: ["admin_user"]
+      groups: ["hadoop-admins", "platform-admins"]
+    writer:
+      users: ["writer_user"]
+      groups: ["yarn-operators", "data-engineers"]
+    reader:
+      users: ["reader_user", "*"]
+      groups: ["*"]
+
+clusters:
+  - id: "prod-yarn"
+    name: "Production Hadoop Cluster"
+    description: "Основной производственный YARN кластер (HDP/CDP, 120 узлов)"
+    resource_manager_urls:
+      - "http://rm1.prod.company.local:8088"
+      - "http://rm2.prod.company.local:8088"
+    kerberos_enabled: true
+    kerberos_principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
+    resource_mode: "percentage" # percentage | absolute
+    total_resources:
+      memory_mb: 2097152 # 2 TB
+      vcores: 1024
+    acl:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+      roles:
+        admin:
+          users: ["admin_user"]
+          groups: ["hadoop-admins"]
+        writer:
+          users: ["writer_user"]
+          groups: ["yarn-operators"]
+        reader:
+          users: ["*"]
+          groups: ["*"]
+
+  - id: "analytics-yarn"
+    name: "Analytics & ML Cluster"
+    description: "Кластер для Spark, Trino и GPU расчетов"
+    resource_manager_urls:
+      - "http://rm1.analytics.company.local:8088"
+    kerberos_enabled: false
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions: ["DEFAULT", "GPU"]
+    resource_mode: "percentage"
+    total_resources:
+      memory_mb: 1048576 # 1 TB
+      vcores: 512
+    acl:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+      roles:
+        admin:
+          users: ["admin_user"]
+          groups: ["hadoop-admins"]
+        writer:
+          users: ["writer_user"]
+          groups: ["yarn-operators", "dev-leads"]
+        reader:
+          users: ["*"]
+          groups: ["*"]
+
+  - id: "dev-yarn"
+    name: "Development Cluster"
+    description: "Песочница разработчиков (24 узла)"
+    resource_manager_urls:
+      - "http://rm.dev.company.local:8088"
+    kerberos_enabled: false
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions: ["DEFAULT"]
+    resource_mode: "absolute" # Тестирование очередей в абсолютных величинах (MB/Cores)
+    total_resources:
+      memory_mb: 262144 # 256 GB
+      vcores: 128
+    acl:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+      roles:
+        admin:
+          users: ["admin_user"]
+          groups: ["hadoop-admins"]
+        writer:
+          users: ["writer_user", "developer_lead"]
+          groups: ["yarn-operators", "developers"]
+        reader:
+          users: ["*"]
+          groups: ["*"]

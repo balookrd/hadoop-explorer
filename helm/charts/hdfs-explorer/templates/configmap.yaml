@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hdfs-explorer.fullname" . }}-config
+  labels:
+    {{- include "hdfs-explorer.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      host: {{ .Values.config.server.host | quote }}
+      port: {{ .Values.config.server.port }}
+      debug: {{ .Values.config.server.debug }}
+      clusters_config_path: "/etc/hdfs-explorer/clusters.yaml"
+
+    database:
+      url: {{ .Values.config.database.url | default "sqlite:////app/data/hdfs_tokens.db" | quote }}
+
+    security:
+      algorithm: {{ .Values.config.security.algorithm | quote }}
+      access_token_expire_minutes: {{ .Values.config.security.access_token_expire_minutes }}
+      cookie_name: {{ .Values.config.security.cookie_name | quote }}
+      cookie_secure: {{ .Values.config.security.cookie_secure }}
+      cookie_samesite: {{ .Values.config.security.cookie_samesite | quote }}
+
+    ldap:
+      enabled: {{ .Values.config.ldap.enabled }}
+      server_uri: {{ .Values.config.ldap.server_uri | quote }}
+      use_ssl: {{ .Values.config.ldap.use_ssl }}
+      verify_cert: {{ .Values.config.ldap.verify_cert }}
+      ca_cert_file: {{ .Values.config.ldap.ca_cert_file | quote }}
+      bind_dn: {{ .Values.config.ldap.bind_dn | quote }}
+      user_search_base: {{ .Values.config.ldap.user_search_base | quote }}
+      user_search_filter: {{ .Values.config.ldap.user_search_filter | quote }}
+      username_attribute: {{ .Values.config.ldap.username_attribute | quote }}
+      email_attribute: {{ .Values.config.ldap.email_attribute | quote }}
+      display_name_attribute: {{ .Values.config.ldap.display_name_attribute | quote }}
+      group_search_base: {{ .Values.config.ldap.group_search_base | quote }}
+      group_search_filter: {{ .Values.config.ldap.group_search_filter | quote }}
+      group_attribute: {{ .Values.config.ldap.group_attribute | quote }}
+      use_user_memberof: {{ .Values.config.ldap.use_user_memberof }}
+      memberof_attribute: {{ .Values.config.ldap.memberof_attribute | quote }}
+
+    kerberos_sso:
+      enabled: {{ .Values.config.kerberos_sso.enabled }}
+      service_principal: {{ .Values.config.kerberos_sso.service_principal | quote }}
+
+    acl:
+      allow_all_authenticated: {{ .Values.config.acl.allow_all_authenticated }}
+      allowed_groups:
+        {{- toYaml .Values.config.acl.allowed_groups | nindent 8 }}
+      allowed_users:
+        {{- toYaml .Values.config.acl.allowed_users | nindent 8 }}
+      admin_groups:
+        {{- toYaml .Values.config.acl.admin_groups | nindent 8 }}
+
+  clusters.yaml: |
+    clusters:
+      {{- toYaml .Values.clusters | nindent 6 }}
+
+  {{- if .Values.kerberos.enabled }}
+  krb5.conf: |
+    {{- .Values.kerberos.krb5Conf | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.customLdapCaCert }}
+  ldap-ca.crt: |
+    {{- .Values.customLdapCaCert | nindent 4 }}
+  {{- end }}

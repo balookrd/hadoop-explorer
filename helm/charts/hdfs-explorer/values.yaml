@@ -1,0 +1,226 @@
+# Количество реплик. Внимание: при использовании локальной SQLite БД поддерживается только 1 реплика (replicaCount: 1).
+# Для запуска 2 и более реплик настройте внешний PostgreSQL (config.database.url: postgresql://...).
+replicaCount: 1
+
+image:
+  repository: hdfs-explorer
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Ограничение на размер загружаемого файла через Web-UI для предотвращения DoS
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+    # Увеличенные таймауты для больших файлов
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+  hosts:
+    - host: hdfs-explorer.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: hdfs-explorer-tls
+      hosts:
+        - hdfs-explorer.example.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# Конфигурация приложения
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8000
+    debug: false
+  database:
+    # URL подключения к базе данных для хранения отозванных токенов и rate limits.
+    # SQLite по умолчанию: "sqlite:////app/data/hdfs_tokens.db"
+    # PostgreSQL: "postgresql://user:password@postgres-host:5432/hdfs_explorer"
+    url: "sqlite:////app/data/hdfs_tokens.db"
+  security:
+    algorithm: "HS256"
+    access_token_expire_minutes: 480
+    cookie_name: "hdfs_explorer_session"
+    cookie_secure: true
+    cookie_samesite: "lax"
+  ldap:
+    enabled: true
+    server_uri: "ldaps://ad.example.com:636"
+    use_ssl: true
+    verify_cert: true
+    ca_cert_file: "/etc/ssl/certs/ldap-ca.crt"
+    bind_dn: "cn=svc-hdfs-explorer,ou=Service Accounts,dc=example,dc=com"
+    user_search_base: "ou=Users,dc=example,dc=com"
+    user_search_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+    username_attribute: "sAMAccountName"
+    email_attribute: "mail"
+    display_name_attribute: "displayName"
+    group_search_base: "ou=Groups,dc=example,dc=com"
+    group_search_filter: "(&(objectClass=group)(member={user_dn}))"
+    group_attribute: "cn"
+    use_user_memberof: true
+    memberof_attribute: "memberOf"
+  kerberos_sso:
+    enabled: false
+    service_principal: "HTTP/hdfs-explorer.example.com@EXAMPLE.COM"
+  acl:
+    allow_all_authenticated: false
+    allowed_groups:
+      - "domain users"
+      - "hadoop-users"
+      - "data-engineers"
+      - "analytics"
+    allowed_users: []
+    admin_groups:
+      - "hadoop-admins"
+
+# Кластеры HDFS
+clusters:
+  - id: "prod-datalake"
+    name: "Production DataLake"
+    description: "Основной HDFS кластер (HA NameNodes)"
+    webhdfs_urls:
+      - "http://nn01.prod.example.com:9870/webhdfs/v1"
+      - "http://nn02.prod.example.com:9870/webhdfs/v1"
+    auth_type: "kerberos"
+    service_principal: "hdfs-explorer/hdfs-explorer.prod.example.com@EXAMPLE.COM"
+    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+    timeout_seconds: 30
+    preview_max_bytes: 1048576
+    default_path: "/user/{username}"
+    acl:
+      allowed_groups:
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"
+
+# Секретные значения (могут передаваться через helm --set или External Secrets)
+secrets:
+  jwtSecret: "replace-with-a-very-long-random-string-in-production"
+  ldapBindPassword: "YourLdapServiceAccountPassword"
+  # Пароль базы данных PostgreSQL (опционально)
+  databasePassword: ""
+  # Base64 строка keytab файла
+  kerberosKeytabBase64: ""
+
+# Настройка /etc/krb5.conf
+kerberos:
+  enabled: true
+  krb5Conf: |
+    [libdefaults]
+        default_realm = EXAMPLE.COM
+        dns_lookup_realm = false
+        dns_lookup_kdc = true
+        ticket_lifetime = 24h
+        renew_lifetime = 7d
+        forwardable = true
+
+    [realms]
+        EXAMPLE.COM = {
+            kdc = kdc.example.com:88
+            admin_server = kdc.example.com:749
+        }
+
+    [domain_realm]
+        .example.com = EXAMPLE.COM
+        example.com = EXAMPLE.COM
+
+# Дополнительный сертификат CA для проверки LDAPS
+customLdapCaCert: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Хранилище для персистентной базы данных токенов и rate limits (SQLite)
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+# NetworkPolicy для изоляции сетевого взаимодействия Pod
+networkPolicy:
+  enabled: false
+  ingress:
+    # По умолчанию разрешает трафик на порт 8000 от всех подов (или от Ingress контроллера)
+    # Если указаны элементы в from, они будут добавлены в спецификацию ingress.from
+    from: []
+  egress:
+    # Разрешить DNS (UDP и TCP 53)
+    allowDns: true
+    # Разрешить Kerberos KDC (UDP и TCP 88)
+    allowKerberos: true
+    # Разрешить LDAP / LDAPS (TCP 389, 636)
+    allowLdap: true
+    # Разрешить WebHDFS NameNode (9870, 50070) и DataNode (9864, 50075)
+    allowHdfs: true
+    # Дополнительные правила egress (например, для внешних proxy, мониторинга и др.)
+    customRules: []
+

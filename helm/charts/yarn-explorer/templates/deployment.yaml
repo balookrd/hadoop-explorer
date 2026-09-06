@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "yarn-explorer.fullname" . }}
+  labels:
+    {{- include "yarn-explorer.labels" . | nindent 4 }}
+spec:
+  {{- $dbUrl := .Values.config.database.url | default "" -}}
+  {{- if and (or (hasPrefix "sqlite" $dbUrl) (eq $dbUrl "")) (gt (.Values.replicaCount | int) 1) }}
+  replicas: 1
+  {{- else }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "yarn-explorer.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-app.yaml") . | sha256sum }}
+        {{- if .Values.kerberos.enabled }}
+        checksum/krb5: {{ include (print $.Template.BasePath "/configmap-krb5.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "yarn-explorer.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "yarn-explorer.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: CONFIG_PATH
+              value: "/app/config/config.yaml"
+            {{- if .Values.config.database.url }}
+            - name: DATABASE_URL
+              value: {{ .Values.config.database.url | quote }}
+            {{- else }}
+            - name: DB_PATH
+              value: "{{ .Values.persistence.mountPath }}/yarn_explorer.db"
+            {{- end }}
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "yarn-explorer.fullname" . }}-secrets
+                  key: jwt-secret
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "yarn-explorer.fullname" . }}-secrets
+                  key: ldap-password
+            {{- if .Values.secrets.databasePassword }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "yarn-explorer.fullname" . }}-secrets
+                  key: database-password
+            {{- end }}
+            {{- if .Values.kerberos.enabled }}
+            - name: KRB5_CONFIG
+              value: "/etc/krb5.conf"
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data-volume
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if .Values.kerberos.enabled }}
+            - name: krb5-volume
+              mountPath: /etc/krb5.conf
+              subPath: krb5.conf
+              readOnly: true
+            - name: keytab-volume
+              mountPath: {{ .Values.kerberos.keytab.mountPath }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "yarn-explorer.fullname" . }}-config
+        - name: data-volume
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "yarn-explorer.fullname" . }}-data{{ end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.kerberos.enabled }}
+        - name: krb5-volume
+          configMap:
+            name: {{ include "yarn-explorer.fullname" . }}-krb5
+        - name: keytab-volume
+          secret:
+            secretName: {{ if .Values.kerberos.keytab.existingSecret }}{{ .Values.kerberos.keytab.existingSecret }}{{ else }}{{ include "yarn-explorer.fullname" . }}-secrets{{ end }}
+            defaultMode: 0400
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

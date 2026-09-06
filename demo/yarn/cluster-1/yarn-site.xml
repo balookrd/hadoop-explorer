@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>yarn.resourcemanager.hostname</name>
+        <value>yarn-rm-1.yarn-demo-net</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.webapp.address</name>
+        <value>0.0.0.0:8088</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.principal</name>
+        <value>yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.keytab</name>
+        <value>/etc/security/keytabs/yarn-rm-1.keytab</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.webapp.spnego-principal</name>
+        <value>HTTP/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.webapp.spnego-keytab-file</name>
+        <value>/etc/security/keytabs/yarn-rm-1.keytab</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.scheduler.class</name>
+        <value>org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler</value>
+    </property>
+    <property>
+        <name>yarn.acl.enable</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>yarn.admin.acl</name>
+        <value>yarn,yarn-explorer,admin_user</value>
+    </property>
+</configuration>

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: hdfs-explorer
+description: Production Helm chart for Multi-Cluster HDFS Web Explorer with LDAPS and Kerberos doAs impersonation
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - hdfs
+  - hadoop
+  - file-manager
+  - svelte
+  - fastapi
+  - kerberos
+  - ldap
+maintainers:
+  - name: Platform Engineering Team

@@ -1,0 +1,47 @@
+clusters:
+  - id: "demo-cluster"
+    name: "Demo / Mock Cluster"
+    description: "Локальный демонстрационный кластер с тестовой структурой файлов"
+    webhdfs_urls:
+      - "http://localhost:9870/webhdfs/v1"
+    auth_type: "simple"
+    timeout_seconds: 10
+    preview_max_bytes: 1048576
+    default_path: "/user/{username}"
+    # Флаг mock_storage позволяет полноценно работать в dev-режиме без поднятого HDFS NameNode
+    mock_storage: true
+    acl:
+      allowed_groups:
+        - "domain users"
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"
+
+  - id: "prod-cluster"
+    name: "Production DataLake"
+    description: "Боевой HDFS кластер (WebHDFS + Kerberos + doAs)"
+    webhdfs_urls:
+      - "http://nn01.prod.example.com:9870/webhdfs/v1"
+      - "http://nn02.prod.example.com:9870/webhdfs/v1"
+    auth_type: "kerberos"
+    service_principal: "hdfs-explorer/hdfs-explorer.prod.example.com@EXAMPLE.COM"
+    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+    timeout_seconds: 30
+    preview_max_bytes: 1048576
+    default_path: "/user/{username}"
+    mock_storage: false
+    acl:
+      allowed_groups:
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"

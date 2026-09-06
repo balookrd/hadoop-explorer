@@ -1,0 +1,139 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  # Список разрешенных доменов для CORS (переопределяется через env CORS_ORIGINS)
+  cors_origins: ["http://localhost:8000", "http://localhost:5173"]
+  # Использовать secure флаг для Cookie сессий (рекомендуется true в production по HTTPS)
+  secure_cookies: false
+
+database:
+  # SQLite по умолчанию. Для PostgreSQL: "postgresql+asyncpg://user:pass@localhost:5432/sql_explorer"
+  url: "sqlite+aiosqlite:///./data/sql_explorer.db"
+
+auth:
+  # Режим аутентификации: hybrid (Kerberos SPNEGO + LDAPS), ldaps_only, kerberos_only, mock
+  # mock удобен для локальной разработки и тестирования интерфейса без AD/KDC
+  mode: "mock"
+  mock_users:
+    - username: "analyst_user"
+      password: "password123"
+      display_name: "Анна Аналитикова"
+      email: "analyst@company.local"
+      groups: ["bi-analysts", "reporting"]
+    - username: "de_user"
+      password: "password123"
+      display_name: "Иван Датаинженеров"
+      email: "de@company.local"
+      groups: ["data-engineers", "bi-analysts"]
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Администратор Системы"
+      email: "admin@company.local"
+      groups: ["data-platform-admins", "data-engineers"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldaps://ad.company.local:636"
+    use_ssl: true
+    bind_dn: "cn=svc_sql_explorer,ou=services,dc=company,dc=local"
+    bind_password: "ServicePasswordHere"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+    user_display_name_attr: "displayName"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=group)(member={user_dn}))"
+    group_name_attr: "cn"
+    ca_cert_file: null
+    # Разрешать ли отключение проверки сертификата (только для тестовых стендов, в prod: false)
+    allow_insecure_ssl: false
+
+  kerberos:
+    enabled: true
+    keytab_file: "/etc/security/keytabs/sql-explorer.keytab"
+    service_principal: "HTTP/sql-explorer.company.local@COMPANY.LOCAL"
+
+  jwt:
+    secret_key: "change-this-to-a-very-secret-random-key-in-production"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  # Глобальный доступ к Web-UI
+  ui_access:
+    # "*" разрешает всем успешно аутентифицированным пользователям
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+    admin_groups: ["data-platform-admins"]
+
+clusters:
+  - id: "trino-analytics"
+    name: "Trino Analytics (Prod)"
+    type: "trino"
+    host: "trino-coord.internal"
+    port: 8443
+    use_ssl: true
+    catalog: "hive"
+    schema: "default"
+    auth:
+      type: "basic"  # basic, kerberos, none
+      user: "svc_sql_explorer"
+      password: "trino-secret-password"
+    impersonation:
+      enabled: true
+      method: "x-trino-user" # Заголовок X-Trino-User для проброса реального пользователя
+    acl:
+      allowed_groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+  - id: "hive-hortonworks"
+    name: "Hive HDP Cluster"
+    type: "hive"
+    host: "hdp-hs2.internal"
+    port: 10000
+    auth:
+      type: "kerberos" # kerberos, ldap, plain, nosasl
+      kerberos_service_name: "hive"
+    impersonation:
+      enabled: true
+      method: "doAs" # hive.server2.proxy.user
+    acl:
+      allowed_groups: ["data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+  - id: "hive-apache"
+    name: "Apache HiveServer2 (Core)"
+    type: "hive"
+    host: "apache-hive.internal"
+    port: 10000
+    auth:
+      type: "plain"
+      user: "hive"
+      password: ""
+    impersonation:
+      enabled: true
+      method: "doAs"
+    acl:
+      allowed_groups: ["*"]
+      allowed_users: []
+
+query_defaults:
+  max_rows_in_ui: 10000
+  default_limit: 1000
+  auto_add_limit: true
+  query_timeout_seconds: 600
+
+ai:
+  enabled: true
+  # Провайдер: openai_compatible (Ollama / vLLM / LiteLLM / LocalAI) или mock (для тестов и автономного режима)
+  provider: "openai_compatible"
+  # URL локального инференс-сервера (например, Ollama: http://localhost:11434/v1 или vLLM: http://localhost:8000/v1)
+  base_url: "http://localhost:11434/v1"
+  api_key: "ollama"
+  # Рекомендуемые On-premise модели: qwen2.5-coder:7b, deepseek-coder:6.7b, codellama:7b
+  model: "qwen2.5-coder:7b"
+  timeout_seconds: 30
+  temperature: 0.1
+  max_tokens: 2048
+

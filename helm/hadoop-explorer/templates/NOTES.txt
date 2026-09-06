@@ -1,0 +1,19 @@
+=============================================================================
+ Hadoop Explorer Platform успешно развернута!
+=============================================================================
+
+Компоненты:
+{{- if (index .Values "hdfs-explorer" "enabled") }}
+  - HDFS Explorer: активен
+{{- end }}
+{{- if (index .Values "sql-explorer" "enabled") }}
+  - SQL Explorer:  активен
+{{- end }}
+{{- if (index .Values "yarn-explorer" "enabled") }}
+  - YARN Explorer: активен
+{{- end }}
+
+Для проверки статуса подов:
+  kubectl get pods -l "app.kubernetes.io/part-of=hadoop-explorer" -n {{ .Release.Namespace }}
+
+=============================================================================

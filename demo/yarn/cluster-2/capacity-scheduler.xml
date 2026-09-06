@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>yarn.scheduler.capacity.maximum-applications</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+        <value>0.2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.resource-calculator</name>
+        <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.queues</name>
+        <value>batch,interactive,streaming</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.capacity</name>
+        <value>100</value>
+    </property>
+
+    <!-- batch queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.capacity</name>
+        <value>50</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.maximum-capacity</name>
+        <value>80</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+
+    <!-- interactive queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.capacity</name>
+        <value>30</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.maximum-capacity</name>
+        <value>60</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+
+    <!-- streaming queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.capacity</name>
+        <value>20</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.maximum-capacity</name>
+        <value>50</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+</configuration>

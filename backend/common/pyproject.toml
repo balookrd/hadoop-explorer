@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hadoop-explorer-common"
+version = "1.0.0"
+description = "Common security, models and utilities for Hadoop Explorer"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.8.0",
+    "pyjwt>=2.9.0",
+    "cryptography>=43.0.0",
+    "sqlalchemy>=2.0.32",
+    "ldap3>=2.9.1"
+]

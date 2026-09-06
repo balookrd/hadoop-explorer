@@ -1,0 +1,33 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+pyyaml>=6.0.2
+
+# Database (поддержка SQLite, PostgreSQL и Redis)
+sqlalchemy>=2.0.32
+psycopg2-binary>=2.9.9
+redis>=5.0.0
+fakeredis>=2.20.0
+
+# Security & Auth
+defusedxml>=0.7.1
+pyjwt>=2.9.0
+cryptography>=43.0.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+ldap3>=2.9.1
+pyspnego>=0.11.1
+requests_kerberos>=0.14.0
+krb5>=0.6.0
+gssapi>=1.8.3; sys_platform != 'win32'
+kerberos>=1.3.0
+
+# HTTP & YARN API
+requests>=2.31.0
+httpx>=0.27.0
+python-dateutil>=2.9.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

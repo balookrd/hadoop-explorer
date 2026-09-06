@@ -1,0 +1,9 @@
+{
+  "impersonation": [
+    {
+      "original_user": ".*",
+      "new_user": ".*",
+      "allow": true
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>yarn.scheduler.capacity.maximum-applications</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+        <value>0.2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.resource-calculator</name>
+        <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.queues</name>
+        <value>production,analytics,default</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.capacity</name>
+        <value>100</value>
+    </property>
+
+    <!-- production queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.production.capacity</name>
+        <value>60</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.production.maximum-capacity</name>
+        <value>90</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.production.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.production.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.production.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+
+    <!-- analytics queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.analytics.capacity</name>
+        <value>30</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.analytics.maximum-capacity</name>
+        <value>60</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.analytics.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.analytics.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.analytics.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+
+    <!-- default queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.default.capacity</name>
+        <value>10</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.maximum-capacity</name>
+        <value>20</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+</configuration>

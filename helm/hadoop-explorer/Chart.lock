@@ -1,0 +1,12 @@
+dependencies:
+- name: hdfs-explorer
+  repository: file://../charts/hdfs-explorer
+  version: 0.1.0
+- name: sql-explorer
+  repository: file://../charts/sql-explorer
+  version: 0.1.0
+- name: yarn-explorer
+  repository: file://../charts/yarn-explorer
+  version: 0.1.0
+digest: sha256:ae189a58e1c5f62cade9d47f78d8fabfd5345a9a7aea35be2c0a8b8899b446e3
+generated: "2026-09-06T21:17:42.317238+03:00"

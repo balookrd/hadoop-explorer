@@ -1,0 +1,93 @@
+dn: ou=users,dc=example,dc=com
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=example,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+# Пользователь: admin
+dn: uid=admin,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: admin
+cn: System Administrator
+sn: Administrator
+mail: admin@example.com
+userPassword: password123
+
+# Пользователь: engineer
+dn: uid=engineer,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: engineer
+cn: Data Engineer
+sn: Engineer
+mail: engineer@example.com
+userPassword: password123
+
+# Пользователь: analyst
+dn: uid=analyst,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: analyst
+cn: Data Analyst
+sn: Analyst
+mail: analyst@example.com
+userPassword: password123
+
+# Пользователь: hdfs
+dn: uid=hdfs,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: hdfs
+cn: Hadoop Superuser
+sn: Superuser
+mail: hdfs@example.com
+userPassword: password123
+
+# Группа hadoop-admins
+dn: cn=hadoop-admins,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: hadoop-admins
+description: Hadoop Super Administrators
+member: uid=admin,ou=users,dc=example,dc=com
+member: uid=hdfs,ou=users,dc=example,dc=com
+
+# Группа data-engineers
+dn: cn=data-engineers,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: data-engineers
+description: Data Engineering Team
+member: uid=admin,ou=users,dc=example,dc=com
+member: uid=engineer,ou=users,dc=example,dc=com
+
+# Группа analytics
+dn: cn=analytics,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: analytics
+description: Analytics and BI Users
+member: uid=admin,ou=users,dc=example,dc=com
+member: uid=analyst,ou=users,dc=example,dc=com
+
+# Группа domain users
+dn: cn=domain users,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: domain users
+description: All domain users
+member: uid=admin,ou=users,dc=example,dc=com
+member: uid=engineer,ou=users,dc=example,dc=com
+member: uid=analyst,ou=users,dc=example,dc=com
+member: uid=hdfs,ou=users,dc=example,dc=com

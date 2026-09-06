@@ -1,0 +1,96 @@
+name: hdfs-explorer-demo
+
+services:
+  kdc:
+    build:
+      context: ./kdc
+    container_name: hdfs-demo-kdc
+    hostname: kdc
+    restart: unless-stopped
+    volumes:
+      - hdfs-demo-krb5-keytabs:/shared/keytabs
+      - hdfs-demo-krb5-conf:/shared/conf
+    networks:
+      - hdfs-demo-net
+
+  ldap:
+    build:
+      context: ./ldap
+    container_name: hdfs-demo-ldap
+    hostname: ldap
+    restart: unless-stopped
+    networks:
+      - hdfs-demo-net
+
+  hdfs-cluster-1:
+    build:
+      context: ./hadoop
+    container_name: hdfs-demo-cluster-1
+    hostname: hdfs-cluster-1
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: "hdfs-cluster-1"
+      CLUSTER_NAME: "Production DataLake"
+    volumes:
+      - hdfs-demo-krb5-keytabs:/shared/keytabs:ro
+      - hdfs-demo-krb5-conf:/shared/conf:ro
+    ports:
+      - "9870:9870"
+      - "9864:9864"
+    depends_on:
+      - kdc
+    networks:
+      - hdfs-demo-net
+
+  hdfs-cluster-2:
+    build:
+      context: ./hadoop
+    container_name: hdfs-demo-cluster-2
+    hostname: hdfs-cluster-2
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: "hdfs-cluster-2"
+      CLUSTER_NAME: "Archive & Analytics DataLake"
+    volumes:
+      - hdfs-demo-krb5-keytabs:/shared/keytabs:ro
+      - hdfs-demo-krb5-conf:/shared/conf:ro
+    ports:
+      - "9872:9870"
+      - "9865:9864"
+    depends_on:
+      - kdc
+    networks:
+      - hdfs-demo-net
+
+  hdfs-explorer:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.hdfs
+    container_name: hdfs-demo-explorer
+    hostname: hdfs-explorer
+    restart: unless-stopped
+    environment:
+      HDFS_CONFIG_PATH: "/app/config/config.yaml"
+      HDFS_CLUSTERS_PATH: "/app/config/clusters.yaml"
+      KRB5_CONFIG: "/etc/krb5_shared/krb5.conf"
+    volumes:
+      - ./config:/app/config:ro
+      - hdfs-demo-krb5-keytabs:/etc/security/keytabs:ro
+      - hdfs-demo-krb5-conf:/etc/krb5_shared:ro
+    ports:
+      - "8001:8000"
+    depends_on:
+      - kdc
+      - ldap
+      - hdfs-cluster-1
+      - hdfs-cluster-2
+    networks:
+      - hdfs-demo-net
+
+volumes:
+  hdfs-demo-krb5-keytabs:
+  hdfs-demo-krb5-conf:
+
+networks:
+  hdfs-demo-net:
+    driver: bridge

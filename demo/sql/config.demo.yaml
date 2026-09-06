@@ -1,0 +1,133 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+
+database:
+  url: "sqlite+aiosqlite:///./data/sql_explorer.db"
+
+auth:
+  mode: "hybrid" # Поддержка Kerberos SPNEGO и формы входа через LDAP / Mock
+  mock_users:
+    - username: "analyst_user"
+      password: "password123"
+      display_name: "Анна Аналитикова"
+      email: "analyst@company.local"
+      groups: ["bi-analysts"]
+    - username: "de_user"
+      password: "password123"
+      display_name: "Иван Датаинженеров"
+      email: "de@company.local"
+      groups: ["data-engineers", "bi-analysts"]
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Администратор Системы"
+      email: "admin@company.local"
+      groups: ["data-platform-admins", "data-engineers"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldap://openldap:389"
+    use_ssl: false
+    bind_dn: "cn=svc_sql_explorer,ou=services,dc=company,dc=local"
+    bind_password: "ServicePasswordHere"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(|(uid={username})(cn={username}))"
+    user_display_name_attr: "displayName"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    group_name_attr: "cn"
+    ca_cert_file: null
+
+  kerberos:
+    enabled: true
+    keytab_file: "/etc/security/keytabs/sql-explorer.keytab"
+    service_principal: "HTTP/sql-explorer@COMPANY.LOCAL"
+
+  jwt:
+    secret_key: "demo-jwt-secret-key-change-in-production-only"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+    admin_groups: ["data-platform-admins"]
+
+clusters:
+  - id: "trino-kerberized"
+    name: "Trino Cluster (Kerberos + X-Trino-User)"
+    type: "trino"
+    host: "trino-coordinator"
+    port: 8443
+    use_ssl: true
+    catalog: "tpch"
+    schema: "sf1"
+    auth:
+      type: "kerberos"
+      service_name: "trino"
+      verify_ssl: false
+    impersonation:
+      enabled: true
+      method: "x-trino-user"
+    acl:
+      allowed_groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+  - id: "hive-kerberized-de"
+    name: "Hive Server (DE Only - Kerberos + doAs)"
+    type: "hive"
+    host: "hive-server"
+    port: 10000
+    use_ssl: false
+    schema: "default"
+    auth:
+      type: "kerberos"
+      kerberos_service_name: "hive"
+      user: "svc_sql_explorer"
+    impersonation:
+      enabled: true
+      method: "doAs"
+    acl:
+      # Доступен только дата-инженерам и администраторам!
+      allowed_groups: ["data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+  - id: "hive-demo-analytics"
+    name: "Hive Server (Demo DB - All Roles)"
+    type: "hive"
+    host: "hive-server"
+    port: 10000
+    use_ssl: false
+    schema: "demo_db"
+    auth:
+      type: "kerberos"
+      kerberos_service_name: "hive"
+      user: "svc_sql_explorer"
+    impersonation:
+      enabled: true
+      method: "doAs"
+    acl:
+      allowed_groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+query_defaults:
+  max_rows_in_ui: 10000
+  default_limit: 1000
+  auto_add_limit: true
+  query_timeout_seconds: 600
+
+ai:
+  enabled: true
+  # Провайдер: openai_compatible (Ollama / vLLM / LiteLLM / LocalAI) или mock (для тестов и автономного режима)
+  provider: "openai_compatible"
+  # URL локального инференс-сервера (например, Ollama: http://localhost:11434/v1)
+  base_url: "http://host.docker.internal:11434/v1"
+  api_key: "ollama"
+  model: "qwen2.5-coder:7b"
+  timeout_seconds: 30
+  temperature: 0.1
+  max_tokens: 2048
+

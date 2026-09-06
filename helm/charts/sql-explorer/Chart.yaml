@@ -1,0 +1,17 @@
+apiVersion: v2
+name: sql-explorer
+description: Production Helm chart for SQL Web Explorer (Trino & Hive) with LDAPS, Kerberos and impersonation
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - sql
+  - trino
+  - hive
+  - kerberos
+  - ldap
+  - analytics
+  - svelte
+  - fastapi
+maintainers:
+  - name: Platform Engineering Team

@@ -1,0 +1,48 @@
+clusters:
+  - id: "prod-cluster"
+    name: "Production DataLake"
+    description: "Боевой HDFS кластер №1 (WebHDFS + Kerberos + doAs)"
+    webhdfs_urls:
+      - "http://hdfs-cluster-1:9870/webhdfs/v1"
+    auth_type: "kerberos"
+    service_principal: "hdfs-explorer/hdfs-explorer@EXAMPLE.COM"
+    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+    timeout_seconds: 30
+    preview_max_bytes: 1048576
+    default_path: "/"
+    mock_storage: false
+    acl:
+      allowed_groups:
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+        - "domain users"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"
+
+  - id: "archive-cluster"
+    name: "Archive & Analytics DataLake"
+    description: "HDFS кластер №2 архивных данных и аналитики (WebHDFS + Kerberos + doAs)"
+    webhdfs_urls:
+      - "http://hdfs-cluster-2:9870/webhdfs/v1"
+    auth_type: "kerberos"
+    service_principal: "hdfs-explorer/hdfs-explorer@EXAMPLE.COM"
+    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+    timeout_seconds: 30
+    preview_max_bytes: 1048576
+    default_path: "/"
+    mock_storage: false
+    acl:
+      allowed_groups:
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+        - "domain users"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"

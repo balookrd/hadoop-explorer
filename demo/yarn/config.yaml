@@ -1,0 +1,130 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  # Разрешенные origins для безопасного CORS
+  cors_origins:
+    - "http://localhost:8000"
+    - "http://127.0.0.1:8000"
+    - "http://localhost:8003"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+auth:
+  mode: "hybrid"
+  mock_users:
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Александр Админов"
+      email: "admin@company.local"
+      groups: ["hadoop-admins", "platform-team"]
+    - username: "writer_user"
+      password: "password123"
+      display_name: "Владимир Инженеров"
+      email: "writer@company.local"
+      groups: ["yarn-operators", "dev-leads"]
+    - username: "reader_user"
+      password: "password123"
+      display_name: "Екатерина Наблюдателева"
+      email: "reader@company.local"
+      groups: ["bi-analysts", "junior-devs"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldap://ldap:389"
+    use_ssl: false
+    bind_dn: "cn=svc_yarn_explorer,ou=services,dc=company,dc=local"
+    bind_password: "ServicePasswordHere"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
+    user_display_name_attr: "displayName"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    group_name_attr: "cn"
+    ca_cert_file: null
+
+  kerberos:
+    enabled: true
+    keytab_file: "/etc/security/keytabs/yarn-explorer.keytab"
+    service_principal: "yarn-explorer@COMPANY.LOCAL"
+
+  jwt:
+    secret_key: "yarn-explorer-demo-stand-super-secret-key-2026"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+
+  roles:
+    admin:
+      users: ["admin_user"]
+      groups: ["hadoop-admins", "platform-admins"]
+    writer:
+      users: ["writer_user"]
+      groups: ["yarn-operators", "data-engineers"]
+    reader:
+      users: ["reader_user", "*"]
+      groups: ["*"]
+
+clusters:
+  - id: "prod-yarn"
+    name: "Production Hadoop Cluster"
+    description: "Основной производственный YARN кластер (Kerberos secured)"
+    resource_manager_urls:
+      - "http://yarn-rm-1.yarn-demo-net:8088"
+    kerberos_enabled: true
+    kerberos_principal: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions: ["DEFAULT"]
+    resource_mode: "percentage"
+    capacity_scheduler_xml_path: "demo/cluster-1/capacity-scheduler.xml"
+    total_resources:
+      memory_mb: 2097152
+      vcores: 1024
+    acl:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+      roles:
+        admin:
+          users: ["admin_user"]
+          groups: ["hadoop-admins"]
+        writer:
+          users: ["writer_user"]
+          groups: ["yarn-operators"]
+        reader:
+          users: ["*"]
+          groups: ["*"]
+
+  - id: "analytics-yarn"
+    name: "Analytics & ML Cluster"
+    description: "Кластер для Spark, ML и GPU расчетов (Kerberos secured)"
+    resource_manager_urls:
+      - "http://yarn-rm-2.yarn-demo-net:8088"
+    kerberos_enabled: true
+    kerberos_principal: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions: ["DEFAULT"]
+    resource_mode: "percentage"
+    capacity_scheduler_xml_path: "demo/cluster-2/capacity-scheduler.xml"
+    total_resources:
+      memory_mb: 1048576
+      vcores: 512
+    acl:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+      roles:
+        admin:
+          users: ["admin_user"]
+          groups: ["hadoop-admins"]
+        writer:
+          users: ["writer_user"]
+          groups: ["yarn-operators"]
+        reader:
+          users: ["*"]
+          groups: ["*"]

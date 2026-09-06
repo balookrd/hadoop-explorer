@@ -1,0 +1,102 @@
+dn: dc=company,dc=local
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Company Local
+dc: company
+
+dn: cn=admin,dc=company,dc=local
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: admin
+description: LDAP Administrator
+userPassword: adminpassword
+
+dn: ou=users,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=services,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: services
+
+# Сервисный пользователь для sql-explorer
+dn: cn=svc_sql_explorer,ou=services,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+cn: svc_sql_explorer
+sn: Service
+userPassword: ServicePasswordHere
+
+# Пользователь analyst_user
+dn: uid=analyst_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: analyst_user
+cn: analyst_user
+sn: Аналитикова
+displayName: Анна Аналитикова
+mail: analyst@company.local
+userPassword: password123
+
+# Пользователь de_user
+dn: uid=de_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: de_user
+cn: de_user
+sn: Датаинженеров
+displayName: Иван Датаинженеров
+mail: de@company.local
+userPassword: password123
+
+# Пользователь admin_user
+dn: uid=admin_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: admin_user
+cn: admin_user
+sn: Системы
+displayName: Администратор Системы
+mail: admin@company.local
+userPassword: password123
+
+# Группа bi-analysts (включает analyst_user и de_user)
+dn: cn=bi-analysts,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: bi-analysts
+description: BI Analysts Team
+member: uid=analyst_user,ou=users,dc=company,dc=local
+member: uid=de_user,ou=users,dc=company,dc=local
+
+# Группа data-engineers (включает de_user)
+dn: cn=data-engineers,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: data-engineers
+description: Data Engineers Team
+member: uid=de_user,ou=users,dc=company,dc=local
+
+# Группа data-platform-admins (включает admin_user)
+dn: cn=data-platform-admins,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: data-platform-admins
+description: Data Platform Administrators
+member: uid=admin_user,ou=users,dc=company,dc=local

@@ -1,0 +1,14 @@
+.git
+.idea
+.vscode
+**/.pytest_cache
+**/venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.coverage
+htmlcov/
+*.local.yaml
+*.local.yml

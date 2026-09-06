@@ -1,0 +1,118 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  clusters_config_path: "config/clusters.yaml"
+
+security:
+  secret_key: "dev-secret-key-for-local-testing-replace-in-prod"
+  algorithm: "HS256"
+  access_token_expire_minutes: 480
+  cookie_name: "hdfs_explorer_session"
+  cookie_secure: false
+  cookie_samesite: "lax"
+
+auth:
+  # Режим аутентификации: mock (для локального dev), ldaps_only, kerberos_only, hybrid
+  mode: "mock"
+
+ldap:
+  enabled: false  # Для локального запуска по умолчанию выключен, используется mock-провайдер пользователей
+  server_uri: "ldaps://localhost:636"
+  use_ssl: true
+  verify_cert: true
+  ca_cert_file: ""
+  bind_dn: "cn=admin,dc=example,dc=com"
+  bind_password: "admin"
+  user_search_base: "ou=users,dc=example,dc=com"
+  user_search_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+  username_attribute: "uid"
+  email_attribute: "mail"
+  display_name_attribute: "cn"
+  group_search_base: "ou=groups,dc=example,dc=com"
+  group_search_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+  group_attribute: "cn"
+  use_user_memberof: false
+  memberof_attribute: "memberOf"
+
+# Мок-пользователи для локальной разработки и тестирования (активны, если ldap.enabled: false)
+mock_users:
+  - username: "admin"
+    password: "password123"
+    display_name: "System Administrator"
+    email: "admin@example.com"
+    groups: ["hadoop-admins", "data-engineers", "domain users"]
+  - username: "engineer"
+    password: "password123"
+    display_name: "Data Engineer"
+    email: "engineer@example.com"
+    groups: ["data-engineers", "domain users"]
+  - username: "analyst"
+    password: "password123"
+    display_name: "Data Analyst"
+    email: "analyst@example.com"
+    groups: ["analytics", "domain users"]
+
+kerberos_sso:
+  enabled: false
+  service_principal: "HTTP/localhost@EXAMPLE.COM"
+  keytab_path: ""
+
+acl:
+  allow_all_authenticated: false
+  allowed_groups:
+    - "domain users"
+    - "hadoop-admins"
+    - "data-engineers"
+    - "analytics"
+  allowed_users: []
+  admin_groups:
+    - "hadoop-admins"
+
+clusters:
+  - id: "demo-cluster"
+    name: "Demo / Mock Cluster"
+    description: "Локальный демонстрационный кластер с тестовой структурой файлов"
+    webhdfs_urls:
+      - "http://localhost:9870/webhdfs/v1"
+    auth_type: "simple"
+    timeout_seconds: 10
+    preview_max_bytes: 1048576
+    default_path: "/user/{username}"
+    mock_storage: true
+    acl:
+      allowed_groups:
+        - "domain users"
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"
+
+  - id: "prod-cluster"
+    name: "Production DataLake"
+    description: "Боевой HDFS кластер (WebHDFS + Kerberos + doAs)"
+    webhdfs_urls:
+      - "http://nn01.prod.example.com:9870/webhdfs/v1"
+      - "http://nn02.prod.example.com:9870/webhdfs/v1"
+    auth_type: "kerberos"
+    service_principal: "hdfs-explorer/hdfs-explorer.prod.example.com@EXAMPLE.COM"
+    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
+    timeout_seconds: 30
+    preview_max_bytes: 1048576
+    default_path: "/user/{username}"
+    mock_storage: false
+    acl:
+      allowed_groups:
+        - "data-engineers"
+        - "analytics"
+        - "hadoop-admins"
+      allowed_users: []
+      read_only_groups:
+        - "analytics"
+      admin_groups:
+        - "hadoop-admins"
+

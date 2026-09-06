@@ -1,0 +1,279 @@
+# Количество реплик. Внимание: при использовании локальной SQLite БД поддерживается только 1 реплика (replicaCount: 1).
+# Для запуска 2 и более реплик настройте внешний PostgreSQL (config.database.url: postgresql://...).
+replicaCount: 1
+
+image:
+  repository: balookrd/yarn-explorer
+  pullPolicy: IfNotPresent
+  # Переопределение тега образа (по умолчанию используется appVersion из Chart.yaml)
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Создавать ли ServiceAccount
+  create: true
+  # Аннотации к ServiceAccount
+  annotations: {}
+  # Имя ServiceAccount (если не задано, формируется автоматически)
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 10001
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Дополнительные переменные окружения (для передачи JWT_SECRET_KEY, LDAP_BIND_PASSWORD из K8s Secrets)
+extraEnv: []
+# - name: JWT_SECRET_KEY
+#   valueFrom:
+#     secretKeyRef:
+#       name: yarn-explorer-secret
+#       key: jwt-secret-key
+# - name: LDAP_BIND_PASSWORD
+#   valueFrom:
+#     secretKeyRef:
+#       name: yarn-explorer-secret
+#       key: ldap-bind-password
+
+envFrom: []
+# - secretRef:
+#     name: yarn-explorer-secret
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: yarn-explorer.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: yarn-explorer-tls
+  #    hosts:
+  #      - yarn-explorer.local
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# Персистентное хранилище для SQLite базы данных заявок Change Requests (/app/data/yarn_explorer.db)
+persistence:
+  enabled: true
+  mountPath: /app/data
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  storageClass: ""
+  # Использовать существующий PVC вместо создания нового
+  existingClaim: ""
+
+# Настройки Kerberos SPNEGO аутентификации для обращений к YARN RM
+kerberos:
+  enabled: false
+  # Конфигурация krb5.conf (монтируется в /etc/krb5.conf)
+  krb5Config: |
+    [libdefaults]
+        default_realm = COMPANY.LOCAL
+        dns_lookup_realm = false
+        dns_lookup_kdc = false
+        ticket_lifetime = 24h
+        renew_lifetime = 7d
+        forwardable = true
+        default_tkt_enctypes = aes256-cts aes128-cts
+        default_tgs_enctypes = aes256-cts aes128-cts
+
+    [realms]
+        COMPANY.LOCAL = {
+            kdc = kdc.company.local:88
+            admin_server = kdc.company.local:749
+        }
+
+    [domain_realm]
+        .company.local = COMPANY.LOCAL
+        company.local = COMPANY.LOCAL
+
+  # Keytab файл
+  keytab:
+    # Имя существующего k8s Secret, содержащего keytab (ключ секрета должен совпадать с fileName)
+    existingSecret: ""
+    # Или base64-строка keytab файла (создаст k8s Secret автоматически)
+    keytabBase64: ""
+    mountPath: /etc/security/keytabs
+    fileName: yarn-explorer.keytab
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Конфигурация приложения YARN Queue Explorer (монтируется в /app/config/config.yaml)
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8000
+    debug: false
+    cors_origins:
+      - "http://localhost:8000"
+      - "http://127.0.0.1:8000"
+      - "http://localhost:5173"
+      - "http://127.0.0.1:5173"
+
+  database:
+    # URL подключения к базе данных (SQLite / PostgreSQL)
+    # SQLite по умолчанию: "sqlite:///app/data/yarn_explorer.db"
+    # PostgreSQL: "postgresql://user:password@postgres-host:5432/yarn_explorer"
+    url: "sqlite:///app/data/yarn_explorer.db"
+
+  auth:
+    # Режимы: mock (для тестов), ldaps_only, kerberos_only, hybrid
+    mode: "mock"
+
+    mock_users:
+      - username: "admin_user"
+        password: "password123"
+        display_name: "Александр Админов"
+        email: "admin@company.local"
+        groups: ["hadoop-admins", "platform-team"]
+      - username: "writer_user"
+        password: "password123"
+        display_name: "Владимир Инженеров"
+        email: "writer@company.local"
+        groups: ["yarn-operators", "dev-leads"]
+      - username: "reader_user"
+        password: "password123"
+        display_name: "Екатерина Наблюдателева"
+        email: "reader@company.local"
+        groups: ["bi-analysts", "junior-devs"]
+
+    ldap:
+      enabled: false
+      server_uri: "ldaps://ad.company.local:636"
+      use_ssl: true
+      verify_cert: true
+      allow_insecure_ssl: false
+      bind_dn: "cn=svc_yarn_explorer,ou=services,dc=company,dc=local"
+      bind_password: ""
+      user_base_dn: "ou=users,dc=company,dc=local"
+      user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+      user_display_name_attr: "displayName"
+      user_email_attr: "mail"
+      group_base_dn: "ou=groups,dc=company,dc=local"
+      group_filter: "(&(objectClass=group)(member={user_dn}))"
+      group_name_attr: "cn"
+      ca_cert_file: null
+
+    kerberos:
+      enabled: false
+      keytab_file: "/etc/security/keytabs/yarn-explorer.keytab"
+      service_principal: "HTTP/yarn-explorer.company.local@COMPANY.LOCAL"
+
+    jwt:
+      secret_key: ""
+      algorithm: "HS256"
+      expire_minutes: 480
+
+  acl:
+    ui_access:
+      allowed_users: ["*"]
+      allowed_groups: ["*"]
+    roles:
+      admin:
+        users: ["admin_user"]
+        groups: ["hadoop-admins"]
+      writer:
+        users: ["writer_user"]
+        groups: ["yarn-operators", "dev-leads"]
+      reader:
+        users: ["reader_user", "*"]
+        groups: ["*"]
+
+  clusters:
+    - id: "prod-yarn"
+      name: "Production Hadoop Cluster"
+      description: "Основной производственный YARN кластер"
+      resource_manager_urls:
+        - "http://yarn-rm-1.company.local:8088"
+        - "http://yarn-rm-2.company.local:8088"
+      kerberos_enabled: false
+      kerberos_principal: "yarn/yarn-rm-1.company.local@COMPANY.LOCAL"
+      impersonation_enabled: true
+      default_partition: "DEFAULT"
+      partitions: ["DEFAULT"]
+      resource_mode: "percentage"
+      queue_mappings: "u:%user:%user,g:hadoop-admins:root.production"
+      queue_mappings_override: false
+      total_resources:
+        memory_mb: 2097152
+        vcores: 1024
+      acl:
+        allowed_users: ["*"]
+        allowed_groups: ["*"]
+        roles:
+          admin:
+            users: ["admin_user"]
+            groups: ["hadoop-admins"]
+          writer:
+            users: ["writer_user"]
+            groups: ["yarn-operators"]
+          reader:
+            users: ["*"]
+            groups: ["*"]
+
+# Настройка сетевых политик Kubernetes NetworkPolicy
+networkPolicy:
+  enabled: false
+  ingress:
+    from: []
+  egress:
+    allowDns: true
+    allowKerberos: true
+    allowLdap: true
+    allowYarn: true
+
+# Чувствительные секреты приложения (монтируются через k8s Secret)
+secrets:
+  jwtSecret: "yarn-explorer-super-secret-key-change-in-production-random-hash"
+  ldapBindPassword: "ChangeMeServicePassword"
+  # Пароль базы данных PostgreSQL (опционально)
+  databasePassword: ""

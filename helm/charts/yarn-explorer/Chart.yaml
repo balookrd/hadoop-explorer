@@ -1,0 +1,19 @@
+apiVersion: v2
+name: yarn-explorer
+description: Production-ready Helm chart for YARN Queue Explorer (Apache Hadoop Capacity Scheduler UI)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - hadoop
+  - yarn
+  - capacity-scheduler
+  - bigdata
+  - kubernetes
+home: https://github.com/balookrd/yarn-explorer
+sources:
+  - https://github.com/balookrd/yarn-explorer
+maintainers:
+  - name: Maksim Malykhin
+    email: balookrd@gmail.com
+icon: https://hadoop.apache.org/images/hadoop-logo.jpg

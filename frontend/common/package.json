@@ -1,0 +1,7 @@
+{
+  "name": "@hadoop-explorer/common",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./types/index.ts"
+}

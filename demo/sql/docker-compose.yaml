@@ -1,0 +1,168 @@
+name: sql-explorer-demo
+
+networks:
+  sql-demo-net:
+    driver: bridge
+
+volumes:
+  sql-krb5-data:
+  sql-pgdata-meta:
+  sql-ldap-data:
+  sql-explorer-data:
+
+services:
+  # ==========================================
+  # 1. Kerberos KDC Server
+  # ==========================================
+  kdc:
+    build:
+      context: ./kdc
+      dockerfile: docker/Dockerfile.sql
+    container_name: sql-demo-kdc
+    hostname: kdc
+    restart: unless-stopped
+    ports:
+      - "1088:88"
+      - "1088:88/udp"
+    volumes:
+      - sql-krb5-data:/var/kerberos/keytabs
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 2. OpenLDAP Server
+  # ==========================================
+  openldap:
+    build:
+      context: ./ldap
+      dockerfile: docker/Dockerfile.sql
+    container_name: sql-demo-ldap
+    hostname: openldap
+    restart: unless-stopped
+    ports:
+      - "1389:389"
+    volumes:
+      - sql-ldap-data:/var/lib/openldap/openldap-data
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 3. PostgreSQL для Hive Metastore
+  # ==========================================
+  postgres-meta:
+    image: postgres:16-alpine
+    container_name: sql-demo-postgres-meta
+    hostname: postgres-meta
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hivepassword
+    volumes:
+      - sql-pgdata-meta:/var/lib/postgresql/data
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 4. Hive Metastore (Apache Hive 4.0.0)
+  # ==========================================
+  hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: sql-demo-hive-metastore
+    hostname: hive-metastore
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - sql-krb5-data:/etc/security/keytabs:ro
+    depends_on:
+      - kdc
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 5. HiveServer2 (Kerberized + doAs)
+  # ==========================================
+  hive-server:
+    image: apache/hive:4.0.0
+    container_name: sql-demo-hive-server
+    hostname: hive-server
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
+    environment:
+      SERVICE_NAME: hiveserver2
+      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
+      IS_RESUME: "true"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+    ports:
+      - "10000:10000"
+      - "10002:10002"
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - sql-krb5-data:/etc/security/keytabs:ro
+    depends_on:
+      - hive-metastore
+      - kdc
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 6. Trino Coordinator (Kerberized + TPCH + Hive)
+  # ==========================================
+  trino-coordinator:
+    image: trinodb/trino:latest
+    container_name: sql-demo-trino
+    hostname: trino-coordinator
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./trino/etc:/etc/trino:ro
+      - sql-krb5-data:/etc/security/keytabs:ro
+    depends_on:
+      - kdc
+      - hive-metastore
+    networks:
+      - sql-demo-net
+
+  # ==========================================
+  # 7. Наш сервис SQL Explorer
+  # ==========================================
+  sql-explorer:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.sql
+    container_name: sql-demo-explorer
+    hostname: sql-explorer
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      CONFIG_PATH: /app/demo-config/config.demo.yaml
+      KRB5_KEYTAB: /etc/security/keytabs/sql-explorer.keytab
+      KRB5_PRINCIPAL: svc_sql_explorer@COMPANY.LOCAL
+      KRB5_CONFIG: /etc/security/keytabs/krb5.conf
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./config.demo.yaml:/app/demo-config/config.demo.yaml:ro
+      - sql-krb5-data:/etc/security/keytabs:ro
+      - sql-explorer-data:/app/data
+    depends_on:
+      - kdc
+      - openldap
+      - hive-server
+      - trino-coordinator
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sql-demo-net
+

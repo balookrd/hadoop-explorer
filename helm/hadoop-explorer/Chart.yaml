@@ -1,0 +1,22 @@
+apiVersion: v2
+name: hadoop-explorer
+description: Umbrella Helm Chart for Hadoop Explorer Platform (HDFS, SQL, YARN)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Hadoop Explorer Team
+    email: hadoop-dev@company.local
+dependencies:
+  - name: hdfs-explorer
+    version: 0.1.0
+    repository: "file://../charts/hdfs-explorer"
+    condition: hdfs-explorer.enabled
+  - name: sql-explorer
+    version: 0.1.0
+    repository: "file://../charts/sql-explorer"
+    condition: sql-explorer.enabled
+  - name: yarn-explorer
+    version: 0.1.0
+    repository: "file://../charts/yarn-explorer"
+    condition: yarn-explorer.enabled

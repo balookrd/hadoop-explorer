@@ -1,0 +1,77 @@
+dn: dc=company,dc=local
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Company
+dc: company
+
+dn: ou=users,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=services,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: services
+
+dn: cn=svc_yarn_explorer,ou=services,dc=company,dc=local
+objectClass: top
+objectClass: inetOrgPerson
+cn: svc_yarn_explorer
+sn: Service
+displayName: Service Account
+userPassword: ServicePasswordHere
+
+dn: cn=admin_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: inetOrgPerson
+cn: admin_user
+sn: Adminov
+uid: admin_user
+displayName: Александр Админов
+mail: admin@company.local
+userPassword: password123
+
+dn: cn=writer_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: inetOrgPerson
+cn: writer_user
+sn: Inzhenerov
+uid: writer_user
+displayName: Владимир Инженеров
+mail: writer@company.local
+userPassword: password123
+
+dn: cn=reader_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: inetOrgPerson
+cn: reader_user
+sn: Nabludateleva
+uid: reader_user
+displayName: Екатерина Наблюдателева
+mail: reader@company.local
+userPassword: password123
+
+dn: cn=hadoop-admins,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: hadoop-admins
+member: cn=admin_user,ou=users,dc=company,dc=local
+
+dn: cn=yarn-operators,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: yarn-operators
+member: cn=writer_user,ou=users,dc=company,dc=local
+
+dn: cn=bi-analysts,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: bi-analysts
+member: cn=reader_user,ou=users,dc=company,dc=local
