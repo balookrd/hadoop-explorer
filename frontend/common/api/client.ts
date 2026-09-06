@@ -1,27 +1,40 @@
 import type { AuthResponse, UserSession } from '../types/auth';
 
 export class BaseApiClient {
+  // Токен хранится только в оперативной памяти JS для текущей сессии (Zero LocalStorage),
+  // предотвращая постоянную компрометацию через XSS.
+  // Основная аутентификация в браузере опирается на безопасные HttpOnly Cookie (Cookie-first).
   protected token: string | null = null;
   protected baseUrl: string;
 
   constructor(baseUrl: string = '/api/v1') {
     this.baseUrl = baseUrl;
-    this.token = typeof localStorage !== 'undefined' ? localStorage.getItem('access_token') : null;
+    this.token = null;
+    this.clearLegacyStorage();
   }
 
-  public setToken(token: string | null) {
-    this.token = token;
+  private clearLegacyStorage() {
     if (typeof localStorage !== 'undefined') {
-      if (token) {
-        localStorage.setItem('access_token', token);
-      } else {
+      try {
         localStorage.removeItem('access_token');
+      } catch (_) {
+        // ignore localStorage access restrictions
       }
     }
   }
 
+  public setToken(token: string | null) {
+    this.token = token;
+    this.clearLegacyStorage();
+  }
+
   public getToken(): string | null {
     return this.token;
+  }
+
+  public clearToken() {
+    this.token = null;
+    this.clearLegacyStorage();
   }
 
   public async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
@@ -42,11 +55,11 @@ export class BaseApiClient {
     const response = await fetch(url, {
       ...options,
       headers,
-      credentials: 'include',
+      credentials: 'include', // Отправка HttpOnly cookies
     });
 
     if (response.status === 401) {
-      this.setToken(null);
+      this.clearToken();
       throw new Error('Требуется авторизация');
     }
 
@@ -93,7 +106,7 @@ export class BaseApiClient {
     try {
       await this.request('/auth/logout', { method: 'POST' });
     } finally {
-      this.setToken(null);
+      this.clearToken();
     }
   }
 

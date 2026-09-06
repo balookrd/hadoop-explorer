@@ -738,5 +738,31 @@ def test_storage_service_redis_backend():
         assert redis_storage.get_change_request(cr_id).status == "APPROVED"
 
 
+def test_storage_l1_fail_open_protection_yarn():
+    """
+    Проверяет защиту от Fail-Open в YARN StorageService:
+    Отозванный токен остается заблокированным в L1 кэше даже при отказе базы данных.
+    """
+    from unittest.mock import MagicMock
+    from app.services.storage import StorageService
+
+    storage = StorageService(db_url="sqlite:///:memory:")
+    jti = "yarn-fail-open-jti-888"
+    assert storage.is_token_revoked(jti) is False
+
+    storage.revoke_token(jti, "2030-01-01T00:00:00Z")
+    assert storage.is_token_revoked(jti) is True
+
+    # Симулируем отказ соединения с БД
+    broken_engine = MagicMock()
+    broken_engine.connect.side_effect = RuntimeError("Database unreachable")
+    storage.engine = broken_engine
+
+    # Должен вернуть True благодаря L1 кэшу
+    assert storage.is_token_revoked(jti) is True
+    assert storage.is_token_revoked("unknown-yarn-jti") is False
+
+
+
 
 

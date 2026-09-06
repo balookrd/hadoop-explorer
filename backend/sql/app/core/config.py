@@ -81,6 +81,7 @@ class QueryDefaultsConfig(BaseModel):
     default_limit: int = 1000
     auto_add_limit: bool = True
     query_timeout_seconds: int = 600
+    results_ttl_seconds: int = 7 * 86400  # 7 дней по умолчанию (604800 сек)
 
 class AIConfig(BaseModel):
     enabled: bool = True
@@ -182,6 +183,11 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         cfg.ai.api_key = os.environ["AI_API_KEY"]
     if os.getenv("AI_MODEL"):
         cfg.ai.model = os.environ["AI_MODEL"]
+    if os.getenv("RESULTS_TTL_SECONDS"):
+        try:
+            cfg.query_defaults.results_ttl_seconds = int(os.environ["RESULTS_TTL_SECONDS"])
+        except ValueError:
+            pass
 
     return cfg.validate_production_security()
 

@@ -1,4 +1,5 @@
 import os
+import time
 import gzip
 import json
 import asyncio
@@ -222,6 +223,38 @@ class QueryManager:
             "offset": offset,
             "limit": limit
         }
+
+    def cleanup_expired_results(self, ttl_seconds: Optional[int] = None) -> int:
+        """
+        Удаляет устаревшие файлы результатов ({query_id}.json.gz) из RESULTS_DIR по TTL.
+        По умолчанию использует settings.query_defaults.results_ttl_seconds (7 дней).
+        Возвращает количество удаленных файлов.
+        """
+        if ttl_seconds is None:
+            ttl_seconds = getattr(settings.query_defaults, "results_ttl_seconds", 7 * 86400)
+
+        if not os.path.exists(RESULTS_DIR):
+            return 0
+
+        now = time.time()
+        deleted_count = 0
+        try:
+            for fname in os.listdir(RESULTS_DIR):
+                if fname.endswith(".json.gz"):
+                    fpath = os.path.join(RESULTS_DIR, fname)
+                    if os.path.isfile(fpath):
+                        try:
+                            mtime = os.path.getmtime(fpath)
+                            if (now - mtime) > ttl_seconds:
+                                os.remove(fpath)
+                                deleted_count += 1
+                                logger.info(f"Удален устаревший файл результатов SQL: {fname} (возраст: {int(now - mtime)}с, TTL: {ttl_seconds}с)")
+                        except OSError as e:
+                            logger.warning(f"Не удалось удалить файл {fname}: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при очистке устаревших результатов: {e}")
+
+        return deleted_count
 
     async def start_query(self, cluster: ClusterConfig, user: UserSession, query_text: str) -> str:
         # Проверка Read-Only ограничений (защита от несанкционированных DROP/TRUNCATE/DELETE/ALTER/CREATE)

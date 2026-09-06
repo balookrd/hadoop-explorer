@@ -1,3 +1,4 @@
+import anyio.to_thread
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
@@ -51,7 +52,7 @@ async def login(req: LoginRequest, request: Request, response: Response):
 
     # 2. В режимах hybrid и ldaps_only аутентификация выполняется через LDAP (mock-пользователи строго запрещены)
     elif settings.auth.mode in ("hybrid", "ldaps_only") and settings.auth.ldap.enabled:
-        user_info = authenticate_ldap(req.username, req.password)
+        user_info = await anyio.to_thread.run_sync(authenticate_ldap, req.username, req.password)
 
     if not user_info:
         log_audit_event(

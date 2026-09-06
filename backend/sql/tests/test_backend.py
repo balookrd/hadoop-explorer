@@ -1,3 +1,4 @@
+import os
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -624,6 +625,121 @@ def test_storage_service_redis_backend_sql():
         assert redis_storage.is_token_revoked(token) is False
         assert redis_storage.revoke_token(token, username="analyst_user") is True
         assert redis_storage.is_token_revoked(token) is True
+
+
+@pytest.mark.asyncio
+async def test_acl_unauthorized_cluster_execution_rejected():
+    """Проверка, что неавторизованный пользователь получает 403 Forbidden при попытке выполнить запрос на кластере без прав ACL."""
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Вход под analyst_user (группа bi-analysts, кластер hive-hortonworks доступен только data-engineers)
+        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        assert login_resp.status_code == 200
+        token = login_resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 2. Попытка выполнить запрос на кластере hive-hortonworks без прав доступа
+        exec_resp = await client.post(
+            "/api/v1/queries/execute",
+            headers=headers,
+            json={"cluster_id": "hive-hortonworks", "query": "SELECT 1"}
+        )
+        assert exec_resp.status_code == 403
+        assert exec_resp.json()["detail"] == "Доступ к данному кластеру запрещен ACL"
+
+
+@pytest.mark.asyncio
+async def test_query_results_cache_ttl_cleanup(tmp_path, monkeypatch):
+    """Проверка ротации и удаления устаревших файлов кэша результатов SQL-запросов по TTL."""
+    import time
+    from app.services.query_manager import QueryManager
+    import app.services.query_manager as qm_module
+
+    # Настраиваем временную директорию результатов
+    test_results_dir = str(tmp_path / "results")
+    os.makedirs(test_results_dir, exist_ok=True)
+    monkeypatch.setattr(qm_module, "RESULTS_DIR", test_results_dir)
+
+    qm = QueryManager()
+
+    # Создаем свежий результат (query-fresh) и старый (query-old)
+    await qm._save_result_to_disk("query-fresh", ["id", "val"], [[1, "a"]])
+    await qm._save_result_to_disk("query-old", ["id", "val"], [[2, "b"]])
+
+    fresh_file = os.path.join(test_results_dir, "query-fresh.json.gz")
+    old_file = os.path.join(test_results_dir, "query-old.json.gz")
+
+    assert os.path.exists(fresh_file)
+    assert os.path.exists(old_file)
+
+    # Искусственно состариваем query-old файл (на 10 дней назад)
+    ten_days_ago = time.time() - (10 * 86400)
+    os.utime(old_file, (ten_days_ago, ten_days_ago))
+
+    # Проверяем, что до очистки оба результата читаются
+    cached_fresh = await qm.get_cached_result("query-fresh")
+    assert cached_fresh is not None
+    assert cached_fresh["rows"] == [[1, "a"]]
+
+    cached_old = await qm.get_cached_result("query-old")
+    assert cached_old is not None
+    assert cached_old["rows"] == [[2, "b"]]
+
+    # Запускаем очистку с TTL = 7 дней (604800 секунд)
+    deleted = qm.cleanup_expired_results(ttl_seconds=7 * 86400)
+    assert deleted == 1
+
+    # query-old должен быть удален, query-fresh должен остаться
+    assert not os.path.exists(old_file)
+    assert os.path.exists(fresh_file)
+
+    assert await qm.get_cached_result("query-old") is None
+    assert await qm.get_cached_result("query-fresh") is not None
+
+
+def test_storage_l1_fail_open_protection():
+    """
+    Проверяет защиту от Fail-Open:
+    1. Токен, отозванный в текущем процессе, сохраняется в L1 In-Memory кэше.
+    2. При симулированном падении/ошибке БД/Redis проверка is_token_revoked возвращает True.
+    """
+    from unittest.mock import MagicMock
+    from app.services.storage import StorageService
+    from backend.common.db.storage import BaseStorageService
+
+    # 1. SQL StorageService
+    storage = StorageService(db_url="sqlite:///:memory:")
+    token = "test-fail-open-token-sql-999"
+    assert storage.is_token_revoked(token) is False
+
+    storage.revoke_token(token, username="analyst_user")
+    assert storage.is_token_revoked(token) is True
+
+    # Ломаем engine (симулируем сбой соединения с БД)
+    broken_engine = MagicMock()
+    broken_engine.connect.side_effect = RuntimeError("Database connection lost")
+    storage.engine = broken_engine
+
+    # Даже при сбое БД токен должен оставаться отозванным благодаря L1 кэшу (Fail-Closed)
+    assert storage.is_token_revoked(token) is True
+    # Неотозванный токен при сбое БД возвращает False (не в L1)
+    assert storage.is_token_revoked("unknown-token") is False
+
+    # 2. Common BaseStorageService
+    common_storage = BaseStorageService(db_url="sqlite:///:memory:")
+    jti = "common-jti-fail-open-123"
+    assert common_storage.is_token_revoked(jti) is False
+
+    common_storage.revoke_token(jti)
+    assert common_storage.is_token_revoked(jti) is True
+
+    common_storage.engine = broken_engine
+    assert common_storage.is_token_revoked(jti) is True
+    assert common_storage.is_token_revoked("unknown-jti") is False
+
+
+
 
 
 

@@ -1,3 +1,4 @@
+import anyio.to_thread
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -78,7 +79,7 @@ async def login(
         user = _mock_authenticate(body.username, body.password)
     elif mode in ("ldaps_only", "hybrid") and settings.auth.ldap.enabled:
         # В режимах ldaps_only и hybrid mock-пользователи строго запрещены
-        ldap_user = ldap_service.authenticate(body.username, body.password)
+        ldap_user = await anyio.to_thread.run_sync(ldap_service.authenticate, body.username, body.password)
         if ldap_user:
             role = _resolve_global_role(ldap_user.username, ldap_user.groups)
             ldap_user.system_role = role

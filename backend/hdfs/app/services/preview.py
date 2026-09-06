@@ -8,6 +8,18 @@ from app.models.hdfs import FilePreviewResponse
 logger = logging.getLogger(__name__)
 
 
+def format_size(size_bytes: int) -> str:
+    """Форматирует размер в байтах в человекочитаемый вид."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
 class PreviewService:
     @staticmethod
     def generate_preview(path: str, cluster_id: str, content: bytes, total_size: int, max_bytes: int) -> FilePreviewResponse:
@@ -63,12 +75,33 @@ class PreviewService:
             except Exception:
                 pass  # Fallback to plain text
 
-        # 3. Parquet
+        # 3. Parquet (Apache Parquet)
         if file_name.endswith(".parquet") or file_name.endswith(".parq"):
+            size_str = format_size(total_size)
+            max_str = format_size(max_bytes)
+
+            # Специфика Parquet: метаданные схемы и footer находятся в самом конце файла.
+            # Если файл превышает max_bytes, footer усечен и файл невозможно распарсить через pyarrow.
+            if truncated:
+                return FilePreviewResponse(
+                    cluster_id=cluster_id,
+                    path=path,
+                    file_type="parquet",
+                    size=total_size,
+                    truncated=True,
+                    content=(
+                        f"Файл Apache Parquet (размер: {size_str}) превышает лимит предварительного просмотра ({max_str}). "
+                        "Футер с метаданными схемы усечен. Скачайте файл для полного анализа или выполнения SQL-запросов."
+                    ),
+                    columns=[],
+                    rows=[],
+                    row_count=0
+                )
+
             try:
                 import pyarrow.parquet as pq
                 reader = pq.ParquetFile(io.BytesIO(content))
-                table = reader.read_row_group(0)
+                table = reader.read_row_group(0) if reader.num_row_groups > 0 else reader.read()
                 columns = list(table.column_names)
                 pylist = table.slice(0, 50).to_pylist()
                 safe_rows = [[str(r.get(c, "")) if r.get(c) is not None else "" for c in columns] for r in pylist]
@@ -89,20 +122,47 @@ class PreviewService:
                     file_type="parquet",
                     size=total_size,
                     truncated=truncated,
-                    content="Файл формата Apache Parquet. Для табличного предпросмотра на сервере требуется модуль pyarrow. Скачайте файл для локального анализа."
+                    content="Файл формата Apache Parquet. Для табличного предпросмотра на сервере требуется модуль pyarrow. Скачайте файл для локального анализа.",
+                    columns=[],
+                    rows=[],
+                    row_count=0
                 )
             except Exception as e:
+                logger.warning(f"Ошибка парсинга Parquet файла {path}: {e}")
                 return FilePreviewResponse(
                     cluster_id=cluster_id,
                     path=path,
                     file_type="parquet",
                     size=total_size,
                     truncated=truncated,
-                    error=f"Ошибка чтения Parquet метаданных: {e}"
+                    content=f"Не удалось прочитать структуру Parquet файла ({e}). Скачайте файл для локального анализа.",
+                    columns=[],
+                    rows=[],
+                    row_count=0
                 )
 
         # 4. ORC (Optimized Row Columnar)
         if file_name.endswith(".orc"):
+            size_str = format_size(total_size)
+            max_str = format_size(max_bytes)
+
+            # Специфика ORC: PostScript и футер с метаданными также находятся в конце файла.
+            if truncated:
+                return FilePreviewResponse(
+                    cluster_id=cluster_id,
+                    path=path,
+                    file_type="orc",
+                    size=total_size,
+                    truncated=True,
+                    content=(
+                        f"Файл Apache ORC (размер: {size_str}) превышает лимит предварительного просмотра ({max_str}). "
+                        "Футер с метаданными схемы усечен. Скачайте файл для полного анализа или выполнения SQL-запросов."
+                    ),
+                    columns=[],
+                    rows=[],
+                    row_count=0
+                )
+
             try:
                 import pyarrow.orc as orc
                 reader = orc.ORCFile(io.BytesIO(content))
@@ -127,16 +187,23 @@ class PreviewService:
                     file_type="orc",
                     size=total_size,
                     truncated=truncated,
-                    content="Файл формата Apache ORC. Для табличного предпросмотра на сервере требуется модуль pyarrow.orc. Скачайте файл для локального анализа."
+                    content="Файл формата Apache ORC. Для табличного предпросмотра на сервере требуется модуль pyarrow.orc. Скачайте файл для локального анализа.",
+                    columns=[],
+                    rows=[],
+                    row_count=0
                 )
             except Exception as e:
+                logger.warning(f"Ошибка парсинга ORC файла {path}: {e}")
                 return FilePreviewResponse(
                     cluster_id=cluster_id,
                     path=path,
                     file_type="orc",
                     size=total_size,
                     truncated=truncated,
-                    error=f"Ошибка чтения ORC метаданных: {e}"
+                    content=f"Не удалось прочитать структуру ORC файла ({e}). Скачайте файл для локального анализа.",
+                    columns=[],
+                    rows=[],
+                    row_count=0
                 )
 
         # 5. Текстовые файлы (txt, log, yaml, yml, conf, xml, properties, sql, sh, py, etc.)

@@ -110,12 +110,12 @@ async def preview_file(
 
     max_bytes = cluster.preview_max_bytes
     try:
+        file_status = await client.get_file_status(clean_path, do_as_user=current_user.username)
+        total_size = file_status.length
         content = await client.get_file_content(clean_path, do_as_user=current_user.username, offset=0, length=max_bytes + 1)
     except WebHdfsException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
-    total_size = len(content)
-    # Если получено больше max_bytes, обрезаем
     preview_bytes = content[:max_bytes]
     return preview_service.generate_preview(clean_path, cluster_id, preview_bytes, total_size, max_bytes)
 

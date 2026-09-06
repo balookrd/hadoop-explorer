@@ -50,6 +50,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Сервер: {settings.server.host}:{settings.server.port}")
     logger.info("=" * 60)
     yield
+    try:
+        from app.services.yarn_client import yarn_service
+        await yarn_service.aclose()
+    except Exception as e:
+        logger.warning(f"Ошибка при закрытии HTTP-сессий YARN: {e}")
     logger.info("YARN Queue Explorer остановлен")
 
 

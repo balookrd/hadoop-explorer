@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import time
+import threading
+from collections import OrderedDict
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +36,57 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = os.environ.get("DB_PATH", "data/yarn_explorer.db")
 
 
+class L1RevokedTokenCache:
+    """
+    Потокобезопасный L1 In-Memory LRU-кэш для отозванных токенов с TTL.
+    Обеспечивает защиту от Fail-Open при сбоях Redis/БД.
+    """
+    def __init__(self, max_size: int = 10000):
+        self.max_size = max_size
+        self._cache: OrderedDict[str, float] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def add(self, key: str, expires_at_ts: Optional[float] = None):
+        if not key:
+            return
+        now = time.time()
+        exp_ts = expires_at_ts if (expires_at_ts is not None and expires_at_ts > 0) else (now + 86400.0)
+        with self._lock:
+            if len(self._cache) >= self.max_size and key not in self._cache:
+                self._cache.popitem(last=False)
+            self._cache[key] = exp_ts
+            self._cache.move_to_end(key)
+
+    def contains(self, key: str) -> bool:
+        if not key:
+            return False
+        now = time.time()
+        with self._lock:
+            if key not in self._cache:
+                return False
+            exp_ts = self._cache[key]
+            if exp_ts < now:
+                del self._cache[key]
+                return False
+            self._cache.move_to_end(key)
+            return True
+
+    def cleanup(self):
+        now = time.time()
+        with self._lock:
+            expired_keys = [k for k, exp in self._cache.items() if exp < now]
+            for k in expired_keys:
+                del self._cache[k]
+
+    def clear(self):
+        with self._lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+
+
 class StorageService:
     def __init__(self, db_path: Optional[str] = None, db_url: Optional[str] = None):
         redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
@@ -53,8 +106,13 @@ class StorageService:
 
         self.db_path = db_path or DEFAULT_DB_PATH
         self._is_redis = self.db_url.startswith(("redis://", "rediss://"))
-        self._is_sqlite = "sqlite" in self.db_url if not self._is_redis else False
-        self._is_memory = ":memory:" in self.db_url if not self._is_redis else False
+        sync_url = self.db_url.replace("postgresql+asyncpg://", "postgresql://").replace("sqlite+aiosqlite://", "sqlite://")
+        if sync_url.startswith("postgres://"):
+            sync_url = "postgresql://" + sync_url[len("postgres://"):]
+
+        self._is_sqlite = "sqlite" in sync_url if not self._is_redis else False
+        self._is_memory = ":memory:" in sync_url if not self._is_redis else False
+        self._l1_cache = L1RevokedTokenCache(max_size=10000)
 
         if self._is_redis:
             self.redis_client = redis.Redis.from_url(self.db_url, decode_responses=True)
@@ -80,7 +138,7 @@ class StorageService:
                     "max_overflow": 20,
                 }
 
-            self.engine = create_engine(self.db_url, **engine_kwargs)
+            self.engine = create_engine(sync_url, **engine_kwargs)
             self.metadata = MetaData()
 
             self.cr_table = Table(
@@ -470,19 +528,27 @@ class StorageService:
     # ==================== TOKEN REVOCATION (BLACKLIST) ====================
 
     def revoke_token(self, jti: str, expires_at: str) -> bool:
-        """Помещает токен (jti) в список отозванных токенов."""
+        """Помещает токен (jti) в список отозванных токенов (L1 + Redis/DB)."""
         if not jti:
             return False
+
+        # Рассчитываем unix timestamp для L1 кэша
+        exp_ts = time.time() + 86400.0
+        ttl = 86400
+        try:
+            dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            exp_ts = dt.timestamp()
+            diff = int((dt - datetime.now(timezone.utc)).total_seconds())
+            if diff > 0:
+                ttl = diff
+        except Exception:
+            pass
+
+        # Сохраняем в L1 кэш
+        self._l1_cache.add(jti, exp_ts)
+
         try:
             if self._is_redis:
-                ttl = 86400
-                try:
-                    dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-                    diff = int((dt - datetime.now(timezone.utc)).total_seconds())
-                    if diff > 0:
-                        ttl = diff
-                except Exception:
-                    pass
                 self.redis_client.set(f"revoked_token:{jti}", "1", ex=ttl)
                 return True
 
@@ -505,29 +571,46 @@ class StorageService:
                     )
                 return True
         except Exception as e:
-            logger.error(f"Ошибка при отзыве токена {jti}: {e}")
-            return False
+            logger.error(f"Ошибка при отзыве токена {jti} в БД/Redis: {e}")
+            return True
 
     def is_token_revoked(self, jti: str) -> bool:
-        """Проверяет, отозван ли токен."""
+        """Проверяет, отозван ли токен (L1 кэш + Redis/DB)."""
         if not jti:
             return False
+
+        # 1. Быстрая проверка в L1 In-Memory кэше
+        if self._l1_cache.contains(jti):
+            return True
+
         try:
             if self._is_redis:
-                return bool(self.redis_client.exists(f"revoked_token:{jti}"))
+                is_rev = bool(self.redis_client.exists(f"revoked_token:{jti}"))
+                if is_rev:
+                    self._l1_cache.add(jti)
+                return is_rev
 
             with self.engine.connect() as conn:
-                stmt = select(self.revoked_tokens_table.c.jti).where(
+                stmt = select(self.revoked_tokens_table.c.jti, self.revoked_tokens_table.c.expires_at).where(
                     self.revoked_tokens_table.c.jti == jti
                 ).limit(1)
-                result = conn.execute(stmt).scalar_one_or_none()
-                return result is not None
+                row = conn.execute(stmt).fetchone()
+                if row:
+                    try:
+                        dt = datetime.fromisoformat(row[1].replace("Z", "+00:00"))
+                        exp_ts = dt.timestamp()
+                    except Exception:
+                        exp_ts = None
+                    self._l1_cache.add(jti, exp_ts)
+                    return True
+                return False
         except Exception as e:
             logger.error(f"Ошибка проверки отзыва токена {jti}: {e}")
-            return False
+            return self._l1_cache.contains(jti)
 
     def cleanup_expired_tokens(self):
-        """Удаляет из базы устаревшие отозванные токены (в Redis TTL управляется автоматически)."""
+        """Удаляет из базы и L1 устаревшие отозванные токены (в Redis TTL управляется автоматически)."""
+        self._l1_cache.cleanup()
         if self._is_redis:
             return
         now = datetime.now(timezone.utc).isoformat()

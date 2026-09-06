@@ -21,6 +21,7 @@
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "@hadoop-explorer/common": "*",
     "lucide-svelte": "^1.0.1",
     "monaco-editor": "^0.56.0"
   }

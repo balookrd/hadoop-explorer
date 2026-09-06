@@ -627,6 +627,33 @@ def test_token_blacklist_redis_backend_hdfs():
         assert redis_storage.is_token_revoked(jti) is True
 
 
+def test_storage_l1_fail_open_protection_hdfs():
+    """
+    Проверяет защиту от Fail-Open в HDFS StorageService:
+    Отозванный токен остается заблокированным в L1 кэше даже при сбое базы данных.
+    """
+    import time
+    from unittest.mock import MagicMock
+    from app.services.storage import StorageService
+
+    storage = StorageService(db_url="sqlite:///:memory:")
+    jti = "hdfs-fail-open-jti-777"
+    assert storage.is_token_revoked(jti) is False
+
+    storage.revoke_token(jti, int(time.time()) + 3600)
+    assert storage.is_token_revoked(jti) is True
+
+    # Симулируем отказ соединения с БД
+    broken_engine = MagicMock()
+    broken_engine.connect.side_effect = RuntimeError("Database unreachable")
+    storage.engine = broken_engine
+
+    # Должен вернуть True благодаря L1 кэшу
+    assert storage.is_token_revoked(jti) is True
+    assert storage.is_token_revoked("unknown-hdfs-jti") is False
+
+
+
 
 
 

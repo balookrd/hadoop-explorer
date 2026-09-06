@@ -3,6 +3,8 @@ import logging
 import os
 import json
 import hashlib
+import threading
+from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -33,11 +35,62 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+class L1RevokedTokenCache:
+    """
+    Потокобезопасный L1 In-Memory LRU-кэш для отозванных токенов с TTL.
+    Обеспечивает защиту от Fail-Open при сбоях Redis/БД.
+    """
+    def __init__(self, max_size: int = 10000):
+        self.max_size = max_size
+        self._cache: OrderedDict[str, float] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def add(self, key: str, expires_at_ts: Optional[float] = None):
+        if not key:
+            return
+        now = time.time()
+        exp_ts = expires_at_ts if (expires_at_ts is not None and expires_at_ts > 0) else (now + 86400.0)
+        with self._lock:
+            if len(self._cache) >= self.max_size and key not in self._cache:
+                self._cache.popitem(last=False)
+            self._cache[key] = exp_ts
+            self._cache.move_to_end(key)
+
+    def contains(self, key: str) -> bool:
+        if not key:
+            return False
+        now = time.time()
+        with self._lock:
+            if key not in self._cache:
+                return False
+            exp_ts = self._cache[key]
+            if exp_ts < now:
+                del self._cache[key]
+                return False
+            self._cache.move_to_end(key)
+            return True
+
+    def cleanup(self):
+        now = time.time()
+        with self._lock:
+            expired_keys = [k for k, exp in self._cache.items() if exp < now]
+            for k in expired_keys:
+                del self._cache[k]
+
+    def clear(self):
+        with self._lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+
+
 class StorageService:
     """
     Универсальный сервис хранения (StorageService) для sql-explorer.
     Поддерживает Redis (Sorted Set / Hashes), PostgreSQL и SQLite.
-    Отвечает за Rate Limiting и серверный отзыв токенов (Token Blacklist).
+    Отвечает за Rate Limiting и серверный отзыв токенов (Token Blacklist с L1 защитой от Fail-Open).
     """
 
     def __init__(self, db_url: Optional[str] = None):
@@ -52,6 +105,7 @@ class StorageService:
         self._is_redis = self.db_url.startswith(("redis://", "rediss://"))
         self._is_sqlite = "sqlite" in self.db_url if not self._is_redis else False
         self._is_memory = ":memory:" in self.db_url if not self._is_redis else False
+        self._l1_cache = L1RevokedTokenCache(max_size=10000)
 
         if self._is_redis:
             self.redis_client = redis.Redis.from_url(self.db_url, decode_responses=True)
@@ -130,6 +184,10 @@ class StorageService:
         h = hash_token(token)
         now = datetime.now(timezone.utc)
         exp = expires_at or (now + timedelta(minutes=settings.auth.jwt.expire_minutes))
+        exp_ts = exp.timestamp()
+
+        # Сохраняем в L1 кэш немедленно для защиты от Fail-Open
+        self._l1_cache.add(h, exp_ts)
 
         try:
             if self._is_redis:
@@ -161,27 +219,56 @@ class StorageService:
                 )
             return True
         except Exception as e:
-            logger.error(f"Ошибка отзыва токена: {e}")
-            return False
+            logger.error(f"Ошибка отзыва токена в БД/Redis: {e}")
+            return True
 
     def is_token_revoked(self, token: str) -> bool:
         if not token:
             return False
         h = hash_token(token)
+
+        # 1. Быстрая проверка в L1 In-Memory кэше
+        if self._l1_cache.contains(h):
+            return True
+
         try:
             if self._is_redis:
-                return bool(self.redis_client.exists(f"sql:revoked:{h}"))
+                is_rev = bool(self.redis_client.exists(f"sql:revoked:{h}"))
+                if is_rev:
+                    self._l1_cache.add(h)
+                return is_rev
 
             now = datetime.now(timezone.utc)
             with self.engine.connect() as conn:
-                stmt = select(self.revoked_tokens_table.c.token_hash).where(
+                stmt = select(self.revoked_tokens_table.c.token_hash, self.revoked_tokens_table.c.expires_at).where(
                     self.revoked_tokens_table.c.token_hash == h,
                     self.revoked_tokens_table.c.expires_at >= now,
                 ).limit(1)
-                return conn.execute(stmt).scalar_one_or_none() is not None
+                row = conn.execute(stmt).fetchone()
+                if row:
+                    exp_val = row[1].timestamp() if row[1] else None
+                    self._l1_cache.add(h, exp_val)
+                    return True
+                return False
         except Exception as e:
             logger.error(f"Ошибка проверки отзыва токена: {e}")
-            return False
+            return self._l1_cache.contains(h)
+
+    def cleanup_expired_tokens(self):
+        """Очищает устаревшие отозванные токены из L1 и базы данных."""
+        self._l1_cache.cleanup()
+        if self._is_redis:
+            return
+        now = datetime.now(timezone.utc)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    delete(self.revoked_tokens_table).where(
+                        self.revoked_tokens_table.c.expires_at < now
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Ошибка очистки устаревших токенов: {e}")
 
     # ==================== RATE LIMITING ====================
 

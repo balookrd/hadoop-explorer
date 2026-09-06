@@ -5,6 +5,12 @@ import jwt
 from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+from backend.common.core.security import (
+    verify_csrf as common_verify_csrf,
+    hash_token,
+    create_jwt_token,
+    decode_jwt_token
+)
 from app.core.config import settings
 from app.services.storage import storage_service
 from app.models.auth import TokenPayload, UserInfo
@@ -14,117 +20,45 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def create_access_token(user: UserInfo) -> str:
-    now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=settings.security.access_token_expire_minutes)
-    jti = str(uuid.uuid4())
     payload = {
         "sub": user.username,
         "display_name": user.display_name,
         "email": user.email,
         "groups": user.groups,
         "is_admin": user.is_admin,
-        "iat": int(now.timestamp()),
-        "exp": int(expire.timestamp()),
-        "jti": jti,
     }
-    return jwt.encode(payload, settings.security.secret_key, algorithm=settings.security.algorithm)
+    return create_jwt_token(
+        data=payload,
+        secret_key=settings.security.secret_key,
+        algorithm=settings.security.algorithm,
+        expires_minutes=settings.security.access_token_expire_minutes
+    )
 
 
 def decode_access_token(token: str) -> Optional[TokenPayload]:
-    try:
-        payload = jwt.decode(
-            token,
-            settings.security.secret_key,
-            algorithms=[settings.security.algorithm]
-        )
-        return TokenPayload(
-            sub=payload["sub"],
-            display_name=payload.get("display_name", payload["sub"]),
-            email=payload.get("email"),
-            groups=payload.get("groups", []),
-            exp=payload["exp"],
-            jti=payload.get("jti")
-        )
-    except (jwt.PyJWTError, KeyError, ValueError):
+    payload = decode_jwt_token(
+        token=token,
+        secret_key=settings.security.secret_key,
+        algorithms=[settings.security.algorithm]
+    )
+    if not payload or "sub" not in payload:
         return None
 
-
-from urllib.parse import urlparse
-
-def _is_allowed_origin(url_str: str, request: Request, allowed_cors: list[str]) -> bool:
-    if not url_str:
-        return False
-    try:
-        parsed = urlparse(url_str)
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        if parsed.scheme.lower() not in ("http", "https"):
-            return False
-
-        target_origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
-        target_netloc = parsed.netloc.lower()
-
-        for allowed in allowed_cors:
-            if allowed == "*":
-                return True
-            p_allowed = urlparse(allowed)
-            if p_allowed.netloc:
-                if f"{p_allowed.scheme.lower()}://{p_allowed.netloc.lower()}".rstrip("/") == target_origin:
-                    return True
-            elif allowed.rstrip("/").lower() == target_origin:
-                return True
-
-        req_host = request.headers.get("host", "").lower()
-        if req_host and target_netloc == req_host:
-            return True
-
-        base_netloc = request.base_url.netloc.lower()
-        if base_netloc and target_netloc == base_netloc:
-            return True
-
-        base_url_str = str(request.base_url).rstrip("/").lower()
-        if target_origin == base_url_str:
-            return True
-
-        return False
-    except Exception:
-        return False
+    return TokenPayload(
+        sub=payload["sub"],
+        display_name=payload.get("display_name", payload["sub"]),
+        email=payload.get("email"),
+        groups=payload.get("groups", []),
+        exp=payload.get("exp", 0),
+        jti=payload.get("jti")
+    )
 
 
 def verify_csrf(request: Request, is_cookie_auth: bool):
     """
-    Защита от Cross-Site Request Forgery (CWE-352).
-    Если запрос аутентифицирован через Cookie и изменяет состояние (POST, PUT, DELETE, PATCH),
-    требуется подтверждение легитимности источника (Sec-Fetch-Site, Origin, Referer, X-Requested-With).
+    Защита от CSRF через унифицированный модуль backend.common.core.security.
     """
-    if not is_cookie_auth:
-        return
-
-    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-        sec_fetch_site = request.headers.get("Sec-Fetch-Site")
-        if sec_fetch_site and sec_fetch_site.lower() == "cross-site":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF проверка не пройдена: межсайтовый запрос заблокирован"
-            )
-
-        x_requested_with = request.headers.get("X-Requested-With")
-        if x_requested_with == "XMLHttpRequest":
-            return
-
-        origin = request.headers.get("Origin")
-        if origin and _is_allowed_origin(origin, request, settings.server.cors_origins):
-            return
-
-        referer = request.headers.get("Referer")
-        if referer and _is_allowed_origin(referer, request, settings.server.cors_origins):
-            return
-
-        # Если ни одно из условий не выполнено, блокируем запрос
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF проверка не пройдена: запрос отклонен политикой безопасности источника"
-        )
+    common_verify_csrf(request, is_cookie_auth, allowed_cors=settings.server.cors_origins)
 
 
 def extract_token_from_request(request: Request) -> Optional[str]:

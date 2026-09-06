@@ -1,3 +1,4 @@
+import anyio.to_thread
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from app.core.config import settings
 from app.core.ldap_auth import ldap_client
@@ -31,7 +32,7 @@ async def login(
     if mode == "mock":
         user = ldap_client.authenticate_mock(login_req.username, login_req.password)
     elif mode in ("hybrid", "ldaps_only") and settings.ldap.enabled:
-        user = ldap_client.authenticate_ldap(login_req.username, login_req.password)
+        user = await anyio.to_thread.run_sync(ldap_client.authenticate_ldap, login_req.username, login_req.password)
 
     if not user:
         audit_log("LOGIN_FAILED", login_req.username, client_ip, status="FAILURE")

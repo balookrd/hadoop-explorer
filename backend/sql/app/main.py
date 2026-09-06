@@ -28,6 +28,16 @@ async def lifespan(app: FastAPI):
 
     # 2. Инициализация БД (создание таблиц при первом старте)
     await init_db()
+
+    # 3. Очистка устаревших файлов результатов SQL-запросов (TTL rotation)
+    try:
+        from app.services.query_manager import query_manager
+        deleted = query_manager.cleanup_expired_results()
+        if deleted > 0:
+            logger.info(f"Очищено {deleted} устаревших файлов кэша результатов SQL-запросов")
+    except Exception as e:
+        logger.warning(f"Ошибка при очистке кэша результатов: {e}")
+
     yield
 
 app = FastAPI(

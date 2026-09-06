@@ -78,6 +78,10 @@ async def execute_query(
             status="DENIED",
             details={"cluster_id": req.cluster_id, "groups": current_user.groups}
         )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к данному кластеру запрещен ACL"
+        )
     try:
         query_id = await query_manager.start_query(cluster, current_user, req.query)
     except ValueError as e:

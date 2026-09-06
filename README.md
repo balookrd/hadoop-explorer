@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-98%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-112%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
@@ -48,16 +48,16 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── core/           # Безопасность, JWT, CSRF, LDAP, Kerberos, Rate Limiter, Audit
+│   │   ├── core/           # Безопасность, JWT, CSRF, CommonLdapAuthService, Kerberos, Rate Limiter, Audit
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий
-│   │   └── db/             # Базовый StorageService (SQLite, Postgres, Redis)
-│   ├── hdfs/               # Сервис HDFS Explorer (29 тестов)
-│   ├── sql/                # Сервис SQL Explorer (28 тестов)
-│   └── yarn/               # Сервис YARN Explorer (41 тест)
+│   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
+│   ├── hdfs/               # Сервис HDFS Explorer (39 тестов)
+│   ├── sql/                # Сервис SQL Explorer (31 тест)
+│   └── yarn/               # Сервис YARN Explorer (42 теста)
 │
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты и API-клиент ───
-│   │   ├── api/            # HTTP-клиент с защитой от CSRF и поддержкой Kerberos SPNEGO
+│   │   ├── api/            # Cookie-first HTTP-клиент с защитой от CSRF и поддержкой Kerberos SPNEGO
 │   │   ├── components/     # StatusBadge, NotificationToast
 │   │   └── types/          # Общие TypeScript интерфейсы сессий и ролей
 │   ├── apps/
@@ -86,7 +86,7 @@ hadoop-explorer/
 │   └── all/                # Единый запуск всех стендов
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 98 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 112 тестов
 │   └── build-containers.sh # Скрипт сборки контейнеров
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -99,27 +99,28 @@ hadoop-explorer/
 
 ### 1. `backend/common` (Пакет `hadoop-explorer-common`)
 - **`backend.common.core.security`**:
-  - Генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
+  - Централизованная генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
   - Строгая CSRF-защита (блокировка межсайтовых запросов `Sec-Fetch-Site: cross-site`, валидация заголовков `Origin`, `Referer` по белому списку, требование заголовка `X-Requested-With`).
-  - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory + L2 Database/Redis).
+  - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis) и защитой от Fail-Open.
 - **`backend.common.core.ldap_auth`**:
-  - Универсальный коннектор к LDAPS / Active Directory / OpenLDAP.
-  - Поиск пользователей, извлечение групп (поддержка `memberOf` и фильтров `group_search_filter`).
-  - Провайдер mock-пользователей с верификацией хэшей `pbkdf2:sha256` и открытых паролей с защитой от timing-атак.
+  - Универсальный `CommonLdapAuthService` для LDAPS / Active Directory / OpenLDAP.
+  - Поиск пользователей с экранированием фильтров (защита от LDAP Injection / CWE-90), извлечение групп (поддержка `memberOf` и фильтров `group_search_filter`), поддержка кастомных TLS CA-сертификатов.
+  - Асинхронное исполнение через пул рабочих потоков во избежание блокировки Event Loop.
+  - Провайдер mock-пользователей с верификацией хэшей `pbkdf2:sha256` и защитой от timing-атак (`hmac.compare_digest`).
 - **`backend.common.core.kerberos`**:
   - Аутентификация Kerberos SPNEGO SSO через HTTP-заголовок `Authorization: Negotiate <ticket>`.
 - **`backend.common.core.rate_limiter`**:
-  - Скользящее окно (Sliding Window) с возможностью сохранения состояния в SQLite, PostgreSQL и Redis.
+  - Скользящее окно (Sliding Window) с возможностью сохранения состояния в SQLite (WAL), PostgreSQL и Redis.
   - Безопасное определение клиентского IP-адреса с проверкой доверенных прокси (`is_trusted_proxy`, защита от IP Spoofing).
 - **`backend.common.core.audit`**:
   - Структурированное JSON-логирование событий безопасности (`AuditEventType`) в кольцевой буфер и файл.
 - **`backend.common.db.storage`**:
-  - Базовый `BaseStorageService` для централизованного отзыва токенов и трекинга лимитов запросов.
+  - Базовый `BaseStorageService` для централизованного отзыва токенов и трекинга лимитов запросов с поддержкой любых диалектов (`sqlite`, `postgresql`, `redis`).
 - **`backend.common.models.auth`**:
   - Базовые модели Pydantic: `Role` (`READER`, `WRITER`, `ADMIN`), `UserSession`, `UserInfo`, `TokenPayload`, `LoginRequest`, `TokenResponse`.
 
 ### 2. `frontend/common` (Пакет `@hadoop-explorer/common`)
-- **`api/client.ts`**: Базовый HTTP fetcher с автоматическим добавлением заголовков CSRF, `credentials: include`, Bearer-токена и методом Kerberos SSO Negotiate.
+- **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
 - **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
 - **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`) и всплывающих уведомлений (`NotificationToast`).
 
@@ -251,13 +252,13 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все существующие тесты (98 тестов) полностью сохранены и успешно проходят проверку:
-- **HDFS Explorer**: 29 тестов (ACL, API, Security, CSRF).
-- **SQL Explorer**: 28 тестов (Trino/Hive движки, AI сервис, токены, CSRF).
-- **YARN Explorer**: 41 тест (Capacity Scheduler валидация, балансировка, Change Requests, аудит).
+Все тесты (112 тестов) успешно проходят комплексную проверку:
+- **HDFS Explorer**: 39 тестов (ACL, API, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
+- **SQL Explorer**: 31 тест (Trino/Hive движки, AI сервис, токены, CSRF, ACL кластеров, TTL-очистка кэша результатов).
+- **YARN Explorer**: 42 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов).
 
 ```bash
-# Запуск всех 98 тестов платформы
+# Запуск всех 112 тестов платформы
 make test
 
 # Либо по сервисам:
@@ -272,10 +273,10 @@ make test-yarn
 
 | Команда | Описание |
 |---|---|
-| `make test` | Запуск всех 98 модульных и интеграционных тестов |
-| `make test-hdfs` | Запуск 29 тестов сервиса HDFS Explorer |
-| `make test-sql` | Запуск 28 тестов сервиса SQL Explorer |
-| `make test-yarn` | Запуск 41 теста сервиса YARN Explorer |
+| `make test` | Запуск всех 112 модульных и интеграционных тестов |
+| `make test-hdfs` | Запуск 39 тестов сервиса HDFS Explorer |
+| `make test-sql` | Запуск 31 теста сервиса SQL Explorer |
+| `make test-yarn` | Запуск 42 тестов сервиса YARN Explorer |
 | `make build` | Сборка Docker-образов всех приложений |
 | `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
 | `make build-sql` | Сборка Docker-образа SQL Explorer |

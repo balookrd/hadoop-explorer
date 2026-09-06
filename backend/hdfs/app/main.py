@@ -38,6 +38,11 @@ async def lifespan(app: FastAPI):
                 "Задайте стойкий секретный ключ (минимум 32 символа) через переменную окружения JWT_SECRET_KEY / SECRET_KEY."
             )
     yield
+    try:
+        from app.services.hdfs_client import hdfs_service
+        await hdfs_service.aclose()
+    except Exception as e:
+        logger.warning(f"Ошибка закрытия соединений HDFS: {e}")
 
 
 app = FastAPI(

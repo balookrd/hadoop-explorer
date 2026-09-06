@@ -71,7 +71,7 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
         if sec_fetch_site and sec_fetch_site.lower() == "cross-site":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF защита: межсайтовый запрос отклонен (Sec-Fetch-Site: cross-site)"
+                detail="CSRF protection: межсайтовый запрос отклонен (Sec-Fetch-Site: cross-site)"
             )
 
         x_requested_with = request.headers.get("X-Requested-With")
@@ -89,7 +89,7 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF защита: запрос отклонен политикой безопасности источника"
+            detail="CSRF protection: запрос отклонен политикой безопасности источника"
         )
 
 

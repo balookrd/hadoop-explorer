@@ -7,9 +7,17 @@ from pydantic import BaseModel
 import jwt
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+from backend.common.core.security import (
+    verify_csrf as common_verify_csrf,
+    hash_token,
+    create_jwt_token,
+    decode_jwt_token
+)
 from app.core.config import settings
 
 security_bearer = HTTPBearer(auto_error=False)
+
 
 def _get_trusted_proxies() -> set[str]:
     base = {"127.0.0.1", "::1", "localhost", "testclient"}
@@ -17,6 +25,7 @@ def _get_trusted_proxies() -> set[str]:
     if env_p:
         base.update(p.strip() for p in env_p.split(",") if p.strip())
     return base
+
 
 def _get_trusted_cidrs() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     env_c = os.getenv("TRUSTED_CIDRS", "")
@@ -31,6 +40,7 @@ def _get_trusted_cidrs() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
                     pass
     return cidrs
 
+
 def is_trusted_proxy(host: str) -> bool:
     if host in _get_trusted_proxies():
         return True
@@ -44,6 +54,7 @@ def is_trusted_proxy(host: str) -> bool:
         return False
     except ValueError:
         return False
+
 
 def get_client_ip(request: Request) -> str:
     """
@@ -66,80 +77,13 @@ def get_client_ip(request: Request) -> str:
             
     return direct_ip
 
-from urllib.parse import urlparse
-
-def _is_allowed_origin(url_str: str, request: Request, allowed_cors: list[str]) -> bool:
-    if not url_str:
-        return False
-    try:
-        parsed = urlparse(url_str)
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        if parsed.scheme.lower() not in ("http", "https"):
-            return False
-
-        target_origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
-        target_netloc = parsed.netloc.lower()
-
-        for allowed in allowed_cors:
-            if allowed == "*":
-                return True
-            p_allowed = urlparse(allowed)
-            if p_allowed.netloc:
-                if f"{p_allowed.scheme.lower()}://{p_allowed.netloc.lower()}".rstrip("/") == target_origin:
-                    return True
-            elif allowed.rstrip("/").lower() == target_origin:
-                return True
-
-        req_host = request.headers.get("host", "").lower()
-        if req_host and target_netloc == req_host:
-            return True
-
-        base_netloc = request.base_url.netloc.lower()
-        if base_netloc and target_netloc == base_netloc:
-            return True
-
-        base_url_str = str(request.base_url).rstrip("/").lower()
-        if target_origin == base_url_str:
-            return True
-
-        return False
-    except Exception:
-        return False
 
 def verify_csrf(request: Request, is_cookie_auth: bool):
     """
-    Защита от Cross-Site Request Forgery (CWE-352).
-    Если запрос аутентифицирован через Cookie и изменяет состояние (POST, PUT, DELETE, PATCH),
-    требуется подтверждение легитимности источника (Sec-Fetch-Site, Origin, Referer, X-Requested-With).
+    Защита от Cross-Site Request Forgery (CWE-352) через унифицированный backend.common.core.security.
     """
-    if not is_cookie_auth:
-        return
+    common_verify_csrf(request, is_cookie_auth, allowed_cors=settings.server.cors_origins)
 
-    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-        sec_fetch_site = request.headers.get("Sec-Fetch-Site")
-        if sec_fetch_site and sec_fetch_site.lower() == "cross-site":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF protection: межсайтовый запрос отклонен (Sec-Fetch-Site: cross-site)"
-            )
-
-        x_requested_with = request.headers.get("X-Requested-With")
-        if x_requested_with == "XMLHttpRequest":
-            return
-
-        origin = request.headers.get("Origin")
-        if origin and _is_allowed_origin(origin, request, settings.server.cors_origins):
-            return
-
-        referer = request.headers.get("Referer")
-        if referer and _is_allowed_origin(referer, request, settings.server.cors_origins):
-            return
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF protection: запрос отклонен политикой безопасности источника"
-        )
 
 class UserSession(BaseModel):
     username: str
@@ -149,44 +93,35 @@ class UserSession(BaseModel):
     is_admin: bool = False
     auth_method: str = "ldap"  # ldap, kerberos, mock
 
+
 def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
-    to_encode = data.copy()
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-    if expires_delta:
-        expire = now_utc + expires_delta
-    else:
-        expire = now_utc + datetime.timedelta(minutes=settings.auth.jwt.expire_minutes)
-    to_encode.update({
-        "exp": expire,
-        "iat": now_utc,
-        "jti": uuid.uuid4().hex
-    })
-    encoded_jwt = jwt.encode(to_encode, settings.auth.jwt.secret_key, algorithm=settings.auth.jwt.algorithm)
-    return encoded_jwt
+    return create_jwt_token(
+        data=data,
+        secret_key=settings.auth.jwt.secret_key,
+        algorithm=settings.auth.jwt.algorithm,
+        expires_minutes=settings.auth.jwt.expire_minutes,
+        expires_delta=expires_delta
+    )
+
 
 def decode_access_token(token: str) -> Optional[dict]:
-    try:
-        payload = jwt.decode(token, settings.auth.jwt.secret_key, algorithms=[settings.auth.jwt.algorithm])
-        return payload
-    except jwt.PyJWTError:
-        return None
+    return decode_jwt_token(
+        token=token,
+        secret_key=settings.auth.jwt.secret_key,
+        algorithms=[settings.auth.jwt.algorithm]
+    )
 
-import hashlib
-from sqlalchemy import select, delete
-from app.db.session import AsyncSessionLocal
-from app.models.models import RevokedToken
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 # L1 In-memory кэш отозванных токенов для мгновенной проверки (с ограничением размера)
 _revoked_tokens_cache: set[str] = set()
 _MAX_REVOKED_CACHE_SIZE = 10000
 
+
 def _add_to_revoked_cache(h: str):
     if len(_revoked_tokens_cache) >= _MAX_REVOKED_CACHE_SIZE:
         _revoked_tokens_cache.clear()
     _revoked_tokens_cache.add(h)
+
 
 async def revoke_token_in_db(
     token: str,
@@ -216,6 +151,7 @@ async def is_token_revoked_in_db(token: str) -> bool:
         _add_to_revoked_cache(h)
         return True
     return False
+
 
 async def get_current_user(
     request: Request,

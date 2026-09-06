@@ -435,12 +435,32 @@ class HdfsClient:
     1. Нескольких NameNode (HA failover)
     2. Имперсонации пользователя (doAs)
     3. Kerberos аутентификации сервиса
+    4. Пулинга соединений и переиспользования httpx.AsyncClient
     """
     def __init__(self, cluster: ClusterConfig):
         self.cluster = cluster
         self.active_url_index = 0
         self.mock_storage = MockStorage() if cluster.mock_storage else None
         self._auth_cookies: Dict[str, str] = {}
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.cluster.timeout_seconds, connect=min(float(self.cluster.timeout_seconds), 10.0)),
+                follow_redirects=False,
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+            )
+        return self._http_client
+
+    async def aclose(self):
+        """Закрывает базовый пул HTTP-соединений."""
+        if self._http_client and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+
+    async def close(self):
+        await self.aclose()
 
     @property
     def current_url(self) -> str:
@@ -509,42 +529,42 @@ class HdfsClient:
             url = f"{self.current_url}/{clean_path}"
             req_params, headers = self._prepare_auth_and_params(params, do_as_user, url)
             try:
-                async with httpx.AsyncClient(timeout=self.cluster.timeout_seconds) as client:
+                client = self._get_http_client()
+                resp = await client.request(
+                    method=method,
+                    url=url,
+                    params=req_params,
+                    headers=headers,
+                    content=content,
+                    follow_redirects=False
+                )
+
+                # Если 401 Unauthorized с Negotiate и кука устарела - сбрасываем и повторяем один раз
+                if resp.status_code == 401 and "hadoop.auth" in self._auth_cookies:
+                    self._auth_cookies.pop("hadoop.auth", None)
+                    retry_params, retry_headers = self._prepare_auth_and_params(params, do_as_user, url)
                     resp = await client.request(
                         method=method,
                         url=url,
-                        params=req_params,
-                        headers=headers,
+                        params=retry_params,
+                        headers=retry_headers,
                         content=content,
                         follow_redirects=False
                     )
 
-                    # Если 401 Unauthorized с Negotiate и кука устарела - сбрасываем и повторяем один раз
-                    if resp.status_code == 401 and "hadoop.auth" in self._auth_cookies:
-                        self._auth_cookies.pop("hadoop.auth", None)
-                        retry_params, retry_headers = self._prepare_auth_and_params(params, do_as_user, url)
-                        resp = await client.request(
-                            method=method,
-                            url=url,
-                            params=retry_params,
-                            headers=retry_headers,
-                            content=content,
-                            follow_redirects=False
-                        )
+                self._save_response_cookies(resp)
 
-                    self._save_response_cookies(resp)
+                # Проверка на StandbyException (NameNode в режиме ожидания)
+                if resp.status_code == 403 and "StandbyException" in resp.text:
+                    logger.info(f"NameNode {self.current_url} в режиме STANDBY. Пробуем следующую.")
+                    self._switch_to_next_nn()
+                    continue
 
-                    # Проверка на StandbyException (NameNode в режиме ожидания)
-                    if resp.status_code == 403 and "StandbyException" in resp.text:
-                        logger.info(f"NameNode {self.current_url} в режиме STANDBY. Пробуем следующую.")
-                        self._switch_to_next_nn()
-                        continue
+                # Проверка ошибок WebHDFS
+                if resp.status_code >= 400:
+                    raise WebHdfsException(resp.text, resp.status_code)
 
-                    # Проверка ошибок WebHDFS
-                    if resp.status_code >= 400:
-                        raise WebHdfsException(resp.text, resp.status_code)
-
-                    return resp
+                return resp
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 logger.warning(f"Ошибка подключения к {self.current_url}: {e}")
@@ -585,23 +605,23 @@ class HdfsClient:
         url = f"{self.current_url}/{clean_path}"
         req_params, headers = self._prepare_auth_and_params({"op": "OPEN", **params}, do_as_user, url)
 
-        async with httpx.AsyncClient(timeout=self.cluster.timeout_seconds, follow_redirects=False) as client:
-            resp = await client.get(url, params=req_params, headers=headers)
+        client = self._get_http_client()
+        resp = await client.get(url, params=req_params, headers=headers)
+        self._save_response_cookies(resp)
+        if resp.status_code in (307, 302, 301):
+            location = resp.headers.get("Location")
+            if not location:
+                raise WebHdfsException("NameNode не вернула заголовок Location для чтения файла", 500)
+            validate_webhdfs_location(location, self.cluster)
+            dn_headers = {}
+            if "hadoop.auth" in self._auth_cookies and is_trusted_redirect_host(location, self.cluster):
+                dn_headers["Cookie"] = f"hadoop.auth={self._auth_cookies['hadoop.auth']}"
+            resp = await client.get(location, headers=dn_headers, follow_redirects=False)
             self._save_response_cookies(resp)
-            if resp.status_code in (307, 302, 301):
-                location = resp.headers.get("Location")
-                if not location:
-                    raise WebHdfsException("NameNode не вернула заголовок Location для чтения файла", 500)
-                validate_webhdfs_location(location, self.cluster)
-                dn_headers = {}
-                if "hadoop.auth" in self._auth_cookies and is_trusted_redirect_host(location, self.cluster):
-                    dn_headers["Cookie"] = f"hadoop.auth={self._auth_cookies['hadoop.auth']}"
-                resp = await client.get(location, headers=dn_headers, follow_redirects=False)
-                self._save_response_cookies(resp)
 
-            if resp.status_code >= 400:
-                raise WebHdfsException(resp.text, resp.status_code)
-            return resp.content
+        if resp.status_code >= 400:
+            raise WebHdfsException(resp.text, resp.status_code)
+        return resp.content
 
     async def open_stream(self, path: str, do_as_user: str) -> AsyncIterator[bytes]:
         """
@@ -618,37 +638,33 @@ class HdfsClient:
         url = f"{self.current_url}/{clean_path}"
         req_params, headers = self._prepare_auth_and_params({"op": "OPEN"}, do_as_user, url)
 
+        client = self._get_http_client()
         # 1. Запрос на получение ссылки от NameNode
-        async with httpx.AsyncClient(timeout=self.cluster.timeout_seconds, follow_redirects=False) as init_client:
-            init_resp = await init_client.get(url, params=req_params, headers=headers)
-            self._save_response_cookies(init_resp)
-            if init_resp.status_code in (307, 302, 301):
-                location = init_resp.headers.get("Location")
-                if not location:
-                    raise WebHdfsException("NameNode не вернула заголовок Location для стрима", 500)
-                validate_webhdfs_location(location, self.cluster)
-                target_url = location
-                target_headers = {}
-                if "hadoop.auth" in self._auth_cookies and is_trusted_redirect_host(location, self.cluster):
-                    target_headers["Cookie"] = f"hadoop.auth={self._auth_cookies['hadoop.auth']}"
-                target_params = {}
-            elif init_resp.status_code < 400:
-                target_url = url
-                target_headers = headers
-                target_params = req_params
-            else:
-                raise WebHdfsException(init_resp.text, init_resp.status_code)
+        init_resp = await client.get(url, params=req_params, headers=headers)
+        self._save_response_cookies(init_resp)
+        if init_resp.status_code in (307, 302, 301):
+            location = init_resp.headers.get("Location")
+            if not location:
+                raise WebHdfsException("NameNode не вернула заголовок Location для стрима", 500)
+            validate_webhdfs_location(location, self.cluster)
+            target_url = location
+            target_headers = {}
+            if "hadoop.auth" in self._auth_cookies and is_trusted_redirect_host(location, self.cluster):
+                target_headers["Cookie"] = f"hadoop.auth={self._auth_cookies['hadoop.auth']}"
+            target_params = {}
+        elif init_resp.status_code < 400:
+            target_url = url
+            target_headers = headers
+            target_params = req_params
+        else:
+            raise WebHdfsException(init_resp.text, init_resp.status_code)
 
-        client = httpx.AsyncClient(timeout=None, follow_redirects=False)
-        try:
-            async with client.stream("GET", target_url, params=target_params, headers=target_headers) as resp:
-                self._save_response_cookies(resp)
-                if resp.status_code >= 400:
-                    raise WebHdfsException(await resp.aread(), resp.status_code)
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
-        finally:
-            await client.aclose()
+        async with client.stream("GET", target_url, params=target_params, headers=target_headers, timeout=None) as resp:
+            self._save_response_cookies(resp)
+            if resp.status_code >= 400:
+                raise WebHdfsException(await resp.aread(), resp.status_code)
+            async for chunk in resp.aiter_bytes():
+                yield chunk
 
     async def create_file(self, path: str, content: Union[bytes, AsyncIterator[bytes]], do_as_user: str, overwrite: bool = True):
         if self.mock_storage:
@@ -669,17 +685,17 @@ class HdfsClient:
         params = {"op": "CREATE", "overwrite": str(overwrite).lower()}
         req_params, headers = self._prepare_auth_and_params(params, do_as_user, url)
 
-        async with httpx.AsyncClient(timeout=self.cluster.timeout_seconds) as client:
-            resp1 = await client.put(url, params=req_params, headers=headers, follow_redirects=False)
-            self._save_response_cookies(resp1)
-            if resp1.status_code not in (307, 201):
-                raise WebHdfsException(resp1.text, resp1.status_code)
+        client = self._get_http_client()
+        resp1 = await client.put(url, params=req_params, headers=headers, follow_redirects=False)
+        self._save_response_cookies(resp1)
+        if resp1.status_code not in (307, 201):
+            raise WebHdfsException(resp1.text, resp1.status_code)
 
-            location = resp1.headers.get("Location")
-            if not location:
-                raise WebHdfsException("NameNode не вернула заголовок Location для загрузки файла", 500)
+        location = resp1.headers.get("Location")
+        if not location:
+            raise WebHdfsException("NameNode не вернула заголовок Location для загрузки файла", 500)
 
-            validate_webhdfs_location(location, self.cluster)
+        validate_webhdfs_location(location, self.cluster)
 
         # 2. Потоковая отправка содержимого файла на полученный DataNode URL (без накопления в RAM)
         dn_headers = {"Content-Type": "application/octet-stream"}
@@ -688,11 +704,10 @@ class HdfsClient:
 
         # Увеличенный таймаут для загрузки больших потоков данных
         stream_timeout = httpx.Timeout(600.0, connect=self.cluster.timeout_seconds)
-        async with httpx.AsyncClient(timeout=stream_timeout) as dn_client:
-            resp2 = await dn_client.put(location, content=content, headers=dn_headers)
-            self._save_response_cookies(resp2)
-            if resp2.status_code not in (200, 201):
-                raise WebHdfsException(resp2.text, resp2.status_code)
+        resp2 = await client.put(location, content=content, headers=dn_headers, timeout=stream_timeout)
+        self._save_response_cookies(resp2)
+        if resp2.status_code not in (200, 201):
+            raise WebHdfsException(resp2.text, resp2.status_code)
 
     async def mkdirs(self, path: str, do_as_user: str):
         if self.mock_storage:
@@ -735,6 +750,15 @@ class HdfsService:
             self._clients[cluster.id] = HdfsClient(cluster)
         return self._clients[cluster.id]
 
+    async def aclose(self):
+        """Закрывает все клиенты и освобождает пулы соединений."""
+        for client in self._clients.values():
+            await client.aclose()
+        self._clients.clear()
+
+    async def close(self):
+        await self.aclose()
+
     async def copy_cross_cluster(
         self,
         source_cluster: ClusterConfig,
@@ -746,6 +770,7 @@ class HdfsService:
     ) -> Dict[str, Any]:
         """
         Копирует файл или директорию из одного кластера в другой с сохранением структуры.
+        Включает защиту от зацикливания, потоковую передачу данных чанками и логирование прогресса.
         """
         source_client = self.get_client(source_cluster)
         target_client = self.get_client(target_cluster)
@@ -753,8 +778,17 @@ class HdfsService:
         clean_src = "/" + source_path.strip("/")
         clean_dst = "/" + target_path.strip("/") if target_path.strip("/") else "/"
 
-        if source_cluster.id == target_cluster.id and clean_src == clean_dst:
-            raise WebHdfsException("Исходный и целевой путь в одном кластере совпадают", 400)
+        # Защита от зацикливания и некорректных путей в одном кластере
+        if source_cluster.id == target_cluster.id:
+            if clean_src == clean_dst:
+                raise WebHdfsException("Исходный и целевой путь в одном кластере совпадают", 400)
+            if clean_dst.startswith(clean_src.rstrip("/") + "/"):
+                raise WebHdfsException("Целевой путь является подкаталогом исходного пути (защита от зацикливания)", 400)
+
+        logger.info(
+            f"Начало межкластерного копирования: '{source_cluster.id}:{clean_src}' -> "
+            f"'{target_cluster.id}:{clean_dst}', пользователь='{username}', overwrite={overwrite}"
+        )
 
         # Получаем статус исходного объекта
         src_status = await source_client.get_file_status(clean_src, username)
@@ -773,11 +807,13 @@ class HdfsService:
                 if target_path.endswith("/"):
                     dst_file_path = f"{clean_dst.rstrip('/')}/{src_name}"
 
+            logger.info(f"Копирование файла: '{clean_src}' -> '{dst_file_path}' ({src_status.length} байт)")
             file_stream = source_client.open_stream(clean_src, username)
             await target_client.create_file(dst_file_path, file_stream, username, overwrite=overwrite)
             copied_files = 1
             copied_bytes = src_status.length
 
+            logger.info(f"Файл успешно скопирован: '{dst_file_path}' ({copied_bytes} байт)")
             return {
                 "success": True,
                 "message": f"Файл '{src_name}' успешно скопирован в кластер '{target_cluster.name}' ({dst_file_path})",
@@ -808,6 +844,7 @@ class HdfsService:
                         await target_client.mkdirs(sub_dst, username)
                         await _copy_dir_recursive(sub_src, sub_dst)
                     else:
+                        logger.info(f"Потоковое копирование файла [{copied_files + 1}]: '{sub_src}' -> '{sub_dst}' ({item.length} байт)")
                         file_stream = source_client.open_stream(sub_src, username)
                         await target_client.create_file(sub_dst, file_stream, username, overwrite=overwrite)
                         copied_files += 1
@@ -815,6 +852,10 @@ class HdfsService:
 
             await _copy_dir_recursive(clean_src, dest_dir_root)
 
+            logger.info(
+                f"Каталог успешно скопирован: '{dest_dir_root}', "
+                f"всего файлов: {copied_files}, суммарный объем: {copied_bytes} байт"
+            )
             return {
                 "success": True,
                 "message": f"Папка '{src_name}' успешно скопирована в кластер '{target_cluster.name}' ({dest_dir_root}), скопировано файлов: {copied_files}",

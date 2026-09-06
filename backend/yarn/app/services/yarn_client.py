@@ -32,27 +32,55 @@ class YarnClient:
     """
     Асинхронный клиент к YARN ResourceManager REST API.
     Поддерживает RM HA Failover, имперсонацию (doAs) и Kerberos SPNEGO аутентификацию.
+    Переиспользует HTTP-клиенты (httpx.AsyncClient) и Kerberos-сессии (requests.Session) с пулингом соединений.
     """
 
     def __init__(self, cluster: ClusterConfig):
         self.cluster = cluster
         self._active_rm_url: Optional[str] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
+        self._kerberos_session: Optional[requests.Session] = None
+
+    def _get_kerberos_session(self) -> requests.Session:
+        if self._kerberos_session is None:
+            self._kerberos_session = _create_kerberos_session()
+        return self._kerberos_session
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=15.0,
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+            )
+        return self._http_client
+
+    async def aclose(self):
+        """Закрывает базовый пул HTTP-клиента и сессию requests."""
+        if self._http_client and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+        if self._kerberos_session:
+            self._kerberos_session.close()
+            self._kerberos_session = None
+
+    async def close(self):
+        await self.aclose()
 
     def _execute_kerberos_get(self, url: str, params: dict) -> dict:
-        """Синхронный GET запрос с SPNEGO аутентификацией и потокобезопасной сессией."""
+        """Синхронный GET запрос с SPNEGO аутентификацией и переиспользуемой сессией."""
         kerberos_manager.ensure_service_ticket()
-        with _create_kerberos_session() as session:
-            resp = session.get(url, params=params, timeout=15.0)
-            resp.raise_for_status()
-            return resp.json()
+        session = self._get_kerberos_session()
+        resp = session.get(url, params=params, timeout=15.0)
+        resp.raise_for_status()
+        return resp.json()
 
     def _execute_kerberos_get_text(self, url: str, params: dict, headers: Optional[dict] = None) -> str:
         """Синхронный GET запрос с SPNEGO аутентификацией, возвращающий текстовый ответ."""
         kerberos_manager.ensure_service_ticket()
-        with _create_kerberos_session() as session:
-            resp = session.get(url, params=params, headers=headers, timeout=15.0)
-            resp.raise_for_status()
-            return resp.text
+        session = self._get_kerberos_session()
+        resp = session.get(url, params=params, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        return resp.text
 
     async def _http_get(self, url: str, params: Optional[dict] = None) -> dict:
         """Выполняет GET запрос (с Kerberos или без в зависимости от конфигурации)."""
@@ -60,10 +88,10 @@ class YarnClient:
         if self.cluster.kerberos_enabled:
             return await asyncio.to_thread(self._execute_kerberos_get, url, params)
         else:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                return resp.json()
+            client = self._get_http_client()
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            return resp.json()
 
     async def _http_get_text(self, url: str, params: Optional[dict] = None, headers: Optional[dict] = None) -> str:
         """Выполняет GET запрос и возвращает текст."""
@@ -72,10 +100,10 @@ class YarnClient:
         if self.cluster.kerberos_enabled:
             return await asyncio.to_thread(self._execute_kerberos_get_text, url, params, headers)
         else:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, params=params, headers=headers)
-                resp.raise_for_status()
-                return resp.text
+            client = self._get_http_client()
+            resp = await client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            return resp.text
 
     async def _get_active_rm(self) -> str:
         """Определяет активный ResourceManager из списка URL."""
@@ -363,3 +391,26 @@ class YarnClient:
 
         logger.warning(f"Базовый capacity-scheduler.xml для кластера {self.cluster.id} не найден.")
         return None
+
+
+class YarnService:
+    """Сервис управления жизненным циклом и пулингом клиентов YarnClient."""
+    def __init__(self):
+        self._clients: dict[str, YarnClient] = {}
+
+    def get_client(self, cluster: ClusterConfig) -> YarnClient:
+        if cluster.id not in self._clients:
+            self._clients[cluster.id] = YarnClient(cluster)
+        return self._clients[cluster.id]
+
+    async def aclose(self):
+        """Закрывает все клиенты и освобождает пулы соединений."""
+        for client in self._clients.values():
+            await client.aclose()
+        self._clients.clear()
+
+    async def close(self):
+        await self.aclose()
+
+
+yarn_service = YarnService()
