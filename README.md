@@ -23,6 +23,7 @@
 - [Выделенные общие модули](#-выделенные-общие-модули)
 - [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
+- [Руководство по конфигурации компонентов (docs/CONFIGURATION.md)](docs/CONFIGURATION.md)
 - [Быстрый старт: Раздельные демо-стенды](#-быстрый-старт-раздельные-демо-стенды)
 - [Сборка Docker-контейнеров](#-сборка-docker-контейнеров)
 - [Развертывание в Kubernetes (Helm)](#️-развертывание-в-kubernetes-helm)
@@ -162,6 +163,8 @@ make format     # или uv run ruff format backend
 | **HDFS Explorer** | `http://localhost:8001` | `GET /healthz` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
 | **SQL Explorer** | `http://localhost:8002` | `GET /healthz` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
 | **YARN Explorer** | `http://localhost:8003` | `GET /healthz` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
+
+> 📖 **Подробное описание параметров, форматов файлов и переменных окружения приведено в [Руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).**
 
 ---
 
