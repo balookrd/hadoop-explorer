@@ -146,7 +146,7 @@ services:
         done
         cp /shared-krb5/krb5.conf /etc/krb5.conf
         echo "Starting Yarn Explorer..."
-        exec /app/backend/docker-entrypoint.sh
+        exec /docker-entrypoint.sh
     depends_on:
       yarn-demo-kdc:
         condition: service_healthy

@@ -17,7 +17,8 @@ services:
   kdc:
     build:
       context: ./kdc
-      dockerfile: docker/Dockerfile.sql
+      dockerfile: Dockerfile
+      
     container_name: sql-demo-kdc
     hostname: kdc
     restart: unless-stopped
@@ -35,7 +36,7 @@ services:
   openldap:
     build:
       context: ./ldap
-      dockerfile: docker/Dockerfile.sql
+      
     container_name: sql-demo-ldap
     hostname: openldap
     restart: unless-stopped
@@ -141,6 +142,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.sql
+      
     container_name: sql-demo-explorer
     hostname: sql-explorer
     restart: unless-stopped

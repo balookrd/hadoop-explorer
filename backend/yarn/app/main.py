@@ -105,8 +105,19 @@ async def health_check():
 
 
 # Статика фронтенда
-frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
-if os.path.isdir(frontend_dist):
+frontend_dist = os.environ.get("FRONTEND_DIST")
+if not frontend_dist or not os.path.isdir(frontend_dist):
+    candidates = [
+        "/app/frontend/dist",
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/apps/yarn/dist")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")),
+    ]
+    for c in candidates:
+        if os.path.isdir(c):
+            frontend_dist = c
+            break
+
+if frontend_dist and os.path.isdir(frontend_dist):
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
 
