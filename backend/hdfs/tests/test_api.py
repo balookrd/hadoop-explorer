@@ -13,6 +13,18 @@ async def test_healthz():
 
 
 @pytest.mark.asyncio
+async def test_readyz():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/readyz")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ready"
+        assert data["database"] == "ok"
+
+
+
+@pytest.mark.asyncio
 async def test_unauthorized_access():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

@@ -91,27 +91,52 @@ class RateLimiter:
             now=now,
         )
 
+    async def is_allowed_async(self, key: str, now: Optional[float] = None) -> tuple[bool, int]:
+        """Неблокирующая проверка rate limit через асинхронный метод storage."""
+        storage = self._get_storage()
+        if hasattr(storage, "check_and_record_rate_limit_async"):
+            return await storage.check_and_record_rate_limit_async(
+                key=key,
+                max_requests=self.max_requests,
+                window_seconds=self.window_seconds,
+                now=now,
+            )
+        import anyio
+        return await anyio.to_thread.run_sync(
+            storage.check_and_record_rate_limit, key, self.max_requests, self.window_seconds, now
+        )
+
     def check_limit(self, key: str, request: Request):
         allowed, retry_after = self.is_allowed(key=key)
         if not allowed:
-            client_ip = self._get_client_ip(request)
-            from backend.common.core.audit import audit_log
-            audit_log(
-                action="RATE_LIMIT_EXCEEDED",
-                username="anonymous",
-                client_ip=client_ip,
-                details={"path": request.url.path, "key": key, "retry_after": retry_after},
-                status="WARNING",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Слишком много попыток. Пожалуйста, повторите через {retry_after} сек.",
-                headers={"Retry-After": str(retry_after)},
-            )
+            self._raise_rate_limit_exceeded(key=key, request=request, retry_after=retry_after)
 
-    def __call__(self, request: Request):
+    async def check_limit_async(self, key: str, request: Request):
+        """Асинхронная неблокирующая проверка лимита частоты запросов."""
+        allowed, retry_after = await self.is_allowed_async(key=key)
+        if not allowed:
+            self._raise_rate_limit_exceeded(key=key, request=request, retry_after=retry_after)
+
+    def _raise_rate_limit_exceeded(self, key: str, request: Request, retry_after: int):
         client_ip = self._get_client_ip(request)
-        self.check_limit(key=f"ip:{client_ip}", request=request)
+        from backend.common.core.audit import audit_log
+        audit_log(
+            action="RATE_LIMIT_EXCEEDED",
+            username="anonymous",
+            client_ip=client_ip,
+            details={"path": request.url.path, "key": key, "retry_after": retry_after},
+            status="WARNING",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Слишком много попыток. Пожалуйста, повторите через {retry_after} сек.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    async def __call__(self, request: Request):
+        client_ip = self._get_client_ip(request)
+        await self.check_limit_async(key=f"ip:{client_ip}", request=request)
 
 
 auth_rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
+

@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "sql-explorer.name" -}}
+{{- define "spark-explorer.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "sql-explorer.fullname" -}}
+{{- define "spark-explorer.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- end -}}
@@ -25,16 +25,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "sql-explorer.chart" -}}
+{{- define "spark-explorer.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "sql-explorer.labels" -}}
-helm.sh/chart: {{ include "sql-explorer.chart" . }}
-{{ include "sql-explorer.selectorLabels" . }}
+{{- define "spark-explorer.labels" -}}
+helm.sh/chart: {{ include "spark-explorer.chart" . }}
+{{ include "spark-explorer.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -44,17 +44,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "sql-explorer.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "sql-explorer.name" . }}
+{{- define "spark-explorer.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "spark-explorer.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "sql-explorer.serviceAccountName" -}}
+{{- define "spark-explorer.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "sql-explorer.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "spark-explorer.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

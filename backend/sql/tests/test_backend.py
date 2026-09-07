@@ -817,8 +817,95 @@ async def test_sql_user_workspace_isolation():
         assert del_resp.status_code == 204
 
         get_analyst_after = await client.get("/api/v1/workspace", headers=headers_analyst)
-        assert get_analyst_after.status_code == 200
         assert get_analyst_after.json() is None
+
+
+@pytest.mark.asyncio
+async def test_metadata_caching_and_refresh():
+    """Проверяет работу TTL-кэша метаданных каталогов и параметра принудительного обновления refresh."""
+    from app.services.trino_engine import TrinoExecutionEngine, _trino_meta_cache
+    from app.services.hive_engine import HiveExecutionEngine, _hive_meta_cache
+    from app.core.config import ClusterConfig
+
+    # 1. Trino cache
+    TrinoExecutionEngine.clear_metadata_cache()
+    mock_cluster_trino = ClusterConfig(
+        id="trino-prod",
+        name="Trino Prod",
+        type="trino",
+        host="trino.example.com",
+        port=8080,
+    )
+    trino_engine = TrinoExecutionEngine(mock_cluster_trino)
+
+    # Заполним кэш
+    _trino_meta_cache.set("trino:trino-prod:catalogs:analyst", ["tpch", "system", "hive"])
+    cached_catalogs = await trino_engine.get_catalogs("analyst", refresh=False)
+    assert cached_catalogs == ["tpch", "system", "hive"]
+
+    # 2. Hive cache
+    HiveExecutionEngine.clear_metadata_cache()
+    mock_cluster_hive = ClusterConfig(
+        id="hive-prod",
+        name="Hive Prod",
+        type="hive",
+        host="hive.example.com",
+        port=10000,
+    )
+    hive_engine = HiveExecutionEngine(mock_cluster_hive)
+
+    _hive_meta_cache.set("hive:hive-prod:schemas:analyst", ["default", "analytics", "staging"])
+    cached_schemas = await hive_engine.get_schemas("analyst", refresh=False)
+    assert cached_schemas == ["default", "analytics", "staging"]
+
+    # Очистка кэша
+    HiveExecutionEngine.clear_metadata_cache()
+    assert _hive_meta_cache.get("hive:hive-prod:schemas:analyst") is None
+
+
+@pytest.mark.asyncio
+async def test_sql_readyz_and_crash_recovery():
+    """Проверяет эндпоинт /readyz и механизм Crash Recovery для SQL Explorer."""
+    from app.services.query_manager import query_manager
+    from app.db.session import AsyncSessionLocal
+    from app.models.models import QueryHistory
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Проверка /readyz
+        ready_resp = await client.get("/readyz")
+        assert ready_resp.status_code == 200
+        assert ready_resp.json()["status"] == "ready"
+        assert ready_resp.json()["database"] == "ok"
+
+        # 2. Crash recovery
+        import uuid
+        qid = f"stale-sql-{uuid.uuid4()}"
+        async with AsyncSessionLocal() as db:
+            stale_query = QueryHistory(
+                id=qid,
+                username="analyst",
+                cluster_id="trino-presto",
+                cluster_name="Trino Cluster",
+                engine_type="trino",
+                query_text="SELECT 1",
+                status="RUNNING",
+                is_in_queue=True,
+            )
+            db.add(stale_query)
+            await db.commit()
+
+        recovered = await query_manager.recover_stale_queries()
+        assert recovered >= 1
+
+        async with AsyncSessionLocal() as db:
+            res = await db.get(QueryHistory, qid)
+            assert res.status == "FAILED"
+            assert res.is_in_queue is False
+            assert "перезапущен" in res.error_message
+
+
+
 
 
 

@@ -60,13 +60,21 @@ echo "[entrypoint] Запуск веб-сервера..."
 if [ "$#" -gt 0 ]; then
     exec "$@"
 else
+    # Конфигурация количества воркеров и сетевых параметров
+    WORKERS="${WEB_CONCURRENCY:-${WORKERS:-2}}"
+    HOST="${HOST:-0.0.0.0}"
+    PORT="${PORT:-8000}"
+    LOG_LEVEL="${UVICORN_LOG_LEVEL:-info}"
+
+    echo "[entrypoint] Запуск uvicorn (воркеров: $WORKERS, хост: $HOST, порт: $PORT)..."
+
     # Определение модуля запуска по умолчанию
     MODULE="app.main:app"
     if [ -d "/app/backend/$APP_NAME/app" ]; then
-        exec python -m uvicorn app.main:app --app-dir "/app/backend/$APP_NAME" --host 0.0.0.0 --port 8000
+        exec python -m uvicorn app.main:app --app-dir "/app/backend/$APP_NAME" --host "$HOST" --port "$PORT" --workers "$WORKERS" --log-level "$LOG_LEVEL"
     elif [ -d "/app/backend/app" ]; then
-        exec python -m uvicorn app.main:app --app-dir "/app/backend" --host 0.0.0.0 --port 8000
+        exec python -m uvicorn app.main:app --app-dir "/app/backend" --host "$HOST" --port "$PORT" --workers "$WORKERS" --log-level "$LOG_LEVEL"
     else
-        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+        exec python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --workers "$WORKERS" --log-level "$LOG_LEVEL"
     fi
 fi

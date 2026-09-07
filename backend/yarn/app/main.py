@@ -104,9 +104,26 @@ app.include_router(change_requests_router)
 
 
 @app.get("/healthz", tags=["system"])
+@app.get("/api/health", tags=["system"])
 async def health_check():
-    """Проверка жизнеспособности для Kubernetes liveness/readiness probes."""
-    return {"status": "ok"}
+    """Проверка жизнеспособности для Kubernetes liveness probes."""
+    return {"status": "ok", "app": "yarn-explorer"}
+
+
+@app.get("/readyz", tags=["system"])
+@app.get("/api/readyz", tags=["system"])
+async def readyz():
+    """Readiness probe: проверяет доступность базы данных сессий и запросов на изменение."""
+    from app.services.storage import storage_service
+    from fastapi.responses import JSONResponse
+    storage_ok = await storage_service.ping_async()
+    if not storage_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "app": "yarn-explorer", "database": "unreachable"}
+        )
+    return {"status": "ready", "app": "yarn-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
+
 
 
 # Статика фронтенда

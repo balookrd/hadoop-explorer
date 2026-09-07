@@ -39,12 +39,16 @@ def _get_engine(cluster: ClusterConfig):
         return MockExecutionEngine(cluster)
 
 @router.get("/{cluster_id}/catalogs", response_model=List[str])
-async def get_catalogs(cluster_id: str, current_user: UserSession = Depends(get_current_user)):
+async def get_catalogs(
+    cluster_id: str,
+    refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
+    current_user: UserSession = Depends(get_current_user)
+):
     cluster = _get_cluster_or_404(cluster_id, current_user)
     engine = _get_engine(cluster)
     try:
         if hasattr(engine, "get_catalogs"):
-            return await engine.get_catalogs(current_user.username)
+            return await engine.get_catalogs(current_user.username, refresh=refresh)
         return ["default"]
     except Exception as e:
         logger.warning(f"Не удалось получить каталоги для {cluster_id}: {e}, возвращаем mock/default")
@@ -55,6 +59,7 @@ async def get_catalogs(cluster_id: str, current_user: UserSession = Depends(get_
 async def get_schemas(
     cluster_id: str,
     catalog: str = Query(default="hive"),
+    refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
     current_user: UserSession = Depends(get_current_user)
 ):
     catalog = validate_identifier(catalog, "catalog")
@@ -62,9 +67,9 @@ async def get_schemas(
     engine = _get_engine(cluster)
     try:
         if cluster.type == "trino" and hasattr(engine, "get_schemas"):
-            return await engine.get_schemas(current_user.username, catalog)
+            return await engine.get_schemas(current_user.username, catalog, refresh=refresh)
         elif cluster.type == "hive" and hasattr(engine, "get_schemas"):
-            return await engine.get_schemas(current_user.username)
+            return await engine.get_schemas(current_user.username, refresh=refresh)
         mock = MockExecutionEngine(cluster)
         return await mock.get_schemas(current_user.username, catalog)
     except Exception as e:
@@ -77,6 +82,7 @@ async def get_tables(
     cluster_id: str,
     catalog: str = Query(default="hive"),
     schema: str = Query(default="default"),
+    refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
     current_user: UserSession = Depends(get_current_user)
 ):
     catalog = validate_identifier(catalog, "catalog")
@@ -85,9 +91,9 @@ async def get_tables(
     engine = _get_engine(cluster)
     try:
         if cluster.type == "trino" and hasattr(engine, "get_tables"):
-            return await engine.get_tables(current_user.username, catalog, schema)
+            return await engine.get_tables(current_user.username, catalog, schema, refresh=refresh)
         elif cluster.type == "hive" and hasattr(engine, "get_tables"):
-            return await engine.get_tables(current_user.username, schema)
+            return await engine.get_tables(current_user.username, schema, refresh=refresh)
         mock = MockExecutionEngine(cluster)
         return await mock.get_tables(current_user.username, catalog, schema)
     except Exception as e:
@@ -101,6 +107,7 @@ async def get_columns(
     catalog: str = Query(default="hive"),
     schema: str = Query(default="default"),
     table: str = Query(...),
+    refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
     current_user: UserSession = Depends(get_current_user)
 ):
     catalog = validate_identifier(catalog, "catalog")
@@ -110,12 +117,13 @@ async def get_columns(
     engine = _get_engine(cluster)
     try:
         if cluster.type == "trino" and hasattr(engine, "get_columns"):
-            return await engine.get_columns(current_user.username, catalog, schema, table)
+            return await engine.get_columns(current_user.username, catalog, schema, table, refresh=refresh)
         elif cluster.type == "hive" and hasattr(engine, "get_columns"):
-            return await engine.get_columns(current_user.username, schema, table)
+            return await engine.get_columns(current_user.username, schema, table, refresh=refresh)
         mock = MockExecutionEngine(cluster)
         return await mock.get_columns(current_user.username, catalog, schema, table)
     except Exception as e:
         logger.warning(f"Не удалось получить колонки для {cluster_id}: {e}, возврат mock")
         mock = MockExecutionEngine(cluster)
         return await mock.get_columns(current_user.username, catalog, schema, table)
+

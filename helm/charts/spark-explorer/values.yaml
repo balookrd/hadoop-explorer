@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: sql-explorer
+  repository: spark-explorer
   pullPolicy: IfNotPresent
   tag: "0.1.0"
 
@@ -40,22 +40,20 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # Отключение буферизации для стриминга результатов SQL-запросов (Server-Sent Events)
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
-    # Таймауты для длительных аналитических SQL-запросов
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
   hosts:
-    - host: sql-explorer.example.com
+    - host: spark-explorer.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: sql-explorer-tls
+    - secretName: spark-explorer-tls
       hosts:
-        - sql-explorer.example.com
+        - spark-explorer.example.com
 
 resources:
   limits:
@@ -67,7 +65,7 @@ resources:
 
 livenessProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 15
   periodSeconds: 10
@@ -76,7 +74,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 5
@@ -104,22 +102,21 @@ config:
     port: 8000
     debug: false
     cors_origins:
-      - "https://sql-explorer.example.com"
+      - "https://spark-explorer.example.com"
     secure_cookies: true
 
   database:
-    # SQLite по умолчанию: "sqlite+aiosqlite:////app/data/sql_explorer.db"
-    # Для внешнего PostgreSQL: "postgresql+asyncpg://user:pass@postgres-host:5432/sql_explorer"
-    url: "sqlite+aiosqlite:////app/data/sql_explorer.db"
+    # SQLite по умолчанию: "sqlite+aiosqlite:////app/data/spark_explorer.db"
+    # Для внешнего PostgreSQL: "postgresql+asyncpg://user:pass@postgres-host:5432/spark_explorer"
+    url: "sqlite+aiosqlite:////app/data/spark_explorer.db"
 
   auth:
-    # Режим аутентификации: hybrid (Kerberos SPNEGO + LDAPS), ldaps_only, kerberos_only, mock
     mode: "hybrid"
     ldap:
       enabled: true
       server_uri: "ldaps://ad.example.com:636"
       use_ssl: true
-      bind_dn: "cn=svc_sql_explorer,ou=services,dc=example,dc=com"
+      bind_dn: "cn=svc_spark_explorer,ou=services,dc=example,dc=com"
       user_base_dn: "ou=users,dc=example,dc=com"
       user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
       user_display_name_attr: "displayName"
@@ -132,8 +129,8 @@ config:
 
     kerberos:
       enabled: true
-      keytab_file: "/etc/security/keytabs/sql-explorer.keytab"
-      service_principal: "HTTP/sql-explorer.example.com@EXAMPLE.COM"
+      keytab_file: "/etc/security/keytabs/spark-explorer.keytab"
+      service_principal: "HTTP/spark-explorer.example.com@EXAMPLE.COM"
 
     jwt:
       algorithm: "HS256"
@@ -141,71 +138,41 @@ config:
 
   acl:
     ui_access:
-      # "*" разрешает доступ всем успешно прошедшим аутентификацию
       allowed_users:
         - "*"
       allowed_groups:
         - "domain users"
-        - "bi-analysts"
         - "data-engineers"
-        - "data-platform-admins"
+        - "bi-analysts"
+        - "hadoop-admins"
+        - "platform-admins"
       admin_groups:
-        - "data-platform-admins"
+        - "hadoop-admins"
+        - "platform-admins"
 
-  # Поддерживаемые аналитические кластеры
+  # Конфигурация кластеров Spark
   clusters:
-    - id: "trino-prod"
-      name: "Trino Production Cluster"
-      type: "trino"
-      host: "trino-coordinator.analytics.svc.cluster.local"
-      port: 8443
-      use_ssl: true
-      catalog: "hive"
-      schema: "default"
-      auth:
-        type: "basic"
-        user: "svc_sql_explorer"
-        password: ""
-      impersonation:
-        enabled: true
-        method: "x-trino-user"
-      acl:
-        allowed_groups:
-          - "bi-analysts"
-          - "data-engineers"
-          - "data-platform-admins"
-        allowed_users: []
-
-    - id: "hive-core"
-      name: "Apache HiveServer2 (Core DataLake)"
-      type: "hive"
-      host: "hs2.datalake.svc.cluster.local"
-      port: 10000
+    - id: "prod-hadoop"
+      name: "Production Hadoop (Spark & Livy)"
+      type: "spark"
+      livy_url: "http://livy-prod.example.com:8998"
+      use_ssl: false
       auth:
         type: "kerberos"
-        kerberos_service_name: "hive"
+        service_name: "livy"
       impersonation:
         enabled: true
-        method: "doAs"
+        method: "proxyUser"
       acl:
         allowed_groups:
-          - "data-engineers"
-          - "data-platform-admins"
+          - "*"
         allowed_users: []
 
-  query_defaults:
-    max_rows_in_ui: 10000
-    default_limit: 1000
-    auto_add_limit: true
-    query_timeout_seconds: 600
-
-# Секреты (могут передаваться через helm --set или External Secrets / Vault)
+# Секреты
 secrets:
   jwtSecret: "replace-with-a-very-long-random-string-in-production"
   ldapBindPassword: "YourLdapServiceAccountPassword"
-  # Пароль базы данных PostgreSQL (опционально)
   databasePassword: ""
-  # Base64-закодированный бинарный keytab файл (опционально)
   kerberosKeytabBase64: ""
 
 # Настройка /etc/krb5.conf
@@ -246,5 +213,6 @@ networkPolicy:
     allowDns: true
     allowKerberos: true
     allowLdap: true
-    allowTrino: true
-    allowHive: true
+    allowLivy: true
+    allowYarn: true
+    allowHiveMetastore: true

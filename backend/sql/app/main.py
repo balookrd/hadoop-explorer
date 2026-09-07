@@ -29,7 +29,14 @@ async def lifespan(app: FastAPI):
     # 2. Инициализация БД (создание таблиц при первом старте)
     await init_db()
 
-    # 3. Очистка устаревших файлов результатов SQL-запросов (TTL rotation)
+    # 3. Crash Recovery: сброс зависших задач предыдущего процесса в статус FAILED
+    try:
+        from app.services.query_manager import query_manager
+        await query_manager.recover_stale_queries()
+    except Exception as e:
+        logger.warning(f"Ошибка Crash Recovery при старте SQL Explorer: {e}")
+
+    # 4. Очистка устаревших файлов результатов SQL-запросов (TTL rotation)
     try:
         from app.services.query_manager import query_manager
         deleted = query_manager.cleanup_expired_results()
@@ -37,6 +44,13 @@ async def lifespan(app: FastAPI):
             logger.info(f"Очищено {deleted} устаревших файлов кэша результатов SQL-запросов")
     except Exception as e:
         logger.warning(f"Ошибка при очистке кэша результатов: {e}")
+
+    # 5. Очистка устаревших сессий и токенов
+    try:
+        from app.services.storage import storage_service
+        storage_service.cleanup_expired()
+    except Exception as e:
+        logger.warning(f"Ошибка очистки хранилища сессий SQL: {e}")
 
     yield
 
@@ -89,14 +103,35 @@ app.include_router(ai.router, prefix="/api/v1")
 app.include_router(workspace.router, prefix="/api/v1")
 
 
-@app.get("/healthz")
-@app.get("/api/v1/health")
+@app.get("/healthz", tags=["system"])
+@app.get("/api/v1/health", tags=["system"])
 async def health():
     return {
         "status": "healthy",
         "auth_mode": settings.auth.mode,
         "clusters_count": len(settings.clusters)
     }
+
+
+@app.get("/readyz", tags=["system"])
+@app.get("/api/v1/readyz", tags=["system"])
+async def readyz():
+    """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
+    from app.services.storage import storage_service
+    from fastapi.responses import JSONResponse
+    storage_ok = await storage_service.ping_async()
+    if not storage_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "service": "sql-explorer", "database": "unreachable"}
+        )
+    return {
+        "status": "ready",
+        "service": "sql-explorer",
+        "database": "ok",
+        "clusters_count": len(settings.clusters)
+    }
+
 
 # Раздача SPA статики
 frontend_dist = os.environ.get("FRONTEND_DIST")

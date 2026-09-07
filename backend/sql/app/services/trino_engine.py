@@ -1,5 +1,7 @@
 import logging
 import re
+import time
+import threading
 from typing import AsyncGenerator, Dict, Any, List, Optional
 import anyio
 import trino
@@ -9,6 +11,42 @@ from app.core.config import ClusterConfig, settings
 logger = logging.getLogger("trino_engine")
 
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
+
+class MetadataTTLCache:
+    """Потокобезопасный TTL-кэш для метаданных SQL-каталогов (каталоги, схемы, таблицы, колонки)."""
+    def __init__(self, default_ttl: float = 60.0):
+        self.default_ttl = default_ttl
+        self._cache: Dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> Optional[Any]:
+        now = time.time()
+        with self._lock:
+            if key in self._cache:
+                exp, val = self._cache[key]
+                if exp >= now:
+                    return val
+                del self._cache[key]
+        return None
+
+    def set(self, key: str, value: Any, ttl: Optional[float] = None):
+        exp = time.time() + (ttl if ttl is not None else self.default_ttl)
+        with self._lock:
+            self._cache[key] = (exp, value)
+
+    def invalidate(self, prefix: Optional[str] = None):
+        with self._lock:
+            if prefix:
+                keys = [k for k in self._cache if k.startswith(prefix)]
+                for k in keys:
+                    del self._cache[k]
+            else:
+                self._cache.clear()
+
+    def clear(self):
+        self.invalidate()
+
+_trino_meta_cache = MetadataTTLCache(default_ttl=60.0)
 
 def safe_ident(name: str) -> str:
     """
@@ -146,24 +184,43 @@ class TrinoExecutionEngine:
                 except Exception:
                     pass
 
-    async def get_catalogs(self, user_login: str) -> List[str]:
+    async def get_catalogs(self, user_login: str, refresh: bool = False) -> List[str]:
+        cache_key = f"trino:{self.cluster.id}:catalogs:{user_login}"
+        if not refresh:
+            cached = _trino_meta_cache.get(cache_key)
+            if cached is not None:
+                return cached
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute("SHOW CATALOGS")
                 return [row[0] for row in cur.fetchall()]
-        return await anyio.to_thread.run_sync(_fetch)
+        result = await anyio.to_thread.run_sync(_fetch)
+        _trino_meta_cache.set(cache_key, result)
+        return result
 
-    async def get_schemas(self, user_login: str, catalog: str) -> List[str]:
+    async def get_schemas(self, user_login: str, catalog: str, refresh: bool = False) -> List[str]:
+        cache_key = f"trino:{self.cluster.id}:{catalog}:schemas:{user_login}"
+        if not refresh:
+            cached = _trino_meta_cache.get(cache_key)
+            if cached is not None:
+                return cached
         q_catalog = safe_ident(catalog)
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"SHOW SCHEMAS FROM {q_catalog}")
                 return [row[0] for row in cur.fetchall()]
-        return await anyio.to_thread.run_sync(_fetch)
+        result = await anyio.to_thread.run_sync(_fetch)
+        _trino_meta_cache.set(cache_key, result)
+        return result
 
-    async def get_tables(self, user_login: str, catalog: str, schema: str) -> List[str]:
+    async def get_tables(self, user_login: str, catalog: str, schema: str, refresh: bool = False) -> List[str]:
+        cache_key = f"trino:{self.cluster.id}:{catalog}:{schema}:tables:{user_login}"
+        if not refresh:
+            cached = _trino_meta_cache.get(cache_key)
+            if cached is not None:
+                return cached
         q_catalog = safe_ident(catalog)
         q_schema = safe_ident(schema)
         def _fetch():
@@ -171,9 +228,16 @@ class TrinoExecutionEngine:
                 cur = conn.cursor()
                 cur.execute(f"SHOW TABLES FROM {q_catalog}.{q_schema}")
                 return [row[0] for row in cur.fetchall()]
-        return await anyio.to_thread.run_sync(_fetch)
+        result = await anyio.to_thread.run_sync(_fetch)
+        _trino_meta_cache.set(cache_key, result)
+        return result
 
-    async def get_columns(self, user_login: str, catalog: str, schema: str, table: str) -> List[Dict[str, str]]:
+    async def get_columns(self, user_login: str, catalog: str, schema: str, table: str, refresh: bool = False) -> List[Dict[str, str]]:
+        cache_key = f"trino:{self.cluster.id}:{catalog}:{schema}:{table}:columns:{user_login}"
+        if not refresh:
+            cached = _trino_meta_cache.get(cache_key)
+            if cached is not None:
+                return cached
         q_catalog = safe_ident(catalog)
         q_schema = safe_ident(schema)
         q_table = safe_ident(table)
@@ -182,4 +246,15 @@ class TrinoExecutionEngine:
                 cur = conn.cursor()
                 cur.execute(f"DESCRIBE {q_catalog}.{q_schema}.{q_table}")
                 return [{"name": row[0], "type": row[1]} for row in cur.fetchall()]
-        return await anyio.to_thread.run_sync(_fetch)
+        result = await anyio.to_thread.run_sync(_fetch)
+        _trino_meta_cache.set(cache_key, result)
+        return result
+
+    @classmethod
+    def clear_metadata_cache(cls, cluster_id: Optional[str] = None):
+        """Очищает кэш метаданных Trino."""
+        if cluster_id:
+            _trino_meta_cache.invalidate(f"trino:{cluster_id}:")
+        else:
+            _trino_meta_cache.clear()
+

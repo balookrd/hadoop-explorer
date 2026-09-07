@@ -760,4 +760,31 @@ class SessionManager:
                             pass
             await db.commit()
 
+    async def recover_stale_executions(self) -> int:
+        """
+        Crash Recovery: при старте сервиса переводит зависшие стейтменты (QUEUED, RUNNING)
+        предыдущего инстанса в статус FAILED.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            async with AsyncSessionLocal() as db:
+                stmt = (
+                    update(SparkExecutionHistory)
+                    .where(SparkExecutionHistory.status.in_(["QUEUED", "RUNNING"]))
+                    .values(
+                        status="FAILED",
+                        error_message="Выполнение прервано: сервис Spark Explorer был перезапущен во время работы задачи.",
+                        finished_at=now,
+                    )
+                )
+                res = await db.execute(stmt)
+                await db.commit()
+                recovered = res.rowcount or 0
+                if recovered > 0:
+                    logger.warning(f"Crash Recovery: переведено {recovered} зависших задач Spark в статус FAILED")
+                return recovered
+        except Exception as e:
+            logger.error(f"Ошибка Crash Recovery задач Spark: {e}")
+            return 0
+
 session_manager = SessionManager()

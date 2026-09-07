@@ -124,7 +124,7 @@ class AppSettings(BaseSettings):
         # Переопределения из окружения
         settings = cls(**config_data)
         if os.getenv("STORAGE_URL") or os.getenv("REDIS_URL"):
-            settings.storage.url = os.getenv("STORAGE_URL") or os.getenv("REDIS_URL")
+            settings.database.url = os.getenv("STORAGE_URL") or os.getenv("REDIS_URL")
         if os.getenv("HDFS_DATABASE_URL") or os.getenv("DATABASE_URL"):
             settings.database.url = os.getenv("HDFS_DATABASE_URL") or os.getenv("DATABASE_URL")
 

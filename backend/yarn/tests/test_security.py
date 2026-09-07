@@ -766,6 +766,19 @@ def test_storage_l1_fail_open_protection_yarn():
     assert storage.is_token_revoked("unknown-yarn-jti") is False
 
 
+def test_yarn_readyz():
+    """Проверяет эндпоинт /readyz для YARN Explorer."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+    resp = client.get("/readyz")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ready"
+    assert data["database"] == "ok"
+
+
+
 
 
 

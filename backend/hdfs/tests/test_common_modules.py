@@ -149,3 +149,58 @@ def test_session_store_persistence_on_backend_restart(tmp_path):
     assert session_delta is not None
     assert session_delta["username"] == "ivan_dev"
 
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_async_session_store_and_rate_limiter(tmp_path):
+    """
+    Проверяет работу асинхронных неблокирующих методов SessionStore и RateLimiter.
+    """
+    import time
+    from backend.common.core.session_store import SessionStore
+    from backend.common.core.rate_limiter import RateLimiter
+
+    db_file = tmp_path / "async_sessions.db"
+    store = SessionStore(db_url=f"sqlite:///{db_file}")
+
+    token = "async-jwt-token-777"
+    user_data = {"username": "async_user", "display_name": "Async User", "is_admin": True}
+    exp = time.time() + 1800
+
+    # 1. Асинхронное сохранение и получение сессии
+    saved = await store.save_session_async(token=token, user=user_data, expires_at=exp, jti="jti-async-1")
+    assert saved is True
+
+    sess = await store.get_session_async(token)
+    assert sess is not None
+    assert sess["username"] == "async_user"
+    assert sess["is_admin"] is True
+
+    # 2. Асинхронная проверка отзыва
+    is_rev = await store.is_token_revoked_async(token)
+    assert is_rev is False
+
+    revoked = await store.revoke_token_async(token, username="async_user", expires_at=exp)
+    assert revoked is True
+
+    is_rev_after = await store.is_token_revoked_async(token)
+    assert is_rev_after is True
+
+    # 3. Асинхронный rate limiting
+    limiter = RateLimiter(max_requests=2, window_seconds=60, storage_getter=lambda: store)
+    allowed, retry = await limiter.is_allowed_async("test_key")
+    assert allowed is True
+
+    allowed2, _ = await limiter.is_allowed_async("test_key")
+    assert allowed2 is True
+
+    allowed3, retry3 = await limiter.is_allowed_async("test_key")
+    assert allowed3 is False
+    assert retry3 > 0
+
+    await store.clear_rate_limits_async()
+    allowed_after_clear, _ = await limiter.is_allowed_async("test_key")
+    assert allowed_after_clear is True
+
+

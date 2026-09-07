@@ -7,6 +7,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
+import anyio
 import redis
 from sqlalchemy import (
     create_engine,
@@ -621,4 +622,89 @@ class SessionStore:
         except Exception as e:
             logger.error(f"Ошибка очистки устаревших сессий/токенов: {e}")
             return 0
+
+    # ==================== ASYNC NON-BLOCKING API ====================
+
+    async def save_session_async(
+        self,
+        token: str,
+        user: Any,
+        expires_at: Union[datetime, int, float, str],
+        jti: Optional[str] = None,
+    ) -> bool:
+        """Асинхронное неблокирующее сохранение сессии через пул потоков."""
+        return await anyio.to_thread.run_sync(
+            self.save_session, token, user, expires_at, jti
+        )
+
+    async def get_session_async(self, token: str) -> Optional[Dict[str, Any]]:
+        """Асинхронное неблокирующее получение сессии по токену."""
+        return await anyio.to_thread.run_sync(self.get_session, token)
+
+    async def delete_session_async(self, token: str) -> bool:
+        """Асинхронное неблокирующее удаление сессии при logout."""
+        return await anyio.to_thread.run_sync(self.delete_session, token)
+
+    async def revoke_token_async(
+        self,
+        token_or_jti: str,
+        username: Optional[Union[str, int, float]] = None,
+        expires_at: Optional[Union[datetime, int, float, str]] = None,
+        **kwargs
+    ) -> bool:
+        """Асинхронный неблокирующий отзыв токена/сессии."""
+        def _revoke():
+            return self.revoke_token(token_or_jti, username=username, expires_at=expires_at, **kwargs)
+        return await anyio.to_thread.run_sync(_revoke)
+
+    async def is_token_revoked_async(self, token_or_jti: str) -> bool:
+        """
+        Асинхронная неблокирующая проверка отзыва токена.
+        Быстрый L1-кэш проверяется мгновенно синхронно, а обращение к L2 DB/Redis выносится в worker thread.
+        """
+        if not token_or_jti:
+            return False
+        h = hash_token(token_or_jti)
+        if self._l1_cache.contains(h) or self._l1_cache.contains(token_or_jti):
+            return True
+        return await anyio.to_thread.run_sync(self.is_token_revoked, token_or_jti)
+
+    async def check_and_record_rate_limit_async(
+        self, key: str, max_requests: int = 10, window_seconds: int = 60, now: Optional[float] = None
+    ) -> tuple[bool, int]:
+        """Асинхронная неблокирующая проверка rate limit."""
+        return await anyio.to_thread.run_sync(
+            self.check_and_record_rate_limit, key, max_requests, window_seconds, now
+        )
+
+    async def clear_rate_limits_async(self):
+        """Асинхронная очистка rate limits."""
+        await anyio.to_thread.run_sync(self.clear_rate_limits)
+
+    async def cleanup_expired_async(self) -> int:
+        """Асинхронная очистка истекших сессий и токенов."""
+        return await anyio.to_thread.run_sync(self.cleanup_expired)
+
+    def ping(self) -> bool:
+        """
+        Проверяет доступность нижележащей базы данных или Redis (Health Check).
+        Возвращает True если хранилище доступно, иначе False.
+        """
+        try:
+            if self._is_redis:
+                return bool(self.redis_client.ping())
+            if self.engine is not None:
+                with self.engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Сбой healthcheck ping SessionStore ({self.db_url}): {e}")
+            return False
+
+    async def ping_async(self) -> bool:
+        """Асинхронная проверка доступности хранилища (Ready probe)."""
+        return await anyio.to_thread.run_sync(self.ping)
+
+
 

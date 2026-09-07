@@ -56,6 +56,13 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Ошибка очистки хранилища сессий Spark: {e}")
 
     await init_db()
+
+    # 3. Crash Recovery: сброс зависших задач Spark предыдущего процесса в статус FAILED
+    try:
+        await session_manager.recover_stale_executions()
+    except Exception as e:
+        logger.warning(f"Ошибка Crash Recovery задач Spark: {e}")
+
     gc_task = asyncio.create_task(_gc_worker())
     yield
     if gc_task:
@@ -104,9 +111,30 @@ for prefix in ("/api/v1", "/api"):
     app.include_router(history_router, prefix=prefix)
     app.include_router(workspace_router, prefix=prefix)
 
-@app.get("/healthz")
+@app.get("/healthz", tags=["system"])
+@app.get("/api/v1/health", tags=["system"])
 async def healthz():
     return {"status": "ok", "service": "spark-explorer", "version": "1.0.0"}
+
+
+@app.get("/readyz", tags=["system"])
+@app.get("/api/v1/readyz", tags=["system"])
+async def readyz():
+    """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
+    from fastapi.responses import JSONResponse
+    storage_ok = await storage_service.ping_async()
+    if not storage_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "service": "spark-explorer", "database": "unreachable"}
+        )
+    return {
+        "status": "ready",
+        "service": "spark-explorer",
+        "database": "ok",
+        "clusters_count": len(settings.clusters)
+    }
+
 
 # Раздача Frontend SPA статики если собрана
 frontend_dist = os.getenv("FRONTEND_DIST", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/apps/spark/dist")))

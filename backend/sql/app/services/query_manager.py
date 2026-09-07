@@ -485,4 +485,32 @@ class QueryManager:
         if ctx and q in ctx.subscribers:
             ctx.subscribers.remove(q)
 
+    async def recover_stale_queries(self) -> int:
+        """
+        Восстанавливает консистентность состояния при старте сервиса:
+        переводит незавершенные запросы (QUEUED, RUNNING) предыдущего процесса в статус FAILED.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            async with AsyncSessionLocal() as db:
+                stmt = (
+                    update(QueryHistory)
+                    .where(QueryHistory.status.in_(["QUEUED", "RUNNING"]))
+                    .values(
+                        status="FAILED",
+                        is_in_queue=False,
+                        error_message="Выполнение прервано: сервис был перезапущен во время работы запроса.",
+                        finished_at=now,
+                    )
+                )
+                result = await db.execute(stmt)
+                await db.commit()
+                recovered_count = result.rowcount or 0
+                if recovered_count > 0:
+                    logger.warning(f"Crash Recovery: переведено {recovered_count} зависших SQL-запросов в статус FAILED")
+                return recovered_count
+        except Exception as e:
+            logger.error(f"Ошибка Crash Recovery SQL-запросов: {e}")
+            return 0
+
 query_manager = QueryManager()

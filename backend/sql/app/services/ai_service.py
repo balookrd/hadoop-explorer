@@ -154,8 +154,9 @@ def validate_readonly_sql_ast(sql: str, dialect: str = "trino") -> tuple[bool, O
                     node_name = disallowed_cls.__name__.replace("Table", "").upper()
                     return False, f"Команда {node_name} запрещена. Разрешены только аналитические запросы на чтение данных (SELECT / WITH / EXPLAIN / SHOW / DESCRIBE)."
         return True, None
-    except Exception:
-        return True, None
+    except Exception as e:
+        logger.warning(f"Ошибка AST-парсинга SQL-запроса ({sql_stripped[:100]}...): {e}")
+        return False, f"Не удалось верифицировать безопасность SQL-запроса: синтаксическая ошибка или неподдерживаемый диалект ({e})"
 
 
 # --- Промышленный AST-анализатор SQL (sqlglot AST Linter & Optimizer) ---

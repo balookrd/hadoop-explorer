@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sql-explorer.fullname" . }}
+  name: {{ include "spark-explorer.fullname" . }}
   labels:
-    {{- include "sql-explorer.labels" . | nindent 4 }}
+    {{- include "spark-explorer.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   {{- $dbUrl := .Values.config.database.url | default "" -}}
@@ -15,7 +15,7 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "sql-explorer.selectorLabels" . | nindent 6 }}
+      {{- include "spark-explorer.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -25,13 +25,13 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "sql-explorer.selectorLabels" . | nindent 8 }}
+        {{- include "spark-explorer.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sql-explorer.serviceAccountName" . }}
+      serviceAccountName: {{ include "spark-explorer.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -46,22 +46,22 @@ spec:
               protocol: TCP
           env:
             - name: CONFIG_PATH
-              value: "/etc/sql-explorer/config.yaml"
+              value: "/etc/spark-explorer/config.yaml"
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  name: {{ include "spark-explorer.fullname" . }}-secrets
                   key: jwt-secret
             - name: LDAP_BIND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  name: {{ include "spark-explorer.fullname" . }}-secrets
                   key: ldap-password
             {{- if .Values.secrets.databasePassword }}
             - name: DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  name: {{ include "spark-explorer.fullname" . }}-secrets
                   key: database-password
             {{- end }}
             {{- if .Values.config.auth.kerberos.service_principal }}
@@ -80,7 +80,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: app-config
-              mountPath: /etc/sql-explorer/config.yaml
+              mountPath: /etc/spark-explorer/config.yaml
               subPath: config.yaml
               readOnly: true
             {{- if .Values.kerberos.enabled }}
@@ -107,20 +107,20 @@ spec:
       volumes:
         - name: app-config
           configMap:
-            name: {{ include "sql-explorer.fullname" . }}-config
+            name: {{ include "spark-explorer.fullname" . }}-config
         {{- if .Values.secrets.kerberosKeytabBase64 }}
         - name: keytab-volume
           secret:
-            secretName: {{ include "sql-explorer.fullname" . }}-secrets
+            secretName: {{ include "spark-explorer.fullname" . }}-secrets
             items:
-              - key: sql-explorer.keytab
-                path: sql-explorer.keytab
+              - key: spark-explorer.keytab
+                path: spark-explorer.keytab
                 mode: 0400
         {{- end }}
         {{- if .Values.persistence.enabled }}
         - name: data-volume
           persistentVolumeClaim:
-            claimName: {{ include "sql-explorer.fullname" . }}-data
+            claimName: {{ include "spark-explorer.fullname" . }}-data
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

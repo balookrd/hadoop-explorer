@@ -28,7 +28,6 @@ def _is_allowed_origin(url_str: str, request: Request, allowed_cors: List[str]) 
             return False
 
         target_origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
-        target_netloc = parsed.netloc.lower()
 
         for allowed in allowed_cors:
             if allowed == "*":
@@ -39,14 +38,6 @@ def _is_allowed_origin(url_str: str, request: Request, allowed_cors: List[str]) 
                     return True
             elif allowed.rstrip("/").lower() == target_origin:
                 return True
-
-        req_host = request.headers.get("host", "").lower()
-        if req_host and target_netloc == req_host:
-            return True
-
-        base_netloc = request.base_url.netloc.lower()
-        if base_netloc and target_netloc == base_netloc:
-            return True
 
         base_url_str = str(request.base_url).rstrip("/").lower()
         if target_origin == base_url_str:

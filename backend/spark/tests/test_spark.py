@@ -217,3 +217,71 @@ async def test_user_workspace_isolation():
         assert admin_get.json()["username"] == "admin_user"
         assert admin_get.json()["state"]["activeTabId"] == "tab-admin"
         assert admin_get.json()["state"]["tabs"][0]["code"] == "val x = 42"
+
+
+@pytest.mark.asyncio
+async def test_spark_readyz_and_crash_recovery(client: AsyncClient):
+    """Проверяет эндпоинт /readyz и механизм Crash Recovery для Spark."""
+    from app.services.session_manager import session_manager
+    from app.db.session import AsyncSessionLocal
+    from app.models.models import SparkExecutionHistory
+
+    # 1. Проверка /readyz
+    ready_resp = await client.get("/readyz")
+    assert ready_resp.status_code == 200
+    assert ready_resp.json()["status"] == "ready"
+    assert ready_resp.json()["database"] == "ok"
+
+    # 2. Crash recovery
+    import uuid
+    exec_id = f"stale-spark-{uuid.uuid4()}"
+    async with AsyncSessionLocal() as db:
+        stale_item = SparkExecutionHistory(
+            id=exec_id,
+            session_id="sess-1",
+            username="analyst",
+            cluster_id="dev-hadoop",
+            language="pyspark",
+            code="print('stale')",
+            status="RUNNING",
+        )
+        db.add(stale_item)
+        await db.commit()
+
+    recovered = await session_manager.recover_stale_executions()
+    assert recovered >= 1
+
+    async with AsyncSessionLocal() as db:
+        res = await db.get(SparkExecutionHistory, exec_id)
+        assert res.status == "FAILED"
+        assert "перезапущен" in res.error_message
+
+
+
+@pytest.mark.asyncio
+async def test_spark_metadata_caching_and_refresh(client: AsyncClient):
+    """Проверяет работу TTL-кэша метаданных Spark и параметра refresh."""
+    from app.services.catalog_service import catalog_service, _spark_meta_cache
+    from app.core.config import settings
+
+    catalog_service.clear_metadata_cache()
+    cluster = settings.clusters[0]
+
+    # 1. Поместим тестовое значение в кэш
+    cache_key = f"spark:{cluster.id}:databases:default"
+    _spark_meta_cache.set(cache_key, ["cached_db_1", "cached_db_2"])
+
+    # 2. Без refresh возвращает из кэша
+    cached_dbs = await catalog_service.get_databases(cluster, refresh=False)
+    assert cached_dbs == ["cached_db_1", "cached_db_2"]
+
+    # 3. С refresh=True сбрасывает и обращается к источнику
+    fresh_dbs = await catalog_service.get_databases(cluster, refresh=True)
+    assert "default" in fresh_dbs
+    assert "cached_db_1" not in fresh_dbs
+
+    # 4. Очистка кэша
+    catalog_service.clear_metadata_cache()
+    assert _spark_meta_cache.get(cache_key) is None
+
+

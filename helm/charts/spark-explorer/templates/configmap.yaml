@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "sql-explorer.fullname" . }}-config
+  name: {{ include "spark-explorer.fullname" . }}-config
   labels:
-    {{- include "sql-explorer.labels" . | nindent 4 }}
+    {{- include "spark-explorer.labels" . | nindent 4 }}
 data:
   config.yaml: |
     server:
@@ -56,12 +56,6 @@ data:
 
     clusters:
       {{- toYaml .Values.config.clusters | nindent 6 }}
-
-    query_defaults:
-      max_rows_in_ui: {{ .Values.config.query_defaults.max_rows_in_ui }}
-      default_limit: {{ .Values.config.query_defaults.default_limit }}
-      auto_add_limit: {{ .Values.config.query_defaults.auto_add_limit }}
-      query_timeout_seconds: {{ .Values.config.query_defaults.query_timeout_seconds }}
 
   {{- if .Values.kerberos.enabled }}
   krb5.conf: |

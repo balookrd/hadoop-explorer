@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-127%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-134%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -40,8 +40,8 @@
 **Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
 1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS). Поддерживает превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
-2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам и сохранение пользовательского контекста в БД.
-3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
+2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
+3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
 4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests).
 
 Каждое приложение может собираться в **независимый легковесный Docker-контейнер**, развертываться автономно или в составе единого **Umbrella Helm Chart**, а также запускаться в собственном **раздельном демо-стенде**.
@@ -57,10 +57,10 @@ hadoop-explorer/
 │   │   ├── core/           # Безопасность, SessionStore, JWT, CSRF, CommonLdapAuthService, Kerberos, Rate Limiter, Audit
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
-│   ├── hdfs/               # Сервис HDFS Explorer (40 тестов)
-│   ├── spark/              # Сервис Spark Explorer (13 тестов)
-│   ├── sql/                # Сервис SQL Explorer (32 теста)
-│   └── yarn/               # Сервис YARN Explorer (42 теста)
+│   ├── hdfs/               # Сервис HDFS Explorer (42 теста)
+│   ├── spark/              # Сервис Spark Explorer (15 тестов)
+│   ├── sql/                # Сервис SQL Explorer (34 теста)
+│   └── yarn/               # Сервис YARN Explorer (43 теста)
 │
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты и API-клиент ───
@@ -313,14 +313,14 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (121 тест) успешно проходят комплексную проверку:
-- **HDFS Explorer**: 40 тестов (ACL, API, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
-- **Spark Explorer**: 7 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace).
-- **SQL Explorer**: 32 теста (Trino/Hive движки, AI сервис, токены, CSRF, ACL кластеров, TTL-очистка кэша результатов, SqlUserWorkspace).
-- **YARN Explorer**: 42 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов).
+Все тесты (**134 теста**) успешно проходят комплексную проверку:
+- **HDFS Explorer**: 42 теста (ACL, API, Readiness / Healthz, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
+- **Spark Explorer**: 15 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz).
+- **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz).
 
 ```bash
-# Запуск всех 121 тестов платформы
+# Запуск всех 134 тестов платформы
 make test
 
 # Либо по сервисам:
