@@ -64,7 +64,7 @@
 
   // Состояние ИИ-ассистента
   let isAiModalOpen = $state(false);
-  let aiInitialTab = $state<'check' | 'explain' | 'optimize' | 'fix'>('check');
+  let aiInitialTab = $state<'check' | 'explain' | 'optimize' | 'fix' | 'generate'>('check');
 
 
   onMount(async () => {
@@ -324,7 +324,7 @@
   }
 
   // Обработчики ИИ-ассистента
-  function handleOpenAi(tab: 'check' | 'explain' | 'optimize' | 'fix' = 'check') {
+  function handleOpenAi(tab: 'check' | 'explain' | 'optimize' | 'fix' | 'generate' = 'check') {
     aiInitialTab = tab;
     isAiModalOpen = true;
   }

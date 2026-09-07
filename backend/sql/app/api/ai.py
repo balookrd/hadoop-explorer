@@ -12,11 +12,18 @@ from app.services.ai_service import (
     AIOptimizeResponse,
     AIFixResponse,
     AIFormatResponse,
+    AIGenerateResponse,
     AIStatusResponse
 )
 
 logger = logging.getLogger("ai_api")
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+class GenerateSqlRequest(BaseModel):
+    prompt: str = Field(..., description="Описание требуемой выборки на естественном языке")
+    dialect: Optional[str] = Field(default="trino", description="Диалект: trino или hive")
+    cluster_id: Optional[str] = Field(default=None, description="Идентификатор кластера")
+    catalog_context: Optional[Dict[str, Any]] = Field(default=None, description="Контекст схемы данных")
 
 class FormatSqlRequest(BaseModel):
     sql: str = Field(..., description="SQL-запрос для форматирования")
@@ -120,4 +127,21 @@ async def format_sql(
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
     dialect = _resolve_dialect(request.cluster_id, request.dialect)
     return await ai_service.format_sql(request.sql, dialect)
+
+
+@router.post("/generate", response_model=AIGenerateResponse)
+async def generate_sql(
+    request: GenerateSqlRequest,
+    current_user: UserSession = Depends(get_current_user)
+):
+    """Генерация SQL-запроса по описанию на естественном языке (Text-to-SQL)"""
+    if not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Описание запроса не может быть пустым")
+    dialect = _resolve_dialect(request.cluster_id, request.dialect)
+    return await ai_service.generate_query(
+        prompt=request.prompt,
+        dialect=dialect,
+        catalog_context=request.catalog_context
+    )
+
 

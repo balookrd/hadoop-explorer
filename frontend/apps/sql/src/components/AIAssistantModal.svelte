@@ -16,7 +16,12 @@
     ShieldAlert,
     Wand2,
     X,
-    ExternalLink
+    ExternalLink,
+    Layers,
+    Server,
+    Send,
+    RefreshCw,
+    Database
   } from 'lucide-svelte';
   import { api } from '../api/client';
   import type {
@@ -24,13 +29,14 @@
     AIExplainResponse,
     AIOptimizeResponse,
     AIFixResponse,
+    AIGenerateResponse,
     AIStatusResponse,
     AIIssue
   } from '../types';
 
   let {
     isOpen = $bindable(false),
-    initialTab = 'check', // 'check' | 'explain' | 'optimize' | 'fix'
+    initialTab = 'check', // 'check' | 'explain' | 'optimize' | 'fix' | 'generate'
     sqlQuery = '',
     clusterId = '',
     engineType = 'trino',
@@ -40,7 +46,7 @@
     onNavigateToLine
   }: {
     isOpen: boolean;
-    initialTab?: 'check' | 'explain' | 'optimize' | 'fix';
+    initialTab?: 'check' | 'explain' | 'optimize' | 'fix' | 'generate';
     sqlQuery: string;
     clusterId?: string;
     engineType?: string;
@@ -50,7 +56,7 @@
     onNavigateToLine?: (line: number) => void;
   } = $props();
 
-  let activeTab = $state<'check' | 'explain' | 'optimize' | 'fix'>('check');
+  let activeTab = $state<'check' | 'explain' | 'optimize' | 'fix' | 'generate'>('check');
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let copied = $state(false);
@@ -59,7 +65,36 @@
   let explainResult = $state<AIExplainResponse | null>(null);
   let optimizeResult = $state<AIOptimizeResponse | null>(null);
   let fixResult = $state<AIFixResponse | null>(null);
+  let generateResult = $state<AIGenerateResponse | null>(null);
   let aiStatus = $state<AIStatusResponse | null>(null);
+
+  // Состояние генерации SQL (Text-to-SQL под YARN)
+  let generatePrompt = $state('');
+  let isGenerating = $state(false);
+  let generateError = $state<string | null>(null);
+
+  const promptTemplates = [
+    {
+      title: 'Топ-10 клиентов по заказам (Join + YARN Partition)',
+      prompt: 'Выведи топ 10 клиентов по сумме покупок за 1998 год из customer и orders с отсечением партиций'
+    },
+    {
+      title: 'Заказы по статусам (Partition Pruning)',
+      prompt: 'Посчитай число заказов, суммарную выручку и средний чек по статусам выполнения за 1998 год'
+    },
+    {
+      title: 'Топ клиентов по балансу счета',
+      prompt: 'Выведи топ 20 клиентов с наибольшим положительным балансом счета и номерами телефонов'
+    },
+    {
+      title: 'DAU активность по платформам за 30 дней',
+      prompt: 'Покажи показатели активных пользователей DAU и длительность сессий по платформам за последние 30 дней'
+    },
+    {
+      title: 'События пользователей (HyperLogLog / Approx)',
+      prompt: 'Распределение активности пользователей по типам событий с подсчетом уникальных пользователей'
+    }
+  ];
 
   let prevOpen = false;
 
@@ -74,7 +109,9 @@
         fixResult = null;
         error = null;
         loadAiStatus();
-        runActionForTab(initialTab);
+        if (initialTab !== 'generate') {
+          runActionForTab(initialTab);
+        }
       });
     } else if (!isOpen) {
       prevOpen = false;
@@ -87,7 +124,14 @@
     } catch (_) {}
   }
 
-  async function runActionForTab(tab: 'check' | 'explain' | 'optimize' | 'fix') {
+  async function runActionForTab(tab: 'check' | 'explain' | 'optimize' | 'fix' | 'generate') {
+    if (tab === 'generate') {
+      if (generatePrompt.trim()) {
+        runGenerateSql();
+      }
+      return;
+    }
+
     if (!sqlQuery.trim()) {
       error = 'SQL-запрос пуст. Введите запрос в редактор.';
       return;
@@ -116,9 +160,30 @@
     }
   }
 
-  function handleTabChange(tab: 'check' | 'explain' | 'optimize' | 'fix') {
+  async function runGenerateSql(customPrompt?: string) {
+    const textToUse = (customPrompt ?? generatePrompt).trim();
+    if (!textToUse) {
+      generateError = 'Пожалуйста, сформулируйте задачу на естественном языке.';
+      return;
+    }
+
+    isGenerating = true;
+    generateError = null;
+
+    try {
+      generateResult = await api.generateSql(textToUse, clusterId, engineType);
+      if (customPrompt) {
+        generatePrompt = customPrompt;
+      }
+    } catch (err: any) {
+      generateError = err?.message || 'Не удалось сгенерировать SQL-запрос';
+    } finally {
+      isGenerating = false;
+    }
+  }
+
+  function handleTabChange(tab: 'check' | 'explain' | 'optimize' | 'fix' | 'generate') {
     activeTab = tab;
-    // Если еще не загружено для этой вкладки
     if (
       (tab === 'check' && !checkResult) ||
       (tab === 'explain' && !explainResult) ||
@@ -128,7 +193,6 @@
       runActionForTab(tab);
     }
   }
-
 
   function copyToClipboard(text: string) {
     navigator.clipboard.writeText(text);
@@ -199,6 +263,15 @@
       <!-- Вкладки режимов -->
       <div class="flex items-center gap-1 px-6 border-b border-slate-200 bg-white text-xs font-medium shrink-0">
         <button
+          onclick={() => handleTabChange('generate')}
+          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'generate' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
+        >
+          <Wand2 class="w-4 h-4 text-sky-600" />
+          <span>Генерация SQL</span>
+          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800">YARN</span>
+        </button>
+
+        <button
           onclick={() => handleTabChange('check')}
           class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'check' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
         >
@@ -266,8 +339,191 @@
           </div>
         {:else}
           
+          <!-- TAB 0: ГЕНЕРАЦИЯ SQL (YARN & PARTITION AWARE) -->
+          {#if activeTab === 'generate'}
+            <div class="space-y-4">
+              <!-- Информационный баннер об оптимизации для YARN и HDFS -->
+              <div class="p-3.5 rounded-xl bg-gradient-to-r from-sky-50 via-indigo-50/60 to-slate-50 border border-sky-200/80 text-xs text-sky-950 flex items-start gap-3 shadow-2xs">
+                <div class="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Server class="w-4 h-4" />
+                </div>
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold text-slate-900">Интеллектуальная генерация с оптимизацией для Hadoop / YARN</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-100 text-sky-800 border border-sky-200 font-bold">Partition Pruning</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold">OOM Guard</span>
+                  </div>
+                  <p class="text-slate-600 leading-relaxed text-[11px]">
+                    Генератор автоматически учитывает партиционирование таблиц по датам (статическое отсечение директорий HDFS без функций в WHERE), исключает перегрузку единственного Reducer (Top-N Pushdown) и минимизирует Shuffle между узлами кластера YARN.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Форма ввода задачи на естественном языке -->
+              <div class="space-y-2">
+                <label for="generate-prompt-input" class="block text-xs font-semibold text-slate-700">
+                  Опишите задачу на естественном языке (русский или английский):
+                </label>
+                <div class="relative">
+                  <textarea
+                    id="generate-prompt-input"
+                    bind:value={generatePrompt}
+                    onkeydown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                        e.preventDefault();
+                        runGenerateSql();
+                      }
+                    }}
+                    placeholder="Например: Выведи топ 10 клиентов по сумме покупок за 1998 год из customer и orders с отсечением партиций..."
+                    rows="3"
+                    class="w-full text-xs font-mono p-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition resize-none bg-slate-50/50 hover:bg-white text-slate-800"
+                  ></textarea>
+
+                  <div class="flex items-center justify-between mt-2">
+                    <span class="text-[11px] text-slate-400">
+                      Подсказка: нажмите <kbd class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-600 font-mono text-[10px]">Cmd+Enter</kbd> для генерации
+                    </span>
+                    <button
+                      onclick={() => runGenerateSql()}
+                      disabled={isGenerating || !generatePrompt.trim()}
+                      class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-medium text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {#if isGenerating}
+                        <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Генерация...</span>
+                      {:else}
+                        <Wand2 class="w-3.5 h-3.5" />
+                        <span>Сгенерировать SQL</span>
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Быстрые шаблоны задач -->
+              <div class="space-y-1.5 pt-1">
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+                  <Sparkles class="w-3.5 h-3.5 text-sky-600" />
+                  <span>Быстрые шаблоны с оптимизацией под YARN:</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  {#each promptTemplates as tmpl}
+                    <button
+                      onclick={() => runGenerateSql(tmpl.prompt)}
+                      class="px-2.5 py-1 text-[11px] rounded-lg bg-slate-100 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200 border border-slate-200 text-slate-700 transition cursor-pointer text-left shadow-2xs"
+                      title="Кликните, чтобы сразу запустить генерацию"
+                    >
+                      {tmpl.title}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
+              <!-- Ошибка генерации -->
+              {#if generateError}
+                <div class="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2.5">
+                  <AlertCircle class="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h5 class="font-semibold">Ошибка генерации:</h5>
+                    <p class="mt-0.5">{generateError}</p>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Индикатор загрузки генерации -->
+              {#if isGenerating}
+                <div class="h-48 flex flex-col items-center justify-center text-slate-400 gap-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                  <div class="w-7 h-7 border-3 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p class="text-xs font-medium text-slate-600">ИИ анализирует схему данных, партиции и генерирует оптимальный SQL для YARN...</p>
+                </div>
+              {/if}
+
+              <!-- Результат генерации -->
+              {#if generateResult && !isGenerating}
+                <div class="space-y-3 pt-2 border-t border-slate-200">
+                  <!-- Блок сгенерированного SQL -->
+                  <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold text-slate-800">Сгенерированный SQL-запрос:</span>
+                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
+                          {engineType}
+                        </span>
+                        {#if generateResult.fallback_used}
+                          <span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                            AST-генератор (YARN)
+                          </span>
+                        {:else}
+                          <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                            {generateResult.model}
+                          </span>
+                        {/if}
+                      </div>
+
+                      <div class="flex items-center gap-2">
+                        <button
+                          onclick={() => copyToClipboard(generateResult?.generated_sql || '')}
+                          class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition cursor-pointer"
+                        >
+                          {#if copied}
+                            <Check class="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Скопировано</span>
+                          {:else}
+                            <Copy class="w-3.5 h-3.5 text-slate-500" />
+                            <span>Копировать</span>
+                          {/if}
+                        </button>
+
+                        <button
+                          onclick={() => applySql(generateResult?.generated_sql || '')}
+                          class="px-3 py-1 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Check class="w-3.5 h-3.5" />
+                          <span>Применить в редактор</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72 shadow-inner">
+                      <pre>{generateResult.generated_sql}</pre>
+                    </div>
+                  </div>
+
+                  <!-- Пояснение и оптимизации для YARN -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                    <div class="flex items-center justify-between">
+                      <h4 class="font-semibold text-slate-900 flex items-center gap-2">
+                        <Info class="w-4 h-4 text-sky-600" />
+                        <span>Пояснение и примененные YARN-оптимизации:</span>
+                      </h4>
+                      <span class="text-[11px] text-slate-500 font-mono">
+                        Время: {generateResult.execution_time_ms} мс
+                      </span>
+                    </div>
+
+                    <div class="text-slate-700 leading-relaxed whitespace-pre-line bg-white p-3 rounded-lg border border-slate-200/80">
+                      {generateResult.explanation}
+                    </div>
+
+                    {#if generateResult.tables_used && generateResult.tables_used.length > 0}
+                      <div class="flex items-center gap-2 pt-1">
+                        <span class="text-[11px] font-semibold text-slate-600">Задействованные таблицы:</span>
+                        <div class="flex flex-wrap gap-1.5">
+                          {#each generateResult.tables_used as tbl}
+                            <span class="px-2 py-0.5 text-[11px] font-mono bg-sky-50 text-sky-700 border border-sky-200 rounded-md font-medium">
+                              {tbl}
+                            </span>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            </div>
+
           <!-- TAB 1: АНАЛИЗ И ЗАМЕЧАНИЯ -->
-          {#if activeTab === 'check' && checkResult}
+          {:else if activeTab === 'check' && checkResult}
             <div class="space-y-4">
               <!-- Общая сводка -->
               <div class="p-4 rounded-xl border {checkResult.is_valid ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/70 border-amber-200 text-amber-900'} flex items-start justify-between gap-4">

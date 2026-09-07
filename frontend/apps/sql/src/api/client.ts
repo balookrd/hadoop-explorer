@@ -10,6 +10,7 @@ import type {
   AIOptimizeResponse,
   AIFixResponse,
   AIFormatResponse,
+  AIGenerateResponse,
   AIStatusResponse
 } from '../types';
 
@@ -325,6 +326,18 @@ class ApiClient {
         sql,
         cluster_id: clusterId,
         dialect
+      })
+    });
+  }
+
+  async generateSql(prompt: string, clusterId?: string, dialect?: string, catalogContext?: any): Promise<AIGenerateResponse> {
+    return this.request<AIGenerateResponse>('/ai/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt,
+        cluster_id: clusterId,
+        dialect,
+        catalog_context: catalogContext
       })
     });
   }

@@ -83,6 +83,43 @@ async def test_mock_sql_analyzer_explain_optimize_and_format():
     )
     assert "COALESCE" in fix_res.fixed_sql
 
+    # Generate (Text-to-SQL)
+    # 1. Клиенты с топ-5
+    gen1 = MockSQLAnalyzer.generate("Выведи топ 5 клиентов по сумме баланса", dialect="trino")
+    assert "tpch.sf1.customer" in gen1.tables_used
+    assert "LIMIT 5" in gen1.generated_sql
+    assert "acctbal" in gen1.generated_sql.lower()
+    assert len(gen1.explanation) > 0
+
+    # 2. Заказы по статусам
+    gen2 = MockSQLAnalyzer.generate("Посчитай заказы по статусам", dialect="trino")
+    assert "tpch.sf1.orders" in gen2.tables_used
+    assert "orderstatus" in gen2.generated_sql.lower()
+    assert "GROUP BY" in gen2.generated_sql
+
+    # 3. Клиенты и заказы (JOIN) с Partition Pruning и оптимизацией для YARN
+    gen3 = MockSQLAnalyzer.generate("Топ 10 клиентов по сумме покупок заказов", dialect="trino")
+    assert "tpch.sf1.customer" in gen3.tables_used
+    assert "tpch.sf1.orders" in gen3.tables_used
+    assert "JOIN" in gen3.generated_sql
+    assert "LIMIT 10" in gen3.generated_sql
+    assert "orderdate" in gen3.generated_sql.lower()
+    assert "Partition Pruning" in gen3.explanation
+    assert "YARN" in gen3.explanation
+
+    # 4. DAU метрики (Partition Pruning по report_date)
+    gen4 = MockSQLAnalyzer.generate("Покажи динамику DAU активности по платформам", dialect="trino")
+    assert "analytics.events.dau_metrics" in gen4.tables_used
+    assert "active_users" in gen4.generated_sql.lower()
+    assert "report_date" in gen4.generated_sql.lower()
+    assert "Partition" in gen4.explanation
+
+    # 5. События пользователей (Partition Pruning по created_at)
+    gen5 = MockSQLAnalyzer.generate("Распределение действий пользователей по типам событий", dialect="trino")
+    assert "analytics.events.user_actions" in gen5.tables_used
+    assert "event_type" in gen5.generated_sql.lower()
+    assert "created_at" in gen5.generated_sql.lower()
+
 @pytest.mark.asyncio
 async def test_ai_api_endpoints():
     await init_db()
@@ -167,6 +204,31 @@ async def test_ai_api_endpoints():
         assert fix_resp.status_code == 200
         fix_data = fix_resp.json()
         assert "COALESCE" in fix_data["fixed_sql"]
+
+        # 7. POST /api/ai/generate
+        gen_resp = await client.post(
+            "/api/v1/ai/generate",
+            headers=headers,
+            json={
+                "prompt": "Покажи топ 10 клиентов по сумме покупок",
+                "cluster_id": "trino-analytics"
+            }
+        )
+        assert gen_resp.status_code == 200
+        gen_data = gen_resp.json()
+        assert "generated_sql" in gen_data
+        assert len(gen_data["generated_sql"]) > 0
+        assert "explanation" in gen_data
+        assert "tables_used" in gen_data
+        assert "tpch.sf1.customer" in gen_data["tables_used"]
+
+        # 8. POST /api/ai/generate (Валидация пустого ввода)
+        bad_gen_resp = await client.post(
+            "/api/v1/ai/generate",
+            headers=headers,
+            json={"prompt": "   "}
+        )
+        assert bad_gen_resp.status_code == 400
 
 
 @pytest.mark.asyncio

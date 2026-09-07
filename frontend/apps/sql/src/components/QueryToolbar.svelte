@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Square, Save, Sparkles, Clock, Layers, ShieldCheck, Zap, BookOpen, AlignLeft } from 'lucide-svelte';
+  import { Play, Square, Save, Sparkles, Clock, Layers, ShieldCheck, Zap, BookOpen, AlignLeft, Wand2 } from 'lucide-svelte';
 
   let {
     isRunning,
@@ -19,7 +19,7 @@
     onRun: () => void;
     onCancel: () => void;
     onSave: () => void;
-    onOpenAi?: (tab: 'check' | 'explain' | 'optimize') => void;
+    onOpenAi?: (tab: 'check' | 'explain' | 'optimize' | 'generate') => void;
     onFormat?: () => void;
   } = $props();
 </script>
@@ -74,12 +74,21 @@
     {#if onOpenAi}
       <div class="flex items-center gap-1">
         <button
+          onclick={() => onOpenAi && onOpenAi('generate')}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200/80 text-xs font-medium transition cursor-pointer shadow-2xs"
+          title="Сгенерировать SQL запрос по описанию на естественном языке с помощью ИИ"
+        >
+          <Wand2 class="w-3.5 h-3.5 text-sky-600" />
+          <span>ИИ Генератор</span>
+        </button>
+
+        <button
           onclick={() => onOpenAi && onOpenAi('check')}
           class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-medium transition cursor-pointer shadow-2xs"
           title="Проверить SQL на ошибки, антипаттерны и деструктивные операции"
         >
           <Sparkles class="w-3.5 h-3.5 text-indigo-600" />
-          <span>ИИ Анализ</span>
+          <span>Анализ</span>
         </button>
 
         <button

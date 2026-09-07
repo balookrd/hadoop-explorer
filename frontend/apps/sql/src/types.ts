@@ -119,6 +119,17 @@ export interface AIFormatResponse {
   dialect: string;
 }
 
+export interface AIGenerateResponse {
+  prompt: string;
+  generated_sql: string;
+  explanation: string;
+  tables_used: string[];
+  model: string;
+  provider: string;
+  execution_time_ms: number;
+  fallback_used: boolean;
+}
+
 export interface AIStatusResponse {
   enabled: boolean;
   provider: string;
@@ -128,5 +139,6 @@ export interface AIStatusResponse {
   message: string;
   latency_ms?: number;
 }
+
 
 

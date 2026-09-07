@@ -67,6 +67,16 @@ class AIFixResponse(BaseModel):
     provider: str
     execution_time_ms: float = 0.0
 
+class AIGenerateResponse(BaseModel):
+    prompt: str = Field(..., description="Исходный запрос на естественном языке")
+    generated_sql: str = Field(..., description="Сгенерированный SQL-запрос")
+    explanation: str = Field(..., description="Пояснение к сгенерированному запросу")
+    tables_used: List[str] = Field(default_factory=list, description="Список задействованных таблиц")
+    model: str
+    provider: str
+    execution_time_ms: float = 0.0
+    fallback_used: bool = False
+
 class AIFormatResponse(BaseModel):
     original_sql: str
     formatted_sql: str
@@ -661,6 +671,303 @@ class MockSQLAnalyzer:
             provider="mock"
         )
 
+    @classmethod
+    def generate(cls, prompt: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None) -> AIGenerateResponse:
+        """
+        Детерминированный генератор SQL-запросов по тексту на естественном языке (Mock/Offline режим).
+        Учитывает партиционирование таблиц (Partition Pruning) и оптимизирован для распределенного выполнения на YARN.
+        """
+        sql_dialect = cls._map_dialect(dialect)
+        p_lower = prompt.lower().strip()
+
+        # Поиск лимита в тексте (например: "топ 5", "топ 10", "первые 20", "limit 50")
+        limit_match = re.search(r"\b(?:топ|top|первые|first|limit)\s+(\d+)\b", p_lower)
+        limit = int(limit_match.group(1)) if limit_match else 100
+
+        # Поиск временного диапазона
+        days_match = re.search(r"(\d+)\s*(?:дней|дня|день|days|day)", p_lower)
+        days = int(days_match.group(1)) if days_match else 30
+
+        generated_sql = ""
+        explanation = ""
+        tables_used: List[str] = []
+
+        # 1. Запросы по клиентам и заказам (Customer + Orders / Join)
+        if any(w in p_lower for w in ("клиент", "покупател", "customer", "пользовател")) and any(w in p_lower for w in ("заказ", "order", "покупк", "трат", "spent", "выручк")):
+            tables_used = ["tpch.sf1.customer", "tpch.sf1.orders"]
+            date_filter = "o.orderdate >= DATE '1998-01-01'" if sql_dialect == "trino" else "o.orderdate >= '1998-01-01'"
+            generated_sql = f"""
+SELECT
+    c.custkey,
+    c.name,
+    c.mktsegment,
+    COUNT(o.orderkey) AS total_orders,
+    ROUND(SUM(o.totalprice), 2) AS total_spent
+FROM tpch.sf1.customer c
+JOIN tpch.sf1.orders o ON c.custkey = o.custkey
+WHERE {date_filter}
+GROUP BY c.custkey, c.name, c.mktsegment
+ORDER BY total_spent DESC
+LIMIT {limit};
+            """
+            explanation = (
+                f"### Оптимизация для YARN и HDFS:\n"
+                f"1. **Partition Pruning**: Условие `{date_filter}` выполняет отсечение партиций на уровне метастора/HDFS, минимизируя считываемые сплиты и число запускаемых YARN Mappers.\n"
+                f"2. **Колоночная проекция**: Выбраны только необходимые атрибуты клиентов и заказов без SELECT *, снижая десериализацию ORC/Parquet в память YARN-контейнеров.\n"
+                f"3. **Защита от 1-Reducer Bottleneck**: Добавлено ограничение `LIMIT {limit}`, позволяющее локально аккумулировать Top-N на узлах без перегрузки единственного Reducer."
+            )
+
+        # 2. Запросы по клиентам и балансу / сегментам
+        elif any(w in p_lower for w in ("клиент", "покупател", "customer")):
+            tables_used = ["tpch.sf1.customer"]
+            if any(w in p_lower for w in ("сегмент", "mktsegment", "групп")):
+                generated_sql = f"""
+SELECT
+    mktsegment,
+    COUNT(*) AS total_customers,
+    ROUND(AVG(acctbal), 2) AS avg_account_balance,
+    ROUND(SUM(acctbal), 2) AS total_balance
+FROM tpch.sf1.customer
+GROUP BY mktsegment
+ORDER BY total_customers DESC
+LIMIT {limit};
+                """
+                explanation = (
+                    "### Оптимизация для YARN:\n"
+                    "1. Агрегация по срезам `mktsegment` использует Hash Aggregation внутри контейнеров YARN.\n"
+                    f"2. Ограничение `LIMIT {limit}` защищает память драйвера от переполнения."
+                )
+            elif any(w in p_lower for w in ("топ", "богат", "наибольш", "баланс", "acctbal", "крупн")):
+                generated_sql = f"""
+SELECT
+    custkey,
+    name,
+    mktsegment,
+    phone,
+    acctbal
+FROM tpch.sf1.customer
+WHERE acctbal > 0
+ORDER BY acctbal DESC
+LIMIT {limit};
+                """
+                explanation = (
+                    f"### Оптимизация для YARN:\n"
+                    f"1. Предикат фильтрации `acctbal > 0` отсекает нулевые/отрицательные записи до сортировки.\n"
+                    f"2. Сортировка с `LIMIT {limit}` выполняется через распределенный Top-K в YARN Task-трекерах."
+                )
+            else:
+                generated_sql = f"""
+SELECT
+    custkey,
+    name,
+    address,
+    phone,
+    acctbal,
+    mktsegment
+FROM tpch.sf1.customer
+LIMIT {limit};
+                """
+                explanation = f"Базовая выборка с явной проекцией колонок и безопасным `LIMIT {limit}` для работы в интерактивной YARN сессии."
+
+        # 3. Запросы по заказам (Orders)
+        elif any(w in p_lower for w in ("заказ", "order", "покупк")):
+            tables_used = ["tpch.sf1.orders"]
+            date_filter = "orderdate >= DATE '1998-01-01'" if sql_dialect == "trino" else "orderdate >= '1998-01-01'"
+
+            if any(w in p_lower for w in ("статус", "status", "orderstatus", "групп")):
+                generated_sql = f"""
+SELECT
+    orderstatus,
+    COUNT(*) AS orders_count,
+    ROUND(SUM(totalprice), 2) AS total_revenue,
+    ROUND(AVG(totalprice), 2) AS avg_order_value
+FROM tpch.sf1.orders
+WHERE {date_filter}
+GROUP BY orderstatus
+ORDER BY orders_count DESC;
+                """
+                explanation = (
+                    f"### Оптимизация для YARN и Hive/Trino:\n"
+                    f"1. **Partition Pruning**: Предикат `{date_filter}` на партиционной колонке дат `orderdate` отсекает исторические разделы HDFS.\n"
+                    f"2. **Map-Side Aggregation**: Группировка по небольшому числу ключей статусов эффективно использует combiner/map-side агрегацию в YARN Mappers."
+                )
+            elif any(w in p_lower for w in ("приоритет", "priority", "orderpriority")):
+                generated_sql = f"""
+SELECT
+    orderpriority,
+    COUNT(*) AS count_orders,
+    ROUND(SUM(totalprice), 2) AS revenue
+FROM tpch.sf1.orders
+WHERE {date_filter}
+GROUP BY orderpriority
+ORDER BY revenue DESC;
+                """
+                explanation = f"Агрегация с отсечением партиций `{date_filter}` и мап-сайд предварительным суммированием в контейнерах YARN."
+            elif any(w in p_lower for w in ("топ", "дорог", "крупн", "totalprice", "наибольш")):
+                generated_sql = f"""
+SELECT
+    orderkey,
+    custkey,
+    orderstatus,
+    totalprice,
+    orderdate,
+    orderpriority
+FROM tpch.sf1.orders
+WHERE {date_filter}
+ORDER BY totalprice DESC
+LIMIT {limit};
+                """
+                explanation = (
+                    f"### Оптимизация для YARN:\n"
+                    f"1. **Partition Elimination**: Фильтр `{date_filter}` отсекает ненужные файлы с HDFS.\n"
+                    f"2. **Top-N Pushdown**: `LIMIT {limit}` передается в Execution Plan, предотвращая перегрузку единственного Reducer."
+                )
+            else:
+                generated_sql = f"""
+SELECT
+    orderkey,
+    custkey,
+    orderstatus,
+    totalprice,
+    orderdate
+FROM tpch.sf1.orders
+WHERE {date_filter}
+ORDER BY orderdate DESC
+LIMIT {limit};
+                """
+                explanation = f"Выборка последних заказов с отсечением партиций по дате `{date_filter}` и лимитом {limit} строк."
+
+        # 4. Метрики активности / DAU / Платформы
+        elif any(w in p_lower for w in ("dau", "метрик", "платформ", "активн", "platform", "сесси")):
+            tables_used = ["analytics.events.dau_metrics"]
+            date_filter = f"report_date >= CURRENT_DATE - INTERVAL '{days}' DAY" if sql_dialect == "trino" else f"report_date >= DATE_SUB(CURRENT_DATE(), {days})"
+
+            generated_sql = f"""
+SELECT
+    report_date,
+    platform,
+    active_users,
+    ROUND(avg_session_sec / 60.0, 2) AS avg_session_minutes
+FROM analytics.events.dau_metrics
+WHERE {date_filter}
+ORDER BY report_date DESC, active_users DESC
+LIMIT {limit};
+            """
+            explanation = (
+                f"### Оптимизация для YARN:\n"
+                f"1. **Partition Pruning**: Строгий фильтр `{date_filter}` по партиционной колонке `report_date` исключает чтение старых партиций HDFS.\n"
+                f"2. **Минимизация I/O**: Запрос обращается только к целевым колонкам ORC/Parquet файла в HDFS."
+            )
+
+        # 5. Логи действий / События пользователей (User Actions)
+        elif any(w in p_lower for w in ("действи", "событи", "action", "event", "клик", "лог")):
+            tables_used = ["analytics.events.user_actions"]
+            date_filter = f"created_at >= CURRENT_TIMESTAMP - INTERVAL '{days}' DAY" if sql_dialect == "trino" else f"created_at >= DATE_SUB(CURRENT_TIMESTAMP(), {days})"
+
+            if any(w in p_lower for w in ("тип", "групп", "частот", "популярн", "категори")):
+                approx_clause = "APPROX_DISTINCT(user_id, 0.02)" if sql_dialect == "trino" else "COUNT(DISTINCT user_id)"
+                generated_sql = f"""
+SELECT
+    event_type,
+    COUNT(*) AS total_events,
+    {approx_clause} AS unique_users
+FROM analytics.events.user_actions
+WHERE {date_filter}
+GROUP BY event_type
+ORDER BY total_events DESC;
+                """
+                explanation = (
+                    f"### Оптимизация для YARN:\n"
+                    f"1. **Partition Pruning**: Отсечение партиций `{date_filter}` исключает сканирование терабайт логов на HDFS.\n"
+                    f"2. **HyperLogLog / Skew Protection**: Использование `{approx_clause}` предотвращает Data Skew и взрыв памяти YARN контейнеров при подсчете уникальных пользователей."
+                )
+            elif any(w in p_lower for w in ("пользовател", "активн", "топ", "user_id")):
+                generated_sql = f"""
+SELECT
+    user_id,
+    COUNT(*) AS actions_count,
+    COUNT(DISTINCT event_type) AS event_types_count,
+    MAX(created_at) AS last_action_time
+FROM analytics.events.user_actions
+WHERE {date_filter}
+GROUP BY user_id
+ORDER BY actions_count DESC
+LIMIT {limit};
+                """
+                explanation = (
+                    f"### Оптимизация для YARN:\n"
+                    f"1. Партиционирование по дате `{date_filter}` защищает кластер YARN от Full Scan.\n"
+                    f"2. Ограничение `LIMIT {limit}` позволяет провести Top-N редукцию без исчерпания памяти Reducer."
+                )
+            else:
+                generated_sql = f"""
+SELECT
+    event_id,
+    user_id,
+    event_type,
+    created_at,
+    ip_address
+FROM analytics.events.user_actions
+WHERE {date_filter}
+ORDER BY created_at DESC
+LIMIT {limit};
+                """
+                explanation = f"Выборка журнала событий с партиционным фильтром `{date_filter}` и ограничением в {limit} строк."
+
+        # 6. Универсальный фолбэк по контексту схемы
+        else:
+            matched_table = None
+            for cat, schemas in MOCK_CATALOGS.items():
+                for sch, tbls in schemas.items():
+                    for tbl in tbls.keys():
+                        full_name = f"{cat}.{sch}.{tbl}"
+                        if tbl in p_lower or full_name in p_lower:
+                            matched_table = full_name
+                            break
+
+            if matched_table:
+                tables_used = [matched_table]
+                generated_sql = f"""
+SELECT *
+FROM {matched_table}
+LIMIT {limit};
+                """
+                explanation = f"Сформирован запрос к `{matched_table}` с безопасным ограничением `LIMIT {limit}` для работы на YARN."
+            else:
+                tables_used = ["tpch.sf1.customer"]
+                generated_sql = f"""
+SELECT
+    custkey,
+    name,
+    mktsegment,
+    acctbal
+FROM tpch.sf1.customer
+ORDER BY acctbal DESC
+LIMIT {limit};
+                """
+                explanation = (
+                    f"### Оптимизация для YARN:\n"
+                    f"Сгенерирован аналитический шаблон для {sql_dialect.upper()}: явный список колонок, "
+                    f"сортировка Top-K с лимитом {limit} для оптимизации распределения по контейнерам YARN."
+                )
+
+        # Форматирование через sqlglot
+        try:
+            formatted = sqlglot.transpile(generated_sql.strip(), read=sql_dialect, write=sql_dialect, pretty=True)[0]
+            generated_sql = formatted
+        except Exception:
+            generated_sql = generated_sql.strip()
+
+        return AIGenerateResponse(
+            prompt=prompt,
+            generated_sql=generated_sql,
+            explanation=explanation,
+            tables_used=tables_used,
+            model="ast-sqlglot-analyzer",
+            provider="mock",
+            fallback_used=True
+        )
+
 
 # --- Сервис взаимодействия с On-premise LLM и fallback на AST ---
 
@@ -858,5 +1165,118 @@ class AIService:
         clean_sql = sanitize_prompt_input(sql)
         clean_err = sanitize_prompt_input(error_message, max_chars=5000)
         return MockSQLAnalyzer.fix(clean_sql, dialect, clean_err)
+
+    async def generate_query(
+        self,
+        prompt: str,
+        dialect: str = "trino",
+        catalog_context: Optional[Dict[str, Any]] = None
+    ) -> AIGenerateResponse:
+        """
+        Генерация SQL-запроса по естественному языку (Text-to-SQL).
+        Использует подключенный On-premise LLM сервис или откатывается к эвристическому AST-генератору.
+        """
+        clean_prompt = sanitize_prompt_input(prompt, max_chars=10000)
+        start_time = time.time()
+
+        if not self.config.enabled or self.config.provider == "mock":
+            res = MockSQLAnalyzer.generate(clean_prompt, dialect, catalog_context)
+            res.execution_time_ms = round((time.time() - start_time) * 1000, 2)
+            return res
+
+        # Подготавливаем контекст схемы для промпта
+        schema_desc = []
+        target_context = catalog_context or MOCK_CATALOGS
+        if isinstance(target_context, dict):
+            for cat_name, schemas in list(target_context.items())[:3]:
+                if isinstance(schemas, dict):
+                    for sch_name, tables in list(schemas.items())[:3]:
+                        if isinstance(tables, dict):
+                            for tbl_name, cols in list(tables.items())[:5]:
+                                if isinstance(cols, list):
+                                    col_str = ", ".join([f"{c.get('name', '')} ({c.get('type', '')})" for c in cols if isinstance(c, dict)][:8])
+                                    schema_desc.append(f"Таблица {cat_name}.{sch_name}.{tbl_name}: {col_str}")
+        schema_prompt_section = "\n".join(schema_desc) if schema_desc else "Доступны таблицы: tpch.sf1.customer, tpch.sf1.orders, analytics.events.user_actions, analytics.events.dau_metrics"
+
+        system_prompt = (
+            f"Ты — ведущий инженер данных и эксперт по генерации аналитических SQL-запросов (Text-to-SQL) для диалекта {dialect.upper()} (Trino / Apache Hive на YARN).\n"
+            "Пользователь передает задачу на естественном языке и контекст схемы данных.\n"
+            "Твоя задача — сгенерировать точный, высокопроизводительный и безопасный SQL-запрос, оптимизированный для работы в распределенной среде Hadoop / YARN.\n\n"
+            "КРИТИЧЕСКИ ВАЖНЫЕ ТРЕБОВАНИЯ К ОПТИМИЗАЦИИ ДЛЯ YARN И HDFS:\n"
+            "1. ПАРТИЦИОНИРОВАНИЕ (Partition Pruning):\n"
+            "   - Всегда добавляй предикаты фильтрации по партиционным колонкам дат/времени (dt, date, report_date, orderdate, created_at, p_date) в блоке WHERE.\n"
+            "   - Запрещено вызывать скалярные функции над колонкой партиции (НЕЛЬЗЯ year(dt)=2026, НУЖНО dt >= DATE '2026-01-01' AND dt < DATE '2027-01-01'). Это критично для статического отсечения директорий HDFS до выделения YARN контейнеров (Mappers).\n"
+            "2. ОПТИМИЗАЦИЯ РЕСУРСОВ YARN:\n"
+            "   - Проекция колонок (Column Pruning): избегай 'SELECT *' на больших таблицах, перечисляй только нужные поля (меньше I/O и десериализации ORC/Parquet в память контейнеров).\n"
+            "   - Защита от перегрузки единственного Reducer: никогда не используй глобальный 'ORDER BY' без 'LIMIT'. Всегда добавляй разумный LIMIT (например, LIMIT 100 или 1000).\n"
+            "   - Минимизация Shuffle: фильтруй данные до JOIN (Predicate Pushdown). В Trino используй APPROX_DISTINCT(col, 0.02) вместо точного COUNT(DISTINCT) для предотвращения Data Skew в YARN NodeManager.\n"
+            "3. БЕЗОПАСНОСТЬ:\n"
+            "   - Запрос должен быть СТРОГО READ-ONLY (SELECT или WITH CTE).\n"
+            "   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ любые деструктивные команды (INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, CREATE, GRANT).\n\n"
+            "Верни ответ СТРОГО в формате JSON:\n"
+            "{\n"
+            '  "generated_sql": "SELECT ...",\n'
+            '  "explanation": "Подробное объяснение логики запроса на русском языке с описанием примененных оптимизаций для YARN и Partition Pruning",\n'
+            '  "tables_used": ["схема.таблица1", "таблица2"]\n'
+            "}\n"
+            "Только чистый JSON без markdown обрамления ```json!"
+        )
+
+        user_content = (
+            f"Диалект: {dialect}\n"
+            f"Доступные схемы и таблицы:\n{schema_prompt_section}\n\n"
+            f"Запрос пользователя:\n{clean_prompt}"
+        )
+
+        try:
+            async with self._get_client() as client:
+                payload = {
+                    "model": self.config.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": self.config.max_tokens,
+                    "response_format": {"type": "json_object"}
+                }
+                resp = await client.post("/chat/completions", json=payload)
+                if resp.status_code == 200:
+                    raw_content = resp.json()["choices"][0]["message"]["content"]
+                    parsed = json.loads(raw_content)
+                    sql = parsed.get("generated_sql", "").strip()
+
+                    # Валидация безопасности AST
+                    is_safe, err_msg = validate_readonly_sql_ast(sql, dialect)
+                    if not is_safe:
+                        logger.warning(f"Сгенерированный LLM запрос заблокирован AST-политикой: {err_msg}")
+                        res = MockSQLAnalyzer.generate(clean_prompt, dialect, catalog_context)
+                        res.explanation += f" (Внимание: запрос LLM был заблокирован политикой безопасности: {err_msg})"
+                        res.execution_time_ms = round((time.time() - start_time) * 1000, 2)
+                        return res
+
+                    # Автоформатирование
+                    try:
+                        sql = sqlglot.transpile(sql, read=MockSQLAnalyzer._map_dialect(dialect), write=MockSQLAnalyzer._map_dialect(dialect), pretty=True)[0]
+                    except Exception:
+                        pass
+
+                    elapsed = round((time.time() - start_time) * 1000, 2)
+                    return AIGenerateResponse(
+                        prompt=clean_prompt,
+                        generated_sql=sql,
+                        explanation=parsed.get("explanation", "Запрос сгенерирован ИИ-ассистентом."),
+                        tables_used=parsed.get("tables_used", []),
+                        model=self.config.model,
+                        provider="on-premise-llm",
+                        execution_time_ms=elapsed,
+                        fallback_used=False
+                    )
+        except Exception as e:
+            logger.warning(f"Ошибка при обращении к LLM для генерации SQL: {e}. Применяется Mock-генератор.")
+
+        res = MockSQLAnalyzer.generate(clean_prompt, dialect, catalog_context)
+        res.execution_time_ms = round((time.time() - start_time) * 1000, 2)
+        return res
 
 ai_service = AIService()
