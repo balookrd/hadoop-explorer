@@ -15,3 +15,7 @@ sql-explorer:
 
 yarn-explorer:
   enabled: true
+
+spark-explorer:
+  enabled: true
+

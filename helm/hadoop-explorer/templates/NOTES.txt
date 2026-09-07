@@ -10,7 +10,10 @@
   - SQL Explorer:  активен
 {{- end }}
 {{- if (index .Values "yarn-explorer" "enabled") }}
-  - YARN Explorer: активен
+  - YARN Explorer:  активен
+{{- end }}
+{{- if (index .Values "spark-explorer" "enabled") }}
+  - Spark Explorer: активен
 {{- end }}
 
 Для проверки статуса подов:

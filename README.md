@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-121%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-127%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -58,7 +58,7 @@ hadoop-explorer/
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   ├── hdfs/               # Сервис HDFS Explorer (40 тестов)
-│   ├── spark/              # Сервис Spark Explorer (7 тестов)
+│   ├── spark/              # Сервис Spark Explorer (13 тестов)
 │   ├── sql/                # Сервис SQL Explorer (32 теста)
 │   └── yarn/               # Сервис YARN Explorer (42 теста)
 │

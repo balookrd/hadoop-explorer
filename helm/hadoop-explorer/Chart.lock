@@ -8,5 +8,8 @@ dependencies:
 - name: yarn-explorer
   repository: file://../charts/yarn-explorer
   version: 0.1.0
-digest: sha256:ae189a58e1c5f62cade9d47f78d8fabfd5345a9a7aea35be2c0a8b8899b446e3
-generated: "2026-09-06T21:17:42.317238+03:00"
+- name: spark-explorer
+  repository: file://../charts/spark-explorer
+  version: 0.1.0
+digest: sha256:276e3915bb6b516c4ea05aa2d3d29819f1e0fc62e81b34e0e8de5a373b2ff626
+generated: "2026-09-07T19:08:49.519969+03:00"
