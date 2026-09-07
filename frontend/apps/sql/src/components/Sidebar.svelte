@@ -21,11 +21,13 @@
 
   let {
     clusterId,
+    user = null,
     onSelectTable,
     onSelectHistoryQuery,
     onLoadCachedResult
   }: {
     clusterId: string;
+    user?: any;
     onSelectTable: (tableName: string) => void;
     onSelectHistoryQuery: (queryText: string) => void;
     onLoadCachedResult: (queryId: string, clusterName: string) => void;
@@ -50,12 +52,13 @@
   let historyItems = $state<QueryHistoryItem[]>([]);
 
   $effect(() => {
-    if (clusterId) {
+    if (clusterId && user) {
       loadCatalogTree();
     }
   });
 
   async function loadCatalogTree() {
+    if (!clusterId || !user) return;
     loadingSchema = true;
     try {
       const cats = await api.getCatalogs(clusterId);
@@ -107,6 +110,7 @@
   }
 
   export async function refreshHistory() {
+    if (!user) return;
     loadingHistory = true;
     try {
       historyItems = await api.getHistory();
@@ -121,6 +125,7 @@
   }
 
   export function refreshQueue() {
+    if (!user) return;
     if (queueViewRef) {
       queueViewRef.refreshQueue();
     }
@@ -131,7 +136,7 @@
     if (tab === 'history') {
       refreshHistory();
     } else if (tab === 'queue' && queueViewRef) {
-      queueViewRef.refreshQueue();
+      refreshQueue();
     }
   }
 

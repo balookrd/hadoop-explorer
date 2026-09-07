@@ -376,6 +376,7 @@
     <Sidebar
       bind:this={sidebarRef}
       clusterId={selectedClusterId}
+      {user}
       onSelectTable={handleSelectTable}
       onSelectHistoryQuery={handleSelectHistoryQuery}
       onLoadCachedResult={handleLoadCachedResult}
