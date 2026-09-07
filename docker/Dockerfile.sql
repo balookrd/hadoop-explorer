@@ -4,12 +4,13 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 
-COPY frontend/apps/sql/package*.json ./
-RUN npm ci
+COPY frontend/package*.json ./
+COPY frontend/common ./common
+COPY frontend/apps/sql/package*.json ./apps/sql/
+RUN npm ci --workspace=apps/sql --include-workspace-root
 
-COPY frontend/common /app/frontend/common
-COPY frontend/apps/sql/ ./
-RUN npm run build
+COPY frontend/apps/sql ./apps/sql
+RUN npm run build --workspace=apps/sql
 
 # ==========================================
 # Этап 2: Финальный образ Backend + Static
@@ -45,7 +46,7 @@ COPY backend/sql/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Копирование собранного Frontend из этапа 1
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /app/frontend/apps/sql/dist ./frontend/dist
 
 # Создание непривилегированного пользователя appuser (UID 10001)
 RUN groupadd -g 10001 appuser && \

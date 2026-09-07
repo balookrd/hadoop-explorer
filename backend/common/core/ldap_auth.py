@@ -88,12 +88,12 @@ class CommonLdapAuthService:
         bind_dn: Optional[str] = None,
         bind_password: Optional[str] = None,
         user_base_dn: str = "dc=example,dc=com",
-        user_filter: str = "(sAMAccountName={username})",
-        username_attr: str = "sAMAccountName",
-        display_name_attr: str = "displayName",
-        email_attr: str = "mail",
-        memberof_attr: str = "memberOf",
-        use_user_memberof: bool = True,
+        user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))",
+        username_attr: Optional[str] = None,
+        display_name_attr: Optional[str] = "displayName",
+        email_attr: Optional[str] = "mail",
+        memberof_attr: Optional[str] = "memberOf",
+        use_user_memberof: bool = False,
         group_base_dn: Optional[str] = None,
         group_filter: Optional[str] = None,
         group_name_attr: str = "cn",
@@ -127,17 +127,30 @@ class CommonLdapAuthService:
                 # 2. Поиск DN пользователя с безопасным экранированием (защита от CWE-90)
                 safe_username = escape_filter_chars(username)
                 search_filter = user_filter.format(username=safe_username)
-                attributes = [username_attr, email_attr, display_name_attr]
 
-                server_obj = getattr(service_conn, "server", None)
-                schema = getattr(server_obj, "schema", None) if server_obj else None
-                has_memberof_schema = bool(
-                    schema
-                    and hasattr(schema, "attribute_types")
-                    and any(k.lower() == memberof_attr.lower() for k in schema.attribute_types.keys())
-                )
-                if has_memberof_schema or use_user_memberof:
-                    attributes.append(memberof_attr)
+                attributes = []
+                if username_attr:
+                    attributes.append(username_attr)
+                if email_attr and email_attr not in attributes:
+                    attributes.append(email_attr)
+                if display_name_attr and display_name_attr not in attributes:
+                    attributes.append(display_name_attr)
+
+                # Проверяем memberOf
+                if memberof_attr:
+                    server_obj = getattr(service_conn, "server", None)
+                    schema = getattr(server_obj, "schema", None) if server_obj else None
+                    has_memberof_schema = bool(
+                        schema
+                        and hasattr(schema, "attribute_types")
+                        and any(k.lower() == memberof_attr.lower() for k in schema.attribute_types.keys())
+                    )
+                    if use_user_memberof or has_memberof_schema:
+                        if memberof_attr not in attributes:
+                            attributes.append(memberof_attr)
+
+                if not attributes:
+                    attributes = ["*"]
 
                 service_conn.search(
                     search_base=user_base_dn,
@@ -160,17 +173,17 @@ class CommonLdapAuthService:
                         return None
 
                 # 4. Извлечение атрибутов профиля
-                display_name = (
-                    getattr(user_entry, display_name_attr).value
-                    if hasattr(user_entry, display_name_attr) and hasattr(getattr(user_entry, display_name_attr), "value")
-                    else getattr(user_entry, display_name_attr, username)
-                ) or username
+                display_name = None
+                if display_name_attr and hasattr(user_entry, display_name_attr):
+                    attr_val = getattr(user_entry, display_name_attr)
+                    display_name = attr_val.value if hasattr(attr_val, "value") else str(attr_val)
+                if not display_name:
+                    display_name = username
 
-                email = (
-                    getattr(user_entry, email_attr).value
-                    if hasattr(user_entry, email_attr) and hasattr(getattr(user_entry, email_attr), "value")
-                    else getattr(user_entry, email_attr, None)
-                )
+                email = None
+                if email_attr and hasattr(user_entry, email_attr):
+                    attr_val = getattr(user_entry, email_attr)
+                    email = attr_val.value if hasattr(attr_val, "value") else str(attr_val)
 
                 # 5. Извлечение групп
                 groups = cls._extract_groups_from_entry(
@@ -211,12 +224,12 @@ class CommonLdapAuthService:
         bind_dn: Optional[str] = None,
         bind_password: Optional[str] = None,
         user_base_dn: str = "dc=example,dc=com",
-        user_filter: str = "(sAMAccountName={username})",
-        username_attr: str = "sAMAccountName",
-        display_name_attr: str = "displayName",
-        email_attr: str = "mail",
-        memberof_attr: str = "memberOf",
-        use_user_memberof: bool = True,
+        user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))",
+        username_attr: Optional[str] = None,
+        display_name_attr: Optional[str] = "displayName",
+        email_attr: Optional[str] = "mail",
+        memberof_attr: Optional[str] = "memberOf",
+        use_user_memberof: bool = False,
         group_base_dn: Optional[str] = None,
         group_filter: Optional[str] = None,
         group_name_attr: str = "cn",
@@ -248,17 +261,29 @@ class CommonLdapAuthService:
             with connection_cls(server, user=service_user, password=service_pwd, auto_bind=True, read_only=True) as service_conn:
                 safe_username = escape_filter_chars(username)
                 search_filter = user_filter.format(username=safe_username)
-                attributes = [username_attr, email_attr, display_name_attr]
 
-                server_obj = getattr(service_conn, "server", None)
-                schema = getattr(server_obj, "schema", None) if server_obj else None
-                has_memberof_schema = bool(
-                    schema
-                    and hasattr(schema, "attribute_types")
-                    and any(k.lower() == memberof_attr.lower() for k in schema.attribute_types.keys())
-                )
-                if has_memberof_schema or use_user_memberof:
-                    attributes.append(memberof_attr)
+                attributes = []
+                if username_attr:
+                    attributes.append(username_attr)
+                if email_attr and email_attr not in attributes:
+                    attributes.append(email_attr)
+                if display_name_attr and display_name_attr not in attributes:
+                    attributes.append(display_name_attr)
+
+                if memberof_attr:
+                    server_obj = getattr(service_conn, "server", None)
+                    schema = getattr(server_obj, "schema", None) if server_obj else None
+                    has_memberof_schema = bool(
+                        schema
+                        and hasattr(schema, "attribute_types")
+                        and any(k.lower() == memberof_attr.lower() for k in schema.attribute_types.keys())
+                    )
+                    if use_user_memberof or has_memberof_schema:
+                        if memberof_attr not in attributes:
+                            attributes.append(memberof_attr)
+
+                if not attributes:
+                    attributes = ["*"]
 
                 service_conn.search(
                     search_base=user_base_dn,
@@ -274,11 +299,12 @@ class CommonLdapAuthService:
                 user_entry = service_conn.entries[0]
                 user_dn = getattr(user_entry, "entry_dn", str(user_entry))
 
-                display_name = (
-                    getattr(user_entry, display_name_attr).value
-                    if hasattr(user_entry, display_name_attr) and hasattr(getattr(user_entry, display_name_attr), "value")
-                    else getattr(user_entry, display_name_attr, username)
-                ) or username
+                display_name = None
+                if display_name_attr and hasattr(user_entry, display_name_attr):
+                    attr_val = getattr(user_entry, display_name_attr)
+                    display_name = attr_val.value if hasattr(attr_val, "value") else str(attr_val)
+                if not display_name:
+                    display_name = username
 
                 email = (
                     getattr(user_entry, email_attr).value
