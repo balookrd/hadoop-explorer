@@ -1,10 +1,11 @@
 # ⚙️ Руководство по конфигурации Hadoop Explorer Platform
 
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
-- **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища).
-- **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов).
+- **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища, Circuit Breaker, Distributed Lock, Graceful Shutdown).
+- **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов, Circuit Breaker).
 - **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
-- **YARN Explorer** (`backend/yarn` — YARN RM HA, Capacity Scheduler, партиции, Change Requests, генерация XML).
+- **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
+- **YARN Explorer** (`backend/yarn` — YARN RM HA, Capacity Scheduler, партиции, Change Requests, Distributed Lock, генерация XML).
 - **Развертывание в Kubernetes (Helm)**.
 
 ---
@@ -15,7 +16,8 @@
    - [Сервер и безопасность (CORS, CSRF, Cookies, JWT)](#21-сервер-и-безопасность-cors-csrf-cookies-jwt)
    - [Аутентификация: LDAPS / Active Directory](#22-аутентификация-ldaps--active-directory)
    - [Аутентификация: Kerberos SPNEGO SSO](#23-аутентификация-kerberos-spnego-sso)
-   - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage)](#24-хранилище-сессий-токенов-и-rate-limiting-tri-storage)
+   - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage & L1 Cache)](#24-хранилище-сессий-токенов-и-rate-limiting-tri-storage--l1-cache)
+   - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#25-отказоустойчивость-circuit-breaker-distributed-lock-и-graceful-shutdown)
 3. [Настройка HDFS Explorer](#3-настройка-hdfs-explorer)
 4. [Настройка SQL Explorer (Trino & Hive)](#4-настройка-sql-explorer-trino--hive)
    - [Аналитические кластеры](#41-аналитические-кластеры)
@@ -39,7 +41,7 @@
 
 Каждый бэкенд-сервис загружает конфигурацию по следующей цепочке приоритетов:
 1. **Переменные окружения** (наивысший приоритет — переопределяют значения из YAML для секретов и путей).
-2. **Файл конфигурации YAML**, заданный через переменную `CONFIG_PATH` или `HDFS_CONFIG_PATH`.
+2. **Файл конфигурации YAML**, заданный через переменную `CONFIG_PATH` или `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` / `SQL_CONFIG_PATH`.
 3. **Локальный файл по умолчанию**: `config/config.yaml` внутри каталога соответствующего сервиса.
 
 > [!IMPORTANT]
@@ -47,7 +49,8 @@
 > При установке `server.debug: false` платформа активирует строгие проверки безопасности:
 > - Запрещается режим авторизации `auth.mode: "mock"`.
 > - Флаг `cookie_secure` принудительно переводится в `true`.
-> - Блокируется запуск со стандартным или коротким `secret_key` (< 32 символов).
+> - Блокируется запуск без явно заданного стойкого `secret_key` / `JWT_SECRET_KEY` (мин. 32 символа) или при использовании дефолтных плейсхолдеров (`CHANGE_THIS...`, `your-secret...`).
+> - В режиме разработки (`debug: true`), если ключ не передан, генерируется безопасный временный ключ (`secrets.token_urlsafe(32)`).
 
 ---
 
@@ -67,7 +70,7 @@ server:
   secure_cookies: true          # Передавать cookie только по HTTPS
 
 security:                       # или auth.jwt
-  secret_key: "CHANGE_THIS_TO_RANDOM_SECRET_KEY_MIN_32_CHARS"
+  secret_key: "CHANGE_THIS_TO_RANDOM_SECRET_KEY_MIN_32_CHARS" # Обязателен в production
   algorithm: "HS256"
   access_token_expire_minutes: 480
   cookie_name: "hadoop_explorer_session"
@@ -122,13 +125,13 @@ kerberos_sso:                   # или auth.kerberos
 Платформа использует универсальный слой хранения данных (`SessionStore` и `BaseStorageService`), поддерживающий:
 - **Персистентность сессий пользователей (`active_sessions`)**: При авторизации пользователя активная сессия сохраняется в базе данных с абсолютным Unix Timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). При перезапуске бэкенд-контейнеров или сервисов пользователи **не разлогиниваются**, сессия автоматически восстанавливается из БД.
 - **Авто-конвертация TTL**: Модуль `SessionStore` автоматически определяет формат времени жизни токена (абсолютный timestamp или дельта секунд) и исключает ошибки истечения срока.
-- **Черный список отозванных токенов (`revoked_tokens`)**: Двухуровневое кэширование (L1 In-Memory LRU Cache со сроком устаревания + L2 база данных/Redis) для мгновенной валидации отозванных токенов при logout.
+- **Черный список отозванных токенов (`revoked_tokens`)**: Двухуровневое кэширование (L1 In-Memory LRU Cache `L1RevokedTokenCache` со сроком устаревания + L2 база данных/Redis) для мгновенной валидации отозванных токенов при logout без задержек I/O.
 - **Ограничение частоты запросов (Rate Limiting)**: Алгоритм скользящего окна (Sliding Window) с хранением счетчиков в БД/Redis.
 
 Поддерживаемые бэкенды:
 - **SQLite WAL** (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — встроенное хранилище по умолчанию с режимом Write-Ahead Logging.
 - **PostgreSQL** (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — рекомендуется для High Availability и мульти-инстанс развертываний в Kubernetes.
-- **Redis** (`redis://redis-host:6379/0`) — опционально для распределенного L2 кэширования.
+- **Redis** (`redis://redis-host:6379/0`) — опционально для распределенного L2 кэширования и распределенных блокировок (`DistributedLock`).
 
 ```yaml
 database:
@@ -138,6 +141,12 @@ database:
   # url: "postgresql://user:password@pg-host:5432/hadoop_explorer"
   redis_url: "redis://redis-host:6379/0" # Опционально
 ```
+
+### 2.5 Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown
+
+- **Circuit Breaker**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются.
+- **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
+- **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolExecutor`, отменой асинхронных задач и закрытием соединений с базами данных и сетевыми клиентами.
 
 ---
 
@@ -405,7 +414,7 @@ clusters:
 
 ### 6.2 Ролевая модель и Change Requests
 
-YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) при согласовании заявок:
+YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) и защитой от состояний гонки через `DistributedLock` при согласовании заявок:
 
 ```yaml
 acl:
@@ -433,13 +442,13 @@ acl:
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
-| `CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
+| `CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` / `SQL_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
 | `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
-| `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв.) | — |
+| `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |
 | `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |
 | `LDAP_BIND_PASSWORD` / `HDFS_LDAP_PASSWORD` | Пароль сервисной учетной записи LDAP | — |
 | `DATABASE_URL` / `HDFS_DATABASE_URL` | Строка подключения к базе данных | `sqlite+aiosqlite:///...` |
-| `STORAGE_URL` / `REDIS_URL` | URL подключения к Redis | — |
+| `STORAGE_URL` / `REDIS_URL` | URL подключения к Redis (кэш токенов, Rate Limiter, Distributed Lock) | — |
 | `LIVY_URL` | Адрес сервера Apache Livy для Spark Explorer | `http://localhost:8998` |
 | `HIVE_METASTORE_URI` | Thrift URI каталога Hive Metastore | `thrift://localhost:9083` |
 | `CORS_ORIGINS` | Доверенные адреса через запятую | `http://localhost:8000` |

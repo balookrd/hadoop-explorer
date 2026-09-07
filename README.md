@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-134%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-142%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -39,10 +39,10 @@
 
 **Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
-1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS). Поддерживает превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
-2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
+1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
+2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
-4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests).
+4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой от состояний гонки через `DistributedLock`.
 
 Каждое приложение может собираться в **независимый легковесный Docker-контейнер**, развертываться автономно или в составе единого **Umbrella Helm Chart**, а также запускаться в собственном **раздельном демо-стенде**.
 
@@ -54,10 +54,10 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── core/           # Безопасность, SessionStore, JWT, CSRF, CommonLdapAuthService, Kerberos, Rate Limiter, Audit
-│   │   ├── models/         # Общие модели пользователей, ролей и сессий
+│   │   ├── core/           # Безопасность, SessionStore, Circuit Breaker, Lock, Shutdown, JWT, CSRF, LDAP, Kerberos, Rate Limiter, Audit
+│   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession)
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
-│   ├── hdfs/               # Сервис HDFS Explorer (42 теста)
+│   ├── hdfs/               # Сервис HDFS Explorer (50 тестов)
 │   ├── spark/              # Сервис Spark Explorer (15 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── yarn/               # Сервис YARN Explorer (43 теста)
@@ -98,7 +98,7 @@ hadoop-explorer/
 │   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 121 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 142 тестов
 │   └── build-containers.sh # Скрипт сборки контейнеров
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -110,14 +110,24 @@ hadoop-explorer/
 ## 📦 Выделенные общие модули
 
 ### 1. `backend/common` (Пакет `hadoop-explorer-common`)
-- **`backend.common.core.session_store`**:
-  - Сохранение активных сессий пользователей в реляционной БД (`SQLite WAL`, `PostgreSQL`) для устойчивости при перезапуске бэкенд-сервисов.
-  - Таблица `active_sessions` с автоматической конвертацией и проверкой абсолютного Unix Timestamp `expires_at`.
-  - Двухуровневый черный список отозванных токенов `revoked_tokens` (L1 In-Memory LRU Cache + L2 база данных/Redis).
 - **`backend.common.core.security`**:
+  - Единая фабрика `make_get_current_user` для стандартизированной валидации JWT, ролей и сессий.
   - Централизованная генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
   - Строгая CSRF-защита (блокировка межсайтовых запросов `Sec-Fetch-Site: cross-site`, валидация заголовков `Origin`, `Referer` по белому списку, требование заголовка `X-Requested-With`).
   - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis) и защитой от Fail-Open.
+  - Безопасная валидация секретов (строгий fail-fast в продакшне, автогенерация временных ключей в dev).
+- **`backend.common.core.circuit_breaker`**:
+  - Автомат состояний `CircuitBreaker` (`CLOSED`, `OPEN`, `HALF_OPEN`) для Fast-Fail сетевых сбоев и предотвращения каскадной деградации сервисов при недоступности NameNode, YARN RM или Livy.
+  - Исключение 4xx клиентских ошибок и поддержка мгновенного Failover на standby-узлы.
+- **`backend.common.core.lock`**:
+  - Распределенная блокировка `DistributedLock` на базе Redis (`SET NX PX` + Lua) с автоматическим fallback на In-Memory/DB для защиты критических секций.
+- **`backend.common.core.shutdown`**:
+  - Менеджер `GracefulShutdownManager` для корректного освобождения ресурсов при завершении процессов (SIGTERM/SIGINT): закрытие пулов `ThreadPoolExecutor`, HTTP-клиентов и БД соединений.
+- **`backend.common.core.cache`**:
+  - Потокобезопасный `L1RevokedTokenCache` для ультрабыстрой проверки отозванных токенов в памяти.
+- **`backend.common.core.session_store`**:
+  - Сохранение активных сессий пользователей в реляционной БД (`SQLite WAL`, `PostgreSQL`) для устойчивости при перезапуске бэкенд-сервисов.
+  - Таблица `active_sessions` с автоматической конвертацией и проверкой абсолютного Unix Timestamp `expires_at`.
 - **`backend.common.core.ldap_auth`**:
   - Универсальный `CommonLdapAuthService` для LDAPS / Active Directory / OpenLDAP.
   - Поиск пользователей с экранированием фильтров (защита от LDAP Injection / CWE-90), извлечение групп (поддержка `memberOf` и фильтров `group_search_filter`), поддержка кастомных TLS CA-сертификатов.
@@ -133,7 +143,7 @@ hadoop-explorer/
 - **`backend.common.db.storage`**:
   - Базовый `BaseStorageService` для централизованного отзыва токенов и трекинга лимитов запросов с поддержкой любых диалектов (`sqlite`, `postgresql`, `redis`).
 - **`backend.common.models.auth`**:
-  - Базовые модели Pydantic: `Role` (`READER`, `WRITER`, `ADMIN`), `UserSession`, `UserInfo`, `TokenPayload`, `LoginRequest`, `TokenResponse`.
+  - Базовые модели Pydantic: `Role` (`READER`, `WRITER`, `ADMIN`), `UserSession`, `CommonUserSession`, `UserInfo`, `TokenPayload`, `LoginRequest`, `TokenResponse`.
 
 ### 2. `frontend/common` (Пакет `@hadoop-explorer/common`)
 - **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
@@ -313,14 +323,14 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**134 теста**) успешно проходят комплексную проверку:
-- **HDFS Explorer**: 42 теста (ACL, API, Readiness / Healthz, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
-- **Spark Explorer**: 15 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz).
+Все тесты (**142 теста**) успешно проходят комплексную проверку:
+- **HDFS Explorer**: 50 тестов (ACL, API, Readiness / Healthz, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
+- **Spark Explorer**: 15 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
-- **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz).
+- **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
 
 ```bash
-# Запуск всех 134 тестов платформы
+# Запуск всех 142 тестов платформы
 make test
 
 # Либо по сервисам:
@@ -340,11 +350,11 @@ make test-yarn
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 121 модульных и интеграционных тестов |
-| `make test-hdfs` | Запуск 40 тестов сервиса HDFS Explorer |
-| `make test-spark` | Запуск 7 тестов сервиса Spark Explorer |
-| `make test-sql` | Запуск 32 тестов сервиса SQL Explorer |
-| `make test-yarn` | Запуск 42 тестов сервиса YARN Explorer |
+| `make test` | Запуск всех 142 модульных и интеграционных тестов |
+| `make test-hdfs` | Запуск 50 тестов сервиса HDFS Explorer |
+| `make test-spark` | Запуск 15 тестов сервиса Spark Explorer |
+| `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
+| `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |
 | `make build` | Сборка Docker-образов всех 4 приложений (hdfs, spark, sql, yarn) |
 | `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
 | `make build-spark` | Сборка Docker-образа Spark Explorer |

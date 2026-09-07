@@ -1,6 +1,6 @@
 # Backend: HDFS Web Explorer
 
-Бэкенд-сервис веб-портала **HDFS Web Explorer**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис обеспечивает взаимодействие с кластерами Apache Hadoop HDFS через протоколы WebHDFS и HttpFS с поддержкой Kerberos SPNEGO, корпоративную аутентификацию (LDAP / Active Directory), потоковый просмотр больших файлов (Parquet, ORC, Avro, CSV, JSON), аудит операций и разграничение прав доступа.
+Бэкенд-сервис веб-портала **HDFS Web Explorer**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис обеспечивает взаимодействие с кластерами Apache Hadoop HDFS через протоколы WebHDFS и HttpFS с поддержкой Kerberos SPNEGO, корпоративную аутентификацию (LDAP / Active Directory), потоковый просмотр больших файлов (Parquet, ORC, Avro, CSV, JSON), аудит операций, защиту от сбоев через Circuit Breaker и разграничение прав доступа.
 
 ---
 
@@ -26,17 +26,17 @@ backend/
 │   │   ├── cluster.py           # Конфигурация кластеров
 │   │   └── hdfs.py              # Статусы файлов, операции чтения/записи
 │   ├── services/                # Бизнес-логика
-│   │   ├── hdfs_client.py       # Клиент WebHDFS/HttpFS с поддержкой Kerberos
+│   │   ├── hdfs_client.py       # Клиент WebHDFS/HttpFS с поддержкой Kerberos и Circuit Breaker
 │   │   ├── mock_hdfs.py         # Mock данные для dev-режима
 │   │   ├── preview.py           # Потоковый просмотр файлов Parquet/ORC (PyArrow)
 │   │   └── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
-│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, /healthz
-├── tests/                       # Автоматические тесты (pytest - 39 тестов)
+│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
+├── tests/                       # Автоматические тесты (pytest - 50 тестов)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_acl.py              # Тесты проверки прав доступа
 │   ├── test_api.py              # Тесты основных API эндпоинтов
-│   ├── test_common_modules.py   # Тесты интеграции с backend/common
+│   ├── test_common_modules.py   # Тесты интеграции с backend/common (Circuit Breaker, SessionStore)
 │   ├── test_cross_cluster_copy.py # Тесты надежности межкластерного копирования
 │   ├── test_parquet_orc_preview.py # Тесты предпросмотра Parquet и ORC
 │   └── test_security.py         # Тесты CSRF, Security Headers, Rate Limit, Auth
@@ -46,34 +46,41 @@ backend/
 
 ---
 
-## 🛡️ Безопасность (Security Architecture)
+## 🛡️ Безопасность и отказоустойчивость (Security & Resilience)
 
 1. **Строгая защита от CSRF**:
    - Валидация источников через `urllib.parse.urlparse` с точным сравнением схемы, хоста и порта с `server.cors_origins` и `Host` заголовком.
    - Режим Fail-Closed: обязательное отклонение (HTTP 403) для всех мутирующих запросов (`POST`, `PUT`, `DELETE`, `PATCH`) при Cookie-сессии в случае отсутствия или несовпадения источников.
-2. **Защита от SSRF (Server-Side Request Forgery)**:
+2. **Отказоустойчивость вызовов WebHDFS (Circuit Breaker & HA)**:
+   - Встроенный `CircuitBreaker` на уровне клиента `HDFSClient`: мгновенный отказ (Fast-Fail) при недоступности NameNode без зависания пулов потоков.
+   - Автоматический failover на standby NameNode при сбоях active узла. Игнорирование 4xx клиентских ошибок.
+3. **Защита от SSRF (Server-Side Request Forgery)**:
    - Функция `validate_webhdfs_location` для проверки редиректов NameNode -> DataNode (307 Redirects). Блокировка Cloud Metadata (AWS `169.254.169.254`, GCP `metadata.google.internal`, Alibaba `100.100.100.200`) и нелегитимных хостов.
-3. **Безопасность JWT и сессий**:
+4. **Безопасность JWT и сессий**:
    - Библиотека `PyJWT >= 2.9.0` с защитой от алгоритмических атак.
-   - Серверный отзыв токенов при выходе (`/api/v1/auth/logout`) через универсальный Tri-Storage (`StorageService`: Redis, PostgreSQL, SQLite).
+   - Серверный отзыв токенов при выходе (`/api/v1/auth/logout`) через универсальный Tri-Storage (`StorageService`: Redis, PostgreSQL, SQLite) и L1 In-Memory кэш.
    - Токены принимаются исключительно через `Authorization: Bearer` или `HttpOnly` Cookie.
-4. **Контроль частоты запросов (Rate Limiting)**:
+5. **Контроль частоты запросов (Rate Limiting)**:
    - Хранилище лимитов на базе `StorageService` с защитой от IP Spoofing: доверие `X-Forwarded-For` только от доверенных прокси, для прямых подключений используется реальный IP сокета.
-5. **Аутентификация и каталог**:
+6. **Аутентификация и каталог**:
    - Kerberos SPNEGO SSO с безопасным fallback прав.
    - Строгая проверка TLS-сертификатов LDAPS (`verify_cert: true`).
    - Изоляция тестовых пользователей: `mock_users` активны исключительно при `auth.mode: "mock"`.
-6. **Защита от DoS / OOM при файловых операциях**:
+7. **Защита от DoS / OOM при файловых операциях**:
    - Потоковая передача чанками при кросс-кластерном копировании и сборке/распаковке ZIP-архивов (Zero-Memory Streaming).
-7. **Защитные заголовки Content-Security-Policy (CSP)**:
+8. **Защитные заголовки Content-Security-Policy (CSP)**:
    - Директивы `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` и `frame-ancestors 'none'`.
-8. **Аудит безопасности**:
+9. **Аудит безопасности**:
    - Все операции создания, изменения, удаления и скачивания файлов логируются с указанием инициатора, реального IP-адреса и результата.
+10. **Graceful Shutdown**:
+    - Интеграция с `GracefulShutdownManager` для корректного освобождения сетевых сессий и закрытия пулов потоков при остановке пода в Kubernetes.
 
 ---
 
 ## 🧪 Запуск тестов
 
 ```bash
-PYTHONPATH=. pytest
+make test-hdfs
+# либо
+uv run pytest backend/hdfs/tests -v
 ```

@@ -2,7 +2,7 @@
 
 Бэкенд-сервис портала аналитических вычислений **Spark Explorer (PySpark, Scala Spark, Spark SQL)**, реализованный на базе **FastAPI (Python 3.12/3.14)** в рамках платформы **Hadoop Explorer**.
 
-Сервис предоставляет единый высокопроизводительный API для управления интерактивными сессиями Spark на кластерах **Apache Hadoop YARN** и **Kubernetes** через **Apache Livy REST API**, обеспечивает централизованную аутентификацию (LDAPS / Kerberos SPNEGO), аудит безопасности, кэширование метаданных каталога Hive Metastore / Iceberg, персистентное сохранение рабочих пространств пользователей и изоляцию контекстов.
+Сервис предоставляет единый высокопроизводительный API для управления интерактивными сессиями Spark на кластерах **Apache Hadoop YARN** и **Kubernetes** через **Apache Livy REST API**, обеспечивает централизованную аутентификацию (LDAPS / Kerberos SPNEGO), аудит безопасности, отказоустойчивость вызовов к Livy через **Circuit Breaker**, кэширование метаданных каталога Hive Metastore / Iceberg, персистентное сохранение рабочих пространств пользователей и изоляцию контекстов.
 
 ---
 
@@ -25,14 +25,15 @@ backend/spark/
 │   │   ├── models.py            # Pydantic схемы сессий, стейтментов, каталога и UserWorkspace
 │   │   └── db_models.py         # SQLAlchemy модель SparkUserWorkspace (SQLite/PostgreSQL)
 │   ├── services/                # Бизнес-логика и клиенты внешних систем
-│   │   ├── livy_client.py       # Асинхронный HTTP-клиент к Apache Livy с поддержкой SPNEGO Kerberos
+│   │   ├── livy_client.py       # Асинхронный HTTP-клиент к Apache Livy с поддержкой SPNEGO Kerberos и Circuit Breaker
 │   │   └── mock_spark.py        # Демонстрационный движок MockSparkEngine для автономного режима
 │   ├── docker-entrypoint.sh     # Инициализация kinit и запуск сервиса uvicorn
-│   └── main.py                  # Точка входа FastAPI, CORS, Security Headers, Healthcheck (/healthz)
+│   └── main.py                  # Точка входа FastAPI, CORS, Security Headers, Graceful Shutdown, Healthcheck (/healthz)
 ├── config/
 │   └── config.yaml              # Конфигурационный файл по умолчанию
-├── tests/                       # Автоматические тесты (pytest - 7 тестов)
-│   └── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace
+├── tests/                       # Автоматические тесты (pytest - 15 тестов)
+│   ├── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace
+│   └── test_spark_circuit_breaker.py # Тесты Circuit Breaker для Livy вызовов
 └── pyproject.toml               # Конфигурация пакета hadoop-explorer-spark
 ```
 
@@ -45,24 +46,31 @@ backend/spark/
    - Выпуск защищённых `HttpOnly`, `SameSite=Lax`, `Secure` Cookie-токенов.
    - Изоляция сессий в персистентном `SessionStore` (PostgreSQL / SQLite WAL) с мгновенным отзывом при выходе.
 
-2. **Защита от межсайтовой подделки запросов (CSRF)**:
+2. **Отказоустойчивость сетевых вызовов (Circuit Breaker)**:
+   - Защита вызовов к Apache Livy через автомат состояний `CircuitBreaker`. При отказе Livy бэкенд мгновенно возвращает понятную ошибку (Fast-Fail) без блокировки пула потоков.
+   - Клиентские ошибки (4xx) исключены из счетчика отказов.
+
+3. **Защита от межсайтовой подделки запросов (CSRF)**:
    - Проверка заголовков `Origin` и `Referer` против белого списка доверенных доменов.
    - Блокировка междоменных запросов (`Sec-Fetch-Site: cross-site`).
    - Требование заголовка `X-Requested-With` для API вызовов.
 
-3. **Разграничение доступа к очередям YARN и ресурсам кластера (ACL)**:
+4. **Разграничение доступа к очередям YARN и ресурсам кластера (ACL)**:
    - Сопоставление LDAP-групп пользователя со списком разрешённых очередей YARN (`default_queue`, `available_queues`).
    - Лимиты на максимальные ресурсы драйвера и исполнителей (Cores, Memory, Max Executors).
 
-4. **Изоляция и персистентность контекстов пользователей (`User Workspace`)**:
+5. **Изоляция и персистентность контекстов пользователей (`User Workspace`)**:
    - Эндпоинт `/api/v1/workspace` обеспечивает сохранение открытых вкладок, кода по всем трем языкам (`codeBuffers`) и последних результатов вычислений (`resultBuffers`).
    - Изоляция в БД по уникальному логину пользователя: при входе другого пользователя история и код предыдущего пользователя не отображаются.
 
-5. **Гибкая интеграция с Apache Livy**:
+6. **Гибкая интеграция с Apache Livy**:
    - Поддержка интерактивных сессий `pyspark`, `spark` (Scala), `sparkr` и `sql`.
    - Проброс Kerberos-билетов для доступа Livy к защищённым сервисам HDFS и YARN.
    - Автоматический сбор и парсинг логов выполнения, статусов `idle`, `busy`, `dead`, `success`, `error`.
    - Режим `MockSparkEngine` для локальной разработки и непрерывного CI-тестирования без развертывания реального кластера Hadoop.
+
+7. **Graceful Shutdown**:
+   - Регистрация в `GracefulShutdownManager` для корректного освобождения фоновых задач и сессий при остановке контейнера.
 
 ---
 
@@ -86,5 +94,5 @@ backend/spark/
 make test-spark
 
 # Либо напрямую через uv / pytest:
-uv run pytest backend/spark/tests/test_spark.py -v
+uv run pytest backend/spark/tests -v
 ```

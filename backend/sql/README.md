@@ -1,6 +1,6 @@
 # Backend: SQL Web Explorer
 
-Бэкенд-сервис портала аналитических запросов **SQL Web Explorer (Trino & Hive)**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис предоставляет единый веб-интерфейс к аналитическим движкам Trino и Apache Hive (HiveServer2), обеспечивает аутентификацию (LDAPS / Kerberos SPNEGO), аудит, кэширование метаданных каталога, потоковую передачу результатов через Server-Sent Events (SSE) и защиту от инъекций.
+Бэкенд-сервис портала аналитических запросов **SQL Web Explorer (Trino & Hive)**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис предоставляет единый веб-интерфейс к аналитическим движкам Trino и Apache Hive (HiveServer2), обеспечивает аутентификацию (LDAPS / Kerberos SPNEGO), аудит, кэширование метаданных каталога, потоковую передачу результатов через Server-Sent Events (SSE), защиту от инъекций и Graceful Shutdown.
 
 ---
 
@@ -14,7 +14,8 @@ backend/
 │   │   ├── auth.py              # Аутентификация (/api/v1/auth/login, /sso, /me, /logout)
 │   │   ├── catalog.py           # Каталог данных (/api/v1/clusters/{id}/catalogs, schemas, tables)
 │   │   ├── clusters.py          # Доступные аналитические кластеры (/api/v1/clusters)
-│   │   └── queries.py           # Исполнение и стриминг SQL (/api/v1/queries/execute, stream, cancel)
+│   │   ├── queries.py           # Исполнение и стриминг SQL (/api/v1/queries/execute, stream, cancel)
+│   │   └── workspace.py         # Сохранение рабочих пространств (/api/v1/workspace)
 │   ├── core/                    # Ядро сервиса
 │   │   ├── acl.py               # Проверка прав (check_cluster_access, check_ui_access)
 │   │   ├── audit.py             # Журнал аудита безопасности и SQL-активности
@@ -22,14 +23,15 @@ backend/
 │   │   ├── kerberos.py          # Kerberos SPNEGO аутентификация
 │   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAPS
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита
+│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user
 │   ├── db/                      # Персистентное хранилище (SQLAlchemy / Alembic)
-│   │   ├── models.py            # Модели истории запросов, сохраненных скриптов
+│   │   ├── models.py            # Модели истории запросов, сохраненных скриптов, SqlUserWorkspace
 │   │   └── session.py           # Подключение к SQLite или PostgreSQL
 │   ├── models/                  # Pydantic-схемы
 │   │   ├── auth.py              # UserInfo, TokenResponse, LoginRequest
 │   │   ├── catalog.py           # Схемы каталогов, таблиц и колонок
-│   │   └── query.py             # QueryRequest, QueryStatus, QueryResult
+│   │   ├── query.py             # QueryRequest, QueryStatus, QueryResult
+│   │   └── workspace.py         # SqlUserWorkspaceCreate, SqlUserWorkspaceResponse
 │   ├── services/                # Движки выполнения запросов и сервисы
 │   │   ├── ai_service.py        # Клиент On-premise LLM и эвристический MockSQLAnalyzer
 │   │   ├── hive_engine.py       # Клиент HiveServer2 (TCLIService / Thrift / Impyla)
@@ -38,11 +40,12 @@ backend/
 │   │   ├── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
 │   │   └── trino_engine.py      # Клиент Trino DB API с поддержкой impersonation
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
-│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, /healthz
-├── tests/                       # Автоматические тесты (pytest - 31 тест)
+│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
+├── tests/                       # Автоматические тесты (pytest - 34 теста)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_ai_service.py       # Тесты ИИ-линтера, Mock-анализатора и AI API
-│   └── test_backend.py          # Тесты безопасности, аутентификации, CSRF, каталога, ACL и запросов
+│   ├── test_backend.py          # Тесты безопасности, аутентификации, CSRF, каталога, ACL и запросов
+│   └── test_workspace.py        # Тесты изоляции и персистентности воркспейсов
 ├── pyproject.toml               # Конфигурация пакета hadoop-explorer-sql
 └── requirements.txt             # Зависимости Python
 ```
@@ -59,7 +62,7 @@ backend/
    - Полный отказ от передачи токенов в URL Query-параметрах во избежание утечек в логи и заголовки Referer.
 3. **Безопасность JWT и отзыва сессий**:
    - Библиотека `PyJWT >= 2.9.0` с защитой от алгоритмических атак.
-   - Персистентный отзыв токенов при выходе (`/api/v1/auth/logout`) через универсальный Tri-Storage (`StorageService`: Redis, PostgreSQL, SQLite).
+   - Персистентный отзыв токенов при выходе (`/api/v1/auth/logout`) через универсальный Tri-Storage (`StorageService`: Redis, PostgreSQL, SQLite) и L1 кэш.
 4. **Контроль частоты запросов (Rate Limiting)**:
    - Встроенный скользящий Rate Limiter на базе `StorageService` с защитой от IP-спуфинга: заголовок `X-Forwarded-For` учитывается только от доверенных прокси, для прямых подключений используется реальный IP сокета.
 5. **Аутентификация Kerberos SPNEGO и LDAP**:
@@ -76,11 +79,15 @@ backend/
    - Защита от XSS и инъекций (`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`).
 9. **Поддержка PostgreSQL и SQLite**:
    - Асинхронное подключение через `SQLAlchemy` (`postgresql+asyncpg` / `aiosqlite`) с пулом соединений и автоматической защитой concurrency.
+10. **Graceful Shutdown**:
+    - Завершение активных сессий и пулов потоков при остановке пода в Kubernetes через `GracefulShutdownManager`.
 
 ---
 
 ## 🧪 Запуск тестов
 
 ```bash
-PYTHONPATH=. pytest
+make test-sql
+# либо
+uv run pytest backend/sql/tests -v
 ```
