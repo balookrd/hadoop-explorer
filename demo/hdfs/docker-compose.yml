@@ -1,7 +1,7 @@
 name: hdfs-explorer-demo
 
 services:
-  kdc:
+  hdfs-kdc:
     build:
       context: ./kdc
     container_name: hdfs-demo-kdc
@@ -11,16 +11,20 @@ services:
       - hdfs-demo-krb5-keytabs:/shared/keytabs
       - hdfs-demo-krb5-conf:/shared/conf
     networks:
-      - hdfs-demo-net
+      hdfs-demo-net:
+        aliases:
+          - kdc
 
-  ldap:
+  hdfs-ldap:
     build:
       context: ./ldap
     container_name: hdfs-demo-ldap
     hostname: ldap
     restart: unless-stopped
     networks:
-      - hdfs-demo-net
+      hdfs-demo-net:
+        aliases:
+          - ldap
 
   hdfs-cluster-1:
     build:
@@ -38,7 +42,7 @@ services:
       - "9870:9870"
       - "9864:9864"
     depends_on:
-      - kdc
+      - hdfs-kdc
     networks:
       - hdfs-demo-net
 
@@ -58,7 +62,7 @@ services:
       - "9872:9870"
       - "9865:9864"
     depends_on:
-      - kdc
+      - hdfs-kdc
     networks:
       - hdfs-demo-net
 
@@ -80,8 +84,8 @@ services:
     ports:
       - "8001:8000"
     depends_on:
-      - kdc
-      - ldap
+      - hdfs-kdc
+      - hdfs-ldap
       - hdfs-cluster-1
       - hdfs-cluster-2
     networks:

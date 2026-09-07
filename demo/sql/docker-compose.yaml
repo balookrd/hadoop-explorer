@@ -14,7 +14,7 @@ services:
   # ==========================================
   # 1. Kerberos KDC Server
   # ==========================================
-  kdc:
+  sql-kdc:
     build:
       context: ./kdc
       dockerfile: Dockerfile
@@ -23,17 +23,19 @@ services:
     hostname: kdc
     restart: unless-stopped
     ports:
-      - "1088:88"
-      - "1088:88/udp"
+      - "2088:88"
+      - "2088:88/udp"
     volumes:
       - sql-krb5-data:/var/kerberos/keytabs
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - kdc
 
   # ==========================================
   # 2. OpenLDAP Server
   # ==========================================
-  openldap:
+  sql-openldap:
     build:
       context: ./ldap
       
@@ -41,16 +43,18 @@ services:
     hostname: openldap
     restart: unless-stopped
     ports:
-      - "1389:389"
+      - "2389:389"
     volumes:
       - sql-ldap-data:/var/lib/openldap/openldap-data
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - openldap
 
   # ==========================================
   # 3. PostgreSQL для Hive Metastore
   # ==========================================
-  postgres-meta:
+  sql-postgres-meta:
     image: postgres:16-alpine
     container_name: sql-demo-postgres-meta
     hostname: postgres-meta
@@ -62,12 +66,14 @@ services:
     volumes:
       - sql-pgdata-meta:/var/lib/postgresql/data
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - postgres-meta
 
   # ==========================================
   # 4. Hive Metastore (Apache Hive 4.0.0)
   # ==========================================
-  hive-metastore:
+  sql-hive-metastore:
     image: apache/hive:4.0.0
     container_name: sql-demo-hive-metastore
     hostname: hive-metastore
@@ -83,14 +89,16 @@ services:
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - sql-krb5-data:/etc/security/keytabs:ro
     depends_on:
-      - kdc
+      - sql-kdc
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - hive-metastore
 
   # ==========================================
   # 5. HiveServer2 (Kerberized + doAs)
   # ==========================================
-  hive-server:
+  sql-hive-server:
     image: apache/hive:4.0.0
     container_name: sql-demo-hive-server
     hostname: hive-server
@@ -110,15 +118,17 @@ services:
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - sql-krb5-data:/etc/security/keytabs:ro
     depends_on:
-      - hive-metastore
-      - kdc
+      - sql-hive-metastore
+      - sql-kdc
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - hive-server
 
   # ==========================================
   # 6. Trino Coordinator (Kerberized + TPCH + Hive)
   # ==========================================
-  trino-coordinator:
+  sql-trino-coordinator:
     image: trinodb/trino:latest
     container_name: sql-demo-trino
     hostname: trino-coordinator
@@ -130,10 +140,12 @@ services:
       - ./trino/etc:/etc/trino:ro
       - sql-krb5-data:/etc/security/keytabs:ro
     depends_on:
-      - kdc
-      - hive-metastore
+      - sql-kdc
+      - sql-hive-metastore
     networks:
-      - sql-demo-net
+      sql-demo-net:
+        aliases:
+          - trino-coordinator
 
   # ==========================================
   # 7. Наш сервис SQL Explorer
@@ -159,10 +171,10 @@ services:
       - sql-krb5-data:/etc/security/keytabs:ro
       - sql-explorer-data:/app/data
     depends_on:
-      - kdc
-      - openldap
-      - hive-server
-      - trino-coordinator
+      - sql-kdc
+      - sql-openldap
+      - sql-hive-server
+      - sql-trino-coordinator
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
