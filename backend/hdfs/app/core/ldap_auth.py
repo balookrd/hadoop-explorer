@@ -28,11 +28,15 @@ class LdapClient:
             display_name=result["display_name"],
             email=result["email"],
             groups=groups,
-            is_admin=is_admin
+            is_admin=is_admin,
         )
 
     def get_user_info(self, username: str) -> Optional[UserInfo]:
-        mode = getattr(settings, "auth", None) and settings.auth.mode or ("mock" if not self.config.enabled else "ldaps_only")
+        mode = (
+            getattr(settings, "auth", None)
+            and settings.auth.mode
+            or ("mock" if not self.config.enabled else "ldaps_only")
+        )
         if not self.config.enabled:
             if mode == "mock":
                 for u in settings.mock_users:
@@ -43,7 +47,7 @@ class LdapClient:
                             display_name=u.display_name,
                             email=u.email,
                             groups=u.groups,
-                            is_admin=is_admin
+                            is_admin=is_admin,
                         )
             return None
 
@@ -58,15 +62,11 @@ class LdapClient:
             display_name=result["display_name"],
             email=result["email"],
             groups=groups,
-            is_admin=is_admin
+            is_admin=is_admin,
         )
 
     def authenticate_mock(self, username: str, password: str) -> Optional[UserInfo]:
-        result = self.service.authenticate_mock(
-            username=username,
-            password=password,
-            mock_users=settings.mock_users
-        )
+        result = self.service.authenticate_mock(username=username, password=password, mock_users=settings.mock_users)
         if not result:
             return None
 
@@ -77,11 +77,15 @@ class LdapClient:
             display_name=result["display_name"],
             email=result["email"],
             groups=groups,
-            is_admin=is_admin
+            is_admin=is_admin,
         )
 
     def authenticate(self, username: str, password: str) -> Optional[UserInfo]:
-        mode = getattr(settings, "auth", None) and settings.auth.mode or ("mock" if not self.config.enabled else "ldaps_only")
+        mode = (
+            getattr(settings, "auth", None)
+            and settings.auth.mode
+            or ("mock" if not self.config.enabled else "ldaps_only")
+        )
         if mode == "mock":
             return self.authenticate_mock(username, password)
         elif mode in ("hybrid", "ldaps_only") and self.config.enabled:

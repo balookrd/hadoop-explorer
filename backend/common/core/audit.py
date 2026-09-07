@@ -74,10 +74,6 @@ def audit_log(
 
 
 def log_audit_event(
-    event_type: str,
-    username: str,
-    client_ip: str,
-    status: str = "SUCCESS",
-    details: Optional[Dict[str, Any]] = None
+    event_type: str, username: str, client_ip: str, status: str = "SUCCESS", details: Optional[Dict[str, Any]] = None
 ):
     audit_log(action=event_type, username=username, client_ip=client_ip, details=details, status=status)

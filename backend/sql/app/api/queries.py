@@ -17,14 +17,17 @@ from app.services.query_manager import query_manager
 
 router = APIRouter(prefix="/queries", tags=["queries"])
 
+
 class ExecuteQueryRequest(BaseModel):
     cluster_id: str
     query: str
+
 
 class ExecuteQueryResponse(BaseModel):
     query_id: str
     status: str
     message: str
+
 
 class QueryHistoryItem(BaseModel):
     id: str
@@ -41,6 +44,7 @@ class QueryHistoryItem(BaseModel):
     created_at: datetime.datetime
     finished_at: Optional[datetime.datetime] = None
 
+
 class CachedResultResponse(BaseModel):
     query_id: str
     columns: List[Any]
@@ -49,6 +53,7 @@ class CachedResultResponse(BaseModel):
     offset: int
     limit: int
 
+
 class SaveQueryRequest(BaseModel):
     title: str
     query_text: str
@@ -56,11 +61,10 @@ class SaveQueryRequest(BaseModel):
     description: Optional[str] = None
     is_shared: bool = False
 
+
 @router.post("/execute", response_model=ExecuteQueryResponse)
 async def execute_query(
-    req: ExecuteQueryRequest,
-    request: Request,
-    current_user: UserSession = Depends(get_current_user)
+    req: ExecuteQueryRequest, request: Request, current_user: UserSession = Depends(get_current_user)
 ):
     client_ip = get_client_ip(request)
     if not req.query.strip():
@@ -76,12 +80,9 @@ async def execute_query(
             username=current_user.username,
             client_ip=client_ip,
             status="DENIED",
-            details={"cluster_id": req.cluster_id, "groups": current_user.groups}
+            details={"cluster_id": req.cluster_id, "groups": current_user.groups},
         )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ к данному кластеру запрещен ACL"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к данному кластеру запрещен ACL")
     try:
         query_id = await query_manager.start_query(cluster, current_user, req.query)
     except ValueError as e:
@@ -90,7 +91,7 @@ async def execute_query(
             username=current_user.username,
             client_ip=client_ip,
             status="DENIED",
-            details={"cluster_id": req.cluster_id, "error": str(e), "query_snippet": req.query[:200]}
+            details={"cluster_id": req.cluster_id, "error": str(e), "query_snippet": req.query[:200]},
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
@@ -99,45 +100,29 @@ async def execute_query(
         username=current_user.username,
         client_ip=client_ip,
         status="QUEUED",
-        details={
-            "query_id": query_id,
-            "cluster_id": req.cluster_id,
-            "query_snippet": req.query[:200]
-        }
+        details={"query_id": query_id, "cluster_id": req.cluster_id, "query_snippet": req.query[:200]},
     )
 
-    return ExecuteQueryResponse(
-        query_id=query_id,
-        status="QUEUED",
-        message="Запрос поставлен в очередь на исполнение"
-    )
+    return ExecuteQueryResponse(query_id=query_id, status="QUEUED", message="Запрос поставлен в очередь на исполнение")
+
 
 @router.get("/queue", response_model=List[QueryHistoryItem])
-async def get_queue(
-    current_user: UserSession = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+async def get_queue(current_user: UserSession = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Возвращает список задач, находящихся в очереди пользователя (активные и недавние).
     """
     stmt = (
         select(QueryHistory)
-        .where(
-            QueryHistory.username == current_user.username,
-            QueryHistory.is_in_queue == True
-        )
+        .where(QueryHistory.username == current_user.username, QueryHistory.is_in_queue == True)
         .order_by(desc(QueryHistory.created_at))
         .limit(100)
     )
     result = await db.execute(stmt)
     return result.scalars().all()
 
+
 @router.delete("/queue/{query_id}")
-async def remove_from_queue(
-    query_id: str,
-    request: Request,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def remove_from_queue(query_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
     """
     Останавливает выполняющийся запрос и удаляет его из очереди задач.
     """
@@ -151,9 +136,10 @@ async def remove_from_queue(
         username=current_user.username,
         client_ip=client_ip,
         status="CANCELLED",
-        details={"query_id": query_id, "action": "remove_from_queue"}
+        details={"query_id": query_id, "action": "remove_from_queue"},
     )
     return {"status": "ok", "message": "Запрос остановлен и удален из очереди"}
+
 
 @router.get("/{query_id}/result", response_model=CachedResultResponse)
 async def get_query_result(
@@ -162,7 +148,7 @@ async def get_query_result(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=500, le=5000),
     current_user: UserSession = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Возвращает сохраненный на сервере результат выполнения запроса даже после закрытия вкладки.
@@ -181,7 +167,7 @@ async def get_query_result(
             username=current_user.username,
             client_ip=client_ip,
             status="DENIED",
-            details={"resource": "cached_result", "query_id": query_id, "owner": record.username}
+            details={"resource": "cached_result", "query_id": query_id, "owner": record.username},
         )
         raise HTTPException(status_code=403, detail="Нет доступа к чужому результату")
 
@@ -191,12 +177,9 @@ async def get_query_result(
 
     return CachedResultResponse(**cached_data)
 
+
 @router.get("/{query_id}/stream")
-async def stream_query_results(
-    query_id: str,
-    request: Request,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def stream_query_results(query_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
     """
     Server-Sent Events (SSE) стриминг статуса конкретного запроса.
     """
@@ -209,12 +192,9 @@ async def stream_query_results(
             username=current_user.username,
             client_ip=client_ip,
             status="DENIED",
-            details={"resource": "query_stream", "query_id": query_id}
+            details={"resource": "query_stream", "query_id": query_id},
         )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ к чужому стриму запроса запрещен"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к чужому стриму запроса запрещен")
     if not queue:
         raise HTTPException(status_code=404, detail="Активный стрим запроса не найден")
 
@@ -225,7 +205,11 @@ async def stream_query_results(
                 payload = json.dumps(event, default=str)
                 yield f"data: {payload}\n\n"
 
-                if event.get("type") in ("stream_end", "error") or event.get("status") in ("FINISHED", "FAILED", "CANCELLED"):
+                if event.get("type") in ("stream_end", "error") or event.get("status") in (
+                    "FINISHED",
+                    "FAILED",
+                    "CANCELLED",
+                ):
                     break
         finally:
             query_manager.unsubscribe(query_id, queue)
@@ -233,17 +217,12 @@ async def stream_query_results(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
+
 @router.get("/notifications/stream")
-async def stream_user_notifications(
-    current_user: UserSession = Depends(get_current_user)
-):
+async def stream_user_notifications(current_user: UserSession = Depends(get_current_user)):
     """
     Глобальный SSE поток фоновых уведомлений для пользователя (завершение задач, статусы).
     """
@@ -263,19 +242,12 @@ async def stream_user_notifications(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
+
 @router.post("/{query_id}/cancel")
-async def cancel_query(
-    query_id: str,
-    request: Request,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def cancel_query(query_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
     client_ip = get_client_ip(request)
     success = await query_manager.remove_and_cancel_from_queue(query_id, current_user)
     if not success:
@@ -286,16 +258,17 @@ async def cancel_query(
         username=current_user.username,
         client_ip=client_ip,
         status="CANCELLED",
-        details={"query_id": query_id, "action": "cancel_query"}
+        details={"query_id": query_id, "action": "cancel_query"},
     )
     return {"status": "ok", "message": "Сигнал отмены отправлен в движок"}
+
 
 @router.get("/history", response_model=List[QueryHistoryItem])
 async def get_history(
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: UserSession = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     stmt = (
         select(QueryHistory)
@@ -308,11 +281,10 @@ async def get_history(
     records = result.scalars().all()
     return records
 
+
 @router.post("/saved")
 async def save_query(
-    req: SaveQueryRequest,
-    current_user: UserSession = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    req: SaveQueryRequest, current_user: UserSession = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     sq = SavedQuery(
         id=str(uuid.uuid4()),
@@ -321,18 +293,16 @@ async def save_query(
         description=req.description,
         cluster_id=req.cluster_id,
         query_text=req.query_text,
-        is_shared=req.is_shared
+        is_shared=req.is_shared,
     )
     db.add(sq)
     await db.commit()
     await db.refresh(sq)
     return sq
 
+
 @router.get("/saved")
-async def list_saved_queries(
-    current_user: UserSession = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+async def list_saved_queries(current_user: UserSession = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = (
         select(SavedQuery)
         .where((SavedQuery.username == current_user.username) | (SavedQuery.is_shared == True))

@@ -5,10 +5,7 @@ from pathlib import Path
 import httpx
 
 from app.models.cluster import ClusterConfig
-from app.models.yarn import (
-    QueueNode, QueueState, PartitionResourceConfig,
-    ResourceAllocation, ClusterMetrics
-)
+from app.models.yarn import QueueNode, QueueState, PartitionResourceConfig, ResourceAllocation, ClusterMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +14,13 @@ import asyncio
 import requests
 from requests_kerberos import HTTPKerberosAuth, OPTIONAL
 from app.core.kerberos import kerberos_manager
+from backend.common.core.circuit_breaker import circuit_breaker_registry, CircuitBreakerOpenException
+
 
 def _create_kerberos_session() -> requests.Session:
     """Создает изолированную потокобезопасную сессию requests для Kerberos/SPNEGO."""
     session = requests.Session()
-    session.auth = HTTPKerberosAuth(
-        mutual_authentication=OPTIONAL,
-        sanitize_mutual_error_response=False
-    )
+    session.auth = HTTPKerberosAuth(mutual_authentication=OPTIONAL, sanitize_mutual_error_response=False)
     return session
 
 
@@ -50,7 +46,7 @@ class YarnClient:
         if self._http_client is None or self._http_client.is_closed:
             self._http_client = httpx.AsyncClient(
                 timeout=15.0,
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0),
             )
         return self._http_client
 
@@ -136,15 +132,28 @@ class YarnClient:
         return params
 
     async def _request(self, path: str, do_as: str) -> dict:
-        """Выполняет GET запрос к YARN RM с failover."""
+        """Выполняет GET запрос к YARN RM с failover и защитой Circuit Breaker."""
         params = self._build_params(do_as)
         last_error = None
 
         for attempt in range(len(self.cluster.resource_manager_urls)):
             rm_url = await self._get_active_rm()
+            cb = circuit_breaker_registry.get(
+                name=f"yarn:{self.cluster.id}:{rm_url}",
+                failure_threshold=3,
+                recovery_timeout=20.0,
+            )
+
+            try:
+                cb.before_call()
+            except CircuitBreakerOpenException as cbe:
+                logger.info(f"RM {rm_url} временно недоступен ({cbe}), сброс активного URL и переход к следующему.")
+                self._active_rm_url = None
+                continue
+
             try:
                 url = f"{rm_url}{path}"
-                return await self._http_get(url, params=params)
+                return await cb.call_async(self._http_get, url, params)
             except Exception as e:
                 logger.warning(f"Ошибка запроса к {rm_url}{path}: {e}")
                 last_error = e
@@ -221,12 +230,9 @@ class YarnClient:
             max_vcore_percent=round(max_cap, 2),
             absolute_resources=ResourceAllocation(
                 memory_mb=int(queue_json.get("resourcesUsed", {}).get("memory", 0)),
-                vcores=int(queue_json.get("resourcesUsed", {}).get("vCores", 0))
+                vcores=int(queue_json.get("resourcesUsed", {}).get("vCores", 0)),
             ),
-            absolute_max_resources=ResourceAllocation(
-                memory_mb=max_mem_mb,
-                vcores=max_cores
-            )
+            absolute_max_resources=ResourceAllocation(memory_mb=max_mem_mb, vcores=max_cores),
         )
 
         # Партиции через capacities
@@ -369,14 +375,20 @@ class YarnClient:
             candidates.append(self.cluster.capacity_scheduler_xml_path)
 
         # Стандартные пути для демо и локальных окружений
-        candidates.extend([
-            f"demo/{self.cluster.id}/capacity-scheduler.xml",
-            "demo/cluster-1/capacity-scheduler.xml" if "1" in self.cluster.id or "prod" in self.cluster.id else "demo/cluster-2/capacity-scheduler.xml",
-            f"/app/demo/{self.cluster.id}/capacity-scheduler.xml",
-            "/app/demo/cluster-1/capacity-scheduler.xml" if "1" in self.cluster.id or "prod" in self.cluster.id else "/app/demo/cluster-2/capacity-scheduler.xml",
-            "/opt/hadoop/etc/hadoop/capacity-scheduler.xml",
-            "/etc/hadoop/conf/capacity-scheduler.xml",
-        ])
+        candidates.extend(
+            [
+                f"demo/{self.cluster.id}/capacity-scheduler.xml",
+                "demo/cluster-1/capacity-scheduler.xml"
+                if "1" in self.cluster.id or "prod" in self.cluster.id
+                else "demo/cluster-2/capacity-scheduler.xml",
+                f"/app/demo/{self.cluster.id}/capacity-scheduler.xml",
+                "/app/demo/cluster-1/capacity-scheduler.xml"
+                if "1" in self.cluster.id or "prod" in self.cluster.id
+                else "/app/demo/cluster-2/capacity-scheduler.xml",
+                "/opt/hadoop/etc/hadoop/capacity-scheduler.xml",
+                "/etc/hadoop/conf/capacity-scheduler.xml",
+            ]
+        )
 
         for path_str in candidates:
             p = Path(path_str)
@@ -395,6 +407,7 @@ class YarnClient:
 
 class YarnService:
     """Сервис управления жизненным циклом и пулингом клиентов YarnClient."""
+
     def __init__(self):
         self._clients: dict[str, YarnClient] = {}
 

@@ -23,7 +23,6 @@ async def test_readyz():
         assert data["database"] == "ok"
 
 
-
 @pytest.mark.asyncio
 async def test_unauthorized_access():
     transport = ASGITransport(app=app)
@@ -36,15 +35,10 @@ async def test_unauthorized_access():
 async def test_mock_login_and_flow():
     transport = ASGITransport(app=app)
     async with AsyncClient(
-        transport=transport,
-        base_url="http://test",
-        headers={"X-Requested-With": "XMLHttpRequest"}
+        transport=transport, base_url="http://test", headers={"X-Requested-With": "XMLHttpRequest"}
     ) as client:
         # 1. Login под пользователем engineer
-        login_resp = await client.post(
-            "/api/v1/auth/login",
-            json={"username": "engineer", "password": "password123"}
-        )
+        login_resp = await client.post("/api/v1/auth/login", json={"username": "engineer", "password": "password123"})
         assert login_resp.status_code == 200
         login_data = login_resp.json()
         assert login_data["success"] is True
@@ -77,7 +71,7 @@ async def test_mock_login_and_flow():
         upload_resp = await client.post(
             f"/api/v1/clusters/{cluster_id}/files/upload",
             data={"path": "/user/engineer/test_dir"},
-            files={"file": ("sample.txt", b"Hello HDFS from automated test!", "text/plain")}
+            files={"file": ("sample.txt", b"Hello HDFS from automated test!", "text/plain")},
         )
         assert upload_resp.status_code == 200
 

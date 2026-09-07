@@ -60,17 +60,21 @@ class KerberosManager:
         if not negotiate_header.startswith("Negotiate "):
             return None
 
-        in_token_b64 = negotiate_header[len("Negotiate "):].strip()
+        in_token_b64 = negotiate_header[len("Negotiate ") :].strip()
 
         try:
             import spnego
+
             context = spnego.server(
                 service="HTTP",
-                hostname=settings.kerberos_sso.service_principal.split("/")[1].split("@")[0] if "/" in settings.kerberos_sso.service_principal else None,
+                hostname=settings.kerberos_sso.service_principal.split("/")[1].split("@")[0]
+                if "/" in settings.kerberos_sso.service_principal
+                else None,
                 protocol="kerberos",
-                keytab=settings.kerberos_sso.keytab_path if settings.kerberos_sso.keytab_path else None
+                keytab=settings.kerberos_sso.keytab_path if settings.kerberos_sso.keytab_path else None,
             )
             import base64
+
             in_token = base64.b64decode(in_token_b64)
             context.step(in_token)
 
@@ -95,11 +99,7 @@ class KerberosManager:
 
             # Извлекаем хост без порта
             hostname = target_host.split(":")[0]
-            client = spnego.client(
-                hostname=hostname,
-                service="HTTP",
-                protocol="kerberos"
-            )
+            client = spnego.client(hostname=hostname, service="HTTP", protocol="kerberos")
             token = client.step()
             if token:
                 return base64.b64encode(token).decode("ascii")

@@ -55,12 +55,10 @@ class KerberosManager:
 
         try:
             import spnego
-            server_context = spnego.server(
-                service="HTTP",
-                hostname=None,
-                protocol="negotiate"
-            )
+
+            server_context = spnego.server(service="HTTP", hostname=None, protocol="negotiate")
             import base64
+
             in_token = base64.b64decode(in_token_b64)
             server_context.step(in_token)
 
@@ -74,7 +72,7 @@ class KerberosManager:
                     groups=[],
                     auth_method="kerberos",
                     is_admin=False,
-                    system_role=Role.READER
+                    system_role=Role.READER,
                 )
         except Exception as e:
             logger.warning(f"Ошибка SPNEGO аутентификации: {e}")

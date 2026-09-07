@@ -39,7 +39,7 @@ def is_managed_queue_property(prop_name: str, queue_path: str) -> bool:
     prefix = f"yarn.scheduler.capacity.{queue_path}."
     if not prop_name.startswith(prefix):
         return False
-    suffix = prop_name[len(prefix):]
+    suffix = prop_name[len(prefix) :]
     if suffix in MANAGED_QUEUE_SUFFIXES:
         return True
     if suffix.startswith("accessible-node-labels."):
@@ -68,9 +68,7 @@ def _compute_managed_properties(
     total_cores = cluster.total_resources.vcores
 
     deleted_paths: Set[str] = {q.path for q in queues if q.action == "delete"}
-    active_queues: Dict[str, QueueDraftItem] = {
-        q.path: q for q in queues if q.action != "delete"
-    }
+    active_queues: Dict[str, QueueDraftItem] = {q.path: q for q in queues if q.action != "delete"}
 
     # Группируем дочерние очереди
     children_by_parent: Dict[str, List[str]] = defaultdict(list)
@@ -84,8 +82,14 @@ def _compute_managed_properties(
     effective_mappings = queue_mappings if queue_mappings is not None else getattr(cluster, "queue_mappings", None)
     if effective_mappings:
         managed_props["yarn.scheduler.capacity.queue-mappings"] = effective_mappings.strip()
-        effective_override = queue_mappings_override if queue_mappings_override is not None else getattr(cluster, "queue_mappings_override", False)
-        managed_props["yarn.scheduler.capacity.queue-mappings-override.enable"] = "true" if effective_override else "false"
+        effective_override = (
+            queue_mappings_override
+            if queue_mappings_override is not None
+            else getattr(cluster, "queue_mappings_override", False)
+        )
+        managed_props["yarn.scheduler.capacity.queue-mappings-override.enable"] = (
+            "true" if effective_override else "false"
+        )
 
     # 2. Свойства активных очередей
     for path, q in active_queues.items():
@@ -101,10 +105,26 @@ def _compute_managed_properties(
             queue_mode = getattr(q, "resource_mode", None)
             effective_mode = resource_mode or queue_mode or mode
             if effective_mode == "absolute" and path != "root":
-                mem = part_config.memory_mb if part_config.memory_mb is not None else int(total_mem * (part_config.capacity / 100.0))
-                cores = part_config.vcores if part_config.vcores is not None else int(total_cores * (part_config.capacity / 100.0))
-                max_mem = part_config.max_memory_mb if part_config.max_memory_mb is not None else int(total_mem * (part_config.max_capacity / 100.0))
-                max_cores = part_config.max_vcores if part_config.max_vcores is not None else int(total_cores * (part_config.max_capacity / 100.0))
+                mem = (
+                    part_config.memory_mb
+                    if part_config.memory_mb is not None
+                    else int(total_mem * (part_config.capacity / 100.0))
+                )
+                cores = (
+                    part_config.vcores
+                    if part_config.vcores is not None
+                    else int(total_cores * (part_config.capacity / 100.0))
+                )
+                max_mem = (
+                    part_config.max_memory_mb
+                    if part_config.max_memory_mb is not None
+                    else int(total_mem * (part_config.max_capacity / 100.0))
+                )
+                max_cores = (
+                    part_config.max_vcores
+                    if part_config.max_vcores is not None
+                    else int(total_cores * (part_config.max_capacity / 100.0))
+                )
                 cap_str = f"[memory={mem},vcores={cores}]"
                 max_cap_str = f"[memory={max_mem},vcores={max_cores}]"
             else:
@@ -212,7 +232,7 @@ def update_capacity_scheduler_xml(
             resource_mode=resource_mode,
             queue_mappings=queue_mappings,
             queue_mappings_override=queue_mappings_override,
-            base_xml=None
+            base_xml=None,
         )
 
     managed_props, deleted_paths, children_by_parent = _compute_managed_properties(
@@ -261,7 +281,7 @@ def update_capacity_scheduler_xml(
         elif prop_name.startswith("yarn.scheduler.capacity."):
             # Проверяем, не является ли это свойством .queues, из которого нужно убрать удаленную очередь
             if prop_name.endswith(".queues"):
-                parent_path = prop_name[len("yarn.scheduler.capacity."):-len(".queues")]
+                parent_path = prop_name[len("yarn.scheduler.capacity.") : -len(".queues")]
                 if parent_path in children_by_parent:
                     # Актуализируем список детей из draft
                     child_names = ",".join(sorted(set(children_by_parent[parent_path])))
@@ -271,7 +291,9 @@ def update_capacity_scheduler_xml(
                 elif any(del_p.startswith(f"{parent_path}.") for del_p in deleted_paths):
                     # Если в этом .queues были удаленные дети, отфильтруем их
                     current_children = [c.strip() for c in (val_el.text or "").split(",") if c.strip()]
-                    del_names = {del_p.split(".")[-1] for del_p in deleted_paths if del_p.rsplit(".", 1)[0] == parent_path}
+                    del_names = {
+                        del_p.split(".")[-1] for del_p in deleted_paths if del_p.rsplit(".", 1)[0] == parent_path
+                    }
                     remaining = [c for c in current_children if c not in del_names]
                     if remaining:
                         if val_el is not None:
@@ -305,19 +327,21 @@ def update_capacity_scheduler_xml(
     header_lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>',
-        '',
-        '<!--',
-        '  Generated by YARN Queue Explorer',
-        f'  Cluster: {cluster.name} ({cluster.id})',
-        f'  Generated at: {now}',
-        f'  Generated by: {safe_generated_by}',
+        "",
+        "<!--",
+        "  Generated by YARN Queue Explorer",
+        f"  Cluster: {cluster.name} ({cluster.id})",
+        f"  Generated at: {now}",
+        f"  Generated by: {safe_generated_by}",
     ]
     if safe_comment:
-        header_lines.append(f'  Comment: {safe_comment}')
-    header_lines.extend([
-        '-->',
-        '',
-    ])
+        header_lines.append(f"  Comment: {safe_comment}")
+    header_lines.extend(
+        [
+            "-->",
+            "",
+        ]
+    )
 
     return "\n".join(header_lines) + xml_str + "\n"
 
@@ -366,11 +390,9 @@ def generate_capacity_scheduler_xml(
 
     # Глобальный лимит по умолчанию (если не задан)
     if "yarn.scheduler.capacity.maximum-applications" not in managed_props:
-        properties.append((
-            "yarn.scheduler.capacity.maximum-applications",
-            "10000",
-            "Maximum number of applications in the system"
-        ))
+        properties.append(
+            ("yarn.scheduler.capacity.maximum-applications", "10000", "Maximum number of applications in the system")
+        )
 
     for name, value in managed_props.items():
         properties.append((name, value, ""))
@@ -378,34 +400,38 @@ def generate_capacity_scheduler_xml(
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>',
-        '',
-        '<!--',
-        '  Generated by YARN Queue Explorer',
-        f'  Cluster: {cluster.name} ({cluster.id})',
-        f'  Generated at: {now}',
-        f'  Generated by: {safe_generated_by}',
+        "",
+        "<!--",
+        "  Generated by YARN Queue Explorer",
+        f"  Cluster: {cluster.name} ({cluster.id})",
+        f"  Generated at: {now}",
+        f"  Generated by: {safe_generated_by}",
     ]
     if safe_comment:
-        lines.append(f'  Comment: {safe_comment}')
-    lines.extend([
-        '-->',
-        '',
-        '<configuration>',
-    ])
+        lines.append(f"  Comment: {safe_comment}")
+    lines.extend(
+        [
+            "-->",
+            "",
+            "<configuration>",
+        ]
+    )
 
     for name, value, description in properties:
-        lines.append('')
-        lines.append('  <property>')
-        lines.append(f'    <name>{escape(name)}</name>')
-        lines.append(f'    <value>{escape(str(value))}</value>')
+        lines.append("")
+        lines.append("  <property>")
+        lines.append(f"    <name>{escape(name)}</name>")
+        lines.append(f"    <value>{escape(str(value))}</value>")
         if description:
-            lines.append(f'    <description>{escape(description)}</description>')
-        lines.append('  </property>')
+            lines.append(f"    <description>{escape(description)}</description>")
+        lines.append("  </property>")
 
-    lines.extend([
-        '',
-        '</configuration>',
-        '',
-    ])
+    lines.extend(
+        [
+            "",
+            "</configuration>",
+            "",
+        ]
+    )
 
-    return '\n'.join(lines)
+    return "\n".join(lines)

@@ -2,8 +2,10 @@ import datetime
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, DateTime, JSON
 from app.db.session import Base
 
+
 def utcnow():
     return datetime.datetime.now(datetime.timezone.utc)
+
 
 class QueryHistory(Base):
     __tablename__ = "query_history"
@@ -24,11 +26,12 @@ class QueryHistory(Base):
 
     # Персистентность и управление очередью
     is_in_queue = Column(Boolean, default=True, index=True)  # Виден ли в очереди задач
-    has_cached_result = Column(Boolean, default=False)       # Сохранены ли строки на диске
+    has_cached_result = Column(Boolean, default=False)  # Сохранены ли строки на диске
 
     created_at = Column(DateTime, default=utcnow, index=True)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+
 
 class SavedQuery(Base):
     __tablename__ = "saved_queries"
@@ -43,6 +46,7 @@ class SavedQuery(Base):
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
+
 class RevokedToken(Base):
     __tablename__ = "revoked_tokens"
 
@@ -51,10 +55,10 @@ class RevokedToken(Base):
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, default=utcnow, nullable=False)
 
+
 class SqlUserWorkspace(Base):
     __tablename__ = "sql_user_workspaces"
 
     username = Column(String(128), primary_key=True, index=True)
     state = Column(JSON, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
-

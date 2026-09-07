@@ -22,6 +22,7 @@ from app.services.session_manager import session_manager
 logger = logging.getLogger("main")
 gc_task: asyncio.Task = None
 
+
 async def _gc_worker():
     while True:
         try:
@@ -32,18 +33,16 @@ async def _gc_worker():
         except Exception:
             pass
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global gc_task
 
     # 1. Fail-fast проверка слабых дефолтных секретов в боевом режиме
     if not settings.server.debug and settings.auth.mode != "mock":
-        insecure_defaults = (
-            "spark-explorer-super-secret-jwt-key-for-dev-32chars",
-            "change-this-in-production-secret-key-32-chars-long",
-            "secret-key-for-dev-only",
-        )
-        if settings.auth.jwt.secret_key in insecure_defaults or len(settings.auth.jwt.secret_key) < 32:
+        from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
+
+        if settings.auth.jwt.secret_key in INSECURE_DEFAULT_KEYS or len(settings.auth.jwt.secret_key) < 32:
             raise RuntimeError(
                 "КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: В боевом режиме обнаружен дефолтный или слабый JWT_SECRET_KEY! "
                 "Задайте стойкий секретный ключ (минимум 32 символа) через переменную окружения JWT_SECRET_KEY."
@@ -58,6 +57,9 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # 3. Crash Recovery: сброс зависших задач Spark предыдущего процесса в статус FAILED
+    from app.services.session_manager import session_manager
+    from app.services.catalog_service import catalog_service
+
     try:
         await session_manager.recover_stale_executions()
     except Exception as e:
@@ -65,15 +67,28 @@ async def lifespan(app: FastAPI):
 
     gc_task = asyncio.create_task(_gc_worker())
     yield
+    from backend.common.core.shutdown import shutdown_manager
+
     if gc_task:
         gc_task.cancel()
+
+    if hasattr(session_manager, "aclose"):
+        shutdown_manager.register(session_manager.aclose)
+    if hasattr(catalog_service, "aclose"):
+        shutdown_manager.register(catalog_service.aclose)
+    if hasattr(storage_service, "close"):
+        shutdown_manager.register(storage_service.close)
+
+    await shutdown_manager.shutdown()
+
 
 app = FastAPI(
     title="Spark Explorer API",
     version="1.0.0",
     description="Интерактивная среда исполнения PySpark и Scala Spark на гетерогенных Hadoop кластерах",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
 
 # Защитные HTTP-заголовки (Security Headers Middleware)
 @app.middleware("http")
@@ -91,6 +106,7 @@ async def add_security_headers(request: Request, call_next):
         "connect-src 'self' ws: wss: http: https:;"
     )
     return response
+
 
 # CORS
 app.add_middleware(
@@ -111,6 +127,7 @@ for prefix in ("/api/v1", "/api"):
     app.include_router(history_router, prefix=prefix)
     app.include_router(workspace_router, prefix=prefix)
 
+
 @app.get("/healthz", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def healthz():
@@ -122,22 +139,19 @@ async def healthz():
 async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
     from fastapi.responses import JSONResponse
+
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503,
-            content={"status": "unavailable", "service": "spark-explorer", "database": "unreachable"}
+            status_code=503, content={"status": "unavailable", "service": "spark-explorer", "database": "unreachable"}
         )
-    return {
-        "status": "ready",
-        "service": "spark-explorer",
-        "database": "ok",
-        "clusters_count": len(settings.clusters)
-    }
+    return {"status": "ready", "service": "spark-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
 
 
 # Раздача Frontend SPA статики если собрана
-frontend_dist = os.getenv("FRONTEND_DIST", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/apps/spark/dist")))
+frontend_dist = os.getenv(
+    "FRONTEND_DIST", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/apps/spark/dist"))
+)
 if os.path.exists(frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
@@ -147,4 +161,3 @@ if os.path.exists(frontend_dist):
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(frontend_dist, "index.html"))
-

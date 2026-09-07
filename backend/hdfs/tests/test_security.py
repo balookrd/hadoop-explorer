@@ -26,6 +26,7 @@ def test_ldap_injection_escaping():
     Проверка экранирования спецсимволов LDAP фильтра (CWE-90).
     """
     from ldap3.utils.conv import escape_filter_chars
+
     malicious_input = "admin*)(|(uid=*)"
     escaped = escape_filter_chars(malicious_input)
     assert "\\2a" in escaped  # символ * экранирован
@@ -54,11 +55,7 @@ async def test_csrf_protection_on_cookie_auth():
     Проверка CSRF-защиты для мутирующих операций (POST), если аутентификация через Cookie.
     """
     user = UserInfo(
-        username="admin",
-        display_name="Admin",
-        email="admin@example.com",
-        groups=["hadoop-admins"],
-        is_admin=True
+        username="admin", display_name="Admin", email="admin@example.com", groups=["hadoop-admins"], is_admin=True
     )
     token = create_access_token(user)
 
@@ -67,7 +64,7 @@ async def test_csrf_protection_on_cookie_auth():
         response = await ac.post(
             "/api/v1/clusters/demo-cluster/files/mkdir?path=/testdir_csrf",
             cookies={"hdfs_explorer_session": token},
-            headers={"Origin": "https://evil-attacker.com"}
+            headers={"Origin": "https://evil-attacker.com"},
         )
         assert response.status_code == 403
         assert "CSRF" in response.text
@@ -76,14 +73,14 @@ async def test_csrf_protection_on_cookie_auth():
         response_ok = await ac.post(
             "/api/v1/clusters/demo-cluster/files/mkdir?path=/testdir_csrf",
             cookies={"hdfs_explorer_session": token},
-            headers={"X-Requested-With": "XMLHttpRequest"}
+            headers={"X-Requested-With": "XMLHttpRequest"},
         )
         assert response_ok.status_code == 200
 
         # 3. Легитимный запрос с Authorization: Bearer (CSRF не требуется)
         response_bearer = await ac.post(
             "/api/v1/clusters/demo-cluster/files/mkdir?path=/testdir2_csrf",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert response_bearer.status_code == 200
 
@@ -106,7 +103,7 @@ async def test_upload_file_path_traversal_sanitization():
             "/api/v1/clusters/demo-cluster/files/upload",
             data=data,
             files=files,
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
         res_data = resp.json()
@@ -124,8 +121,7 @@ async def test_download_root_zip_forbidden():
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.get(
-            "/api/v1/clusters/demo-cluster/files/download?path=/",
-            headers={"Authorization": f"Bearer {token}"}
+            "/api/v1/clusters/demo-cluster/files/download?path=/", headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code == 400
         assert "корневого каталога" in resp.text
@@ -142,27 +138,17 @@ async def test_token_revocation_on_logout():
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # 1. Запрос до logout должен быть успешным (200 OK)
-        resp_before = await ac.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {token}"}
-        )
+        resp_before = await ac.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert resp_before.status_code == 200
 
         # 2. Вызываем logout с этим токеном
         logout_resp = await ac.post(
-            "/api/v1/auth/logout",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Requested-With": "XMLHttpRequest"
-            }
+            "/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}", "X-Requested-With": "XMLHttpRequest"}
         )
         assert logout_resp.status_code == 200
 
         # 3. Запрос после logout с тем же токеном должен быть отклонен (401 Unauthorized)
-        resp_after = await ac.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {token}"}
-        )
+        resp_after = await ac.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert resp_after.status_code == 401
 
 
@@ -229,15 +215,15 @@ def test_prod_mock_users_disabled():
     with pytest.raises(ValueError, match="Mock authentication cannot be used in production mode"):
         AppSettings(
             server=ServerSettings(debug=False),
-            security=SecuritySettings(secret_key="a"*32),
-            ldap=LdapSettings(enabled=False)
+            security=SecuritySettings(secret_key="a" * 32),
+            ldap=LdapSettings(enabled=False),
         )
 
     # При debug=True и ldap.enabled=False создание конфига должно проходить успешно
     cfg = AppSettings(
         server=ServerSettings(debug=True),
-        security=SecuritySettings(secret_key="a"*32),
-        ldap=LdapSettings(enabled=False)
+        security=SecuritySettings(secret_key="a" * 32),
+        ldap=LdapSettings(enabled=False),
     )
     assert cfg.ldap.enabled is False
 
@@ -260,7 +246,7 @@ async def test_mock_users_password_hash(monkeypatch):
         password=hashed_pwd,
         display_name="Hashed User",
         email="hashed@example.com",
-        groups=["analytics"]
+        groups=["analytics"],
     )
     monkeypatch.setattr(settings, "mock_users", [test_user])
 
@@ -308,7 +294,7 @@ async def test_streaming_upload_to_hdfs(monkeypatch):
             "/api/v1/clusters/demo-cluster/files/upload",
             data=data,
             files=files,
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
         assert b"".join(captured_chunks) == test_content
@@ -322,10 +308,7 @@ def test_ssrf_webhdfs_location_validation():
     from app.models.cluster import ClusterConfig
 
     dummy_cluster = ClusterConfig(
-        id="prod-cluster",
-        name="Prod",
-        webhdfs_urls=["http://nn1:9870/webhdfs/v1"],
-        mock_storage=False
+        id="prod-cluster", name="Prod", webhdfs_urls=["http://nn1:9870/webhdfs/v1"], mock_storage=False
     )
 
     # 1. Валидный DataNode URL
@@ -349,6 +332,7 @@ def test_ssrf_webhdfs_location_validation():
 
     # 5. Попытка обращения к localhost/127.0.0.1 в production
     from app.core.config import settings
+
     prev_debug = settings.server.debug
     try:
         settings.server.debug = False
@@ -365,11 +349,7 @@ async def test_csrf_fail_open_and_subdomain_bypass_rejected():
     Проверка отсутствия Fail-Open и защиты от обхода поддоменами (CWE-352).
     """
     user = UserInfo(
-        username="admin",
-        display_name="Admin",
-        email="admin@example.com",
-        groups=["hadoop-admins"],
-        is_admin=True
+        username="admin", display_name="Admin", email="admin@example.com", groups=["hadoop-admins"], is_admin=True
     )
     token = create_access_token(user)
 
@@ -385,7 +365,7 @@ async def test_csrf_fail_open_and_subdomain_bypass_rejected():
         resp_evil_origin = await ac.post(
             "/api/v1/clusters/demo-cluster/files/mkdir?path=/test_evil",
             cookies={"hdfs_explorer_session": token},
-            headers={"Origin": "http://test.evilattacker.com"}
+            headers={"Origin": "http://test.evilattacker.com"},
         )
         assert resp_evil_origin.status_code == 403
 
@@ -459,33 +439,28 @@ async def test_streaming_upload_archive_and_download_zip():
     zip_bytes_io.seek(0)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "X-Requested-With": "XMLHttpRequest"
-        }
+        headers = {"Authorization": f"Bearer {token}", "X-Requested-With": "XMLHttpRequest"}
 
         # 1. Загрузка и распаковка архива через /upload-archive
         resp_upload = await ac.post(
             "/api/v1/clusters/demo-cluster/files/upload-archive",
             data={"path": "/user/admin"},
             files={"file": ("test_archive.zip", zip_bytes_io.getvalue(), "application/zip")},
-            headers=headers
+            headers=headers,
         )
         assert resp_upload.status_code == 200
         assert resp_upload.json()["success"] is True
 
         # 2. Проверка распакованного файла
         resp_preview = await ac.get(
-            "/api/v1/clusters/demo-cluster/files/preview?path=/user/admin/archive_test/file1.txt",
-            headers=headers
+            "/api/v1/clusters/demo-cluster/files/preview?path=/user/admin/archive_test/file1.txt", headers=headers
         )
         assert resp_preview.status_code == 200
         assert "Content of file 1" in resp_preview.json()["content"]
 
         # 3. Скачивание каталога в виде zip через /download
         resp_download = await ac.get(
-            "/api/v1/clusters/demo-cluster/files/download?path=/user/admin/archive_test",
-            headers=headers
+            "/api/v1/clusters/demo-cluster/files/download?path=/user/admin/archive_test", headers=headers
         )
         assert resp_download.status_code == 200
         assert resp_download.headers.get("content-type") == "application/zip"
@@ -511,7 +486,7 @@ async def test_mock_users_strict_isolation_hdfs(monkeypatch):
         resp_mock = await ac.post(
             "/api/v1/auth/login",
             json={"username": "admin", "password": "password123"},
-            headers={"X-Forwarded-For": "198.51.100.11"}
+            headers={"X-Forwarded-For": "198.51.100.11"},
         )
         assert resp_mock.status_code == 200
         assert resp_mock.json()["success"] is True
@@ -521,7 +496,7 @@ async def test_mock_users_strict_isolation_hdfs(monkeypatch):
         resp_ldap = await ac.post(
             "/api/v1/auth/login",
             json={"username": "admin", "password": "password123"},
-            headers={"X-Forwarded-For": "198.51.100.12"}
+            headers={"X-Forwarded-For": "198.51.100.12"},
         )
         assert resp_ldap.status_code == 401
 
@@ -530,7 +505,7 @@ async def test_mock_users_strict_isolation_hdfs(monkeypatch):
         resp_hybrid = await ac.post(
             "/api/v1/auth/login",
             json={"username": "admin", "password": "password123"},
-            headers={"X-Forwarded-For": "198.51.100.13"}
+            headers={"X-Forwarded-For": "198.51.100.13"},
         )
         assert resp_hybrid.status_code == 401
 
@@ -538,6 +513,7 @@ async def test_mock_users_strict_isolation_hdfs(monkeypatch):
 def test_tls_verification_defaults_hdfs():
     """Проверка, что проверка TLS сертификатов включена по умолчанию."""
     from app.core.config import settings
+
     assert settings.ldap.verify_cert is True
 
 
@@ -550,16 +526,14 @@ async def test_security_csrf_on_logout_cookie():
 
         # Межсайтовый logout (Sec-Fetch-Site: cross-site) -> 403 Forbidden
         csrf_resp = await ac.post(
-            "/api/v1/auth/logout",
-            headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://evil-attacker.com"}
+            "/api/v1/auth/logout", headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://evil-attacker.com"}
         )
         assert csrf_resp.status_code == 403
         assert "CSRF" in csrf_resp.json()["detail"]
 
         # Легитимный logout -> 200 OK
         legit_resp = await ac.post(
-            "/api/v1/auth/logout",
-            headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:3000"}
+            "/api/v1/auth/logout", headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:3000"}
         )
         assert legit_resp.status_code == 200
 
@@ -567,6 +541,7 @@ async def test_security_csrf_on_logout_cookie():
 def test_trusted_cidr_proxy_hdfs(monkeypatch):
     """Проверка поддержки CIDR подсетей доверенных прокси (Kubernetes Ingress) в hdfs-explorer."""
     from app.core.rate_limiter import is_trusted_proxy
+
     monkeypatch.setenv("TRUSTED_CIDRS", "10.0.0.0/8,172.16.0.0/12")
 
     assert is_trusted_proxy("10.244.2.15") is True
@@ -579,6 +554,7 @@ def test_trusted_cidr_proxy_hdfs(monkeypatch):
 async def test_granular_rate_limiting_per_user(monkeypatch):
     """Проверка, что лимит логина привязан к связке IP:username и не блокирует другого пользователя с того же IP."""
     from app.core.rate_limiter import auth_rate_limiter
+
     # Временно уменьшаем лимит до 2 попыток
     monkeypatch.setattr(auth_rate_limiter, "max_requests", 2)
     monkeypatch.setattr(auth_rate_limiter, "window_seconds", 60)
@@ -605,6 +581,7 @@ def test_token_blacklist_redis_backend_hdfs():
 
     with patch("redis.Redis.from_url", return_value=fake_client):
         from app.services.storage import StorageService
+
         redis_storage = StorageService(db_url="redis://localhost:6379/0")
         assert redis_storage._is_redis is True
 
@@ -649,11 +626,3 @@ def test_storage_l1_fail_open_protection_hdfs():
     # Должен вернуть True благодаря L1 кэшу
     assert storage.is_token_revoked(jti) is True
     assert storage.is_token_revoked("unknown-hdfs-jti") is False
-
-
-
-
-
-
-
-

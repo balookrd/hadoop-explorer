@@ -28,55 +28,9 @@ from sqlalchemy import (
 from sqlalchemy.pool import StaticPool
 from backend.common.core.security import hash_token
 
+from backend.common.core.cache import L1RevokedTokenCache
+
 logger = logging.getLogger(__name__)
-
-
-class L1RevokedTokenCache:
-    """Потокобезопасный L1 In-Memory LRU-кэш для отозванных токенов с TTL."""
-    def __init__(self, max_size: int = 10000):
-        self.max_size = max_size
-        self._cache: OrderedDict[str, float] = OrderedDict()
-        self._lock = threading.Lock()
-
-    def add(self, key: str, expires_at_ts: Optional[float] = None):
-        if not key:
-            return
-        now = time.time()
-        exp_ts = expires_at_ts if (expires_at_ts is not None and expires_at_ts > 0) else (now + 86400.0)
-        with self._lock:
-            if len(self._cache) >= self.max_size and key not in self._cache:
-                self._cache.popitem(last=False)
-            self._cache[key] = exp_ts
-            self._cache.move_to_end(key)
-
-    def contains(self, key: str) -> bool:
-        if not key:
-            return False
-        now = time.time()
-        with self._lock:
-            if key not in self._cache:
-                return False
-            exp_ts = self._cache[key]
-            if exp_ts < now:
-                del self._cache[key]
-                return False
-            self._cache.move_to_end(key)
-            return True
-
-    def cleanup(self):
-        now = time.time()
-        with self._lock:
-            expired_keys = [k for k, exp in self._cache.items() if exp < now]
-            for k in expired_keys:
-                del self._cache[k]
-
-    def clear(self):
-        with self._lock:
-            self._cache.clear()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._cache)
 
 
 class SessionStore:
@@ -95,9 +49,11 @@ class SessionStore:
             self.db_url = os.environ.get("DATABASE_URL") or f"sqlite:///{default_db_path}"
 
         self._is_redis = self.db_url.startswith(("redis://", "rediss://"))
-        sync_url = self.db_url.replace("postgresql+asyncpg://", "postgresql://").replace("sqlite+aiosqlite://", "sqlite://")
+        sync_url = self.db_url.replace("postgresql+asyncpg://", "postgresql://").replace(
+            "sqlite+aiosqlite://", "sqlite://"
+        )
         if sync_url.startswith("postgres://"):
-            sync_url = "postgresql://" + sync_url[len("postgres://"):]
+            sync_url = "postgresql://" + sync_url[len("postgres://") :]
 
         self._is_sqlite = "sqlite" in sync_url if not self._is_redis else False
         self._is_memory = ":memory:" in sync_url if not self._is_redis else False
@@ -177,13 +133,13 @@ class SessionStore:
 
             self._init_db()
 
-
     def _init_db(self):
         if self._is_redis:
             return
         try:
             if self._is_sqlite and not self._is_memory:
                 import urllib.parse
+
                 parsed = urllib.parse.urlparse(self.db_url)
                 file_path = parsed.path
                 if file_path:
@@ -231,7 +187,6 @@ class SessionStore:
         else:
             exp_ts = now + 86400.0
 
-
         user_dict = user.model_dump() if hasattr(user, "model_dump") else (user if isinstance(user, dict) else {})
         username = user_dict.get("username", getattr(user, "username", "unknown"))
         display_name = user_dict.get("display_name", getattr(user, "display_name", username))
@@ -266,9 +221,7 @@ class SessionStore:
 
             with self.engine.begin() as conn:
                 existing = conn.execute(
-                    select(self.sessions_table.c.token_hash).where(
-                        self.sessions_table.c.token_hash == h
-                    )
+                    select(self.sessions_table.c.token_hash).where(self.sessions_table.c.token_hash == h)
                 ).scalar_one_or_none()
 
                 if existing:
@@ -326,10 +279,14 @@ class SessionStore:
                 return data
 
             with self.engine.connect() as conn:
-                stmt = select(self.sessions_table).where(
-                    self.sessions_table.c.token_hash == h,
-                    self.sessions_table.c.expires_at >= now,
-                ).limit(1)
+                stmt = (
+                    select(self.sessions_table)
+                    .where(
+                        self.sessions_table.c.token_hash == h,
+                        self.sessions_table.c.expires_at >= now,
+                    )
+                    .limit(1)
+                )
                 row = conn.execute(stmt).mappings().one_or_none()
                 if row:
                     d = dict(row)
@@ -353,11 +310,7 @@ class SessionStore:
                 return True
 
             with self.engine.begin() as conn:
-                conn.execute(
-                    delete(self.sessions_table).where(
-                        self.sessions_table.c.token_hash == h
-                    )
-                )
+                conn.execute(delete(self.sessions_table).where(self.sessions_table.c.token_hash == h))
             return True
         except Exception as e:
             logger.error(f"Ошибка удаления сессии: {e}")
@@ -370,7 +323,7 @@ class SessionStore:
         token_or_jti: str,
         username: Optional[Union[str, int, float]] = None,
         expires_at: Optional[Union[datetime, int, float, str]] = None,
-        **kwargs
+        **kwargs,
     ) -> bool:
         """Отзывает токен и удаляет активную сессию."""
         if not token_or_jti:
@@ -404,7 +357,6 @@ class SessionStore:
         else:
             exp_ts = now + 86400.0
 
-
         self._l1_cache.add(h, exp_ts)
         self._l1_cache.add(token_or_jti, exp_ts)
 
@@ -422,15 +374,12 @@ class SessionStore:
             with self.engine.begin() as conn:
                 conn.execute(
                     delete(self.sessions_table).where(
-                        (self.sessions_table.c.token_hash == h) |
-                        (self.sessions_table.c.jti == token_or_jti)
+                        (self.sessions_table.c.token_hash == h) | (self.sessions_table.c.jti == token_or_jti)
                     )
                 )
 
                 existing = conn.execute(
-                    select(self.revoked_tokens_table.c.token_hash).where(
-                        self.revoked_tokens_table.c.token_hash == h
-                    )
+                    select(self.revoked_tokens_table.c.token_hash).where(self.revoked_tokens_table.c.token_hash == h)
                 ).scalar_one_or_none()
 
                 if not existing:
@@ -446,9 +395,7 @@ class SessionStore:
 
                 # Запись в token_blacklist для совместимости со старыми тестами
                 existing_bl = conn.execute(
-                    select(self.token_blacklist_table.c.jti).where(
-                        self.token_blacklist_table.c.jti == token_or_jti
-                    )
+                    select(self.token_blacklist_table.c.jti).where(self.token_blacklist_table.c.jti == token_or_jti)
                 ).scalar_one_or_none()
                 if not existing_bl:
                     conn.execute(
@@ -475,11 +422,11 @@ class SessionStore:
         try:
             if self._is_redis:
                 is_rev = bool(
-                    self.redis_client.exists(f"revoked:{h}") or
-                    self.redis_client.exists(f"revoked:{token_or_jti}") or
-                    self.redis_client.exists(f"hdfs:revoked:{token_or_jti}") or
-                    self.redis_client.exists(f"sql:revoked:{h}") or
-                    self.redis_client.exists(f"revoked_token:{token_or_jti}")
+                    self.redis_client.exists(f"revoked:{h}")
+                    or self.redis_client.exists(f"revoked:{token_or_jti}")
+                    or self.redis_client.exists(f"hdfs:revoked:{token_or_jti}")
+                    or self.redis_client.exists(f"sql:revoked:{h}")
+                    or self.redis_client.exists(f"revoked_token:{token_or_jti}")
                 )
                 if is_rev:
                     self._l1_cache.add(h)
@@ -489,10 +436,14 @@ class SessionStore:
             if not self._is_redis and self.engine is not None:
                 with self.engine.connect() as conn:
                     if self.revoked_tokens_table is not None:
-                        stmt = select(self.revoked_tokens_table.c.token_hash, self.revoked_tokens_table.c.expires_at).where(
-                            (self.revoked_tokens_table.c.token_hash == h) |
-                            (self.revoked_tokens_table.c.jti == token_or_jti)
-                        ).limit(1)
+                        stmt = (
+                            select(self.revoked_tokens_table.c.token_hash, self.revoked_tokens_table.c.expires_at)
+                            .where(
+                                (self.revoked_tokens_table.c.token_hash == h)
+                                | (self.revoked_tokens_table.c.jti == token_or_jti)
+                            )
+                            .limit(1)
+                        )
                         row = conn.execute(stmt).fetchone()
                         if row:
                             exp_val = float(row[1]) if row[1] else None
@@ -501,9 +452,11 @@ class SessionStore:
                             return True
 
                     if self.token_blacklist_table is not None:
-                        stmt_bl = select(self.token_blacklist_table.c.jti, self.token_blacklist_table.c.exp).where(
-                            self.token_blacklist_table.c.jti == token_or_jti
-                        ).limit(1)
+                        stmt_bl = (
+                            select(self.token_blacklist_table.c.jti, self.token_blacklist_table.c.exp)
+                            .where(self.token_blacklist_table.c.jti == token_or_jti)
+                            .limit(1)
+                        )
                         row_bl = conn.execute(stmt_bl).fetchone()
                         if row_bl:
                             exp_val = float(row_bl[1]) if row_bl[1] else None
@@ -515,7 +468,6 @@ class SessionStore:
         except Exception as e:
             logger.error(f"Ошибка проверки отзыва токена: {e}")
             return self._l1_cache.contains(h) or self._l1_cache.contains(token_or_jti)
-
 
     # ==================== RATE LIMITING ====================
 
@@ -545,11 +497,7 @@ class SessionStore:
                 return True, 0
 
             with self.engine.begin() as conn:
-                conn.execute(
-                    delete(self.rate_limits_table).where(
-                        self.rate_limits_table.c.timestamp < window_start
-                    )
-                )
+                conn.execute(delete(self.rate_limits_table).where(self.rate_limits_table.c.timestamp < window_start))
 
                 stmt = select(
                     func.count(),
@@ -567,9 +515,7 @@ class SessionStore:
                     retry_after = max(1, int(window_seconds - (current_time - oldest_ts)))
                     return False, retry_after
 
-                conn.execute(
-                    insert(self.rate_limits_table).values(key=key, timestamp=current_time)
-                )
+                conn.execute(insert(self.rate_limits_table).values(key=key, timestamp=current_time))
                 return True, 0
         except Exception as e:
             logger.error(f"Ошибка проверки rate limit: {e}")
@@ -597,26 +543,12 @@ class SessionStore:
         now = time.time()
         try:
             with self.engine.begin() as conn:
-                res_sess = conn.execute(
-                    delete(self.sessions_table).where(
-                        self.sessions_table.c.expires_at < now
-                    )
-                )
+                res_sess = conn.execute(delete(self.sessions_table).where(self.sessions_table.c.expires_at < now))
                 res_tokens = conn.execute(
-                    delete(self.revoked_tokens_table).where(
-                        self.revoked_tokens_table.c.expires_at < now
-                    )
+                    delete(self.revoked_tokens_table).where(self.revoked_tokens_table.c.expires_at < now)
                 )
-                res_bl = conn.execute(
-                    delete(self.token_blacklist_table).where(
-                        self.token_blacklist_table.c.exp < now
-                    )
-                )
-                conn.execute(
-                    delete(self.rate_limits_table).where(
-                        self.rate_limits_table.c.timestamp < (now - 3600)
-                    )
-                )
+                res_bl = conn.execute(delete(self.token_blacklist_table).where(self.token_blacklist_table.c.exp < now))
+                conn.execute(delete(self.rate_limits_table).where(self.rate_limits_table.c.timestamp < (now - 3600)))
                 deleted = (res_sess.rowcount or 0) + (res_tokens.rowcount or 0) + (res_bl.rowcount or 0)
                 return deleted
         except Exception as e:
@@ -633,9 +565,7 @@ class SessionStore:
         jti: Optional[str] = None,
     ) -> bool:
         """Асинхронное неблокирующее сохранение сессии через пул потоков."""
-        return await anyio.to_thread.run_sync(
-            self.save_session, token, user, expires_at, jti
-        )
+        return await anyio.to_thread.run_sync(self.save_session, token, user, expires_at, jti)
 
     async def get_session_async(self, token: str) -> Optional[Dict[str, Any]]:
         """Асинхронное неблокирующее получение сессии по токену."""
@@ -650,11 +580,13 @@ class SessionStore:
         token_or_jti: str,
         username: Optional[Union[str, int, float]] = None,
         expires_at: Optional[Union[datetime, int, float, str]] = None,
-        **kwargs
+        **kwargs,
     ) -> bool:
         """Асинхронный неблокирующий отзыв токена/сессии."""
+
         def _revoke():
             return self.revoke_token(token_or_jti, username=username, expires_at=expires_at, **kwargs)
+
         return await anyio.to_thread.run_sync(_revoke)
 
     async def is_token_revoked_async(self, token_or_jti: str) -> bool:
@@ -673,9 +605,7 @@ class SessionStore:
         self, key: str, max_requests: int = 10, window_seconds: int = 60, now: Optional[float] = None
     ) -> tuple[bool, int]:
         """Асинхронная неблокирующая проверка rate limit."""
-        return await anyio.to_thread.run_sync(
-            self.check_and_record_rate_limit, key, max_requests, window_seconds, now
-        )
+        return await anyio.to_thread.run_sync(self.check_and_record_rate_limit, key, max_requests, window_seconds, now)
 
     async def clear_rate_limits_async(self):
         """Асинхронная очистка rate limits."""
@@ -705,6 +635,3 @@ class SessionStore:
     async def ping_async(self) -> bool:
         """Асинхронная проверка доступности хранилища (Ready probe)."""
         return await anyio.to_thread.run_sync(self.ping)
-
-
-

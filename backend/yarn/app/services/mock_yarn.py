@@ -1,7 +1,12 @@
 from typing import Dict, Any, List, Optional
 from app.models.yarn import (
-    QueueNode, QueueState, QueueType, PartitionResourceConfig,
-    ResourceAllocation, ClusterMetrics, BranchBalance
+    QueueNode,
+    QueueState,
+    QueueType,
+    PartitionResourceConfig,
+    ResourceAllocation,
+    ClusterMetrics,
+    BranchBalance,
 )
 from app.models.cluster import ClusterConfig
 
@@ -23,7 +28,7 @@ def get_mock_cluster_metrics(cluster: ClusterConfig) -> ClusterMetrics:
         unhealthy_nodes=0,
         total_containers=342,
         running_apps=45,
-        partitions=cluster.partitions
+        partitions=cluster.partitions,
     )
 
 
@@ -54,14 +59,8 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
             vcore_percent=cap,
             max_memory_percent=max_cap,
             max_vcore_percent=max_cap,
-            absolute_resources=ResourceAllocation(
-                memory_mb=mem,
-                vcores=cores
-            ),
-            absolute_max_resources=ResourceAllocation(
-                memory_mb=max_mem,
-                vcores=max_c
-            )
+            absolute_resources=ResourceAllocation(memory_mb=mem, vcores=cores),
+            absolute_max_resources=ResourceAllocation(memory_mb=max_mem, vcores=max_c),
         )
 
     # 1. Листовые очереди под root.prod
@@ -102,7 +101,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=18,
         num_active_applications=14,
         num_pending_applications=4,
-        children=[]
+        children=[],
     )
 
     flink_queue = QueueNode(
@@ -124,7 +123,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=8,
         num_active_applications=8,
         num_pending_applications=0,
-        children=[]
+        children=[],
     )
 
     trino_queue = QueueNode(
@@ -146,7 +145,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=5,
         num_active_applications=5,
         num_pending_applications=0,
-        children=[]
+        children=[],
     )
 
     # 2. Ветка root.prod (сумма детей 40 + 35 + 25 = 100%)
@@ -163,7 +162,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=31,
         num_active_applications=27,
         num_pending_applications=4,
-        children=[spark_queue, flink_queue, trino_queue]
+        children=[spark_queue, flink_queue, trino_queue],
     )
 
     # 3. root.dev
@@ -180,7 +179,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=6,
         num_active_applications=4,
         num_pending_applications=2,
-        children=[]
+        children=[],
     )
 
     dev_ci = QueueNode(
@@ -196,7 +195,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=4,
         num_active_applications=3,
         num_pending_applications=1,
-        children=[]
+        children=[],
     )
 
     dev_queue = QueueNode(
@@ -212,7 +211,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=10,
         num_active_applications=7,
         num_pending_applications=3,
-        children=[dev_sandbox, dev_ci]
+        children=[dev_sandbox, dev_ci],
     )
 
     # 4. root.default (15%, фиксированная)
@@ -229,7 +228,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=4,
         num_active_applications=4,
         num_pending_applications=0,
-        children=[]
+        children=[],
     )
 
     # Корневая очередь root (сумма детей: 60 + 25 + 15 = 100%)
@@ -246,7 +245,7 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
         num_applications=45,
         num_active_applications=38,
         num_pending_applications=7,
-        children=[prod_queue, dev_queue, default_queue]
+        children=[prod_queue, dev_queue, default_queue],
     )
 
     def _apply_resource_mode(node: QueueNode):
@@ -261,12 +260,17 @@ def get_mock_queue_tree(cluster: ClusterConfig) -> QueueNode:
 def get_mock_capacity_scheduler_xml(cluster: ClusterConfig) -> Optional[str]:
     """Возвращает базовый capacity-scheduler.xml для mock-режима/демо кластера."""
     from pathlib import Path
+
     candidates = [
         cluster.capacity_scheduler_xml_path if cluster.capacity_scheduler_xml_path else None,
         f"demo/{cluster.id}/capacity-scheduler.xml",
-        "demo/cluster-1/capacity-scheduler.xml" if "1" in cluster.id or "prod" in cluster.id else "demo/cluster-2/capacity-scheduler.xml",
+        "demo/cluster-1/capacity-scheduler.xml"
+        if "1" in cluster.id or "prod" in cluster.id
+        else "demo/cluster-2/capacity-scheduler.xml",
         f"/app/demo/{cluster.id}/capacity-scheduler.xml",
-        "/app/demo/cluster-1/capacity-scheduler.xml" if "1" in cluster.id or "prod" in cluster.id else "/app/demo/cluster-2/capacity-scheduler.xml",
+        "/app/demo/cluster-1/capacity-scheduler.xml"
+        if "1" in cluster.id or "prod" in cluster.id
+        else "/app/demo/cluster-2/capacity-scheduler.xml",
     ]
     for c in candidates:
         if c:

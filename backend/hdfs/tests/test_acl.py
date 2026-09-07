@@ -19,10 +19,8 @@ def test_cluster_acl_rules():
         name="Test Cluster",
         webhdfs_urls=["http://localhost:9870/webhdfs/v1"],
         acl=ClusterAcl(
-            allowed_groups=["analytics", "engineers"],
-            read_only_groups=["analytics"],
-            admin_groups=["hadoop-admins"]
-        )
+            allowed_groups=["analytics", "engineers"], read_only_groups=["analytics"], admin_groups=["hadoop-admins"]
+        ),
     )
 
     # 1. Аналитик имеет доступ, но Read-Only
@@ -46,16 +44,10 @@ def test_cluster_acl_rules():
 
 def test_visible_clusters():
     c1 = ClusterConfig(
-        id="c1",
-        name="Cluster 1",
-        webhdfs_urls=["http://nn1:9870"],
-        acl=ClusterAcl(allowed_groups=["grp1"])
+        id="c1", name="Cluster 1", webhdfs_urls=["http://nn1:9870"], acl=ClusterAcl(allowed_groups=["grp1"])
     )
     c2 = ClusterConfig(
-        id="c2",
-        name="Cluster 2",
-        webhdfs_urls=["http://nn2:9870"],
-        acl=ClusterAcl(allowed_groups=["grp2"])
+        id="c2", name="Cluster 2", webhdfs_urls=["http://nn2:9870"], acl=ClusterAcl(allowed_groups=["grp2"])
     )
 
     clusters = [c1, c2]

@@ -13,11 +13,12 @@ from app.services.ai_service import (
     AIFixResponse,
     AIFormatResponse,
     AIGenerateResponse,
-    AIStatusResponse
+    AIStatusResponse,
 )
 
 logger = logging.getLogger("ai_api")
 router = APIRouter(prefix="/ai", tags=["ai"])
+
 
 class GenerateSqlRequest(BaseModel):
     prompt: str = Field(..., description="Описание требуемой выборки на естественном языке")
@@ -25,10 +26,12 @@ class GenerateSqlRequest(BaseModel):
     cluster_id: Optional[str] = Field(default=None, description="Идентификатор кластера")
     catalog_context: Optional[Dict[str, Any]] = Field(default=None, description="Контекст схемы данных")
 
+
 class FormatSqlRequest(BaseModel):
     sql: str = Field(..., description="SQL-запрос для форматирования")
     dialect: Optional[str] = Field(default="trino", description="Диалект: trino или hive")
     cluster_id: Optional[str] = Field(default=None, description="Идентификатор кластера")
+
 
 class CheckSqlRequest(BaseModel):
     sql: str = Field(..., description="SQL-запрос для проверки")
@@ -42,11 +45,13 @@ class ExplainSqlRequest(BaseModel):
     dialect: Optional[str] = Field(default="trino", description="Диалект: trino или hive")
     cluster_id: Optional[str] = Field(default=None, description="Идентификатор кластера")
 
+
 class OptimizeSqlRequest(BaseModel):
     sql: str = Field(..., description="SQL-запрос для оптимизации")
     dialect: Optional[str] = Field(default="trino", description="Диалект: trino или hive")
     cluster_id: Optional[str] = Field(default=None, description="Идентификатор кластера")
     catalog_context: Optional[Dict[str, Any]] = Field(default=None, description="Схема или метаданные")
+
 
 class FixSqlRequest(BaseModel):
     sql: str = Field(..., description="Исходный SQL-запрос с ошибкой")
@@ -70,10 +75,7 @@ async def get_ai_status(current_user: UserSession = Depends(get_current_user)):
 
 
 @router.post("/check", response_model=AICheckResponse)
-async def check_sql(
-    request: CheckSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def check_sql(request: CheckSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Всесторонняя проверка и линтинг SQL-запроса"""
     if not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
@@ -82,10 +84,7 @@ async def check_sql(
 
 
 @router.post("/explain", response_model=AIExplainResponse)
-async def explain_sql(
-    request: ExplainSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def explain_sql(request: ExplainSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Генерация пошагового объяснения логики выполнения SQL"""
     if not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
@@ -94,10 +93,7 @@ async def explain_sql(
 
 
 @router.post("/optimize", response_model=AIOptimizeResponse)
-async def optimize_sql(
-    request: OptimizeSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def optimize_sql(request: OptimizeSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Оптимизация SQL-запроса и генерация улучшенной версии"""
     if not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
@@ -106,10 +102,7 @@ async def optimize_sql(
 
 
 @router.post("/fix", response_model=AIFixResponse)
-async def fix_sql(
-    request: FixSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def fix_sql(request: FixSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Автоматическое исправление SQL-запроса по тексту ошибки"""
     if not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
@@ -118,10 +111,7 @@ async def fix_sql(
 
 
 @router.post("/format", response_model=AIFormatResponse)
-async def format_sql(
-    request: FormatSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def format_sql(request: FormatSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Автоматическое форматирование SQL с отступами и выравниванием"""
     if not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL запрос не может быть пустым")
@@ -130,18 +120,11 @@ async def format_sql(
 
 
 @router.post("/generate", response_model=AIGenerateResponse)
-async def generate_sql(
-    request: GenerateSqlRequest,
-    current_user: UserSession = Depends(get_current_user)
-):
+async def generate_sql(request: GenerateSqlRequest, current_user: UserSession = Depends(get_current_user)):
     """Генерация SQL-запроса по описанию на естественном языке (Text-to-SQL)"""
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Описание запроса не может быть пустым")
     dialect = _resolve_dialect(request.cluster_id, request.dialect)
     return await ai_service.generate_query(
-        prompt=request.prompt,
-        dialect=dialect,
-        catalog_context=request.catalog_context
+        prompt=request.prompt, dialect=dialect, catalog_context=request.catalog_context
     )
-
-

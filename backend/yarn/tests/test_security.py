@@ -35,8 +35,8 @@ def sample_cluster():
 
 def test_xml_comment_injection_sanitized(sample_cluster):
     """Проверяет, что разделители комментария '-->' и спецсимволы нейтрализуются."""
-    malicious_comment = 'test --> <property><name>injected.property</name><value>true</value></property><!--'
-    malicious_author = 'attacker --!>'
+    malicious_comment = "test --> <property><name>injected.property</name><value>true</value></property><!--"
+    malicious_author = "attacker --!>"
 
     xml = generate_capacity_scheduler_xml(
         queues=[],
@@ -59,10 +59,12 @@ def test_xml_comment_injection_sanitized(sample_cluster):
 def test_ldap_input_escaping():
     """Проверяет, что спецсимволы в имени пользователя экранируются перед подстановкой в LDAP-фильтр."""
     malicious_username = "admin)(|(cn=*"
-    with patch("backend.common.core.ldap_auth.Server") as mock_server_cls, \
-         patch("backend.common.core.ldap_auth.Connection") as mock_conn_cls, \
-         patch.object(ldap_service.config, "enabled", True), \
-         patch.object(ldap_service.config, "user_filter", "(&(objectClass=user)(sAMAccountName={username}))"):
+    with (
+        patch("backend.common.core.ldap_auth.Server") as mock_server_cls,
+        patch("backend.common.core.ldap_auth.Connection") as mock_conn_cls,
+        patch.object(ldap_service.config, "enabled", True),
+        patch.object(ldap_service.config, "user_filter", "(&(objectClass=user)(sAMAccountName={username}))"),
+    ):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_conn = MagicMock()
@@ -128,9 +130,10 @@ async def test_change_request_bola_protection(tmp_path, sample_cluster):
     db_file = str(tmp_path / "sec_test.db")
     test_storage = StorageService(db_path=db_file)
 
-    with patch("app.api.change_requests.storage_service", test_storage), \
-         patch("app.api.change_requests.settings.clusters", [sample_cluster]):
-
+    with (
+        patch("app.api.change_requests.storage_service", test_storage),
+        patch("app.api.change_requests.settings.clusters", [sample_cluster]),
+    ):
         cr_id = test_storage.create_change_request(
             cluster_id=sample_cluster.id,
             title="Secret changes",
@@ -184,9 +187,10 @@ async def test_change_request_bola_protection(tmp_path, sample_cluster):
 
 def test_ui_access_acl_enforcement():
     """Проверяет применение политик ui_access."""
-    with patch("app.core.acl.settings.acl.ui_access.allowed_users", ["allowed_admin"]), \
-         patch("app.core.acl.settings.acl.ui_access.allowed_groups", []):
-
+    with (
+        patch("app.core.acl.settings.acl.ui_access.allowed_users", ["allowed_admin"]),
+        patch("app.core.acl.settings.acl.ui_access.allowed_groups", []),
+    ):
         allowed = UserSession(
             username="allowed_admin",
             display_name="Allowed",
@@ -318,13 +322,16 @@ def test_env_variable_overrides():
     from app.core.config import Settings
     import os
 
-    with patch.dict(os.environ, {
-        "JWT_SECRET_KEY": "env-custom-jwt-secret-xyz-long-enough-32-chars",
-        "LDAP_BIND_PASSWORD": "env-ldap-custom-password",
-        "AUTH_MODE": "ldap",
-        "SERVER_DEBUG": "false",
-        "CORS_ORIGINS": "https://yarn.company.com,https://yarn-internal.company.com",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "JWT_SECRET_KEY": "env-custom-jwt-secret-xyz-long-enough-32-chars",
+            "LDAP_BIND_PASSWORD": "env-ldap-custom-password",
+            "AUTH_MODE": "ldap",
+            "SERVER_DEBUG": "false",
+            "CORS_ORIGINS": "https://yarn.company.com,https://yarn-internal.company.com",
+        },
+    ):
         loaded_settings = Settings.load_from_yaml("config/config.yaml")
         assert loaded_settings.auth.jwt.secret_key == "env-custom-jwt-secret-xyz-long-enough-32-chars"
         assert loaded_settings.auth.ldap.bind_password == "env-ldap-custom-password"
@@ -382,17 +389,13 @@ def test_csrf_cookie_protection():
 
     # 2. Запрос с поддельным Origin -> 403
     resp_evil = client.post(
-        "/api/v1/auth/logout",
-        cookies={"access_token": token},
-        headers={"Origin": "http://evil-attacker.com"}
+        "/api/v1/auth/logout", cookies={"access_token": token}, headers={"Origin": "http://evil-attacker.com"}
     )
     assert resp_evil.status_code == 403
 
     # 3. Легитимный запрос с X-Requested-With -> 200
     resp_ok = client.post(
-        "/api/v1/auth/logout",
-        cookies={"access_token": token},
-        headers={"X-Requested-With": "XMLHttpRequest"}
+        "/api/v1/auth/logout", cookies={"access_token": token}, headers={"X-Requested-With": "XMLHttpRequest"}
     )
     assert resp_ok.status_code == 200
 
@@ -430,25 +433,33 @@ def test_spnego_kerberos_ldap_enrichment(monkeypatch):
     client = TestClient(app)
 
     # Мокаем Kerberos authenticate_spnego
-    monkeypatch.setattr(auth_module.kerberos_manager, "authenticate_spnego", lambda header: UserSession(
-        username="spnego_dev",
-        display_name="spnego_dev",
-        groups=[],
-        auth_method="kerberos",
-        is_admin=False,
-        system_role=Role.READER
-    ))
+    monkeypatch.setattr(
+        auth_module.kerberos_manager,
+        "authenticate_spnego",
+        lambda header: UserSession(
+            username="spnego_dev",
+            display_name="spnego_dev",
+            groups=[],
+            auth_method="kerberos",
+            is_admin=False,
+            system_role=Role.READER,
+        ),
+    )
 
     # Мокаем get_user_info в ldap_service
-    monkeypatch.setattr(auth_module.ldap_service, "get_user_info", lambda uname: UserSession(
-        username=uname,
-        display_name="SPNEGO Developer",
-        email="spnego_dev@yarn.corp",
-        groups=["hadoop-admins"],
-        auth_method="ldap",
-        is_admin=True,
-        system_role=Role.ADMIN
-    ))
+    monkeypatch.setattr(
+        auth_module.ldap_service,
+        "get_user_info",
+        lambda uname: UserSession(
+            username=uname,
+            display_name="SPNEGO Developer",
+            email="spnego_dev@yarn.corp",
+            groups=["hadoop-admins"],
+            auth_method="ldap",
+            is_admin=True,
+            system_role=Role.ADMIN,
+        ),
+    )
 
     monkeypatch.setattr(auth_module.settings.auth.ldap, "enabled", True)
 
@@ -579,6 +590,7 @@ def test_yarn_client_session_thread_safety():
 def test_tls_verification_defaults_yarn():
     """Проверяет, что проверка TLS сертификатов включена по умолчанию."""
     from app.core.config import settings
+
     assert settings.auth.ldap.verify_cert is True
 
 
@@ -620,8 +632,7 @@ def test_validate_production_security():
 
     # 1. Запрет mock-режима при debug=False
     insecure_settings = Settings(
-        server=ServerConfig(debug=False),
-        auth=AuthConfig(mode="mock", jwt=JwtConfig(secret_key="a" * 32))
+        server=ServerConfig(debug=False), auth=AuthConfig(mode="mock", jwt=JwtConfig(secret_key="a" * 32))
     )
     with pytest.raises(ValueError, match="Mock authentication cannot be used in production mode"):
         insecure_settings.validate_production_security()
@@ -629,7 +640,9 @@ def test_validate_production_security():
     # 2. Запрет дефолтных и коротких ключей JWT при debug=False
     insecure_key_settings = Settings(
         server=ServerConfig(debug=False),
-        auth=AuthConfig(mode="ldap", jwt=JwtConfig(secret_key="default-secret-key-change-it"), ldap=LdapConfig(enabled=True))
+        auth=AuthConfig(
+            mode="ldap", jwt=JwtConfig(secret_key="default-secret-key-change-it"), ldap=LdapConfig(enabled=True)
+        ),
     )
     with pytest.raises(ValueError, match="JWT_SECRET_KEY must be set to a secure unique string"):
         insecure_key_settings.validate_production_security()
@@ -637,7 +650,11 @@ def test_validate_production_security():
     # 3. Валидная конфигурация при debug=False
     valid_settings = Settings(
         server=ServerConfig(debug=False),
-        auth=AuthConfig(mode="ldap", jwt=JwtConfig(secret_key="a-secure-production-random-secret-key-32chars!"), ldap=LdapConfig(enabled=True))
+        auth=AuthConfig(
+            mode="ldap",
+            jwt=JwtConfig(secret_key="a-secure-production-random-secret-key-32chars!"),
+            ldap=LdapConfig(enabled=True),
+        ),
     )
     assert valid_settings.validate_production_security() is not None
 
@@ -770,15 +787,10 @@ def test_yarn_readyz():
     """Проверяет эндпоинт /readyz для YARN Explorer."""
     from fastapi.testclient import TestClient
     from app.main import app
+
     client = TestClient(app)
     resp = client.get("/readyz")
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ready"
     assert data["database"] == "ok"
-
-
-
-
-
-

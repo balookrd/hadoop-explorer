@@ -118,7 +118,9 @@ class QueueTreeResponse(BaseModel):
 class QueueDraftItem(BaseModel):
     path: str = Field(..., pattern=r"^root(\.[a-zA-Z0-9_\-]+)*$", description="Полный путь очереди, начиная с root")
     name: str = Field(..., pattern=r"^[a-zA-Z0-9_\-]+$", description="Имя очереди (буквы, цифры, дефис, подчеркивание)")
-    parent_path: Optional[str] = Field(None, pattern=r"^root(\.[a-zA-Z0-9_\-]+)*$", description="Путь родительской очереди")
+    parent_path: Optional[str] = Field(
+        None, pattern=r"^root(\.[a-zA-Z0-9_\-]+)*$", description="Путь родительской очереди"
+    )
     action: str = "modify"  # modify | create | delete
     is_leaf: bool = True
     state: QueueState = QueueState.RUNNING
@@ -141,6 +143,7 @@ def validate_yarn_queue_mappings(v: Optional[str]) -> Optional[str]:
     if v is None or not v.strip():
         return v
     import re
+
     entries = [e.strip() for e in v.split(",") if e.strip()]
     mapping_regex = re.compile(r"^(u|g):[%a-zA-Z0-9_\-\.\*]+:[a-zA-Z0-9_\-\.\%]+$")
     for entry in entries:

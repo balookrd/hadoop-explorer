@@ -14,12 +14,7 @@ from app.core.rate_limiter import get_client_ip
 from app.core.audit import audit_log
 from app.core.acl import can_access_cluster, is_cluster_read_only
 from app.models.auth import UserInfo
-from app.models.hdfs import (
-    DirectoryListingResponse,
-    FilePreviewResponse,
-    FileActionResponse,
-    HdfsFileStatus
-)
+from app.models.hdfs import DirectoryListingResponse, FilePreviewResponse, FileActionResponse, HdfsFileStatus
 from app.services.hdfs_client import hdfs_service, WebHdfsException
 from app.services.preview import preview_service
 
@@ -37,22 +32,20 @@ def sanitize_hdfs_path(path: str) -> str:
     clean = "/" + path.strip("/")
     parts = [p for p in clean.split("/") if p]
     if any(p in (".", "..") for p in parts):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Относительные переходы (..) в путях запрещены")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Относительные переходы (..) в путях запрещены"
+        )
     return "/" + "/".join(parts)
 
 
 def _get_cluster_and_validate(cluster_id: str, current_user: UserInfo):
     cluster = cluster_registry.get(cluster_id)
     if not cluster:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Кластер с id '{cluster_id}' не найден"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Кластер с id '{cluster_id}' не найден")
 
     if not can_access_cluster(cluster, current_user.username, current_user.groups):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"У вас нет прав доступа к кластеру '{cluster.name}'"
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"У вас нет прав доступа к кластеру '{cluster.name}'"
         )
 
     return cluster
@@ -60,9 +53,7 @@ def _get_cluster_and_validate(cluster_id: str, current_user: UserInfo):
 
 @router.get("", response_model=DirectoryListingResponse)
 async def list_files(
-    cluster_id: str,
-    path: str = Query(default="/"),
-    current_user: UserInfo = Depends(get_current_user)
+    cluster_id: str, path: str = Query(default="/"), current_user: UserInfo = Depends(get_current_user)
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     client = hdfs_service.get_client(cluster)
@@ -94,16 +85,12 @@ async def list_files(
         total_directories=total_dirs,
         total_size=total_size,
         can_write=not is_ro,
-        can_read=True
+        can_read=True,
     )
 
 
 @router.get("/preview", response_model=FilePreviewResponse)
-async def preview_file(
-    cluster_id: str,
-    path: str = Query(...),
-    current_user: UserInfo = Depends(get_current_user)
-):
+async def preview_file(cluster_id: str, path: str = Query(...), current_user: UserInfo = Depends(get_current_user)):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     client = hdfs_service.get_client(cluster)
     clean_path = sanitize_hdfs_path(path)
@@ -112,7 +99,9 @@ async def preview_file(
     try:
         file_status = await client.get_file_status(clean_path, do_as_user=current_user.username)
         total_size = file_status.length
-        content = await client.get_file_content(clean_path, do_as_user=current_user.username, offset=0, length=max_bytes + 1)
+        content = await client.get_file_content(
+            clean_path, do_as_user=current_user.username, offset=0, length=max_bytes + 1
+        )
     except WebHdfsException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -156,12 +145,12 @@ async def create_directory_zip(client, base_path: str, username: str) -> tempfil
                         if total_files > MAX_ZIP_FILES:
                             raise HTTPException(
                                 status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"Каталог содержит более {MAX_ZIP_FILES} файлов. Архивация заблокирована для защиты от перегрузки."
+                                detail=f"Каталог содержит более {MAX_ZIP_FILES} файлов. Архивация заблокирована для защиты от перегрузки.",
                             )
                         if total_bytes > MAX_ZIP_TOTAL_BYTES:
                             raise HTTPException(
                                 status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="Суммарный объем файлов каталога превышает лимит 500 МБ. Скачивайте файлы напрямую."
+                                detail="Суммарный объем файлов каталога превышает лимит 500 МБ. Скачивайте файлы напрямую.",
                             )
 
                         # Потоковая запись файла в zip-архив чанками без загрузки в память
@@ -180,10 +169,7 @@ async def create_directory_zip(client, base_path: str, username: str) -> tempfil
 
 @router.get("/download")
 async def download_file(
-    cluster_id: str,
-    request: Request,
-    path: str = Query(...),
-    current_user: UserInfo = Depends(get_current_user)
+    cluster_id: str, request: Request, path: str = Query(...), current_user: UserInfo = Depends(get_current_user)
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     client = hdfs_service.get_client(cluster)
@@ -197,7 +183,7 @@ async def download_file(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -206,7 +192,7 @@ async def download_file(
         if clean_path == "/":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Скачивание корневого каталога (/) целиком в виде ZIP-архива запрещено"
+                detail="Скачивание корневого каталога (/) целиком в виде ZIP-архива запрещено",
             )
 
         folder_name = clean_path.split("/")[-1]
@@ -214,7 +200,7 @@ async def download_file(
         quoted_filename = urllib.parse.quote(zip_filename)
         headers = {
             "Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}",
-            "Content-Type": "application/zip"
+            "Content-Type": "application/zip",
         }
         try:
             zip_file = await create_directory_zip(client, clean_path, current_user.username)
@@ -223,8 +209,9 @@ async def download_file(
                 username=current_user.username,
                 client_ip=get_client_ip(request),
                 details={"cluster_id": cluster_id, "path": clean_path, "filename": zip_filename},
-                status="SUCCESS"
+                status="SUCCESS",
             )
+
             async def iter_zip():
                 try:
                     while True:
@@ -242,7 +229,7 @@ async def download_file(
                 username=current_user.username,
                 client_ip=get_client_ip(request),
                 details={"cluster_id": cluster_id, "path": clean_path, "error": e.message},
-                status="FAILED"
+                status="FAILED",
             )
             raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -251,7 +238,7 @@ async def download_file(
     quoted_filename = urllib.parse.quote(filename)
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}",
-        "Content-Type": "application/octet-stream"
+        "Content-Type": "application/octet-stream",
     }
 
     try:
@@ -261,7 +248,7 @@ async def download_file(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "size": file_status.length},
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return StreamingResponse(stream, headers=headers)
     except WebHdfsException as e:
@@ -270,7 +257,7 @@ async def download_file(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -283,7 +270,7 @@ async def upload_file(
     file: UploadFile = File(...),
     relative_path: Optional[str] = Form(None),
     overwrite: bool = Form(default=True),
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     if is_cluster_read_only(cluster, current_user.username, current_user.groups):
@@ -326,16 +313,18 @@ async def upload_file(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": full_path, "overwrite": overwrite},
-            status="SUCCESS"
+            status="SUCCESS",
         )
-        return FileActionResponse(success=True, message=f"Файл '{full_path.split('/')[-1]}' успешно загружен", path=full_path)
+        return FileActionResponse(
+            success=True, message=f"Файл '{full_path.split('/')[-1]}' успешно загружен", path=full_path
+        )
     except WebHdfsException as e:
         audit_log(
             action="FILE_UPLOAD",
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": full_path, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -352,7 +341,7 @@ async def upload_archive(
     path: str = Form(...),
     file: UploadFile = File(...),
     overwrite: bool = Form(default=True),
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
 ):
     """
     Загрузка и автоматическая распаковка ZIP-архива в целевую директорию HDFS с сохранением структуры.
@@ -376,7 +365,7 @@ async def upload_archive(
             if uploaded_bytes > MAX_UPLOAD_ARCHIVE_BYTES:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Размер загруженного архива превышает лимит {MAX_UPLOAD_ARCHIVE_BYTES // (1024 * 1024)} МБ"
+                    detail=f"Размер загруженного архива превышает лимит {MAX_UPLOAD_ARCHIVE_BYTES // (1024 * 1024)} МБ",
                 )
             temp_archive.write(chunk)
 
@@ -384,8 +373,7 @@ async def upload_archive(
 
         if not zipfile.is_zipfile(temp_archive):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Загруженный файл не является корректным ZIP-архивом"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Загруженный файл не является корректным ZIP-архивом"
             )
 
         temp_archive.seek(0)
@@ -397,14 +385,14 @@ async def upload_archive(
             if len(infolist) > MAX_EXTRACT_FILES:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Архив содержит слишком много файлов (максимум {MAX_EXTRACT_FILES})"
+                    detail=f"Архив содержит слишком много файлов (максимум {MAX_EXTRACT_FILES})",
                 )
 
             total_uncompressed = sum(info.file_size for info in infolist)
             if total_uncompressed > MAX_EXTRACT_TOTAL_BYTES:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Распакованный размер архива превышает лимит безопасности 1 ГБ"
+                    detail="Распакованный размер архива превышает лимит безопасности 1 ГБ",
                 )
 
             for info in infolist:
@@ -434,13 +422,11 @@ async def upload_archive(
                                     if not f_chunk:
                                         break
                                     yield f_chunk
+
                         return _stream()
 
                     await client.create_file(
-                        dst_item_path,
-                        make_file_stream(zf, info),
-                        do_as_user=current_user.username,
-                        overwrite=overwrite
+                        dst_item_path, make_file_stream(zf, info), do_as_user=current_user.username, overwrite=overwrite
                     )
                     files_created += 1
 
@@ -449,12 +435,12 @@ async def upload_archive(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": target_dir, "files_created": files_created},
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return FileActionResponse(
             success=True,
             message=f"Архив успешно распакован: создано {files_created} файлов в '{target_dir}'",
-            path=target_dir
+            path=target_dir,
         )
     except WebHdfsException as e:
         audit_log(
@@ -462,7 +448,7 @@ async def upload_archive(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": target_dir, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
     finally:
@@ -471,10 +457,7 @@ async def upload_archive(
 
 @router.post("/mkdir", response_model=FileActionResponse)
 async def make_directory(
-    cluster_id: str,
-    request: Request,
-    path: str = Query(...),
-    current_user: UserInfo = Depends(get_current_user)
+    cluster_id: str, request: Request, path: str = Query(...), current_user: UserInfo = Depends(get_current_user)
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     if is_cluster_read_only(cluster, current_user.username, current_user.groups):
@@ -492,7 +475,7 @@ async def make_directory(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path},
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return FileActionResponse(success=True, message=f"Директория '{clean_path}' успешно создана", path=clean_path)
     except WebHdfsException as e:
@@ -501,7 +484,7 @@ async def make_directory(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -512,7 +495,7 @@ async def rename_path(
     request: Request,
     src: str = Query(...),
     dst: str = Query(...),
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     if is_cluster_read_only(cluster, current_user.username, current_user.groups):
@@ -531,7 +514,7 @@ async def rename_path(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "src": clean_src, "dst": clean_dst},
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return FileActionResponse(success=True, message="Успешно переименовано", path=clean_dst)
     except WebHdfsException as e:
@@ -540,7 +523,7 @@ async def rename_path(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "src": clean_src, "dst": clean_dst, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -551,7 +534,7 @@ async def delete_path(
     request: Request,
     path: str = Query(...),
     recursive: bool = Query(default=False),
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
 ):
     cluster = _get_cluster_and_validate(cluster_id, current_user)
     if is_cluster_read_only(cluster, current_user.username, current_user.groups):
@@ -560,7 +543,9 @@ async def delete_path(
     client = hdfs_service.get_client(cluster)
     clean_path = sanitize_hdfs_path(path)
     if clean_path == "/":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Удаление корневой директории (/) запрещено")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Удаление корневой директории (/) запрещено"
+        )
 
     try:
         await client.delete(clean_path, do_as_user=current_user.username, recursive=recursive)
@@ -569,7 +554,7 @@ async def delete_path(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "recursive": recursive},
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return FileActionResponse(success=True, message=f"'{clean_path}' успешно удален", path=clean_path)
     except WebHdfsException as e:
@@ -578,6 +563,6 @@ async def delete_path(
             username=current_user.username,
             client_ip=get_client_ip(request),
             details={"cluster_id": cluster_id, "path": clean_path, "recursive": recursive, "error": e.message},
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)

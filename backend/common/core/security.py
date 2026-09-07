@@ -62,7 +62,7 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
         if sec_fetch_site and sec_fetch_site.lower() == "cross-site":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF protection: межсайтовый запрос отклонен (Sec-Fetch-Site: cross-site)"
+                detail="CSRF protection: межсайтовый запрос отклонен (Sec-Fetch-Site: cross-site)",
             )
 
         x_requested_with = request.headers.get("X-Requested-With")
@@ -80,18 +80,20 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF protection: запрос отклонен политикой безопасности источника"
+            detail="CSRF protection: запрос отклонен политикой безопасности источника",
         )
 
 
-def extract_token_from_request(request: Request, cookie_names: Optional[List[str]] = None) -> tuple[Optional[str], bool]:
+def extract_token_from_request(
+    request: Request, cookie_names: Optional[List[str]] = None
+) -> tuple[Optional[str], bool]:
     """
     Извлекает токен из Authorization: Bearer либо из Cookies.
     Возвращает кортеж: (token, is_cookie_auth).
     """
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[len("Bearer "):].strip()
+        token = auth_header[len("Bearer ") :].strip()
         if token:
             return token, False
 
@@ -109,7 +111,7 @@ def create_jwt_token(
     secret_key: str,
     algorithm: str = "HS256",
     expires_minutes: int = 480,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
 ) -> str:
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
@@ -119,21 +121,207 @@ def create_jwt_token(
         expire = now + timedelta(minutes=expires_minutes)
 
     jti = to_encode.get("jti") or uuid.uuid4().hex
-    to_encode.update({
-        "exp": int(expire.timestamp()),
-        "iat": int(now.timestamp()),
-        "jti": jti,
-    })
+    to_encode.update(
+        {
+            "exp": int(expire.timestamp()),
+            "iat": int(now.timestamp()),
+            "jti": jti,
+        }
+    )
     return jwt.encode(to_encode, secret_key, algorithm=algorithm)
 
 
 def decode_jwt_token(token: str, secret_key: str, algorithms: Optional[List[str]] = None) -> Optional[dict]:
     try:
-        payload = jwt.decode(
-            token,
-            secret_key,
-            algorithms=algorithms or ["HS256"]
-        )
+        payload = jwt.decode(token, secret_key, algorithms=algorithms or ["HS256"])
         return payload
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
+
+
+# ==============================================================================
+# Общие абстракции для дедупликации security-логики между сервисами
+# ==============================================================================
+
+from pydantic import BaseModel
+from typing import Callable, Any, Awaitable
+
+
+class CommonUserSession(BaseModel):
+    """
+    Базовая модель сессии пользователя, общая для всех сервисов.
+    Сервисы могут наследоваться от неё, добавляя специфические поля.
+    """
+
+    username: str
+    display_name: str
+    email: Optional[str] = None
+    groups: List[str] = []
+    is_admin: bool = False
+    auth_method: str = "ldap"
+
+
+def create_access_token(
+    user_data: dict,
+    secret_key: str,
+    algorithm: str = "HS256",
+    expire_minutes: int = 480,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Удобная обёртка над create_jwt_token для сервисов."""
+    return create_jwt_token(
+        data=user_data,
+        secret_key=secret_key,
+        algorithm=algorithm,
+        expires_minutes=expire_minutes,
+        expires_delta=expires_delta,
+    )
+
+
+def decode_access_token(
+    token: str,
+    secret_key: str,
+    algorithm: str = "HS256",
+) -> Optional[dict]:
+    """Удобная обёртка над decode_jwt_token для сервисов."""
+    return decode_jwt_token(
+        token=token,
+        secret_key=secret_key,
+        algorithms=[algorithm],
+    )
+
+
+# Тип для callback'а определения admin-прав
+AdminResolver = Callable[[str, List[str], Optional[dict]], bool]
+
+
+def make_get_current_user(
+    get_secret_key: Callable[[], str],
+    get_algorithm: Callable[[], str],
+    get_cookie_names: Callable[[], List[str]],
+    get_cors_origins: Callable[[], List[str]],
+    get_storage_service: Callable[[], Any],
+    admin_resolver: AdminResolver,
+    user_session_class: type = CommonUserSession,
+    extra_user_fields: Optional[Callable[[dict], dict]] = None,
+):
+    """
+    Фабрика, создающая функции get_current_user и get_current_user_optional,
+    сконфигурированные для конкретного сервиса.
+
+    Args:
+        get_secret_key: callback, возвращающий JWT secret key из настроек сервиса
+        get_algorithm: callback, возвращающий JWT algorithm
+        get_cookie_names: callback, возвращающий список имён cookies сервиса
+        get_cors_origins: callback, возвращающий CORS origins для CSRF-проверки
+        get_storage_service: callback, возвращающий storage_service экземпляр
+        admin_resolver: callback(username, groups, session_data) -> bool для определения is_admin
+        user_session_class: класс модели сессии (по умолчанию CommonUserSession)
+        extra_user_fields: опциональный callback для извлечения дополнительных полей из payload/session
+    """
+
+    async def get_current_user_optional(request: Request) -> Optional[Any]:
+        # 1. Извлекаем токен из запроса
+        token, is_cookie_auth = extract_token_from_request(request, get_cookie_names())
+
+        if not token:
+            return None
+
+        # 2. CSRF-проверка для Cookie-аутентификации
+        verify_csrf(request, is_cookie_auth, allowed_cors=get_cors_origins())
+
+        storage = get_storage_service()
+
+        # 3. Проверка отзыва токена
+        if storage.is_token_revoked(token):
+            return None
+
+        # 4. Проверка активной сессии в персистентной БД
+        session_data = storage.get_session(token)
+        if session_data:
+            username = session_data["username"]
+            groups = session_data.get("groups", [])
+            is_admin = session_data.get("is_admin")
+            if is_admin is None:
+                is_admin = admin_resolver(username, groups, session_data)
+
+            fields = {
+                "username": username,
+                "display_name": session_data.get("display_name", username),
+                "email": session_data.get("email"),
+                "groups": groups,
+                "is_admin": bool(is_admin),
+                "auth_method": session_data.get("auth_method", "ldap"),
+            }
+            if extra_user_fields:
+                fields.update(extra_user_fields(session_data))
+            return user_session_class(**fields)
+
+        # 5. Fallback: декодирование JWT
+        secret = get_secret_key()
+        algo = get_algorithm()
+        payload = decode_jwt_token(token, secret, algorithms=[algo])
+        if not payload:
+            return None
+
+        # Проверка отзыва по JTI
+        jti = payload.get("jti")
+        if jti and storage.is_token_revoked(jti):
+            return None
+
+        # Извлечение данных пользователя из payload
+        username = payload.get("sub") or payload.get("username")
+        if not username:
+            # Некоторые сервисы кладут user dict в payload["user"]
+            user_dict = payload.get("user")
+            if user_dict and isinstance(user_dict, dict):
+                try:
+                    user = user_session_class(**user_dict)
+                    # Сохраняем сессию
+                    storage.save_session(
+                        token=token,
+                        user=user,
+                        expires_at=payload.get("exp"),
+                        jti=jti,
+                    )
+                    return user
+                except Exception:
+                    pass
+            return None
+
+        groups = payload.get("groups", [])
+        is_admin = admin_resolver(username, groups, payload)
+
+        fields = {
+            "username": username,
+            "display_name": payload.get("display_name", username),
+            "email": payload.get("email"),
+            "groups": groups,
+            "is_admin": is_admin,
+            "auth_method": payload.get("auth_method", "jwt"),
+        }
+        if extra_user_fields:
+            fields.update(extra_user_fields(payload))
+        user = user_session_class(**fields)
+
+        # Сохраняем сессию в БД для устойчивости к рестартам
+        storage.save_session(
+            token=token,
+            user=user,
+            expires_at=payload.get("exp"),
+            jti=jti,
+        )
+
+        return user
+
+    async def get_current_user(request: Request) -> Any:
+        user = await get_current_user_optional(request)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Требуется авторизация",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user
+
+    return get_current_user, get_current_user_optional

@@ -18,16 +18,20 @@ logger = logging.getLogger("ai_service")
 
 # --- Модели данных для API ответов ---
 
+
 class AIIssue(BaseModel):
     line: int = Field(default=1, description="Номер строки (1-based)")
     column: int = Field(default=1, description="Номер символа в строке (1-based)")
     end_line: Optional[int] = Field(default=None, description="Конечная строка")
     end_column: Optional[int] = Field(default=None, description="Конечный символ")
     severity: str = Field(default="warning", description="Уровень: 'error', 'warning', 'info'")
-    category: str = Field(default="performance", description="Категория: 'syntax', 'performance', 'schema', 'security', 'dialect'")
+    category: str = Field(
+        default="performance", description="Категория: 'syntax', 'performance', 'schema', 'security', 'dialect'"
+    )
     message: str = Field(..., description="Описание проблемы на русском языке")
     rule: str = Field(..., description="Идентификатор правила проверки")
     suggestion: Optional[str] = Field(default=None, description="Рекомендация по исправлению")
+
 
 class AICheckResponse(BaseModel):
     is_valid: bool
@@ -41,6 +45,7 @@ class AICheckResponse(BaseModel):
     execution_time_ms: float = 0.0
     fallback_used: bool = False
 
+
 class AIExplainResponse(BaseModel):
     explanation: str
     summary: str
@@ -49,6 +54,7 @@ class AIExplainResponse(BaseModel):
     model: str
     provider: str
     execution_time_ms: float = 0.0
+
 
 class AIOptimizeResponse(BaseModel):
     original_sql: str
@@ -59,6 +65,7 @@ class AIOptimizeResponse(BaseModel):
     provider: str
     execution_time_ms: float = 0.0
 
+
 class AIFixResponse(BaseModel):
     original_sql: str
     fixed_sql: str
@@ -66,6 +73,7 @@ class AIFixResponse(BaseModel):
     model: str
     provider: str
     execution_time_ms: float = 0.0
+
 
 class AIGenerateResponse(BaseModel):
     prompt: str = Field(..., description="Исходный запрос на естественном языке")
@@ -77,10 +85,12 @@ class AIGenerateResponse(BaseModel):
     execution_time_ms: float = 0.0
     fallback_used: bool = False
 
+
 class AIFormatResponse(BaseModel):
     original_sql: str
     formatted_sql: str
     dialect: str
+
 
 class AIStatusResponse(BaseModel):
     enabled: bool
@@ -95,20 +105,24 @@ class AIStatusResponse(BaseModel):
 # --- Функции безопасности и защиты от Prompt/SQL Injection ---
 
 MAX_SQL_INPUT_CHARS = 50000
-DISALLOWED_AST_NODES = tuple([
-    node for node in [
-        getattr(exp, "Insert", None),
-        getattr(exp, "Update", None),
-        getattr(exp, "Delete", None),
-        getattr(exp, "Drop", None),
-        getattr(exp, "Alter", None),
-        getattr(exp, "Create", None),
-        getattr(exp, "Truncate", None),
-        getattr(exp, "Command", None),
-        getattr(exp, "Merge", None),
-        getattr(exp, "Grant", None),
-    ] if node is not None
-])
+DISALLOWED_AST_NODES = tuple(
+    [
+        node
+        for node in [
+            getattr(exp, "Insert", None),
+            getattr(exp, "Update", None),
+            getattr(exp, "Delete", None),
+            getattr(exp, "Drop", None),
+            getattr(exp, "Alter", None),
+            getattr(exp, "Create", None),
+            getattr(exp, "Truncate", None),
+            getattr(exp, "Command", None),
+            getattr(exp, "Merge", None),
+            getattr(exp, "Grant", None),
+        ]
+        if node is not None
+    ]
+)
 
 
 def sanitize_prompt_input(text: str, max_chars: int = MAX_SQL_INPUT_CHARS) -> str:
@@ -140,8 +154,22 @@ def validate_readonly_sql_ast(sql: str, dialect: str = "trino") -> tuple[bool, O
     words = clean_no_comments.strip().split()
     if words:
         first_word = words[0].upper()
-        if first_word in ("DROP", "TRUNCATE", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "MERGE", "GRANT", "REVOKE"):
-            return False, f"Команда {first_word} запрещена. Разрешены только аналитические запросы на чтение данных (SELECT / WITH / EXPLAIN / SHOW / DESCRIBE)."
+        if first_word in (
+            "DROP",
+            "TRUNCATE",
+            "DELETE",
+            "INSERT",
+            "UPDATE",
+            "ALTER",
+            "CREATE",
+            "MERGE",
+            "GRANT",
+            "REVOKE",
+        ):
+            return (
+                False,
+                f"Команда {first_word} запрещена. Разрешены только аналитические запросы на чтение данных (SELECT / WITH / EXPLAIN / SHOW / DESCRIBE).",
+            )
 
     sql_dialect = MockSQLAnalyzer._map_dialect(dialect)
     try:
@@ -152,14 +180,21 @@ def validate_readonly_sql_ast(sql: str, dialect: str = "trino") -> tuple[bool, O
             for disallowed_cls in DISALLOWED_AST_NODES:
                 if isinstance(tree, disallowed_cls) or tree.find(disallowed_cls):
                     node_name = disallowed_cls.__name__.replace("Table", "").upper()
-                    return False, f"Команда {node_name} запрещена. Разрешены только аналитические запросы на чтение данных (SELECT / WITH / EXPLAIN / SHOW / DESCRIBE)."
+                    return (
+                        False,
+                        f"Команда {node_name} запрещена. Разрешены только аналитические запросы на чтение данных (SELECT / WITH / EXPLAIN / SHOW / DESCRIBE).",
+                    )
         return True, None
     except Exception as e:
         logger.warning(f"Ошибка AST-парсинга SQL-запроса ({sql_stripped[:100]}...): {e}")
-        return False, f"Не удалось верифицировать безопасность SQL-запроса: синтаксическая ошибка или неподдерживаемый диалект ({e})"
+        return (
+            False,
+            f"Не удалось верифицировать безопасность SQL-запроса: синтаксическая ошибка или неподдерживаемый диалект ({e})",
+        )
 
 
 # --- Промышленный AST-анализатор SQL (sqlglot AST Linter & Optimizer) ---
+
 
 class MockSQLAnalyzer:
     """
@@ -178,7 +213,9 @@ class MockSQLAnalyzer:
         return "trino"
 
     @classmethod
-    def check(cls, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None) -> AICheckResponse:
+    def check(
+        cls, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
+    ) -> AICheckResponse:
         issues: List[AIIssue] = []
         sql_dialect = cls._map_dialect(dialect)
         sql_stripped = sql.strip()
@@ -193,7 +230,7 @@ class MockSQLAnalyzer:
                 estimated_notes=[],
                 model="ast-sqlglot-analyzer",
                 provider="mock",
-                fallback_used=True
+                fallback_used=True,
             )
 
         # 1. AST Парсинг синтаксиса через sqlglot
@@ -202,25 +239,29 @@ class MockSQLAnalyzer:
             parsed_trees = sqlglot.parse(sql_stripped, read=sql_dialect)
         except ParseError as pe:
             for error in pe.errors:
-                issues.append(AIIssue(
-                    line=error.get("line") or 1,
-                    column=error.get("col") or 1,
+                issues.append(
+                    AIIssue(
+                        line=error.get("line") or 1,
+                        column=error.get("col") or 1,
+                        severity="error",
+                        category="syntax",
+                        message=f"Синтаксическая ошибка ({sql_dialect.upper()}): {error.get('description', 'Некорректная конструкция')}",
+                        rule="syntax-error",
+                        suggestion="Проверьте правильность расстановки запятых, скобок и ключевых слов SQL.",
+                    )
+                )
+        except Exception as e:
+            issues.append(
+                AIIssue(
+                    line=1,
+                    column=1,
                     severity="error",
                     category="syntax",
-                    message=f"Синтаксическая ошибка ({sql_dialect.upper()}): {error.get('description', 'Некорректная конструкция')}",
+                    message=f"Ошибка синтаксического анализа: {str(e)}",
                     rule="syntax-error",
-                    suggestion="Проверьте правильность расстановки запятых, скобок и ключевых слов SQL."
-                ))
-        except Exception as e:
-            issues.append(AIIssue(
-                line=1,
-                column=1,
-                severity="error",
-                category="syntax",
-                message=f"Ошибка синтаксического анализа: {str(e)}",
-                rule="syntax-error",
-                suggestion="Проверьте синтаксис запроса."
-            ))
+                    suggestion="Проверьте синтаксис запроса.",
+                )
+            )
 
         # 2. Если парсер упал, возвращаем синтаксические ошибки
         if not parsed_trees and issues:
@@ -233,7 +274,7 @@ class MockSQLAnalyzer:
                 estimated_notes=["Исправьте синтаксические ошибки для выполнения запроса."],
                 model="ast-sqlglot-analyzer",
                 provider="mock",
-                fallback_used=True
+                fallback_used=True,
             )
 
         # 3. Анализ каждого выражения в AST
@@ -246,42 +287,48 @@ class MockSQLAnalyzer:
 
             # A. Проверка деструктивных операций (Security)
             if isinstance(tree, (exp.Drop, exp.TruncateTable)):
-                issues.append(AIIssue(
-                    line=1,
-                    column=1,
-                    severity="error",
-                    category="security",
-                    message="Обнаружена деструктивная DDL-команда (DROP/TRUNCATE).",
-                    rule="destructive-ddl",
-                    suggestion="Убедитесь, что удаление структуры или очистка таблицы согласованы с владельцем данных."
-                ))
+                issues.append(
+                    AIIssue(
+                        line=1,
+                        column=1,
+                        severity="error",
+                        category="security",
+                        message="Обнаружена деструктивная DDL-команда (DROP/TRUNCATE).",
+                        rule="destructive-ddl",
+                        suggestion="Убедитесь, что удаление структуры или очистка таблицы согласованы с владельцем данных.",
+                    )
+                )
                 complexity_points += 4.0
                 complexity_notes.append("Деструктивная операция изменения схемы/удаления")
 
             if isinstance(tree, exp.Delete):
-                issues.append(AIIssue(
-                    line=1,
-                    column=1,
-                    severity="warning",
-                    category="security",
-                    message="Команда DELETE в аналитических движках (Trino/Hive) ресурсоемка и требует поддержки ACID/Iceberg/Delta.",
-                    rule="destructive-dml",
-                    suggestion="Используйте партиционное удаление или перезапись витрины."
-                ))
+                issues.append(
+                    AIIssue(
+                        line=1,
+                        column=1,
+                        severity="warning",
+                        category="security",
+                        message="Команда DELETE в аналитических движках (Trino/Hive) ресурсоемка и требует поддержки ACID/Iceberg/Delta.",
+                        rule="destructive-dml",
+                        suggestion="Используйте партиционное удаление или перезапись витрины.",
+                    )
+                )
 
             # B. Проверка SELECT * (Star)
             for select_node in tree.find_all(exp.Select):
                 has_star = any(isinstance(expr, exp.Star) for expr in select_node.expressions)
                 if has_star:
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="warning",
-                        category="performance",
-                        message="Использование 'SELECT *' не рекомендуется в колоночных аналитических хранилищах (Parquet/ORC).",
-                        rule="select-star",
-                        suggestion="Явно перечислите только необходимые столбцы для колоночного чтения и уменьшения I/O."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="warning",
+                            category="performance",
+                            message="Использование 'SELECT *' не рекомендуется в колоночных аналитических хранилищах (Parquet/ORC).",
+                            rule="select-star",
+                            suggestion="Явно перечислите только необходимые столбцы для колоночного чтения и уменьшения I/O.",
+                        )
+                    )
                     complexity_points += 1.0
 
             # C. Проверка отсутствия LIMIT в основном запросе
@@ -291,62 +338,78 @@ class MockSQLAnalyzer:
                     has_group = bool(tree.args.get("group"))
                     has_agg_only = bool(tree.find(exp.AggFunc)) and not has_group
                     if not has_agg_only:
-                        issues.append(AIIssue(
-                            line=1,
-                            column=1,
-                            severity="warning",
-                            category="performance",
-                            message="Запрос не содержит ограничения LIMIT. При большой таблице возможна перегрузка памяти драйвера.",
-                            rule="no-limit-clause",
-                            suggestion="Добавьте 'LIMIT 1000' для безопасного интерактивного исследования данных."
-                        ))
+                        issues.append(
+                            AIIssue(
+                                line=1,
+                                column=1,
+                                severity="warning",
+                                category="performance",
+                                message="Запрос не содержит ограничения LIMIT. При большой таблице возможна перегрузка памяти драйвера.",
+                                rule="no-limit-clause",
+                                suggestion="Добавьте 'LIMIT 1000' для безопасного интерактивного исследования данных.",
+                            )
+                        )
                         complexity_points += 1.5
                         complexity_notes.append("Неограниченный размер результирующей выборки (без LIMIT)")
 
             # D. Рекомендация APPROX_DISTINCT вместо COUNT(DISTINCT) в Trino
             if sql_dialect == "trino":
                 for count_node in tree.find_all(exp.Count):
-                    if isinstance(count_node.this, exp.Distinct) or count_node.find(exp.Distinct) or count_node.args.get("distinct"):
-                        issues.append(AIIssue(
-                            line=1,
-                            column=1,
-                            severity="info",
-                            category="performance",
-                            message="Обнаружен точный подсчет уникальных значений COUNT(DISTINCT ...).",
-                            rule="approx-distinct-recommendation",
-                            suggestion="В Trino рекомендуется использовать 'APPROX_DISTINCT(col, 0.02)' — это ускорит вычисление в 10–50 раз с погрешностью до 2%."
-                        ))
+                    if (
+                        isinstance(count_node.this, exp.Distinct)
+                        or count_node.find(exp.Distinct)
+                        or count_node.args.get("distinct")
+                    ):
+                        issues.append(
+                            AIIssue(
+                                line=1,
+                                column=1,
+                                severity="info",
+                                category="performance",
+                                message="Обнаружен точный подсчет уникальных значений COUNT(DISTINCT ...).",
+                                rule="approx-distinct-recommendation",
+                                suggestion="В Trino рекомендуется использовать 'APPROX_DISTINCT(col, 0.02)' — это ускорит вычисление в 10–50 раз с погрешностью до 2%.",
+                            )
+                        )
                         complexity_points += 1.5
                         complexity_notes.append("Точный подсчет кардинальности COUNT(DISTINCT)")
 
             # E. Проверка UNION vs UNION ALL
             for union_node in tree.find_all(exp.Union):
                 if union_node.args.get("distinct", True):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="warning",
-                        category="performance",
-                        message="Использование UNION (с неявной дедупликацией) требует тяжелой сортировки данных между узлами.",
-                        rule="union-vs-union-all",
-                        suggestion="Если гарантия уникальности не требуется или наборы не пересекаются, используйте 'UNION ALL'."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="warning",
+                            category="performance",
+                            message="Использование UNION (с неявной дедупликацией) требует тяжелой сортировки данных между узлами.",
+                            rule="union-vs-union-all",
+                            suggestion="Если гарантия уникальности не требуется или наборы не пересекаются, используйте 'UNION ALL'.",
+                        )
+                    )
                     complexity_points += 2.0
                     complexity_notes.append("Тяжелая межсетевая дедупликация через UNION")
 
             # F. Бесполезный ORDER BY во вложенных подзапросах
             for subquery in tree.find_all(exp.Subquery):
                 sub_select = subquery.this
-                if isinstance(sub_select, exp.Select) and sub_select.args.get("order") and not sub_select.args.get("limit"):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="warning",
-                        category="performance",
-                        message="Вложенный подзапрос содержит ORDER BY без LIMIT. Сортировка будет проигнорирована во внешнем запросе, но нагрузит кластер.",
-                        rule="subquery-order-by",
-                        suggestion="Удалите ORDER BY из внутреннего подзапроса или перенесите его в самый верхний запрос."
-                    ))
+                if (
+                    isinstance(sub_select, exp.Select)
+                    and sub_select.args.get("order")
+                    and not sub_select.args.get("limit")
+                ):
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="warning",
+                            category="performance",
+                            message="Вложенный подзапрос содержит ORDER BY без LIMIT. Сортировка будет проигнорирована во внешнем запросе, но нагрузит кластер.",
+                            rule="subquery-order-by",
+                            suggestion="Удалите ORDER BY из внутреннего подзапроса или перенесите его в самый верхний запрос.",
+                        )
+                    )
 
             # G. Проверка CROSS JOIN / Декартова произведения
             joins = list(tree.find_all(exp.Join))
@@ -357,15 +420,17 @@ class MockSQLAnalyzer:
             for join in joins:
                 kind = (join.args.get("kind") or "").upper()
                 if "CROSS" in kind or (not join.args.get("on") and not join.args.get("using")):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="warning",
-                        category="performance",
-                        message="Обнаружен CROSS JOIN (декартово произведение строк).",
-                        rule="cross-join-warning",
-                        suggestion="Проверьте условие соединения ON. Декартово произведение на больших таблицах вызывает Out Of Memory."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="warning",
+                            category="performance",
+                            message="Обнаружен CROSS JOIN (декартово произведение строк).",
+                            rule="cross-join-warning",
+                            suggestion="Проверьте условие соединения ON. Декартово произведение на больших таблицах вызывает Out Of Memory.",
+                        )
+                    )
                     complexity_points += 3.0
                     complexity_notes.append("Декартово произведение таблиц (CROSS JOIN)")
 
@@ -374,15 +439,17 @@ class MockSQLAnalyzer:
                 for func in where_node.find_all(exp.Func):
                     func_name = func.key.upper()
                     if func_name in ("DATE_FORMAT", "YEAR", "MONTH", "DAY", "SUBSTR", "SUBSTRING", "TO_CHAR"):
-                        issues.append(AIIssue(
-                            line=1,
-                            column=1,
-                            severity="warning",
-                            category="performance",
-                            message=f"Вызов функции '{func_name}()' внутри условия WHERE отключает отсечение партиций (Partition Pruning).",
-                            rule="partition-function-call",
-                            suggestion="Перепишите условие на диапазон дат: вместо 'YEAR(dt) = 2026' используйте 'dt >= DATE '2026-01-01' AND dt < DATE '2027-01-01''."
-                        ))
+                        issues.append(
+                            AIIssue(
+                                line=1,
+                                column=1,
+                                severity="warning",
+                                category="performance",
+                                message=f"Вызов функции '{func_name}()' внутри условия WHERE отключает отсечение партиций (Partition Pruning).",
+                                rule="partition-function-call",
+                                suggestion="Перепишите условие на диапазон дат: вместо 'YEAR(dt) = 2026' используйте 'dt >= DATE '2026-01-01' AND dt < DATE '2027-01-01''.",
+                            )
+                        )
                         complexity_points += 1.5
                         complexity_notes.append("Вызовы функций в WHERE ломают отсечение партиций")
 
@@ -390,51 +457,58 @@ class MockSQLAnalyzer:
             for like_node in tree.find_all((exp.Like, exp.ILike)):
                 pattern = str(like_node.args.get("expression") or "")
                 if pattern.startswith("'%") or pattern.startswith(r'"\%'):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="info",
-                        category="performance",
-                        message="Шаблон LIKE с ведущим символом '%' (например '%текст') приводит к полному перебору всех строк.",
-                        rule="leading-wildcard-like",
-                        suggestion="По возможности используйте поиск по префиксу ('текст%') или полнотекстовые индексы."
-                    ))
-
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="info",
+                            category="performance",
+                            message="Шаблон LIKE с ведущим символом '%' (например '%текст') приводит к полному перебору всех строк.",
+                            rule="leading-wildcard-like",
+                            suggestion="По возможности используйте поиск по префиксу ('текст%') или полнотекстовые индексы.",
+                        )
+                    )
 
             # J. Проверка диалектных функций
             raw_upper = sql.upper()
             if sql_dialect == "trino":
                 if re.search(r"\bNVL\s*\(", raw_upper):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="error",
-                        category="dialect",
-                        message="Функция NVL() не поддерживается в Trino SQL.",
-                        rule="trino-unsupported-nvl",
-                        suggestion="Используйте стандартную ANSI-функцию COALESCE(val, default)."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="error",
+                            category="dialect",
+                            message="Функция NVL() не поддерживается в Trino SQL.",
+                            rule="trino-unsupported-nvl",
+                            suggestion="Используйте стандартную ANSI-функцию COALESCE(val, default).",
+                        )
+                    )
                 if re.search(r"\bIFNULL\s*\(", raw_upper):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="error",
-                        category="dialect",
-                        message="Функция IFNULL() не поддерживается в Trino SQL.",
-                        rule="trino-unsupported-ifnull",
-                        suggestion="Используйте COALESCE(expr1, expr2)."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="error",
+                            category="dialect",
+                            message="Функция IFNULL() не поддерживается в Trino SQL.",
+                            rule="trino-unsupported-ifnull",
+                            suggestion="Используйте COALESCE(expr1, expr2).",
+                        )
+                    )
             elif sql_dialect == "hive":
                 if re.search(r"\b(TRY|TRY_CAST)\s*\(", raw_upper):
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="error",
-                        category="dialect",
-                        message="Функция TRY / TRY_CAST поддерживается в Trino, но отсутствует в Apache Hive.",
-                        rule="hive-unsupported-try",
-                        suggestion="Используйте стандартный CAST(col AS type) в Hive."
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="error",
+                            category="dialect",
+                            message="Функция TRY / TRY_CAST поддерживается в Trino, но отсутствует в Apache Hive.",
+                            rule="hive-unsupported-try",
+                            suggestion="Используйте стандартный CAST(col AS type) в Hive.",
+                        )
+                    )
 
             # K. Schema-Aware & Fuzzy Column Matching
             tables_in_query = [t.name for t in tree.find_all(exp.Table) if t.name]
@@ -455,15 +529,17 @@ class MockSQLAnalyzer:
                 if all_known_columns and col_name not in all_known_columns and col_name not in ("*", ""):
                     close_matches = difflib.get_close_matches(col_name, list(all_known_columns), n=2, cutoff=0.6)
                     hint = f" Возможно, вы имели в виду '{close_matches[0]}'?" if close_matches else ""
-                    issues.append(AIIssue(
-                        line=1,
-                        column=1,
-                        severity="warning",
-                        category="schema",
-                        message=f"Колонка '{col_node.name}' не найдена в схеме данных.{hint}",
-                        rule="schema-unknown-column",
-                        suggestion=f"Проверьте правильность написания имени колонки.{hint}"
-                    ))
+                    issues.append(
+                        AIIssue(
+                            line=1,
+                            column=1,
+                            severity="warning",
+                            category="schema",
+                            message=f"Колонка '{col_node.name}' не найдена в схеме данных.{hint}",
+                            rule="schema-unknown-column",
+                            suggestion=f"Проверьте правильность написания имени колонки.{hint}",
+                        )
+                    )
 
         # Расчет индекса сложности (Complexity Score 1-10)
         score = min(10, max(1, int(round(complexity_points))))
@@ -493,7 +569,7 @@ class MockSQLAnalyzer:
             estimated_notes=complexity_notes,
             model="ast-sqlglot-analyzer",
             provider="mock",
-            fallback_used=True
+            fallback_used=True,
         )
 
     @classmethod
@@ -505,11 +581,7 @@ class MockSQLAnalyzer:
         except Exception:
             formatted = sql.strip()
 
-        return AIFormatResponse(
-            original_sql=sql,
-            formatted_sql=formatted,
-            dialect=sql_dialect
-        )
+        return AIFormatResponse(original_sql=sql, formatted_sql=formatted, dialect=sql_dialect)
 
     @classmethod
     def explain(cls, sql: str, dialect: str = "trino") -> AIExplainResponse:
@@ -548,10 +620,12 @@ class MockSQLAnalyzer:
         else:
             explanation_lines.append("- Таблицы не указаны или вычисляются динамически.")
 
-        explanation_lines.extend([
-            "",
-            "#### 2. Пошаговая логика выполнения:",
-        ])
+        explanation_lines.extend(
+            [
+                "",
+                "#### 2. Пошаговая логика выполнения:",
+            ]
+        )
         step = 1
         if "CTE (Именованные подзапросы WITH)" in operations:
             explanation_lines.append(f"{step}. **CTE**: Формируются промежуточные временные наборы данных (WITH).")
@@ -569,7 +643,9 @@ class MockSQLAnalyzer:
             explanation_lines.append(f"{step}. **Группировка**: Рассчитываются агрегатные функции для групп строк.")
             step += 1
         if "Оконные функции (OVER / PARTITION BY)" in operations:
-            explanation_lines.append(f"{step}. **Оконные функции**: Производятся расчеты по секциям строк без схлопывания выборки.")
+            explanation_lines.append(
+                f"{step}. **Оконные функции**: Производятся расчеты по секциям строк без схлопывания выборки."
+            )
             step += 1
         if "Сортировка результатов (ORDER BY)" in operations:
             explanation_lines.append(f"{step}. **Сортировка**: Данные упорядочиваются согласно блоку ORDER BY.")
@@ -584,11 +660,13 @@ class MockSQLAnalyzer:
             tables_used=tables,
             operations=operations,
             model="ast-sqlglot-analyzer",
-            provider="mock"
+            provider="mock",
         )
 
     @classmethod
-    def optimize(cls, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None) -> AIOptimizeResponse:
+    def optimize(
+        cls, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
+    ) -> AIOptimizeResponse:
         sql_dialect = cls._map_dialect(dialect)
         optimizations: List[str] = []
         original_stripped = sql.strip()
@@ -600,7 +678,9 @@ class MockSQLAnalyzer:
             optimizations.append("Замена диалектной функции NVL() на стандартную Trino COALESCE().")
 
         # 2. Добавление LIMIT при отсутствии
-        if not re.search(r"\bLIMIT\s+\d+", optimized, re.IGNORECASE) and not re.search(r"\bCOUNT\s*\(", optimized, re.IGNORECASE):
+        if not re.search(r"\bLIMIT\s+\d+", optimized, re.IGNORECASE) and not re.search(
+            r"\bCOUNT\s*\(", optimized, re.IGNORECASE
+        ):
             if not optimized.endswith(";"):
                 optimized += "\nLIMIT 1000;"
             else:
@@ -608,14 +688,18 @@ class MockSQLAnalyzer:
             optimizations.append("Добавлено ограничение LIMIT 1000 для защиты от переполнения памяти драйвера.")
 
         # 3. Замена COUNT(DISTINCT) на APPROX_DISTINCT в Trino
-        if sql_dialect == "trino" and re.search(r"\bCOUNT\s*\(\s*DISTINCT\s+([a-zA-Z0-9_]+)\s*\)", optimized, re.IGNORECASE):
+        if sql_dialect == "trino" and re.search(
+            r"\bCOUNT\s*\(\s*DISTINCT\s+([a-zA-Z0-9_]+)\s*\)", optimized, re.IGNORECASE
+        ):
             optimized = re.sub(
                 r"\bCOUNT\s*\(\s*DISTINCT\s+([a-zA-Z0-9_]+)\s*\)",
                 r"APPROX_DISTINCT(\1, 0.02)",
                 optimized,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
-            optimizations.append("Замена точного COUNT(DISTINCT) на высокоскоростной APPROX_DISTINCT(col, 0.02) для Trino.")
+            optimizations.append(
+                "Замена точного COUNT(DISTINCT) на высокоскоростной APPROX_DISTINCT(col, 0.02) для Trino."
+            )
 
         # 4. Красивое форматирование
         try:
@@ -638,7 +722,7 @@ class MockSQLAnalyzer:
             optimizations=optimizations,
             diff_summary=diff_summary,
             model="ast-sqlglot-analyzer",
-            provider="mock"
+            provider="mock",
         )
 
     @classmethod
@@ -651,7 +735,9 @@ class MockSQLAnalyzer:
 
         if "function nvl not registered" in error_lower or "cannot resolve nvl" in error_lower:
             fixed = re.sub(r"\bNVL\s*\(", "COALESCE(", fixed, flags=re.IGNORECASE)
-            explanation = "Ошибка вызвана отсутствием функции NVL в Trino. Выполнена автоматическая замена на `COALESCE(...)`."
+            explanation = (
+                "Ошибка вызвана отсутствием функции NVL в Trino. Выполнена автоматическая замена на `COALESCE(...)`."
+            )
         elif "unexpected limit" in error_lower or "syntax error" in error_lower:
             fixed = re.sub(r";\s*;", ";", fixed)
             explanation = "Исправлены дублирующиеся разделители и синтаксические ошибки."
@@ -665,15 +751,13 @@ class MockSQLAnalyzer:
             pass
 
         return AIFixResponse(
-            original_sql=sql,
-            fixed_sql=fixed,
-            explanation=explanation,
-            model="ast-sqlglot-analyzer",
-            provider="mock"
+            original_sql=sql, fixed_sql=fixed, explanation=explanation, model="ast-sqlglot-analyzer", provider="mock"
         )
 
     @classmethod
-    def generate(cls, prompt: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None) -> AIGenerateResponse:
+    def generate(
+        cls, prompt: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
+    ) -> AIGenerateResponse:
         """
         Детерминированный генератор SQL-запросов по тексту на естественном языке (Mock/Offline режим).
         Учитывает партиционирование таблиц (Partition Pruning) и оптимизирован для распределенного выполнения на YARN.
@@ -694,9 +778,13 @@ class MockSQLAnalyzer:
         tables_used: List[str] = []
 
         # 1. Запросы по клиентам и заказам (Customer + Orders / Join)
-        if any(w in p_lower for w in ("клиент", "покупател", "customer", "пользовател")) and any(w in p_lower for w in ("заказ", "order", "покупк", "трат", "spent", "выручк")):
+        if any(w in p_lower for w in ("клиент", "покупател", "customer", "пользовател")) and any(
+            w in p_lower for w in ("заказ", "order", "покупк", "трат", "spent", "выручк")
+        ):
             tables_used = ["tpch.sf1.customer", "tpch.sf1.orders"]
-            date_filter = "o.orderdate >= DATE '1998-01-01'" if sql_dialect == "trino" else "o.orderdate >= '1998-01-01'"
+            date_filter = (
+                "o.orderdate >= DATE '1998-01-01'" if sql_dialect == "trino" else "o.orderdate >= '1998-01-01'"
+            )
             generated_sql = f"""
 SELECT
     c.custkey,
@@ -836,12 +924,18 @@ WHERE {date_filter}
 ORDER BY orderdate DESC
 LIMIT {limit};
                 """
-                explanation = f"Выборка последних заказов с отсечением партиций по дате `{date_filter}` и лимитом {limit} строк."
+                explanation = (
+                    f"Выборка последних заказов с отсечением партиций по дате `{date_filter}` и лимитом {limit} строк."
+                )
 
         # 4. Метрики активности / DAU / Платформы
         elif any(w in p_lower for w in ("dau", "метрик", "платформ", "активн", "platform", "сесси")):
             tables_used = ["analytics.events.dau_metrics"]
-            date_filter = f"report_date >= CURRENT_DATE - INTERVAL '{days}' DAY" if sql_dialect == "trino" else f"report_date >= DATE_SUB(CURRENT_DATE(), {days})"
+            date_filter = (
+                f"report_date >= CURRENT_DATE - INTERVAL '{days}' DAY"
+                if sql_dialect == "trino"
+                else f"report_date >= DATE_SUB(CURRENT_DATE(), {days})"
+            )
 
             generated_sql = f"""
 SELECT
@@ -863,10 +957,16 @@ LIMIT {limit};
         # 5. Логи действий / События пользователей (User Actions)
         elif any(w in p_lower for w in ("действи", "событи", "action", "event", "клик", "лог")):
             tables_used = ["analytics.events.user_actions"]
-            date_filter = f"created_at >= CURRENT_TIMESTAMP - INTERVAL '{days}' DAY" if sql_dialect == "trino" else f"created_at >= DATE_SUB(CURRENT_TIMESTAMP(), {days})"
+            date_filter = (
+                f"created_at >= CURRENT_TIMESTAMP - INTERVAL '{days}' DAY"
+                if sql_dialect == "trino"
+                else f"created_at >= DATE_SUB(CURRENT_TIMESTAMP(), {days})"
+            )
 
             if any(w in p_lower for w in ("тип", "групп", "частот", "популярн", "категори")):
-                approx_clause = "APPROX_DISTINCT(user_id, 0.02)" if sql_dialect == "trino" else "COUNT(DISTINCT user_id)"
+                approx_clause = (
+                    "APPROX_DISTINCT(user_id, 0.02)" if sql_dialect == "trino" else "COUNT(DISTINCT user_id)"
+                )
                 generated_sql = f"""
 SELECT
     event_type,
@@ -913,7 +1013,9 @@ WHERE {date_filter}
 ORDER BY created_at DESC
 LIMIT {limit};
                 """
-                explanation = f"Выборка журнала событий с партиционным фильтром `{date_filter}` и ограничением в {limit} строк."
+                explanation = (
+                    f"Выборка журнала событий с партиционным фильтром `{date_filter}` и ограничением в {limit} строк."
+                )
 
         # 6. Универсальный фолбэк по контексту схемы
         else:
@@ -966,26 +1068,25 @@ LIMIT {limit};
             tables_used=tables_used,
             model="ast-sqlglot-analyzer",
             provider="mock",
-            fallback_used=True
+            fallback_used=True,
         )
 
 
 # --- Сервис взаимодействия с On-premise LLM и fallback на AST ---
+
 
 class AIService:
     def __init__(self, config: Optional[AIConfig] = None):
         self.config = config or settings.ai
 
     def _get_client(self) -> httpx.AsyncClient:
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return httpx.AsyncClient(
             base_url=self.config.base_url.rstrip("/"),
             headers=headers,
-            timeout=httpx.Timeout(self.config.timeout_seconds, connect=5.0)
+            timeout=httpx.Timeout(self.config.timeout_seconds, connect=5.0),
         )
 
     async def get_status(self) -> AIStatusResponse:
@@ -997,7 +1098,7 @@ class AIService:
                 model=self.config.model,
                 base_url=self.config.base_url,
                 available=False,
-                message="ИИ-ассистент отключен в конфигурации."
+                message="ИИ-ассистент отключен в конфигурации.",
             )
 
         if self.config.provider == "mock":
@@ -1007,7 +1108,7 @@ class AIService:
                 model="ast-sqlglot-analyzer",
                 base_url="local://in-memory",
                 available=False,  # Явно false для mock режима
-                message="Используется встроенный AST-анализатор (Mock)."
+                message="Используется встроенный AST-анализатор (Mock).",
             )
 
         start_time = time.time()
@@ -1018,7 +1119,11 @@ class AIService:
                 if resp.status_code == 200:
                     data = resp.json()
                     models = [m.get("id") for m in data.get("data", []) if isinstance(m, dict)]
-                    model_info = f"Модель '{self.config.model}' активна" if self.config.model in models else f"Доступны модели: {', '.join(models[:3])}"
+                    model_info = (
+                        f"Модель '{self.config.model}' активна"
+                        if self.config.model in models
+                        else f"Доступны модели: {', '.join(models[:3])}"
+                    )
                     return AIStatusResponse(
                         enabled=True,
                         provider=self.config.provider,
@@ -1026,7 +1131,7 @@ class AIService:
                         base_url=self.config.base_url,
                         available=True,
                         message=f"Подключено к On-premise LLM ({model_info}).",
-                        latency_ms=latency
+                        latency_ms=latency,
                     )
                 else:
                     return AIStatusResponse(
@@ -1036,7 +1141,7 @@ class AIService:
                         base_url=self.config.base_url,
                         available=False,
                         message=f"LLM сервер ответил кодом {resp.status_code}. Активен встроенный AST-анализатор.",
-                        latency_ms=latency
+                        latency_ms=latency,
                     )
         except Exception as e:
             return AIStatusResponse(
@@ -1045,14 +1150,11 @@ class AIService:
                 model=self.config.model,
                 base_url=self.config.base_url,
                 available=False,
-                message=f"On-premise LLM недоступен ({str(e)[:60]}). Активен встроенный AST-анализатор."
+                message=f"On-premise LLM недоступен ({str(e)[:60]}). Активен встроенный AST-анализатор.",
             )
 
     async def check_query(
-        self,
-        sql: str,
-        dialect: str = "trino",
-        catalog_context: Optional[Dict[str, Any]] = None
+        self, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
     ) -> AICheckResponse:
         """Комплексная проверка и линтинг SQL запроса"""
         clean_sql = sanitize_prompt_input(sql)
@@ -1070,7 +1172,7 @@ class AIService:
             '  "complexity_level": "Низкая" | "Средняя" | "Высокая" | "Критическая",\n'
             '  "estimated_notes": ["примечание1", "примечание2"],\n'
             '  "issues": [\n'
-            '    {\n'
+            "    {\n"
             '      "line": 1,\n'
             '      "column": 1,\n'
             '      "severity": "error" | "warning" | "info",\n'
@@ -1078,8 +1180,8 @@ class AIService:
             '      "message": "Описание проблемы",\n'
             '      "rule": "идентификатор-правила",\n'
             '      "suggestion": "Рекомендация"\n'
-            '    }\n'
-            '  ]\n'
+            "    }\n"
+            "  ]\n"
             "}\n"
             "Только валидный JSON!"
         )
@@ -1090,11 +1192,11 @@ class AIService:
                     "model": self.config.model,
                     "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Диалект: {dialect}\nSQL:\n```sql\n{clean_sql}\n```"}
+                        {"role": "user", "content": f"Диалект: {dialect}\nSQL:\n```sql\n{clean_sql}\n```"},
                     ],
                     "temperature": self.config.temperature,
                     "max_tokens": self.config.max_tokens,
-                    "response_format": {"type": "json_object"}
+                    "response_format": {"type": "json_object"},
                 }
                 resp = await client.post("/chat/completions", json=payload)
                 if resp.status_code == 200:
@@ -1112,7 +1214,7 @@ class AIService:
                         model=self.config.model,
                         provider="on-premise-llm",
                         execution_time_ms=elapsed,
-                        fallback_used=False
+                        fallback_used=False,
                     )
                 else:
                     res = MockSQLAnalyzer.check(clean_sql, dialect, catalog_context)
@@ -1134,16 +1236,19 @@ class AIService:
         try:
             async with self._get_client() as client:
                 system_prompt = f"Ты — эксперт по SQL {dialect.upper()}. Объясни логику запроса на русском языке в JSON с полями summary, tables_used, operations, explanation."
-                resp = await client.post("/chat/completions", json={
-                    "model": self.config.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"SQL:\n```sql\n{clean_sql}\n```"}
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": self.config.max_tokens,
-                    "response_format": {"type": "json_object"}
-                })
+                resp = await client.post(
+                    "/chat/completions",
+                    json={
+                        "model": self.config.model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"SQL:\n```sql\n{clean_sql}\n```"},
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": self.config.max_tokens,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
                 if resp.status_code == 200:
                     parsed = json.loads(resp.json()["choices"][0]["message"]["content"])
                     return AIExplainResponse(
@@ -1152,13 +1257,15 @@ class AIService:
                         tables_used=parsed.get("tables_used", []),
                         operations=parsed.get("operations", []),
                         model=self.config.model,
-                        provider="on-premise-llm"
+                        provider="on-premise-llm",
                     )
         except Exception:
             pass
         return MockSQLAnalyzer.explain(clean_sql, dialect)
 
-    async def optimize_query(self, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None) -> AIOptimizeResponse:
+    async def optimize_query(
+        self, sql: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
+    ) -> AIOptimizeResponse:
         clean_sql = sanitize_prompt_input(sql)
         return MockSQLAnalyzer.optimize(clean_sql, dialect, catalog_context)
 
@@ -1168,10 +1275,7 @@ class AIService:
         return MockSQLAnalyzer.fix(clean_sql, dialect, clean_err)
 
     async def generate_query(
-        self,
-        prompt: str,
-        dialect: str = "trino",
-        catalog_context: Optional[Dict[str, Any]] = None
+        self, prompt: str, dialect: str = "trino", catalog_context: Optional[Dict[str, Any]] = None
     ) -> AIGenerateResponse:
         """
         Генерация SQL-запроса по естественному языку (Text-to-SQL).
@@ -1195,9 +1299,19 @@ class AIService:
                         if isinstance(tables, dict):
                             for tbl_name, cols in list(tables.items())[:5]:
                                 if isinstance(cols, list):
-                                    col_str = ", ".join([f"{c.get('name', '')} ({c.get('type', '')})" for c in cols if isinstance(c, dict)][:8])
+                                    col_str = ", ".join(
+                                        [
+                                            f"{c.get('name', '')} ({c.get('type', '')})"
+                                            for c in cols
+                                            if isinstance(c, dict)
+                                        ][:8]
+                                    )
                                     schema_desc.append(f"Таблица {cat_name}.{sch_name}.{tbl_name}: {col_str}")
-        schema_prompt_section = "\n".join(schema_desc) if schema_desc else "Доступны таблицы: tpch.sf1.customer, tpch.sf1.orders, analytics.events.user_actions, analytics.events.dau_metrics"
+        schema_prompt_section = (
+            "\n".join(schema_desc)
+            if schema_desc
+            else "Доступны таблицы: tpch.sf1.customer, tpch.sf1.orders, analytics.events.user_actions, analytics.events.dau_metrics"
+        )
 
         system_prompt = (
             f"Ты — ведущий инженер данных и эксперт по генерации аналитических SQL-запросов (Text-to-SQL) для диалекта {dialect.upper()} (Trino / Apache Hive на YARN).\n"
@@ -1235,11 +1349,11 @@ class AIService:
                     "model": self.config.model,
                     "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
+                        {"role": "user", "content": user_content},
                     ],
                     "temperature": 0.2,
                     "max_tokens": self.config.max_tokens,
-                    "response_format": {"type": "json_object"}
+                    "response_format": {"type": "json_object"},
                 }
                 resp = await client.post("/chat/completions", json=payload)
                 if resp.status_code == 200:
@@ -1258,7 +1372,12 @@ class AIService:
 
                     # Автоформатирование
                     try:
-                        sql = sqlglot.transpile(sql, read=MockSQLAnalyzer._map_dialect(dialect), write=MockSQLAnalyzer._map_dialect(dialect), pretty=True)[0]
+                        sql = sqlglot.transpile(
+                            sql,
+                            read=MockSQLAnalyzer._map_dialect(dialect),
+                            write=MockSQLAnalyzer._map_dialect(dialect),
+                            pretty=True,
+                        )[0]
                     except Exception:
                         pass
 
@@ -1271,7 +1390,7 @@ class AIService:
                         model=self.config.model,
                         provider="on-premise-llm",
                         execution_time_ms=elapsed,
-                        fallback_used=False
+                        fallback_used=False,
                     )
         except Exception as e:
             logger.warning(f"Ошибка при обращении к LLM для генерации SQL: {e}. Применяется Mock-генератор.")
@@ -1279,5 +1398,6 @@ class AIService:
         res = MockSQLAnalyzer.generate(clean_prompt, dialect, catalog_context)
         res.execution_time_ms = round((time.time() - start_time) * 1000, 2)
         return res
+
 
 ai_service = AIService()

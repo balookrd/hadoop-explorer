@@ -6,6 +6,7 @@ from app.core.acl import filter_allowed_clusters
 
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
+
 class ClusterSummary(BaseModel):
     id: str
     name: str
@@ -16,6 +17,7 @@ class ClusterSummary(BaseModel):
     impersonation_method: str
     catalog: str | None = None
     schema_: str | None = None
+
 
 @router.get("", response_model=List[ClusterSummary])
 async def list_clusters(current_user: UserSession = Depends(get_current_user)):
@@ -33,7 +35,7 @@ async def list_clusters(current_user: UserSession = Depends(get_current_user)):
             impersonation_enabled=c.impersonation.enabled,
             impersonation_method=c.impersonation.method,
             catalog=c.catalog,
-            schema_=c.schema_
+            schema_=c.schema_,
         )
         for c in allowed
     ]

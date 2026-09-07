@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from backend.common.core.ldap_auth import CommonLdapConfig
 
+
 class MockUser(BaseModel):
     username: str
     password: str
@@ -14,15 +15,18 @@ class MockUser(BaseModel):
     email: str
     groups: List[str] = []
 
+
 class KerberosConfig(BaseModel):
     enabled: bool = True
     keytab_file: Optional[str] = None
     service_principal: Optional[str] = None
 
+
 class JWTConfig(BaseModel):
-    secret_key: str = "spark-explorer-super-secret-jwt-key-for-dev-32chars"
+    secret_key: str = ""
     algorithm: str = "HS256"
     expire_minutes: int = 480
+
 
 class AuthConfig(BaseModel):
     mode: str = "mock"  # mock, hybrid, ldaps_only, kerberos_only
@@ -31,13 +35,16 @@ class AuthConfig(BaseModel):
     kerberos: KerberosConfig = Field(default_factory=KerberosConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
 
+
 class UIAclConfig(BaseModel):
     allowed_users: List[str] = ["*"]
     allowed_groups: List[str] = ["*"]
     admin_groups: List[str] = ["hadoop-admins", "platform-admins"]
 
+
 class ACLConfig(BaseModel):
     ui_access: UIAclConfig = Field(default_factory=UIAclConfig)
+
 
 class PythonEnvConfig(BaseModel):
     id: str
@@ -45,6 +52,7 @@ class PythonEnvConfig(BaseModel):
     python_path: str = "/usr/bin/python3"
     archive_path: Optional[str] = None
     is_default: bool = False
+
 
 class SparkVersionConfig(BaseModel):
     id: str
@@ -54,12 +62,14 @@ class SparkVersionConfig(BaseModel):
     is_default: bool = False
     python_versions: List[PythonEnvConfig] = Field(default_factory=list)
 
+
 class MetastoreConfig(BaseModel):
     id: str
     name: str
     uris: str
     is_default: bool = False
     spark_conf: Dict[str, str] = Field(default_factory=dict)
+
 
 class ResourceProfileConfig(BaseModel):
     name: str
@@ -69,9 +79,11 @@ class ResourceProfileConfig(BaseModel):
     executor_cores: int = 2
     num_executors: int = 2
 
+
 class YarnQueueAcl(BaseModel):
     allowed_groups: List[str] = ["*"]
     allowed_users: List[str] = []
+
 
 class YarnConfig(BaseModel):
     cluster_id: Optional[str] = None
@@ -80,13 +92,16 @@ class YarnConfig(BaseModel):
     allowed_queues: List[str] = Field(default_factory=lambda: ["default"])
     queue_acl: Dict[str, YarnQueueAcl] = Field(default_factory=dict)
 
+
 class ClusterAclConfig(BaseModel):
     allowed_groups: List[str] = ["*"]
     allowed_users: List[str] = []
 
+
 class ImpersonationConfig(BaseModel):
     enabled: bool = True
     method: str = "proxyUser"  # proxyUser, doAs
+
 
 class SparkClusterConfig(BaseModel):
     id: str
@@ -108,6 +123,7 @@ class SparkClusterConfig(BaseModel):
     session_idle_timeout_seconds: int = 1800
     max_sessions_per_user: int = 3
 
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -115,8 +131,10 @@ class ServerConfig(BaseModel):
     cors_origins: List[str] = ["http://localhost:8000", "http://localhost:5173", "http://127.0.0.1:5173"]
     secure_cookies: bool = False
 
+
 class DatabaseConfig(BaseModel):
     url: str = "sqlite+aiosqlite:///./data/spark_explorer.db"
+
 
 class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -134,6 +152,7 @@ class AppConfig(BaseModel):
                     "Configure LDAP/Kerberos or set server.debug=True for dev."
                 )
         return self
+
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     if not config_path:
@@ -171,5 +190,6 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         cfg.server.cors_origins = [o.strip() for o in os.environ["CORS_ORIGINS"].split(",") if o.strip()]
 
     return cfg
+
 
 settings = load_config()

@@ -12,8 +12,10 @@ logger = logging.getLogger("trino_engine")
 
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
+
 class MetadataTTLCache:
     """Потокобезопасный TTL-кэш для метаданных SQL-каталогов (каталоги, схемы, таблицы, колонки)."""
+
     def __init__(self, default_ttl: float = 60.0):
         self.default_ttl = default_ttl
         self._cache: Dict[str, tuple[float, Any]] = {}
@@ -46,7 +48,9 @@ class MetadataTTLCache:
     def clear(self):
         self.invalidate()
 
+
 _trino_meta_cache = MetadataTTLCache(default_ttl=60.0)
+
 
 def safe_ident(name: str) -> str:
     """
@@ -56,6 +60,7 @@ def safe_ident(name: str) -> str:
         raise ValueError(f"Недопустимый SQL-идентификатор: {name}")
     escaped = name.strip().replace('"', '""')
     return f'"{escaped}"'
+
 
 class TrinoExecutionEngine:
     def __init__(self, cluster: ClusterConfig):
@@ -76,7 +81,7 @@ class TrinoExecutionEngine:
                 service_name=auth_cfg.get("service_name", "trino"),
                 mutual_authentication=KerberosAuthentication.MUTUAL_DISABLED,
                 principal=auth_cfg.get("principal"),
-                config=auth_cfg.get("krb5_config")
+                config=auth_cfg.get("krb5_config"),
             )
 
         # Имперсонация: если включена, передаем имя реального пользователя в conn user
@@ -98,16 +103,12 @@ class TrinoExecutionEngine:
             auth=auth_handler,
             http_headers=http_headers,
             verify=verify_ssl,
-            request_timeout=float(timeout_sec)
+            request_timeout=float(timeout_sec),
         )
         return conn
 
     async def execute_query(
-        self,
-        query: str,
-        user_login: str,
-        max_rows: int = 10000,
-        cancel_event: Optional[anyio.Event] = None
+        self, query: str, user_login: str, max_rows: int = 10000, cancel_event: Optional[anyio.Event] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Исполняет запрос к Trino с имперсонацией и стримит события.
@@ -157,16 +158,12 @@ class TrinoExecutionEngine:
                 serializable_rows = [list(row) for row in rows_batch]
                 total_rows += len(serializable_rows)
 
-                yield {
-                    "type": "rows",
-                    "rows": serializable_rows,
-                    "total_rows": total_rows
-                }
+                yield {"type": "rows", "rows": serializable_rows, "total_rows": total_rows}
 
             yield {
                 "type": "finished",
                 "total_rows": total_rows,
-                "message": f"Выполнено успешно. Получено {total_rows} строк."
+                "message": f"Выполнено успешно. Получено {total_rows} строк.",
             }
 
         except Exception as e:
@@ -190,11 +187,13 @@ class TrinoExecutionEngine:
             cached = _trino_meta_cache.get(cache_key)
             if cached is not None:
                 return cached
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute("SHOW CATALOGS")
                 return [row[0] for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _trino_meta_cache.set(cache_key, result)
         return result
@@ -206,11 +205,13 @@ class TrinoExecutionEngine:
             if cached is not None:
                 return cached
         q_catalog = safe_ident(catalog)
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"SHOW SCHEMAS FROM {q_catalog}")
                 return [row[0] for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _trino_meta_cache.set(cache_key, result)
         return result
@@ -223,16 +224,20 @@ class TrinoExecutionEngine:
                 return cached
         q_catalog = safe_ident(catalog)
         q_schema = safe_ident(schema)
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"SHOW TABLES FROM {q_catalog}.{q_schema}")
                 return [row[0] for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _trino_meta_cache.set(cache_key, result)
         return result
 
-    async def get_columns(self, user_login: str, catalog: str, schema: str, table: str, refresh: bool = False) -> List[Dict[str, str]]:
+    async def get_columns(
+        self, user_login: str, catalog: str, schema: str, table: str, refresh: bool = False
+    ) -> List[Dict[str, str]]:
         cache_key = f"trino:{self.cluster.id}:{catalog}:{schema}:{table}:columns:{user_login}"
         if not refresh:
             cached = _trino_meta_cache.get(cache_key)
@@ -241,11 +246,13 @@ class TrinoExecutionEngine:
         q_catalog = safe_ident(catalog)
         q_schema = safe_ident(schema)
         q_table = safe_ident(table)
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"DESCRIBE {q_catalog}.{q_schema}.{q_table}")
                 return [{"name": row[0], "type": row[1]} for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _trino_meta_cache.set(cache_key, result)
         return result
@@ -257,4 +264,3 @@ class TrinoExecutionEngine:
             _trino_meta_cache.invalidate(f"trino:{cluster_id}:")
         else:
             _trino_meta_cache.clear()
-

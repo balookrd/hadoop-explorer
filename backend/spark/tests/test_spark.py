@@ -3,9 +3,11 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.session import init_db
 
+
 @pytest.fixture(autouse=True)
 async def setup_database():
     await init_db()
+
 
 @pytest.fixture
 async def client():
@@ -16,6 +18,7 @@ async def client():
             token = login_resp.json()["access_token"]
             ac.headers["Authorization"] = f"Bearer {token}"
         yield ac
+
 
 @pytest.mark.asyncio
 async def test_auth_and_logout():
@@ -39,6 +42,7 @@ async def test_auth_and_logout():
         logout_resp = await ac.post("/api/auth/logout")
         assert logout_resp.status_code == 200
 
+
 @pytest.mark.asyncio
 async def test_healthz(client: AsyncClient):
     resp = await client.get("/healthz")
@@ -46,6 +50,7 @@ async def test_healthz(client: AsyncClient):
     data = resp.json()
     assert data["status"] == "ok"
     assert data["service"] == "spark-explorer"
+
 
 @pytest.mark.asyncio
 async def test_clusters_api(client: AsyncClient):
@@ -66,6 +71,7 @@ async def test_clusters_api(client: AsyncClient):
     assert "default" in details["yarn_queues"]
     assert len(details["resource_profiles"]) > 0
 
+
 @pytest.mark.asyncio
 async def test_session_lifecycle_and_execution(client: AsyncClient):
     # 1. Создание сессии PySpark
@@ -78,7 +84,7 @@ async def test_session_lifecycle_and_execution(client: AsyncClient):
         "resource_profile": "small",
         "kind": "pyspark",
         "packages": ["org.postgresql:postgresql:42.7.2"],
-        "spark_conf": {"spark.sql.shuffle.partitions": "10"}
+        "spark_conf": {"spark.sql.shuffle.partitions": "10"},
     }
     create_resp = await client.post("/api/sessions", json=session_payload)
     assert create_resp.status_code == 200
@@ -98,7 +104,7 @@ async def test_session_lifecycle_and_execution(client: AsyncClient):
     code_payload = {
         "session_id": session_id,
         "code": "df = spark.read.table('customers')\ndisplay(df)",
-        "language": "pyspark"
+        "language": "pyspark",
     }
     exec_resp = await client.post("/api/statements/execute", json=code_payload)
     assert exec_resp.status_code == 200
@@ -106,6 +112,7 @@ async def test_session_lifecycle_and_execution(client: AsyncClient):
 
     # Ждем завершения фонового расчета
     import asyncio
+
     await asyncio.sleep(0.6)
 
     # 4. Получение результата выполнения
@@ -121,7 +128,7 @@ async def test_session_lifecycle_and_execution(client: AsyncClient):
     scala_payload = {
         "session_id": session_id,
         "code": 'val df = spark.read.table("transactions"); df.show()',
-        "language": "scalaspark"
+        "language": "scalaspark",
     }
     scala_exec_resp = await client.post("/api/statements/execute", json=scala_payload)
     assert scala_exec_resp.status_code == 200
@@ -136,6 +143,7 @@ async def test_session_lifecycle_and_execution(client: AsyncClient):
     stop_resp = await client.delete(f"/api/sessions/{session_id}")
     assert stop_resp.status_code == 200
 
+
 @pytest.mark.asyncio
 async def test_yarn_queue_acl(client: AsyncClient):
     # Попытка создания сессии в запрещенной очереди
@@ -145,10 +153,11 @@ async def test_yarn_queue_acl(client: AsyncClient):
         "metastore_id": "dev-hms",
         "yarn_queue": "restricted_queue_not_allowed",
         "resource_profile": "small",
-        "kind": "pyspark"
+        "kind": "pyspark",
     }
     resp = await client.post("/api/sessions", json=bad_payload)
     assert resp.status_code == 403
+
 
 @pytest.mark.asyncio
 async def test_catalog_service(client: AsyncClient):
@@ -163,10 +172,13 @@ async def test_catalog_service(client: AsyncClient):
     tables = tables_resp.json()
     assert "customers" in tables
 
-    cols_resp = await client.get("/api/catalog/dev-hadoop/columns?database=core_lakehouse&table=customers&metastore_id=dev-hms")
+    cols_resp = await client.get(
+        "/api/catalog/dev-hadoop/columns?database=core_lakehouse&table=customers&metastore_id=dev-hms"
+    )
     assert cols_resp.status_code == 200
     cols = cols_resp.json()
     assert any(c["name"] == "cust_id" for c in cols)
+
 
 @pytest.mark.asyncio
 async def test_user_workspace_isolation():
@@ -189,7 +201,7 @@ async def test_user_workspace_isolation():
         admin_state = {
             "selectedClusterId": "dev-hadoop",
             "activeTabId": "tab-admin",
-            "tabs": [{"id": "tab-admin", "title": "Скрипт Админа", "code": "val x = 42"}]
+            "tabs": [{"id": "tab-admin", "title": "Скрипт Админа", "code": "val x = 42"}],
         }
         save_resp = await ac.put("/api/workspace", json={"state": admin_state}, headers=admin_headers)
         assert save_resp.status_code == 200
@@ -207,7 +219,7 @@ async def test_user_workspace_isolation():
         de_state = {
             "selectedClusterId": "dev-hadoop",
             "activeTabId": "tab-de",
-            "tabs": [{"id": "tab-de", "title": "Скрипт Датаинженера", "code": "df = spark.read"}]
+            "tabs": [{"id": "tab-de", "title": "Скрипт Датаинженера", "code": "df = spark.read"}],
         }
         await ac.put("/api/workspace", json={"state": de_state}, headers=de_headers)
 
@@ -234,6 +246,7 @@ async def test_spark_readyz_and_crash_recovery(client: AsyncClient):
 
     # 2. Crash recovery
     import uuid
+
     exec_id = f"stale-spark-{uuid.uuid4()}"
     async with AsyncSessionLocal() as db:
         stale_item = SparkExecutionHistory(
@@ -255,7 +268,6 @@ async def test_spark_readyz_and_crash_recovery(client: AsyncClient):
         res = await db.get(SparkExecutionHistory, exec_id)
         assert res.status == "FAILED"
         assert "перезапущен" in res.error_message
-
 
 
 @pytest.mark.asyncio
@@ -283,5 +295,3 @@ async def test_spark_metadata_caching_and_refresh(client: AsyncClient):
     # 4. Очистка кэша
     catalog_service.clear_metadata_cache()
     assert _spark_meta_cache.get(cache_key) is None
-
-

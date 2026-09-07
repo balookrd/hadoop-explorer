@@ -15,25 +15,21 @@ engine_kwargs = {
     "future": True,
 }
 if "sqlite" not in db_url:
-    engine_kwargs.update({
-        "pool_pre_ping": True,
-        "pool_size": 10,
-        "max_overflow": 20,
-    })
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_size": 10,
+            "max_overflow": 20,
+        }
+    )
 
 # Настройка асинхронного engine
-engine = create_async_engine(
-    db_url,
-    **engine_kwargs
-)
+engine = create_async_engine(db_url, **engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False
+    bind=engine, class_=AsyncSession, expire_on_commit=False, autocommit=False, autoflush=False
 )
+
 
 async def get_db():
     async with AsyncSessionLocal() as session:
@@ -42,11 +38,13 @@ async def get_db():
         finally:
             await session.close()
 
+
 async def init_db():
     # Если используется локальный SQLite, убедимся что директория существует
     if "sqlite" in settings.database.url:
         import os
         from urllib.parse import urlparse
+
         parsed = urlparse(settings.database.url)
         db_file = parsed.path
         if db_file:

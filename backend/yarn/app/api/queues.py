@@ -9,8 +9,13 @@ from app.core.acl import check_cluster_permission, resolve_cluster_role
 from app.models.auth import UserSession, Role
 from app.models.cluster import ClusterConfig
 from app.models.yarn import (
-    QueueTreeResponse, DraftValidateRequest, DraftValidateResponse,
-    GenerateXmlRequest, GenerateXmlResponse, DraftDiffResponse, DiffItem,
+    QueueTreeResponse,
+    DraftValidateRequest,
+    DraftValidateResponse,
+    GenerateXmlRequest,
+    GenerateXmlResponse,
+    DraftDiffResponse,
+    DiffItem,
 )
 from app.services.mock_yarn import get_mock_queue_tree, get_mock_cluster_metrics
 from app.services.capacity_scheduler import validate_queue_balance, compute_balances_from_tree
@@ -43,6 +48,7 @@ async def get_queue_tree(cluster_id: str, user: UserSession = Depends(get_curren
         metrics = get_mock_cluster_metrics(cluster)
     else:
         from app.services.yarn_client import YarnClient
+
         client = YarnClient(cluster)
         root_queue, metrics = await client.get_queue_tree(user.username)
 
@@ -108,6 +114,7 @@ async def get_diff(
         live_root = get_mock_queue_tree(cluster)
     else:
         from app.services.yarn_client import YarnClient
+
         client = YarnClient(cluster)
         live_root, _ = await client.get_queue_tree(user.username)
 
@@ -161,8 +168,10 @@ async def get_diff(
             # Проверяем есть ли изменения
             has_changes = False
             if draft_part and live_part:
-                if (abs(draft_part.capacity - live_part.capacity) > 0.01 or
-                    abs(draft_part.max_capacity - live_part.max_capacity) > 0.01):
+                if (
+                    abs(draft_part.capacity - live_part.capacity) > 0.01
+                    or abs(draft_part.max_capacity - live_part.max_capacity) > 0.01
+                ):
                     has_changes = True
             if live_q.state != draft_q.state:
                 has_changes = True
@@ -184,55 +193,55 @@ async def get_diff(
         else:
             action = "created"
 
-        diffs.append(DiffItem(
-            path=draft_q.path,
-            name=draft_q.name,
-            parent_path=draft_q.parent_path,
-            partition=partition,
-            action=action,
-            live_capacity=live_part.capacity if live_part else None,
-            draft_capacity=draft_part.capacity if draft_part else None,
-            delta_capacity=(
-                round(draft_part.capacity - live_part.capacity, 2)
-                if draft_part and live_part else None
-            ),
-            live_max_capacity=live_part.max_capacity if live_part else None,
-            draft_max_capacity=draft_part.max_capacity if draft_part else None,
-            delta_max_capacity=(
-                round(draft_part.max_capacity - live_part.max_capacity, 2)
-                if draft_part and live_part else None
-            ),
-            live_memory_mb=live_part.memory_mb if live_part else None,
-            draft_memory_mb=draft_part.memory_mb if draft_part else None,
-            delta_memory_mb=(
-                draft_part.memory_mb - live_part.memory_mb
-                if draft_part and live_part and draft_part.memory_mb is not None and live_part.memory_mb is not None
-                else None
-            ),
-            live_vcores=live_part.vcores if live_part else None,
-            draft_vcores=draft_part.vcores if draft_part else None,
-            delta_vcores=(
-                draft_part.vcores - live_part.vcores
-                if draft_part and live_part and draft_part.vcores is not None and live_part.vcores is not None
-                else None
-            ),
-            live_state=live_q.state if live_q else None,
-            draft_state=draft_q.state,
-            live_resource_mode=live_mode,
-            draft_resource_mode=draft_mode,
-            live_user_limit_factor=live_ulf,
-            draft_user_limit_factor=draft_ulf,
-            live_ordering_policy=live_ordering,
-            draft_ordering_policy=draft_ordering,
-            live_max_applications=live_max_apps,
-            draft_max_applications=draft_max_apps,
-            live_max_am_resource_percent=live_max_am,
-            draft_max_am_resource_percent=draft_max_am,
-            live_max_parallel_apps=live_max_parallel,
-            draft_max_parallel_apps=draft_max_parallel,
-            live_max_application_lifetime=live_lifetime,
-            draft_max_application_lifetime=draft_lifetime,
-        ))
+        diffs.append(
+            DiffItem(
+                path=draft_q.path,
+                name=draft_q.name,
+                parent_path=draft_q.parent_path,
+                partition=partition,
+                action=action,
+                live_capacity=live_part.capacity if live_part else None,
+                draft_capacity=draft_part.capacity if draft_part else None,
+                delta_capacity=(
+                    round(draft_part.capacity - live_part.capacity, 2) if draft_part and live_part else None
+                ),
+                live_max_capacity=live_part.max_capacity if live_part else None,
+                draft_max_capacity=draft_part.max_capacity if draft_part else None,
+                delta_max_capacity=(
+                    round(draft_part.max_capacity - live_part.max_capacity, 2) if draft_part and live_part else None
+                ),
+                live_memory_mb=live_part.memory_mb if live_part else None,
+                draft_memory_mb=draft_part.memory_mb if draft_part else None,
+                delta_memory_mb=(
+                    draft_part.memory_mb - live_part.memory_mb
+                    if draft_part and live_part and draft_part.memory_mb is not None and live_part.memory_mb is not None
+                    else None
+                ),
+                live_vcores=live_part.vcores if live_part else None,
+                draft_vcores=draft_part.vcores if draft_part else None,
+                delta_vcores=(
+                    draft_part.vcores - live_part.vcores
+                    if draft_part and live_part and draft_part.vcores is not None and live_part.vcores is not None
+                    else None
+                ),
+                live_state=live_q.state if live_q else None,
+                draft_state=draft_q.state,
+                live_resource_mode=live_mode,
+                draft_resource_mode=draft_mode,
+                live_user_limit_factor=live_ulf,
+                draft_user_limit_factor=draft_ulf,
+                live_ordering_policy=live_ordering,
+                draft_ordering_policy=draft_ordering,
+                live_max_applications=live_max_apps,
+                draft_max_applications=draft_max_apps,
+                live_max_am_resource_percent=live_max_am,
+                draft_max_am_resource_percent=draft_max_am,
+                live_max_parallel_apps=live_max_parallel,
+                draft_max_parallel_apps=draft_max_parallel,
+                live_max_application_lifetime=live_lifetime,
+                draft_max_application_lifetime=draft_lifetime,
+            )
+        )
 
     has_changes = any(d.action != "unchanged" for d in diffs)
 
@@ -245,7 +254,9 @@ async def get_diff(
             "live": live_mappings,
             "draft": body.queue_mappings,
             "override_live": live_override,
-            "override_draft": body.queue_mappings_override if body.queue_mappings_override is not None else live_override,
+            "override_draft": body.queue_mappings_override
+            if body.queue_mappings_override is not None
+            else live_override,
         }
         has_changes = True
     elif body.queue_mappings_override is not None and body.queue_mappings_override != live_override:
@@ -282,10 +293,12 @@ async def generate_xml(
     base_xml: Optional[str] = None
     if settings.auth.mode == "mock":
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
     else:
         try:
             from app.services.yarn_client import YarnClient
+
             client = YarnClient(cluster)
             base_xml = await client.get_capacity_scheduler_xml(do_as=user.username)
         except Exception as e:
@@ -293,6 +306,7 @@ async def generate_xml(
 
     if not base_xml:
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
 
     xml_content = generate_capacity_scheduler_xml(

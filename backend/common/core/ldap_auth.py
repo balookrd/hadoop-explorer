@@ -17,6 +17,7 @@ class CommonLdapConfig(BaseModel):
     """
     Каноническая модель настроек подключения и поиска в LDAP/LDAPS (Active Directory и OpenLDAP).
     """
+
     enabled: bool = True
     server_uri: str = "ldaps://localhost:636"
     use_ssl: bool = True
@@ -59,7 +60,7 @@ class CommonLdapAuthService:
         use_ssl: bool = False,
         verify_cert: bool = True,
         ca_cert_file: Optional[str] = None,
-        allow_insecure_ssl: bool = False
+        allow_insecure_ssl: bool = False,
     ) -> Optional[Tls]:
         """
         Формирует объект ldap3.Tls в соответствии с настройками безопасности.
@@ -72,10 +73,7 @@ class CommonLdapAuthService:
             logger.warning("ВНИМАНИЕ: Проверка сертификата LDAPS отключена (allow_insecure_ssl/verify_cert=False)")
             validate = ssl.CERT_NONE
 
-        return Tls(
-            validate=validate,
-            ca_certs_file=ca_cert_file if ca_cert_file else None
-        )
+        return Tls(validate=validate, ca_certs_file=ca_cert_file if ca_cert_file else None)
 
     @classmethod
     def get_server(
@@ -86,25 +84,16 @@ class CommonLdapAuthService:
         ca_cert_file: Optional[str] = None,
         allow_insecure_ssl: bool = False,
         connect_timeout: int = 5,
-        server_cls: Optional[Any] = None
+        server_cls: Optional[Any] = None,
     ) -> Server:
         """
         Создает объект ldap3.Server с заданными параметрами TLS.
         """
         s_cls = server_cls or Server
         tls = cls.get_tls_config(
-            use_ssl=use_ssl,
-            verify_cert=verify_cert,
-            ca_cert_file=ca_cert_file,
-            allow_insecure_ssl=allow_insecure_ssl
+            use_ssl=use_ssl, verify_cert=verify_cert, ca_cert_file=ca_cert_file, allow_insecure_ssl=allow_insecure_ssl
         )
-        return s_cls(
-            server_uri,
-            use_ssl=use_ssl,
-            tls=tls,
-            get_info=ALL,
-            connect_timeout=connect_timeout
-        )
+        return s_cls(server_uri, use_ssl=use_ssl, tls=tls, get_info=ALL, connect_timeout=connect_timeout)
 
     @classmethod
     def authenticate_ldap_user(
@@ -130,7 +119,7 @@ class CommonLdapAuthService:
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
         connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None
+        server_cls: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Выполняет аутентификацию пользователя в Active Directory / OpenLDAP через LDAP/LDAPS.
@@ -149,7 +138,7 @@ class CommonLdapAuthService:
             ca_cert_file=ca_cert_file,
             allow_insecure_ssl=allow_insecure_ssl,
             connect_timeout=connect_timeout,
-            server_cls=s_cls
+            server_cls=s_cls,
         )
 
         service_user = bind_dn if bind_dn else None
@@ -187,10 +176,7 @@ class CommonLdapAuthService:
                     attributes = ["*"]
 
                 service_conn.search(
-                    search_base=user_base_dn,
-                    search_filter=search_filter,
-                    search_scope=SUBTREE,
-                    attributes=attributes
+                    search_base=user_base_dn, search_filter=search_filter, search_scope=SUBTREE, attributes=attributes
                 )
 
                 if not getattr(service_conn, "entries", None):
@@ -228,7 +214,7 @@ class CommonLdapAuthService:
                     memberof_attr=memberof_attr,
                     group_base_dn=group_base_dn,
                     group_filter=group_filter,
-                    group_name_attr=group_name_attr
+                    group_name_attr=group_name_attr,
                 )
 
                 return {
@@ -236,7 +222,7 @@ class CommonLdapAuthService:
                     "display_name": str(display_name) if display_name else username,
                     "email": str(email) if email else None,
                     "groups": list(set(groups)),
-                    "auth_method": "ldaps" if use_ssl else "ldap"
+                    "auth_method": "ldaps" if use_ssl else "ldap",
                 }
 
         except (LDAPException, LDAPBindError) as e:
@@ -269,7 +255,7 @@ class CommonLdapAuthService:
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
         connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None
+        server_cls: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Извлекает информацию о пользователе и его группы без требования пароля.
@@ -288,7 +274,7 @@ class CommonLdapAuthService:
             ca_cert_file=ca_cert_file,
             allow_insecure_ssl=allow_insecure_ssl,
             connect_timeout=connect_timeout,
-            server_cls=s_cls
+            server_cls=s_cls,
         )
 
         service_user = bind_dn if bind_dn else None
@@ -323,10 +309,7 @@ class CommonLdapAuthService:
                     attributes = ["*"]
 
                 service_conn.search(
-                    search_base=user_base_dn,
-                    search_filter=search_filter,
-                    search_scope=SUBTREE,
-                    attributes=attributes
+                    search_base=user_base_dn, search_filter=search_filter, search_scope=SUBTREE, attributes=attributes
                 )
 
                 if not getattr(service_conn, "entries", None):
@@ -356,7 +339,7 @@ class CommonLdapAuthService:
                     memberof_attr=memberof_attr,
                     group_base_dn=group_base_dn,
                     group_filter=group_filter,
-                    group_name_attr=group_name_attr
+                    group_name_attr=group_name_attr,
                 )
 
                 return {
@@ -364,7 +347,7 @@ class CommonLdapAuthService:
                     "display_name": str(display_name) if display_name else username,
                     "email": str(email) if email else None,
                     "groups": list(set(groups)),
-                    "auth_method": "ldaps" if use_ssl else "ldap"
+                    "auth_method": "ldaps" if use_ssl else "ldap",
                 }
 
         except (LDAPException, LDAPBindError) as e:
@@ -384,7 +367,7 @@ class CommonLdapAuthService:
         memberof_attr: Optional[str] = "memberOf",
         group_base_dn: Optional[str] = None,
         group_filter: Optional[str] = None,
-        group_name_attr: str = "cn"
+        group_name_attr: str = "cn",
     ) -> List[str]:
         groups: List[str] = []
 
@@ -412,7 +395,7 @@ class CommonLdapAuthService:
                     search_base=group_base_dn,
                     search_filter=g_filter,
                     search_scope=SUBTREE,
-                    attributes=[group_name_attr]
+                    attributes=[group_name_attr],
                 )
                 entries = getattr(service_conn, "entries", [])
                 for g_entry in entries:
@@ -435,10 +418,7 @@ class CommonLdapAuthService:
                 _, algo, rest = stored_password.split(":", 2)
                 iterations_str, salt, target_hash = rest.split("$", 2)
                 derived = hashlib.pbkdf2_hmac(
-                    algo,
-                    input_password.encode("utf-8"),
-                    salt.encode("utf-8"),
-                    int(iterations_str)
+                    algo, input_password.encode("utf-8"), salt.encode("utf-8"), int(iterations_str)
                 ).hex()
                 return hmac.compare_digest(derived, target_hash)
             except Exception:
@@ -446,18 +426,17 @@ class CommonLdapAuthService:
         return hmac.compare_digest(stored_password, input_password)
 
     @classmethod
-    def authenticate_mock_user(
-        cls,
-        username: str,
-        password: str,
-        mock_users: List[Any]
-    ) -> Optional[Dict[str, Any]]:
+    def authenticate_mock_user(cls, username: str, password: str, mock_users: List[Any]) -> Optional[Dict[str, Any]]:
         for u in mock_users:
             u_name = getattr(u, "username", None) or (u.get("username") if isinstance(u, dict) else None)
             if u_name and u_name.lower() == username.lower():
                 u_pass = getattr(u, "password", None) or (u.get("password") if isinstance(u, dict) else "")
                 if u_pass and cls.verify_mock_password(u_pass, password):
-                    display_name = getattr(u, "display_name", None) or (u.get("display_name") if isinstance(u, dict) else None) or u_name
+                    display_name = (
+                        getattr(u, "display_name", None)
+                        or (u.get("display_name") if isinstance(u, dict) else None)
+                        or u_name
+                    )
                     email = getattr(u, "email", None) or (u.get("email") if isinstance(u, dict) else None)
                     groups = list(getattr(u, "groups", None) or (u.get("groups") if isinstance(u, dict) else []) or [])
                     return {
@@ -465,7 +444,7 @@ class CommonLdapAuthService:
                         "display_name": display_name,
                         "email": email,
                         "groups": groups,
-                        "auth_method": "mock"
+                        "auth_method": "mock",
                     }
         return None
 
@@ -480,11 +459,7 @@ class LdapAuthService:
         self.config = config or CommonLdapConfig()
 
     def authenticate(
-        self,
-        username: str,
-        password: str,
-        connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None
+        self, username: str, password: str, connection_cls: Optional[Any] = None, server_cls: Optional[Any] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Выполняет аутентификацию пользователя в LDAP/LDAPS.
@@ -514,14 +489,11 @@ class LdapAuthService:
             group_name_attr=self.config.group_name_attr,
             connect_timeout=self.config.connect_timeout,
             connection_cls=connection_cls,
-            server_cls=server_cls
+            server_cls=server_cls,
         )
 
     def get_user_info(
-        self,
-        username: str,
-        connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None
+        self, username: str, connection_cls: Optional[Any] = None, server_cls: Optional[Any] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Извлекает профиль и группы пользователя из LDAP без пароля (для SPNEGO/Kerberos).
@@ -550,7 +522,7 @@ class LdapAuthService:
             group_name_attr=self.config.group_name_attr,
             connect_timeout=self.config.connect_timeout,
             connection_cls=connection_cls,
-            server_cls=server_cls
+            server_cls=server_cls,
         )
 
     @staticmethod
@@ -558,8 +530,4 @@ class LdapAuthService:
         """
         Выполняет аутентификацию mock-пользователя.
         """
-        return CommonLdapAuthService.authenticate_mock_user(
-            username=username,
-            password=password,
-            mock_users=mock_users
-        )
+        return CommonLdapAuthService.authenticate_mock_user(username=username, password=password, mock_users=mock_users)

@@ -21,7 +21,7 @@ class DatabaseSettings(BaseModel):
 
 
 class SecuritySettings(BaseModel):
-    secret_key: str = "change-this-in-production-secret-key-32-chars-long"
+    secret_key: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
     cookie_name: str = "hdfs_explorer_session"
@@ -75,12 +75,11 @@ class AppSettings(BaseSettings):
     def validate_production_security(self) -> "AppSettings":
         if not self.server.debug:
             self.security.cookie_secure = True
-            default_keys = (
-                "change-this-in-production-secret-key-32-chars-long",
-                "dev-secret-key-for-local-testing-replace-in-prod"
-            )
-            if self.security.secret_key in default_keys or len(self.security.secret_key) < 32:
+            from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
+
+            if self.security.secret_key in INSECURE_DEFAULT_KEYS or len(self.security.secret_key) < 32:
                 import logging
+
                 logging.getLogger("security").critical(
                     "ВНИМАНИЕ: Используется стандартный или ненадежный secret_key! "
                     "Необходимо задать уникальный HDFS_SECRET_KEY в переменных окружения."
@@ -157,9 +156,7 @@ class ClusterRegistry:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
                 raw_clusters = data.get("clusters", [])
-                self.clusters = {
-                    c["id"]: ClusterConfig(**c) for c in raw_clusters
-                }
+                self.clusters = {c["id"]: ClusterConfig(**c) for c in raw_clusters}
         elif settings.clusters:
             self.clusters = {c.id: c for c in settings.clusters}
         else:

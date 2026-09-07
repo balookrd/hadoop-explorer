@@ -3,9 +3,11 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.session import init_db
 
+
 @pytest.fixture(autouse=True)
 async def setup_database():
     await init_db()
+
 
 @pytest.mark.asyncio
 async def test_token_revocation_on_logout():
@@ -29,6 +31,7 @@ async def test_token_revocation_on_logout():
         revoked_resp = await ac.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert revoked_resp.status_code == 401
 
+
 @pytest.mark.asyncio
 async def test_query_param_token_rejected():
     transport = ASGITransport(app=app)
@@ -42,6 +45,7 @@ async def test_query_param_token_rejected():
         # Передача через query param ?token=... отклоняется (CWE-598)
         query_resp = await ac.get(f"/api/v1/auth/me?token={token}")
         assert query_resp.status_code == 401
+
 
 @pytest.mark.asyncio
 async def test_csrf_protection_on_cookie_auth():
@@ -75,6 +79,7 @@ async def test_csrf_protection_on_cookie_auth():
         good_post = await ac.post("/api/v1/sessions", json=session_payload, headers=good_csrf_header)
         assert good_post.status_code == 200
 
+
 @pytest.mark.asyncio
 async def test_security_headers():
     transport = ASGITransport(app=app)
@@ -85,6 +90,7 @@ async def test_security_headers():
         assert resp.headers.get("X-Frame-Options") == "DENY"
         assert "strict-origin-when-cross-origin" in resp.headers.get("Referrer-Policy", "")
         assert "default-src 'self'" in resp.headers.get("Content-Security-Policy", "")
+
 
 @pytest.mark.asyncio
 async def test_api_v1_and_api_prefix_compatibility():
@@ -101,6 +107,7 @@ async def test_api_v1_and_api_prefix_compatibility():
         # Доступ через /api/clusters (обратная совместимость)
         resp_legacy = await ac.get("/api/clusters", headers={"Authorization": f"Bearer {token_v1}"})
         assert resp_legacy.status_code == 200
+
 
 @pytest.mark.asyncio
 async def test_spnego_sso_endpoint():

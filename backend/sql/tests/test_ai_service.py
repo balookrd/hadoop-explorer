@@ -4,6 +4,7 @@ from app.main import app
 from app.db.session import init_db
 from app.services.ai_service import MockSQLAnalyzer, ai_service
 
+
 @pytest.mark.asyncio
 async def test_mock_sql_analyzer_rules():
     # 1. Проверка SELECT * и отсутствия LIMIT
@@ -47,9 +48,12 @@ async def test_mock_sql_analyzer_rules():
     assert "union-vs-union-all" in rules7
 
     # 8. Проверка Fuzzy-подсказки для несуществующей колонки
-    res8 = MockSQLAnalyzer.check("SELECT cust_key, non_existent_column_xyz FROM tpch.sf1.customer LIMIT 10;", dialect="trino")
+    res8 = MockSQLAnalyzer.check(
+        "SELECT cust_key, non_existent_column_xyz FROM tpch.sf1.customer LIMIT 10;", dialect="trino"
+    )
     rules8 = [i.rule for i in res8.issues]
     assert "schema-unknown-column" in rules8
+
 
 @pytest.mark.asyncio
 async def test_mock_sql_analyzer_explain_optimize_and_format():
@@ -77,9 +81,7 @@ async def test_mock_sql_analyzer_explain_optimize_and_format():
 
     # Fix
     fix_res = MockSQLAnalyzer.fix(
-        "SELECT NVL(a, 0) FROM t",
-        dialect="trino",
-        error_message="Function NVL not registered"
+        "SELECT NVL(a, 0) FROM t", dialect="trino", error_message="Function NVL not registered"
     )
     assert "COALESCE" in fix_res.fixed_sql
 
@@ -120,13 +122,16 @@ async def test_mock_sql_analyzer_explain_optimize_and_format():
     assert "event_type" in gen5.generated_sql.lower()
     assert "created_at" in gen5.generated_sql.lower()
 
+
 @pytest.mark.asyncio
 async def test_ai_api_endpoints():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Аутентификация
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         token = login_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -141,10 +146,7 @@ async def test_ai_api_endpoints():
         check_resp = await client.post(
             "/api/v1/ai/check",
             headers=headers,
-            json={
-                "sql": "SELECT * FROM tpch.sf1.customer",
-                "cluster_id": "trino-analytics"
-            }
+            json={"sql": "SELECT * FROM tpch.sf1.customer", "cluster_id": "trino-analytics"},
         )
         assert check_resp.status_code == 200
         check_data = check_resp.json()
@@ -155,10 +157,7 @@ async def test_ai_api_endpoints():
         explain_resp = await client.post(
             "/api/v1/ai/explain",
             headers=headers,
-            json={
-                "sql": "SELECT custkey, name FROM tpch.sf1.customer LIMIT 10",
-                "cluster_id": "trino-analytics"
-            }
+            json={"sql": "SELECT custkey, name FROM tpch.sf1.customer LIMIT 10", "cluster_id": "trino-analytics"},
         )
         assert explain_resp.status_code == 200
         explain_data = explain_resp.json()
@@ -169,10 +168,7 @@ async def test_ai_api_endpoints():
         opt_resp = await client.post(
             "/api/v1/ai/optimize",
             headers=headers,
-            json={
-                "sql": "SELECT * FROM tpch.sf1.customer",
-                "cluster_id": "trino-analytics"
-            }
+            json={"sql": "SELECT * FROM tpch.sf1.customer", "cluster_id": "trino-analytics"},
         )
         assert opt_resp.status_code == 200
         opt_data = opt_resp.json()
@@ -180,12 +176,7 @@ async def test_ai_api_endpoints():
 
         # 5. POST /api/ai/format
         fmt_resp = await client.post(
-            "/api/v1/ai/format",
-            headers=headers,
-            json={
-                "sql": "select a,b from c where x>10",
-                "dialect": "trino"
-            }
+            "/api/v1/ai/format", headers=headers, json={"sql": "select a,b from c where x>10", "dialect": "trino"}
         )
         assert fmt_resp.status_code == 200
         fmt_data = fmt_resp.json()
@@ -195,11 +186,7 @@ async def test_ai_api_endpoints():
         fix_resp = await client.post(
             "/api/v1/ai/fix",
             headers=headers,
-            json={
-                "sql": "SELECT NVL(x, 1) FROM t",
-                "dialect": "trino",
-                "error_message": "cannot resolve nvl"
-            }
+            json={"sql": "SELECT NVL(x, 1) FROM t", "dialect": "trino", "error_message": "cannot resolve nvl"},
         )
         assert fix_resp.status_code == 200
         fix_data = fix_resp.json()
@@ -209,10 +196,7 @@ async def test_ai_api_endpoints():
         gen_resp = await client.post(
             "/api/v1/ai/generate",
             headers=headers,
-            json={
-                "prompt": "Покажи топ 10 клиентов по сумме покупок",
-                "cluster_id": "trino-analytics"
-            }
+            json={"prompt": "Покажи топ 10 клиентов по сумме покупок", "cluster_id": "trino-analytics"},
         )
         assert gen_resp.status_code == 200
         gen_data = gen_resp.json()
@@ -223,11 +207,7 @@ async def test_ai_api_endpoints():
         assert "tpch.sf1.customer" in gen_data["tables_used"]
 
         # 8. POST /api/ai/generate (Валидация пустого ввода)
-        bad_gen_resp = await client.post(
-            "/api/v1/ai/generate",
-            headers=headers,
-            json={"prompt": "   "}
-        )
+        bad_gen_resp = await client.post("/api/v1/ai/generate", headers=headers, json={"prompt": "   "})
         assert bad_gen_resp.status_code == 400
 
 
@@ -271,4 +251,3 @@ async def test_ai_prompt_sanitization_and_ast_safety():
     is_safe, err = validate_readonly_sql_ast("TRUNCATE TABLE customer", dialect="trino")
     assert is_safe is False
     assert "запрещена" in err
-

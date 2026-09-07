@@ -62,19 +62,21 @@ def validate_queue_balance(
             is_balanced = False
             message = f"Переподписка: перебор на {abs(unallocated):.2f}% (сумма = {total_cap:.2f}%)"
 
-        balances.append(BranchBalance(
-            parent_path=parent_path,
-            partition=partition,
-            total_children_capacity=round(total_cap, 2),
-            unallocated_capacity=round(unallocated, 2),
-            is_balanced=is_balanced,
-            status=status,
-            message=message,
-            total_children_memory_mb=total_mem if has_mem else None,
-            total_children_vcores=total_vcores if has_vcores else None,
-            ram_is_balanced=is_balanced,
-            vcpu_is_balanced=is_balanced,
-        ))
+        balances.append(
+            BranchBalance(
+                parent_path=parent_path,
+                partition=partition,
+                total_children_capacity=round(total_cap, 2),
+                unallocated_capacity=round(unallocated, 2),
+                is_balanced=is_balanced,
+                status=status,
+                message=message,
+                total_children_memory_mb=total_mem if has_mem else None,
+                total_children_vcores=total_vcores if has_vcores else None,
+                ram_is_balanced=is_balanced,
+                vcpu_is_balanced=is_balanced,
+            )
+        )
 
     return balances
 
@@ -120,19 +122,21 @@ def compute_balances_from_tree(root_queue, partition: str) -> List[BranchBalance
                 is_balanced = False
                 message = f"Overallocated: excess {abs(unallocated):.2f}% (sum = {total_cap:.2f}%)"
 
-            balances.append(BranchBalance(
-                parent_path=node.path,
-                partition=partition,
-                total_children_capacity=round(total_cap, 2),
-                unallocated_capacity=round(unallocated, 2),
-                is_balanced=is_balanced,
-                status=status,
-                message=message,
-                total_children_memory_mb=total_mem if has_mem else None,
-                total_children_vcores=total_vcores if has_vcores else None,
-                ram_is_balanced=is_balanced,
-                vcpu_is_balanced=is_balanced,
-            ))
+            balances.append(
+                BranchBalance(
+                    parent_path=node.path,
+                    partition=partition,
+                    total_children_capacity=round(total_cap, 2),
+                    unallocated_capacity=round(unallocated, 2),
+                    is_balanced=is_balanced,
+                    status=status,
+                    message=message,
+                    total_children_memory_mb=total_mem if has_mem else None,
+                    total_children_vcores=total_vcores if has_vcores else None,
+                    ram_is_balanced=is_balanced,
+                    vcpu_is_balanced=is_balanced,
+                )
+            )
 
             for child in node.children:
                 recurse(child)

@@ -12,23 +12,18 @@ if db_url.startswith("sqlite+aiosqlite:///./"):
     db_file = db_url.replace("sqlite+aiosqlite:///./", "")
     db_url = f"sqlite+aiosqlite:///{os.path.join(data_dir, os.path.basename(db_file))}"
 
-engine = create_async_engine(
-    db_url,
-    echo=False,
-    future=True
-)
+engine = create_async_engine(db_url, echo=False, future=True)
 
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
 
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
 
+
 async def init_db():
     import app.models.models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

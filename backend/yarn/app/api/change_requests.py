@@ -33,9 +33,11 @@ def _flatten_tree(node: QueueNode) -> List[QueueNode]:
 async def _get_live_queues(cluster, username: str) -> List[QueueNode]:
     if settings.auth.mode == "mock":
         from app.services.mock_yarn import get_mock_queue_tree
+
         root = get_mock_queue_tree(cluster)
     else:
         from app.services.yarn_client import YarnClient
+
         client = YarnClient(cluster)
         root, _ = await client.get_queue_tree(username)
     return _flatten_tree(root)
@@ -55,10 +57,7 @@ async def list_change_requests(
         return storage_service.list_change_requests(cluster_id=cluster_id, status=status_filter)
 
     all_crs = storage_service.list_change_requests(status=status_filter)
-    accessible_cluster_ids = {
-        c.id for c in settings.clusters
-        if resolve_cluster_role(current_user, c) is not None
-    }
+    accessible_cluster_ids = {c.id for c in settings.clusters if resolve_cluster_role(current_user, c) is not None}
     return [cr for cr in all_crs if cr.cluster_id in accessible_cluster_ids]
 
 
@@ -74,10 +73,7 @@ async def get_pending_count(
         count = storage_service.count_pending(cluster_id=cluster_id)
     else:
         all_crs = storage_service.list_change_requests(status="SUBMITTED")
-        accessible_cluster_ids = {
-            c.id for c in settings.clusters
-            if resolve_cluster_role(current_user, c) is not None
-        }
+        accessible_cluster_ids = {c.id for c in settings.clusters if resolve_cluster_role(current_user, c) is not None}
         count = sum(1 for cr in all_crs if cr.cluster_id in accessible_cluster_ids)
     return {"pending_count": count}
 
@@ -129,14 +125,12 @@ async def create_change_request(
                 live_capacity=live_part.capacity if live_part else None,
                 draft_capacity=draft_part.capacity if draft_part else None,
                 delta_capacity=(
-                    round(draft_part.capacity - live_part.capacity, 2)
-                    if draft_part and live_part else None
+                    round(draft_part.capacity - live_part.capacity, 2) if draft_part and live_part else None
                 ),
                 live_max_capacity=live_part.max_capacity if live_part else None,
                 draft_max_capacity=draft_part.max_capacity if draft_part else None,
                 delta_max_capacity=(
-                    round(draft_part.max_capacity - live_part.max_capacity, 2)
-                    if draft_part and live_part else None
+                    round(draft_part.max_capacity - live_part.max_capacity, 2) if draft_part and live_part else None
                 ),
                 live_memory_mb=live_part.memory_mb if live_part else None,
                 draft_memory_mb=draft_part.memory_mb if draft_part else None,
@@ -171,11 +165,17 @@ async def create_change_request(
         raise HTTPException(status_code=500, detail="Ошибка при создании заявки")
 
     from app.core.audit import audit_log
+
     audit_log(
         action="CR_CREATED",
         username=current_user.username,
         client_ip=get_client_ip(http_request),
-        details={"cr_id": cr_id, "cluster_id": request.cluster_id, "title": request.title, "changes_count": len(request.changes)},
+        details={
+            "cr_id": cr_id,
+            "cluster_id": request.cluster_id,
+            "title": request.title,
+            "changes_count": len(request.changes),
+        },
         status="SUCCESS",
     )
     return created
@@ -226,7 +226,6 @@ async def approve_change_request(
             detail=f"Нельзя одобрить заявку в статусе '{cr.status}' (ожидается SUBMITTED)",
         )
 
-
     live_nodes = await _get_live_queues(cluster, current_user.username)
     queue_map = {}
     for n in live_nodes:
@@ -250,10 +249,12 @@ async def approve_change_request(
     base_xml: Optional[str] = None
     if settings.auth.mode == "mock":
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
     else:
         try:
             from app.services.yarn_client import YarnClient
+
             client = YarnClient(cluster)
             base_xml = await client.get_capacity_scheduler_xml(do_as=current_user.username)
         except Exception as e:
@@ -261,6 +262,7 @@ async def approve_change_request(
 
     if not base_xml:
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
 
     xml_content = generate_capacity_scheduler_xml(
@@ -283,6 +285,7 @@ async def approve_change_request(
         raise HTTPException(status_code=500, detail="Ошибка при одобрении заявки")
 
     from app.core.audit import audit_log
+
     audit_log(
         action="CR_APPROVED",
         username=current_user.username,
@@ -325,6 +328,7 @@ async def reject_change_request(
         raise HTTPException(status_code=500, detail="Ошибка при отклонении заявки")
 
     from app.core.audit import audit_log
+
     audit_log(
         action="CR_REJECTED",
         username=current_user.username,
@@ -366,6 +370,7 @@ async def cancel_change_request(
         raise HTTPException(status_code=500, detail="Ошибка при отзыве заявки")
 
     from app.core.audit import audit_log
+
     audit_log(
         action="CR_CANCELLED",
         username=current_user.username,
@@ -421,10 +426,12 @@ async def preview_change_request_xml(
     base_xml: Optional[str] = None
     if settings.auth.mode == "mock":
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
     else:
         try:
             from app.services.yarn_client import YarnClient
+
             client = YarnClient(cluster)
             base_xml = await client.get_capacity_scheduler_xml(do_as=current_user.username)
         except Exception as e:
@@ -432,6 +439,7 @@ async def preview_change_request_xml(
 
     if not base_xml:
         from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+
         base_xml = get_mock_capacity_scheduler_xml(cluster)
 
     xml_content = generate_capacity_scheduler_xml(
@@ -449,4 +457,3 @@ async def preview_change_request_xml(
         "filename": f"capacity-scheduler-{cr.cluster_id}.xml",
         "xml_content": xml_content,
     }
-

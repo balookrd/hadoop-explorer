@@ -51,9 +51,8 @@ def resolve_cluster_role(user: UserSession, cluster: ClusterConfig) -> Optional[
     user_groups = set(user.groups)
     cluster_acl = cluster.acl
 
-    has_cluster_access = (
-        user.is_admin or
-        _check_match(user.username, user_groups, cluster_acl.allowed_users, cluster_acl.allowed_groups)
+    has_cluster_access = user.is_admin or _check_match(
+        user.username, user_groups, cluster_acl.allowed_users, cluster_acl.allowed_groups
     )
     if not has_cluster_access:
         return None
@@ -96,14 +95,10 @@ def check_cluster_permission(user: UserSession, cluster: ClusterConfig, min_role
     if role is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"У вас нет прав доступа к кластеру '{cluster.name}' ({cluster.id})"
+            detail=f"У вас нет прав доступа к кластеру '{cluster.name}' ({cluster.id})",
         )
 
-    role_priority = {
-        Role.READER: 1,
-        Role.WRITER: 2,
-        Role.ADMIN: 3
-    }
+    role_priority = {Role.READER: 1, Role.WRITER: 2, Role.ADMIN: 3}
 
     if role_priority[role] < role_priority[min_role]:
         if min_role == Role.ADMIN:
@@ -117,9 +112,6 @@ def check_cluster_permission(user: UserSession, cluster: ClusterConfig, min_role
         else:
             msg = "Недостаточно прав для выполнения данной операции."
 
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=msg
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=msg)
 
     return role

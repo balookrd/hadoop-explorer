@@ -75,7 +75,9 @@ def is_cluster_admin(cluster: ClusterConfig, username: str, user_groups: List[st
     return bool(cluster_admins & user_groups_set)
 
 
-def get_visible_clusters(clusters: List[ClusterConfig], username: str, user_groups: List[str]) -> List[ClusterPublicInfo]:
+def get_visible_clusters(
+    clusters: List[ClusterConfig], username: str, user_groups: List[str]
+) -> List[ClusterPublicInfo]:
     visible = []
     for c in clusters:
         if can_access_cluster(c, username, user_groups):
@@ -87,7 +89,7 @@ def get_visible_clusters(clusters: List[ClusterConfig], username: str, user_grou
                     description=c.description,
                     default_path=default_path,
                     is_read_only=is_cluster_read_only(c, username, user_groups),
-                    is_admin=is_cluster_admin(c, username, user_groups)
+                    is_admin=is_cluster_admin(c, username, user_groups),
                 )
             )
     return visible

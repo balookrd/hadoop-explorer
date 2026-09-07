@@ -16,10 +16,7 @@ logger = logging.getLogger("main")
 async def lifespan(app: FastAPI):
     # 1. Проверка безопасности секретов при старте в боевых режимах (Fail-fast)
     if settings.auth.mode != "mock":
-        insecure_defaults = (
-            "change-this-to-a-very-secret-random-key-in-production",
-            "secret-key-for-dev-only"
-        )
+        insecure_defaults = ("change-this-to-a-very-secret-random-key-in-production", "secret-key-for-dev-only")
         if settings.auth.jwt.secret_key in insecure_defaults:
             raise RuntimeError(
                 f"КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: В режиме '{settings.auth.mode}' обнаружен дефолтный JWT_SECRET_KEY! "
@@ -32,6 +29,7 @@ async def lifespan(app: FastAPI):
     # 3. Crash Recovery: сброс зависших задач предыдущего процесса в статус FAILED
     try:
         from app.services.query_manager import query_manager
+
         await query_manager.recover_stale_queries()
     except Exception as e:
         logger.warning(f"Ошибка Crash Recovery при старте SQL Explorer: {e}")
@@ -39,6 +37,7 @@ async def lifespan(app: FastAPI):
     # 4. Очистка устаревших файлов результатов SQL-запросов (TTL rotation)
     try:
         from app.services.query_manager import query_manager
+
         deleted = query_manager.cleanup_expired_results()
         if deleted > 0:
             logger.info(f"Очищено {deleted} устаревших файлов кэша результатов SQL-запросов")
@@ -48,18 +47,31 @@ async def lifespan(app: FastAPI):
     # 5. Очистка устаревших сессий и токенов
     try:
         from app.services.storage import storage_service
+
         storage_service.cleanup_expired()
     except Exception as e:
         logger.warning(f"Ошибка очистки хранилища сессий SQL: {e}")
 
     yield
+    from backend.common.core.shutdown import shutdown_manager
+    from app.services.query_manager import query_manager
+    from app.services.storage import storage_service
+
+    if hasattr(query_manager, "aclose"):
+        shutdown_manager.register(query_manager.aclose)
+    if hasattr(storage_service, "close"):
+        shutdown_manager.register(storage_service.close)
+
+    await shutdown_manager.shutdown()
+
 
 app = FastAPI(
     title="SQL Explorer (Trino & Hive)",
     description="Web-UI для аналитических запросов к Trino и Hive с поддержкой LDAPS/Kerberos, ACL и имперсонации",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
 
 # Защитные HTTP-заголовки (Security Headers Middleware)
 @app.middleware("http")
@@ -85,6 +97,7 @@ async def add_security_headers(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -106,11 +119,7 @@ app.include_router(workspace.router, prefix="/api/v1")
 @app.get("/healthz", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def health():
-    return {
-        "status": "healthy",
-        "auth_mode": settings.auth.mode,
-        "clusters_count": len(settings.clusters)
-    }
+    return {"status": "healthy", "auth_mode": settings.auth.mode, "clusters_count": len(settings.clusters)}
 
 
 @app.get("/readyz", tags=["system"])
@@ -119,18 +128,13 @@ async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
     from app.services.storage import storage_service
     from fastapi.responses import JSONResponse
+
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503,
-            content={"status": "unavailable", "service": "sql-explorer", "database": "unreachable"}
+            status_code=503, content={"status": "unavailable", "service": "sql-explorer", "database": "unreachable"}
         )
-    return {
-        "status": "ready",
-        "service": "sql-explorer",
-        "database": "ok",
-        "clusters_count": len(settings.clusters)
-    }
+    return {"status": "ready", "service": "sql-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
 
 
 # Раздача SPA статики
@@ -162,11 +166,8 @@ if frontend_dist and os.path.exists(frontend_dist):
             return FileResponse(requested_path)
         return FileResponse(os.path.join(frontend_dist, "index.html"))
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host=settings.server.host,
-        port=settings.server.port,
-        reload=settings.server.debug
-    )
+
+    uvicorn.run("app.main:app", host=settings.server.host, port=settings.server.port, reload=settings.server.debug)

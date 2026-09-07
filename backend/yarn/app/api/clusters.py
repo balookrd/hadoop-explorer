@@ -22,20 +22,22 @@ async def get_clusters(user: UserSession = Depends(get_current_user)):
         if role is None:
             continue
 
-        result.append(ClusterSummary(
-            id=cluster.id,
-            name=cluster.name,
-            description=cluster.description,
-            active_rm_url=cluster.resource_manager_urls[0] if cluster.resource_manager_urls else None,
-            kerberos_enabled=cluster.kerberos_enabled,
-            impersonation_enabled=cluster.impersonation_enabled,
-            partitions=cluster.partitions,
-            default_partition=cluster.default_partition,
-            resource_mode=cluster.resource_mode,
-            total_resources=cluster.total_resources,
-            user_role=role,
-            can_write=role in (Role.WRITER, Role.ADMIN),
-            can_admin=role == Role.ADMIN,
-        ))
+        result.append(
+            ClusterSummary(
+                id=cluster.id,
+                name=cluster.name,
+                description=cluster.description,
+                active_rm_url=cluster.resource_manager_urls[0] if cluster.resource_manager_urls else None,
+                kerberos_enabled=cluster.kerberos_enabled,
+                impersonation_enabled=cluster.impersonation_enabled,
+                partitions=cluster.partitions,
+                default_partition=cluster.default_partition,
+                resource_mode=cluster.resource_mode,
+                total_resources=cluster.total_resources,
+                user_role=role,
+                can_write=role in (Role.WRITER, Role.ADMIN),
+                can_admin=role == Role.ADMIN,
+            )
+        )
 
     return result

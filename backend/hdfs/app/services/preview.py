@@ -22,7 +22,9 @@ def format_size(size_bytes: int) -> str:
 
 class PreviewService:
     @staticmethod
-    def generate_preview(path: str, cluster_id: str, content: bytes, total_size: int, max_bytes: int) -> FilePreviewResponse:
+    def generate_preview(
+        path: str, cluster_id: str, content: bytes, total_size: int, max_bytes: int
+    ) -> FilePreviewResponse:
         truncated = total_size > max_bytes
         file_name = path.split("/")[-1].lower()
 
@@ -50,7 +52,7 @@ class PreviewService:
                     truncated=truncated,
                     columns=columns,
                     rows=rows,
-                    row_count=len(rows)
+                    row_count=len(rows),
                 )
             except Exception as e:
                 logger.warning(f"Не удалось распарсить CSV {path}: {e}")
@@ -70,7 +72,7 @@ class PreviewService:
                     file_type="json",
                     size=total_size,
                     truncated=truncated,
-                    content=formatted
+                    content=formatted,
                 )
             except Exception:
                 pass  # Fallback to plain text
@@ -95,11 +97,12 @@ class PreviewService:
                     ),
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
 
             try:
                 import pyarrow.parquet as pq
+
                 reader = pq.ParquetFile(io.BytesIO(content))
                 table = reader.read_row_group(0) if reader.num_row_groups > 0 else reader.read()
                 columns = list(table.column_names)
@@ -113,7 +116,7 @@ class PreviewService:
                     truncated=truncated,
                     columns=columns,
                     rows=safe_rows,
-                    row_count=len(safe_rows)
+                    row_count=len(safe_rows),
                 )
             except ImportError:
                 return FilePreviewResponse(
@@ -125,7 +128,7 @@ class PreviewService:
                     content="Файл формата Apache Parquet. Для табличного предпросмотра на сервере требуется модуль pyarrow. Скачайте файл для локального анализа.",
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
             except Exception as e:
                 logger.warning(f"Ошибка парсинга Parquet файла {path}: {e}")
@@ -138,7 +141,7 @@ class PreviewService:
                     content=f"Не удалось прочитать структуру Parquet файла ({e}). Скачайте файл для локального анализа.",
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
 
         # 4. ORC (Optimized Row Columnar)
@@ -160,11 +163,12 @@ class PreviewService:
                     ),
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
 
             try:
                 import pyarrow.orc as orc
+
                 reader = orc.ORCFile(io.BytesIO(content))
                 table = reader.read()
                 columns = list(table.column_names)
@@ -178,7 +182,7 @@ class PreviewService:
                     truncated=truncated,
                     columns=columns,
                     rows=safe_rows,
-                    row_count=len(safe_rows)
+                    row_count=len(safe_rows),
                 )
             except ImportError:
                 return FilePreviewResponse(
@@ -190,7 +194,7 @@ class PreviewService:
                     content="Файл формата Apache ORC. Для табличного предпросмотра на сервере требуется модуль pyarrow.orc. Скачайте файл для локального анализа.",
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
             except Exception as e:
                 logger.warning(f"Ошибка парсинга ORC файла {path}: {e}")
@@ -203,19 +207,14 @@ class PreviewService:
                     content=f"Не удалось прочитать структуру ORC файла ({e}). Скачайте файл для локального анализа.",
                     columns=[],
                     rows=[],
-                    row_count=0
+                    row_count=0,
                 )
 
         # 5. Текстовые файлы (txt, log, yaml, yml, conf, xml, properties, sql, sh, py, etc.)
         try:
             text = content.decode("utf-8")
             return FilePreviewResponse(
-                cluster_id=cluster_id,
-                path=path,
-                file_type="text",
-                size=total_size,
-                truncated=truncated,
-                content=text
+                cluster_id=cluster_id, path=path, file_type="text", size=total_size, truncated=truncated, content=text
             )
         except UnicodeDecodeError:
             # Проверяем, может это частично читаемый текст
@@ -229,7 +228,7 @@ class PreviewService:
                     file_type="binary",
                     size=total_size,
                     truncated=truncated,
-                    content="Бинарный файл. Предпросмотр недоступен. Используйте кнопку 'Скачать'."
+                    content="Бинарный файл. Предпросмотр недоступен. Используйте кнопку 'Скачать'.",
                 )
             return FilePreviewResponse(
                 cluster_id=cluster_id,
@@ -237,7 +236,7 @@ class PreviewService:
                 file_type="text",
                 size=total_size,
                 truncated=truncated,
-                content=text_lossy
+                content=text_lossy,
             )
 
 

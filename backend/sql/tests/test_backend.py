@@ -4,6 +4,7 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.session import init_db
 
+
 @pytest.mark.asyncio
 async def test_health():
     await init_db()
@@ -13,6 +14,7 @@ async def test_health():
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
+
 
 @pytest.mark.asyncio
 async def test_auth_and_acl_flow():
@@ -24,7 +26,9 @@ async def test_auth_and_acl_flow():
         assert bad_login.status_code == 401
 
         # 2. Успешный вход под analyst_user (группа bi-analysts)
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         token_data = login_resp.json()
         token = token_data["access_token"]
@@ -48,7 +52,7 @@ async def test_auth_and_acl_flow():
         exec_resp = await client.post(
             "/api/v1/queries/execute",
             headers=headers,
-            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"},
         )
         assert exec_resp.status_code == 200
         query_id = exec_resp.json()["query_id"]
@@ -61,12 +65,15 @@ async def test_auth_and_acl_flow():
         assert len(history_items) > 0
         assert history_items[0]["id"] == query_id
 
+
 @pytest.mark.asyncio
 async def test_queue_persistence_and_cancel():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         token = login_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -74,7 +81,7 @@ async def test_queue_persistence_and_cancel():
         exec_resp = await client.post(
             "/api/v1/queries/execute",
             headers=headers,
-            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"},
         )
         assert exec_resp.status_code == 200
         query_id = exec_resp.json()["query_id"]
@@ -94,36 +101,37 @@ async def test_queue_persistence_and_cancel():
         queue_after = await client.get("/api/v1/queries/queue", headers=headers)
         assert not any(item["id"] == query_id for item in queue_after.json())
 
+
 @pytest.mark.asyncio
 async def test_security_catalog_sql_injection_rejected():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Авторизуемся
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
 
         # 1. Попытка внедрения в параметр catalog
         bad_catalog_resp = await client.get(
-            "/api/v1/catalog/trino-analytics/schemas?catalog=hive;DROP%20TABLE%20users;--",
-            headers=headers
+            "/api/v1/catalog/trino-analytics/schemas?catalog=hive;DROP%20TABLE%20users;--", headers=headers
         )
         assert bad_catalog_resp.status_code == 400
         assert "Недопустимые символы" in bad_catalog_resp.json()["detail"]
 
         # 2. Попытка внедрения в параметр schema
         bad_schema_resp = await client.get(
-            "/api/v1/catalog/trino-analytics/tables?catalog=hive&schema=default'--",
-            headers=headers
+            "/api/v1/catalog/trino-analytics/tables?catalog=hive&schema=default'--", headers=headers
         )
         assert bad_schema_resp.status_code == 400
 
         # 3. Попытка внедрения в параметр table
         bad_table_resp = await client.get(
-            "/api/v1/catalog/trino-analytics/columns?catalog=hive&schema=default&table=users;--",
-            headers=headers
+            "/api/v1/catalog/trino-analytics/columns?catalog=hive&schema=default&table=users;--", headers=headers
         )
         assert bad_table_resp.status_code == 400
+
 
 @pytest.mark.asyncio
 async def test_security_stream_bola_protection():
@@ -131,13 +139,15 @@ async def test_security_stream_bola_protection():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Запуск запроса пользователем analyst_user
-        login_analyst = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_analyst = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         analyst_headers = {"Authorization": f"Bearer {login_analyst.json()['access_token']}"}
 
         exec_resp = await client.post(
             "/api/v1/queries/execute",
             headers=analyst_headers,
-            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT * FROM tpch.sf1.customer"},
         )
         assert exec_resp.status_code == 200
         query_id = exec_resp.json()["query_id"]
@@ -151,6 +161,7 @@ async def test_security_stream_bola_protection():
         assert stream_resp.status_code == 403
         assert "Доступ к чужому стриму" in stream_resp.json()["detail"]
 
+
 @pytest.mark.asyncio
 async def test_security_spa_path_traversal():
     transport = ASGITransport(app=app)
@@ -162,6 +173,7 @@ async def test_security_spa_path_traversal():
             assert "server:" not in resp.text
             assert "bind_password" not in resp.text
 
+
 @pytest.mark.asyncio
 async def test_security_headers_present():
     transport = ASGITransport(app=app)
@@ -172,13 +184,16 @@ async def test_security_headers_present():
         assert resp.headers.get("X-Frame-Options") == "DENY"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
 
+
 @pytest.mark.asyncio
 async def test_security_token_revocation_on_logout():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Вход
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         token = login_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -198,11 +213,13 @@ async def test_security_token_revocation_on_logout():
 
         # 5. Проверяем персистентность (эмуляция другой реплики/пода: очищаем L1 in-memory кэш)
         from app.core.security import _revoked_tokens_cache
+
         _revoked_tokens_cache.clear()
 
         me_after_cache_clear = await client.get("/api/v1/auth/me", headers=headers)
         assert me_after_cache_clear.status_code == 401
         assert "Токен отозван" in me_after_cache_clear.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_security_login_rate_limiting():
@@ -211,41 +228,55 @@ async def test_security_login_rate_limiting():
         test_user = "brute_force_target_user"
         # Выполняем 5 неудачных попыток входа
         for _ in range(5):
-            bad_resp = await client.post("/api/v1/auth/login", json={"username": test_user, "password": "wrongpassword"})
+            bad_resp = await client.post(
+                "/api/v1/auth/login", json={"username": test_user, "password": "wrongpassword"}
+            )
             assert bad_resp.status_code == 401
 
         # 6-я попытка должна быть заблокирована лимитером (429 Too Many Requests)
-        rate_limited_resp = await client.post("/api/v1/auth/login", json={"username": test_user, "password": "wrongpassword"})
+        rate_limited_resp = await client.post(
+            "/api/v1/auth/login", json={"username": test_user, "password": "wrongpassword"}
+        )
         assert rate_limited_resp.status_code == 429
         assert "Слишком много" in rate_limited_resp.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_security_audit_logging():
     from app.core.audit import recent_audit_events, AuditEventType
+
     recent_audit_events.clear()
 
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Успешный вход
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         token = login_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
-        login_events = [e for e in recent_audit_events if e["event_type"] == AuditEventType.AUTH_LOGIN_SUCCESS and e["username"] == "analyst_user"]
+        login_events = [
+            e
+            for e in recent_audit_events
+            if e["event_type"] == AuditEventType.AUTH_LOGIN_SUCCESS and e["username"] == "analyst_user"
+        ]
         assert len(login_events) >= 1
 
         # 2. Выполнение запроса
         exec_resp = await client.post(
-            "/api/v1/queries/execute",
-            headers=headers,
-            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
+            "/api/v1/queries/execute", headers=headers, json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
         )
         assert exec_resp.status_code == 200
         query_id = exec_resp.json()["query_id"]
 
-        exec_events = [e for e in recent_audit_events if e["event_type"] == AuditEventType.QUERY_EXECUTED and e["details"].get("query_id") == query_id]
+        exec_events = [
+            e
+            for e in recent_audit_events
+            if e["event_type"] == AuditEventType.QUERY_EXECUTED and e["details"].get("query_id") == query_id
+        ]
         assert len(exec_events) >= 1
 
         # 3. Попытка BOLA другим пользователем
@@ -255,15 +286,24 @@ async def test_security_audit_logging():
         bola_resp = await client.get(f"/api/v1/queries/{query_id}/stream", headers=de_headers)
         assert bola_resp.status_code == 403
 
-        bola_events = [e for e in recent_audit_events if e["event_type"] == AuditEventType.ACCESS_DENIED_BOLA and e["username"] == "de_user"]
+        bola_events = [
+            e
+            for e in recent_audit_events
+            if e["event_type"] == AuditEventType.ACCESS_DENIED_BOLA and e["username"] == "de_user"
+        ]
         assert len(bola_events) >= 1
 
         # 4. Выход из системы
         logout_resp = await client.post("/api/v1/auth/logout", headers=headers)
         assert logout_resp.status_code == 200
 
-        logout_events = [e for e in recent_audit_events if e["event_type"] == AuditEventType.AUTH_LOGOUT and e["username"] == "analyst_user"]
+        logout_events = [
+            e
+            for e in recent_audit_events
+            if e["event_type"] == AuditEventType.AUTH_LOGOUT and e["username"] == "analyst_user"
+        ]
         assert len(logout_events) >= 1
+
 
 @pytest.mark.asyncio
 async def test_security_csp_header_present():
@@ -276,12 +316,15 @@ async def test_security_csp_header_present():
         assert "frame-ancestors 'none'" in csp
         assert "worker-src 'self' blob:" in csp
 
+
 @pytest.mark.asyncio
 async def test_csrf_cookie_protection():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Логинимся
-        login_res = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_res = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         token = login_res.json()["access_token"]
 
         # Мутирующий запрос через Cookie с нелегитимным Sec-Fetch-Site: cross-site -> 403
@@ -289,7 +332,7 @@ async def test_csrf_cookie_protection():
             "/api/v1/queries/execute",
             cookies={"access_token": token},
             headers={"Sec-Fetch-Site": "cross-site"},
-            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"},
         )
         assert resp_csrf.status_code == 403
         assert "CSRF protection" in resp_csrf.json()["detail"]
@@ -299,7 +342,7 @@ async def test_csrf_cookie_protection():
             "/api/v1/queries/execute",
             cookies={"access_token": token},
             headers={"Origin": "http://evil-test.attacker.com"},
-            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"},
         )
         assert resp_evil.status_code == 403
 
@@ -307,7 +350,7 @@ async def test_csrf_cookie_protection():
         resp_no_hdr = await client.post(
             "/api/v1/queries/execute",
             cookies={"access_token": token},
-            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"},
         )
         assert resp_no_hdr.status_code == 403
 
@@ -316,7 +359,7 @@ async def test_csrf_cookie_protection():
             "/api/v1/queries/execute",
             cookies={"access_token": token},
             headers={"X-Requested-With": "XMLHttpRequest"},
-            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"}
+            json={"cluster_id": "trino-analytics", "query": "SELECT 1;"},
         )
         assert resp_ok.status_code == 200
 
@@ -327,7 +370,9 @@ async def test_query_param_token_rejected():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        login_res = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_res = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         token = login_res.json()["access_token"]
 
         # Попытка получить доступ только через query param ?token=... (без cookie и без Bearer)
@@ -371,22 +416,30 @@ async def test_spnego_kerberos_ldap_enrichment(monkeypatch):
     import app.api.auth as auth_module
 
     # Мокаем Kerberos валидацию
-    monkeypatch.setattr(auth_module, "authenticate_spnego", lambda token: {
-        "username": "sso_user",
-        "display_name": "sso_user",
-        "email": "sso_user@EXAMPLE.COM",
-        "groups": [],
-        "auth_method": "kerberos"
-    })
+    monkeypatch.setattr(
+        auth_module,
+        "authenticate_spnego",
+        lambda token: {
+            "username": "sso_user",
+            "display_name": "sso_user",
+            "email": "sso_user@EXAMPLE.COM",
+            "groups": [],
+            "auth_method": "kerberos",
+        },
+    )
 
     # Мокаем get_ldap_user_info
-    monkeypatch.setattr(auth_module, "get_ldap_user_info", lambda username: {
-        "username": username,
-        "display_name": "SSO Analyst",
-        "email": "sso_analyst@corp.com",
-        "groups": ["bi-analysts"],
-        "auth_method": "ldaps"
-    })
+    monkeypatch.setattr(
+        auth_module,
+        "get_ldap_user_info",
+        lambda username: {
+            "username": username,
+            "display_name": "SSO Analyst",
+            "email": "sso_analyst@corp.com",
+            "groups": ["bi-analysts"],
+            "auth_method": "ldaps",
+        },
+    )
 
     # Включаем LDAP в настройках
     auth_module.settings.auth.ldap.enabled = True
@@ -406,6 +459,7 @@ async def test_mock_users_isolation_sql_explorer(monkeypatch):
     """Проверка, что mock_users разрешены ТОЛЬКО при auth.mode == 'mock'."""
     from app.core.config import settings
     import app.api.auth as auth_mod
+
     monkeypatch.setattr(auth_mod, "authenticate_ldap", lambda u, p: None)
 
     transport = ASGITransport(app=app)
@@ -417,12 +471,16 @@ async def test_mock_users_isolation_sql_explorer(monkeypatch):
 
         # 2. При mode == 'hybrid' mock-пользователи запрещены -> 401
         monkeypatch.setattr(settings.auth, "mode", "hybrid")
-        resp_hybrid = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        resp_hybrid = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert resp_hybrid.status_code == 401
 
         # 3. При mode == 'ldaps_only' mock-пользователи запрещены -> 401
         monkeypatch.setattr(settings.auth, "mode", "ldaps_only")
-        resp_ldap = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        resp_ldap = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert resp_ldap.status_code == 401
 
 
@@ -483,6 +541,7 @@ def test_engines_timeout_passing(monkeypatch):
         return None
 
     import app.services.hive_engine as he_mod
+
     monkeypatch.setattr(he_mod, "impala_connect", fake_impala_connect)
     hive_engine._get_connection("test_user")
     assert captured_hive_kwargs.get("timeout") == 300
@@ -497,6 +556,7 @@ def test_engines_timeout_passing(monkeypatch):
         return None
 
     import trino.dbapi
+
     monkeypatch.setattr(trino.dbapi, "connect", fake_trino_connect)
     trino_engine._get_connection("test_user")
     assert captured_trino_kwargs.get("request_timeout") == 300.0
@@ -523,7 +583,9 @@ async def test_security_readonly_dml_ddl_rejection():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
 
         dangerous_queries = [
@@ -531,13 +593,11 @@ async def test_security_readonly_dml_ddl_rejection():
             "TRUNCATE TABLE reporting.daily_stats",
             "DELETE FROM default.orders WHERE 1=1",
             "ALTER TABLE users ADD COLUMN secret VARCHAR",
-            "CREATE TABLE evil (id INT)"
+            "CREATE TABLE evil (id INT)",
         ]
         for dq in dangerous_queries:
             resp = await client.post(
-                "/api/v1/queries/execute",
-                headers=headers,
-                json={"cluster_id": "trino-analytics", "query": dq}
+                "/api/v1/queries/execute", headers=headers, json={"cluster_id": "trino-analytics", "query": dq}
             )
             assert resp.status_code == 403, f"Запрос '{dq}' должен быть заблокирован"
             assert "запрещен" in resp.json()["detail"].lower() or "read-only" in resp.json()["detail"].lower()
@@ -549,21 +609,21 @@ async def test_security_csrf_on_logout_cookie():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
 
         # Попытка межсайтового logout (Sec-Fetch-Site: cross-site) без Bearer заголовка
         csrf_resp = await client.post(
-            "/api/v1/auth/logout",
-            headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://malicious-site.com"}
+            "/api/v1/auth/logout", headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://malicious-site.com"}
         )
         assert csrf_resp.status_code == 403
         assert "CSRF" in csrf_resp.json()["detail"]
 
         # Легитимный logout (Sec-Fetch-Site: same-origin)
         legit_resp = await client.post(
-            "/api/v1/auth/logout",
-            headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8000"}
+            "/api/v1/auth/logout", headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8000"}
         )
         assert legit_resp.status_code == 200
 
@@ -574,22 +634,19 @@ def test_production_security_validation():
 
     # Попытка создать конфиг с debug=False и mock auth -> ValueError
     with pytest.raises(ValueError, match="Mock authentication cannot be used in production"):
-        AppConfig(
-            server=ServerConfig(debug=False),
-            auth=AuthConfig(mode="mock")
-        )
+        AppConfig(server=ServerConfig(debug=False), auth=AuthConfig(mode="mock"))
 
     # Попытка создать конфиг с debug=False и слабым JWT секретом -> ValueError
     with pytest.raises(ValueError, match="JWT_SECRET_KEY must be set"):
         AppConfig(
-            server=ServerConfig(debug=False),
-            auth=AuthConfig(mode="ldaps_only", jwt=JWTConfig(secret_key="short"))
+            server=ServerConfig(debug=False), auth=AuthConfig(mode="ldaps_only", jwt=JWTConfig(secret_key="short"))
         )
 
 
 def test_trusted_cidr_proxy(monkeypatch):
     """Проверка поддержки CIDR подсетей доверенных прокси (Kubernetes Ingress)"""
     from app.core.security import is_trusted_proxy
+
     monkeypatch.setenv("TRUSTED_CIDRS", "10.0.0.0/8,172.16.0.0/12")
 
     assert is_trusted_proxy("10.244.1.5") is True
@@ -634,16 +691,16 @@ async def test_acl_unauthorized_cluster_execution_rejected():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Вход под analyst_user (группа bi-analysts, кластер hive-hortonworks доступен только data-engineers)
-        login_resp = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         token = login_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
         # 2. Попытка выполнить запрос на кластере hive-hortonworks без прав доступа
         exec_resp = await client.post(
-            "/api/v1/queries/execute",
-            headers=headers,
-            json={"cluster_id": "hive-hortonworks", "query": "SELECT 1"}
+            "/api/v1/queries/execute", headers=headers, json={"cluster_id": "hive-hortonworks", "query": "SELECT 1"}
         )
         assert exec_resp.status_code == 403
         assert exec_resp.json()["detail"] == "Доступ к данному кластеру запрещен ACL"
@@ -745,12 +802,16 @@ async def test_sql_user_workspace_isolation():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Логин analyst_user и admin_user
-        login_analyst = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        login_analyst = await client.post(
+            "/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"}
+        )
         assert login_analyst.status_code == 200
         token_analyst = login_analyst.json()["access_token"]
         headers_analyst = {"Authorization": f"Bearer {token_analyst}"}
 
-        login_admin = await client.post("/api/v1/auth/login", json={"username": "admin_user", "password": "password123"})
+        login_admin = await client.post(
+            "/api/v1/auth/login", json={"username": "admin_user", "password": "password123"}
+        )
         assert login_admin.status_code == 200
         token_admin = login_admin.json()["access_token"]
         headers_admin = {"Authorization": f"Bearer {token_admin}"}
@@ -775,9 +836,9 @@ async def test_sql_user_workspace_isolation():
                     "query": "SELECT * FROM tpch.sf1.orders LIMIT 10;",
                     "columns": [{"name": "orderkey", "type": "bigint"}],
                     "rows": [[1]],
-                    "totalRows": 1
+                    "totalRows": 1,
                 }
-            ]
+            ],
         }
         put_resp = await client.put("/api/v1/workspace", json={"state": analyst_state}, headers=headers_analyst)
         assert put_resp.status_code == 200
@@ -800,9 +861,9 @@ async def test_sql_user_workspace_isolation():
                     "query": "SHOW DATABASES;",
                     "columns": [],
                     "rows": [],
-                    "totalRows": 0
+                    "totalRows": 0,
                 }
-            ]
+            ],
         }
         await client.put("/api/v1/workspace", json={"state": admin_state}, headers=headers_admin)
 
@@ -880,6 +941,7 @@ async def test_sql_readyz_and_crash_recovery():
 
         # 2. Crash recovery
         import uuid
+
         qid = f"stale-sql-{uuid.uuid4()}"
         async with AsyncSessionLocal() as db:
             stale_query = QueryHistory(
@@ -903,15 +965,3 @@ async def test_sql_readyz_and_crash_recovery():
             assert res.status == "FAILED"
             assert res.is_in_queue is False
             assert "перезапущен" in res.error_message
-
-
-
-
-
-
-
-
-
-
-
-

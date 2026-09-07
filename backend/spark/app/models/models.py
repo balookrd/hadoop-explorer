@@ -2,8 +2,10 @@ import datetime
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, DateTime, JSON
 from app.db.session import Base
 
+
 def utcnow():
     return datetime.datetime.now(datetime.timezone.utc)
+
 
 class SparkSessionRecord(Base):
     __tablename__ = "spark_sessions"
@@ -22,14 +24,15 @@ class SparkSessionRecord(Base):
     yarn_application_id = Column(String(128), index=True, nullable=True)
     status = Column(String(32), index=True, default="not_started")  # not_started, starting, idle, busy, dead, killed
 
-    packages = Column(JSON, nullable=True)     # Список Maven координат
-    jars = Column(JSON, nullable=True)         # Список JAR путей
-    py_files = Column(JSON, nullable=True)     # Список Python файлов/zip
-    spark_conf = Column(JSON, nullable=True)   # Словарь spark.conf переопределений
+    packages = Column(JSON, nullable=True)  # Список Maven координат
+    jars = Column(JSON, nullable=True)  # Список JAR путей
+    py_files = Column(JSON, nullable=True)  # Список Python файлов/zip
+    spark_conf = Column(JSON, nullable=True)  # Словарь spark.conf переопределений
 
     created_at = Column(DateTime, default=utcnow, index=True)
     last_activity_at = Column(DateTime, default=utcnow, index=True)
     stopped_at = Column(DateTime, nullable=True)
+
 
 class SparkExecutionHistory(Base):
     __tablename__ = "spark_execution_history"
@@ -53,6 +56,7 @@ class SparkExecutionHistory(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
 
+
 class RevokedToken(Base):
     __tablename__ = "revoked_tokens"
 
@@ -60,6 +64,7 @@ class RevokedToken(Base):
     username = Column(String(128), index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, default=utcnow, nullable=False)
+
 
 class SparkUserWorkspace(Base):
     __tablename__ = "spark_user_workspaces"

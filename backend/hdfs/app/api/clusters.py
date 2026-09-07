@@ -26,9 +26,7 @@ async def list_clusters(current_user: UserInfo = Depends(get_current_user)):
 
 @router.post("/cross-copy", response_model=CrossClusterCopyResponse)
 async def cross_cluster_copy(
-    req: CrossClusterCopyRequest,
-    request: Request,
-    current_user: UserInfo = Depends(get_current_user)
+    req: CrossClusterCopyRequest, request: Request, current_user: UserInfo = Depends(get_current_user)
 ):
     """
     Копирование файла или директории между HDFS кластерами с надежным потоковым переносом и аудитом.
@@ -36,39 +34,39 @@ async def cross_cluster_copy(
     src_cluster = cluster_registry.get(req.source_cluster_id)
     if not src_cluster:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Исходный кластер '{req.source_cluster_id}' не найден"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Исходный кластер '{req.source_cluster_id}' не найден"
         )
 
     dst_cluster = cluster_registry.get(req.target_cluster_id)
     if not dst_cluster:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Целевой кластер '{req.target_cluster_id}' не найден"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Целевой кластер '{req.target_cluster_id}' не найден"
         )
 
     if not can_access_cluster(src_cluster, current_user.username, current_user.groups):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"У вас нет прав доступа к исходному кластеру '{src_cluster.name}'"
+            detail=f"У вас нет прав доступа к исходному кластеру '{src_cluster.name}'",
         )
 
     if not can_access_cluster(dst_cluster, current_user.username, current_user.groups):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"У вас нет прав доступа к целевому кластеру '{dst_cluster.name}'"
+            detail=f"У вас нет прав доступа к целевому кластеру '{dst_cluster.name}'",
         )
 
     if is_cluster_read_only(dst_cluster, current_user.username, current_user.groups):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Целевой кластер '{dst_cluster.name}' доступен только для чтения"
+            detail=f"Целевой кластер '{dst_cluster.name}' доступен только для чтения",
         )
 
     clean_src = sanitize_hdfs_path(req.source_path)
     clean_dst = sanitize_hdfs_path(req.target_path)
     if clean_src == "/":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Копирование корневого каталога (/) запрещено")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Копирование корневого каталога (/) запрещено"
+        )
 
     try:
         res = await hdfs_service.copy_cross_cluster(
@@ -77,7 +75,7 @@ async def cross_cluster_copy(
             target_cluster=dst_cluster,
             target_path=clean_dst,
             username=current_user.username,
-            overwrite=req.overwrite
+            overwrite=req.overwrite,
         )
         audit_log(
             action="CROSS_CLUSTER_COPY_SUCCESS",
@@ -90,9 +88,9 @@ async def cross_cluster_copy(
                 "target_path": res.get("target_path", clean_dst),
                 "copied_files": res.get("copied_files", 0),
                 "copied_bytes": res.get("copied_bytes", 0),
-                "overwrite": req.overwrite
+                "overwrite": req.overwrite,
             },
-            status="SUCCESS"
+            status="SUCCESS",
         )
         return CrossClusterCopyResponse(**res)
     except WebHdfsException as e:
@@ -106,9 +104,9 @@ async def cross_cluster_copy(
                 "target_cluster_id": dst_cluster.id,
                 "target_path": clean_dst,
                 "error": e.message,
-                "overwrite": req.overwrite
+                "overwrite": req.overwrite,
             },
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
@@ -122,8 +120,8 @@ async def cross_cluster_copy(
                 "target_cluster_id": dst_cluster.id,
                 "target_path": clean_dst,
                 "error": str(e),
-                "overwrite": req.overwrite
+                "overwrite": req.overwrite,
             },
-            status="FAILED"
+            status="FAILED",
         )
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ошибка копирования: {e}")

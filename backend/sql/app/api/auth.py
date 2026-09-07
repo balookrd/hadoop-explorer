@@ -10,7 +10,7 @@ from app.core.security import (
     get_client_ip,
     UserSession,
     revoke_token_in_db,
-    verify_csrf
+    verify_csrf,
 )
 from app.core.rate_limiter import auth_rate_limiter
 from app.core.acl import check_ui_access
@@ -20,14 +20,17 @@ from app.core.audit import log_audit_event, AuditEventType
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserSession
+
 
 @router.post("/login", response_model=AuthResponse)
 async def login(req: LoginRequest, request: Request, response: Response):
@@ -46,7 +49,7 @@ async def login(req: LoginRequest, request: Request, response: Response):
                     "display_name": m.display_name,
                     "email": m.email,
                     "groups": m.groups,
-                    "auth_method": "mock"
+                    "auth_method": "mock",
                 }
                 break
 
@@ -60,12 +63,9 @@ async def login(req: LoginRequest, request: Request, response: Response):
             username=req.username,
             client_ip=client_ip,
             status="FAILED",
-            details={"reason": "Неверное имя пользователя или пароль"}
+            details={"reason": "Неверное имя пользователя или пароль"},
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверное имя пользователя или пароль"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверное имя пользователя или пароль")
 
     # Проверка ACL на доступ к Web-UI
     admin_groups = set(settings.acl.ui_access.admin_groups)
@@ -77,7 +77,7 @@ async def login(req: LoginRequest, request: Request, response: Response):
         email=user_info.get("email"),
         groups=user_info.get("groups", []),
         is_admin=is_admin,
-        auth_method=user_info.get("auth_method", "ldap")
+        auth_method=user_info.get("auth_method", "ldap"),
     )
 
     if not check_ui_access(session_user):
@@ -86,11 +86,11 @@ async def login(req: LoginRequest, request: Request, response: Response):
             username=session_user.username,
             client_ip=client_ip,
             status="DENIED",
-            details={"resource": "web_ui", "groups": session_user.groups}
+            details={"resource": "web_ui", "groups": session_user.groups},
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ к Web-UI запрещен политиками безопасности (ACL). Обратитесь к администратору."
+            detail="Доступ к Web-UI запрещен политиками безопасности (ACL). Обратитесь к администратору.",
         )
 
     log_audit_event(
@@ -98,7 +98,7 @@ async def login(req: LoginRequest, request: Request, response: Response):
         username=session_user.username,
         client_ip=client_ip,
         status="SUCCESS",
-        details={"auth_method": session_user.auth_method, "groups": session_user.groups}
+        details={"auth_method": session_user.auth_method, "groups": session_user.groups},
     )
 
     # Создаем JWT
@@ -107,18 +107,19 @@ async def login(req: LoginRequest, request: Request, response: Response):
         "display_name": session_user.display_name,
         "email": session_user.email,
         "groups": session_user.groups,
-        "auth_method": session_user.auth_method
+        "auth_method": session_user.auth_method,
     }
     access_token = create_access_token(token_data)
     payload = decode_access_token(access_token)
 
     # Сохраняем активную сессию в базу данных для устойчивости к рестартам
     from app.services.storage import storage_service
+
     storage_service.save_session(
         token=access_token,
         user=session_user,
         expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
-        jti=payload.get("jti") if payload else None
+        jti=payload.get("jti") if payload else None,
     )
 
     # Выставляем HttpOnly Cookie для удобной работы в браузере и EventSource
@@ -128,10 +129,11 @@ async def login(req: LoginRequest, request: Request, response: Response):
         httponly=True,
         secure=settings.server.secure_cookies,
         samesite="lax",
-        max_age=settings.auth.jwt.expire_minutes * 60
+        max_age=settings.auth.jwt.expire_minutes * 60,
     )
 
     return AuthResponse(access_token=access_token, user=session_user)
+
 
 @router.get("/sso")
 async def kerberos_negotiate(request: Request, response: Response):
@@ -143,19 +145,13 @@ async def kerberos_negotiate(request: Request, response: Response):
     if not auth_header.startswith("Negotiate "):
         # Просим браузер аутентифицироваться через SPNEGO
         response.headers["WWW-Authenticate"] = "Negotiate"
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Требуется аутентификация Kerberos SPNEGO"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Требуется аутентификация Kerberos SPNEGO")
 
-    token_b64 = auth_header[len("Negotiate "):].strip()
+    token_b64 = auth_header[len("Negotiate ") :].strip()
     user_info = authenticate_spnego(token_b64)
 
     if not user_info:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Ошибка валидации Kerberos билета"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Ошибка валидации Kerberos билета")
 
     groups = user_info.get("groups", [])
     display_name = user_info.get("display_name", user_info["username"])
@@ -180,30 +176,30 @@ async def kerberos_negotiate(request: Request, response: Response):
         email=email,
         groups=groups,
         is_admin=is_admin,
-        auth_method="kerberos"
+        auth_method="kerberos",
     )
 
     if not check_ui_access(session_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ запрещен политиками ACL"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ запрещен политиками ACL")
 
-    access_token = create_access_token({
-        "sub": session_user.username,
-        "display_name": session_user.display_name,
-        "email": session_user.email,
-        "groups": session_user.groups,
-        "auth_method": "kerberos"
-    })
+    access_token = create_access_token(
+        {
+            "sub": session_user.username,
+            "display_name": session_user.display_name,
+            "email": session_user.email,
+            "groups": session_user.groups,
+            "auth_method": "kerberos",
+        }
+    )
     payload = decode_access_token(access_token)
 
     from app.services.storage import storage_service
+
     storage_service.save_session(
         token=access_token,
         user=session_user,
         expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
-        jti=payload.get("jti") if payload else None
+        jti=payload.get("jti") if payload else None,
     )
 
     response.set_cookie(
@@ -212,12 +208,11 @@ async def kerberos_negotiate(request: Request, response: Response):
         httponly=True,
         secure=settings.server.secure_cookies,
         samesite="lax",
-        max_age=settings.auth.jwt.expire_minutes * 60
+        max_age=settings.auth.jwt.expire_minutes * 60,
     )
 
     if user_info.get("out_token"):
         response.headers["WWW-Authenticate"] = f"Negotiate {user_info['out_token']}"
-
 
     client_ip = get_client_ip(request)
     log_audit_event(
@@ -225,14 +220,16 @@ async def kerberos_negotiate(request: Request, response: Response):
         username=session_user.username,
         client_ip=client_ip,
         status="SUCCESS",
-        details={"auth_method": "kerberos", "groups": session_user.groups}
+        details={"auth_method": "kerberos", "groups": session_user.groups},
     )
 
     return {"access_token": access_token, "user": session_user}
 
+
 @router.get("/me", response_model=UserSession)
 async def get_me(current_user: UserSession = Depends(get_current_user)):
     return current_user
+
 
 @router.post("/logout")
 async def logout(request: Request, response: Response):
@@ -254,15 +251,10 @@ async def logout(request: Request, response: Response):
         payload = decode_access_token(token)
         username = payload.get("sub", "unknown") if payload else "unknown"
         from app.services.storage import storage_service
+
         storage_service.delete_session(token)
         await revoke_token_in_db(token, username=username)
-        log_audit_event(
-            AuditEventType.AUTH_LOGOUT,
-            username=username,
-            client_ip=client_ip,
-            status="SUCCESS"
-        )
+        log_audit_event(AuditEventType.AUTH_LOGOUT, username=username, client_ip=client_ip, status="SUCCESS")
 
     response.delete_cookie("access_token")
     return {"status": "ok", "message": "Успешный выход из системы"}
-

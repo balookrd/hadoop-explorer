@@ -27,7 +27,7 @@ def _make_queue(name: str, parent: str, capacity: float, max_cap: float, action:
                 is_elastic=max_cap > capacity,
                 elasticity_ratio=round(max_cap / capacity, 2) if capacity > 0 else 1.0,
             )
-        }
+        },
     )
 
 
@@ -116,24 +116,30 @@ class TestXmlGenerator:
                 action="modify",
                 is_leaf=False,
                 state=QueueState.RUNNING,
-                partitions={"DEFAULT": PartitionResourceConfig(
-                    partition_name="DEFAULT", capacity=100.0, max_capacity=100.0,
-                    is_elastic=False, elasticity_ratio=1.0,
-                )},
+                partitions={
+                    "DEFAULT": PartitionResourceConfig(
+                        partition_name="DEFAULT",
+                        capacity=100.0,
+                        max_capacity=100.0,
+                        is_elastic=False,
+                        elasticity_ratio=1.0,
+                    )
+                },
             ),
             _make_queue("prod", "root", 60.0, 90.0),
             _make_queue("dev", "root", 40.0, 50.0),
         ]
         xml = generate_capacity_scheduler_xml(queues, cluster, generated_by="test_user")
         assert '<?xml version="1.0"' in xml
-        assert '<configuration>' in xml
-        assert '</configuration>' in xml
-        assert 'yarn.scheduler.capacity.root.prod.capacity' in xml
-        assert '60.0' in xml
-        assert 'yarn.scheduler.capacity.root.queues' in xml
+        assert "<configuration>" in xml
+        assert "</configuration>" in xml
+        assert "yarn.scheduler.capacity.root.prod.capacity" in xml
+        assert "60.0" in xml
+        assert "yarn.scheduler.capacity.root.queues" in xml
 
     def test_xml_has_valid_structure(self):
         import xml.etree.ElementTree as ET
+
         cluster = self._make_cluster()
         queues = [
             _make_queue("default", "root", 100.0, 100.0),
@@ -241,11 +247,7 @@ class TestXmlGenerator:
         q = _make_queue("prod", "root", 75.0, 95.0)
         q.max_applications = 8000
 
-        xml = generate_capacity_scheduler_xml(
-            [q],
-            cluster,
-            base_xml=base_xml
-        )
+        xml = generate_capacity_scheduler_xml([q], cluster, base_xml=base_xml)
 
         # Необрабатываемые параметры должны сохраниться!
         assert "yarn.scheduler.capacity.resource-calculator" in xml
@@ -297,11 +299,7 @@ class TestXmlGenerator:
         del_q = _make_queue("dev", "root", 0, 0)
         del_q.action = "delete"
 
-        xml = generate_capacity_scheduler_xml(
-            [del_q],
-            cluster,
-            base_xml=base_xml
-        )
+        xml = generate_capacity_scheduler_xml([del_q], cluster, base_xml=base_xml)
 
         # dev свойства должны быть удалены
         assert "yarn.scheduler.capacity.root.dev.capacity" not in xml
@@ -311,7 +309,10 @@ class TestXmlGenerator:
         assert "yarn.scheduler.capacity.resource-calculator" in xml
         assert "yarn.scheduler.capacity.root.prod.capacity" in xml
         # Из root.queues dev должен уйти, prod остаться
-        assert "<name>yarn.scheduler.capacity.root.queues</name>\n        <value>prod</value>" in xml or "<value>prod</value>" in xml
+        assert (
+            "<name>yarn.scheduler.capacity.root.queues</name>\n        <value>prod</value>" in xml
+            or "<value>prod</value>" in xml
+        )
 
     def test_xml_queue_creation_preserves_base_xml(self):
         cluster = self._make_cluster()
@@ -335,11 +336,7 @@ class TestXmlGenerator:
         new_q = _make_queue("ml", "root", 40.0, 50.0)
         new_q.action = "create"
 
-        xml = generate_capacity_scheduler_xml(
-            [new_q],
-            cluster,
-            base_xml=base_xml
-        )
+        xml = generate_capacity_scheduler_xml([new_q], cluster, base_xml=base_xml)
 
         # Необрабатываемое свойство на месте
         assert "yarn.scheduler.capacity.resource-calculator" in xml
@@ -360,6 +357,7 @@ class TestXmlGenerator:
 
         # Добавляем партицию gpu в ml
         from app.models.yarn import PartitionResourceConfig
+
         ml_q.partitions["gpu"] = PartitionResourceConfig(
             partition_name="gpu",
             capacity=100.0,
@@ -377,4 +375,3 @@ class TestXmlGenerator:
         assert "<value>100.0</value>" in xml
         assert "yarn.scheduler.capacity.root.accessible-node-labels" in xml
         assert "<value>*</value>" in xml
-

@@ -18,11 +18,7 @@ async def test_cross_cluster_copy_loop_protection():
     # 1. Одинаковые пути в одном кластере -> ошибка 400
     with pytest.raises(WebHdfsException) as exc_info:
         await hdfs_service.copy_cross_cluster(
-            source_cluster=cluster,
-            source_path="/data",
-            target_cluster=cluster,
-            target_path="/data",
-            username="admin"
+            source_cluster=cluster, source_path="/data", target_cluster=cluster, target_path="/data", username="admin"
         )
     assert exc_info.value.status_code == 400
     assert "совпадают" in exc_info.value.message
@@ -34,7 +30,7 @@ async def test_cross_cluster_copy_loop_protection():
             source_path="/data",
             target_cluster=cluster,
             target_path="/data/subfolder/nested",
-            username="admin"
+            username="admin",
         )
     assert exc_info.value.status_code == 400
     assert "зацикливания" in exc_info.value.message or "подкаталогом" in exc_info.value.message
@@ -57,12 +53,9 @@ async def test_cross_cluster_copy_api_success_and_audit():
                 "source_path": "/data/events.json",
                 "target_cluster_id": "demo-cluster",
                 "target_path": "/tmp/events_copied.json",
-                "overwrite": True
+                "overwrite": True,
             },
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Requested-With": "XMLHttpRequest"
-            }
+            headers={"Authorization": f"Bearer {token}", "X-Requested-With": "XMLHttpRequest"},
         )
         assert resp.status_code == 200
         data = resp.json()

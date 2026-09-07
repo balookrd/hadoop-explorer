@@ -23,7 +23,6 @@ class ServerConfig(BaseModel):
     )
 
 
-
 class MockUserConfig(BaseModel):
     username: str
     password: Optional[str] = None
@@ -46,7 +45,7 @@ class KerberosConfig(BaseModel):
 
 
 class JwtConfig(BaseModel):
-    secret_key: str = "default-secret-key-change-it"
+    secret_key: str = ""
     algorithm: str = "HS256"
     expire_minutes: int = 480
 
@@ -81,8 +80,6 @@ class AclConfig(BaseModel):
     enforce_four_eyes: bool = True
 
 
-
-
 class DatabaseConfig(BaseModel):
     url: str = "sqlite:///data/yarn_explorer.db"
 
@@ -101,12 +98,9 @@ class Settings(BaseSettings):
                     "Mock authentication cannot be used in production mode (debug=False). "
                     "Please configure LDAP or Kerberos SPNEGO authentication or set server.debug=True for local development."
                 )
-            insecure_defaults = (
-                "default-secret-key-change-it",
-                "yarn-explorer-super-secret-key-change-in-production-random-hash",
-                "change-this-in-production-secret-key-32-chars-long"
-            )
-            if self.auth.jwt.secret_key in insecure_defaults or len(self.auth.jwt.secret_key) < 32:
+            from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
+
+            if self.auth.jwt.secret_key in INSECURE_DEFAULT_KEYS or len(self.auth.jwt.secret_key) < 32:
                 raise ValueError(
                     "JWT_SECRET_KEY must be set to a secure unique string (at least 32 characters) in production mode."
                 )
@@ -117,7 +111,9 @@ class Settings(BaseSettings):
         if not config_path:
             config_path = os.environ.get("CONFIG_PATH")
             if not config_path:
-                project_cfg = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "config.yaml"))
+                project_cfg = os.path.normpath(
+                    os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "config.yaml")
+                )
                 if os.path.exists(project_cfg):
                     config_path = project_cfg
                 else:
@@ -166,9 +162,11 @@ class Settings(BaseSettings):
         if env_four_eyes is not None:
             inst.acl.enforce_four_eyes = env_four_eyes.lower() in ("1", "true", "yes")
 
+        from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
 
-        if inst.auth.jwt.secret_key in ("default-secret-key-change-it", "yarn-explorer-super-secret-key-change-in-production-random-hash"):
+        if inst.auth.jwt.secret_key in INSECURE_DEFAULT_KEYS:
             import logging
+
             logging.getLogger("app.core.config").warning(
                 "ВНИМАНИЕ БЕЗОПАСНОСТИ: Используется стандартный секретный ключ JWT. "
                 "Обязательно замените settings.auth.jwt.secret_key в продакшн-окружении или через переменную JWT_SECRET_KEY!"

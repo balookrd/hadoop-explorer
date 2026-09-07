@@ -19,62 +19,13 @@ from sqlalchemy import (
     delete,
     insert,
     func,
-    text
+    text,
 )
 from sqlalchemy.pool import StaticPool
 
+from backend.common.core.cache import L1RevokedTokenCache
+
 logger = logging.getLogger("hadoop_explorer.storage")
-
-
-class L1RevokedTokenCache:
-    """
-    Потокобезопасный L1 In-Memory LRU-кэш для отозванных токенов с TTL.
-    Обеспечивает защиту от Fail-Open при сбоях Redis/БД.
-    """
-    def __init__(self, max_size: int = 10000):
-        self.max_size = max_size
-        self._cache: OrderedDict[str, float] = OrderedDict()
-        self._lock = threading.Lock()
-
-    def add(self, key: str, expires_at_ts: Optional[float] = None):
-        if not key:
-            return
-        now = time.time()
-        exp_ts = expires_at_ts if (expires_at_ts is not None and expires_at_ts > 0) else (now + 86400.0)
-        with self._lock:
-            if len(self._cache) >= self.max_size and key not in self._cache:
-                self._cache.popitem(last=False)
-            self._cache[key] = exp_ts
-            self._cache.move_to_end(key)
-
-    def contains(self, key: str) -> bool:
-        if not key:
-            return False
-        now = time.time()
-        with self._lock:
-            if key not in self._cache:
-                return False
-            exp_ts = self._cache[key]
-            if exp_ts < now:
-                del self._cache[key]
-                return False
-            self._cache.move_to_end(key)
-            return True
-
-    def cleanup(self):
-        now = time.time()
-        with self._lock:
-            expired_keys = [k for k, exp in self._cache.items() if exp < now]
-            for k in expired_keys:
-                del self._cache[k]
-
-    def clear(self):
-        with self._lock:
-            self._cache.clear()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._cache)
 
 
 class BaseStorageService:
@@ -84,8 +35,14 @@ class BaseStorageService:
     - Скользящее окно rate limiting (sliding window)
     Поддерживает SQLite (включая async диалекты, WAL, :memory:), PostgreSQL (asyncpg, psycopg2) и Redis.
     """
+
     def __init__(self, db_url: Optional[str] = None, redis_url: Optional[str] = None):
-        raw_db_url = db_url or os.environ.get("DATABASE_URL") or os.environ.get("DB_PATH") or "sqlite:////tmp/hadoop_explorer_security.db"
+        raw_db_url = (
+            db_url
+            or os.environ.get("DATABASE_URL")
+            or os.environ.get("DB_PATH")
+            or "sqlite:////tmp/hadoop_explorer_security.db"
+        )
         redis_env = redis_url or os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
 
         # Проверка, является ли переданный URL адресом Redis
@@ -108,6 +65,7 @@ class BaseStorageService:
         if self._is_redis and self.redis_url:
             try:
                 import redis
+
                 self.redis_client = redis.Redis.from_url(self.redis_url, decode_responses=True)
                 self.redis_client.ping()
                 logger.info(f"BaseStorageService подключен к Redis: {self.redis_url}")
@@ -153,7 +111,7 @@ class BaseStorageService:
         url = raw_url.replace("postgresql+asyncpg://", "postgresql://")
         url = url.replace("sqlite+aiosqlite://", "sqlite://")
         if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://"):]
+            url = "postgresql://" + url[len("postgres://") :]
 
         is_sqlite = url.startswith("sqlite")
         is_memory = ":memory:" in url
@@ -184,6 +142,7 @@ class BaseStorageService:
                 # Создаем директорию для файла SQLite
                 try:
                     import urllib.parse
+
                     parsed = urllib.parse.urlparse(sync_url)
                     file_path = parsed.path
                     if file_path:
@@ -241,7 +200,7 @@ class BaseStorageService:
                         jti=jti,
                         exp=int(exp_ts),
                         expires_at=expires_at or datetime.now(timezone.utc).isoformat(),
-                        created_at=int(time.time())
+                        created_at=int(time.time()),
                     )
                 )
             return True
@@ -268,9 +227,11 @@ class BaseStorageService:
                 return is_rev
 
             with self.engine.connect() as conn:
-                stmt = select(self.revoked_tokens_table.c.jti, self.revoked_tokens_table.c.exp).where(
-                    self.revoked_tokens_table.c.jti == jti
-                ).limit(1)
+                stmt = (
+                    select(self.revoked_tokens_table.c.jti, self.revoked_tokens_table.c.exp)
+                    .where(self.revoked_tokens_table.c.jti == jti)
+                    .limit(1)
+                )
                 row = conn.execute(stmt).fetchone()
                 if row:
                     exp_val = float(row[1]) if row[1] else None
@@ -330,11 +291,7 @@ class BaseStorageService:
                     retry_after = max(1, int(window_seconds - (current_time - oldest_ts)))
                     return False, retry_after
 
-                conn.execute(
-                    insert(self.rate_limits_table).values(
-                        key=key, timestamp=current_time
-                    )
-                )
+                conn.execute(insert(self.rate_limits_table).values(key=key, timestamp=current_time))
                 return True, 0
         except Exception as e:
             logger.error(f"Ошибка проверки rate limit для {key}: {e}")
@@ -359,16 +316,8 @@ class BaseStorageService:
         now = int(time.time())
         try:
             with self.engine.begin() as conn:
-                res = conn.execute(
-                    delete(self.revoked_tokens_table).where(
-                        self.revoked_tokens_table.c.exp < now
-                    )
-                )
-                conn.execute(
-                    delete(self.rate_limits_table).where(
-                        self.rate_limits_table.c.timestamp < (now - 3600)
-                    )
-                )
+                res = conn.execute(delete(self.revoked_tokens_table).where(self.revoked_tokens_table.c.exp < now))
+                conn.execute(delete(self.rate_limits_table).where(self.rate_limits_table.c.timestamp < (now - 3600)))
                 return res.rowcount or 0
         except Exception as e:
             logger.error(f"Ошибка очистки устаревших данных: {e}")

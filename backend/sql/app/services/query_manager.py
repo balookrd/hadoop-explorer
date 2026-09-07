@@ -23,6 +23,7 @@ logger = logging.getLogger("query_manager")
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/results"))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
+
 class ExecutionContext:
     def __init__(self, query_id: str, cluster: ClusterConfig, user: UserSession, query_text: str):
         self.query_id = query_id
@@ -41,10 +42,12 @@ class ExecutionContext:
     def cancel(self):
         self.cancel_event.set()
 
+
 class UserEventHub:
     """
     Глобальная шина событий для уведомления пользователей о завершении фоновых задач
     """
+
     def __init__(self):
         self.user_listeners: Dict[str, List[asyncio.Queue]] = {}
 
@@ -72,6 +75,7 @@ class UserEventHub:
         for d in dead:
             if d in listeners:
                 listeners.remove(d)
+
 
 class QueryManager:
     def __init__(self):
@@ -118,7 +122,7 @@ class QueryManager:
         while i < n:
             # Строковые литералы с одинарными кавычками '...'
             if sql[i] == "'":
-                result.append(' ')
+                result.append(" ")
                 i += 1
                 while i < n:
                     if sql[i] == "\\" and i + 1 < n:
@@ -129,13 +133,13 @@ class QueryManager:
                             i += 2
                             continue
                         else:
-                            result.append(' ')
+                            result.append(" ")
                             i += 1
                             break
                     i += 1
             # Строковые литералы с двойными кавычками "..."
             elif sql[i] == '"':
-                result.append(' ')
+                result.append(" ")
                 i += 1
                 while i < n:
                     if sql[i] == "\\" and i + 1 < n:
@@ -146,23 +150,23 @@ class QueryManager:
                             i += 2
                             continue
                         else:
-                            result.append(' ')
+                            result.append(" ")
                             i += 1
                             break
                     i += 1
             # Однострочные комментарии -- ...
-            elif sql[i:i+2] == "--":
+            elif sql[i : i + 2] == "--":
                 i += 2
-                while i < n and sql[i] not in ('\r', '\n'):
+                while i < n and sql[i] not in ("\r", "\n"):
                     i += 1
-                result.append('\n')
+                result.append("\n")
             # Многострочные комментарии /* ... */
-            elif sql[i:i+2] == "/*":
+            elif sql[i : i + 2] == "/*":
                 i += 2
-                while i < n and sql[i:i+2] != "*/":
+                while i < n and sql[i : i + 2] != "*/":
                     i += 1
                 i += 2
-                result.append(' ')
+                result.append(" ")
             else:
                 result.append(sql[i])
                 i += 1
@@ -176,14 +180,14 @@ class QueryManager:
         top_level_chars = []
         depth = 0
         for char in cleaned_sql:
-            if char == '(':
+            if char == "(":
                 depth += 1
-                top_level_chars.append(' ')
-            elif char == ')':
+                top_level_chars.append(" ")
+            elif char == ")":
                 depth = max(0, depth - 1)
-                top_level_chars.append(' ')
+                top_level_chars.append(" ")
             else:
-                top_level_chars.append(char if depth == 0 else ' ')
+                top_level_chars.append(char if depth == 0 else " ")
         top_level_str = "".join(top_level_chars)
         return bool(re.search(r"\blimit\s+\d+\b", top_level_str, re.IGNORECASE))
 
@@ -192,11 +196,13 @@ class QueryManager:
 
     async def _save_result_to_disk(self, query_id: str, columns: list, rows: list):
         path = self._get_result_path(query_id)
+
         def _write():
             data = {"columns": columns, "rows": rows}
             payload = json.dumps(data, default=str).encode("utf-8")
             with gzip.open(path, "wb") as f:
                 f.write(payload)
+
         await anyio.to_thread.run_sync(_write)
 
     async def get_cached_result(self, query_id: str, offset: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
@@ -221,7 +227,7 @@ class QueryManager:
             "rows": slice_rows,
             "total_rows": total_rows,
             "offset": offset,
-            "limit": limit
+            "limit": limit,
         }
 
     def cleanup_expired_results(self, ttl_seconds: Optional[int] = None) -> int:
@@ -248,7 +254,9 @@ class QueryManager:
                             if (now - mtime) > ttl_seconds:
                                 os.remove(fpath)
                                 deleted_count += 1
-                                logger.info(f"Удален устаревший файл результатов SQL: {fname} (возраст: {int(now - mtime)}с, TTL: {ttl_seconds}с)")
+                                logger.info(
+                                    f"Удален устаревший файл результатов SQL: {fname} (возраст: {int(now - mtime)}с, TTL: {ttl_seconds}с)"
+                                )
                         except OSError as e:
                             logger.warning(f"Не удалось удалить файл {fname}: {e}")
         except Exception as e:
@@ -260,9 +268,12 @@ class QueryManager:
         # Проверка Read-Only ограничений (защита от несанкционированных DROP/TRUNCATE/DELETE/ALTER/CREATE)
         if not getattr(cluster, "allow_dml_ddl", False):
             from app.services.ai_service import validate_readonly_sql_ast
+
             is_safe, err_msg = validate_readonly_sql_ast(query_text, dialect=cluster.type)
             if not is_safe:
-                raise ValueError(err_msg or "Кластер работает в режиме Read-Only. Выполнение DDL/DML запросов запрещено.")
+                raise ValueError(
+                    err_msg or "Кластер работает в режиме Read-Only. Выполнение DDL/DML запросов запрещено."
+                )
 
         query_id = str(uuid.uuid4())
         processed_query = self._sanitize_and_limit_query(query_text)
@@ -281,18 +292,16 @@ class QueryManager:
                 query_text=processed_query,
                 status="QUEUED",
                 is_in_queue=True,
-                created_at=now
+                created_at=now,
             )
             db.add(history)
             await db.commit()
 
         # Уведомляем пользователя о постановке в очередь
-        await self.event_hub.notify_user(user.username, {
-            "type": "QUERY_QUEUED",
-            "query_id": query_id,
-            "cluster_name": cluster.name,
-            "status": "QUEUED"
-        })
+        await self.event_hub.notify_user(
+            user.username,
+            {"type": "QUERY_QUEUED", "query_id": query_id, "cluster_name": cluster.name, "status": "QUEUED"},
+        )
 
         # Запускаем независимый воркер
         asyncio.create_task(self._worker_wrapper(ctx))
@@ -316,12 +325,15 @@ class QueryManager:
                 )
                 await db.commit()
 
-            await self.event_hub.notify_user(ctx.user.username, {
-                "type": "QUERY_STARTED",
-                "query_id": ctx.query_id,
-                "cluster_name": ctx.cluster.name,
-                "status": "RUNNING"
-            })
+            await self.event_hub.notify_user(
+                ctx.user.username,
+                {
+                    "type": "QUERY_STARTED",
+                    "query_id": ctx.query_id,
+                    "cluster_name": ctx.cluster.name,
+                    "status": "RUNNING",
+                },
+            )
 
             await self._run_query_execution(ctx)
 
@@ -332,7 +344,7 @@ class QueryManager:
                 query=ctx.query_text,
                 user_login=ctx.user.username,
                 max_rows=settings.query_defaults.max_rows_in_ui,
-                cancel_event=ctx.cancel_event
+                cancel_event=ctx.cancel_event,
             )
 
             async for event in generator:
@@ -384,30 +396,30 @@ class QueryManager:
                     error_message=ctx.error_message,
                     columns=ctx.columns,
                     has_cached_result=has_cached,
-                    finished_at=finished_at
+                    finished_at=finished_at,
                 )
             )
             await db.execute(stmt)
             await db.commit()
 
         # Глобальное уведомление пользователю (даже если вкладка закрыта или не на экране)
-        await self.event_hub.notify_user(ctx.user.username, {
-            "type": "QUERY_FINISHED",
-            "query_id": ctx.query_id,
-            "status": ctx.status,
-            "rows_count": ctx.total_rows,
-            "duration_ms": duration_ms,
-            "cluster_name": ctx.cluster.name,
-            "has_result": has_cached,
-            "error_message": ctx.error_message
-        })
+        await self.event_hub.notify_user(
+            ctx.user.username,
+            {
+                "type": "QUERY_FINISHED",
+                "query_id": ctx.query_id,
+                "status": ctx.status,
+                "rows_count": ctx.total_rows,
+                "duration_ms": duration_ms,
+                "cluster_name": ctx.cluster.name,
+                "has_result": has_cached,
+                "error_message": ctx.error_message,
+            },
+        )
 
-        await self._broadcast(ctx, {
-            "type": "stream_end",
-            "status": ctx.status,
-            "duration_ms": duration_ms,
-            "total_rows": ctx.total_rows
-        })
+        await self._broadcast(
+            ctx, {"type": "stream_end", "status": ctx.status, "duration_ms": duration_ms, "total_rows": ctx.total_rows}
+        )
 
         # Освобождаем из активной памяти
         await asyncio.sleep(2)
@@ -441,21 +453,15 @@ class QueryManager:
             update_stmt = (
                 update(QueryHistory)
                 .where(QueryHistory.id == query_id)
-                .values(
-                    is_in_queue=False,
-                    status=new_status,
-                    finished_at=datetime.datetime.now(datetime.timezone.utc)
-                )
+                .values(is_in_queue=False, status=new_status, finished_at=datetime.datetime.now(datetime.timezone.utc))
             )
             await db.execute(update_stmt)
             await db.commit()
 
         # 3. Уведомляем пользователя об удалении из очереди
-        await self.event_hub.notify_user(user.username, {
-            "type": "QUERY_REMOVED_FROM_QUEUE",
-            "query_id": query_id,
-            "status": "CANCELLED"
-        })
+        await self.event_hub.notify_user(
+            user.username, {"type": "QUERY_REMOVED_FROM_QUEUE", "query_id": query_id, "status": "CANCELLED"}
+        )
 
         return True
 
@@ -507,10 +513,13 @@ class QueryManager:
                 await db.commit()
                 recovered_count = result.rowcount or 0
                 if recovered_count > 0:
-                    logger.warning(f"Crash Recovery: переведено {recovered_count} зависших SQL-запросов в статус FAILED")
+                    logger.warning(
+                        f"Crash Recovery: переведено {recovered_count} зависших SQL-запросов в статус FAILED"
+                    )
                 return recovered_count
         except Exception as e:
             logger.error(f"Ошибка Crash Recovery SQL-запросов: {e}")
             return 0
+
 
 query_manager = QueryManager()

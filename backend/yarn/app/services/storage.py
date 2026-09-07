@@ -32,6 +32,7 @@ from app.models.change_requests import ChangeRequestSummary, ChangeRequestRespon
 from app.models.yarn import DraftQueueItem, DiffItem
 from backend.common.core.security import hash_token
 from backend.common.core.session_store import SessionStore, L1RevokedTokenCache
+from backend.common.core.lock import distributed_lock
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class StorageService(SessionStore):
     Наследует SessionStore для полной поддержки активных сессий, отзыва токенов и rate limiting,
     а также управляет заявками на изменения (Change Requests).
     """
+
     def __init__(self, db_path: Optional[str] = None, db_url: Optional[str] = None):
         redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
         if db_url:
@@ -58,7 +60,9 @@ class StorageService(SessionStore):
             else:
                 resolved_url = f"sqlite:///{db_path}"
         else:
-            resolved_url = os.environ.get("YARN_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database.url
+            resolved_url = (
+                os.environ.get("YARN_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database.url
+            )
 
         super().__init__(db_url=resolved_url, default_db_path="/app/data/yarn_explorer.db")
 
@@ -281,38 +285,39 @@ class StorageService(SessionStore):
         comment: str,
         xml_content: str,
     ) -> bool:
-        now = datetime.now(timezone.utc).isoformat()
-        if self._is_redis:
-            raw = self.redis_client.get(f"yarn:cr:{cr_id}")
-            if not raw:
-                return False
-            d = json.loads(raw)
-            if d.get("status") != "SUBMITTED":
-                return False
-            d["status"] = "APPROVED"
-            d["reviewer"] = reviewer
-            d["review_comment"] = comment
-            d["reviewed_at"] = now
-            d["xml_content"] = xml_content
-            d["updated_at"] = now
-            self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
-            return True
+        with distributed_lock.lock_sync(f"yarn:cr:{cr_id}", ttl_seconds=10.0):
+            now = datetime.now(timezone.utc).isoformat()
+            if self._is_redis:
+                raw = self.redis_client.get(f"yarn:cr:{cr_id}")
+                if not raw:
+                    return False
+                d = json.loads(raw)
+                if d.get("status") != "SUBMITTED":
+                    return False
+                d["status"] = "APPROVED"
+                d["reviewer"] = reviewer
+                d["review_comment"] = comment
+                d["reviewed_at"] = now
+                d["xml_content"] = xml_content
+                d["updated_at"] = now
+                self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
+                return True
 
-        stmt = (
-            update(self.cr_table)
-            .where(self.cr_table.c.id == cr_id, self.cr_table.c.status == "SUBMITTED")
-            .values(
-                status="APPROVED",
-                reviewer=reviewer,
-                review_comment=comment,
-                reviewed_at=now,
-                xml_content=xml_content,
-                updated_at=now,
+            stmt = (
+                update(self.cr_table)
+                .where(self.cr_table.c.id == cr_id, self.cr_table.c.status == "SUBMITTED")
+                .values(
+                    status="APPROVED",
+                    reviewer=reviewer,
+                    review_comment=comment,
+                    reviewed_at=now,
+                    xml_content=xml_content,
+                    updated_at=now,
+                )
             )
-        )
-        with self.engine.begin() as conn:
-            result = conn.execute(stmt)
-            return result.rowcount > 0
+            with self.engine.begin() as conn:
+                result = conn.execute(stmt)
+                return result.rowcount > 0
 
     def reject_change_request(
         self,
@@ -320,70 +325,72 @@ class StorageService(SessionStore):
         reviewer: str,
         comment: str,
     ) -> bool:
-        now = datetime.now(timezone.utc).isoformat()
-        if self._is_redis:
-            raw = self.redis_client.get(f"yarn:cr:{cr_id}")
-            if not raw:
-                return False
-            d = json.loads(raw)
-            if d.get("status") != "SUBMITTED":
-                return False
-            d["status"] = "REJECTED"
-            d["reviewer"] = reviewer
-            d["review_comment"] = comment
-            d["reviewed_at"] = now
-            d["updated_at"] = now
-            self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
-            return True
+        with distributed_lock.lock_sync(f"yarn:cr:{cr_id}", ttl_seconds=10.0):
+            now = datetime.now(timezone.utc).isoformat()
+            if self._is_redis:
+                raw = self.redis_client.get(f"yarn:cr:{cr_id}")
+                if not raw:
+                    return False
+                d = json.loads(raw)
+                if d.get("status") != "SUBMITTED":
+                    return False
+                d["status"] = "REJECTED"
+                d["reviewer"] = reviewer
+                d["review_comment"] = comment
+                d["reviewed_at"] = now
+                d["updated_at"] = now
+                self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
+                return True
 
-        stmt = (
-            update(self.cr_table)
-            .where(self.cr_table.c.id == cr_id, self.cr_table.c.status == "SUBMITTED")
-            .values(
-                status="REJECTED",
-                reviewer=reviewer,
-                review_comment=comment,
-                reviewed_at=now,
-                updated_at=now,
+            stmt = (
+                update(self.cr_table)
+                .where(self.cr_table.c.id == cr_id, self.cr_table.c.status == "SUBMITTED")
+                .values(
+                    status="REJECTED",
+                    reviewer=reviewer,
+                    review_comment=comment,
+                    reviewed_at=now,
+                    updated_at=now,
+                )
             )
-        )
-        with self.engine.begin() as conn:
-            result = conn.execute(stmt)
-            return result.rowcount > 0
+            with self.engine.begin() as conn:
+                result = conn.execute(stmt)
+                return result.rowcount > 0
 
     def cancel_change_request(
         self,
         cr_id: int,
         author: str,
     ) -> bool:
-        now = datetime.now(timezone.utc).isoformat()
-        if self._is_redis:
-            raw = self.redis_client.get(f"yarn:cr:{cr_id}")
-            if not raw:
-                return False
-            d = json.loads(raw)
-            if d.get("status") != "SUBMITTED" or d.get("author") != author:
-                return False
-            d["status"] = "CANCELLED"
-            d["updated_at"] = now
-            self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
-            return True
+        with distributed_lock.lock_sync(f"yarn:cr:{cr_id}", ttl_seconds=10.0):
+            now = datetime.now(timezone.utc).isoformat()
+            if self._is_redis:
+                raw = self.redis_client.get(f"yarn:cr:{cr_id}")
+                if not raw:
+                    return False
+                d = json.loads(raw)
+                if d.get("status") != "SUBMITTED" or d.get("author") != author:
+                    return False
+                d["status"] = "CANCELLED"
+                d["updated_at"] = now
+                self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
+                return True
 
-        stmt = (
-            update(self.cr_table)
-            .where(
-                self.cr_table.c.id == cr_id,
-                self.cr_table.c.status == "SUBMITTED",
-                self.cr_table.c.author == author,
+            stmt = (
+                update(self.cr_table)
+                .where(
+                    self.cr_table.c.id == cr_id,
+                    self.cr_table.c.status == "SUBMITTED",
+                    self.cr_table.c.author == author,
+                )
+                .values(
+                    status="CANCELLED",
+                    updated_at=now,
+                )
             )
-            .values(
-                status="CANCELLED",
-                updated_at=now,
-            )
-        )
-        with self.engine.begin() as conn:
-            result = conn.execute(stmt)
-            return result.rowcount > 0
+            with self.engine.begin() as conn:
+                result = conn.execute(stmt)
+                return result.rowcount > 0
 
     def count_pending(self, cluster_id: Optional[str] = None) -> int:
         if self._is_redis:
@@ -411,4 +418,3 @@ class StorageService(SessionStore):
 
 
 storage_service = StorageService()
-

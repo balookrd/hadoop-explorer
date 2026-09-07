@@ -1,11 +1,6 @@
 import pytest
 from backend.common.core.ldap_auth import CommonLdapAuthService
-from backend.common.core.security import (
-    hash_token,
-    create_jwt_token,
-    decode_jwt_token,
-    verify_csrf
-)
+from backend.common.core.security import hash_token, create_jwt_token, decode_jwt_token, verify_csrf
 from backend.common.db.storage import BaseStorageService
 
 
@@ -16,7 +11,7 @@ def test_common_ldap_mock_user_authentication():
             "password": "plain_password_123",
             "display_name": "Alice Cooper",
             "email": "alice@example.com",
-            "groups": ["analysts", "devs"]
+            "groups": ["analysts", "devs"],
         },
         {
             "username": "bob",
@@ -24,8 +19,8 @@ def test_common_ldap_mock_user_authentication():
             "password": "pbkdf2:sha256:1000$testsalt$0f8980b19d5c8a946b5a3f2db16dc8c4d8b9e6a9f07a221f7c132845c43d9396",
             "display_name": "Bob Marley",
             "email": "bob@example.com",
-            "groups": ["admins"]
-        }
+            "groups": ["admins"],
+        },
     ]
 
     # 1. Успешный логин по открытому паролю
@@ -50,11 +45,7 @@ def test_common_security_jwt_and_hash():
     assert h1 == h2
 
     secret = "test-secret-key-32-characters-minimum-ok"
-    token = create_jwt_token(
-        data={"sub": "testuser", "groups": ["testgroup"]},
-        secret_key=secret,
-        expires_minutes=60
-    )
+    token = create_jwt_token(data={"sub": "testuser", "groups": ["testgroup"]}, secret_key=secret, expires_minutes=60)
     assert isinstance(token, str)
 
     payload = decode_jwt_token(token, secret_key=secret)
@@ -109,7 +100,7 @@ def test_session_store_persistence_on_backend_restart(tmp_path):
         "email": "ivan@example.com",
         "groups": ["developers", "data-engineers"],
         "is_admin": False,
-        "auth_method": "ldap"
+        "auth_method": "ldap",
     }
     exp = time.time() + 3600
 
@@ -149,8 +140,6 @@ def test_session_store_persistence_on_backend_restart(tmp_path):
     assert session_delta is not None
     assert session_delta["username"] == "ivan_dev"
 
-
-import pytest
 
 @pytest.mark.asyncio
 async def test_async_session_store_and_rate_limiter(tmp_path):
@@ -202,5 +191,3 @@ async def test_async_session_store_and_rate_limiter(tmp_path):
     await store.clear_rate_limits_async()
     allowed_after_clear, _ = await limiter.is_allowed_async("test_key")
     assert allowed_after_clear is True
-
-

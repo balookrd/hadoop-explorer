@@ -24,6 +24,7 @@ logger = logging.getLogger("spark_session_manager")
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/results"))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
+
 class SessionManager:
     def __init__(self):
         self.livy_clients: Dict[str, LivyClient] = {}
@@ -36,9 +37,7 @@ class SessionManager:
         if cluster.id not in self.livy_clients:
             auth_type = cluster.auth.get("type", "none")
             self.livy_clients[cluster.id] = LivyClient(
-                base_url=cluster.livy_url,
-                auth_type=auth_type,
-                use_ssl=cluster.use_ssl
+                base_url=cluster.livy_url, auth_type=auth_type, use_ssl=cluster.use_ssl
             )
         return self.livy_clients[cluster.id]
 
@@ -92,10 +91,13 @@ class SessionManager:
 
     async def get_active_sessions(self, username: str) -> List[Dict[str, Any]]:
         async with AsyncSessionLocal() as db:
-            stmt = select(SparkSessionRecord).where(
-                SparkSessionRecord.username == username,
-                SparkSessionRecord.status.in_(["starting", "idle", "busy"])
-            ).order_by(desc(SparkSessionRecord.last_activity_at))
+            stmt = (
+                select(SparkSessionRecord)
+                .where(
+                    SparkSessionRecord.username == username, SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+                )
+                .order_by(desc(SparkSessionRecord.last_activity_at))
+            )
             res = await db.execute(stmt)
             sessions = res.scalars().all()
 
@@ -116,7 +118,7 @@ class SessionManager:
                     "status": s.status,
                     "yarn_application_id": s.yarn_application_id,
                     "created_at": s.created_at.isoformat() if s.created_at else None,
-                    "last_activity_at": s.last_activity_at.isoformat() if s.last_activity_at else None
+                    "last_activity_at": s.last_activity_at.isoformat() if s.last_activity_at else None,
                 }
                 for s in active
             ]
@@ -134,7 +136,7 @@ class SessionManager:
         packages: Optional[List[str]] = None,
         jars: Optional[List[str]] = None,
         py_files: Optional[List[str]] = None,
-        custom_conf: Optional[Dict[str, str]] = None
+        custom_conf: Optional[Dict[str, str]] = None,
     ) -> SparkSessionRecord:
         # 1. Проверка прав на очередь YARN
         if not check_yarn_queue_access(user, cluster, yarn_queue):
@@ -150,7 +152,7 @@ class SessionManager:
                 SparkSessionRecord.yarn_queue == yarn_queue,
                 SparkSessionRecord.resource_profile == resource_profile_id,
                 SparkSessionRecord.kind == kind,
-                SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+                SparkSessionRecord.status.in_(["starting", "idle", "busy"]),
             )
             res = await db.execute(stmt)
             existing = res.scalars().first()
@@ -163,7 +165,7 @@ class SessionManager:
             # 3. Проверка лимита сессий на пользователя
             count_stmt = select(SparkSessionRecord).where(
                 SparkSessionRecord.username == user.username,
-                SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+                SparkSessionRecord.status.in_(["starting", "idle", "busy"]),
             )
             count_res = await db.execute(count_stmt)
             active_count = len(count_res.scalars().all())
@@ -232,7 +234,7 @@ class SessionManager:
                 executor_memory=exec_mem,
                 executor_cores=exec_cores,
                 num_executors=num_execs,
-                name=f"spark-explorer-{user.username}-{session_uuid[:8]}"
+                name=f"spark-explorer-{user.username}-{session_uuid[:8]}",
             )
             livy_session_id = livy_resp.get("id")
             yarn_app_id = livy_resp.get("appId")
@@ -258,7 +260,7 @@ class SessionManager:
             py_files=py_files or [],
             spark_conf=spark_conf,
             created_at=now,
-            last_activity_at=now
+            last_activity_at=now,
         )
         async with AsyncSessionLocal() as db:
             db.add(record)
@@ -306,13 +308,7 @@ class SessionManager:
             await db.commit()
             return True
 
-    async def execute_code(
-        self,
-        session_id: str,
-        code: str,
-        language: str,
-        user: UserSession
-    ) -> str:
+    async def execute_code(self, session_id: str, code: str, language: str, user: UserSession) -> str:
         """
         Запускает исполнение кода в сессии, возвращает execution_id.
         """
@@ -337,7 +333,7 @@ class SessionManager:
                 language=language,
                 code=code,
                 status="RUNNING",
-                started_at=now
+                started_at=now,
             )
             db.add(hist)
             await db.commit()
@@ -348,12 +344,7 @@ class SessionManager:
         return execution_id
 
     async def _run_execution_task(
-        self,
-        execution_id: str,
-        session_id: str,
-        code: str,
-        language: str,
-        user: UserSession
+        self, execution_id: str, session_id: str, code: str, language: str, user: UserSession
     ):
         start_time = time.time()
         session_kind = "pyspark"
@@ -458,7 +449,9 @@ class SessionManager:
                                         s_u.status = "dead"
                                         s_u.stopped_at = datetime.datetime.now(datetime.timezone.utc)
                                         await db.commit()
-                                raise ValueError(f"Сессия Spark #{livy_session_id} удалена в Livy. Запустите выполнение повторно.")
+                                raise ValueError(
+                                    f"Сессия Spark #{livy_session_id} удалена в Livy. Запустите выполнение повторно."
+                                )
                             raise
 
                         stmt_id = stmt_res.get("id")
@@ -498,7 +491,9 @@ class SessionManager:
                                 if driver_log_snippet:
                                     log_parts.append(f"=== [Spark Driver Log] ===\n{driver_log_snippet}")
 
-                                logs = "\n\n".join(log_parts) if log_parts else "Задача успешно выполнена в Apache Spark."
+                                logs = (
+                                    "\n\n".join(log_parts) if log_parts else "Задача успешно выполнена в Apache Spark."
+                                )
                             break
 
         except Exception as e:
@@ -525,30 +520,30 @@ class SessionManager:
                     columns=columns,
                     logs=logs,
                     has_cached_result=has_cached,
-                    finished_at=datetime.datetime.now(datetime.timezone.utc)
+                    finished_at=datetime.datetime.now(datetime.timezone.utc),
                 )
             )
             # Возвращаем сессию в IDLE
             await db.execute(
                 update(SparkSessionRecord)
                 .where(SparkSessionRecord.id == session_id)
-                .values(
-                    status="idle",
-                    last_activity_at=datetime.datetime.now(datetime.timezone.utc)
-                )
+                .values(status="idle", last_activity_at=datetime.datetime.now(datetime.timezone.utc))
             )
             await db.commit()
 
         # Уведомление подписчиков по SSE
-        await self._broadcast_event(execution_id, {
-            "type": "finished",
-            "status": status,
-            "columns": columns,
-            "rows": rows,
-            "logs": logs,
-            "error": error_msg,
-            "execution_time_ms": duration_ms
-        })
+        await self._broadcast_event(
+            execution_id,
+            {
+                "type": "finished",
+                "status": status,
+                "columns": columns,
+                "rows": rows,
+                "logs": logs,
+                "error": error_msg,
+                "execution_time_ms": duration_ms,
+            },
+        )
 
         self.active_tasks.pop(execution_id, None)
         self.active_livy_stmts.pop(execution_id, None)
@@ -606,20 +601,23 @@ class SessionManager:
             await db.commit()
 
         # 5. Рассылаем событие отмены по SSE
-        await self._broadcast_event(execution_id, {
-            "type": "finished",
-            "status": "CANCELLED",
-            "error": "Выполнение прервано пользователем",
-            "columns": [],
-            "rows": [],
-            "logs": "Выполнение прервано пользователем",
-            "execution_time_ms": duration_ms
-        })
+        await self._broadcast_event(
+            execution_id,
+            {
+                "type": "finished",
+                "status": "CANCELLED",
+                "error": "Выполнение прервано пользователем",
+                "columns": [],
+                "rows": [],
+                "logs": "Выполнение прервано пользователем",
+                "execution_time_ms": duration_ms,
+            },
+        )
         return True
 
     def _wrap_code_for_capture(self, code: str, language: str, session_kind: str = "pyspark") -> str:
         if language == "sql":
-            safe_sql = code.replace('\\', '\\\\').replace('"""', '\\"\\"\\"')
+            safe_sql = code.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
             if session_kind == "spark":
                 return f'val _df = spark.sql("""{safe_sql}""")\n_df.show(100, false)\n'
             else:
@@ -671,7 +669,7 @@ class SessionManager:
                 data = json.loads(payload)
                 cols = data.get("columns", [])
                 rows = data.get("rows", [])
-                clean_logs = text[:text.find("__SPARK_TABLE_START__")] + text[end + len("__SPARK_TABLE_END__"):]
+                clean_logs = text[: text.find("__SPARK_TABLE_START__")] + text[end + len("__SPARK_TABLE_END__") :]
                 return cols, rows, clean_logs.strip()
             except Exception:
                 pass
@@ -705,10 +703,12 @@ class SessionManager:
 
     async def _save_result_to_disk(self, execution_id: str, columns: list, rows: list):
         path = os.path.join(RESULTS_DIR, f"{execution_id}.json.gz")
+
         def _write():
             payload = json.dumps({"columns": columns, "rows": rows}, default=str).encode("utf-8")
             with gzip.open(path, "wb") as f:
                 f.write(payload)
+
         await anyio.to_thread.run_sync(_write)
 
     async def _broadcast_event(self, execution_id: str, event: dict):
@@ -739,9 +739,7 @@ class SessionManager:
         """
         now = datetime.datetime.now(datetime.timezone.utc)
         async with AsyncSessionLocal() as db:
-            stmt = select(SparkSessionRecord).where(
-                SparkSessionRecord.status.in_(["idle", "starting"])
-            )
+            stmt = select(SparkSessionRecord).where(SparkSessionRecord.status.in_(["idle", "starting"]))
             res = await db.execute(stmt)
             sessions = res.scalars().all()
             for s in sessions:
@@ -786,5 +784,6 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Ошибка Crash Recovery задач Spark: {e}")
             return 0
+
 
 session_manager = SessionManager()

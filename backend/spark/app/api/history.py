@@ -9,6 +9,7 @@ from app.models.models import SparkExecutionHistory
 
 router = APIRouter(prefix="/history", tags=["history"])
 
+
 class HistoryItemResponse(BaseModel):
     id: str
     session_id: str
@@ -23,15 +24,18 @@ class HistoryItemResponse(BaseModel):
     created_at: datetime.datetime
     finished_at: Optional[datetime.datetime]
 
+
 @router.get("", response_model=List[HistoryItemResponse])
 async def list_history(
-    limit: int = Query(default=50, ge=1, le=200),
-    current_user: UserSession = Depends(get_current_user)
+    limit: int = Query(default=50, ge=1, le=200), current_user: UserSession = Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as db:
-        stmt = select(SparkExecutionHistory).where(
-            SparkExecutionHistory.username == current_user.username
-        ).order_by(desc(SparkExecutionHistory.created_at)).limit(limit)
+        stmt = (
+            select(SparkExecutionHistory)
+            .where(SparkExecutionHistory.username == current_user.username)
+            .order_by(desc(SparkExecutionHistory.created_at))
+            .limit(limit)
+        )
         res = await db.execute(stmt)
         items = res.scalars().all()
         return [
@@ -47,7 +51,7 @@ async def list_history(
                 error_message=h.error_message,
                 has_cached_result=h.has_cached_result,
                 created_at=h.created_at,
-                finished_at=h.finished_at
+                finished_at=h.finished_at,
             )
             for h in items
         ]

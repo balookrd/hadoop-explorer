@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.storage import storage_service
+
     # Очистка устаревших токенов и записей rate-limit при старте
     try:
         storage_service.cleanup_expired()
@@ -28,29 +29,31 @@ async def lifespan(app: FastAPI):
     # Fail-fast проверка слабых дефолтных секретов в боевом режиме
     auth_mode = getattr(settings.auth, "mode", "mock") if hasattr(settings, "auth") else "mock"
     if settings.ldap.enabled or auth_mode != "mock":
-        insecure_defaults = (
-            "change-this-in-production-secret-key-32-chars-long",
-            "dev-secret-key-for-local-testing-replace-in-prod"
-        )
-        if settings.security.secret_key in insecure_defaults or len(settings.security.secret_key) < 32:
+        from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
+
+        if settings.security.secret_key in INSECURE_DEFAULT_KEYS or len(settings.security.secret_key) < 32:
             raise RuntimeError(
                 "КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: В боевом режиме обнаружен дефолтный или слабый SECRET_KEY! "
                 "Задайте стойкий секретный ключ (минимум 32 символа) через переменную окружения JWT_SECRET_KEY / SECRET_KEY."
             )
     yield
-    try:
-        from app.services.hdfs_client import hdfs_service
-        await hdfs_service.aclose()
-    except Exception as e:
-        logger.warning(f"Ошибка закрытия соединений HDFS: {e}")
+    from backend.common.core.shutdown import shutdown_manager
+    from app.services.hdfs_client import hdfs_service
+    from app.services.storage import storage_service
+
+    shutdown_manager.register(hdfs_service.aclose)
+    if hasattr(storage_service, "close"):
+        shutdown_manager.register(storage_service.close)
+    await shutdown_manager.shutdown()
 
 
 app = FastAPI(
     title="HDFS Web Explorer",
     description="Multi-cluster HDFS Manager with LDAPS, Kerberos and doAs Impersonation",
     version="0.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
 
 # Защитные HTTP-заголовки
 @app.middleware("http")
@@ -74,6 +77,7 @@ async def add_security_headers(request: Request, call_next):
     if settings.security.cookie_secure:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
 
 # CORS
 app.add_middleware(
@@ -102,14 +106,13 @@ async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий."""
     from app.services.storage import storage_service
     from fastapi.responses import JSONResponse
+
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503,
-            content={"status": "unavailable", "app": "hdfs-explorer", "database": "unreachable"}
+            status_code=503, content={"status": "unavailable", "app": "hdfs-explorer", "database": "unreachable"}
         )
     return {"status": "ready", "app": "hdfs-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
-
 
 
 # Раздача собранного Frontend SPA (если существует директория frontend/dist)
@@ -133,19 +136,11 @@ if dist_path.exists():
 
         return FileResponse(
             dist_path / "index.html",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
         )
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host=settings.server.host,
-        port=settings.server.port,
-        reload=settings.server.debug
-    )
+
+    uvicorn.run("app.main:app", host=settings.server.host, port=settings.server.port, reload=settings.server.debug)

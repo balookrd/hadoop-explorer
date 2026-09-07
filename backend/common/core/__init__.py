@@ -16,8 +16,17 @@ from backend.common.core.rate_limiter import (
     get_client_ip,
     is_trusted_proxy,
 )
+from backend.common.core.cache import L1RevokedTokenCache
 from backend.common.core.ldap_auth import CommonLdapAuthService
 from backend.common.core.session_store import SessionStore
+from backend.common.core.circuit_breaker import (
+    CircuitBreaker,
+    CircuitState,
+    CircuitBreakerOpenException,
+    circuit_breaker_registry,
+)
+from backend.common.core.shutdown import GracefulShutdownManager, shutdown_manager
+from backend.common.core.lock import DistributedLock, distributed_lock, LockAcquireError
 
 __all__ = [
     "hash_token",
@@ -32,6 +41,16 @@ __all__ = [
     "RateLimiter",
     "get_client_ip",
     "is_trusted_proxy",
+    "L1RevokedTokenCache",
     "CommonLdapAuthService",
     "SessionStore",
+    "CircuitBreaker",
+    "CircuitState",
+    "CircuitBreakerOpenException",
+    "circuit_breaker_registry",
+    "GracefulShutdownManager",
+    "shutdown_manager",
+    "DistributedLock",
+    "distributed_lock",
+    "LockAcquireError",
 ]

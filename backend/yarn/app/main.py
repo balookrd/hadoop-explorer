@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.storage import storage_service
+
     # Очистка устаревших отозванных токенов и лимитов при запуске
     try:
         storage_service.cleanup_expired_tokens()
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
         insecure_defaults = (
             "yarn-explorer-super-secret-key-change-in-production-random-hash",
             "default-secret-key-change-it",
-            "change-this-in-production-secret-key-32-chars-long"
+            "change-this-in-production-secret-key-32-chars-long",
         )
         if settings.auth.jwt.secret_key in insecure_defaults or len(settings.auth.jwt.secret_key) < 32:
             raise RuntimeError(
@@ -50,11 +51,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Сервер: {settings.server.host}:{settings.server.port}")
     logger.info("=" * 60)
     yield
-    try:
-        from app.services.yarn_client import yarn_service
-        await yarn_service.aclose()
-    except Exception as e:
-        logger.warning(f"Ошибка при закрытии HTTP-сессий YARN: {e}")
+    from backend.common.core.shutdown import shutdown_manager
+    from app.services.yarn_client import yarn_service
+    from app.services.storage import storage_service
+
+    if hasattr(yarn_service, "aclose"):
+        shutdown_manager.register(yarn_service.aclose)
+    if hasattr(storage_service, "close"):
+        shutdown_manager.register(storage_service.close)
+
+    await shutdown_manager.shutdown()
     logger.info("YARN Queue Explorer остановлен")
 
 
@@ -64,6 +70,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
 
 # Защитные HTTP-заголовки
 @app.middleware("http")
@@ -116,14 +123,13 @@ async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и запросов на изменение."""
     from app.services.storage import storage_service
     from fastapi.responses import JSONResponse
+
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503,
-            content={"status": "unavailable", "app": "yarn-explorer", "database": "unreachable"}
+            status_code=503, content={"status": "unavailable", "app": "yarn-explorer", "database": "unreachable"}
         )
     return {"status": "ready", "app": "yarn-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
-
 
 
 # Статика фронтенда
@@ -145,6 +151,7 @@ if frontend_dist and os.path.isdir(frontend_dist):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host=settings.server.host,

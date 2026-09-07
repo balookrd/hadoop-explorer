@@ -12,11 +12,13 @@ from backend.common.core.audit import (
 
 logger = logging.getLogger("security.audit")
 
+
 class AuditEventType(CommonAuditEventType):
     SPARK_SESSION_CREATED = "SPARK_SESSION_CREATED"
     SPARK_SESSION_STOPPED = "SPARK_SESSION_STOPPED"
     SPARK_CODE_EXECUTED = "SPARK_CODE_EXECUTED"
     ACCESS_DENIED_YARN_QUEUE = "ACCESS_DENIED_YARN_QUEUE"
+
 
 def log_audit_event(
     event_type: str,

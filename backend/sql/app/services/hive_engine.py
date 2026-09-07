@@ -11,8 +11,10 @@ logger = logging.getLogger("hive_engine")
 
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
+
 class HiveMetadataTTLCache:
     """Потокобезопасный TTL-кэш для метаданных Hive (схемы, таблицы, колонки)."""
+
     def __init__(self, default_ttl: float = 60.0):
         self.default_ttl = default_ttl
         self._cache: Dict[str, tuple[float, Any]] = {}
@@ -45,7 +47,9 @@ class HiveMetadataTTLCache:
     def clear(self):
         self.invalidate()
 
+
 _hive_meta_cache = HiveMetadataTTLCache(default_ttl=60.0)
+
 
 def safe_hive_ident(name: str) -> str:
     """
@@ -53,8 +57,9 @@ def safe_hive_ident(name: str) -> str:
     """
     if not isinstance(name, str) or not IDENTIFIER_REGEX.match(name.strip()):
         raise ValueError(f"Недопустимый SQL-идентификатор: {name}")
-    escaped = name.strip().replace('`', '')
-    return f'`{escaped}`'
+    escaped = name.strip().replace("`", "")
+    return f"`{escaped}`"
+
 
 class HiveExecutionEngine:
     def __init__(self, cluster: ClusterConfig):
@@ -81,16 +86,12 @@ class HiveExecutionEngine:
             kerberos_service_name=kerberos_service_name,
             use_ssl=self.cluster.use_ssl,
             database=self.cluster.schema_ or "default",
-            timeout=int(timeout_sec)
+            timeout=int(timeout_sec),
         )
         return conn
 
     async def execute_query(
-        self,
-        query: str,
-        user_login: str,
-        max_rows: int = 10000,
-        cancel_event: Optional[anyio.Event] = None
+        self, query: str, user_login: str, max_rows: int = 10000, cancel_event: Optional[anyio.Event] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Исполняет запрос к HiveServer2 с doAs имперсонацией.
@@ -98,7 +99,11 @@ class HiveExecutionEngine:
         conn = None
         cursor = None
         try:
-            yield {"type": "status", "status": "CONNECTING", "message": f"Подключение к HiveServer2 ({self.cluster.name})..."}
+            yield {
+                "type": "status",
+                "status": "CONNECTING",
+                "message": f"Подключение к HiveServer2 ({self.cluster.name})...",
+            }
 
             def _connect_and_run():
                 c = self._get_connection(user_login)
@@ -136,16 +141,12 @@ class HiveExecutionEngine:
                 serializable_rows = [list(row) for row in rows_batch]
                 total_rows += len(serializable_rows)
 
-                yield {
-                    "type": "rows",
-                    "rows": serializable_rows,
-                    "total_rows": total_rows
-                }
+                yield {"type": "rows", "rows": serializable_rows, "total_rows": total_rows}
 
             yield {
                 "type": "finished",
                 "total_rows": total_rows,
-                "message": f"Выполнено успешно. Получено {total_rows} строк."
+                "message": f"Выполнено успешно. Получено {total_rows} строк.",
             }
 
         except Exception as e:
@@ -169,11 +170,13 @@ class HiveExecutionEngine:
             cached = _hive_meta_cache.get(cache_key)
             if cached is not None:
                 return cached
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute("SHOW DATABASES")
                 return [row[0] for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _hive_meta_cache.set(cache_key, result)
         return result
@@ -185,16 +188,20 @@ class HiveExecutionEngine:
             if cached is not None:
                 return cached
         q_schema = safe_hive_ident(schema)
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"SHOW TABLES IN {q_schema}")
                 return [row[0] for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _hive_meta_cache.set(cache_key, result)
         return result
 
-    async def get_columns(self, user_login: str, schema: str, table: str, refresh: bool = False) -> List[Dict[str, str]]:
+    async def get_columns(
+        self, user_login: str, schema: str, table: str, refresh: bool = False
+    ) -> List[Dict[str, str]]:
         cache_key = f"hive:{self.cluster.id}:{schema}:{table}:columns:{user_login}"
         if not refresh:
             cached = _hive_meta_cache.get(cache_key)
@@ -202,11 +209,13 @@ class HiveExecutionEngine:
                 return cached
         q_schema = safe_hive_ident(schema)
         q_table = safe_hive_ident(table)
+
         def _fetch():
             with self._get_connection(user_login) as conn:
                 cur = conn.cursor()
                 cur.execute(f"DESCRIBE {q_schema}.{q_table}")
                 return [{"name": row[0], "type": row[1]} for row in cur.fetchall()]
+
         result = await anyio.to_thread.run_sync(_fetch)
         _hive_meta_cache.set(cache_key, result)
         return result
@@ -218,4 +227,3 @@ class HiveExecutionEngine:
             _hive_meta_cache.invalidate(f"hive:{cluster_id}:")
         else:
             _hive_meta_cache.clear()
-

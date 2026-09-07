@@ -5,22 +5,23 @@ import anyio
 import httpx
 import requests
 from requests_kerberos import HTTPKerberosAuth, OPTIONAL
+from backend.common.core.circuit_breaker import circuit_breaker_registry
 
 logger = logging.getLogger("livy_client")
 
+
 def _create_kerberos_session() -> requests.Session:
     session = requests.Session()
-    session.auth = HTTPKerberosAuth(
-        mutual_authentication=OPTIONAL,
-        sanitize_mutual_error_response=False
-    )
+    session.auth = HTTPKerberosAuth(mutual_authentication=OPTIONAL, sanitize_mutual_error_response=False)
     return session
+
 
 class LivyClient:
     """
     Клиент к Apache Livy REST API.
     Поддерживает Kerberos SPNEGO, impersonation (proxyUser) и управление сессиями/statements.
     """
+
     def __init__(self, base_url: str, auth_type: str = "none", use_ssl: bool = False):
         self.base_url = base_url.rstrip("/")
         self.auth_type = auth_type.lower()
@@ -42,7 +43,9 @@ class LivyClient:
         if self._http_client and not self._http_client.is_closed:
             await self._http_client.aclose()
 
-    def _sync_request(self, method: str, path: str, json_data: Optional[dict] = None, params: Optional[dict] = None) -> dict:
+    def _sync_request(
+        self, method: str, path: str, json_data: Optional[dict] = None, params: Optional[dict] = None
+    ) -> dict:
         url = f"{self.base_url}{path}"
         session = self._get_kerberos_session()
         resp = session.request(
@@ -52,26 +55,37 @@ class LivyClient:
             params=params,
             headers={"X-Requested-By": "spark-explorer", "Content-Type": "application/json"},
             timeout=30.0,
-            verify=self.use_ssl
+            verify=self.use_ssl,
         )
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
-    async def _request(self, method: str, path: str, json_data: Optional[dict] = None, params: Optional[dict] = None) -> dict:
-        if self.auth_type == "kerberos":
-            return await anyio.to_thread.run_sync(self._sync_request, method, path, json_data, params)
-
-        client = self._get_http_client()
-        url = f"{self.base_url}{path}"
-        resp = await client.request(
-            method=method,
-            url=url,
-            json=json_data,
-            params=params,
-            headers={"X-Requested-By": "spark-explorer", "Content-Type": "application/json"}
+    async def _request(
+        self, method: str, path: str, json_data: Optional[dict] = None, params: Optional[dict] = None
+    ) -> dict:
+        cb = circuit_breaker_registry.get(
+            name=f"spark:livy:{self.base_url}",
+            failure_threshold=3,
+            recovery_timeout=30.0,
         )
-        resp.raise_for_status()
-        return resp.json() if resp.content else {}
+
+        async def _execute_livy_call():
+            if self.auth_type == "kerberos":
+                return await anyio.to_thread.run_sync(self._sync_request, method, path, json_data, params)
+
+            client = self._get_http_client()
+            url = f"{self.base_url}{path}"
+            resp = await client.request(
+                method=method,
+                url=url,
+                json=json_data,
+                params=params,
+                headers={"X-Requested-By": "spark-explorer", "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            return resp.json() if resp.content else {}
+
+        return await cb.call_async(_execute_livy_call)
 
     async def create_session(
         self,
@@ -88,7 +102,7 @@ class LivyClient:
         executor_memory: Optional[str] = None,
         executor_cores: Optional[int] = None,
         num_executors: Optional[int] = None,
-        name: Optional[str] = None
+        name: Optional[str] = None,
     ) -> dict:
         """
         Создает интерактивную сессию в Apache Livy.

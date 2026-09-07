@@ -68,6 +68,7 @@ class RateLimiter:
     Ограничитель частоты запросов на базе скользящего окна (sliding window).
     Делегирует проверку и хранение в переданный storage_service (или по умолчанию в backend.common.db.storage.storage_service).
     """
+
     def __init__(self, max_requests: int = 10, window_seconds: int = 60, storage_getter: Optional[Callable] = None):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
@@ -77,6 +78,7 @@ class RateLimiter:
         if self._storage_getter:
             return self._storage_getter()
         from backend.common.db.storage import storage_service
+
         return storage_service
 
     def _get_client_ip(self, request: Request) -> str:
@@ -102,6 +104,7 @@ class RateLimiter:
                 now=now,
             )
         import anyio
+
         return await anyio.to_thread.run_sync(
             storage.check_and_record_rate_limit, key, self.max_requests, self.window_seconds, now
         )
@@ -120,6 +123,7 @@ class RateLimiter:
     def _raise_rate_limit_exceeded(self, key: str, request: Request, retry_after: int):
         client_ip = self._get_client_ip(request)
         from backend.common.core.audit import audit_log
+
         audit_log(
             action="RATE_LIMIT_EXCEEDED",
             username="anonymous",
@@ -139,4 +143,3 @@ class RateLimiter:
 
 
 auth_rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
-

@@ -64,4 +64,3 @@ class CrossClusterCopyResponse(BaseModel):
     target_path: str
     copied_files: int = 0
     copied_bytes: int = 0
-

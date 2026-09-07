@@ -37,6 +37,7 @@ def _mock_authenticate(username: str, password: str):
             password_valid = False
             if mock_user.password_hash:
                 import bcrypt
+
                 try:
                     password_valid = bcrypt.checkpw(
                         password.encode("utf-8"),
@@ -83,12 +84,13 @@ async def login(
         if ldap_user:
             role = _resolve_global_role(ldap_user.username, ldap_user.groups)
             ldap_user.system_role = role
-            ldap_user.is_admin = (role == Role.ADMIN)
+            ldap_user.is_admin = role == Role.ADMIN
             user = ldap_user
 
     client_ip = get_client_ip(request)
     if not user:
         from app.core.audit import audit_log
+
         audit_log(
             action="LOGIN_FAILED",
             username=body.username,
@@ -108,14 +110,16 @@ async def login(
     payload = decode_access_token(token)
 
     from app.services.storage import storage_service
+
     storage_service.save_session(
         token=token,
         user=user,
         expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
-        jti=payload.get("jti") if payload else None
+        jti=payload.get("jti") if payload else None,
     )
 
     from app.core.audit import audit_log
+
     audit_log(
         action="LOGIN_SUCCESS",
         username=user.username,
@@ -169,10 +173,11 @@ async def spnego_login(
 
     role = _resolve_global_role(user.username, user.groups)
     user.system_role = role
-    user.is_admin = (role == Role.ADMIN)
+    user.is_admin = role == Role.ADMIN
 
     client_ip = get_client_ip(request)
     from app.core.audit import audit_log
+
     audit_log(
         action="SPNEGO_LOGIN_SUCCESS",
         username=user.username,
@@ -188,11 +193,12 @@ async def spnego_login(
     payload = decode_access_token(token)
 
     from app.services.storage import storage_service
+
     storage_service.save_session(
         token=token,
         user=user,
         expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
-        jti=payload.get("jti") if payload else None
+        jti=payload.get("jti") if payload else None,
     )
 
     response.set_cookie(
@@ -206,7 +212,6 @@ async def spnego_login(
     )
 
     return TokenResponse(access_token=token, user=user)
-
 
 
 @router.get("/me", response_model=UserSession)
@@ -232,14 +237,17 @@ async def logout(
 
     if is_cookie_auth:
         from app.core.security import verify_csrf
+
         verify_csrf(request, is_cookie_auth)
 
     if token:
         from app.services.storage import storage_service
+
         username = "unknown"
         # Декодируем токен без проверки на отзыв, чтобы извлечь jti для отзыва
         try:
             import jwt
+
             payload = jwt.decode(
                 token,
                 settings.auth.jwt.secret_key,
@@ -257,9 +265,9 @@ async def logout(
         except Exception as e:
             logger.debug(f"Ошибка при отзыве токена во время logout: {e}")
             from app.services.storage import storage_service
+
             storage_service.delete_session(token)
             storage_service.revoke_token(token_or_jti=token)
 
     response.delete_cookie(key="access_token", path="/")
     return {"detail": "Сессия успешно завершена и токен отозван"}
-

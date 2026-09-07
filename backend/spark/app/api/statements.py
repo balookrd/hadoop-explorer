@@ -16,15 +16,18 @@ from app.services.session_manager import session_manager, RESULTS_DIR
 
 router = APIRouter(prefix="/statements", tags=["statements"])
 
+
 class ExecuteCodeRequest(BaseModel):
     session_id: str
     code: str
     language: str = "pyspark"  # pyspark, scalaspark, sql
 
+
 class ExecuteCodeResponse(BaseModel):
     execution_id: str
     status: str
     message: str
+
 
 class StatementResultResponse(BaseModel):
     execution_id: str
@@ -38,6 +41,7 @@ class StatementResultResponse(BaseModel):
     error_message: Optional[str]
     execution_time_ms: float
 
+
 @router.post("/execute", response_model=ExecuteCodeResponse)
 async def execute_code(req: ExecuteCodeRequest, current_user: UserSession = Depends(get_current_user)):
     if not req.code.strip():
@@ -45,27 +49,18 @@ async def execute_code(req: ExecuteCodeRequest, current_user: UserSession = Depe
 
     try:
         execution_id = await session_manager.execute_code(
-            session_id=req.session_id,
-            code=req.code,
-            language=req.language,
-            user=current_user
+            session_id=req.session_id, code=req.code, language=req.language, user=current_user
         )
 
         log_audit_event(
             AuditEventType.SPARK_CODE_EXECUTED,
             username=current_user.username,
             client_ip="internal",
-            details={
-                "execution_id": execution_id,
-                "session_id": req.session_id,
-                "language": req.language
-            }
+            details={"execution_id": execution_id, "session_id": req.session_id, "language": req.language},
         )
 
         return ExecuteCodeResponse(
-            execution_id=execution_id,
-            status="QUEUED",
-            message="Задача отправлена на исполнение в Spark"
+            execution_id=execution_id, status="QUEUED", message="Задача отправлена на исполнение в Spark"
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -73,6 +68,7 @@ async def execute_code(req: ExecuteCodeRequest, current_user: UserSession = Depe
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при запуске кода: {e}")
+
 
 @router.post("/{execution_id}/cancel")
 async def cancel_execution(execution_id: str, current_user: UserSession = Depends(get_current_user)):
@@ -86,6 +82,7 @@ async def cancel_execution(execution_id: str, current_user: UserSession = Depend
         return {"status": "CANCELLED", "message": "Выполнение успешно остановлено"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
 
 @router.get("/{execution_id}/stream")
 async def stream_execution(execution_id: str, current_user: UserSession = Depends(get_current_user)):
@@ -106,11 +103,11 @@ async def stream_execution(execution_id: str, current_user: UserSession = Depend
                         "type": "finished",
                         "status": hist.status,
                         "columns": hist.columns or [],
-                        "rows": [], # полные строки запрашиваются через /result
+                        "rows": [],  # полные строки запрашиваются через /result
                         "total_rows": hist.rows_count,
                         "logs": hist.logs or "",
                         "error": hist.error_message,
-                        "execution_time_ms": hist.execution_time_ms
+                        "execution_time_ms": hist.execution_time_ms,
                     }
                     yield f"data: {json.dumps(payload, default=str)}\n\n"
                     return
@@ -127,19 +124,16 @@ async def stream_execution(execution_id: str, current_user: UserSession = Depend
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
 
 @router.get("/{execution_id}/result", response_model=StatementResultResponse)
 async def get_result(
     execution_id: str,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=5000),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
 ):
     async with AsyncSessionLocal() as db:
         stmt = select(SparkExecutionHistory).where(SparkExecutionHistory.id == execution_id)
@@ -154,14 +148,16 @@ async def get_result(
     total_rows = hist.rows_count
 
     if os.path.exists(path):
+
         def _read():
             with gzip.open(path, "rb") as f:
                 return json.loads(f.read().decode("utf-8"))
+
         data = await anyio.to_thread.run_sync(_read)
         all_rows = data.get("rows", [])
         columns = data.get("columns", columns)
         total_rows = len(all_rows)
-        rows = all_rows[offset: offset + limit]
+        rows = all_rows[offset : offset + limit]
 
     return StatementResultResponse(
         execution_id=execution_id,
@@ -173,5 +169,5 @@ async def get_result(
         limit=limit,
         logs=hist.logs,
         error_message=hist.error_message,
-        execution_time_ms=hist.execution_time_ms
+        execution_time_ms=hist.execution_time_ms,
     )

@@ -2,6 +2,7 @@ from typing import List
 from app.core.config import settings, ClusterConfig
 from app.core.security import UserSession
 
+
 def check_ui_access(user: UserSession) -> bool:
     """
     Проверяет, имеет ли пользователь право доступа к Web UI.
@@ -26,6 +27,7 @@ def check_ui_access(user: UserSession) -> bool:
 
     return False
 
+
 def check_cluster_access(user: UserSession, cluster: ClusterConfig) -> bool:
     """
     Проверяет, разрешен ли пользователю доступ к конкретному кластеру Trino/Hive.
@@ -49,6 +51,7 @@ def check_cluster_access(user: UserSession, cluster: ClusterConfig) -> bool:
         return True
 
     return False
+
 
 def filter_allowed_clusters(user: UserSession) -> List[ClusterConfig]:
     """

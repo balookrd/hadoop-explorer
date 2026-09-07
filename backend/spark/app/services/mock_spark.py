@@ -15,7 +15,7 @@ SAMPLE_TABLES = {
             {"name": "last_name", "type": "string"},
             {"name": "email", "type": "string"},
             {"name": "country", "type": "string"},
-            {"name": "balance", "type": "double"}
+            {"name": "balance", "type": "double"},
         ],
         "rows": [
             [101, "Алексей", "Смирнов", "smirnov@corp.local", "RU", 15420.50],
@@ -25,8 +25,8 @@ SAMPLE_TABLES = {
             [105, "Hans", "Müller", "mueller@euro.de", "DE", 18900.00],
             [106, "Анна", "Волкова", "volkova@corp.local", "RU", 31200.40],
             [107, "David", "Smith", "dsmith@global.org", "GB", 12500.00],
-            [108, "Olga", "Sidorova", "sidorova@corp.local", "RU", 6700.80]
-        ]
+            [108, "Olga", "Sidorova", "sidorova@corp.local", "RU", 6700.80],
+        ],
     },
     "transactions": {
         "columns": [
@@ -34,7 +34,7 @@ SAMPLE_TABLES = {
             {"name": "cust_id", "type": "bigint"},
             {"name": "amount", "type": "double"},
             {"name": "status", "type": "string"},
-            {"name": "tx_time", "type": "timestamp"}
+            {"name": "tx_time", "type": "timestamp"},
         ],
         "rows": [
             ["tx-001", 101, 1500.0, "SUCCESS", "2026-09-01 10:15:00"],
@@ -42,10 +42,11 @@ SAMPLE_TABLES = {
             ["tx-003", 101, 8900.0, "SUCCESS", "2026-09-02 09:05:44"],
             ["tx-004", 103, 12000.0, "PENDING", "2026-09-03 14:40:00"],
             ["tx-005", 105, 450.0, "SUCCESS", "2026-09-04 16:12:30"],
-            ["tx-006", 106, 990.0, "FAILED", "2026-09-05 08:30:15"]
-        ]
-    }
+            ["tx-006", 106, 990.0, "FAILED", "2026-09-05 08:30:15"],
+        ],
+    },
 }
+
 
 class MockSparkSession:
     def __init__(self, session_id: str, kind: str, yarn_app_id: str):
@@ -55,10 +56,12 @@ class MockSparkSession:
         self.status = "idle"
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
+
 class MockSparkEngine:
     """
     Автономный эмулятор работы Apache Spark на YARN через Livy для локальной разработки и тестов.
     """
+
     def __init__(self):
         self.sessions: Dict[str, MockSparkSession] = {}
 
@@ -72,15 +75,10 @@ class MockSparkEngine:
             "appId": yarn_id,
             "state": "idle",
             "kind": kind,
-            "mock_uuid": session_id
+            "mock_uuid": session_id,
         }
 
-    async def execute_code(
-        self,
-        session_id: str,
-        code: str,
-        language: str = "pyspark"
-    ) -> Dict[str, Any]:
+    async def execute_code(self, session_id: str, code: str, language: str = "pyspark") -> Dict[str, Any]:
         """
         Эмулирует исполнение PySpark или Scala Spark кода, возвращая таблицы и логи.
         """
@@ -100,7 +98,7 @@ class MockSparkEngine:
                     "\tat org.apache.spark.sql.execution.SparkPlan.executeCollect(SparkPlan.scala:350)\n"
                 ),
                 "columns": [],
-                "rows": []
+                "rows": [],
             }
 
         # Определяем, какую таблицу показать
@@ -125,13 +123,7 @@ class MockSparkEngine:
             f"\nResult: {len(rows)} rows processed in 0.32s on YARN.\n"
         )
 
-        return {
-            "status": "ok",
-            "columns": columns,
-            "rows": rows,
-            "logs": stages_log,
-            "error": None
-        }
+        return {"status": "ok", "columns": columns, "rows": rows, "logs": stages_log, "error": None}
 
     async def get_catalogs(self) -> List[str]:
         return ["spark_catalog", "iceberg_catalog"]
@@ -148,9 +140,12 @@ class MockSparkEngine:
             return ["daily_revenue", "monthly_retention", "customer_ltv"]
         return ["sample_data", "temp_staging"]
 
-    async def get_columns(self, db_name: str, table_name: str, metastore_id: Optional[str] = None) -> List[Dict[str, str]]:
+    async def get_columns(
+        self, db_name: str, table_name: str, metastore_id: Optional[str] = None
+    ) -> List[Dict[str, str]]:
         if table_name == "transactions":
             return SAMPLE_TABLES["transactions"]["columns"]
         return SAMPLE_TABLES["customers"]["columns"]
+
 
 mock_spark_engine = MockSparkEngine()

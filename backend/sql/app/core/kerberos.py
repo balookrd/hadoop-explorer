@@ -6,6 +6,7 @@ from app.core.config import settings
 
 logger = logging.getLogger("kerberos_auth")
 
+
 def authenticate_spnego(negotiate_token_b64: str) -> Optional[Dict[str, Any]]:
     """
     Валидирует SPNEGO Kerberos токен из заголовка Authorization: Negotiate <token>.
@@ -20,9 +21,7 @@ def authenticate_spnego(negotiate_token_b64: str) -> Optional[Dict[str, Any]]:
 
         # Инициализация контекста SPNEGO на стороне сервера
         server_ctx = spnego.server(
-            service=cfg.service_principal or "HTTP",
-            protocol="negotiate",
-            keytab=cfg.keytab_file
+            service=cfg.service_principal or "HTTP", protocol="negotiate", keytab=cfg.keytab_file
         )
 
         out_token = server_ctx.step(in_token)
@@ -38,7 +37,7 @@ def authenticate_spnego(negotiate_token_b64: str) -> Optional[Dict[str, Any]]:
                 "email": f"{username}@{client_principal.split('@')[1].lower()}" if "@" in client_principal else None,
                 "groups": [],  # Kerberos PAC или LDAP обогащение
                 "auth_method": "kerberos",
-                "out_token": base64.b64encode(out_token).decode("utf-8") if out_token else None
+                "out_token": base64.b64encode(out_token).decode("utf-8") if out_token else None,
             }
         else:
             logger.warning("SPNEGO контекст не завершен за один шаг")

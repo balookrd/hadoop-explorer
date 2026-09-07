@@ -4,6 +4,7 @@ import yaml
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, model_validator
 
+
 class MockUser(BaseModel):
     username: str
     password: str
@@ -11,20 +12,24 @@ class MockUser(BaseModel):
     email: str
     groups: List[str] = []
 
+
 from backend.common.core.ldap_auth import CommonLdapConfig, LdapConfig
 
 # LDAPConfig как канонический CommonLdapConfig
 LDAPConfig = CommonLdapConfig
+
 
 class KerberosConfig(BaseModel):
     enabled: bool = True
     keytab_file: Optional[str] = None
     service_principal: Optional[str] = None
 
+
 class JWTConfig(BaseModel):
-    secret_key: str = "secret-key-for-dev-only"
+    secret_key: str = ""
     algorithm: str = "HS256"
     expire_minutes: int = 480
+
 
 class AuthConfig(BaseModel):
     mode: str = "mock"  # hybrid, ldaps_only, kerberos_only, mock
@@ -33,13 +38,16 @@ class AuthConfig(BaseModel):
     kerberos: KerberosConfig = Field(default_factory=KerberosConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
 
+
 class ClusterAclConfig(BaseModel):
     allowed_groups: List[str] = ["*"]
     allowed_users: List[str] = []
 
+
 class ImpersonationConfig(BaseModel):
     enabled: bool = True
     method: str = "x-trino-user"  # x-trino-user, doAs
+
 
 class ClusterConfig(BaseModel):
     id: str
@@ -57,13 +65,16 @@ class ClusterConfig(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+
 class UIAclConfig(BaseModel):
     allowed_users: List[str] = ["*"]
     allowed_groups: List[str] = ["*"]
     admin_groups: List[str] = []
 
+
 class ACLConfig(BaseModel):
     ui_access: UIAclConfig = Field(default_factory=UIAclConfig)
+
 
 class QueryDefaultsConfig(BaseModel):
     max_rows_in_ui: int = 10000
@@ -71,6 +82,7 @@ class QueryDefaultsConfig(BaseModel):
     auto_add_limit: bool = True
     query_timeout_seconds: int = 600
     results_ttl_seconds: int = 7 * 86400  # 7 дней по умолчанию (604800 сек)
+
 
 class AIConfig(BaseModel):
     enabled: bool = True
@@ -82,6 +94,7 @@ class AIConfig(BaseModel):
     temperature: float = 0.1
     max_tokens: int = 2048
 
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -89,8 +102,10 @@ class ServerConfig(BaseModel):
     cors_origins: List[str] = ["http://localhost:8000", "http://localhost:5173"]
     secure_cookies: bool = False
 
+
 class DatabaseConfig(BaseModel):
     url: str = "sqlite+aiosqlite:///./data/sql_explorer.db"
+
 
 class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -109,16 +124,14 @@ class AppConfig(BaseModel):
                     "Mock authentication cannot be used in production mode (debug=False). "
                     "Please configure LDAP/Kerberos or set server.debug=True for local development."
                 )
-            insecure_defaults = (
-                "change-this-to-a-very-secret-random-key-in-production",
-                "secret-key-for-dev-only",
-                "default-secret-key-change-it"
-            )
-            if self.auth.jwt.secret_key in insecure_defaults or len(self.auth.jwt.secret_key) < 32:
+            from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
+
+            if self.auth.jwt.secret_key in INSECURE_DEFAULT_KEYS or len(self.auth.jwt.secret_key) < 32:
                 raise ValueError(
                     "JWT_SECRET_KEY must be set to a secure unique string (at least 32 characters) in production mode."
                 )
         return self
+
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     if not config_path:
@@ -127,6 +140,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
             config_path = env_cfg
         else:
             from pathlib import Path
+
             project_cfg = Path(__file__).resolve().parents[3] / "config" / "config.yaml"
             if project_cfg.exists():
                 config_path = str(project_cfg)
@@ -179,5 +193,6 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
             pass
 
     return cfg.validate_production_security()
+
 
 settings = load_config()

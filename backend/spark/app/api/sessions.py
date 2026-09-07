@@ -9,6 +9,7 @@ from app.services.session_manager import session_manager
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
+
 class CreateSessionRequest(BaseModel):
     cluster_id: str
     spark_version_id: str
@@ -21,6 +22,7 @@ class CreateSessionRequest(BaseModel):
     jars: Optional[List[str]] = None
     py_files: Optional[List[str]] = None
     spark_conf: Optional[Dict[str, str]] = None
+
 
 class SessionResponse(BaseModel):
     id: str
@@ -36,9 +38,11 @@ class SessionResponse(BaseModel):
     created_at: Optional[str] = None
     last_activity_at: Optional[str] = None
 
+
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(current_user: UserSession = Depends(get_current_user)):
     return await session_manager.get_active_sessions(current_user.username)
+
 
 @router.post("", response_model=SessionResponse)
 async def create_session(req: CreateSessionRequest, current_user: UserSession = Depends(get_current_user)):
@@ -61,7 +65,7 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
             packages=req.packages,
             jars=req.jars,
             py_files=req.py_files,
-            custom_conf=req.spark_conf
+            custom_conf=req.spark_conf,
         )
 
         log_audit_event(
@@ -72,8 +76,8 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
                 "session_id": session.id,
                 "cluster_id": cluster.id,
                 "yarn_queue": req.yarn_queue,
-                "kind": req.kind
-            }
+                "kind": req.kind,
+            },
         )
 
         return SessionResponse(
@@ -88,7 +92,7 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
             status=session.status,
             yarn_application_id=session.yarn_application_id,
             created_at=session.created_at.isoformat() if session.created_at else None,
-            last_activity_at=session.last_activity_at.isoformat() if session.last_activity_at else None
+            last_activity_at=session.last_activity_at.isoformat() if session.last_activity_at else None,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -96,6 +100,7 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось инициализировать сессию Spark: {e}")
+
 
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: str, current_user: UserSession = Depends(get_current_user)):
@@ -114,8 +119,9 @@ async def get_session(session_id: str, current_user: UserSession = Depends(get_c
         status=sess.status,
         yarn_application_id=sess.yarn_application_id,
         created_at=sess.created_at.isoformat() if sess.created_at else None,
-        last_activity_at=sess.last_activity_at.isoformat() if sess.last_activity_at else None
+        last_activity_at=sess.last_activity_at.isoformat() if sess.last_activity_at else None,
     )
+
 
 @router.delete("/{session_id}")
 async def stop_session(session_id: str, current_user: UserSession = Depends(get_current_user)):
@@ -128,7 +134,7 @@ async def stop_session(session_id: str, current_user: UserSession = Depends(get_
             AuditEventType.SPARK_SESSION_STOPPED,
             username=current_user.username,
             client_ip="internal",
-            details={"session_id": session_id}
+            details={"session_id": session_id},
         )
         return {"status": "ok", "message": f"Сессия {session_id} остановлена"}
     except PermissionError as e:

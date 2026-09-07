@@ -17,7 +17,7 @@ def test_parquet_truncated_preview():
     возвращает информативный структурированный ответ без падения.
     """
     total_size = 100 * 1024 * 1024  # 100 МБ
-    max_bytes = 1024 * 1024          # 1 МБ
+    max_bytes = 1024 * 1024  # 1 МБ
     content = b"PAR1" + b"\x00" * 1000
 
     resp = preview_service.generate_preview(
@@ -25,7 +25,7 @@ def test_parquet_truncated_preview():
         cluster_id="prod-cluster",
         content=content,
         total_size=total_size,
-        max_bytes=max_bytes
+        max_bytes=max_bytes,
     )
 
     assert isinstance(resp, FilePreviewResponse)
@@ -50,7 +50,7 @@ def test_orc_truncated_preview():
         cluster_id="prod-cluster",
         content=content,
         total_size=total_size,
-        max_bytes=max_bytes
+        max_bytes=max_bytes,
     )
 
     assert isinstance(resp, FilePreviewResponse)
@@ -74,7 +74,7 @@ def test_corrupted_parquet_preview():
         cluster_id="prod-cluster",
         content=corrupted_content,
         total_size=total_size,
-        max_bytes=max_bytes
+        max_bytes=max_bytes,
     )
 
     assert isinstance(resp, FilePreviewResponse)

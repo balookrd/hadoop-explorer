@@ -7,6 +7,7 @@ from app.services.catalog_service import catalog_service
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
+
 def _get_cluster(cluster_id: str, user: UserSession):
     c = next((cl for cl in settings.clusters if cl.id == cluster_id), None)
     if not c:
@@ -15,25 +16,28 @@ def _get_cluster(cluster_id: str, user: UserSession):
         raise HTTPException(status_code=403, detail="Доступ к кластеру запрещен")
     return c
 
+
 @router.get("/{cluster_id}/catalogs", response_model=List[str])
 async def get_catalogs(
     cluster_id: str,
     metastore_id: Optional[str] = Query(default=None),
     refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
 ):
     cluster = _get_cluster(cluster_id, current_user)
     return await catalog_service.get_catalogs(cluster, metastore_id, refresh=refresh)
+
 
 @router.get("/{cluster_id}/databases", response_model=List[str])
 async def get_databases(
     cluster_id: str,
     metastore_id: Optional[str] = Query(default=None),
     refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
 ):
     cluster = _get_cluster(cluster_id, current_user)
     return await catalog_service.get_databases(cluster, metastore_id, refresh=refresh)
+
 
 @router.get("/{cluster_id}/tables", response_model=List[str])
 async def get_tables(
@@ -41,10 +45,11 @@ async def get_tables(
     database: str = Query(default="default"),
     metastore_id: Optional[str] = Query(default=None),
     refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
 ):
     cluster = _get_cluster(cluster_id, current_user)
     return await catalog_service.get_tables(cluster, database, metastore_id, refresh=refresh)
+
 
 @router.get("/{cluster_id}/columns")
 async def get_columns(
@@ -53,8 +58,7 @@ async def get_columns(
     table: str = Query(default=""),
     metastore_id: Optional[str] = Query(default=None),
     refresh: bool = Query(default=False, description="Принудительно обновить кэш метаданных"),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
 ):
     cluster = _get_cluster(cluster_id, current_user)
     return await catalog_service.get_columns(cluster, database, table, metastore_id, refresh=refresh)
-

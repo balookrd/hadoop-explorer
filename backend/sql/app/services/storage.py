@@ -38,6 +38,7 @@ class StorageService(SessionStore):
     Универсальный сервис хранения (StorageService) для sql-explorer.
     Наследует SessionStore для полной поддержки активных сессий, отзыва токенов и rate limiting.
     """
+
     def __init__(self, db_url: Optional[str] = None):
         redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
         if db_url:
@@ -55,4 +56,3 @@ class StorageService(SessionStore):
 
 
 storage_service = StorageService()
-

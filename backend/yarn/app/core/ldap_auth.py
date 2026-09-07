@@ -27,7 +27,7 @@ class LdapService:
             groups=result["groups"],
             auth_method="ldap",
             is_admin=False,
-            system_role=Role.READER
+            system_role=Role.READER,
         )
 
     def get_user_info(self, username: str) -> Optional[UserSession]:
@@ -42,7 +42,7 @@ class LdapService:
             groups=result["groups"],
             auth_method="ldap",
             is_admin=False,
-            system_role=Role.READER
+            system_role=Role.READER,
         )
 
 
