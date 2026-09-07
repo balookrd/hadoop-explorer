@@ -178,4 +178,9 @@ export const api = {
       method: 'POST',
     });
   },
+
+  async previewChangeRequestXml(id: number) {
+    return request<{ cr_id: number; title: string; filename: string; xml_content: string }>(`/change-requests/${id}/preview-xml`);
+  },
 };
+

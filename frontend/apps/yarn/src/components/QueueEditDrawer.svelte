@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { QueueNode, DraftQueueItem, PartitionResourceConfig } from '../types';
   import { X, RotateCcw, Save, HardDrive, Cpu, Link, Unlink, Percent, Hash, AlertCircle, Users, Layers } from 'lucide-svelte';
   import { formatMemory, formatVcores, mbToGb, gbToMb } from '../utils/resourceUtils';
@@ -72,8 +73,8 @@
     if (!queue) return;
     const draft = draftItem;
     const part = draft
-      ? (draft.partitions[selectedPartition] || draft.partitions['DEFAULT'])
-      : (queue.partitions[selectedPartition] || queue.partitions['DEFAULT']);
+      ? (draft.partitions[selectedPartition] || draft.partitions['DEFAULT'] || Object.values(draft.partitions)[0])
+      : (queue.partitions[selectedPartition] || queue.partitions['DEFAULT'] || Object.values(queue.partitions)[0]);
 
     const activeMode = draft?.resource_mode || queue.resource_mode || resourceMode || 'percentage';
     inputMode = activeMode === 'absolute' ? 'absolute' : 'percentage';
@@ -118,15 +119,25 @@
     editDefaultLabelExpression = draft?.default_node_label_expression ?? queue.default_node_label_expression ?? '';
   }
 
-  // Заполняем поля только при открытии Drawer или смене очереди
+  let lastDrawerKey = $state<string>('');
+
+  // Заполняем поля при открытии Drawer или смене очереди / партиции / драфта
   $effect(() => {
-    if (isOpen && queue) {
-      if (lastOpenedPath !== queue.path) {
-        lastOpenedPath = queue.path;
-        initForm();
+    const open = isOpen;
+    const qPath = queue?.path;
+    const part = selectedPartition;
+    const draftJson = draftItem ? JSON.stringify(draftItem) : '';
+    const currentKey = open && qPath ? `${qPath}__${part}__${draftJson}` : '';
+
+    if (open && qPath) {
+      if (lastDrawerKey !== currentKey) {
+        lastDrawerKey = currentKey;
+        untrack(() => {
+          initForm();
+        });
       }
-    } else if (!isOpen) {
-      lastOpenedPath = null;
+    } else {
+      lastDrawerKey = '';
     }
   });
 

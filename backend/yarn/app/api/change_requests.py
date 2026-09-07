@@ -213,8 +213,8 @@ async def approve_change_request(
     cluster = _find_cluster(cr.cluster_id)
     check_cluster_permission(current_user, cluster, Role.ADMIN)
 
-    # Принцип Four-Eyes (разделение обязанностей): автор заявки не может самостоятельно одобрить свой запрос
-    if cr.author == current_user.username:
+    # Принцип Four-Eyes (разделение обязанностей): автор заявки не может самостоятельно одобрить свой запрос (если включено в настройках)
+    if settings.acl.enforce_four_eyes and cr.author == current_user.username:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Принцип разделения обязанностей (Four-Eyes): автор заявки не может самостоятельно одобрить свой запрос",
@@ -225,6 +225,7 @@ async def approve_change_request(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Нельзя одобрить заявку в статусе '{cr.status}' (ожидается SUBMITTED)",
         )
+
 
     live_nodes = await _get_live_queues(cluster, current_user.username)
     queue_map = {}
@@ -374,3 +375,78 @@ async def cancel_change_request(
     )
 
     return storage_service.get_change_request(cr_id)
+
+
+@router.get("/{cr_id}/preview-xml")
+async def preview_change_request_xml(
+    cr_id: int,
+    current_user: UserSession = Depends(get_current_user),
+):
+    """Предпросмотр сгенерированного XML для заявки на согласование."""
+    cr = storage_service.get_change_request(cr_id)
+    if not cr:
+        raise HTTPException(status_code=404, detail=f"Заявка #{cr_id} не найдена")
+
+    cluster = _find_cluster(cr.cluster_id)
+    check_cluster_permission(current_user, cluster, Role.READER)
+
+    if cr.xml_content and cr.status == "APPROVED":
+        return {
+            "cr_id": cr.id,
+            "title": cr.title,
+            "filename": f"capacity-scheduler-{cr.cluster_id}.xml",
+            "xml_content": cr.xml_content,
+        }
+
+    live_nodes = await _get_live_queues(cluster, current_user.username)
+    queue_map = {}
+    for n in live_nodes:
+        queue_map[n.path] = QueueDraftItem(
+            path=n.path,
+            name=n.name,
+            parent_path=n.parent_path,
+            action="modify",
+            is_leaf=n.is_leaf,
+            state=n.state,
+            partitions=n.partitions,
+        )
+    for draft_q in cr.changes:
+        if draft_q.action == "delete":
+            queue_map.pop(draft_q.path, None)
+        else:
+            queue_map[draft_q.path] = draft_q
+
+    all_queues = list(queue_map.values())
+
+    base_xml: Optional[str] = None
+    if settings.auth.mode == "mock":
+        from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+        base_xml = get_mock_capacity_scheduler_xml(cluster)
+    else:
+        try:
+            from app.services.yarn_client import YarnClient
+            client = YarnClient(cluster)
+            base_xml = await client.get_capacity_scheduler_xml(do_as=current_user.username)
+        except Exception as e:
+            logger.warning(f"Не удалось получить текущий capacity-scheduler.xml из YARN: {e}")
+
+    if not base_xml:
+        from app.services.mock_yarn import get_mock_capacity_scheduler_xml
+        base_xml = get_mock_capacity_scheduler_xml(cluster)
+
+    xml_content = generate_capacity_scheduler_xml(
+        queues=all_queues,
+        cluster=cluster,
+        generated_by=f"{cr.author} (Preview by {current_user.username})",
+        comment=f"Preview Change Request #{cr.id}: {cr.title}",
+        resource_mode=cluster.resource_mode,
+        base_xml=base_xml,
+    )
+
+    return {
+        "cr_id": cr.id,
+        "title": cr.title,
+        "filename": f"capacity-scheduler-{cr.cluster_id}.xml",
+        "xml_content": xml_content,
+    }
+

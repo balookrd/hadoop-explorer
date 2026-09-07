@@ -194,6 +194,15 @@
     }
   }
 
+  function findNodeInTree(node: QueueNode, targetPath: string): QueueNode | null {
+    if (node.path === targetPath) return node;
+    for (const child of node.children) {
+      const found = findNodeInTree(child, targetPath);
+      if (found) return found;
+    }
+    return null;
+  }
+
   function handleDelete(path: string) {
     if (path === 'root') return;
     const newMap = new Map(draftChanges);
@@ -207,18 +216,8 @@
       return paths;
     }
 
-    // Находим узел в дереве
-    function findNode(node: QueueNode, targetPath: string): QueueNode | null {
-      if (node.path === targetPath) return node;
-      for (const child of node.children) {
-        const found = findNode(child, targetPath);
-        if (found) return found;
-      }
-      return null;
-    }
-
     if (rootQueue) {
-      const target = findNode(rootQueue, path);
+      const target = findNodeInTree(rootQueue, path);
       if (target) {
         const allPaths = collectPaths(target);
         for (const p of allPaths) {
@@ -401,16 +400,41 @@
     draftChanges = new Map();
     recalcBalances();
     await loadPendingCrCount();
-    alert('Заявка на согласование успешно создана и передана администратору!');
+    showCrDrawer = true;
   }
 
-  function handleApplyCrToDraft(changes: DraftQueueItem[]) {
+
+  function handleApplyCrToDraft(changes: DraftQueueItem[], targetQueuePath?: string) {
     const newMap = new Map(draftChanges);
     for (const c of changes) {
       newMap.set(c.path, c);
     }
     draftChanges = newMap;
+
+    // Если есть созданные очереди, гарантируем их присутствие в rootQueue
+    if (rootQueue) {
+      for (const c of changes) {
+        if (c.action === 'create') {
+          const existing = findNodeInTree(rootQueue, c.path);
+          if (!existing) {
+            addNodeToTree(rootQueue, c);
+          }
+        }
+      }
+      rootQueue = { ...rootQueue };
+    }
+
     recalcBalances();
+
+    // Открываем редактор для выбранной очереди или первой измененной очереди
+    const path = targetQueuePath || (changes.length > 0 ? changes[0].path : null);
+    if (path && rootQueue) {
+      const node = findNodeInTree(rootQueue, path);
+      if (node) {
+        editingQueue = node;
+        isDrawerOpen = true;
+      }
+    }
   }
 
   function handleViewCrXml(xml: string, title: string) {
@@ -598,18 +622,20 @@
       {canAdmin}
       bind:isOpen={showDiffPanel}
       onGenerateXml={() => handleGenerateXml()}
+      onSubmitCr={() => showSubmitCrModal = true}
     />
 
     <QueueMappingsModal
-      rootNode={rootQueue}
-      currentMappings={draftQueueMappings}
-      currentOverride={draftQueueMappingsOverride}
+      rootQueue={rootQueue}
+      draftMappings={draftQueueMappings}
+      draftOverride={draftQueueMappingsOverride}
       liveMappings={liveQueueMappings}
       liveOverride={liveQueueMappingsOverride}
       {canWrite}
       bind:isOpen={isMappingsModalOpen}
       onSave={handleSaveMappings}
     />
+
 
     <XmlExportModal
       {xmlContent}

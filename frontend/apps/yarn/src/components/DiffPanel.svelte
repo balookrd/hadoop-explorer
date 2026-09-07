@@ -8,12 +8,14 @@
     canAdmin,
     isOpen = $bindable(),
     onGenerateXml,
+    onSubmitCr,
   }: {
     diffs: DiffItem[];
     queueMappingsDiff?: QueueMappingsDiff | null;
     canAdmin: boolean;
     isOpen: boolean;
     onGenerateXml: () => void;
+    onSubmitCr?: () => void;
   } = $props();
 
   const changedDiffs = $derived(diffs.filter(d => d.action !== 'unchanged'));
@@ -173,28 +175,33 @@
       </div>
 
       <!-- Footer -->
-      <div class="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200">
+      <div class="flex items-center justify-between px-6 py-3 border-t border-slate-200">
         <button onclick={() => isOpen = false}
           class="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 transition cursor-pointer">
-          Close
+          Закрыть
         </button>
-        {#if canAdmin}
-          <button onclick={() => { onGenerateXml(); isOpen = false; }}
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white text-xs font-semibold shadow-md cursor-pointer">
-            <FileDown class="w-3.5 h-3.5" />
-            Generate XML
-          </button>
-        {:else}
-          <button
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-semibold shadow-md cursor-pointer"
-            title="Send draft for Admin review"
-          >
-            <Send class="w-3.5 h-3.5" />
-            Send for Review
-          </button>
-        {/if}
+        <div class="flex items-center gap-2">
+          {#if onSubmitCr}
+            <button
+              onclick={() => { onSubmitCr?.(); isOpen = false; }}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold shadow-xs transition cursor-pointer"
+              title="Отправить черновик на согласование администратору"
+            >
+              <Send class="w-3.5 h-3.5" />
+              Отправить на согласование
+            </button>
+          {/if}
+          {#if canAdmin}
+            <button onclick={() => { onGenerateXml(); isOpen = false; }}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition cursor-pointer">
+              <FileDown class="w-3.5 h-3.5" />
+              Сгенерировать XML
+            </button>
+          {/if}
+        </div>
       </div>
     </div>
   </div>
 {/if}
+
 

@@ -141,7 +141,13 @@ export interface QueueMappingsDiff {
   draft?: string;
   override_live?: boolean;
   override_draft?: boolean;
+  is_changed?: boolean;
+  live_mappings?: string;
+  draft_mappings?: string;
+  live_override?: boolean;
+  draft_override?: boolean;
 }
+
 
 export interface DiffItem {
   path: string;

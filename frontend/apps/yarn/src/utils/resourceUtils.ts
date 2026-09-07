@@ -1,25 +1,56 @@
 export function formatMemory(mb?: number): string {
   if (mb === undefined || mb === null || isNaN(mb)) return '0 MB';
-  if (mb >= 1048576) {
+  const abs = Math.abs(mb);
+  if (abs >= 1048576) {
     const tb = mb / 1048576;
-    return `${tb % 1 === 0 ? tb.toFixed(0) : tb.toFixed(1)} TB`;
+    const formatted = tb.toFixed(tb % 1 === 0 ? 0 : (Math.abs(tb % 0.1) < 0.01 ? 1 : 2));
+    return `${formatted} TB`;
   }
-  if (mb >= 1024) {
+  if (abs >= 1024) {
     const gb = mb / 1024;
-    return `${gb % 1 === 0 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
+    const formatted = gb.toFixed(gb % 1 === 0 ? 0 : (Math.abs(gb % 0.1) < 0.01 ? 1 : 2));
+    return `${formatted} GB`;
   }
   return `${Math.round(mb)} MB`;
 }
 
 export function formatVcores(cores?: number): string {
   if (cores === undefined || cores === null || isNaN(cores)) return '0 Cores';
-  return `${Math.round(cores)} Cores`;
+  const formatted = cores.toFixed(cores % 1 === 0 ? 0 : (Math.abs(cores % 0.1) < 0.01 ? 1 : 2));
+  return `${formatted} Cores`;
+}
+
+export function formatMemoryDelta(liveMb: number, draftMb: number): string {
+  const deltaMb = draftMb - liveMb;
+  if (Math.abs(deltaMb) < 1) return '';
+  const sign = deltaMb > 0 ? '+' : '';
+  const abs = Math.abs(deltaMb);
+  if (abs >= 1048576) {
+    const tb = deltaMb / 1048576;
+    const formatted = tb.toFixed(tb % 1 === 0 ? 0 : 2);
+    return `${sign}${formatted} TB`;
+  }
+  if (abs >= 1024) {
+    const gb = deltaMb / 1024;
+    const formatted = gb.toFixed(gb % 1 === 0 ? 0 : 2);
+    return `${sign}${formatted} GB`;
+  }
+  return `${sign}${Math.round(deltaMb)} MB`;
+}
+
+export function formatVcoresDelta(liveCores: number, draftCores: number): string {
+  const delta = draftCores - liveCores;
+  if (Math.abs(delta) < 0.01) return '';
+  const sign = delta > 0 ? '+' : '';
+  const formatted = delta.toFixed(delta % 1 === 0 ? 0 : 2);
+  return `${sign}${formatted} Cores`;
 }
 
 export function mbToGb(mb: number): number {
-  return Math.round((mb / 1024) * 10) / 10;
+  return Math.round((mb / 1024) * 100) / 100;
 }
 
 export function gbToMb(gb: number): number {
   return Math.round(gb * 1024);
 }
+

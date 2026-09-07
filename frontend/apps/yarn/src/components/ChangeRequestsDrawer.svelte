@@ -5,7 +5,7 @@
     X, CheckCircle, XCircle, Clock, Ban, User, Calendar, 
     FileCode, RefreshCw, GitPullRequest, ArrowRight, Eye, Check, Trash2, ArrowUpRight
   } from 'lucide-svelte';
-  import { formatMemory, formatVcores } from '../utils/resourceUtils';
+  import { formatMemory, formatVcores, formatMemoryDelta, formatVcoresDelta } from '../utils/resourceUtils';
 
   let {
     clusterId,
@@ -20,7 +20,7 @@
     canAdmin: boolean;
     currentUsername: string;
     isOpen: boolean;
-    onApplyToDraft: (changes: DraftQueueItem[]) => void;
+    onApplyToDraft: (changes: DraftQueueItem[], targetQueuePath?: string) => void;
     onViewXml: (xml: string, title: string) => void;
     onStatusChange?: () => void;
   } = $props();
@@ -34,6 +34,14 @@
   let reviewComment = $state('');
   let actionLoading = $state(false);
   let errorMessage = $state('');
+
+  const displayedRequests = $derived(
+    requests.filter((r) => {
+      if (filterStatus === 'MY') return r.author === currentUsername;
+      if (filterStatus === 'ALL') return true;
+      return r.status === filterStatus;
+    })
+  );
 
   // Загрузка списка заявок при открытии
   $effect(() => {
@@ -51,7 +59,7 @@
     isLoading = true;
     errorMessage = '';
     try {
-      const statusParam = filterStatus === 'ALL' ? undefined : filterStatus;
+      const statusParam = (filterStatus === 'ALL' || filterStatus === 'MY') ? undefined : filterStatus;
       requests = await api.listChangeRequests(clusterId, statusParam);
       if (selectedId) {
         await selectRequest(selectedId);
@@ -128,9 +136,24 @@
     }
   }
 
-  function handleLoadDraft() {
+  async function handlePreviewXml() {
+    if (!selectedId) return;
+    actionLoading = true;
+    errorMessage = '';
+    try {
+      const resp = await api.previewChangeRequestXml(selectedId);
+      onViewXml(resp.xml_content, resp.title);
+    } catch (err: any) {
+      errorMessage = err.message || 'Ошибка предпросмотра XML';
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  function handleLoadDraft(specificPath?: string) {
     if (!selectedDetail) return;
-    onApplyToDraft(selectedDetail.changes);
+    const path = specificPath || (selectedDetail.changes.length > 0 ? selectedDetail.changes[0].path : undefined);
+    onApplyToDraft(selectedDetail.changes, path);
     isOpen = false;
   }
 
@@ -162,6 +185,7 @@
         return { text: status, bg: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock };
     }
   }
+
 </script>
 
 {#if isOpen}
@@ -215,19 +239,21 @@
     <!-- Content: Left List & Right Detail -->
     <div class="flex-1 flex overflow-hidden">
       <!-- Left List (35%) -->
-      <div class="w-[320px] border-r border-slate-200 flex flex-col bg-slate-50/50">
+      <div class="w-[330px] border-r border-slate-200 flex flex-col bg-slate-50/50">
         <!-- Filter Tabs -->
-        <div class="p-2.5 border-b border-slate-200 bg-white flex gap-1 text-[11px] font-medium">
+        <div class="p-2 border-b border-slate-200 bg-white flex flex-wrap gap-1 text-[11px] font-medium">
           {#each [
             { id: 'ALL', label: 'Все' },
             { id: 'SUBMITTED', label: 'Ожидают' },
             { id: 'APPROVED', label: 'Одобрены' },
-            { id: 'REJECTED', label: 'Отклонены' }
+            { id: 'REJECTED', label: 'Отклонены' },
+            { id: 'CANCELLED', label: 'Отозваны' },
+            { id: 'MY', label: 'Мои' }
           ] as tab}
             <button
-              onclick={() => { filterStatus = tab.id; loadRequests(); }}
-              class="flex-1 py-1 rounded-md text-center transition cursor-pointer {
-                filterStatus === tab.id ? 'bg-sky-600 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'
+              onclick={() => { filterStatus = tab.id; }}
+              class="px-2 py-0.5 rounded-md text-center transition cursor-pointer {
+                filterStatus === tab.id ? 'bg-sky-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:bg-slate-100'
               }"
             >
               {tab.label}
@@ -237,12 +263,12 @@
 
         <!-- Requests Scroll Area -->
         <div class="flex-1 overflow-y-auto divide-y divide-slate-100">
-          {#if requests.length === 0}
+          {#if displayedRequests.length === 0}
             <div class="p-8 text-center text-xs text-slate-400">
               Заявок не найдено
             </div>
           {:else}
-            {#each requests as r}
+            {#each displayedRequests as r}
               {@const badge = statusBadge(r.status)}
               {@const BadgeIcon = badge.icon}
               <button
@@ -262,7 +288,7 @@
                 <div class="flex items-center justify-between text-[11px] text-slate-400">
                   <span class="flex items-center gap-1">
                     <User class="w-3 h-3" />
-                    <span>{r.author}</span>
+                    <span class={r.author === currentUsername ? 'font-semibold text-indigo-600' : ''}>{r.author}</span>
                   </span>
                   <span>{formatDate(r.created_at)}</span>
                 </div>
@@ -311,18 +337,18 @@
               </div>
 
               {#if selectedDetail.description}
-                <div class="mt-3 text-xs text-slate-700 bg-white p-2 rounded border border-slate-200">
-                  <span class="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Обоснование:</span>
-                  <p class="whitespace-pre-wrap">{selectedDetail.description}</p>
+                <div class="mt-3 text-xs text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
+                  <span class="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Обоснование изменений:</span>
+                  <p class="whitespace-pre-wrap leading-relaxed">{selectedDetail.description}</p>
                 </div>
               {/if}
 
               {#if selectedDetail.review_comment}
-                <div class="mt-2 text-xs p-2 rounded border {
+                <div class="mt-2 text-xs p-2.5 rounded-lg border {
                   selectedDetail.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-900'
                 }">
                   <span class="text-[10px] uppercase font-bold block mb-0.5">Комментарий администратора:</span>
-                  <p class="whitespace-pre-wrap">{selectedDetail.review_comment}</p>
+                  <p class="whitespace-pre-wrap leading-relaxed">{selectedDetail.review_comment}</p>
                 </div>
               {/if}
             </div>
@@ -333,94 +359,155 @@
                 <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wide">
                   Изменения конфигурации ({selectedDetail.diffs.length})
                 </h3>
-                <button
-                  onclick={handleLoadDraft}
-                  class="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-800 transition cursor-pointer"
-                >
-                  <ArrowUpRight class="w-3.5 h-3.5" />
-                  <span>Открыть в редакторе очередей</span>
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    onclick={handlePreviewXml}
+                    disabled={actionLoading}
+                    class="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition cursor-pointer"
+                  >
+                    <Eye class="w-3.5 h-3.5" />
+                    <span>Предпросмотр XML</span>
+                  </button>
+                  <button
+                    onclick={() => handleLoadDraft()}
+                    class="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 rounded-lg border border-sky-200 transition cursor-pointer"
+                  >
+                    <ArrowUpRight class="w-3.5 h-3.5" />
+                    <span>Открыть в редакторе</span>
+                  </button>
+                </div>
               </div>
 
               <div class="border border-slate-200 rounded-xl overflow-hidden shadow-xs divide-y divide-slate-100">
                 {#each selectedDetail.diffs as diff}
                   <div class="p-3 bg-white text-xs space-y-1.5">
                     <div class="flex items-center justify-between">
-                      <span class="font-mono font-semibold text-slate-900">{diff.path}</span>
-                      <span class="text-[10px] font-bold px-1.5 py-0.2 rounded {
-                        diff.action === 'created' ? 'bg-emerald-100 text-emerald-700' :
-                        diff.action === 'deleted' ? 'bg-red-100 text-red-700' :
-                        'bg-sky-100 text-sky-700'
-                      }">
-                        {diff.action.toUpperCase()}
-                      </span>
+                      <div class="flex items-center gap-2">
+                        <span class="font-mono font-semibold text-slate-900">{diff.path}</span>
+                        <span class="text-[10px] font-bold px-1.5 py-0.2 rounded {
+                          diff.action === 'created' ? 'bg-emerald-100 text-emerald-700' :
+                          diff.action === 'deleted' ? 'bg-red-100 text-red-700' :
+                          'bg-sky-100 text-sky-700'
+                        }">
+                          {diff.action.toUpperCase()}
+                        </span>
+                      </div>
+                      <button
+                        onclick={() => handleLoadDraft(diff.path)}
+                        class="text-[11px] font-medium text-sky-600 hover:text-sky-800 hover:underline flex items-center gap-1 cursor-pointer bg-sky-50 hover:bg-sky-100 px-2 py-0.5 rounded border border-sky-200 transition"
+                        title="Загрузить и открыть данную очередь в редакторе"
+                      >
+                        <span>Редактировать</span>
+                        <ArrowRight class="w-3 h-3" />
+                      </button>
                     </div>
 
                     <!-- Comparison Grid -->
-                    <div class="grid grid-cols-2 gap-3 bg-slate-50 p-2 rounded-lg text-[11px] font-mono">
+                    <div class="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono">
                       <div>
-                        <span class="text-slate-400 block text-[10px] uppercase">Capacity:</span>
-                        {#if diff.live_capacity !== undefined}
+                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Capacity (%):</span>
+                        {#if diff.live_capacity !== undefined && diff.live_capacity !== null}
                           <span class="text-slate-700">{diff.live_capacity.toFixed(1)}%</span>
-                          {#if diff.draft_capacity !== undefined && diff.draft_capacity !== diff.live_capacity}
+                          {#if diff.draft_capacity !== undefined && diff.draft_capacity !== null && Math.abs(diff.draft_capacity - diff.live_capacity) > 0.01}
                             <span class="text-slate-400 mx-1">→</span>
                             <span class="font-bold text-indigo-700">{diff.draft_capacity.toFixed(1)}%</span>
+                            {#if diff.delta_capacity !== undefined && diff.delta_capacity !== null}
+                              <span class="text-[10px] ml-1 {diff.delta_capacity > 0 ? 'text-emerald-600' : 'text-red-600'}">
+                                ({diff.delta_capacity > 0 ? '+' : ''}{diff.delta_capacity.toFixed(1)}%)
+                              </span>
+                            {/if}
                           {/if}
-                        {:else if diff.draft_capacity !== undefined}
+                        {:else if diff.draft_capacity !== undefined && diff.draft_capacity !== null}
                           <span class="font-bold text-emerald-700">+{diff.draft_capacity.toFixed(1)}%</span>
                         {/if}
                       </div>
 
                       <div>
-                        <span class="text-slate-400 block text-[10px] uppercase">Max Capacity:</span>
-                        {#if diff.live_max_capacity !== undefined}
+                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Max Capacity (%):</span>
+                        {#if diff.live_max_capacity !== undefined && diff.live_max_capacity !== null}
                           <span class="text-slate-700">{diff.live_max_capacity.toFixed(1)}%</span>
-                          {#if diff.draft_max_capacity !== undefined && diff.draft_max_capacity !== diff.live_max_capacity}
+                          {#if diff.draft_max_capacity !== undefined && diff.draft_max_capacity !== null && Math.abs(diff.draft_max_capacity - diff.live_max_capacity) > 0.01}
                             <span class="text-slate-400 mx-1">→</span>
                             <span class="font-bold text-indigo-700">{diff.draft_max_capacity.toFixed(1)}%</span>
+                            {#if diff.delta_max_capacity !== undefined && diff.delta_max_capacity !== null}
+                              <span class="text-[10px] ml-1 {diff.delta_max_capacity > 0 ? 'text-emerald-600' : 'text-red-600'}">
+                                ({diff.delta_max_capacity > 0 ? '+' : ''}{diff.delta_max_capacity.toFixed(1)}%)
+                              </span>
+                            {/if}
                           {/if}
-                        {:else if diff.draft_max_capacity !== undefined}
+                        {:else if diff.draft_max_capacity !== undefined && diff.draft_max_capacity !== null}
                           <span class="font-bold text-emerald-700">+{diff.draft_max_capacity.toFixed(1)}%</span>
                         {/if}
                       </div>
 
-                      {#if diff.live_memory_mb || diff.draft_memory_mb}
+                      {#if diff.live_memory_mb != null || diff.draft_memory_mb != null}
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase">Память RAM:</span>
+                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Память RAM:</span>
                           <span>{formatMemory(diff.live_memory_mb)}</span>
-                          {#if diff.draft_memory_mb && diff.draft_memory_mb !== diff.live_memory_mb}
+                          {#if diff.draft_memory_mb != null && diff.draft_memory_mb !== diff.live_memory_mb}
                             <span class="text-slate-400 mx-1">→</span>
                             <span class="font-bold text-indigo-700">{formatMemory(diff.draft_memory_mb)}</span>
+                            {#if diff.live_memory_mb != null && formatMemoryDelta(diff.live_memory_mb, diff.draft_memory_mb)}
+                              <span class="text-[10px] ml-1 {diff.draft_memory_mb > diff.live_memory_mb ? 'text-emerald-600' : 'text-red-600'}">
+                                ({formatMemoryDelta(diff.live_memory_mb, diff.draft_memory_mb)})
+                              </span>
+                            {/if}
                           {/if}
                         </div>
                       {/if}
 
-                      {#if diff.live_vcores || diff.draft_vcores}
+                      {#if diff.live_vcores != null || diff.draft_vcores != null}
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase">Ядра vCPU:</span>
+                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Ядра vCPU:</span>
                           <span>{formatVcores(diff.live_vcores)}</span>
-                          {#if diff.draft_vcores && diff.draft_vcores !== diff.live_vcores}
+                          {#if diff.draft_vcores != null && diff.draft_vcores !== diff.live_vcores}
                             <span class="text-slate-400 mx-1">→</span>
                             <span class="font-bold text-blue-700">{formatVcores(diff.draft_vcores)}</span>
+                            {#if diff.live_vcores != null && formatVcoresDelta(diff.live_vcores, diff.draft_vcores)}
+                              <span class="text-[10px] ml-1 {diff.draft_vcores > diff.live_vcores ? 'text-emerald-600' : 'text-red-600'}">
+                                ({formatVcoresDelta(diff.live_vcores, diff.draft_vcores)})
+                              </span>
+                            {/if}
                           {/if}
                         </div>
                       {/if}
                     </div>
+
+                    <!-- Additional Queue Attributes diff -->
+                    {#if diff.draft_ordering_policy || diff.draft_user_limit_factor != null || diff.draft_max_applications != null}
+                      <div class="flex flex-wrap gap-2 text-[10px] text-slate-600 font-sans pt-1">
+                        {#if diff.draft_ordering_policy}
+                          <span class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+                            Policy: <strong>{diff.draft_ordering_policy.toUpperCase()}</strong>
+                          </span>
+                        {/if}
+                        {#if diff.draft_user_limit_factor != null}
+                          <span class="bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200">
+                            ULF: <strong>{diff.draft_user_limit_factor}x</strong>
+                          </span>
+                        {/if}
+                        {#if diff.draft_max_applications != null}
+                          <span class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                            Max Apps: <strong>{diff.draft_max_applications}</strong>
+                          </span>
+                        {/if}
+                      </div>
+                    {/if}
                   </div>
                 {/each}
               </div>
             </div>
 
-            <!-- Approved XML preview button -->
+            <!-- Approved XML preview banner -->
             {#if selectedDetail.status === 'APPROVED' && selectedDetail.xml_content}
-              <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+              <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
                 <div>
-                  <span class="text-xs font-bold text-emerald-900 block">Конфигурация XML сгенерирована</span>
+                  <span class="text-xs font-bold text-emerald-900 block">Конфигурация XML сгенерирована и одобрена</span>
                   <span class="text-[11px] text-emerald-700">Готова для применения на кластере YARN</span>
                 </div>
                 <button
                   onclick={() => onViewXml(selectedDetail?.xml_content || '', selectedDetail?.title || '')}
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition cursor-pointer"
+                  class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition cursor-pointer shadow-xs"
                 >
                   <FileCode class="w-3.5 h-3.5" />
                   <span>Просмотреть XML</span>
@@ -435,7 +522,7 @@
               {#if canAdmin}
                 <div>
                   <label for="review-comment" class="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Комментарий рецензента (опционально для одобрения, рекомендуется при отклонении)
+                    Комментарий администратора (опционально для одобрения, рекомендуется при отклонении)
                   </label>
                   <input
                     id="review-comment"
@@ -447,6 +534,18 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+                  {#if selectedDetail.author === currentUsername}
+                    <button
+                      onclick={handleCancel}
+                      disabled={actionLoading}
+                      title="Отозвать свою заявку"
+                      class="px-3 py-2 rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50 transition cursor-pointer"
+                    >
+                      <Trash2 class="w-3.5 h-3.5 inline mr-1" />
+                      <span>Отозвать</span>
+                    </button>
+                  {/if}
+
                   <button
                     onclick={handleReject}
                     disabled={actionLoading}
@@ -478,8 +577,15 @@
                   </button>
                 </div>
               {:else}
-                <div class="text-center text-xs text-slate-400 py-1">
-                  Только администраторы могут согласовывать заявки
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500">Заявка ожидает согласования администратором</span>
+                  <button
+                    onclick={() => handleLoadDraft()}
+                    class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-sky-200 text-sky-700 text-xs font-semibold hover:bg-sky-50 transition cursor-pointer"
+                  >
+                    <ArrowUpRight class="w-3.5 h-3.5" />
+                    <span>Открыть в редакторе очередей</span>
+                  </button>
                 </div>
               {/if}
             </div>
@@ -489,3 +595,4 @@
     </div>
   </div>
 {/if}
+

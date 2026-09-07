@@ -91,6 +91,9 @@ class UiAccessAcl(BaseModel):
 class AclConfig(BaseModel):
     ui_access: UiAccessAcl = Field(default_factory=UiAccessAcl)
     roles: GlobalRoles = Field(default_factory=GlobalRoles)
+    enforce_four_eyes: bool = True
+
+
 
 
 class DatabaseConfig(BaseModel):
@@ -171,6 +174,11 @@ class Settings(BaseSettings):
         env_cors = os.environ.get("CORS_ORIGINS")
         if env_cors:
             inst.server.cors_origins = [o.strip() for o in env_cors.split(",") if o.strip()]
+
+        env_four_eyes = os.environ.get("ENFORCE_FOUR_EYES") or os.environ.get("YARN_ENFORCE_FOUR_EYES")
+        if env_four_eyes is not None:
+            inst.acl.enforce_four_eyes = env_four_eyes.lower() in ("1", "true", "yes")
+
 
         if inst.auth.jwt.secret_key in ("default-secret-key-change-it", "yarn-explorer-super-secret-key-change-in-production-random-hash"):
             import logging
