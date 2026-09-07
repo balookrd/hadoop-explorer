@@ -111,19 +111,25 @@ kerberos_sso:                   # или auth.kerberos
   keytab_path: "/etc/security/keytabs/spnego.keytab"
 ```
 
-### 2.4 Хранилище сессий, токенов и Rate Limiting (Tri-Storage)
+### 2.4 Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)
 
-Платформа поддерживает три бэкенда хранения для отзыва токенов (JWT Blacklist), скользящих лимитов Rate Limiting и истории:
-- **SQLite WAL** (для автономного или легкого развертывания).
-- **PostgreSQL** (рекомендуется для High Availability кластеров).
-- **Redis** (опционально, для распределенного L2 кэширования).
+Платформа использует универсальный слой хранения данных (`SessionStore` и `BaseStorageService`), поддерживающий:
+- **Персистентность сессий пользователей (`active_sessions`)**: При авторизации пользователя активная сессия сохраняется в базе данных с абсолютным Unix Timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). При перезапуске бэкенд-контейнеров или сервисов пользователи **не разлогиниваются**, сессия автоматически восстанавливается из БД.
+- **Авто-конвертация TTL**: Модуль `SessionStore` автоматически определяет формат времени жизни токена (абсолютный timestamp или дельта секунд) и исключает ошибки истечения срока.
+- **Черный список отозванных токенов (`revoked_tokens`)**: Двухуровневое кэширование (L1 In-Memory LRU Cache со сроком устаревания + L2 база данных/Redis) для мгновенной валидации отозванных токенов при logout.
+- **Ограничение частоты запросов (Rate Limiting)**: Алгоритм скользящего окна (Sliding Window) с хранением счетчиков в БД/Redis.
+
+Поддерживаемые бэкенды:
+- **SQLite WAL** (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — встроенное хранилище по умолчанию с режимом Write-Ahead Logging.
+- **PostgreSQL** (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — рекомендуется для High Availability и мульти-инстанс развертываний в Kubernetes.
+- **Redis** (`redis://redis-host:6379/0`) — опционально для распределенного L2 кэширования.
 
 ```yaml
 database:
-  # SQLite:
-  url: "sqlite+aiosqlite:///./data/hadoop_explorer.db"
-  # Либо PostgreSQL:
-  # url: "postgresql+asyncpg://user:password@pg-host:5432/hadoop_explorer"
+  # SQLite (по умолчанию в контейнере):
+  url: "sqlite:////app/data/service_sessions.db"
+  # Либо PostgreSQL (для HA в production):
+  # url: "postgresql://user:password@pg-host:5432/hadoop_explorer"
   redis_url: "redis://redis-host:6379/0" # Опционально
 ```
 

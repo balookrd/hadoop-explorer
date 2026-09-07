@@ -52,10 +52,10 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── core/           # Безопасность, JWT, CSRF, CommonLdapAuthService, Kerberos, Rate Limiter, Audit
+│   │   ├── core/           # Безопасность, SessionStore, JWT, CSRF, CommonLdapAuthService, Kerberos, Rate Limiter, Audit
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
-│   ├── hdfs/               # Сервис HDFS Explorer (39 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (40 тестов)
 │   ├── sql/                # Сервис SQL Explorer (31 тест)
 │   └── yarn/               # Сервис YARN Explorer (42 теста)
 │
@@ -84,13 +84,14 @@ hadoop-explorer/
 │       └── yarn-explorer/  # Автономный чарт YARN
 │
 ├── demo/                   # ─── Изолированные демонстрационные стенды ───
-│   ├── hdfs/               # Стенд HDFS (KDC, OpenLDAP, 2 кластера WebHDFS) -> :8001
-│   ├── sql/                # Стенд SQL (KDC, OpenLDAP, Postgres, Hive, Trino) -> :8002
-│   ├── yarn/               # Стенд YARN (KDC, OpenLDAP, 2 кластера YARN RM) -> :8003
-│   └── all/                # Единый запуск всех стендов
+│   ├── infra/              # Единый инфраструктурный стек (MIT KDC + OpenLDAP)
+│   ├── hdfs/               # Стенд HDFS (2 кластера WebHDFS) -> :8001
+│   ├── sql/                # Стенд SQL (Postgres, Hive, Trino) -> :8002
+│   ├── yarn/               # Стенд YARN (2 кластера YARN RM) -> :8003
+│   └── all/                # Единый запуск всех стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 112 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 113 тестов
 │   └── build-containers.sh # Скрипт сборки контейнеров
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -102,6 +103,10 @@ hadoop-explorer/
 ## 📦 Выделенные общие модули
 
 ### 1. `backend/common` (Пакет `hadoop-explorer-common`)
+- **`backend.common.core.session_store`**:
+  - Сохранение активных сессий пользователей в реляционной БД (`SQLite WAL`, `PostgreSQL`) для устойчивости при перезапуске бэкенд-сервисов.
+  - Таблица `active_sessions` с автоматической конвертацией и проверкой абсолютного Unix Timestamp `expires_at`.
+  - Двухуровневый черный список отозванных токенов `revoked_tokens` (L1 In-Memory LRU Cache + L2 база данных/Redis).
 - **`backend.common.core.security`**:
   - Централизованная генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
   - Строгая CSRF-защита (блокировка межсайтовых запросов `Sec-Fetch-Site: cross-site`, валидация заголовков `Origin`, `Referer` по белому списку, требование заголовка `X-Requested-With`).

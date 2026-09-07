@@ -3,7 +3,8 @@
 Пакет общих компонентов безопасности, моделей данных и сервисов хранения для платформы **Hadoop Explorer**.
 
 ## Содержимое
-- **`backend.common.core.security`** — генерация и валидация JWT, строгая CSRF-защита (блокировка cross-site запросов, валидация Origin/Referer, требование заголовка `X-Requested-With`), проверка отзыва токенов с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis).
+- **`backend.common.core.session_store`** — сохранение активных сессий пользователей в реляционной базе данных (`SQLite WAL`, `PostgreSQL`) для полной устойчивости к перезапуску бэкендов. Включает персистентную валидацию сессий через таблицу `active_sessions` (с автоматической конвертацией TTL), двухуровневый черный список токенов `revoked_tokens` (L1 In-Memory LRU + L2 DB).
+- **`backend.common.core.security`** — генерация и валидация JWT, строгая CSRF-защита (блокировка cross-site запросов, валидация Origin/Referer, требование заголовка `X-Requested-With`), проверка отзыва токенов с двухуровневым кэшированием.
 - **`backend.common.core.ldap_auth`** — универсальный `CommonLdapAuthService` для LDAPS / Active Directory / OpenLDAP с защитой от LDAP Injection, извлечением групп и mock-провайдером с PBKDF2 хэшированием.
 - **`backend.common.core.rate_limiter`** — скользящее окно (sliding window) rate limiting с поддержкой SQLite WAL, PostgreSQL и Redis, а также безопасным извлечением клиентского IP (`is_trusted_proxy`).
 - **`backend.common.core.audit`** — структурированное JSON-логирование событий безопасности (`AuditEventType`) в кольцевой буфер и файл.
