@@ -1,31 +1,13 @@
 name: hdfs-explorer-demo
 
+include:
+  - path: ../infra/docker-compose.infra.yml
+
+volumes:
+  hdfs-demo-data:
+    name: hdfs-demo-data
+
 services:
-  hdfs-kdc:
-    build:
-      context: ./kdc
-    container_name: hdfs-demo-kdc
-    hostname: kdc
-    restart: unless-stopped
-    volumes:
-      - hdfs-demo-krb5-keytabs:/shared/keytabs
-      - hdfs-demo-krb5-conf:/shared/conf
-    networks:
-      hdfs-demo-net:
-        aliases:
-          - kdc
-
-  hdfs-ldap:
-    build:
-      context: ./ldap
-    container_name: hdfs-demo-ldap
-    hostname: ldap
-    restart: unless-stopped
-    networks:
-      hdfs-demo-net:
-        aliases:
-          - ldap
-
   hdfs-cluster-1:
     build:
       context: ./hadoop
@@ -36,15 +18,16 @@ services:
       CLUSTER_ID: "hdfs-cluster-1"
       CLUSTER_NAME: "Production DataLake"
     volumes:
-      - hdfs-demo-krb5-keytabs:/shared/keytabs:ro
-      - hdfs-demo-krb5-conf:/shared/conf:ro
+      - demo-shared-keytabs:/shared/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     ports:
       - "9870:9870"
       - "9864:9864"
     depends_on:
-      - hdfs-kdc
+      kdc:
+        condition: service_healthy
     networks:
-      - hdfs-demo-net
+      - demo-platform-net
 
   hdfs-cluster-2:
     build:
@@ -56,15 +39,16 @@ services:
       CLUSTER_ID: "hdfs-cluster-2"
       CLUSTER_NAME: "Archive & Analytics DataLake"
     volumes:
-      - hdfs-demo-krb5-keytabs:/shared/keytabs:ro
-      - hdfs-demo-krb5-conf:/shared/conf:ro
+      - demo-shared-keytabs:/shared/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     ports:
       - "9872:9870"
       - "9865:9864"
     depends_on:
-      - hdfs-kdc
+      kdc:
+        condition: service_healthy
     networks:
-      - hdfs-demo-net
+      - demo-platform-net
 
   hdfs-explorer:
     build:
@@ -76,25 +60,24 @@ services:
     environment:
       HDFS_CONFIG_PATH: "/app/config/config.yaml"
       HDFS_CLUSTERS_PATH: "/app/config/clusters.yaml"
+      HDFS_DATABASE_URL: "sqlite:////app/data/hdfs_explorer.db"
       KRB5_CONFIG: "/etc/krb5_shared/krb5.conf"
     volumes:
       - ./config:/app/config:ro
-      - hdfs-demo-krb5-keytabs:/etc/security/keytabs:ro
-      - hdfs-demo-krb5-conf:/etc/krb5_shared:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/etc/krb5_shared:ro
+      - hdfs-demo-data:/app/data
     ports:
       - "8001:8000"
     depends_on:
-      - hdfs-kdc
-      - hdfs-ldap
-      - hdfs-cluster-1
-      - hdfs-cluster-2
+      kdc:
+        condition: service_healthy
+      ldap:
+        condition: service_healthy
+      hdfs-cluster-1:
+        condition: service_started
+      hdfs-cluster-2:
+        condition: service_started
     networks:
-      - hdfs-demo-net
+      - demo-platform-net
 
-volumes:
-  hdfs-demo-krb5-keytabs:
-  hdfs-demo-krb5-conf:
-
-networks:
-  hdfs-demo-net:
-    driver: bridge

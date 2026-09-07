@@ -72,6 +72,46 @@ async def get_current_user(
 
     verify_csrf(request, is_cookie_auth)
 
+    from app.services.storage import storage_service
+
+    # 1. Проверка на отзыв токена
+    if storage_service.is_token_revoked(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Токен отозван при выходе из системы",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 2. Проверка активной сессии в базе данных
+    session_data = storage_service.get_session(token)
+    if session_data:
+        user_data = session_data.get("user_data") or {}
+        if not user_data:
+            from app.api.auth import _resolve_global_role
+            username = session_data["username"]
+            groups = session_data.get("groups", [])
+            role = _resolve_global_role(username, groups)
+            user = UserSession(
+                username=username,
+                display_name=session_data.get("display_name", username),
+                email=session_data.get("email"),
+                groups=groups,
+                auth_method=session_data.get("auth_method", "ldap"),
+                is_admin=(role == Role.ADMIN),
+                system_role=role,
+            )
+        else:
+            user = UserSession(**user_data)
+
+        from app.core.acl import check_ui_access
+        if not check_ui_access(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Доступ к системе запрещен политикой UI Access",
+            )
+        return user
+
+    # 3. Fallback: декодируем JWT
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(
@@ -95,4 +135,13 @@ async def get_current_user(
             detail="Доступ к системе запрещен политикой UI Access",
         )
 
+    # Сохраняем сессию в SessionStore
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.auth.jwt.expire_minutes),
+        jti=payload.get("jti")
+    )
+
     return user
+

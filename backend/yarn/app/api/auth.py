@@ -106,6 +106,13 @@ async def login(
         expires_delta=timedelta(minutes=settings.auth.jwt.expire_minutes),
     )
 
+    from app.services.storage import storage_service
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=settings.auth.jwt.expire_minutes * 60
+    )
+
     from app.core.audit import audit_log
     audit_log(
         action="LOGIN_SUCCESS",
@@ -122,7 +129,7 @@ async def login(
         max_age=settings.auth.jwt.expire_minutes * 60,
         httponly=True,
         samesite="lax",
-        secure=not settings.server.debug,
+        secure=getattr(settings.server, "secure_cookies", False),
         path="/",
     )
 
@@ -177,17 +184,25 @@ async def spnego_login(
         expires_delta=timedelta(minutes=settings.auth.jwt.expire_minutes),
     )
 
+    from app.services.storage import storage_service
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=settings.auth.jwt.expire_minutes * 60
+    )
+
     response.set_cookie(
         key="access_token",
         value=token,
         max_age=settings.auth.jwt.expire_minutes * 60,
         httponly=True,
         samesite="lax",
-        secure=not settings.server.debug,
+        secure=getattr(settings.server, "secure_cookies", False),
         path="/",
     )
 
     return TokenResponse(access_token=token, user=user)
+
 
 
 @router.get("/me", response_model=UserSession)
@@ -217,6 +232,7 @@ async def logout(
 
     if token:
         from app.services.storage import storage_service
+        username = "unknown"
         # Декодируем токен без проверки на отзыв, чтобы извлечь jti для отзыва
         try:
             import jwt
@@ -226,16 +242,20 @@ async def logout(
                 algorithms=[settings.auth.jwt.algorithm],
                 options={"verify_exp": False},
             )
+            u_dict = payload.get("user") or {}
+            username = u_dict.get("username", "unknown")
             jti = payload.get("jti")
+            exp = payload.get("exp")
+            storage_service.delete_session(token)
+            storage_service.revoke_token(token_or_jti=token, username=username, expires_at=exp)
             if jti:
-                exp = payload.get("exp")
-                if isinstance(exp, (int, float)):
-                    exp_iso = datetime.fromtimestamp(exp, timezone.utc).isoformat()
-                else:
-                    exp_iso = datetime.now(timezone.utc).isoformat()
-                storage_service.revoke_token(jti, exp_iso)
+                storage_service.revoke_token(token_or_jti=jti, username=username, expires_at=exp)
         except Exception as e:
             logger.debug(f"Ошибка при отзыве токена во время logout: {e}")
+            from app.services.storage import storage_service
+            storage_service.delete_session(token)
+            storage_service.revoke_token(token_or_jti=token)
 
     response.delete_cookie(key="access_token", path="/")
     return {"detail": "Сессия успешно завершена и токен отозван"}
+

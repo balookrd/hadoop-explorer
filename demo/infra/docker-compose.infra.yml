@@ -1,0 +1,63 @@
+name: hadoop-explorer-infra
+
+services:
+  # ==========================================
+  # 1. Единый Kerberos KDC Server
+  # ==========================================
+  kdc:
+    build:
+      context: ./kdc
+    container_name: demo-kdc
+    hostname: kdc
+    restart: unless-stopped
+    ports:
+      - "88:88"
+      - "88:88/udp"
+      - "749:749"
+    volumes:
+      - demo-shared-keytabs:/shared/keytabs
+      - demo-shared-krb5:/shared/conf
+    networks:
+      demo-platform-net:
+        aliases:
+          - kdc
+          - kdc.company.local
+          - kdc.yarn-demo-net
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /shared/keytabs/.ready && test -f /shared/conf/krb5.conf"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+
+  # ==========================================
+  # 2. Единый OpenLDAP Server
+  # ==========================================
+  ldap:
+    build:
+      context: ./ldap
+    container_name: demo-ldap
+    hostname: ldap
+    restart: unless-stopped
+    ports:
+      - "389:389"
+    networks:
+      demo-platform-net:
+        aliases:
+          - ldap
+          - ldap.company.local
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost:389 -b dc=company,dc=local -s base || exit 1"]
+      interval: 4s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  demo-shared-keytabs:
+    name: demo-shared-keytabs
+  demo-shared-krb5:
+    name: demo-shared-krb5
+
+networks:
+  demo-platform-net:
+    name: demo-platform-net
+    driver: bridge

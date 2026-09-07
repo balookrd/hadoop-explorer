@@ -87,3 +87,58 @@ def test_base_storage_service_url_normalization():
     storage2.revoke_token("jti-12345", exp=9999999999)
     assert storage2.is_token_revoked("jti-12345") is True
     assert storage2.is_token_revoked("jti-unknown") is False
+
+
+def test_session_store_persistence_on_backend_restart(tmp_path):
+    """
+    Проверяет, что активные сессии пользователей сохраняются в БД при перезапуске сервиса,
+    а при выходе (logout) корректно отзываются и удаляются.
+    """
+    import time
+    from backend.common.core.session_store import SessionStore
+
+    db_file = tmp_path / "test_sessions.db"
+    db_url = f"sqlite:///{db_file}"
+
+    # 1. Запуск инстанса 1 (до перезапуска)
+    store1 = SessionStore(db_url=db_url)
+    token = "jwt-secret-token-abcdef-123456"
+    user_payload = {
+        "username": "ivan_dev",
+        "display_name": "Иван Разработчик",
+        "email": "ivan@example.com",
+        "groups": ["developers", "data-engineers"],
+        "is_admin": False,
+        "auth_method": "ldap"
+    }
+    exp = time.time() + 3600
+
+    # Сохраняем сессию
+    saved = store1.save_session(token=token, user=user_payload, expires_at=exp, jti="jti-ivan-1")
+    assert saved is True
+
+    # Проверяем в инстансе 1
+    session1 = store1.get_session(token)
+    assert session1 is not None
+    assert session1["username"] == "ivan_dev"
+    assert session1["display_name"] == "Иван Разработчик"
+    assert "data-engineers" in session1["groups"]
+
+    # 2. СИМУЛЯЦИЯ ПЕРЕЗАПУСКА БЭКЕНДА (создаем новый инстанс store2 поверх того же файла БД)
+    del store1
+    store2 = SessionStore(db_url=db_url)
+
+    # Проверяем, что сессия сохранилась в БД и клиент НЕ разлогинен
+    session2 = store2.get_session(token)
+    assert session2 is not None
+    assert session2["username"] == "ivan_dev"
+    assert session2["display_name"] == "Иван Разработчик"
+    assert store2.is_token_revoked(token) is False
+
+    # 3. Выход из системы (logout / revoke)
+    store2.revoke_token(token_or_jti=token, username="ivan_dev", expires_at=exp)
+
+    # После отзыва токена сессия удалена, а токен находится в blacklist
+    assert store2.is_token_revoked(token) is True
+    assert store2.get_session(token) is None
+

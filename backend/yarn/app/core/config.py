@@ -12,6 +12,7 @@ class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = False
+    secure_cookies: bool = False
     cors_origins: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:8000",
@@ -20,6 +21,7 @@ class ServerConfig(BaseModel):
             "http://127.0.0.1:5173",
         ]
     )
+
 
 
 class MockUserConfig(BaseModel):
@@ -31,7 +33,7 @@ class MockUserConfig(BaseModel):
     groups: List[str] = Field(default_factory=list)
 
 
-from backend.common.core.ldap_auth import CommonLdapConfig, LdapConfig
+from backend.common.core.ldap_auth import CommonLdapConfig
 
 # LdapConfig как канонический CommonLdapConfig
 LdapConfig = CommonLdapConfig

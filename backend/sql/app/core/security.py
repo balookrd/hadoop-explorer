@@ -184,6 +184,26 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    from app.services.storage import storage_service
+
+    # 1. Проверяем наличие активной сохраненной сессии в постоянной БД
+    session_data = storage_service.get_session(token)
+    if session_data:
+        admin_groups = set(settings.acl.ui_access.admin_groups)
+        groups = session_data.get("groups", [])
+        is_admin = session_data.get("is_admin")
+        if is_admin is None:
+            is_admin = bool(set(groups) & admin_groups)
+        return UserSession(
+            username=session_data["username"],
+            display_name=session_data.get("display_name", session_data["username"]),
+            email=session_data.get("email"),
+            groups=groups,
+            is_admin=bool(is_admin),
+            auth_method=session_data.get("auth_method", "ldap")
+        )
+
+    # 2. Fallback: декодируем JWT
     payload = decode_access_token(token)
     if not payload or "sub" not in payload:
         raise HTTPException(
@@ -196,7 +216,7 @@ async def get_current_user(
     admin_groups = set(settings.acl.ui_access.admin_groups)
     is_admin = bool(set(groups) & admin_groups)
 
-    return UserSession(
+    user = UserSession(
         username=payload["sub"],
         display_name=payload.get("display_name", payload["sub"]),
         email=payload.get("email"),
@@ -204,3 +224,14 @@ async def get_current_user(
         is_admin=is_admin,
         auth_method=payload.get("auth_method", "unknown")
     )
+
+    # Сохраняем в SessionStore
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=settings.auth.jwt.expire_minutes),
+        jti=payload.get("jti")
+    )
+
+    return user
+

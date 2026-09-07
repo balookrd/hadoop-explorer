@@ -15,11 +15,43 @@ import type {
 
 const API_BASE = '/api/v1';
 
+type UnauthorizedHandler = (message: string) => void;
+
 class ApiClient {
   // Токен хранится только в оперативной памяти JS для текущей сессии,
   // предотвращая постоянную компрометацию через XSS / LocalStorage.
   // Основная аутентификация в браузере выполняется через безопасные HttpOnly Cookie.
   private token: string | null = null;
+  private unauthorizedHandlers: Set<UnauthorizedHandler> = new Set();
+  private isAttemptingSso: boolean = false;
+
+  public onUnauthorized(handler: UnauthorizedHandler): () => void {
+    this.unauthorizedHandlers.add(handler);
+    return () => this.unauthorizedHandlers.delete(handler);
+  }
+
+  private notifyUnauthorized(message: string = 'Сессия истекла или сервер был перезагружен. Пожалуйста, выполните вход.') {
+    this.setToken(null);
+    for (const handler of this.unauthorizedHandlers) {
+      try {
+        handler(message);
+      } catch (e) {
+        console.error('Error in unauthorized handler', e);
+      }
+    }
+  }
+
+  public async tryAutoLogin(): Promise<UserSession | null> {
+    try {
+      const ssoRes = await this.kerberosNegotiate();
+      if (ssoRes && (ssoRes.user || ssoRes.access_token)) {
+        return ssoRes.user || (await this.getMe());
+      }
+    } catch {
+      // SSO не сработал
+    }
+    return null;
+  }
 
   setToken(token: string | null) {
     this.token = token;
@@ -44,11 +76,56 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-      credentials: 'include'
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers,
+        credentials: 'include'
+      });
+    } catch (netErr: any) {
+      throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
+    }
+
+    const isAuthEndpoint = endpoint.includes('/auth/login') || endpoint.includes('/auth/sso') || endpoint.includes('/auth/logout');
+
+    if (response.status === 401) {
+      if (!isAuthEndpoint && !this.isAttemptingSso) {
+        this.isAttemptingSso = true;
+        try {
+          const autoUser = await this.tryAutoLogin();
+          if (autoUser) {
+            this.isAttemptingSso = false;
+            return await this.request<T>(endpoint, options);
+          }
+        } catch {
+          // SSO не сработал
+        } finally {
+          this.isAttemptingSso = false;
+        }
+
+        let errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, войдите снова.';
+        try {
+          const errJson = await response.json();
+          if (errJson.detail) {
+            errDetail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch (_) {}
+
+        this.notifyUnauthorized(errDetail);
+        throw new Error(errDetail);
+      } else {
+        this.setToken(null);
+        let errorMsg = 'Неверное имя пользователя или пароль';
+        try {
+          const errJson = await response.json();
+          if (errJson.detail) {
+            errorMsg = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch (_) {}
+        throw new Error(errorMsg);
+      }
+    }
 
     if (!response.ok) {
       let errorMsg = `Ошибка сервера (${response.status})`;

@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "[entrypoint] Запуск hdfs-explorer контейнера..."
+APP_NAME="${APP_NAME:-hadoop-explorer}"
+echo "[entrypoint] Запуск $APP_NAME контейнера..."
 
-# Проверка наличия и монтирования krb5.conf
+# 1. Проверка наличия и монтирования krb5.conf
 if [ -n "$KRB5_CONFIG" ] && [ -f "$KRB5_CONFIG" ]; then
     echo "[entrypoint] Использование KRB5_CONFIG: $KRB5_CONFIG"
     if [ "$KRB5_CONFIG" != "/etc/krb5.conf" ]; then
@@ -13,15 +14,15 @@ elif [ -s "/etc/krb5.conf" ]; then
     echo "[entrypoint] Обнаружен непустой /etc/krb5.conf"
 elif [ -f "/etc/security/keytabs/krb5.conf" ]; then
     echo "[entrypoint] Копирование krb5.conf из /etc/security/keytabs..."
-    cp /etc/security/keytabs/krb5.conf /etc/krb5.conf
+    cp /etc/security/keytabs/krb5.conf /etc/krb5.conf 2>/dev/null || true
 elif [ -f "/etc/krb5_shared/krb5.conf" ]; then
     echo "[entrypoint] Копирование krb5.conf из /etc/krb5_shared..."
-    cp /etc/krb5_shared/krb5.conf /etc/krb5.conf
+    cp /etc/krb5_shared/krb5.conf /etc/krb5.conf 2>/dev/null || true
 fi
 
-# Автоматическая инициализация Kerberos тикета сервисной учетной записи
-KEYTAB="${KRB5_KEYTAB:-/etc/security/keytabs/hdfs-explorer.keytab}"
-PRINCIPAL="${KRB5_PRINCIPAL:-hdfs-explorer/hdfs-explorer@EXAMPLE.COM}"
+# 2. Автоматическая инициализация Kerberos тикета сервисной учетной записи
+KEYTAB="${KRB5_KEYTAB:-/etc/security/keytabs/${APP_NAME}.keytab}"
+PRINCIPAL="${KRB5_PRINCIPAL:-${APP_NAME}/${APP_NAME}@EXAMPLE.COM}"
 
 if [ -f "$KEYTAB" ]; then
     echo "[entrypoint] Обнаружен keytab: $KEYTAB"
@@ -36,7 +37,7 @@ if [ -f "$KEYTAB" ]; then
         sleep 2
     done
 
-    if klist -s; then
+    if klist -s 2>/dev/null; then
         echo "[entrypoint] Kerberos тикет успешно получен:"
         klist
         
@@ -54,9 +55,18 @@ else
     echo "[entrypoint] Keytab $KEYTAB не найден. Kerberos SSO/GSSAPI кэш не инициализирован."
 fi
 
+# 3. Запуск веб-сервера
 echo "[entrypoint] Запуск веб-сервера..."
 if [ "$#" -gt 0 ]; then
     exec "$@"
 else
-    exec python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+    # Определение модуля запуска по умолчанию
+    MODULE="app.main:app"
+    if [ -d "/app/backend/$APP_NAME/app" ]; then
+        exec python -m uvicorn app.main:app --app-dir "/app/backend/$APP_NAME" --host 0.0.0.0 --port 8000
+    elif [ -d "/app/backend/app" ]; then
+        exec python -m uvicorn app.main:app --app-dir "/app/backend" --host 0.0.0.0 --port 8000
+    else
+        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    fi
 fi

@@ -1,58 +1,15 @@
 name: sql-explorer-demo
 
-networks:
-  sql-demo-net:
-    driver: bridge
+include:
+  - path: ../infra/docker-compose.infra.yml
 
 volumes:
-  sql-krb5-data:
   sql-pgdata-meta:
-  sql-ldap-data:
   sql-explorer-data:
 
 services:
   # ==========================================
-  # 1. Kerberos KDC Server
-  # ==========================================
-  sql-kdc:
-    build:
-      context: ./kdc
-      dockerfile: Dockerfile
-      
-    container_name: sql-demo-kdc
-    hostname: kdc
-    restart: unless-stopped
-    ports:
-      - "2088:88"
-      - "2088:88/udp"
-    volumes:
-      - sql-krb5-data:/var/kerberos/keytabs
-    networks:
-      sql-demo-net:
-        aliases:
-          - kdc
-
-  # ==========================================
-  # 2. OpenLDAP Server
-  # ==========================================
-  sql-openldap:
-    build:
-      context: ./ldap
-      
-    container_name: sql-demo-ldap
-    hostname: openldap
-    restart: unless-stopped
-    ports:
-      - "2389:389"
-    volumes:
-      - sql-ldap-data:/var/lib/openldap/openldap-data
-    networks:
-      sql-demo-net:
-        aliases:
-          - openldap
-
-  # ==========================================
-  # 3. PostgreSQL для Hive Metastore
+  # 1. PostgreSQL для Hive Metastore
   # ==========================================
   sql-postgres-meta:
     image: postgres:16-alpine
@@ -66,12 +23,12 @@ services:
     volumes:
       - sql-pgdata-meta:/var/lib/postgresql/data
     networks:
-      sql-demo-net:
+      demo-platform-net:
         aliases:
           - postgres-meta
 
   # ==========================================
-  # 4. Hive Metastore (Apache Hive 4.0.0)
+  # 2. Hive Metastore (Apache Hive 4.0.0)
   # ==========================================
   sql-hive-metastore:
     image: apache/hive:4.0.0
@@ -87,16 +44,17 @@ services:
       - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
-      - sql-krb5-data:/etc/security/keytabs:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
     depends_on:
-      - sql-kdc
+      kdc:
+        condition: service_healthy
     networks:
-      sql-demo-net:
+      demo-platform-net:
         aliases:
           - hive-metastore
 
   # ==========================================
-  # 5. HiveServer2 (Kerberized + doAs)
+  # 3. HiveServer2 (Kerberized + doAs)
   # ==========================================
   sql-hive-server:
     image: apache/hive:4.0.0
@@ -116,17 +74,17 @@ services:
       - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
-      - sql-krb5-data:/etc/security/keytabs:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
     depends_on:
       - sql-hive-metastore
-      - sql-kdc
+      - kdc
     networks:
-      sql-demo-net:
+      demo-platform-net:
         aliases:
           - hive-server
 
   # ==========================================
-  # 6. Trino Coordinator (Kerberized + TPCH + Hive)
+  # 4. Trino Coordinator (Kerberized + TPCH + Hive)
   # ==========================================
   sql-trino-coordinator:
     image: trinodb/trino:latest
@@ -138,23 +96,22 @@ services:
       - "8443:8443"
     volumes:
       - ./trino/etc:/etc/trino:ro
-      - sql-krb5-data:/etc/security/keytabs:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
     depends_on:
-      - sql-kdc
+      - kdc
       - sql-hive-metastore
     networks:
-      sql-demo-net:
+      demo-platform-net:
         aliases:
           - trino-coordinator
 
   # ==========================================
-  # 7. Наш сервис SQL Explorer
+  # 5. Сервис SQL Explorer
   # ==========================================
   sql-explorer:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.sql
-      
     container_name: sql-demo-explorer
     hostname: sql-explorer
     restart: unless-stopped
@@ -168,15 +125,18 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./config.demo.yaml:/app/demo-config/config.demo.yaml:ro
-      - sql-krb5-data:/etc/security/keytabs:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
       - sql-explorer-data:/app/data
     depends_on:
-      - sql-kdc
-      - sql-openldap
-      - sql-hive-server
-      - sql-trino-coordinator
+      kdc:
+        condition: service_healthy
+      ldap:
+        condition: service_healthy
+      sql-hive-server:
+        condition: service_started
+      sql-trino-coordinator:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - sql-demo-net
-
+      - demo-platform-net

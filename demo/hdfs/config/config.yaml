@@ -21,34 +21,36 @@ ldap:
   use_ssl: false
   verify_cert: false
   ca_cert_file: null
-  bind_dn: "cn=admin,dc=example,dc=com"
-  bind_password: "admin"
-  user_base_dn: "ou=users,dc=example,dc=com"
-  user_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+  bind_dn: "cn=admin,dc=company,dc=local"
+  bind_password: "adminpassword"
+  user_base_dn: "ou=users,dc=company,dc=local"
+  user_filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
   username_attr: "uid"
   user_email_attr: "mail"
-  user_display_name_attr: "cn"
-  group_base_dn: "ou=groups,dc=example,dc=com"
+  user_display_name_attr: "displayName"
+  group_base_dn: "ou=groups,dc=company,dc=local"
   group_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
   group_name_attr: "cn"
   use_user_memberof: false
   memberof_attr: "memberOf"
 
-# Fallback мок-пользователи (не используются при включенном LDAP)
+# Fallback мок-пользователи
 mock_users: []
 
 kerberos_sso:
   enabled: false
-  service_principal: "HTTP/hdfs-explorer@EXAMPLE.COM"
+  service_principal: "HTTP/hdfs-explorer@COMPANY.LOCAL"
   keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
 
 acl:
   allow_all_authenticated: false
   allowed_groups:
-    - "domain users"
     - "hadoop-admins"
+    - "data-platform-admins"
     - "data-engineers"
+    - "bi-analysts"
     - "analytics"
   allowed_users: []
   admin_groups:
     - "hadoop-admins"
+    - "data-platform-admins"

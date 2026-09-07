@@ -17,6 +17,7 @@ from backend.common.core.rate_limiter import (
     is_trusted_proxy,
 )
 from backend.common.core.ldap_auth import CommonLdapAuthService
+from backend.common.core.session_store import SessionStore
 
 __all__ = [
     "hash_token",
@@ -32,4 +33,5 @@ __all__ = [
     "get_client_ip",
     "is_trusted_proxy",
     "CommonLdapAuthService",
+    "SessionStore",
 ]

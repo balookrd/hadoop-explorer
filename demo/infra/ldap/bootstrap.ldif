@@ -1,0 +1,236 @@
+dn: dc=company,dc=local
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Company Local
+dc: company
+
+dn: cn=admin,dc=company,dc=local
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: admin
+description: LDAP Administrator
+userPassword: adminpassword
+
+dn: ou=users,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=services,dc=company,dc=local
+objectClass: top
+objectClass: organizationalUnit
+ou: services
+
+# ==========================================
+# Сервисные учетные записи
+# ==========================================
+dn: cn=svc_sql_explorer,ou=services,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+cn: svc_sql_explorer
+sn: Service
+displayName: SQL Explorer Service
+userPassword: password123
+
+dn: cn=svc_yarn_explorer,ou=services,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+cn: svc_yarn_explorer
+sn: Service
+displayName: YARN Explorer Service
+userPassword: password123
+
+dn: cn=svc_hdfs_explorer,ou=services,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+cn: svc_hdfs_explorer
+sn: Service
+displayName: HDFS Explorer Service
+userPassword: password123
+
+# ==========================================
+# Пользователи платформы
+# ==========================================
+# 1. Администраторы
+dn: uid=admin,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: admin
+cn: admin
+sn: Administrator
+displayName: Главный Администратор
+mail: admin@company.local
+userPassword: password123
+
+dn: uid=admin_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: admin_user
+cn: admin_user
+sn: Админов
+displayName: Александр Админов
+mail: admin_user@company.local
+userPassword: password123
+
+dn: uid=hdfs,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: hdfs
+cn: hdfs
+sn: Superuser
+displayName: Hadoop Superuser
+mail: hdfs@company.local
+userPassword: password123
+
+# 2. Дата-инженеры (Инженеры)
+dn: uid=engineer,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: engineer
+cn: engineer
+sn: Engineer
+displayName: Data Engineer
+mail: engineer@company.local
+userPassword: password123
+
+dn: uid=de_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: de_user
+cn: de_user
+sn: Датаинженеров
+displayName: Иван Датаинженеров
+mail: de@company.local
+userPassword: password123
+
+dn: uid=writer_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: writer_user
+cn: writer_user
+sn: Инженеров
+displayName: Владимир Инженеров
+mail: writer@company.local
+userPassword: password123
+
+# 3. Аналитики данных (BI / Viewers)
+dn: uid=analyst,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: analyst
+cn: analyst
+sn: Analyst
+displayName: BI Data Analyst
+mail: analyst@company.local
+userPassword: password123
+
+dn: uid=analyst_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: analyst_user
+cn: analyst_user
+sn: Аналитикова
+displayName: Анна Аналитикова
+mail: analyst_user@company.local
+userPassword: password123
+
+dn: uid=reader_user,ou=users,dc=company,dc=local
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: reader_user
+cn: reader_user
+sn: Наблюдателева
+displayName: Екатерина Наблюдателева
+mail: reader@company.local
+userPassword: password123
+
+# ==========================================
+# Группы доступа платформы
+# ==========================================
+dn: cn=hadoop-admins,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: hadoop-admins
+description: Полный доступ ко всем сервисам и кластерам платформы
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=admin_user,ou=users,dc=company,dc=local
+member: uid=hdfs,ou=users,dc=company,dc=local
+
+dn: cn=data-platform-admins,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: data-platform-admins
+description: Администраторы платформы данных
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=admin_user,ou=users,dc=company,dc=local
+
+dn: cn=data-engineers,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: data-engineers
+description: Инженеры данных (чтение/запись в HDFS, SQL, YARN)
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=engineer,ou=users,dc=company,dc=local
+member: uid=de_user,ou=users,dc=company,dc=local
+member: uid=writer_user,ou=users,dc=company,dc=local
+
+dn: cn=yarn-operators,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: yarn-operators
+description: Операторы управления очередями YARN
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=engineer,ou=users,dc=company,dc=local
+member: uid=writer_user,ou=users,dc=company,dc=local
+
+dn: cn=bi-analysts,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: bi-analysts
+description: Аналитики BI (SQL-запросы, мониторинг)
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=engineer,ou=users,dc=company,dc=local
+member: uid=de_user,ou=users,dc=company,dc=local
+member: uid=analyst,ou=users,dc=company,dc=local
+member: uid=analyst_user,ou=users,dc=company,dc=local
+member: uid=reader_user,ou=users,dc=company,dc=local
+
+dn: cn=analytics,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: analytics
+description: Read-only доступ аналитиков
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=analyst,ou=users,dc=company,dc=local
+member: uid=analyst_user,ou=users,dc=company,dc=local
+member: uid=reader_user,ou=users,dc=company,dc=local

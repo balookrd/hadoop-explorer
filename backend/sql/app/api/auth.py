@@ -111,6 +111,14 @@ async def login(req: LoginRequest, request: Request, response: Response):
     }
     access_token = create_access_token(token_data)
 
+    # Сохраняем активную сессию в базу данных для устойчивости к рестартам
+    from app.services.storage import storage_service
+    storage_service.save_session(
+        token=access_token,
+        user=session_user,
+        expires_at=settings.auth.jwt.expire_minutes * 60
+    )
+
     # Выставляем HttpOnly Cookie для удобной работы в браузере и EventSource
     response.set_cookie(
         key="access_token",
@@ -187,6 +195,13 @@ async def kerberos_negotiate(request: Request, response: Response):
         "auth_method": "kerberos"
     })
 
+    from app.services.storage import storage_service
+    storage_service.save_session(
+        token=access_token,
+        user=session_user,
+        expires_at=settings.auth.jwt.expire_minutes * 60
+    )
+
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -233,6 +248,8 @@ async def logout(request: Request, response: Response):
     if token:
         payload = decode_access_token(token)
         username = payload.get("sub", "unknown") if payload else "unknown"
+        from app.services.storage import storage_service
+        storage_service.delete_session(token)
         await revoke_token_in_db(token, username=username)
         log_audit_event(
             AuditEventType.AUTH_LOGOUT,
@@ -243,3 +260,4 @@ async def logout(request: Request, response: Response):
 
     response.delete_cookie("access_token")
     return {"status": "ok", "message": "Успешный выход из системы"}
+

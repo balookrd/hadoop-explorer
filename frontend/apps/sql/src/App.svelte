@@ -29,10 +29,12 @@
   }
 
   let user = $state<UserSession | null>(null);
+  let authErrorMessage = $state<string | null>(null);
   let clusters = $state<ClusterSummary[]>([]);
   let selectedClusterId = $state<string>('');
   let sidebarRef: Sidebar | null = null;
   let unsubscribeNotifications: (() => void) | null = null;
+  let unsubscribeAuth: (() => void) | null = null;
 
   // Вкладки редактора
   let tabs = $state<Tab[]>([
@@ -66,6 +68,17 @@
 
 
   onMount(async () => {
+    // Подписка на истечение сессии / 401 Unauthorized
+    unsubscribeAuth = api.onUnauthorized((msg) => {
+      user = null;
+      clusters = [];
+      authErrorMessage = msg;
+      if (unsubscribeNotifications) {
+        unsubscribeNotifications();
+        unsubscribeNotifications = null;
+      }
+    });
+
     // Запрос разрешения на браузерные системные уведомления
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -76,13 +89,23 @@
       await loadClusters();
       initNotificationListener();
     } catch (_) {
-      // Пользователь не авторизован
+      try {
+        const autoUser = await api.tryAutoLogin();
+        if (autoUser) {
+          user = autoUser;
+          await loadClusters();
+          initNotificationListener();
+        }
+      } catch {}
     }
   });
 
   onDestroy(() => {
     if (unsubscribeNotifications) {
       unsubscribeNotifications();
+    }
+    if (unsubscribeAuth) {
+      unsubscribeAuth();
     }
   });
 
@@ -427,7 +450,10 @@
   </div>
 
   {#if !user}
-    <LoginModal onLoginSuccess={handleLoginSuccess} />
+    <LoginModal
+      initialError={authErrorMessage}
+      onLoginSuccess={handleLoginSuccess}
+    />
   {/if}
 
   <AIAssistantModal

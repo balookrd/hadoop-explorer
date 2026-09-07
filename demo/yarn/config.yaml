@@ -33,8 +33,8 @@ auth:
     enabled: true
     server_uri: "ldap://ldap:389"
     use_ssl: false
-    bind_dn: "cn=svc_yarn_explorer,ou=services,dc=company,dc=local"
-    bind_password: "ServicePasswordHere"
+    bind_dn: "cn=admin,dc=company,dc=local"
+    bind_password: "adminpassword"
     user_base_dn: "ou=users,dc=company,dc=local"
     user_filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
     user_display_name_attr: "displayName"

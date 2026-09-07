@@ -1,67 +1,20 @@
 name: yarn-explorer-demo
 
-networks:
-  yarn-demo-net:
-    name: yarn-demo-net
-    driver: bridge
+include:
+  - path: ../infra/docker-compose.infra.yml
 
 volumes:
-  yarn-demo-shared-keytabs:
-    name: yarn-demo-shared-keytabs
-  yarn-demo-shared-krb5:
-    name: yarn-demo-shared-krb5
   yarn-demo-data:
     name: yarn-demo-data
 
 services:
-  yarn-demo-kdc:
-    build:
-      context: ./kdc
-    container_name: yarn-demo-kdc
-    hostname: kdc.yarn-demo-net
-    networks:
-      yarn-demo-net:
-        aliases:
-          - kdc.yarn-demo-net
-          - kdc
-    volumes:
-      - yarn-demo-shared-keytabs:/shared/keytabs
-      - yarn-demo-shared-krb5:/shared/krb5
-    ports:
-      - "88:88"
-      - "88:88/udp"
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /shared/keytabs/yarn-explorer.keytab && test -f /shared/krb5/krb5.conf"]
-      interval: 3s
-      timeout: 2s
-      retries: 15
-    restart: unless-stopped
-
-  yarn-demo-ldap:
-    build:
-      context: ./ldap
-    container_name: yarn-demo-ldap
-    hostname: ldap
-    networks:
-      yarn-demo-net:
-        aliases:
-          - ldap
-    ports:
-      - "389:389"
-    healthcheck:
-      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost:389 -b dc=company,dc=local -s base || exit 1"]
-      interval: 3s
-      timeout: 2s
-      retries: 15
-    restart: unless-stopped
-
   yarn-demo-rm-1:
     image: apache/hadoop:3.4.0
     container_name: yarn-demo-rm-1
-    hostname: yarn-rm-1.yarn-demo-net
+    hostname: yarn-rm-1
     user: "root"
     networks:
-      yarn-demo-net:
+      demo-platform-net:
         aliases:
           - yarn-rm-1.yarn-demo-net
           - yarn-rm-1
@@ -69,27 +22,27 @@ services:
       - "8088:8088"
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - KEYTAB_SRC=/etc/security/keytabs/yarn-rm-1.keytab
+      - KEYTAB_SRC=/etc/security/keytabs/yarn-cluster-1.keytab
     volumes:
-      - yarn-demo-shared-krb5:/shared-krb5:ro
-      - yarn-demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared-krb5:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
       - ./cluster-1/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./cluster-1/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
       - ./cluster-1/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
       - ./hadoop-common/entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/entrypoint.sh"]
     depends_on:
-      yarn-demo-kdc:
+      kdc:
         condition: service_healthy
     restart: unless-stopped
 
   yarn-demo-rm-2:
     image: apache/hadoop:3.4.0
     container_name: yarn-demo-rm-2
-    hostname: yarn-rm-2.yarn-demo-net
+    hostname: yarn-rm-2
     user: "root"
     networks:
-      yarn-demo-net:
+      demo-platform-net:
         aliases:
           - yarn-rm-2.yarn-demo-net
           - yarn-rm-2
@@ -97,17 +50,17 @@ services:
       - "8089:8088"
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - KEYTAB_SRC=/etc/security/keytabs/yarn-rm-2.keytab
+      - KEYTAB_SRC=/etc/security/keytabs/yarn-cluster-2.keytab
     volumes:
-      - yarn-demo-shared-krb5:/shared-krb5:ro
-      - yarn-demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared-krb5:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
       - ./cluster-2/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./cluster-2/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
       - ./cluster-2/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
       - ./hadoop-common/entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/entrypoint.sh"]
     depends_on:
-      yarn-demo-kdc:
+      kdc:
         condition: service_healthy
     restart: unless-stopped
 
@@ -116,9 +69,9 @@ services:
       context: ../..
       dockerfile: docker/Dockerfile.yarn
     container_name: yarn-demo-explorer
-    hostname: yarn-explorer.yarn-demo-net
+    hostname: yarn-explorer
     networks:
-      yarn-demo-net:
+      demo-platform-net:
         aliases:
           - yarn-explorer.yarn-demo-net
           - yarn-explorer
@@ -128,13 +81,13 @@ services:
       - CONFIG_PATH=/app/demo/config.yaml
       - KRB5_CONFIG=/etc/krb5.conf
       - KRB5_KEYTAB=/etc/security/keytabs/yarn-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/yarn-explorer.yarn-demo-net@COMPANY.LOCAL
+      - KRB5_PRINCIPAL=HTTP/yarn-explorer@COMPANY.LOCAL
       - DB_PATH=/app/data/yarn_explorer.db
       - PYTHONUNBUFFERED=1
     volumes:
       - ./:/app/demo:ro
-      - yarn-demo-shared-krb5:/shared-krb5:ro
-      - yarn-demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared-krb5:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
       - yarn-demo-data:/app/data
     entrypoint:
       - /bin/bash
@@ -148,8 +101,8 @@ services:
         echo "Starting Yarn Explorer..."
         exec /docker-entrypoint.sh
     depends_on:
-      yarn-demo-kdc:
+      kdc:
         condition: service_healthy
-      yarn-demo-ldap:
+      ldap:
         condition: service_healthy
     restart: unless-stopped

@@ -8,6 +8,9 @@ const API_BASE = '/api/v1';
 // Токен хранится только в оперативной памяти JS для текущей сессии (Zero LocalStorage),
 // предотвращая кражу через XSS. Основная авторизация в браузере опирается на HttpOnly Cookie.
 let memoryToken: string | null = null;
+type UnauthorizedHandler = (message: string) => void;
+const unauthorizedHandlers: Set<UnauthorizedHandler> = new Set();
+let isAttemptingSso = false;
 
 try {
   localStorage.removeItem('access_token');
@@ -25,6 +28,17 @@ function clearToken() {
   memoryToken = null;
 }
 
+function notifyUnauthorized(message: string = 'Сессия истекла или сервер был перезагружен. Пожалуйста, выполните вход.') {
+  clearToken();
+  for (const handler of unauthorizedHandlers) {
+    try {
+      handler(message);
+    } catch (e) {
+      console.error('Error in unauthorized handler', e);
+    }
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -36,26 +50,93 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const resp = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
+  } catch (netErr: any) {
+    throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
+  }
+
+  const isAuthEndpoint = path.includes('/auth/login') || path.includes('/auth/sso') || path.includes('/auth/logout');
 
   if (resp.status === 401) {
-    clearToken();
-    throw new Error('UNAUTHORIZED');
+    if (!isAuthEndpoint && !isAttemptingSso) {
+      isAttemptingSso = true;
+      try {
+        const ssoRes = await api.kerberosNegotiate();
+        if (ssoRes) {
+          isAttemptingSso = false;
+          return await request<T>(path, options);
+        }
+      } catch {
+        // SSO не сработал
+      } finally {
+        isAttemptingSso = false;
+      }
+
+      let errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, войдите снова.';
+      try {
+        const errBody = await resp.json();
+        if (errBody && errBody.detail) {
+          errDetail = typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail);
+        }
+      } catch (_) {}
+
+      notifyUnauthorized(errDetail);
+      throw new Error(errDetail);
+    } else {
+      clearToken();
+      let errorMsg = 'Неверное имя пользователя или пароль';
+      try {
+        const errBody = await resp.json();
+        if (errBody && errBody.detail) {
+          errorMsg = typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail);
+        }
+      } catch (_) {}
+      throw new Error(errorMsg);
+    }
   }
 
   if (!resp.ok) {
-    const errBody = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(errBody.detail || `HTTP ${resp.status}`);
+    let errorMsg = resp.statusText || `HTTP ${resp.status}`;
+    try {
+      const errBody = await resp.json();
+      if (errBody && errBody.detail) {
+        errorMsg = typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail);
+      }
+    } catch (_) {}
+    throw new Error(errorMsg);
   }
 
   return resp.json();
 }
 
 export const api = {
+  onUnauthorized(handler: UnauthorizedHandler): () => void {
+    unauthorizedHandlers.add(handler);
+    return () => unauthorizedHandlers.delete(handler);
+  },
+
+  async tryAutoLogin(): Promise<UserSession | null> {
+    try {
+      const resp = await this.kerberosNegotiate();
+      return resp;
+    } catch {
+      return null;
+    }
+  },
+
+  async kerberosNegotiate(): Promise<UserSession> {
+    const data = await request<TokenResponse>('/auth/sso', { method: 'GET' });
+    if (data.access_token) {
+      setToken(data.access_token);
+    }
+    return data.user;
+  },
   async login(username: string, password: string): Promise<UserSession> {
     const data = await request<TokenResponse>('/auth/login', {
       method: 'POST',

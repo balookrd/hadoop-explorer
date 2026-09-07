@@ -50,6 +50,13 @@ async def login(
         )
 
     token = create_access_token(user)
+    payload = decode_access_token(token)
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=payload.exp if payload else (settings.security.access_token_expire_minutes * 60),
+        jti=payload.jti if payload else None
+    )
     audit_log("LOGIN_SUCCESS", user.username, client_ip, status="SUCCESS")
 
     # Установка безопасной HTTP-Only Cookie
@@ -117,6 +124,13 @@ async def kerberos_sso(
         )
 
     token = create_access_token(user)
+    payload = decode_access_token(token)
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=payload.exp if payload else (settings.security.access_token_expire_minutes * 60),
+        jti=payload.jti if payload else None
+    )
     audit_log("SPNEGO_SUCCESS", user.username, client_ip, status="SUCCESS")
     response.set_cookie(
         key=settings.security.cookie_name,
@@ -150,9 +164,19 @@ async def logout(request: Request, response: Response):
     username = "unknown"
     if token:
         payload = decode_access_token(token)
-        if payload and payload.jti:
+        if payload and payload.sub:
             username = payload.sub
-            storage_service.revoke_token(payload.jti, payload.exp)
+        storage_service.revoke_token(
+            token_or_jti=token,
+            username=username,
+            expires_at=payload.exp if payload else None
+        )
+        if payload and payload.jti:
+            storage_service.revoke_token(
+                token_or_jti=payload.jti,
+                username=username,
+                expires_at=payload.exp
+            )
 
     audit_log("LOGOUT", username, client_ip, status="SUCCESS")
 
@@ -161,3 +185,4 @@ async def logout(request: Request, response: Response):
         path="/"
     )
     return {"success": True, "message": "Вы успешно вышли из системы"}
+

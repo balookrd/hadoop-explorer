@@ -22,6 +22,7 @@
 
   // Auth state
   let user = $state<UserSession | null>(null);
+  let authErrorMessage = $state<string | null>(null);
   let clusters = $state<ClusterSummary[]>([]);
   let selectedClusterId = $state('');
 
@@ -75,11 +76,26 @@
   const totalChangesCount = $derived(draftCount + (isMappingsModified ? 1 : 0));
 
   onMount(async () => {
+    // Подписка на истечение сессии / 401 Unauthorized
+    api.onUnauthorized((msg) => {
+      user = null;
+      clusters = [];
+      rootQueue = null;
+      clusterMetrics = null;
+      authErrorMessage = msg;
+    });
+
     try {
       user = await api.getMe();
       await loadClusters();
     } catch {
-      // Не авторизован
+      try {
+        const autoUser = await api.tryAutoLogin();
+        if (autoUser) {
+          user = autoUser;
+          await loadClusters();
+        }
+      } catch {}
     }
   });
 
@@ -456,7 +472,10 @@
 
 <div class="h-screen w-screen flex flex-col overflow-hidden">
   {#if !user}
-    <LoginModal onLogin={handleLogin} />
+    <LoginModal
+      initialError={authErrorMessage}
+      onLogin={handleLogin}
+    />
   {:else}
     <Header
       {user}

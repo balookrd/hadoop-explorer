@@ -7,7 +7,7 @@ from collections import OrderedDict
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Union
 import redis
 from sqlalchemy import (
     create_engine,
@@ -30,117 +30,39 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 from app.models.change_requests import ChangeRequestSummary, ChangeRequestResponse
 from app.models.yarn import DraftQueueItem, DiffItem
+from backend.common.core.security import hash_token
+from backend.common.core.session_store import SessionStore, L1RevokedTokenCache
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = os.environ.get("DB_PATH", "data/yarn_explorer.db")
 
 
-class L1RevokedTokenCache:
+class StorageService(SessionStore):
     """
-    Потокобезопасный L1 In-Memory LRU-кэш для отозванных токенов с TTL.
-    Обеспечивает защиту от Fail-Open при сбоях Redis/БД.
+    Универсальный сервис хранения (StorageService) для yarn-explorer.
+    Наследует SessionStore для полной поддержки активных сессий, отзыва токенов и rate limiting,
+    а также управляет заявками на изменения (Change Requests).
     """
-    def __init__(self, max_size: int = 10000):
-        self.max_size = max_size
-        self._cache: OrderedDict[str, float] = OrderedDict()
-        self._lock = threading.Lock()
-
-    def add(self, key: str, expires_at_ts: Optional[float] = None):
-        if not key:
-            return
-        now = time.time()
-        exp_ts = expires_at_ts if (expires_at_ts is not None and expires_at_ts > 0) else (now + 86400.0)
-        with self._lock:
-            if len(self._cache) >= self.max_size and key not in self._cache:
-                self._cache.popitem(last=False)
-            self._cache[key] = exp_ts
-            self._cache.move_to_end(key)
-
-    def contains(self, key: str) -> bool:
-        if not key:
-            return False
-        now = time.time()
-        with self._lock:
-            if key not in self._cache:
-                return False
-            exp_ts = self._cache[key]
-            if exp_ts < now:
-                del self._cache[key]
-                return False
-            self._cache.move_to_end(key)
-            return True
-
-    def cleanup(self):
-        now = time.time()
-        with self._lock:
-            expired_keys = [k for k, exp in self._cache.items() if exp < now]
-            for k in expired_keys:
-                del self._cache[k]
-
-    def clear(self):
-        with self._lock:
-            self._cache.clear()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._cache)
-
-
-class StorageService:
     def __init__(self, db_path: Optional[str] = None, db_url: Optional[str] = None):
         redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
         if db_url:
-            self.db_url = db_url
+            resolved_url = db_url
         elif redis_env and redis_env.startswith(("redis://", "rediss://")):
-            self.db_url = redis_env
+            resolved_url = redis_env
         elif db_path:
             if db_path == ":memory:":
-                self.db_url = "sqlite:///:memory:"
+                resolved_url = "sqlite:///:memory:"
             elif "://" in db_path:
-                self.db_url = db_path
+                resolved_url = db_path
             else:
-                self.db_url = f"sqlite:///{db_path}"
+                resolved_url = f"sqlite:///{db_path}"
         else:
-            self.db_url = settings.database.url
+            resolved_url = os.environ.get("YARN_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database.url
 
-        self.db_path = db_path or DEFAULT_DB_PATH
-        self._is_redis = self.db_url.startswith(("redis://", "rediss://"))
-        sync_url = self.db_url.replace("postgresql+asyncpg://", "postgresql://").replace("sqlite+aiosqlite://", "sqlite://")
-        if sync_url.startswith("postgres://"):
-            sync_url = "postgresql://" + sync_url[len("postgres://"):]
+        super().__init__(db_url=resolved_url, default_db_path="/app/data/yarn_explorer.db")
 
-        self._is_sqlite = "sqlite" in sync_url if not self._is_redis else False
-        self._is_memory = ":memory:" in sync_url if not self._is_redis else False
-        self._l1_cache = L1RevokedTokenCache(max_size=10000)
-
-        if self._is_redis:
-            self.redis_client = redis.Redis.from_url(self.db_url, decode_responses=True)
-            self.engine = None
-            self.metadata = None
-            logger.info(f"StorageService инициализирован с Redis: {self.db_url}")
-        else:
-            engine_kwargs = {}
-            if self._is_sqlite:
-                if self._is_memory:
-                    engine_kwargs = {
-                        "connect_args": {"check_same_thread": False},
-                        "poolclass": StaticPool,
-                    }
-                else:
-                    engine_kwargs = {
-                        "connect_args": {"check_same_thread": False, "timeout": 30.0},
-                    }
-            else:
-                engine_kwargs = {
-                    "pool_pre_ping": True,
-                    "pool_size": 10,
-                    "max_overflow": 20,
-                }
-
-            self.engine = create_engine(sync_url, **engine_kwargs)
-            self.metadata = MetaData()
-
+        if not self._is_redis:
             self.cr_table = Table(
                 "change_requests",
                 self.metadata,
@@ -159,57 +81,13 @@ class StorageService:
                 Column("diffs_json", Text, nullable=False),
                 Column("xml_content", Text, nullable=True),
             )
+            self._init_yarn_tables()
 
-            self.revoked_tokens_table = Table(
-                "revoked_tokens",
-                self.metadata,
-                Column("jti", String(255), primary_key=True),
-                Column("expires_at", String(100), nullable=False, index=True),
-            )
-
-            self.rate_limits_table = Table(
-                "rate_limits",
-                self.metadata,
-                Column("id", Integer, primary_key=True, autoincrement=True),
-                Column("key", String(255), nullable=False, index=True),
-                Column("timestamp", Float, nullable=False, index=True),
-            )
-
-            self._init_db()
-
-    def clear_rate_limits(self):
-        """Очищает все записи rate limits (используется для тестов)."""
+    def _init_yarn_tables(self):
         try:
-            if self._is_redis:
-                keys = self.redis_client.keys("yarn:ratelimit:*")
-                if keys:
-                    self.redis_client.delete(*keys)
-                return
-            with self.engine.begin() as conn:
-                conn.execute(delete(self.rate_limits_table))
-        except Exception as e:
-            logger.error(f"Ошибка при очистке rate_limits: {e}")
-
-    def _init_db(self):
-        if self._is_redis:
-            return
-        try:
-            if self._is_sqlite and not self._is_memory:
-                parsed = urllib.parse.urlparse(self.db_url)
-                file_path = parsed.path
-                if file_path:
-                    db_file = Path(file_path.lstrip("/"))
-                    db_file.parent.mkdir(parents=True, exist_ok=True)
-
             self.metadata.create_all(self.engine)
-
-            if self._is_sqlite and not self._is_memory:
-                with self.engine.begin() as conn:
-                    conn.execute(text("PRAGMA journal_mode=WAL;"))
-                    conn.execute(text("PRAGMA busy_timeout=30000;"))
-            logger.info(f"База данных инициализирована: {self.db_url}")
         except Exception as e:
-            logger.error(f"Ошибка инициализации БД {self.db_url}: {e}")
+            logger.error(f"Ошибка инициализации таблиц Change Requests: {e}")
 
     # ==================== CHANGE REQUESTS ====================
 
@@ -525,184 +403,12 @@ class StorageService:
         with self.engine.connect() as conn:
             return conn.execute(stmt).scalar() or 0
 
-    # ==================== TOKEN REVOCATION (BLACKLIST) ====================
-
-    def revoke_token(self, jti: str, expires_at: str) -> bool:
-        """Помещает токен (jti) в список отозванных токенов (L1 + Redis/DB)."""
-        if not jti:
-            return False
-
-        # Рассчитываем unix timestamp для L1 кэша
-        exp_ts = time.time() + 86400.0
-        ttl = 86400
-        try:
-            dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            exp_ts = dt.timestamp()
-            diff = int((dt - datetime.now(timezone.utc)).total_seconds())
-            if diff > 0:
-                ttl = diff
-        except Exception:
-            pass
-
-        # Сохраняем в L1 кэш
-        self._l1_cache.add(jti, exp_ts)
-
-        try:
-            if self._is_redis:
-                self.redis_client.set(f"revoked_token:{jti}", "1", ex=ttl)
-                return True
-
-            with self.engine.begin() as conn:
-                existing = conn.execute(
-                    select(self.revoked_tokens_table.c.jti).where(
-                        self.revoked_tokens_table.c.jti == jti
-                    )
-                ).scalar_one_or_none()
-
-                if existing:
-                    conn.execute(
-                        update(self.revoked_tokens_table)
-                        .where(self.revoked_tokens_table.c.jti == jti)
-                        .values(expires_at=expires_at)
-                    )
-                else:
-                    conn.execute(
-                        insert(self.revoked_tokens_table).values(jti=jti, expires_at=expires_at)
-                    )
-                return True
-        except Exception as e:
-            logger.error(f"Ошибка при отзыве токена {jti} в БД/Redis: {e}")
-            return True
-
-    def is_token_revoked(self, jti: str) -> bool:
-        """Проверяет, отозван ли токен (L1 кэш + Redis/DB)."""
-        if not jti:
-            return False
-
-        # 1. Быстрая проверка в L1 In-Memory кэше
-        if self._l1_cache.contains(jti):
-            return True
-
-        try:
-            if self._is_redis:
-                is_rev = bool(self.redis_client.exists(f"revoked_token:{jti}"))
-                if is_rev:
-                    self._l1_cache.add(jti)
-                return is_rev
-
-            with self.engine.connect() as conn:
-                stmt = select(self.revoked_tokens_table.c.jti, self.revoked_tokens_table.c.expires_at).where(
-                    self.revoked_tokens_table.c.jti == jti
-                ).limit(1)
-                row = conn.execute(stmt).fetchone()
-                if row:
-                    try:
-                        dt = datetime.fromisoformat(row[1].replace("Z", "+00:00"))
-                        exp_ts = dt.timestamp()
-                    except Exception:
-                        exp_ts = None
-                    self._l1_cache.add(jti, exp_ts)
-                    return True
-                return False
-        except Exception as e:
-            logger.error(f"Ошибка проверки отзыва токена {jti}: {e}")
-            return self._l1_cache.contains(jti)
-
     def cleanup_expired_tokens(self):
-        """Удаляет из базы и L1 устаревшие отозванные токены (в Redis TTL управляется автоматически)."""
-        self._l1_cache.cleanup()
-        if self._is_redis:
-            return
-        now = datetime.now(timezone.utc).isoformat()
-        try:
-            with self.engine.begin() as conn:
-                conn.execute(
-                    delete(self.revoked_tokens_table).where(
-                        self.revoked_tokens_table.c.expires_at < now
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Ошибка очистки устаревших отозванных токенов: {e}")
-
-    # ==================== RATE LIMITING (SLIDING WINDOW) ====================
-
-    def check_and_record_rate_limit(
-        self, key: str, max_requests: int, window_seconds: int, now: Optional[float] = None
-    ) -> tuple[bool, int]:
-        """
-        Проверяет и регистрирует попытку запроса (sliding window).
-        Поддерживает Redis (Sorted Set), PostgreSQL и SQLite.
-        Возвращает (allowed, retry_after_seconds).
-        """
-        current_time = now if now is not None else time.time()
-        cutoff = current_time - window_seconds
-
-        try:
-            if self._is_redis:
-                redis_key = f"ratelimit:{key}"
-                pipe = self.redis_client.pipeline()
-                # Удаляем устаревшие элементы
-                pipe.zremrangebyscore(redis_key, "-inf", cutoff)
-                # Получаем все текущие метки с score
-                pipe.zrange(redis_key, 0, -1, withscores=True)
-                _, rows = pipe.execute()
-
-                count = len(rows)
-                if count >= max_requests:
-                    oldest_ts = rows[0][1]
-                    retry_after = max(1, int(window_seconds - (current_time - oldest_ts)))
-                    return False, retry_after
-
-                pipe = self.redis_client.pipeline()
-                pipe.zadd(redis_key, {f"{current_time}": current_time})
-                pipe.expire(redis_key, max(window_seconds * 2, 60))
-                pipe.execute()
-                return True, 0
-
-            with self.engine.begin() as conn:
-                # Удаляем устаревшие записи для данного ключа
-                conn.execute(
-                    delete(self.rate_limits_table).where(
-                        self.rate_limits_table.c.key == key,
-                        self.rate_limits_table.c.timestamp < cutoff,
-                    )
-                )
-                # Получаем временные метки
-                stmt = (
-                    select(self.rate_limits_table.c.timestamp)
-                    .where(self.rate_limits_table.c.key == key)
-                    .order_by(self.rate_limits_table.c.timestamp.asc())
-                )
-                rows = conn.execute(stmt).fetchall()
-                count = len(rows)
-
-                if count >= max_requests:
-                    oldest_ts = rows[0][0]
-                    retry_after = max(1, int(window_seconds - (current_time - oldest_ts)))
-                    return False, retry_after
-
-                conn.execute(
-                    insert(self.rate_limits_table).values(key=key, timestamp=current_time)
-                )
-                return True, 0
-        except Exception as e:
-            logger.error(f"Ошибка проверки rate limit для {key}: {e}")
-            return True, 0
+        return self.cleanup_expired()
 
     def cleanup_rate_limits(self, older_than_seconds: int = 3600):
-        """Удаляет из базы все записи rate limit старше заданного времени."""
-        if self._is_redis:
-            return
-        cutoff = time.time() - older_than_seconds
-        try:
-            with self.engine.begin() as conn:
-                conn.execute(
-                    delete(self.rate_limits_table).where(
-                        self.rate_limits_table.c.timestamp < cutoff
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Ошибка очистки rate limits: {e}")
+        return self.cleanup_expired()
 
 
 storage_service = StorageService()
+

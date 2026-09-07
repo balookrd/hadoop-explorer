@@ -31,18 +31,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Установка Python зависимостей
-COPY backend/common/requirements-common.txt ./backend/common/requirements-common.txt
-COPY backend/sql/requirements.txt ./backend/sql/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r backend/common/requirements-common.txt && \
-    pip install --no-cache-dir -r backend/sql/requirements.txt
-
-# Копирование исходного кода backend
+# Установка Python пакетов по pyproject.toml (Вариант 3)
 COPY backend/common ./backend/common
 COPY backend/sql ./backend/sql
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir ./backend/common ./backend/sql
+
+# Конфигурация и entrypoint
 COPY backend/sql/config ./config
-COPY backend/sql/docker-entrypoint.sh /docker-entrypoint.sh
+COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Копирование собранного Frontend из этапа 1
@@ -55,7 +52,8 @@ RUN groupadd -g 10001 appuser && \
     touch /etc/krb5.conf && \
     chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
 
-ENV PYTHONPATH="/app:/app/backend/common:/app/backend/sql" \
+ENV APP_NAME="sql" \
+    PYTHONPATH="/app:/app/backend/common:/app/backend/sql" \
     CONFIG_PATH="/app/config/config.yaml" \
     FRONTEND_DIST="/app/frontend/dist"
 

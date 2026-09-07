@@ -91,24 +91,55 @@ async def get_current_user_optional(request: Request) -> Optional[UserInfo]:
     # Проверка CSRF для аутентификации по Cookie
     verify_csrf(request, is_cookie_auth)
 
+    # 1. Проверка на отзыв токена (CWE-613) через StorageService
+    if storage_service.is_token_revoked(token):
+        return None
+
+    # 2. Проверка активной сессии в постоянной БД (сохраняется при перезапусках бэкенда)
+    session_data = storage_service.get_session(token)
+    if session_data:
+        from app.core.acl import is_global_admin
+        username = session_data["username"]
+        groups = session_data.get("groups", [])
+        is_admin = session_data.get("is_admin")
+        if is_admin is None:
+            is_admin = is_global_admin(username, groups)
+        return UserInfo(
+            username=username,
+            display_name=session_data.get("display_name", username),
+            email=session_data.get("email"),
+            groups=groups,
+            is_admin=bool(is_admin)
+        )
+
+    # 3. Fallback: декодирование JWT (если сессия еще не в БД или перегенерирована)
     payload = decode_access_token(token)
     if not payload:
         return None
 
-    # Проверка отзыва токена (CWE-613) через StorageService (Redis/PostgreSQL/SQLite)
     if payload.jti and storage_service.is_token_revoked(payload.jti):
         return None
 
     from app.core.acl import is_global_admin
     is_admin = is_global_admin(payload.sub, payload.groups)
 
-    return UserInfo(
+    user = UserInfo(
         username=payload.sub,
         display_name=payload.display_name,
         email=payload.email,
         groups=payload.groups,
         is_admin=is_admin
     )
+
+    # Сохраняем сессию в БД
+    storage_service.save_session(
+        token=token,
+        user=user,
+        expires_at=payload.exp or (datetime.now(timezone.utc) + timedelta(minutes=settings.security.access_token_expire_minutes)),
+        jti=payload.jti
+    )
+
+    return user
 
 
 async def get_current_user(request: Request) -> UserInfo:
@@ -120,3 +151,4 @@ async def get_current_user(request: Request) -> UserInfo:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+

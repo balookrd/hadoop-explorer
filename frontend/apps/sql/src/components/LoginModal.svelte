@@ -4,14 +4,20 @@
   import { Database, Lock, User, KeyRound, ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-svelte';
 
   let {
-    onLoginSuccess
+    onLoginSuccess,
+    initialError = null,
   }: {
     onLoginSuccess: (user: UserSession) => void;
+    initialError?: string | null;
   } = $props();
 
   let username = $state('analyst_user');
   let password = $state('password123');
   let errorMessage = $state<string | null>(null);
+
+  $effect(() => {
+    errorMessage = initialError ?? null;
+  });
   let loading = $state(false);
 
   async function handleLdapLogin(e?: Event) {

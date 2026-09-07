@@ -46,7 +46,7 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}@EXAMPLE.COM</value>
+        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.keytab</name>
@@ -110,7 +110,7 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.namenode.kerberos.principal</name>
-        <value>nn/${CLUSTER_ID}@EXAMPLE.COM</value>
+        <value>nn/${CLUSTER_ID}@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.namenode.keytab.file</name>
@@ -118,11 +118,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.namenode.kerberos.internal.spnego.principal</name>
-        <value>HTTP/${CLUSTER_ID}@EXAMPLE.COM</value>
+        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}@EXAMPLE.COM</value>
+        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.keytab</name>
@@ -130,7 +130,7 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.datanode.kerberos.principal</name>
-        <value>dn/${CLUSTER_ID}@EXAMPLE.COM</value>
+        <value>dn/${CLUSTER_ID}@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.datanode.keytab.file</name>
@@ -195,7 +195,7 @@ done
 # Инициализация тестовых данных в HDFS под принципалом nn (суперпользователь)
 echo "Создание демонстрационных файлов и каталогов в HDFS..."
 su -s /bin/bash hadoop -c "
-    kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@EXAMPLE.COM
+    kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
     /opt/hadoop/bin/hdfs dfs -mkdir -p /tmp /data /user/admin /user/engineer /user/analyst
     /opt/hadoop/bin/hdfs dfs -chmod 1777 /tmp
     /opt/hadoop/bin/hdfs dfs -chmod 755 /data
@@ -206,7 +206,7 @@ su -s /bin/bash hadoop -c "
 
 if [ "${CLUSTER_ID}" = "hdfs-cluster-1" ]; then
     su -s /bin/bash hadoop -c "
-        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@EXAMPLE.COM
+        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
         echo 'Добро пожаловать в Production DataLake HDFS Cluster 1' | /opt/hadoop/bin/hdfs dfs -put -f - /user/admin/README.txt
         echo 'event_id,event_name,user_id,timestamp
 101,login,admin,2026-09-05T09:00:00Z
@@ -221,7 +221,7 @@ if [ "${CLUSTER_ID}" = "hdfs-cluster-1" ]; then
     " || true
 else
     su -s /bin/bash hadoop -c "
-        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@EXAMPLE.COM
+        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
         echo 'Добро пожаловать в Archive & Analytics HDFS Cluster 2' | /opt/hadoop/bin/hdfs dfs -put -f - /user/admin/ARCHIVE_INDEX.txt
         echo 'report_id,department,total_sales,quarter
 R-1001,Retail,1450000.50,2026-Q1

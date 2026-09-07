@@ -17,7 +17,7 @@ RUN npm run build --workspace=apps/yarn
 # ==========================================
 FROM python:3.12-slim
 
-# Системные зависимости для Kerberos, SASL и LDAP
+# Системные зависимости для Kerberos, SASL, LDAP
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libkrb5-dev \
@@ -31,18 +31,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Установка Python зависимостей
-COPY backend/common/requirements-common.txt ./backend/common/requirements-common.txt
-COPY backend/yarn/requirements.txt ./backend/yarn/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r backend/common/requirements-common.txt && \
-    pip install --no-cache-dir -r backend/yarn/requirements.txt
-
-# Копирование исходного кода backend
+# Установка Python пакетов по pyproject.toml (Вариант 3)
 COPY backend/common ./backend/common
 COPY backend/yarn ./backend/yarn
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir ./backend/common ./backend/yarn
+
+# Конфигурация и entrypoint
 COPY backend/yarn/config ./config
-COPY backend/yarn/docker-entrypoint.sh /docker-entrypoint.sh
+COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Копирование собранного Frontend из этапа 1
@@ -55,9 +52,9 @@ RUN groupadd -g 10001 appuser && \
     touch /etc/krb5.conf && \
     chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
 
-ENV PYTHONPATH="/app:/app/backend/common:/app/backend/yarn" \
+ENV APP_NAME="yarn" \
+    PYTHONPATH="/app:/app/backend/common:/app/backend/yarn" \
     CONFIG_PATH="/app/config/config.yaml" \
-    DB_PATH="/app/data/yarn_explorer.db" \
     FRONTEND_DIST="/app/frontend/dist"
 
 USER 10001

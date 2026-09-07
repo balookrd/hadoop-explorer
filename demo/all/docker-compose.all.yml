@@ -2,6 +2,7 @@
 name: hadoop-explorer-demo-all
 
 include:
+  - path: ../infra/docker-compose.infra.yml
   - path: ../hdfs/docker-compose.yml
   - path: ../sql/docker-compose.yaml
   - path: ../yarn/docker-compose.yml

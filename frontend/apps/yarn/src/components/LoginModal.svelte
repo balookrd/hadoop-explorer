@@ -2,9 +2,11 @@
   import { LayoutGrid, Lock, User, KeyRound, ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-svelte';
 
   let {
-    onLogin
+    onLogin,
+    initialError = null,
   }: {
     onLogin: (username: string, password: string) => Promise<void>;
+    initialError?: string | null;
   } = $props();
 
   let username = $state('admin_user');
@@ -12,6 +14,10 @@
   let isLoading = $state(false);
   let errorMessage = $state<string | null>(null);
   let ssoLoading = $state(false);
+
+  $effect(() => {
+    errorMessage = initialError ?? null;
+  });
 
   async function handleSubmit(e?: Event) {
     if (e) e.preventDefault();

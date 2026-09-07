@@ -5,7 +5,7 @@ clusters:
     webhdfs_urls:
       - "http://hdfs-cluster-1:9870/webhdfs/v1"
     auth_type: "kerberos"
-    service_principal: "hdfs-explorer/hdfs-explorer@EXAMPLE.COM"
+    service_principal: "hdfs-explorer/hdfs-explorer@COMPANY.LOCAL"
     keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
     timeout_seconds: 30
     preview_max_bytes: 1048576
@@ -29,7 +29,7 @@ clusters:
     webhdfs_urls:
       - "http://hdfs-cluster-2:9870/webhdfs/v1"
     auth_type: "kerberos"
-    service_principal: "hdfs-explorer/hdfs-explorer@EXAMPLE.COM"
+    service_principal: "hdfs-explorer/hdfs-explorer@COMPANY.LOCAL"
     keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
     timeout_seconds: 30
     preview_max_bytes: 1048576
