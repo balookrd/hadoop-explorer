@@ -36,12 +36,13 @@
   let unsubscribeNotifications: (() => void) | null = null;
   let unsubscribeAuth: (() => void) | null = null;
 
-  // Вкладки редактора
-  let tabs = $state<Tab[]>([
-    {
-      id: 'tab-1',
-      title: 'Запрос 1',
-      query: 'SELECT \n  custkey, \n  name, \n  acctbal, \n  mktsegment \nFROM tpch.sf1.customer \nWHERE acctbal > 5000 \nORDER BY acctbal DESC \nLIMIT 50;',
+  const DEFAULT_QUERY = 'SELECT \n  custkey, \n  name, \n  acctbal, \n  mktsegment \nFROM tpch.sf1.customer \nWHERE acctbal > 5000 \nORDER BY acctbal DESC \nLIMIT 50;';
+
+  function createInitialTab(id = 'tab-1', title = 'Запрос 1'): Tab {
+    return {
+      id,
+      title,
+      query: DEFAULT_QUERY,
       columns: [],
       rows: [],
       totalRows: 0,
@@ -50,8 +51,11 @@
       executionTimeMs: 0,
       errorMessage: null,
       queryId: null
-    }
-  ]);
+    };
+  }
+
+  // Вкладки редактора
+  let tabs = $state<Tab[]>([createInitialTab()]);
   let activeTabId = $state<string>('tab-1');
 
   const activeTab = $derived(
@@ -66,6 +70,131 @@
   let isAiModalOpen = $state(false);
   let aiInitialTab = $state<'check' | 'explain' | 'optimize' | 'fix' | 'generate'>('check');
 
+  let saveTimeout: any = null;
+
+  function getStorageKey(username?: string | null): string {
+    return `sql_workspace_${username || 'guest'}`;
+  }
+
+  function applyWorkspaceState(state: any): boolean {
+    if (!state || typeof state !== 'object') return false;
+
+    if (Array.isArray(state.tabs) && state.tabs.length > 0) {
+      tabs = state.tabs.map((t: any, idx: number) => ({
+        id: t.id || `tab-${idx + 1}`,
+        title: t.title || `Запрос ${idx + 1}`,
+        query: typeof t.query === 'string' ? t.query : DEFAULT_QUERY,
+        columns: Array.isArray(t.columns) ? t.columns : [],
+        rows: Array.isArray(t.rows) ? t.rows : [],
+        totalRows: typeof t.totalRows === 'number' ? t.totalRows : (t.rows?.length || 0),
+        isRunning: false,
+        statusText: t.statusText || '',
+        executionTimeMs: t.executionTimeMs || 0,
+        errorMessage: t.errorMessage || null,
+        queryId: t.queryId || null
+      }));
+    } else {
+      tabs = [createInitialTab()];
+    }
+
+    if (state.activeTabId && tabs.some((t) => t.id === state.activeTabId)) {
+      activeTabId = state.activeTabId;
+    } else {
+      activeTabId = tabs[0].id;
+    }
+
+    if (state.selectedClusterId) {
+      selectedClusterId = state.selectedClusterId;
+    }
+    if (typeof state.editorHeightPercent === 'number' && state.editorHeightPercent >= 20 && state.editorHeightPercent <= 80) {
+      editorHeightPercent = state.editorHeightPercent;
+    }
+    return true;
+  }
+
+  async function loadUserWorkspace(currentUser: UserSession | null) {
+    if (!currentUser) {
+      tabs = [createInitialTab()];
+      activeTabId = 'tab-1';
+      return;
+    }
+
+    // 1. Пробуем восстановить состояние из базы данных через API
+    try {
+      const remoteWs = await api.getWorkspace();
+      if (remoteWs && remoteWs.state && applyWorkspaceState(remoteWs.state)) {
+        return;
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить рабочее пространство из БД:', err);
+    }
+
+    // 2. Если в БД пусто, пробуем загрузить из локального кэша пользователя
+    try {
+      const raw = localStorage.getItem(getStorageKey(currentUser.username));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (applyWorkspaceState(parsed)) {
+          // Отправляем в БД
+          api.saveWorkspace(parsed).catch(() => {});
+          return;
+        }
+      }
+    } catch {}
+
+    // 3. Если данных нет — открываем свежую начальную вкладку
+    tabs = [createInitialTab()];
+    activeTabId = 'tab-1';
+  }
+
+  function saveStateToStorage(immediate = false) {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    const saveFn = () => {
+      try {
+        const stateToSave = {
+          selectedClusterId,
+          activeTabId,
+          editorHeightPercent,
+          tabs: tabs.map((t) => ({
+            id: t.id,
+            title: t.title,
+            query: t.query,
+            columns: t.columns || [],
+            rows: (t.rows || []).slice(0, 200),
+            totalRows: t.totalRows || 0,
+            executionTimeMs: t.executionTimeMs || 0,
+            errorMessage: t.errorMessage || null,
+            statusText: t.statusText || '',
+            queryId: t.queryId || null
+          }))
+        };
+
+        // Локальный кэш пользователя
+        localStorage.setItem(getStorageKey(user?.username), JSON.stringify(stateToSave));
+
+        // Персистентное сохранение в БД
+        if (user) {
+          api.saveWorkspace(stateToSave).catch((err) => {
+            console.warn('Не удалось сохранить рабочее пространство в БД:', err);
+          });
+        }
+      } catch (err) {
+        console.warn('Не удалось сохранить состояние SQL Explorer:', err);
+      }
+    };
+
+    if (immediate) {
+      saveFn();
+    } else {
+      saveTimeout = setTimeout(saveFn, 400);
+    }
+  }
+
+  // Автосохранение при редактировании запроса
+  $effect(() => {
+    const _cur = activeTab?.query;
+    saveStateToStorage(false);
+  });
 
   onMount(async () => {
     // Подписка на истечение сессии / 401 Unauthorized
@@ -73,6 +202,8 @@
       user = null;
       clusters = [];
       authErrorMessage = msg;
+      tabs = [createInitialTab()];
+      activeTabId = 'tab-1';
       if (unsubscribeNotifications) {
         unsubscribeNotifications();
         unsubscribeNotifications = null;
@@ -88,6 +219,7 @@
       user = await api.getMe();
       await loadClusters();
       initNotificationListener();
+      await loadUserWorkspace(user);
     } catch (_) {
       try {
         const autoUser = await api.tryAutoLogin();
@@ -95,12 +227,18 @@
           user = autoUser;
           await loadClusters();
           initNotificationListener();
+          await loadUserWorkspace(autoUser);
+        } else {
+          await loadUserWorkspace(null);
         }
-      } catch {}
+      } catch {
+        await loadUserWorkspace(null);
+      }
     }
   });
 
   onDestroy(() => {
+    if (saveTimeout) clearTimeout(saveTimeout);
     if (unsubscribeNotifications) {
       unsubscribeNotifications();
     }
@@ -143,13 +281,15 @@
     }
   }
 
-  function handleLoginSuccess(u: UserSession) {
+  async function handleLoginSuccess(u: UserSession) {
     user = u;
-    loadClusters();
+    await loadClusters();
     initNotificationListener();
+    await loadUserWorkspace(u);
   }
 
   async function handleLogout() {
+    if (saveTimeout) clearTimeout(saveTimeout);
     if (unsubscribeNotifications) {
       unsubscribeNotifications();
       unsubscribeNotifications = null;
@@ -158,24 +298,31 @@
     user = null;
     clusters = [];
     authErrorMessage = null;
+    tabs = [createInitialTab()];
+    activeTabId = 'tab-1';
   }
+
 
   function createTab() {
     const newId = `tab-${Date.now()}`;
-    tabs.push({
-      id: newId,
-      title: `Запрос ${tabs.length + 1}`,
-      query: 'SELECT * FROM tpch.sf1.orders LIMIT 20;',
-      columns: [],
-      rows: [],
-      totalRows: 0,
-      isRunning: false,
-      statusText: '',
-      executionTimeMs: 0,
-      errorMessage: null,
-      queryId: null
-    });
+    tabs = [
+      ...tabs,
+      {
+        id: newId,
+        title: `Запрос ${tabs.length + 1}`,
+        query: 'SELECT * FROM tpch.sf1.orders LIMIT 20;',
+        columns: [],
+        rows: [],
+        totalRows: 0,
+        isRunning: false,
+        statusText: '',
+        executionTimeMs: 0,
+        errorMessage: null,
+        queryId: null
+      }
+    ];
     activeTabId = newId;
+    saveStateToStorage(true);
   }
 
   function closeTab(tabId: string, event: MouseEvent) {
@@ -189,6 +336,7 @@
     if (activeTabId === tabId) {
       activeTabId = tabs[0].id;
     }
+    saveStateToStorage(true);
   }
 
   async function executeQuery(queryToRun: string) {
@@ -232,6 +380,7 @@
             activeTab.isRunning = false;
             activeTab.statusText = event.message;
             clearInterval(timer);
+            saveStateToStorage(true);
             if (sidebarRef) {
               sidebarRef.refreshHistory();
               sidebarRef.refreshQueue();
@@ -241,6 +390,7 @@
             activeTab.errorMessage = event.error;
             activeTab.statusText = 'Ошибка исполнения';
             clearInterval(timer);
+            saveStateToStorage(true);
             if (sidebarRef) {
               sidebarRef.refreshHistory();
               sidebarRef.refreshQueue();
@@ -251,6 +401,7 @@
               activeTab.executionTimeMs = event.duration_ms;
             }
             clearInterval(timer);
+            saveStateToStorage(true);
             if (sidebarRef) {
               sidebarRef.refreshHistory();
               sidebarRef.refreshQueue();
@@ -260,6 +411,7 @@
         (err) => {
           activeTab.isRunning = false;
           clearInterval(timer);
+          saveStateToStorage(true);
         }
       );
     } catch (err: any) {
@@ -267,6 +419,7 @@
       activeTab.errorMessage = err.message || 'Ошибка отправки запроса';
       activeTab.statusText = 'Ошибка';
       clearInterval(timer);
+      saveStateToStorage(true);
     }
   }
 
@@ -278,6 +431,7 @@
       activeTab.isRunning = false;
       if (activeTab.closeStream) activeTab.closeStream();
       if (sidebarRef) sidebarRef.refreshQueue();
+      saveStateToStorage(true);
     } catch (err: any) {
       console.error('Ошибка отмены', err);
     }
@@ -294,6 +448,7 @@
       activeTab.errorMessage = null;
       activeTab.isRunning = false;
       activeTab.statusText = `Сохраненный результат (${cached.total_rows} строк, ${clusterName})`;
+      saveStateToStorage(true);
     } catch (err: any) {
       alert(`Не удалось загрузить результат: ${err.message}`);
     }
@@ -302,14 +457,17 @@
   function handleSelectTable(tableName: string) {
     if (activeTab) {
       activeTab.query = `SELECT * \nFROM ${tableName} \nLIMIT 50;`;
+      saveStateToStorage(true);
     }
   }
 
   function handleSelectHistoryQuery(historyQuery: string) {
     if (activeTab) {
       activeTab.query = historyQuery;
+      saveStateToStorage(true);
     }
   }
+
 
   async function handleSaveQuery() {
     if (!activeTab) return;
@@ -332,6 +490,7 @@
   function handleApplyAiSql(newSql: string) {
     if (activeTab) {
       activeTab.query = newSql;
+      saveStateToStorage(true);
     }
   }
 
@@ -353,6 +512,7 @@
       const res = await api.formatSql(activeTab.query, selectedClusterId, currentCluster?.type);
       if (res && res.formatted_sql) {
         activeTab.query = res.formatted_sql;
+        saveStateToStorage(true);
       }
     } catch (err: any) {
       console.error('Ошибка форматирования SQL:', err);

@@ -8,6 +8,7 @@
     SparkSessionItem,
     CreateSessionPayload,
     Tab,
+    TabResultData,
     HistoryItem
   } from './types';
   import { Header, LoginModal } from '@hadoop-explorer/common';
@@ -71,6 +72,20 @@
 
   const STORAGE_KEY = 'spark_explorer_state_v2';
 
+  function createEmptyResultData(): TabResultData {
+    return {
+      columns: [],
+      rows: [],
+      totalRows: 0,
+      logs: '',
+      executionTimeMs: 0,
+      errorMessage: null,
+      executionId: null,
+      statusText: '',
+      activeResultTab: 'table'
+    };
+  }
+
   function createTabObject(
     id: string,
     title: string,
@@ -87,6 +102,11 @@
         pyspark: withDefaults ? DEFAULT_CODES.pyspark : '',
         scalaspark: withDefaults ? DEFAULT_CODES.scalaspark : '',
         sql: withDefaults ? DEFAULT_CODES.sql : ''
+      },
+      resultBuffers: {
+        pyspark: createEmptyResultData(),
+        scalaspark: createEmptyResultData(),
+        sql: createEmptyResultData()
       },
       columns: [],
       rows: [],
@@ -123,27 +143,56 @@
 
   function applyWorkspaceState(state: any): boolean {
     if (!state || !Array.isArray(state.tabs) || state.tabs.length === 0) return false;
-    tabs = state.tabs.map((t: any) => ({
-      id: t.id,
-      title: t.title,
-      language: t.language || 'pyspark',
-      code: t.code !== undefined ? t.code : (t.id === 'tab-1' ? DEFAULT_CODES[t.language || 'pyspark'] : ''),
-      codeBuffers: t.codeBuffers || {
-        pyspark: t.id === 'tab-1' ? DEFAULT_CODES.pyspark : '',
-        scalaspark: t.id === 'tab-1' ? DEFAULT_CODES.scalaspark : '',
-        sql: t.id === 'tab-1' ? DEFAULT_CODES.sql : ''
-      },
-      columns: t.columns || [],
-      rows: t.rows || [],
-      totalRows: t.totalRows || 0,
-      logs: t.logs || '',
-      isRunning: false,
-      statusText: '',
-      executionTimeMs: t.executionTimeMs || 0,
-      errorMessage: t.errorMessage || null,
-      executionId: t.executionId || null,
-      activeResultTab: t.activeResultTab || 'table'
-    }));
+    tabs = state.tabs.map((t: any) => {
+      const lang = t.language || 'pyspark';
+      const defaultBuf = {
+        pyspark: createEmptyResultData(),
+        scalaspark: createEmptyResultData(),
+        sql: createEmptyResultData()
+      };
+      if (t.resultBuffers && typeof t.resultBuffers === 'object') {
+        defaultBuf.pyspark = t.resultBuffers.pyspark || createEmptyResultData();
+        defaultBuf.scalaspark = t.resultBuffers.scalaspark || createEmptyResultData();
+        defaultBuf.sql = t.resultBuffers.sql || createEmptyResultData();
+      } else {
+        defaultBuf[lang as 'pyspark' | 'scalaspark' | 'sql'] = {
+          columns: t.columns || [],
+          rows: t.rows || [],
+          totalRows: t.totalRows || 0,
+          logs: t.logs || '',
+          executionTimeMs: t.executionTimeMs || 0,
+          errorMessage: t.errorMessage || null,
+          executionId: t.executionId || null,
+          statusText: t.statusText || '',
+          activeResultTab: t.activeResultTab || 'table'
+        };
+      }
+
+      const activeRes = defaultBuf[lang as 'pyspark' | 'scalaspark' | 'sql'] || createEmptyResultData();
+
+      return {
+        id: t.id,
+        title: t.title,
+        language: lang,
+        code: t.code !== undefined ? t.code : (t.id === 'tab-1' ? DEFAULT_CODES[lang as 'pyspark' | 'scalaspark' | 'sql'] : ''),
+        codeBuffers: t.codeBuffers || {
+          pyspark: t.id === 'tab-1' ? DEFAULT_CODES.pyspark : '',
+          scalaspark: t.id === 'tab-1' ? DEFAULT_CODES.scalaspark : '',
+          sql: t.id === 'tab-1' ? DEFAULT_CODES.sql : ''
+        },
+        resultBuffers: defaultBuf,
+        columns: activeRes.columns || [],
+        rows: activeRes.rows || [],
+        totalRows: activeRes.totalRows || 0,
+        logs: activeRes.logs || '',
+        isRunning: false,
+        statusText: activeRes.statusText || '',
+        executionTimeMs: activeRes.executionTimeMs || 0,
+        errorMessage: activeRes.errorMessage || null,
+        executionId: activeRes.executionId || null,
+        activeResultTab: activeRes.activeResultTab || 'table'
+      };
+    });
     if (state.activeTabId && tabs.some((t) => t.id === state.activeTabId)) {
       activeTabId = state.activeTabId;
     } else {
@@ -208,25 +257,80 @@
           selectedClusterId,
           activeTabId,
           savedConfigByKind,
-          tabs: tabs.map((t) => ({
-            id: t.id,
-            title: t.title,
-            language: t.language,
-            code: t.code,
-            codeBuffers: t.codeBuffers || {
-              pyspark: t.language === 'pyspark' ? t.code : '',
-              scalaspark: t.language === 'scalaspark' ? t.code : '',
-              sql: t.language === 'sql' ? t.code : ''
-            },
-            columns: t.columns || [],
-            rows: (t.rows || []).slice(0, 200),
-            totalRows: t.totalRows || 0,
-            logs: t.logs || '',
-            executionTimeMs: t.executionTimeMs || 0,
-            errorMessage: t.errorMessage || null,
-            executionId: t.executionId || null,
-            activeResultTab: t.activeResultTab || 'table'
-          }))
+          tabs: tabs.map((t) => {
+            // Синхронизируем текущий активный результат вкладки в ее resultBuffers
+            const resBuf = t.resultBuffers || {
+              pyspark: createEmptyResultData(),
+              scalaspark: createEmptyResultData(),
+              sql: createEmptyResultData()
+            };
+            resBuf[t.language] = {
+              columns: t.columns || [],
+              rows: (t.rows || []).slice(0, 100),
+              totalRows: t.totalRows || 0,
+              logs: t.logs || '',
+              executionTimeMs: t.executionTimeMs || 0,
+              errorMessage: t.errorMessage || null,
+              executionId: t.executionId || null,
+              statusText: t.statusText || '',
+              activeResultTab: t.activeResultTab || 'table'
+            };
+
+            return {
+              id: t.id,
+              title: t.title,
+              language: t.language,
+              code: t.code,
+              codeBuffers: t.codeBuffers || {
+                pyspark: t.language === 'pyspark' ? t.code : '',
+                scalaspark: t.language === 'scalaspark' ? t.code : '',
+                sql: t.language === 'sql' ? t.code : ''
+              },
+              resultBuffers: {
+                pyspark: {
+                  columns: resBuf.pyspark?.columns || [],
+                  rows: (resBuf.pyspark?.rows || []).slice(0, 100),
+                  totalRows: resBuf.pyspark?.totalRows || 0,
+                  logs: resBuf.pyspark?.logs || '',
+                  executionTimeMs: resBuf.pyspark?.executionTimeMs || 0,
+                  errorMessage: resBuf.pyspark?.errorMessage || null,
+                  executionId: resBuf.pyspark?.executionId || null,
+                  statusText: resBuf.pyspark?.statusText || '',
+                  activeResultTab: resBuf.pyspark?.activeResultTab || 'table'
+                },
+                scalaspark: {
+                  columns: resBuf.scalaspark?.columns || [],
+                  rows: (resBuf.scalaspark?.rows || []).slice(0, 100),
+                  totalRows: resBuf.scalaspark?.totalRows || 0,
+                  logs: resBuf.scalaspark?.logs || '',
+                  executionTimeMs: resBuf.scalaspark?.executionTimeMs || 0,
+                  errorMessage: resBuf.scalaspark?.errorMessage || null,
+                  executionId: resBuf.scalaspark?.executionId || null,
+                  statusText: resBuf.scalaspark?.statusText || '',
+                  activeResultTab: resBuf.scalaspark?.activeResultTab || 'table'
+                },
+                sql: {
+                  columns: resBuf.sql?.columns || [],
+                  rows: (resBuf.sql?.rows || []).slice(0, 100),
+                  totalRows: resBuf.sql?.totalRows || 0,
+                  logs: resBuf.sql?.logs || '',
+                  executionTimeMs: resBuf.sql?.executionTimeMs || 0,
+                  errorMessage: resBuf.sql?.errorMessage || null,
+                  executionId: resBuf.sql?.executionId || null,
+                  statusText: resBuf.sql?.statusText || '',
+                  activeResultTab: resBuf.sql?.activeResultTab || 'table'
+                }
+              },
+              columns: t.columns || [],
+              rows: (t.rows || []).slice(0, 100),
+              totalRows: t.totalRows || 0,
+              logs: t.logs || '',
+              executionTimeMs: t.executionTimeMs || 0,
+              errorMessage: t.errorMessage || null,
+              executionId: t.executionId || null,
+              activeResultTab: t.activeResultTab || 'table'
+            };
+          })
         };
         // Локальное кэширование по пользователю
         localStorage.setItem(getStorageKey(user?.username), JSON.stringify(stateToSave));
@@ -241,6 +345,7 @@
         console.warn('Не удалось сохранить состояние Spark Explorer:', err);
       }
     };
+
 
     if (immediate) {
       saveFn();
@@ -422,21 +527,54 @@
       };
     }
 
-    // 2. Сохраняем текущий набранный код в буфер текущего языка
-    activeTab.codeBuffers[activeTab.language] = activeTab.code;
+    // 2. Инициализируем resultBuffers если еще не созданы
+    if (!activeTab.resultBuffers) {
+      activeTab.resultBuffers = {
+        pyspark: createEmptyResultData(),
+        scalaspark: createEmptyResultData(),
+        sql: createEmptyResultData()
+      };
+    }
 
-    // 3. Переключаем язык
+    // 3. Сохраняем текущий код и результаты в буферы текущего языка
+    activeTab.codeBuffers[activeTab.language] = activeTab.code;
+    activeTab.resultBuffers[activeTab.language] = {
+      columns: activeTab.columns || [],
+      rows: activeTab.rows || [],
+      totalRows: activeTab.totalRows || 0,
+      logs: activeTab.logs || '',
+      executionTimeMs: activeTab.executionTimeMs || 0,
+      errorMessage: activeTab.errorMessage || null,
+      executionId: activeTab.executionId || null,
+      statusText: activeTab.statusText || '',
+      activeResultTab: activeTab.activeResultTab || 'table'
+    };
+
+    // 4. Переключаем язык
     activeTab.language = lang;
 
-    // 4. Загружаем код для нового языка из его персонального буфера
+    // 5. Загружаем код для нового языка из его персонального буфера
     activeTab.code = activeTab.codeBuffers[lang] ?? '';
 
-    // 5. Переключаем сессию на соответствующий вид (PySpark / Scala)
+    // 6. Восстанавливаем результаты для нового выбранного языка
+    const targetRes = activeTab.resultBuffers[lang] || createEmptyResultData();
+    activeTab.columns = targetRes.columns || [];
+    activeTab.rows = targetRes.rows || [];
+    activeTab.totalRows = targetRes.totalRows || 0;
+    activeTab.logs = targetRes.logs || '';
+    activeTab.executionTimeMs = targetRes.executionTimeMs || 0;
+    activeTab.errorMessage = targetRes.errorMessage || null;
+    activeTab.executionId = targetRes.executionId || null;
+    activeTab.statusText = targetRes.statusText || '';
+    activeTab.activeResultTab = targetRes.activeResultTab || 'table';
+
+    // 7. Переключаем сессию на соответствующий вид (PySpark / Scala)
     pickSessionForLanguage(lang);
 
-    // 6. Персистим в localStorage
+    // 8. Персистим в localStorage и БД
     saveStateToStorage(true);
   }
+
 
   function handleCodeChange(newCode: string) {
     if (activeTab) {
@@ -647,6 +785,24 @@
             activeTab.activeResultTab = fullRes.rows.length > 0 ? 'table' : 'logs';
           } catch {}
         }
+        if (!activeTab.resultBuffers) {
+          activeTab.resultBuffers = {
+            pyspark: createEmptyResultData(),
+            scalaspark: createEmptyResultData(),
+            sql: createEmptyResultData()
+          };
+        }
+        activeTab.resultBuffers[activeTab.language] = {
+          columns: activeTab.columns || [],
+          rows: activeTab.rows || [],
+          totalRows: activeTab.totalRows || 0,
+          logs: activeTab.logs || '',
+          executionTimeMs: activeTab.executionTimeMs || 0,
+          errorMessage: activeTab.errorMessage || null,
+          executionId: activeTab.executionId || null,
+          statusText: activeTab.statusText || '',
+          activeResultTab: activeTab.activeResultTab || 'table'
+        };
         saveStateToStorage();
         await refreshSessions();
       };
@@ -680,8 +836,27 @@
       activeTab.isRunning = false;
       activeTab.errorMessage = err.message;
       activeTab.activeResultTab = 'logs';
+      if (!activeTab.resultBuffers) {
+        activeTab.resultBuffers = {
+          pyspark: createEmptyResultData(),
+          scalaspark: createEmptyResultData(),
+          sql: createEmptyResultData()
+        };
+      }
+      activeTab.resultBuffers[activeTab.language] = {
+        columns: activeTab.columns || [],
+        rows: activeTab.rows || [],
+        totalRows: activeTab.totalRows || 0,
+        logs: activeTab.logs || '',
+        executionTimeMs: activeTab.executionTimeMs || 0,
+        errorMessage: activeTab.errorMessage || null,
+        executionId: activeTab.executionId || null,
+        statusText: activeTab.statusText || '',
+        activeResultTab: 'logs'
+      };
       saveStateToStorage();
     }
+
   }
 
   async function handleCancel() {
@@ -726,8 +901,12 @@
 
   function handleRestoreHistory(item: HistoryItem) {
     if (!activeTab) return;
+    const lang = (item.language || 'pyspark') as 'pyspark' | 'scalaspark' | 'sql';
     activeTab.code = item.code;
-    activeTab.language = item.language as any;
+    activeTab.language = lang;
+    if (activeTab.codeBuffers) {
+      activeTab.codeBuffers[lang] = item.code;
+    }
     pickSessionForLanguage(activeTab.language);
     saveStateToStorage(true);
     if (item.has_cached_result) {
@@ -737,11 +916,30 @@
           activeTab.rows = res.rows;
           activeTab.totalRows = res.total_rows;
           activeTab.logs = res.logs || '';
+          if (!activeTab.resultBuffers) {
+            activeTab.resultBuffers = {
+              pyspark: createEmptyResultData(),
+              scalaspark: createEmptyResultData(),
+              sql: createEmptyResultData()
+            };
+          }
+          activeTab.resultBuffers[activeTab.language] = {
+            columns: res.columns,
+            rows: res.rows,
+            totalRows: res.total_rows,
+            logs: res.logs || '',
+            executionTimeMs: item.execution_time_ms || 0,
+            errorMessage: item.error_message || null,
+            executionId: item.id,
+            statusText: 'Загружено из кэша',
+            activeResultTab: 'table'
+          };
           saveStateToStorage(true);
         }
       });
     }
   }
+
 
   function handleMouseDown() {
     isResizing = true;

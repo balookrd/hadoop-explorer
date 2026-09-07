@@ -15,7 +15,7 @@ try:
     with urllib.request.urlopen(req_sess) as response:
         sessions = json.loads(response.read().decode())
 
-    active = [s for s in sessions if s.get("status") in ("idle", "busy", "starting")]
+    active = [s for s in sessions if s.get("status") in ("idle", "busy", "starting") and s.get("kind") == "pyspark"]
     if not active:
         # Создаем начальную сессию
         p = json.dumps({
@@ -30,7 +30,15 @@ try:
         with urllib.request.urlopen(req_c) as response:
             s_data = json.loads(response.read().decode())
             sess_id = s_data["id"]
-        time.sleep(3)
+        
+        # Ждем, пока сессия станет idle
+        for _ in range(30):
+            time.sleep(2)
+            req_check = urllib.request.Request(f"http://localhost:8004/api/sessions/{sess_id}", headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req_check) as chk_res:
+                st = json.loads(chk_res.read().decode()).get("status")
+                if st == "idle":
+                    break
     else:
         sess_id = active[0]["id"]
 

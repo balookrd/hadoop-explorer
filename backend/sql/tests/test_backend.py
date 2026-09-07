@@ -739,6 +739,88 @@ def test_storage_l1_fail_open_protection():
     assert common_storage.is_token_revoked("unknown-jti") is False
 
 
+@pytest.mark.asyncio
+async def test_sql_user_workspace_isolation():
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Логин analyst_user и admin_user
+        login_analyst = await client.post("/api/v1/auth/login", json={"username": "analyst_user", "password": "password123"})
+        assert login_analyst.status_code == 200
+        token_analyst = login_analyst.json()["access_token"]
+        headers_analyst = {"Authorization": f"Bearer {token_analyst}"}
+
+        login_admin = await client.post("/api/v1/auth/login", json={"username": "admin_user", "password": "password123"})
+        assert login_admin.status_code == 200
+        token_admin = login_admin.json()["access_token"]
+        headers_admin = {"Authorization": f"Bearer {token_admin}"}
+
+        # Очистка для чистоты теста
+        await client.delete("/api/v1/workspace", headers=headers_analyst)
+        await client.delete("/api/v1/workspace", headers=headers_admin)
+
+        # 2. Изначально у обоих пусто
+        ws_analyst = await client.get("/api/v1/workspace", headers=headers_analyst)
+        assert ws_analyst.status_code == 200
+        assert ws_analyst.json() is None
+
+        # 3. analyst_user сохраняет рабочее пространство
+        analyst_state = {
+            "selectedClusterId": "trino-analytics",
+            "activeTabId": "tab-analyst-1",
+            "tabs": [
+                {
+                    "id": "tab-analyst-1",
+                    "title": "Отчет по продажам",
+                    "query": "SELECT * FROM tpch.sf1.orders LIMIT 10;",
+                    "columns": [{"name": "orderkey", "type": "bigint"}],
+                    "rows": [[1]],
+                    "totalRows": 1
+                }
+            ]
+        }
+        put_resp = await client.put("/api/v1/workspace", json={"state": analyst_state}, headers=headers_analyst)
+        assert put_resp.status_code == 200
+        assert put_resp.json()["username"] == "analyst_user"
+        assert put_resp.json()["state"]["activeTabId"] == "tab-analyst-1"
+
+        # 4. Проверка изоляции: admin_user не видит данные analyst_user
+        ws_admin = await client.get("/api/v1/workspace", headers=headers_admin)
+        assert ws_admin.status_code == 200
+        assert ws_admin.json() is None
+
+        # 5. admin_user сохраняет свое рабочее пространство
+        admin_state = {
+            "selectedClusterId": "hive-apache",
+            "activeTabId": "tab-admin-1",
+            "tabs": [
+                {
+                    "id": "tab-admin-1",
+                    "title": "Админский DDL",
+                    "query": "SHOW DATABASES;",
+                    "columns": [],
+                    "rows": [],
+                    "totalRows": 0
+                }
+            ]
+        }
+        await client.put("/api/v1/workspace", json={"state": admin_state}, headers=headers_admin)
+
+        # 6. Проверяем, что у analyst_user его состояние осталось изолированным и неизменным
+        get_analyst = await client.get("/api/v1/workspace", headers=headers_analyst)
+        assert get_analyst.status_code == 200
+        assert get_analyst.json()["username"] == "analyst_user"
+        assert get_analyst.json()["state"]["tabs"][0]["query"] == "SELECT * FROM tpch.sf1.orders LIMIT 10;"
+
+        # 7. Очистка рабочего пространства
+        del_resp = await client.delete("/api/v1/workspace", headers=headers_analyst)
+        assert del_resp.status_code == 204
+
+        get_analyst_after = await client.get("/api/v1/workspace", headers=headers_analyst)
+        assert get_analyst_after.status_code == 200
+        assert get_analyst_after.json() is None
+
+
 
 
 

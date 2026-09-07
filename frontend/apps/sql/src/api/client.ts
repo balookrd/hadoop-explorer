@@ -341,6 +341,23 @@ class ApiClient {
       })
     });
   }
+
+  async getWorkspace(): Promise<{ username: string; state: any; updated_at?: string } | null> {
+    return this.request<{ username: string; state: any; updated_at?: string } | null>('/workspace');
+  }
+
+  async saveWorkspace(state: any): Promise<void> {
+    await this.request('/workspace', {
+      method: 'PUT',
+      body: JSON.stringify({ state })
+    });
+  }
+
+  async clearWorkspace(): Promise<void> {
+    await this.request('/workspace', {
+      method: 'DELETE'
+    });
+  }
 }
 
 export const api = new ApiClient();

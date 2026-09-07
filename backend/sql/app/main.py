@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.core.config import settings
 from app.db.session import init_db
-from app.api import auth, clusters, catalog, queries, ai
+from app.api import auth, clusters, catalog, queries, ai, workspace
 
 logger = logging.getLogger("main")
 
@@ -86,6 +86,7 @@ app.include_router(clusters.router, prefix="/api/v1")
 app.include_router(catalog.router, prefix="/api/v1")
 app.include_router(queries.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
+app.include_router(workspace.router, prefix="/api/v1")
 
 
 @app.get("/healthz")

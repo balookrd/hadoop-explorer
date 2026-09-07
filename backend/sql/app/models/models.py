@@ -50,3 +50,11 @@ class RevokedToken(Base):
     username = Column(String(128), index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, default=utcnow, nullable=False)
+
+class SqlUserWorkspace(Base):
+    __tablename__ = "sql_user_workspaces"
+
+    username = Column(String(128), primary_key=True, index=True)
+    state = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+

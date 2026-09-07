@@ -121,6 +121,18 @@ export interface HistoryItem {
   finished_at: string | null;
 }
 
+export interface TabResultData {
+  columns: ColumnMeta[];
+  rows: any[][];
+  totalRows: number;
+  logs: string;
+  executionTimeMs: number;
+  errorMessage: string | null;
+  executionId: string | null;
+  statusText: string;
+  activeResultTab: 'table' | 'logs';
+}
+
 export interface Tab {
   id: string;
   title: string;
@@ -130,6 +142,11 @@ export interface Tab {
     pyspark: string;
     scalaspark: string;
     sql: string;
+  };
+  resultBuffers?: {
+    pyspark: TabResultData;
+    scalaspark: TabResultData;
+    sql: TabResultData;
   };
   columns: ColumnMeta[];
   rows: any[][];
@@ -142,3 +159,4 @@ export interface Tab {
   executionId: string | null;
   activeResultTab: 'table' | 'logs';
 }
+
