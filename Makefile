@@ -1,7 +1,7 @@
-.PHONY: help venv sync install-dev lint format test test-hdfs test-sql test-yarn \
-        build build-hdfs build-sql build-yarn \
-        frontend-build frontend-install demo-hdfs demo-sql demo-yarn demo-all \
-        demo-hdfs-stop demo-sql-stop demo-yarn-stop demo-all-stop helm-lint helm-package
+.PHONY: help venv sync install-dev lint format test test-hdfs test-spark test-sql test-yarn \
+        build build-hdfs build-spark build-sql build-yarn \
+        frontend-build frontend-install demo-hdfs demo-spark demo-sql demo-yarn demo-all \
+        demo-hdfs-stop demo-spark-stop demo-sql-stop demo-yarn-stop demo-all-stop helm-lint helm-package
 
 TAG ?= latest
 REGISTRY ?= hadoop-explorer
@@ -17,14 +17,16 @@ help:
 	@echo "    make format           - Автоформатирование кода с помощью Ruff"
 	@echo ""
 	@echo "  Тестирование:"
-	@echo "    make test             - Запуск всех 112 модульных тестов платформы"
-	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer (39 тестов)"
-	@echo "    make test-sql         - Тесты сервиса SQL Explorer (31 тест)"
+	@echo "    make test             - Запуск всех 121 модульных тестов платформы"
+	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer (40 тестов)"
+	@echo "    make test-spark       - Тесты сервиса Spark Explorer (7 тестов)"
+	@echo "    make test-sql         - Тесты сервиса SQL Explorer (32 теста)"
 	@echo "    make test-yarn        - Тесты сервиса YARN Explorer (42 теста)"
 	@echo ""
 	@echo "  Сборка Docker-контейнеров:"
-	@echo "    make build            - Сборка всех Docker-образов (hdfs, sql, yarn)"
+	@echo "    make build            - Сборка всех Docker-образов (hdfs, spark, sql, yarn)"
 	@echo "    make build-hdfs       - Сборка образа HDFS Explorer"
+	@echo "    make build-spark      - Сборка образа Spark Explorer"
 	@echo "    make build-sql        - Сборка образа SQL Explorer"
 	@echo "    make build-yarn       - Сборка образа YARN Explorer"
 	@echo ""
@@ -35,6 +37,8 @@ help:
 	@echo "  Раздельные демо стенды (Docker Compose):"
 	@echo "    make demo-hdfs        - Запуск стенда HDFS (WebHDFS, Kerberos, OpenLDAP)"
 	@echo "    make demo-hdfs-stop   - Остановка стенда HDFS"
+	@echo "    make demo-spark       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore)"
+	@echo "    make demo-spark-stop  - Остановка стенда Spark"
 	@echo "    make demo-sql         - Запуск стенда SQL (Trino, Hive, Postgres, LDAP)"
 	@echo "    make demo-sql-stop    - Остановка стенда SQL"
 	@echo "    make demo-yarn        - Запуск стенда YARN (2 RM кластера, Kerberos, LDAP)"
@@ -69,7 +73,7 @@ test-hdfs:
 	./scripts/run-tests.sh hdfs
 
 test-spark:
-	uv run pytest backend/spark/tests/test_spark.py -v
+	./scripts/run-tests.sh spark
 
 test-sql:
 	./scripts/run-tests.sh sql
@@ -84,7 +88,7 @@ build-hdfs:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh hdfs
 
 build-spark:
-	docker build -t $(REGISTRY)/spark-explorer:$(TAG) -f docker/Dockerfile.spark .
+	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh spark
 
 build-sql:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh sql

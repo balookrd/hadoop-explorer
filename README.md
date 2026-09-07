@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-112%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-121%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -20,6 +20,7 @@
 
 - [Обзор платформы](#-обзор-платформы)
 - [Архитектура монорепозитория](#-архитектура-монорепозитория)
+- [Детальная системная архитектура (docs/ARCHITECTURE.md)](docs/ARCHITECTURE.md)
 - [Выделенные общие модули](#-выделенные-общие-модули)
 - [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
@@ -36,11 +37,12 @@
 
 ## 🎯 Обзор платформы
 
-**Hadoop Explorer Platform** объединяет в единый монорепозиторий три ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
+**Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
 1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS). Поддерживает превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
-2. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, историей запросов, асинхронным выполнением и встроенным AI-помощником.
-3. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests).
+2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам и сохранение пользовательского контекста в БД.
+3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
+4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests).
 
 Каждое приложение может собираться в **независимый легковесный Docker-контейнер**, развертываться автономно или в составе единого **Umbrella Helm Chart**, а также запускаться в собственном **раздельном демо-стенде**.
 
@@ -56,7 +58,8 @@ hadoop-explorer/
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   ├── hdfs/               # Сервис HDFS Explorer (40 тестов)
-│   ├── sql/                # Сервис SQL Explorer (31 тест)
+│   ├── spark/              # Сервис Spark Explorer (7 тестов)
+│   ├── sql/                # Сервис SQL Explorer (32 теста)
 │   └── yarn/               # Сервис YARN Explorer (42 теста)
 │
 ├── frontend/
@@ -66,12 +69,14 @@ hadoop-explorer/
 │   │   └── types/          # Общие TypeScript интерфейсы сессий и ролей
 │   ├── apps/
 │   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4)
+│   │   ├── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco)
 │   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco)
 │   │   └── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4)
 │   └── package.json        # NPM Workspaces монорепозитория
 │
 ├── docker/
 │   ├── Dockerfile.hdfs     # Multi-stage сборка образа hadoop-explorer/hdfs
+│   ├── Dockerfile.spark    # Multi-stage сборка образа hadoop-explorer/spark
 │   ├── Dockerfile.sql      # Multi-stage сборка образа hadoop-explorer/sql
 │   ├── Dockerfile.yarn     # Multi-stage сборка образа hadoop-explorer/yarn
 │   └── .dockerignore
@@ -80,18 +85,20 @@ hadoop-explorer/
 │   ├── hadoop-explorer/    # Umbrella Chart для комплексного деплоя платформы
 │   └── charts/
 │       ├── hdfs-explorer/  # Автономный чарт HDFS
+│       ├── spark-explorer/ # Автономный чарт Spark
 │       ├── sql-explorer/   # Автономный чарт SQL
 │       └── yarn-explorer/  # Автономный чарт YARN
 │
 ├── demo/                   # ─── Изолированные демонстрационные стенды ───
 │   ├── infra/              # Единый инфраструктурный стек (MIT KDC + OpenLDAP)
 │   ├── hdfs/               # Стенд HDFS (2 кластера WebHDFS) -> :8001
+│   ├── spark/              # Стенд Spark (Livy + Hive Metastore + YARN + HDFS) -> :8004
 │   ├── sql/                # Стенд SQL (Postgres, Hive, Trino) -> :8002
 │   ├── yarn/               # Стенд YARN (2 кластера YARN RM) -> :8003
-│   └── all/                # Единый запуск всех стендов с общим KDC/LDAP
+│   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 113 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 121 тестов
 │   └── build-containers.sh # Скрипт сборки контейнеров
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -142,6 +149,7 @@ hadoop-explorer/
 - **Корневой `pyproject.toml`** определяет единый воркспейс со всеми сервисами:
   - `backend/common` (`hadoop-explorer-common`)
   - `backend/hdfs` (`hadoop-explorer-hdfs`)
+  - `backend/spark` (`hadoop-explorer-spark`)
   - `backend/sql` (`hadoop-explorer-sql`)
   - `backend/yarn` (`hadoop-explorer-yarn`)
 - **Единое виртуальное окружение** `.venv` для мгновенной синхронизации всех зависимостей.
@@ -166,6 +174,7 @@ make format     # или uv run ruff format backend
 | Приложение | Веб-интерфейс | Проверка Health | Контейнер | Helm Chart |
 |---|---|---|---|---|
 | **HDFS Explorer** | `http://localhost:8001` | `GET /healthz` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
+| **Spark Explorer** | `http://localhost:8004` | `GET /healthz` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
 | **SQL Explorer** | `http://localhost:8002` | `GET /healthz` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
 | **YARN Explorer** | `http://localhost:8003` | `GET /healthz` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
 
@@ -185,7 +194,15 @@ make demo-hdfs
 # Остановка: make demo-hdfs-stop
 ```
 
-### 2. Демо-стенд SQL Explorer
+### 2. Демо-стенд Spark Explorer
+Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN Resource Manager и сервис Spark Explorer:
+```bash
+make demo-spark
+# Веб-интерфейс: http://localhost:8004
+# Остановка: make demo-spark-stop
+```
+
+### 3. Демо-стенд SQL Explorer
 Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и SQL Explorer:
 ```bash
 make demo-sql
@@ -193,7 +210,7 @@ make demo-sql
 # Остановка: make demo-sql-stop
 ```
 
-### 3. Демо-стенд YARN Explorer
+### 4. Демо-стенд YARN Explorer
 Включает: KDC, OpenLDAP, 2 кластера YARN ResourceManager с иерархией очередей Capacity Scheduler и YARN Explorer:
 ```bash
 make demo-yarn
@@ -201,7 +218,7 @@ make demo-yarn
 # Остановка: make demo-yarn-stop
 ```
 
-### 4. Объединенный запуск всех стендов
+### 5. Объединенный запуск всех стендов
 ```bash
 make demo-all
 # Остановка: make demo-all-stop
@@ -227,14 +244,16 @@ make demo-all
 make build
 
 # Либо по отдельности:
-make build-hdfs    # hadoop-explorer/hdfs:latest
-make build-sql     # hadoop-explorer/sql:latest
-make build-yarn    # hadoop-explorer/yarn:latest
+make build-hdfs     # hadoop-explorer/hdfs:latest
+make build-spark    # hadoop-explorer/spark:latest
+make build-sql      # hadoop-explorer/sql:latest
+make build-yarn     # hadoop-explorer/yarn:latest
 ```
 
 Прямой запуск через Docker CLI:
 ```bash
 docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
+docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
 docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql .
 docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn .
 ```
@@ -256,6 +275,9 @@ helm install hadoop-explorer helm/hadoop-explorer -n hadoop --create-namespace
 hdfs-explorer:
   enabled: true
 
+spark-explorer:
+  enabled: true
+
 sql-explorer:
   enabled: true
 
@@ -267,6 +289,7 @@ yarn-explorer:
 ```bash
 helm install hadoop-explorer helm/hadoop-explorer \
   --set hdfs-explorer.enabled=true \
+  --set spark-explorer.enabled=true \
   --set sql-explorer.enabled=true \
   --set yarn-explorer.enabled=false
 ```
@@ -276,6 +299,7 @@ helm install hadoop-explorer helm/hadoop-explorer \
 Каждое приложение можно установить в кластер независимо:
 ```bash
 helm install hdfs-explorer helm/charts/hdfs-explorer -n hadoop
+helm install spark-explorer helm/charts/spark-explorer -n hadoop
 helm install sql-explorer helm/charts/sql-explorer -n hadoop
 helm install yarn-explorer helm/charts/yarn-explorer -n hadoop
 ```
@@ -289,17 +313,19 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (112 тестов) успешно проходят комплексную проверку:
-- **HDFS Explorer**: 39 тестов (ACL, API, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
-- **SQL Explorer**: 31 тест (Trino/Hive движки, AI сервис, токены, CSRF, ACL кластеров, TTL-очистка кэша результатов).
+Все тесты (121 тест) успешно проходят комплексную проверку:
+- **HDFS Explorer**: 40 тестов (ACL, API, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy).
+- **Spark Explorer**: 7 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace).
+- **SQL Explorer**: 32 теста (Trino/Hive движки, AI сервис, токены, CSRF, ACL кластеров, TTL-очистка кэша результатов, SqlUserWorkspace).
 - **YARN Explorer**: 42 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов).
 
 ```bash
-# Запуск всех 112 тестов платформы
+# Запуск всех 121 тестов платформы
 make test
 
 # Либо по сервисам:
 make test-hdfs
+make test-spark
 make test-sql
 make test-yarn
 ```
@@ -314,18 +340,22 @@ make test-yarn
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 112 модульных и интеграционных тестов |
-| `make test-hdfs` | Запуск 39 тестов сервиса HDFS Explorer |
-| `make test-sql` | Запуск 31 теста сервиса SQL Explorer |
+| `make test` | Запуск всех 121 модульных и интеграционных тестов |
+| `make test-hdfs` | Запуск 40 тестов сервиса HDFS Explorer |
+| `make test-spark` | Запуск 7 тестов сервиса Spark Explorer |
+| `make test-sql` | Запуск 32 тестов сервиса SQL Explorer |
 | `make test-yarn` | Запуск 42 тестов сервиса YARN Explorer |
-| `make build` | Сборка Docker-образов всех приложений |
+| `make build` | Сборка Docker-образов всех 4 приложений (hdfs, spark, sql, yarn) |
 | `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
+| `make build-spark` | Сборка Docker-образа Spark Explorer |
 | `make build-sql` | Сборка Docker-образа SQL Explorer |
 | `make build-yarn` | Сборка Docker-образа YARN Explorer |
 | `make frontend-install` | Установка NPM зависимостей фронтенда |
 | `make frontend-build` | Компиляция SPA фронтендов через Vite |
 | `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8001`) |
 | `make demo-hdfs-stop` | Остановка демо-стенда HDFS Explorer |
+| `make demo-spark` | Запуск демо-стенда Spark Explorer (`:8004`) |
+| `make demo-spark-stop` | Остановка демо-стенда Spark Explorer |
 | `make demo-sql` | Запуск демо-стенда SQL Explorer (`:8002`) |
 | `make demo-sql-stop` | Остановка демо-стенда SQL Explorer |
 | `make demo-yarn` | Запуск демо-стенда YARN Explorer (`:8003`) |

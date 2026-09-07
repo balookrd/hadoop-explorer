@@ -3,9 +3,10 @@
 В данном каталоге представлены конфигурации локальных стендов в Docker Compose для демонстрации и интеграционного тестирования всех компонентов платформы:
 - **`demo/infra`** — Единый инфраструктурный стек безопасности (MIT Kerberos KDC и OpenLDAP) с преднастроенными пользователями, группами и генерацией keytab-файлов.
 - **`demo/hdfs`** — Стенд HDFS Explorer (:8001) с двумя кластерами DataLake (WebHDFS + Kerberos).
+- **`demo/spark`** — Стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
 - **`demo/sql`** — Стенд SQL Web Explorer (:8002) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - **`demo/yarn`** — Стенд YARN Explorer (:8003) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
-- **`demo/all`** — Объединенный запуск всех компонентов с общим KDC и LDAP без дублирования сервисов.
+- **`demo/all`** — Объединенный запуск всех 4 компонентов с общим KDC и LDAP без дублирования сервисов.
 
 ---
 
@@ -14,11 +15,12 @@
 ### 1. Единый запуск всех сервисов платформы
 ```bash
 make demo-all
-# Либо docker compose -f demo/all/docker-compose.all.yml up -d
+# Либо cd demo/all && ./start-all-demo.sh
 ```
 
 Сервисы доступны по адресам:
 - 📁 **HDFS Explorer**: [http://localhost:8001](http://localhost:8001)
+- ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
 - 📊 **SQL Web Explorer**: [http://localhost:8002](http://localhost:8002)
 - 🎛️ **YARN Explorer**: [http://localhost:8003](http://localhost:8003)
 
@@ -29,6 +31,7 @@ make demo-all-stop
 
 ### 2. Запуск раздельных стендов
 - HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
+- Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
 - SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
 - YARN Explorer: `make demo-yarn` (остановка: `make demo-yarn-stop`)
 

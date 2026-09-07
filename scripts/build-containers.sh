@@ -22,6 +22,9 @@ case "$TARGET" in
   hdfs)
     build_app hdfs
     ;;
+  spark)
+    build_app spark
+    ;;
   sql)
     build_app sql
     ;;
@@ -30,6 +33,7 @@ case "$TARGET" in
     ;;
   all)
     build_app hdfs
+    build_app spark
     build_app sql
     build_app yarn
     echo "=========================================="
@@ -37,7 +41,7 @@ case "$TARGET" in
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|hdfs|sql|yarn]"
+    echo "Использование: $0 [all|hdfs|spark|sql|yarn]"
     exit 1
     ;;
 esac

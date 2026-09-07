@@ -19,13 +19,19 @@
 3. [Настройка HDFS Explorer](#3-настройка-hdfs-explorer)
 4. [Настройка SQL Explorer (Trino & Hive)](#4-настройка-sql-explorer-trino--hive)
    - [Аналитические кластеры](#41-аналитические-кластеры)
-   - [Параметры выполнения запросов](#42-параметры-выполнения-запросов)
+   - [Параметры выполнения запросов и сохранение воркспейса](#42-параметры-выполнения-запросов-и-сохранение-воркспейса)
    - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#43-ии-ассистент-on-premise-llm--ollama--vllm)
-5. [Настройка YARN Explorer](#5-настройка-yarn-explorer)
-   - [YARN кластеры и партиции](#51-yarn-кластеры-и-партиции)
-   - [Ролевая модель и Change Requests](#52-ролевая-модель-и-change-requests)
-6. [Переменные окружения](#6-переменные-окружения)
-7. [Конфигурация в Kubernetes (Helm)](#7-конфигурация-в-kubernetes-helm)
+5. [Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)](#5-настройка-spark-explorer-livy-pyspark-scala-metastore)
+   - [Кластеры и интеграция с Apache Livy](#51-кластеры-и-интеграция-с-apache-livy)
+   - [Версии Spark и среды Python (HDFS Archives)](#52-версии-spark-и-среды-python-hdfs-archives)
+   - [Интеграция с YARN и разграничение очередей](#53-интеграция-с-yarn-и-разграничение-очередей)
+   - [Hive Metastore, Iceberg и профили ресурсов](#54-hive-metastore-iceberg-и-профили-ресурсов)
+   - [Персистентность рабочих пространств пользователя](#55-персистентность-рабочих-пространств-пользователя)
+6. [Настройка YARN Explorer](#6-настройка-yarn-explorer)
+   - [YARN кластеры и партиции](#61-yarn-кластеры-и-партиции)
+   - [Ролевая модель и Change Requests](#62-ролевая-модель-и-change-requests)
+7. [Переменные окружения](#7-переменные-окружения)
+8. [Конфигурация в Kubernetes (Helm)](#8-конфигурация-в-kubernetes-helm)
 
 ---
 
@@ -220,7 +226,7 @@ clusters:
       allowed_groups: ["data-engineers", "data-platform-admins"]
 ```
 
-### 4.2 Параметры выполнения запросов
+### 4.2 Параметры выполнения запросов и сохранение воркспейса
 
 ```yaml
 query_defaults:
@@ -230,6 +236,11 @@ query_defaults:
   query_timeout_seconds: 600    # Таймаут исполнения запроса (10 минут)
   results_ttl_seconds: 604800   # Время жизни кэшированных результатов в секундах (7 дней)
 ```
+
+#### Персистентность рабочих пространств (User Workspace)
+SQL Explorer сохраняет открытые вкладки редактора, введённый SQL-код, привязанные кластеры и каталоги, а также последние результаты выполнения в БД (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`).
+- Для каждого аутентифицированного пользователя создается изолированное рабочее пространство.
+- При смене пользователя загружается его персональный контекст, исключая отображение чужой истории.
 
 ### 4.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
@@ -249,11 +260,126 @@ ai:
 
 ---
 
-## 5. Настройка YARN Explorer
+## 5. Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)
+
+Файл конфигурации: `backend/spark/config/config.yaml`.
+
+### 5.1 Кластеры и интеграция с Apache Livy
+
+Spark Explorer связывается с серверами **Apache Livy** для выполнения интерактивных сессий и пакетных расчетов:
+
+```yaml
+clusters:
+  - id: "prod-hadoop"
+    name: "Production Hadoop (Spark & HMS)"
+    description: "Кластер CDP с поддержкой Spark 3.5, 3.2 и 2.4"
+    type: "spark"
+    livy_url: "http://livy-prod.company.local:8998"
+    use_ssl: false
+    auth:
+      type: "kerberos"          # kerberos | ldap | plain
+      service_name: "livy"
+    impersonation:
+      enabled: true
+      method: "proxyUser"       # Проброс пользователя в Livy
+    acl:
+      allowed_groups: ["*"]
+      allowed_users: []
+```
+
+### 5.2 Версии Spark и среды Python (HDFS Archives)
+
+Поддерживается выбор версии Spark и изолированных Conda/Venv окружений, упакованных в HDFS:
+
+```yaml
+    spark_versions:
+      - id: "spark-3.5"
+        name: "Apache Spark 3.5.1 (Scala 2.12)"
+        is_default: true
+        spark_archive: "hdfs:///apps/spark/spark-3.5.1-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py310-default"
+            name: "Python 3.10 (Standard Runtime)"
+            python_path: "/opt/conda/envs/py310/bin/python"
+            is_default: true
+          - id: "py310-ml"
+            name: "Python 3.10 (ML / PyTorch / Pandas / Sklearn)"
+            archive_path: "hdfs:///apps/python/envs/py310_ml.tar.gz#environment"
+            python_path: "./environment/bin/python"
+            is_default: false
+      - id: "spark-2.4"
+        name: "Apache Spark 2.4.8 (Legacy Scala 2.11)"
+        is_default: false
+        livy_url: "http://livy-spark2.prod.company.local:8998"
+        spark_archive: "hdfs:///apps/spark/spark-2.4.8-bin-hadoop2.7.tgz"
+        python_versions:
+          - id: "py37-legacy"
+            name: "Python 3.7 (Legacy)"
+            python_path: "/opt/conda/envs/py37/bin/python"
+            is_default: true
+```
+
+### 5.3 Интеграция с YARN и разграничение очередей
+
+```yaml
+    yarn:
+      cluster_id: "prod-yarn"
+      resource_manager_urls:
+        - "http://rm1.prod.company.local:8088"
+        - "http://rm2.prod.company.local:8088"
+      default_queue: "root.analytics"
+      allowed_queues: ["root.analytics", "root.adhoc", "root.etl"]
+      queue_acl:
+        root.etl:
+          allowed_groups: ["data-engineers", "hadoop-admins"]
+        root.adhoc:
+          allowed_groups: ["*"]
+```
+
+### 5.4 Hive Metastore, Iceberg и профили ресурсов
+
+```yaml
+    # Подключение каталогов данных (HMS / Iceberg)
+    metastores:
+      - id: "lakehouse-core"
+        name: "Lakehouse Core Metastore (HMS)"
+        is_default: true
+        uris: "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
+          "spark.sql.catalogImplementation": "hive"
+
+    # Предустановленные профили ресурсов для сессий
+    resource_profiles:
+      small:
+        name: "Small (Driver 2G/1c, 2 Exec 4G/2c)"
+        driver_memory: "2g"
+        driver_cores: 1
+        executor_memory: "4g"
+        executor_cores: 2
+        num_executors: 2
+      medium:
+        name: "Medium (Driver 4G/2c, 4 Exec 8G/2c)"
+        driver_memory: "4g"
+        driver_cores: 2
+        executor_memory: "8g"
+        executor_cores: 2
+        num_executors: 4
+```
+
+### 5.5 Персистентность рабочих пространств пользователя
+
+Spark Explorer сохраняет состояние сессий, активные вкладки, отдельные буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов в базу данных (`SparkUserWorkspace`, `/api/v1/workspace`):
+- При смене языка (PySpark ↔ Scala ↔ SQL) результаты вычислений изолируются и не затираются.
+- При входе нового пользователя загружается его индивидуальное рабочее пространство.
+
+---
+
+## 6. Настройка YARN Explorer
 
 Файл конфигурации: `backend/yarn/config/config.yaml`.
 
-### 5.1 YARN кластеры и партиции
+### 6.1 YARN кластеры и партиции
 
 ```yaml
 clusters:
@@ -277,7 +403,7 @@ clusters:
       vcores: 1024
 ```
 
-### 5.2 Ролевая модель и Change Requests
+### 6.2 Ролевая модель и Change Requests
 
 YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) при согласовании заявок:
 
@@ -301,26 +427,28 @@ acl:
 
 ---
 
-## 6. Переменные окружения
+## 7. Переменные окружения
 
 Все ключевые параметры могут быть заданы через переменные среды операционной системы или контейнера:
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
-| `CONFIG_PATH` / `HDFS_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
+| `CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
 | `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
 | `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв.) | — |
 | `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |
 | `LDAP_BIND_PASSWORD` / `HDFS_LDAP_PASSWORD` | Пароль сервисной учетной записи LDAP | — |
 | `DATABASE_URL` / `HDFS_DATABASE_URL` | Строка подключения к базе данных | `sqlite+aiosqlite:///...` |
 | `STORAGE_URL` / `REDIS_URL` | URL подключения к Redis | — |
+| `LIVY_URL` | Адрес сервера Apache Livy для Spark Explorer | `http://localhost:8998` |
+| `HIVE_METASTORE_URI` | Thrift URI каталога Hive Metastore | `thrift://localhost:9083` |
 | `CORS_ORIGINS` | Доверенные адреса через запятую | `http://localhost:8000` |
 | `KRB5_CONFIG` | Путь к файлу конфигурации Kerberos | `/etc/krb5.conf` |
 | `KRB5_KTNAME` | Путь к Keytab-файлу сервиса | `/etc/security/keytabs/...` |
 
 ---
 
-## 7. Конфигурация в Kubernetes (Helm)
+## 8. Конфигурация в Kubernetes (Helm)
 
 При развертывании через Umbrella Chart `helm/hadoop-explorer` конфигурация каждого компонента передается в секции `values.yaml`:
 
@@ -343,6 +471,14 @@ hdfs-explorer:
   secrets:
     jwtSecretKey: "super-secure-production-jwt-token-key-32-chars"
     ldapBindPassword: "LdapPasswordHere"
+
+spark-explorer:
+  enabled: true
+  replicaCount: 2
+  config:
+    clusters:
+      - id: "prod-hadoop"
+        livy_url: "http://livy.hadoop.svc:8998"
 
 sql-explorer:
   enabled: true
