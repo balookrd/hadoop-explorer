@@ -8,11 +8,8 @@ mkdir -p "$DATA_DIR"
 mkdir -p "$CONFIG_DIR"
 chown -R ldap:ldap "$DATA_DIR" "$CONFIG_DIR"
 
-if [ ! -f "$DATA_DIR/data.mdb" ]; then
-    echo "Инициализация OpenLDAP..."
-
-    # Создание slapd.conf
-    cat <<EOF > /etc/openldap/slapd.conf
+# Создание slapd.conf
+cat <<EOF > /etc/openldap/slapd.conf
 modulepath  /usr/lib/openldap
 moduleload  back_mdb.so
 
@@ -36,6 +33,8 @@ index uid,cn eq,sub
 index member eq
 EOF
 
+if [ ! -f "$DATA_DIR/data.mdb" ]; then
+    echo "Инициализация OpenLDAP..."
     # Импорт начального LDIF
     echo "Импорт начальных данных LDIF..."
     slapadd -f /etc/openldap/slapd.conf -b "dc=company,dc=local" -l /init-ldap.ldif
