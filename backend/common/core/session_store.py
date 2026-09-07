@@ -224,8 +224,12 @@ class SessionStore:
                 exp_ts = now + 86400.0
         elif expires_at is not None:
             exp_ts = float(expires_at)
+            # Если передано относительное время (например 28800 сек < 10^9), переводим в абсолютный timestamp
+            if exp_ts < 1000000000:
+                exp_ts = now + exp_ts
         else:
             exp_ts = now + 86400.0
+
 
         user_dict = user.model_dump() if hasattr(user, "model_dump") else (user if isinstance(user, dict) else {})
         username = user_dict.get("username", getattr(user, "username", "unknown"))
@@ -394,8 +398,11 @@ class SessionStore:
                 exp_ts = now + 86400.0
         elif expires_at is not None:
             exp_ts = float(expires_at)
+            if exp_ts < 1000000000:
+                exp_ts = now + exp_ts
         else:
             exp_ts = now + 86400.0
+
 
         self._l1_cache.add(h, exp_ts)
         self._l1_cache.add(token_or_jti, exp_ts)

@@ -142,3 +142,10 @@ def test_session_store_persistence_on_backend_restart(tmp_path):
     assert store2.is_token_revoked(token) is True
     assert store2.get_session(token) is None
 
+    # 4. Проверка передачи относительного времени жизни в секундах (например, 28800)
+    token_delta = "jwt-secret-token-delta-seconds"
+    store2.save_session(token=token_delta, user=user_payload, expires_at=28800)
+    session_delta = store2.get_session(token_delta)
+    assert session_delta is not None
+    assert session_delta["username"] == "ivan_dev"
+

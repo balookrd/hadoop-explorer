@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.config import settings
-from app.core.security import create_access_token, get_current_user, security_scheme
+from app.core.security import create_access_token, decode_access_token, get_current_user, security_scheme
 from app.core.ldap_auth import ldap_service
 from app.core.kerberos import kerberos_manager
 from app.core.acl import _check_match
@@ -105,12 +105,14 @@ async def login(
         data={"user": user.model_dump()},
         expires_delta=timedelta(minutes=settings.auth.jwt.expire_minutes),
     )
+    payload = decode_access_token(token)
 
     from app.services.storage import storage_service
     storage_service.save_session(
         token=token,
         user=user,
-        expires_at=settings.auth.jwt.expire_minutes * 60
+        expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
+        jti=payload.get("jti") if payload else None
     )
 
     from app.core.audit import audit_log
@@ -183,12 +185,14 @@ async def spnego_login(
         data={"user": user.model_dump()},
         expires_delta=timedelta(minutes=settings.auth.jwt.expire_minutes),
     )
+    payload = decode_access_token(token)
 
     from app.services.storage import storage_service
     storage_service.save_session(
         token=token,
         user=user,
-        expires_at=settings.auth.jwt.expire_minutes * 60
+        expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
+        jti=payload.get("jti") if payload else None
     )
 
     response.set_cookie(

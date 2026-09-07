@@ -110,13 +110,15 @@ async def login(req: LoginRequest, request: Request, response: Response):
         "auth_method": session_user.auth_method
     }
     access_token = create_access_token(token_data)
+    payload = decode_access_token(access_token)
 
     # Сохраняем активную сессию в базу данных для устойчивости к рестартам
     from app.services.storage import storage_service
     storage_service.save_session(
         token=access_token,
         user=session_user,
-        expires_at=settings.auth.jwt.expire_minutes * 60
+        expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
+        jti=payload.get("jti") if payload else None
     )
 
     # Выставляем HttpOnly Cookie для удобной работы в браузере и EventSource
@@ -194,12 +196,14 @@ async def kerberos_negotiate(request: Request, response: Response):
         "groups": session_user.groups,
         "auth_method": "kerberos"
     })
+    payload = decode_access_token(access_token)
 
     from app.services.storage import storage_service
     storage_service.save_session(
         token=access_token,
         user=session_user,
-        expires_at=settings.auth.jwt.expire_minutes * 60
+        expires_at=payload.get("exp") if payload else (settings.auth.jwt.expire_minutes * 60),
+        jti=payload.get("jti") if payload else None
     )
 
     response.set_cookie(
@@ -213,6 +217,7 @@ async def kerberos_negotiate(request: Request, response: Response):
 
     if user_info.get("out_token"):
         response.headers["WWW-Authenticate"] = f"Negotiate {user_info['out_token']}"
+
 
     client_ip = get_client_ip(request)
     log_audit_event(
