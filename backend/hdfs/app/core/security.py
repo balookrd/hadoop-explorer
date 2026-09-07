@@ -147,7 +147,7 @@ async def get_current_user(request: Request) -> UserInfo:
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Необходима авторизация. Пожалуйста, войдите в систему.",
+            detail="Требуется авторизация",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user

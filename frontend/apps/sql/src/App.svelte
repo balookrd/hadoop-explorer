@@ -157,6 +157,7 @@
     await api.logout();
     user = null;
     clusters = [];
+    authErrorMessage = null;
   }
 
   function createTab() {

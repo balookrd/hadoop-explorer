@@ -66,7 +66,7 @@ async def get_current_user(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Требуется авторизация (отсутствует токен)",
+            detail="Требуется авторизация",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -116,7 +116,7 @@ async def get_current_user(
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недействительный или истекший токен сессии",
+            detail="Недействительный или просроченный токен",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

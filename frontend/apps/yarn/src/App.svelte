@@ -151,6 +151,7 @@
     clusters = [];
     rootQueue = null;
     clusterMetrics = null;
+    authErrorMessage = null;
   }
 
   function handleEditQueue(queue: QueueNode) {

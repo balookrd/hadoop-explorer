@@ -87,7 +87,7 @@ class ApiClient {
       throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
     }
 
-    const isAuthEndpoint = endpoint.includes('/auth/login') || endpoint.includes('/auth/sso') || endpoint.includes('/auth/logout');
+    const isAuthEndpoint = endpoint.includes('/auth/login') || endpoint.includes('/auth/sso') || endpoint.includes('/auth/logout') || endpoint.includes('/auth/me');
 
     if (response.status === 401) {
       if (!isAuthEndpoint && !this.isAttemptingSso) {
@@ -104,19 +104,12 @@ class ApiClient {
           this.isAttemptingSso = false;
         }
 
-        let errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, войдите снова.';
-        try {
-          const errJson = await response.json();
-          if (errJson.detail) {
-            errDetail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-          }
-        } catch (_) {}
-
+        const errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, выполните вход.';
         this.notifyUnauthorized(errDetail);
         throw new Error(errDetail);
       } else {
         this.setToken(null);
-        let errorMsg = 'Неверное имя пользователя или пароль';
+        let errorMsg = 'Требуется авторизация';
         try {
           const errJson = await response.json();
           if (errJson.detail) {

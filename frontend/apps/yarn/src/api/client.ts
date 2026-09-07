@@ -61,7 +61,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
   }
 
-  const isAuthEndpoint = path.includes('/auth/login') || path.includes('/auth/sso') || path.includes('/auth/logout');
+  const isAuthEndpoint = path.includes('/auth/login') || path.includes('/auth/sso') || path.includes('/auth/logout') || path.includes('/auth/me');
 
   if (resp.status === 401) {
     if (!isAuthEndpoint && !isAttemptingSso) {
@@ -78,19 +78,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         isAttemptingSso = false;
       }
 
-      let errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, войдите снова.';
-      try {
-        const errBody = await resp.json();
-        if (errBody && errBody.detail) {
-          errDetail = typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail);
-        }
-      } catch (_) {}
-
+      const errDetail = 'Сессия истекла или сервер был перезагружен. Пожалуйста, выполните вход.';
       notifyUnauthorized(errDetail);
       throw new Error(errDetail);
     } else {
       clearToken();
-      let errorMsg = 'Неверное имя пользователя или пароль';
+      let errorMsg = 'Требуется авторизация';
       try {
         const errBody = await resp.json();
         if (errBody && errBody.detail) {
