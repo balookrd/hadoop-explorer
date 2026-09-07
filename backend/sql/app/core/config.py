@@ -11,25 +11,10 @@ class MockUser(BaseModel):
     email: str
     groups: List[str] = []
 
-class LDAPConfig(BaseModel):
-    enabled: bool = True
-    server_uri: str = "ldaps://ad.company.local:636"
-    use_ssl: bool = True
-    bind_dn: str = ""
-    bind_password: str = ""
-    user_base_dn: str = ""
-    user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))"
-    username_attr: Optional[str] = None
-    user_display_name_attr: str = "displayName"
-    user_email_attr: str = "mail"
-    use_user_memberof: bool = False
-    memberof_attr: str = "memberOf"
-    group_base_dn: str = ""
-    group_filter: str = "(&(objectClass=group)(member={user_dn}))"
-    group_name_attr: str = "cn"
-    ca_cert_file: Optional[str] = None
-    verify_cert: bool = True
-    allow_insecure_ssl: bool = False
+from backend.common.core.ldap_auth import CommonLdapConfig, LdapConfig
+
+# LDAPConfig как канонический CommonLdapConfig
+LDAPConfig = CommonLdapConfig
 
 class KerberosConfig(BaseModel):
     enabled: bool = True

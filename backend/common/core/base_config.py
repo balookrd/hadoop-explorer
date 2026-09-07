@@ -25,25 +25,10 @@ class BaseJwtSettings(BaseModel):
     expire_minutes: int = 480
 
 
-class BaseLdapSettings(BaseModel):
-    enabled: bool = False
-    server_uri: str = "ldaps://localhost:636"
-    use_ssl: bool = True
-    verify_cert: bool = True
-    allow_insecure_ssl: bool = False
-    ca_cert_file: Optional[str] = None
-    bind_dn: str = "cn=admin,dc=example,dc=com"
-    bind_password: str = "admin"
-    user_search_base: str = "ou=users,dc=example,dc=com"
-    user_search_filter: str = "(&(objectClass=inetOrgPerson)(uid={username}))"
-    username_attribute: str = "uid"
-    email_attribute: str = "mail"
-    display_name_attribute: str = "cn"
-    group_search_base: str = "ou=groups,dc=example,dc=com"
-    group_search_filter: str = "(&(objectClass=groupOfNames)(member={user_dn}))"
-    group_attribute: str = "cn"
-    use_user_memberof: bool = False
-    memberof_attribute: str = "memberOf"
+from backend.common.core.ldap_auth import CommonLdapConfig, LdapConfig
+
+# BaseLdapSettings алиас для обратной совместимости внутри base_config
+BaseLdapSettings = CommonLdapConfig
 
 
 class BaseKerberosSettings(BaseModel):

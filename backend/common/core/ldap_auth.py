@@ -3,6 +3,7 @@ import hmac
 import hashlib
 import logging
 from typing import Optional, List, Dict, Any, Union
+from pydantic import BaseModel, Field
 
 import ldap3
 from ldap3 import Server, Connection, ALL, SUBTREE, Tls
@@ -10,6 +11,35 @@ from ldap3.core.exceptions import LDAPException, LDAPBindError
 from ldap3.utils.conv import escape_filter_chars
 
 logger = logging.getLogger("hadoop_explorer.ldap")
+
+
+class CommonLdapConfig(BaseModel):
+    """
+    Каноническая модель настроек подключения и поиска в LDAP/LDAPS (Active Directory и OpenLDAP).
+    """
+    enabled: bool = True
+    server_uri: str = "ldaps://localhost:636"
+    use_ssl: bool = True
+    verify_cert: bool = True
+    ca_cert_file: Optional[str] = None
+    allow_insecure_ssl: bool = False
+    bind_dn: str = ""
+    bind_password: str = ""
+    user_base_dn: str = "ou=users,dc=company,dc=local"
+    user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))"
+    username_attr: Optional[str] = None
+    user_display_name_attr: str = "displayName"
+    user_email_attr: str = "mail"
+    use_user_memberof: bool = False
+    memberof_attr: str = "memberOf"
+    group_base_dn: str = "ou=groups,dc=company,dc=local"
+    group_filter: str = "(&(objectClass=groupOfNames)(member={user_dn}))"
+    group_name_attr: str = "cn"
+    connect_timeout: int = 5
+
+
+# Алиас для удобного использования в сервисах
+LdapConfig = CommonLdapConfig
 
 
 class CommonLdapAuthService:
@@ -56,18 +86,19 @@ class CommonLdapAuthService:
         ca_cert_file: Optional[str] = None,
         allow_insecure_ssl: bool = False,
         connect_timeout: int = 5,
-        server_cls: Any = Server
+        server_cls: Optional[Any] = None
     ) -> Server:
         """
         Создает объект ldap3.Server с заданными параметрами TLS.
         """
+        s_cls = server_cls or Server
         tls = cls.get_tls_config(
             use_ssl=use_ssl,
             verify_cert=verify_cert,
             ca_cert_file=ca_cert_file,
             allow_insecure_ssl=allow_insecure_ssl
         )
-        return server_cls(
+        return s_cls(
             server_uri,
             use_ssl=use_ssl,
             tls=tls,
@@ -98,8 +129,8 @@ class CommonLdapAuthService:
         group_filter: Optional[str] = None,
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
-        connection_cls: Any = Connection,
-        server_cls: Any = Server
+        connection_cls: Optional[Any] = None,
+        server_cls: Optional[Any] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Выполняет аутентификацию пользователя в Active Directory / OpenLDAP через LDAP/LDAPS.
@@ -108,6 +139,9 @@ class CommonLdapAuthService:
         if not password or not username:
             return None
 
+        c_cls = connection_cls or Connection
+        s_cls = server_cls or Server
+
         server = cls.get_server(
             server_uri=server_uri,
             use_ssl=use_ssl,
@@ -115,7 +149,7 @@ class CommonLdapAuthService:
             ca_cert_file=ca_cert_file,
             allow_insecure_ssl=allow_insecure_ssl,
             connect_timeout=connect_timeout,
-            server_cls=server_cls
+            server_cls=s_cls
         )
 
         service_user = bind_dn if bind_dn else None
@@ -123,7 +157,7 @@ class CommonLdapAuthService:
 
         try:
             # 1. Сервисный bind для поиска DN пользователя
-            with connection_cls(server, user=service_user, password=service_pwd, auto_bind=True, read_only=True) as service_conn:
+            with c_cls(server, user=service_user, password=service_pwd, auto_bind=True, read_only=True) as service_conn:
                 # 2. Поиск DN пользователя с безопасным экранированием (защита от CWE-90)
                 safe_username = escape_filter_chars(username)
                 search_filter = user_filter.format(username=safe_username)
@@ -167,7 +201,7 @@ class CommonLdapAuthService:
                 user_dn = getattr(user_entry, "entry_dn", str(user_entry))
 
                 # 3. Проверка пароля пользователя через User bind
-                with connection_cls(server, user=user_dn, password=password, auto_bind=False) as user_conn:
+                with c_cls(server, user=user_dn, password=password, auto_bind=False) as user_conn:
                     if not user_conn.bind():
                         logger.warning(f"Неверный пароль LDAP для пользователя '{username}'")
                         return None
@@ -234,8 +268,8 @@ class CommonLdapAuthService:
         group_filter: Optional[str] = None,
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
-        connection_cls: Any = Connection,
-        server_cls: Any = Server
+        connection_cls: Optional[Any] = None,
+        server_cls: Optional[Any] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Извлекает информацию о пользователе и его группы без требования пароля.
@@ -244,6 +278,9 @@ class CommonLdapAuthService:
         if not username:
             return None
 
+        c_cls = connection_cls or Connection
+        s_cls = server_cls or Server
+
         server = cls.get_server(
             server_uri=server_uri,
             use_ssl=use_ssl,
@@ -251,14 +288,14 @@ class CommonLdapAuthService:
             ca_cert_file=ca_cert_file,
             allow_insecure_ssl=allow_insecure_ssl,
             connect_timeout=connect_timeout,
-            server_cls=server_cls
+            server_cls=s_cls
         )
 
         service_user = bind_dn if bind_dn else None
         service_pwd = bind_password if bind_password else None
 
         try:
-            with connection_cls(server, user=service_user, password=service_pwd, auto_bind=True, read_only=True) as service_conn:
+            with c_cls(server, user=service_user, password=service_pwd, auto_bind=True, read_only=True) as service_conn:
                 safe_username = escape_filter_chars(username)
                 search_filter = user_filter.format(username=safe_username)
 
@@ -306,11 +343,10 @@ class CommonLdapAuthService:
                 if not display_name:
                     display_name = username
 
-                email = (
-                    getattr(user_entry, email_attr).value
-                    if hasattr(user_entry, email_attr) and hasattr(getattr(user_entry, email_attr), "value")
-                    else getattr(user_entry, email_attr, None)
-                )
+                email = None
+                if email_attr and hasattr(user_entry, email_attr):
+                    attr_val = getattr(user_entry, email_attr)
+                    email = attr_val.value if hasattr(attr_val, "value") else str(attr_val)
 
                 groups = cls._extract_groups_from_entry(
                     service_conn=service_conn,
@@ -345,7 +381,7 @@ class CommonLdapAuthService:
         user_dn: str,
         user_entry: Any,
         safe_username: str,
-        memberof_attr: str = "memberOf",
+        memberof_attr: Optional[str] = "memberOf",
         group_base_dn: Optional[str] = None,
         group_filter: Optional[str] = None,
         group_name_attr: str = "cn"
@@ -353,7 +389,7 @@ class CommonLdapAuthService:
         groups: List[str] = []
 
         # 1. Извлечение из атрибута memberOf
-        if hasattr(user_entry, memberof_attr):
+        if memberof_attr and hasattr(user_entry, memberof_attr):
             raw_attr = getattr(user_entry, memberof_attr)
             raw_memberof = getattr(raw_attr, "values", None) or (raw_attr if isinstance(raw_attr, list) else [raw_attr])
             for g in raw_memberof:
@@ -432,3 +468,98 @@ class CommonLdapAuthService:
                         "auth_method": "mock"
                     }
         return None
+
+
+class LdapAuthService:
+    """
+    Инстанцируемый сервис аутентификации LDAP/LDAPS и Mock пользователей.
+    Принимает конфигурацию CommonLdapConfig и инкапсулирует вызовы CommonLdapAuthService.
+    """
+
+    def __init__(self, config: Optional[CommonLdapConfig] = None):
+        self.config = config or CommonLdapConfig()
+
+    def authenticate(
+        self,
+        username: str,
+        password: str,
+        connection_cls: Optional[Any] = None,
+        server_cls: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Выполняет аутентификацию пользователя в LDAP/LDAPS.
+        """
+        if not self.config.enabled or not password or not username:
+            return None
+
+        return CommonLdapAuthService.authenticate_ldap_user(
+            username=username,
+            password=password,
+            server_uri=self.config.server_uri,
+            use_ssl=self.config.use_ssl,
+            verify_cert=self.config.verify_cert,
+            ca_cert_file=self.config.ca_cert_file,
+            allow_insecure_ssl=self.config.allow_insecure_ssl,
+            bind_dn=self.config.bind_dn,
+            bind_password=self.config.bind_password,
+            user_base_dn=self.config.user_base_dn,
+            user_filter=self.config.user_filter,
+            username_attr=self.config.username_attr,
+            display_name_attr=self.config.user_display_name_attr,
+            email_attr=self.config.user_email_attr,
+            memberof_attr=self.config.memberof_attr,
+            use_user_memberof=self.config.use_user_memberof,
+            group_base_dn=self.config.group_base_dn,
+            group_filter=self.config.group_filter,
+            group_name_attr=self.config.group_name_attr,
+            connect_timeout=self.config.connect_timeout,
+            connection_cls=connection_cls,
+            server_cls=server_cls
+        )
+
+    def get_user_info(
+        self,
+        username: str,
+        connection_cls: Optional[Any] = None,
+        server_cls: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Извлекает профиль и группы пользователя из LDAP без пароля (для SPNEGO/Kerberos).
+        """
+        if not self.config.enabled or not username:
+            return None
+
+        return CommonLdapAuthService.get_ldap_user_info(
+            username=username,
+            server_uri=self.config.server_uri,
+            use_ssl=self.config.use_ssl,
+            verify_cert=self.config.verify_cert,
+            ca_cert_file=self.config.ca_cert_file,
+            allow_insecure_ssl=self.config.allow_insecure_ssl,
+            bind_dn=self.config.bind_dn,
+            bind_password=self.config.bind_password,
+            user_base_dn=self.config.user_base_dn,
+            user_filter=self.config.user_filter,
+            username_attr=self.config.username_attr,
+            display_name_attr=self.config.user_display_name_attr,
+            email_attr=self.config.user_email_attr,
+            memberof_attr=self.config.memberof_attr,
+            use_user_memberof=self.config.use_user_memberof,
+            group_base_dn=self.config.group_base_dn,
+            group_filter=self.config.group_filter,
+            group_name_attr=self.config.group_name_attr,
+            connect_timeout=self.config.connect_timeout,
+            connection_cls=connection_cls,
+            server_cls=server_cls
+        )
+
+    @staticmethod
+    def authenticate_mock(username: str, password: str, mock_users: List[Any]) -> Optional[Dict[str, Any]]:
+        """
+        Выполняет аутентификацию mock-пользователя.
+        """
+        return CommonLdapAuthService.authenticate_mock_user(
+            username=username,
+            password=password,
+            mock_users=mock_users
+        )

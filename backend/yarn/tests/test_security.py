@@ -59,9 +59,12 @@ def test_xml_comment_injection_sanitized(sample_cluster):
 def test_ldap_input_escaping():
     """Проверяет, что спецсимволы в имени пользователя экранируются перед подстановкой в LDAP-фильтр."""
     malicious_username = "admin)(|(cn=*"
-    with patch("app.core.ldap_auth.Connection") as mock_conn_cls, \
+    with patch("backend.common.core.ldap_auth.Server") as mock_server_cls, \
+         patch("backend.common.core.ldap_auth.Connection") as mock_conn_cls, \
          patch.object(ldap_service.config, "enabled", True), \
          patch.object(ldap_service.config, "user_filter", "(&(objectClass=user)(sAMAccountName={username}))"):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
         mock_conn_cls.return_value = mock_conn
