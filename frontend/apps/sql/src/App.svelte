@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from './api/client';
   import type { UserSession, ClusterSummary, ColumnMeta } from './types';
-  import Header from './components/Header.svelte';
+  import { Header } from '@hadoop-explorer/common';
   import Sidebar from './components/Sidebar.svelte';
   import SqlEditor from './components/SqlEditor.svelte';
   import QueryToolbar from './components/QueryToolbar.svelte';
@@ -10,7 +10,7 @@
   import LoginModal from './components/LoginModal.svelte';
   import AIAssistantModal from './components/AIAssistantModal.svelte';
   import type { AIIssue } from './types';
-  import { Plus, X, Terminal, Bell } from 'lucide-svelte';
+  import { Plus, X, Terminal, Bell, Database } from 'lucide-svelte';
 
 
   interface Tab {
@@ -366,6 +366,9 @@
 
 <div class="h-screen w-screen flex flex-col bg-slate-50 text-slate-800 font-sans overflow-hidden">
   <Header
+    title="SQL Web Explorer"
+    subtitle="Trino & Hive"
+    icon={Database}
     {user}
     {clusters}
     bind:selectedClusterId

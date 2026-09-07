@@ -68,6 +68,9 @@ test:
 test-hdfs:
 	./scripts/run-tests.sh hdfs
 
+test-spark:
+	uv run pytest backend/spark/tests/test_spark.py -v
+
 test-sql:
 	./scripts/run-tests.sh sql
 
@@ -80,6 +83,9 @@ build:
 build-hdfs:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh hdfs
 
+build-spark:
+	docker build -t $(REGISTRY)/spark-explorer:$(TAG) -f docker/Dockerfile.spark .
+
 build-sql:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh sql
 
@@ -87,20 +93,28 @@ build-yarn:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh yarn
 
 frontend-install:
-	cd frontend/apps/hdfs && npm install
-	cd frontend/apps/sql && npm install
-	cd frontend/apps/yarn && npm install
+	cd frontend && npm install
 
 frontend-build:
-	cd frontend/apps/hdfs && npm run build
-	cd frontend/apps/sql && npm run build
-	cd frontend/apps/yarn && npm run build
+	cd frontend && npm run build:all
+
+demo-platform:
+	cd demo/platform && ./start-platform.sh
+
+demo-platform-stop:
+	cd demo/platform && ./stop-platform.sh
 
 demo-hdfs:
 	cd demo/hdfs && ./start-demo.sh
 
 demo-hdfs-stop:
 	cd demo/hdfs && ./stop-demo.sh
+
+demo-spark:
+	cd demo/spark && ./start-demo.sh
+
+demo-spark-stop:
+	cd demo/spark && ./stop-demo.sh
 
 demo-sql:
 	cd demo/sql && ./start-demo.sh
@@ -122,12 +136,14 @@ demo-all-stop:
 
 helm-lint:
 	helm lint helm/charts/hdfs-explorer
+	helm lint helm/charts/spark-explorer
 	helm lint helm/charts/sql-explorer
 	helm lint helm/charts/yarn-explorer
 	helm lint helm/hadoop-explorer
 
 helm-package: helm-lint
 	helm package helm/charts/hdfs-explorer -d dist/helm
+	helm package helm/charts/spark-explorer -d dist/helm
 	helm package helm/charts/sql-explorer -d dist/helm
 	helm package helm/charts/yarn-explorer -d dist/helm
 	helm package helm/hadoop-explorer -d dist/helm

@@ -1,0 +1,910 @@
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { api } from './api/client';
+  import type {
+    UserSession,
+    ClusterSummary,
+    ClusterDetailResponse,
+    SparkSessionItem,
+    CreateSessionPayload,
+    Tab,
+    HistoryItem
+  } from './types';
+  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import Sidebar from './components/Sidebar.svelte';
+  import SessionBar from './components/SessionBar.svelte';
+  import SparkEditor from './components/SparkEditor.svelte';
+  import ResultsView from './components/ResultsView.svelte';
+  import SessionConfigModal from './components/SessionConfigModal.svelte';
+  import { Flame, Plus, X, Server } from 'lucide-svelte';
+
+  let user = $state<UserSession | null>(null);
+  let isAuthChecking = $state(true);
+  let isLoginModalOpen = $state(false);
+  let clusters = $state<ClusterSummary[]>([]);
+  let selectedClusterId = $state<string>('');
+  let clusterDetails = $state<ClusterDetailResponse | null>(null);
+
+  const mockUsers = [
+    {
+      username: 'admin_user',
+      password: 'password123',
+      displayName: 'Александр Админов',
+      description: 'Администратор платформы, полный доступ',
+      badgeColor: 'text-purple-600'
+    },
+    {
+      username: 'de_user',
+      password: 'password123',
+      displayName: 'Иван Датаинженеров',
+      description: 'Data Engineer, запуск PySpark и Scala',
+      badgeColor: 'text-sky-600'
+    },
+    {
+      username: 'analyst_user',
+      password: 'password123',
+      displayName: 'Анна Аналитикова',
+      description: 'Data Analyst, интерактивные запросы',
+      badgeColor: 'text-emerald-600'
+    }
+  ];
+
+  // Сессии
+  let activeSessions = $state<SparkSessionItem[]>([]);
+  let currentSession = $state<SparkSessionItem | null>(null);
+  let isConfigModalOpen = $state(false);
+  let runEditorTrigger = $state<(() => void) | null>(null);
+  let sessionPayload = $state<Partial<CreateSessionPayload>>({});
+  let savedConfigByKind = $state<Record<'pyspark' | 'spark', Partial<CreateSessionPayload>>>({
+    pyspark: {},
+    spark: {}
+  });
+
+  // Выбранный Metastore
+  let selectedMetastoreId = $state<string>('');
+
+  const DEFAULT_CODES: Record<'pyspark' | 'scalaspark' | 'sql', string> = {
+    pyspark: '# PySpark скрипт в Hadoop Explorer\n# Для отображения таблицы используйте функцию display(df)\n\ndf = spark.read.table("customers")\ndisplay(df.filter("balance > 10000"))\n',
+    scalaspark: '// Scala Spark скрипт в Hadoop Explorer\nval df = spark.read.table("customers")\ndf.show(50, false)\n',
+    sql: '-- Spark SQL запрос\nSELECT * FROM customers\nWHERE balance > 10000\nLIMIT 50;\n'
+  };
+
+  const STORAGE_KEY = 'spark_explorer_state_v2';
+
+  function createTabObject(
+    id: string,
+    title: string,
+    lang: 'pyspark' | 'scalaspark' | 'sql' = 'pyspark',
+    withDefaults = false
+  ): Tab {
+    const code = withDefaults ? DEFAULT_CODES[lang] : '';
+    return {
+      id,
+      title,
+      language: lang,
+      code,
+      codeBuffers: {
+        pyspark: withDefaults ? DEFAULT_CODES.pyspark : '',
+        scalaspark: withDefaults ? DEFAULT_CODES.scalaspark : '',
+        sql: withDefaults ? DEFAULT_CODES.sql : ''
+      },
+      columns: [],
+      rows: [],
+      totalRows: 0,
+      logs: '',
+      isRunning: false,
+      statusText: '',
+      executionTimeMs: 0,
+      errorMessage: null,
+      executionId: null,
+      activeResultTab: 'table'
+    };
+  }
+
+  // Вкладки редактора (только первая дефолтная вкладка инициализируется примером кода)
+  let tabs = $state<Tab[]>([createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)]);
+  let activeTabId = $state<string>('tab-1');
+
+  const activeTab = $derived(
+    tabs.find((t) => t.id === activeTabId) || tabs[0]
+  );
+
+  const currentTabKind = $derived<'pyspark' | 'spark'>(
+    activeTab?.language === 'scalaspark' ? 'spark' : 'pyspark'
+  );
+
+  let editorHeightPercent = $state(50);
+  let isResizing = $state(false);
+  let saveTimeout: any = null;
+
+  function getStorageKey(uname?: string | null): string {
+    return uname ? `spark_explorer_state_${uname}` : 'spark_explorer_state_anonymous';
+  }
+
+  function applyWorkspaceState(state: any): boolean {
+    if (!state || !Array.isArray(state.tabs) || state.tabs.length === 0) return false;
+    tabs = state.tabs.map((t: any) => ({
+      id: t.id,
+      title: t.title,
+      language: t.language || 'pyspark',
+      code: t.code !== undefined ? t.code : (t.id === 'tab-1' ? DEFAULT_CODES[t.language || 'pyspark'] : ''),
+      codeBuffers: t.codeBuffers || {
+        pyspark: t.id === 'tab-1' ? DEFAULT_CODES.pyspark : '',
+        scalaspark: t.id === 'tab-1' ? DEFAULT_CODES.scalaspark : '',
+        sql: t.id === 'tab-1' ? DEFAULT_CODES.sql : ''
+      },
+      columns: t.columns || [],
+      rows: t.rows || [],
+      totalRows: t.totalRows || 0,
+      logs: t.logs || '',
+      isRunning: false,
+      statusText: '',
+      executionTimeMs: t.executionTimeMs || 0,
+      errorMessage: t.errorMessage || null,
+      executionId: t.executionId || null,
+      activeResultTab: t.activeResultTab || 'table'
+    }));
+    if (state.activeTabId && tabs.some((t) => t.id === state.activeTabId)) {
+      activeTabId = state.activeTabId;
+    } else {
+      activeTabId = tabs[0].id;
+    }
+    if (state.savedConfigByKind && typeof state.savedConfigByKind === 'object') {
+      savedConfigByKind = {
+        pyspark: state.savedConfigByKind.pyspark || {},
+        spark: state.savedConfigByKind.spark || {}
+      };
+    }
+    if (state.selectedClusterId) {
+      selectedClusterId = state.selectedClusterId;
+    }
+    if (activeTab) {
+      pickSessionForLanguage(activeTab.language);
+    }
+    return true;
+  }
+
+  async function loadUserWorkspace(currentUser: UserSession | null) {
+    if (!currentUser) {
+      tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
+      activeTabId = 'tab-1';
+      return;
+    }
+
+    // 1. Сначала пробуем восстановить состояние из базы данных через API
+    try {
+      const remoteWs = await api.getWorkspace();
+      if (remoteWs && remoteWs.state && applyWorkspaceState(remoteWs.state)) {
+        return;
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить рабочее пространство из БД:', err);
+    }
+
+    // 2. Если в БД пусто, пробуем загрузить локальный кэш пользователя
+    try {
+      const raw = localStorage.getItem(getStorageKey(currentUser.username));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (applyWorkspaceState(parsed)) {
+          // И отправляем его в БД
+          api.saveWorkspace(parsed).catch(() => {});
+          return;
+        }
+      }
+    } catch {}
+
+    // 3. Если сохраненной работы нет — открываем свежую начальную вкладку
+    tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
+    activeTabId = 'tab-1';
+    pickSessionForLanguage('pyspark');
+  }
+
+  function saveStateToStorage(immediate = false) {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    const saveFn = () => {
+      try {
+        const stateToSave = {
+          selectedClusterId,
+          activeTabId,
+          savedConfigByKind,
+          tabs: tabs.map((t) => ({
+            id: t.id,
+            title: t.title,
+            language: t.language,
+            code: t.code,
+            codeBuffers: t.codeBuffers || {
+              pyspark: t.language === 'pyspark' ? t.code : '',
+              scalaspark: t.language === 'scalaspark' ? t.code : '',
+              sql: t.language === 'sql' ? t.code : ''
+            },
+            columns: t.columns || [],
+            rows: (t.rows || []).slice(0, 200),
+            totalRows: t.totalRows || 0,
+            logs: t.logs || '',
+            executionTimeMs: t.executionTimeMs || 0,
+            errorMessage: t.errorMessage || null,
+            executionId: t.executionId || null,
+            activeResultTab: t.activeResultTab || 'table'
+          }))
+        };
+        // Локальное кэширование по пользователю
+        localStorage.setItem(getStorageKey(user?.username), JSON.stringify(stateToSave));
+
+        // Персистентное сохранение в базу данных
+        if (user) {
+          api.saveWorkspace(stateToSave).catch((err) => {
+            console.warn('Не удалось сохранить рабочее пространство в БД:', err);
+          });
+        }
+      } catch (err) {
+        console.warn('Не удалось сохранить состояние Spark Explorer:', err);
+      }
+    };
+
+    if (immediate) {
+      saveFn();
+    } else {
+      saveTimeout = setTimeout(saveFn, 400);
+    }
+  }
+
+  onMount(async () => {
+    try {
+      user = await api.getMe();
+      await loadUserWorkspace(user);
+      await loadClusters();
+      scheduleSessionPoll();
+    } catch {
+      // Пользователь не авторизован - показываем модалку входа
+      user = null;
+      tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
+      activeTabId = 'tab-1';
+      isLoginModalOpen = true;
+    } finally {
+      isAuthChecking = false;
+    }
+  });
+
+  async function handleLogin(u: string, p: string) {
+    const res = await api.login(u, p);
+    user = res.user;
+    isLoginModalOpen = false;
+    await loadUserWorkspace(user);
+    await loadClusters();
+    await refreshSessions();
+    scheduleSessionPoll();
+  }
+
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch (err) {
+      console.warn('Ошибка вызова logout API:', err);
+    }
+    user = null;
+    currentSession = null;
+    activeSessions = [];
+    clusters = [];
+    tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
+    activeTabId = 'tab-1';
+    isLoginModalOpen = true;
+  }
+
+  onDestroy(() => {
+    if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+  });
+
+  let sessionPollingTimer: any = null;
+
+  function scheduleSessionPoll(urgent: boolean = false) {
+    if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+    const delay = urgent || currentSession?.status === 'starting' || currentSession?.status === 'busy' ? 1500 : 5000;
+    sessionPollingTimer = setTimeout(async () => {
+      await refreshSessions();
+      scheduleSessionPoll();
+    }, delay);
+  }
+
+  async function loadClusters() {
+    try {
+      clusters = await api.getClusters();
+      if (clusters.length > 0) {
+        if (!selectedClusterId || !clusters.some((c) => c.id === selectedClusterId)) {
+          selectedClusterId = clusters[0].id;
+        }
+        await handleClusterSelect(selectedClusterId);
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки кластеров:', err);
+    }
+  }
+
+  async function handleClusterSelect(clusterId: string) {
+    selectedClusterId = clusterId;
+    saveStateToStorage();
+    try {
+      clusterDetails = await api.getClusterDetails(clusterId);
+      if (clusterDetails.metastores.length > 0) {
+        selectedMetastoreId = clusterDetails.metastores.find((m) => m.is_default)?.id || clusterDetails.metastores[0].id;
+      }
+      await refreshSessions();
+      scheduleSessionPoll();
+    } catch (err) {
+      console.error('Ошибка загрузки деталей кластера:', err);
+    }
+  }
+
+  function getTargetKind(lang: 'pyspark' | 'scalaspark' | 'sql'): 'pyspark' | 'spark' {
+    return lang === 'scalaspark' ? 'spark' : 'pyspark';
+  }
+
+  function pickSessionForLanguage(lang: 'pyspark' | 'scalaspark' | 'sql') {
+    const targetKind = getTargetKind(lang);
+    const matching = activeSessions.find(
+      (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
+    );
+    if (matching) {
+      currentSession = matching;
+    } else if (currentSession && (currentSession.kind !== targetKind || currentSession.status === 'killed' || currentSession.status === 'dead')) {
+      currentSession = null;
+    }
+  }
+
+  async function refreshSessions() {
+    if (!selectedClusterId) return;
+    try {
+      activeSessions = await api.getSessions();
+      const currentLang = activeTab?.language || 'pyspark';
+      const targetKind = getTargetKind(currentLang);
+
+      // Если текущая сессия уже выбрана, проверяем ее в свежем списке
+      if (currentSession) {
+        const updated = activeSessions.find((s) => s.id === currentSession?.id);
+        if (updated && updated.status !== 'killed' && updated.status !== 'dead' && updated.kind === targetKind) {
+          currentSession = updated;
+          return;
+        } else if (!updated || updated.status === 'killed' || updated.status === 'dead') {
+          // Сессия была остановлена или умерла
+          currentSession = null;
+        }
+      }
+
+      // Иначе ищем подходящую живую сессию нужного типа для текущего языка
+      const validSession = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
+      );
+      currentSession = validSession || null;
+    } catch (err) {
+      console.error('Ошибка получения сессий:', err);
+    }
+  }
+
+  function selectTab(id: string) {
+    activeTabId = id;
+    const tab = tabs.find((t) => t.id === id);
+    if (tab) {
+      pickSessionForLanguage(tab.language);
+    }
+    saveStateToStorage(true);
+  }
+
+  function addTab() {
+    const newId = `tab-${Date.now()}`;
+    const newTab = createTabObject(newId, `Скрипт ${tabs.length + 1}`, 'pyspark');
+    tabs = [...tabs, newTab];
+    activeTabId = newId;
+    pickSessionForLanguage('pyspark');
+    saveStateToStorage(true);
+  }
+
+  function closeTab(id: string, e: MouseEvent) {
+    e.stopPropagation();
+    if (tabs.length === 1) return;
+    tabs = tabs.filter((t) => t.id !== id);
+    if (activeTabId === id) {
+      const nextTab = tabs[tabs.length - 1];
+      activeTabId = nextTab.id;
+      pickSessionForLanguage(nextTab.language);
+    }
+    saveStateToStorage(true);
+  }
+
+  function handleLanguageChange(lang: 'pyspark' | 'scalaspark' | 'sql') {
+    if (!activeTab || activeTab.language === lang) return;
+
+    // 1. Инициализируем codeBuffers если еще не созданы
+    if (!activeTab.codeBuffers) {
+      activeTab.codeBuffers = {
+        pyspark: activeTab.language === 'pyspark' ? activeTab.code : '',
+        scalaspark: activeTab.language === 'scalaspark' ? activeTab.code : '',
+        sql: activeTab.language === 'sql' ? activeTab.code : ''
+      };
+    }
+
+    // 2. Сохраняем текущий набранный код в буфер текущего языка
+    activeTab.codeBuffers[activeTab.language] = activeTab.code;
+
+    // 3. Переключаем язык
+    activeTab.language = lang;
+
+    // 4. Загружаем код для нового языка из его персонального буфера
+    activeTab.code = activeTab.codeBuffers[lang] ?? '';
+
+    // 5. Переключаем сессию на соответствующий вид (PySpark / Scala)
+    pickSessionForLanguage(lang);
+
+    // 6. Персистим в localStorage
+    saveStateToStorage(true);
+  }
+
+  function handleCodeChange(newCode: string) {
+    if (activeTab) {
+      activeTab.code = newCode;
+      if (!activeTab.codeBuffers) {
+        activeTab.codeBuffers = {
+          pyspark: activeTab.language === 'pyspark' ? newCode : '',
+          scalaspark: activeTab.language === 'scalaspark' ? newCode : '',
+          sql: activeTab.language === 'sql' ? newCode : ''
+        };
+      } else {
+        activeTab.codeBuffers[activeTab.language] = newCode;
+      }
+      saveStateToStorage();
+    }
+  }
+
+  function openSessionConfigModal() {
+    const targetKind = currentTabKind;
+    const baseConfig = savedConfigByKind[targetKind] || {};
+    sessionPayload = {
+      ...baseConfig,
+      kind: targetKind,
+      cluster_id: selectedClusterId || baseConfig.cluster_id || undefined,
+      metastore_id: selectedMetastoreId || baseConfig.metastore_id || undefined
+    };
+
+    if (currentSession && currentSession.kind === targetKind) {
+      if (currentSession.spark_version_id) sessionPayload.spark_version_id = currentSession.spark_version_id;
+      if (currentSession.python_env_id && targetKind === 'pyspark') sessionPayload.python_env_id = currentSession.python_env_id;
+    }
+
+    isConfigModalOpen = true;
+  }
+
+  async function handleSaveSessionConfig(payload: CreateSessionPayload) {
+    isConfigModalOpen = false;
+    const kind = payload.kind || currentTabKind;
+    savedConfigByKind[kind] = payload;
+    sessionPayload = payload;
+    saveStateToStorage(true);
+    try {
+      currentSession = await api.createSession(payload);
+      scheduleSessionPoll(true);
+      await refreshSessions();
+    } catch (err: any) {
+      alert(`Не удалось запустить сессию: ${err.message}`);
+    }
+  }
+
+  async function handleRestartSession() {
+    if (!clusterDetails) return;
+    try {
+      if (currentSession && currentSession.status !== 'killed' && currentSession.status !== 'dead') {
+        await api.stopSession(currentSession.id);
+      }
+
+      const defVer = clusterDetails.spark_versions.find((v) => v.is_default)?.id || clusterDetails.spark_versions[0]?.id;
+      const vObj = clusterDetails.spark_versions.find((v) => v.id === defVer);
+      const defPy = vObj?.python_versions.find((p) => p.is_default)?.id || vObj?.python_versions[0]?.id;
+      const defMeta = clusterDetails.metastores.find((m) => m.is_default)?.id || clusterDetails.metastores[0]?.id;
+      const targetKind = currentTabKind;
+      const baseConfig = savedConfigByKind[targetKind] || {};
+
+      const payload: CreateSessionPayload = {
+        cluster_id: selectedClusterId,
+        spark_version_id: currentSession?.spark_version_id || baseConfig.spark_version_id || defVer,
+        python_env_id: targetKind === 'pyspark' ? (currentSession?.python_env_id || baseConfig.python_env_id || defPy) : undefined,
+        metastore_id: currentSession?.metastore_id || baseConfig.metastore_id || defMeta,
+        yarn_queue: currentSession?.yarn_queue || baseConfig.yarn_queue || clusterDetails.default_queue || 'root.analytics',
+        resource_profile: currentSession?.resource_profile || baseConfig.resource_profile || clusterDetails.resource_profiles[0]?.id || 'small',
+        kind: targetKind,
+        packages: baseConfig.packages || [],
+        jars: baseConfig.jars || [],
+        py_files: targetKind === 'pyspark' ? (baseConfig.py_files || []) : [],
+        spark_conf: baseConfig.spark_conf || {}
+      };
+
+      currentSession = await api.createSession(payload);
+      scheduleSessionPoll(true);
+      await refreshSessions();
+    } catch (err: any) {
+      alert(`Ошибка подключения сессии: ${err.message}`);
+    }
+  }
+
+  async function handleStopSession() {
+    if (!currentSession) return;
+    try {
+      await api.stopSession(currentSession.id);
+      currentSession = null;
+      await refreshSessions();
+      scheduleSessionPoll();
+    } catch (err: any) {
+      alert(`Ошибка остановки: ${err.message}`);
+    }
+  }
+
+  async function handleRun(codeToRun?: string) {
+    if (!activeTab || !clusterDetails) return;
+
+    const targetCode = (typeof codeToRun === 'string' && codeToRun.trim())
+      ? codeToRun.trim()
+      : (activeTab.code || '').trim();
+
+    if (!targetCode) {
+      activeTab.errorMessage = 'Скрипт пуст. Введите код для выполнения.';
+      return;
+    }
+
+    const targetKind = getTargetKind(activeTab.language);
+
+    // Проверяем актуальность currentSession
+    const isSessionValid = currentSession &&
+      currentSession.cluster_id === selectedClusterId &&
+      currentSession.kind === targetKind &&
+      currentSession.status !== 'killed' &&
+      currentSession.status !== 'dead';
+
+    if (!isSessionValid) {
+      // Ищем подходящую живую сессию среди существующих
+      const existing = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
+      );
+
+      if (existing) {
+        currentSession = existing;
+      } else {
+        // Создаем новую сессию
+        try {
+          const defVer = clusterDetails.spark_versions.find((v) => v.is_default)?.id || clusterDetails.spark_versions[0].id;
+          const vObj = clusterDetails.spark_versions.find((v) => v.id === defVer);
+          const defPy = vObj?.python_versions.find((p) => p.is_default)?.id || vObj?.python_versions[0]?.id;
+          const defMeta = clusterDetails.metastores.find((m) => m.is_default)?.id || clusterDetails.metastores[0].id;
+          const baseConfig = savedConfigByKind[targetKind] || {};
+
+          const payload: CreateSessionPayload = {
+            cluster_id: selectedClusterId,
+            spark_version_id: baseConfig.spark_version_id || defVer,
+            python_env_id: targetKind === 'pyspark' ? (baseConfig.python_env_id || defPy) : undefined,
+            metastore_id: baseConfig.metastore_id || defMeta,
+            yarn_queue: baseConfig.yarn_queue || clusterDetails.default_queue || 'root.analytics',
+            resource_profile: baseConfig.resource_profile || clusterDetails.resource_profiles[0]?.id || 'small',
+            kind: targetKind,
+            packages: baseConfig.packages || [],
+            jars: baseConfig.jars || [],
+            py_files: targetKind === 'pyspark' ? (baseConfig.py_files || []) : [],
+            spark_conf: baseConfig.spark_conf || {}
+          };
+          currentSession = await api.createSession(payload);
+          scheduleSessionPoll(true);
+          await refreshSessions();
+        } catch (err: any) {
+          activeTab.errorMessage = `Не удалось создать сессию Spark: ${err.message}`;
+          return;
+        }
+      }
+    }
+
+    if (!currentSession) {
+      activeTab.errorMessage = 'Ошибка: сессия Spark не инициализирована';
+      return;
+    }
+
+    const isFragment = targetCode !== (activeTab.code || '').trim();
+    activeTab.isRunning = true;
+    activeTab.errorMessage = null;
+    activeTab.columns = [];
+    activeTab.rows = [];
+    activeTab.logs = isFragment
+      ? `[Выполнение выделенного фрагмента (${targetCode.split('\n').length} строк)]\n\n${targetCode}\n\nОтправка задачи в Apache Spark...`
+      : 'Отправка задачи в Apache Spark...';
+
+    try {
+      const execRes = await api.executeCode(currentSession.id, targetCode, activeTab.language);
+      activeTab.executionId = execRes.execution_id;
+      const currentExecutionId = execRes.execution_id;
+
+      let isCompleted = false;
+
+      const finishExecution = async (status: string, eventLogs?: string, error?: string, execTime?: number) => {
+        if (isCompleted || !activeTab) return;
+        isCompleted = true;
+        if (cleanupStream) cleanupStream();
+        if (pollInterval) clearInterval(pollInterval);
+
+        activeTab.isRunning = false;
+        activeTab.executionTimeMs = execTime || 0;
+        if (eventLogs) {
+          activeTab.logs = eventLogs;
+        }
+
+        if (status === 'FAILED') {
+          activeTab.errorMessage = error || 'Ошибка исполнения Spark';
+          activeTab.activeResultTab = 'logs';
+        } else if (status === 'CANCELLED') {
+          activeTab.errorMessage = 'Выполнение прервано пользователем';
+          activeTab.activeResultTab = 'logs';
+        } else {
+          try {
+            const fullRes = await api.getResult(currentExecutionId, 0, 100);
+            activeTab.columns = fullRes.columns;
+            activeTab.rows = fullRes.rows;
+            activeTab.totalRows = fullRes.total_rows;
+            if (fullRes.logs) {
+              activeTab.logs = fullRes.logs;
+            }
+            activeTab.activeResultTab = fullRes.rows.length > 0 ? 'table' : 'logs';
+          } catch {}
+        }
+        saveStateToStorage();
+        await refreshSessions();
+      };
+
+      // 1. Подписываемся на SSE стриминг
+      const cleanupStream = api.streamExecution(currentExecutionId, async (event) => {
+        if (!activeTab || isCompleted) return;
+        if (event.logs !== undefined && event.logs !== null && event.logs !== '') {
+          activeTab.logs = event.logs;
+        }
+        if (event.type === 'finished' || event.status === 'FINISHED' || event.status === 'FAILED' || event.status === 'CANCELLED') {
+          await finishExecution(event.status || 'FINISHED', event.logs, event.error, event.execution_time_ms);
+        }
+      });
+
+      // 2. Fallback Polling (гарантированное завершение даже при сетевых сбоях SSE)
+      const pollInterval = setInterval(async () => {
+        if (isCompleted || !activeTab) {
+          clearInterval(pollInterval);
+          return;
+        }
+        try {
+          const check = await api.getResult(currentExecutionId, 0, 10);
+          if (check.status && check.status !== 'RUNNING' && check.status !== 'QUEUED') {
+            await finishExecution(check.status, check.logs || undefined, check.error_message || undefined, check.execution_time_ms);
+          }
+        } catch {}
+      }, 1500);
+
+    } catch (err: any) {
+      activeTab.isRunning = false;
+      activeTab.errorMessage = err.message;
+      activeTab.activeResultTab = 'logs';
+      saveStateToStorage();
+    }
+  }
+
+  async function handleCancel() {
+    if (!activeTab) return;
+    const targetExecutionId = activeTab.executionId;
+    activeTab.isRunning = false;
+    activeTab.logs = (activeTab.logs || '') + '\n\n[Выполнение прервано пользователем]';
+
+    if (targetExecutionId) {
+      try {
+        await api.cancelStatement(targetExecutionId);
+      } catch (err: any) {
+        console.warn('Ошибка при отмене statement:', err);
+      }
+    }
+    saveStateToStorage();
+    await refreshSessions();
+  }
+
+  function handleSelectTable(tableName: string) {
+    if (!activeTab) return;
+    let snippet = '';
+    if (activeTab.language === 'sql') {
+      snippet = activeTab.code.trim()
+        ? `\n\nSELECT * FROM ${tableName}\nLIMIT 50;\n`
+        : `SELECT * FROM ${tableName}\nLIMIT 50;\n`;
+    } else if (activeTab.language === 'scalaspark') {
+      snippet = activeTab.code.trim()
+        ? `\n\nval df = spark.read.table("${tableName}")\ndf.show(50, false)\n`
+        : `val df = spark.read.table("${tableName}")\ndf.show(50, false)\n`;
+    } else {
+      snippet = activeTab.code.trim()
+        ? `\n\ndf = spark.read.table("${tableName}")\ndisplay(df)\n`
+        : `df = spark.read.table("${tableName}")\ndisplay(df)\n`;
+    }
+    activeTab.code += snippet;
+    if (activeTab.codeBuffers) {
+      activeTab.codeBuffers[activeTab.language] = activeTab.code;
+    }
+    saveStateToStorage(true);
+  }
+
+  function handleRestoreHistory(item: HistoryItem) {
+    if (!activeTab) return;
+    activeTab.code = item.code;
+    activeTab.language = item.language as any;
+    pickSessionForLanguage(activeTab.language);
+    saveStateToStorage(true);
+    if (item.has_cached_result) {
+      api.getResult(item.id, 0, 100).then((res) => {
+        if (activeTab) {
+          activeTab.columns = res.columns;
+          activeTab.rows = res.rows;
+          activeTab.totalRows = res.total_rows;
+          activeTab.logs = res.logs || '';
+          saveStateToStorage(true);
+        }
+      });
+    }
+  }
+
+  function handleMouseDown() {
+    isResizing = true;
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!isResizing) return;
+    const containerHeight = window.innerHeight - 110;
+    const newPercent = (e.clientY / containerHeight) * 100;
+    if (newPercent >= 20 && newPercent <= 80) {
+      editorHeightPercent = newPercent;
+    }
+  }
+
+  function handleMouseUp() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+  }
+</script>
+
+<div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
+  <!-- Главный Header платформы -->
+  <Header
+    title="Spark Explorer"
+    subtitle="PySpark & Scala"
+    icon={Flame}
+    user={user}
+    clusters={clusters}
+    selectedClusterId={selectedClusterId}
+    onClusterSelect={handleClusterSelect}
+    onLogout={handleLogout}
+    onLoginClick={() => (isLoginModalOpen = true)}
+  />
+
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Сайдбар слева -->
+    <Sidebar
+      clusterDetails={clusterDetails}
+      bind:selectedMetastoreId
+      targetLanguage={activeTab?.language || 'pyspark'}
+      username={user?.username}
+      onSelectTable={handleSelectTable}
+      onRestoreHistory={handleRestoreHistory}
+    />
+
+    <!-- Основная рабочая область -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+      <!-- Session Bar -->
+      <SessionBar
+        language={activeTab?.language || 'pyspark'}
+        session={currentSession}
+        isRunning={activeTab?.isRunning || false}
+        yarnClusterId={clusterDetails?.yarn_cluster_id}
+        onLanguageChange={handleLanguageChange}
+        onRun={() => {
+          if (runEditorTrigger) {
+            runEditorTrigger();
+          } else {
+            handleRun();
+          }
+        }}
+        onCancel={handleCancel}
+        onOpenSettings={openSessionConfigModal}
+        onRestartSession={handleRestartSession}
+        onStopSession={handleStopSession}
+      />
+
+      <!-- Вкладки редактора скриптов -->
+      <div class="h-9 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1 shrink-0 overflow-x-auto select-none">
+        {#each tabs as tab}
+          <div
+            role="button"
+            tabindex="0"
+            onclick={() => selectTab(tab.id)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectTab(tab.id); }}
+            class="group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition border-t-2 {tab.id === activeTabId ? 'bg-white border-amber-500 text-slate-800 shadow-xs' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}"
+          >
+            <span class="truncate max-w-xs">{tab.title}</span>
+            <span class="text-[9px] font-mono uppercase px-1 rounded bg-slate-100 text-slate-500">{tab.language}</span>
+            {#if tabs.length > 1}
+              <button
+                onclick={(e) => closeTab(tab.id, e)}
+                class="opacity-0 group-hover:opacity-100 hover:bg-slate-200 p-0.5 rounded text-slate-400 hover:text-slate-600 transition"
+              >
+                <X class="w-3 h-3" />
+              </button>
+            {/if}
+          </div>
+        {/each}
+
+        <button
+          onclick={addTab}
+          class="p-1 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 transition cursor-pointer ml-1"
+          title="Новый скрипт"
+        >
+          <Plus class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <!-- Рабочая зона: Редактор и Результаты (Resizable Split) -->
+      <div class="flex-1 flex flex-col overflow-hidden relative">
+        <!-- Редактор кода -->
+        <div style="height: {editorHeightPercent}%;" class="w-full overflow-hidden">
+          {#if activeTab}
+            <SparkEditor
+              bind:code={activeTab.code}
+              language={activeTab.language}
+              onCodeChange={handleCodeChange}
+              onRun={(customCode) => handleRun(customCode)}
+              registerTrigger={(fn) => { runEditorTrigger = fn; }}
+            />
+          {/if}
+        </div>
+
+        <!-- Разделитель (Split Handle) -->
+        <div
+          role="separator"
+          aria-valuenow={editorHeightPercent}
+          tabindex="0"
+          onmousedown={handleMouseDown}
+          class="h-1.5 bg-slate-200 hover:bg-amber-400 transition cursor-row-resize shrink-0 z-20"
+        ></div>
+
+        <!-- Результаты и Логи -->
+        <div style="height: {100 - editorHeightPercent}%;" class="w-full overflow-hidden">
+          {#if activeTab}
+            <ResultsView
+              columns={activeTab.columns}
+              rows={activeTab.rows}
+              totalRows={activeTab.totalRows}
+              logs={activeTab.logs}
+              errorMessage={activeTab.errorMessage}
+              executionTimeMs={activeTab.executionTimeMs}
+              bind:activeTab={activeTab.activeResultTab}
+              onTabChange={() => saveStateToStorage(true)}
+            />
+          {/if}
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Модальное окно конфигурации сессии Spark -->
+  <SessionConfigModal
+    isOpen={isConfigModalOpen}
+    clusterDetails={clusterDetails}
+    initialValues={sessionPayload}
+    targetKind={currentTabKind}
+    targetLanguage={activeTab?.language || 'pyspark'}
+    onClose={() => (isConfigModalOpen = false)}
+    onSave={handleSaveSessionConfig}
+  />
+
+  {#if !isAuthChecking && (!user || isLoginModalOpen)}
+    <LoginModal
+      title="Spark Explorer"
+      subtitle="Аутентификация LDAP & SSO"
+      icon={Flame}
+      mockUsers={mockUsers}
+      onLogin={handleLogin}
+    />
+  {/if}
+</div>

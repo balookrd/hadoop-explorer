@@ -7,6 +7,7 @@ members = [
     "hadoop-explorer",
     "hadoop-explorer-common",
     "hadoop-explorer-hdfs",
+    "hadoop-explorer-spark",
     "hadoop-explorer-sql",
     "hadoop-explorer-yarn",
 ]
@@ -779,6 +780,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "hadoop-explorer-common" },
     { name = "hadoop-explorer-hdfs" },
+    { name = "hadoop-explorer-spark" },
     { name = "hadoop-explorer-sql" },
     { name = "hadoop-explorer-yarn" },
 ]
@@ -796,6 +798,7 @@ dev = [
 requires-dist = [
     { name = "hadoop-explorer-common", editable = "backend/common" },
     { name = "hadoop-explorer-hdfs", editable = "backend/hdfs" },
+    { name = "hadoop-explorer-spark", editable = "backend/spark" },
     { name = "hadoop-explorer-sql", editable = "backend/sql" },
     { name = "hadoop-explorer-yarn", editable = "backend/yarn" },
 ]
@@ -850,7 +853,6 @@ version = "1.0.0"
 source = { editable = "backend/hdfs" }
 dependencies = [
     { name = "aiofiles" },
-    { name = "fakeredis" },
     { name = "gssapi", marker = "sys_platform != 'win32'" },
     { name = "hadoop-explorer-common" },
     { name = "httpx" },
@@ -858,16 +860,21 @@ dependencies = [
     { name = "krb5" },
     { name = "psycopg2-binary" },
     { name = "pyarrow" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "python-multipart" },
     { name = "requests-kerberos" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "fakeredis" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=24.1.0" },
-    { name = "fakeredis", specifier = ">=2.20.0" },
+    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
     { name = "gssapi", marker = "sys_platform != 'win32'", specifier = ">=1.8.3" },
     { name = "hadoop-explorer-common", editable = "backend/common" },
     { name = "httpx", specifier = ">=0.27.0" },
@@ -875,11 +882,54 @@ requires-dist = [
     { name = "krb5", specifier = ">=0.6.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "requests-kerberos", specifier = ">=0.14.0" },
 ]
+provides-extras = ["dev"]
+
+[[package]]
+name = "hadoop-explorer-spark"
+version = "1.0.0"
+source = { editable = "backend/spark" }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "hadoop-explorer-common" },
+    { name = "httpx" },
+    { name = "passlib", extra = ["bcrypt"] },
+    { name = "python-dateutil" },
+    { name = "python-multipart" },
+    { name = "requests" },
+    { name = "requests-kerberos" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "fakeredis" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.20.0" },
+    { name = "alembic", specifier = ">=1.13.2" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
+    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
+    { name = "hadoop-explorer-common", editable = "backend/common" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "python-dateutil", specifier = ">=2.9.0" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "requests", specifier = ">=2.31.0" },
+    { name = "requests-kerberos", specifier = ">=0.14.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "hadoop-explorer-sql"
@@ -889,7 +939,6 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "asyncpg" },
-    { name = "fakeredis" },
     { name = "greenlet" },
     { name = "hadoop-explorer-common" },
     { name = "httpx" },
@@ -897,8 +946,6 @@ dependencies = [
     { name = "kerberos" },
     { name = "passlib", extra = ["bcrypt"] },
     { name = "pure-sasl" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "python-dateutil" },
     { name = "python-multipart" },
     { name = "requests-kerberos" },
@@ -908,12 +955,19 @@ dependencies = [
     { name = "trino" },
 ]
 
+[package.optional-dependencies]
+dev = [
+    { name = "fakeredis" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "alembic", specifier = ">=1.13.2" },
     { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "fakeredis", specifier = ">=2.20.0" },
+    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
     { name = "greenlet", specifier = ">=3.0.0" },
     { name = "hadoop-explorer-common", editable = "backend/common" },
     { name = "httpx", specifier = ">=0.27.0" },
@@ -921,8 +975,8 @@ requires-dist = [
     { name = "kerberos", specifier = ">=1.3.0" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
     { name = "pure-sasl", specifier = ">=0.6.2" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests-kerberos", specifier = ">=0.14.0" },
@@ -931,6 +985,7 @@ requires-dist = [
     { name = "thrift-sasl", specifier = ">=0.4.3" },
     { name = "trino", specifier = ">=0.329.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "hadoop-explorer-yarn"
@@ -938,7 +993,6 @@ version = "1.0.0"
 source = { editable = "backend/yarn" }
 dependencies = [
     { name = "defusedxml" },
-    { name = "fakeredis" },
     { name = "gssapi", marker = "sys_platform != 'win32'" },
     { name = "hadoop-explorer-common" },
     { name = "httpx" },
@@ -946,18 +1000,23 @@ dependencies = [
     { name = "krb5" },
     { name = "passlib", extra = ["bcrypt"] },
     { name = "psycopg2-binary" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "python-dateutil" },
     { name = "python-multipart" },
     { name = "requests" },
     { name = "requests-kerberos" },
 ]
 
+[package.optional-dependencies]
+dev = [
+    { name = "fakeredis" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
-    { name = "fakeredis", specifier = ">=2.20.0" },
+    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
     { name = "gssapi", marker = "sys_platform != 'win32'", specifier = ">=1.8.3" },
     { name = "hadoop-explorer-common", editable = "backend/common" },
     { name = "httpx", specifier = ">=0.27.0" },
@@ -965,13 +1024,14 @@ requires-dist = [
     { name = "krb5", specifier = ">=0.6.0" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "requests-kerberos", specifier = ">=0.14.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "httpcore"

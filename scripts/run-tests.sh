@@ -46,6 +46,18 @@ run_sql() {
    $pt tests)
 }
 
+run_spark() {
+  echo "=========================================="
+  echo "🧪 Запуск тестов: Spark Explorer (5 тестов)"
+  echo "=========================================="
+  local pt
+  pt="$(find_pytest spark)"
+  (cd "$ROOT_DIR/backend/spark" && \
+   CONFIG_PATH=config/config.yaml \
+   PYTHONPATH=".:$ROOT_DIR" \
+   $pt tests)
+}
+
 run_yarn() {
   echo "=========================================="
   echo "🧪 Запуск тестов: YARN Explorer (42 теста)"
@@ -62,6 +74,9 @@ case "$APP" in
   hdfs)
     run_hdfs
     ;;
+  spark)
+    run_spark
+    ;;
   sql)
     run_sql
     ;;
@@ -70,15 +85,16 @@ case "$APP" in
     ;;
   all)
     run_hdfs
+    run_spark
     run_sql
     run_yarn
     echo ""
     echo "========================================================"
-    echo "🎉 ВСЕ 112 ТЕСТОВ ПЛАТФОРМЫ HADOOP EXPLORER ПРОЙДЕНЫ УСПЕШНО!"
+    echo "🎉 ВСЕ ТЕСТЫ ПЛАТФОРМЫ HADOOP EXPLORER ПРОЙДЕНЫ УСПЕШНО!"
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|hdfs|sql|yarn]"
+    echo "Использование: $0 [all|hdfs|spark|sql|yarn]"
     exit 1
     ;;
 esac

@@ -1,8 +1,9 @@
-# Единый объединенный демо-стенд Hadoop Explorer (HDFS + SQL + YARN)
+# Единый объединенный демо-стенд платформы Hadoop Explorer (HDFS + SQL + YARN + Spark)
 name: hadoop-explorer-demo-all
 
 include:
-  - path: ../infra/docker-compose.infra.yml
+  - path: ../platform/docker-compose.core.yml
   - path: ../hdfs/docker-compose.yml
-  - path: ../sql/docker-compose.yaml
   - path: ../yarn/docker-compose.yml
+  - path: ../sql/docker-compose.yaml
+  - path: ../spark/docker-compose.yaml

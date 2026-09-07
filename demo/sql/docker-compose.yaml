@@ -1,60 +1,15 @@
 name: sql-explorer-demo
 
 include:
-  - path: ../infra/docker-compose.infra.yml
+  - path: ../platform/docker-compose.hms.yml
 
 volumes:
-  sql-pgdata-meta:
   sql-explorer-data:
+    name: sql-explorer-data
 
 services:
   # ==========================================
-  # 1. PostgreSQL для Hive Metastore
-  # ==========================================
-  sql-postgres-meta:
-    image: postgres:16-alpine
-    container_name: sql-demo-postgres-meta
-    hostname: postgres-meta
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: metastore
-      POSTGRES_USER: hive
-      POSTGRES_PASSWORD: hivepassword
-    volumes:
-      - sql-pgdata-meta:/var/lib/postgresql/data
-    networks:
-      demo-platform-net:
-        aliases:
-          - postgres-meta
-
-  # ==========================================
-  # 2. Hive Metastore (Apache Hive 4.0.0)
-  # ==========================================
-  sql-hive-metastore:
-    image: apache/hive:4.0.0
-    container_name: sql-demo-hive-metastore
-    hostname: hive-metastore
-    restart: unless-stopped
-    environment:
-      SERVICE_NAME: metastore
-      DB_DRIVER: derby
-      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
-      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
-    volumes:
-      - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
-      - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
-      - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
-      - demo-shared-keytabs:/etc/security/keytabs:ro
-    depends_on:
-      kdc:
-        condition: service_healthy
-    networks:
-      demo-platform-net:
-        aliases:
-          - hive-metastore
-
-  # ==========================================
-  # 3. HiveServer2 (Kerberized + doAs)
+  # 1. HiveServer2 (Kerberized + doAs)
   # ==========================================
   sql-hive-server:
     image: apache/hive:4.0.0
@@ -75,6 +30,7 @@ services:
       - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     depends_on:
       - sql-hive-metastore
       - kdc
@@ -84,7 +40,7 @@ services:
           - hive-server
 
   # ==========================================
-  # 4. Trino Coordinator (Kerberized + TPCH + Hive)
+  # 2. Trino Coordinator (Kerberized + TPCH + Hive)
   # ==========================================
   sql-trino-coordinator:
     image: trinodb/trino:latest
@@ -106,7 +62,7 @@ services:
           - trino-coordinator
 
   # ==========================================
-  # 5. Сервис SQL Explorer
+  # 3. Сервис SQL Explorer (Web UI + Backend)
   # ==========================================
   sql-explorer:
     build:

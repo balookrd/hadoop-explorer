@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sql-explorer.fullname" . }}
+  labels:
+    {{- include "sql-explorer.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  {{- $dbUrl := .Values.config.database.url | default "" -}}
+  {{- if and (or (hasPrefix "sqlite" $dbUrl) (eq $dbUrl "")) (gt (.Values.replicaCount | int) 1) }}
+  replicas: 1
+  {{- else }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "sql-explorer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "sql-explorer.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sql-explorer.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/sql-explorer/config.yaml"
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  key: jwt-secret
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  key: ldap-password
+            {{- if .Values.secrets.databasePassword }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sql-explorer.fullname" . }}-secrets
+                  key: database-password
+            {{- end }}
+            {{- if .Values.config.auth.kerberos.service_principal }}
+            - name: KRB5_PRINCIPAL
+              value: {{ .Values.config.auth.kerberos.service_principal | quote }}
+            {{- end }}
+            {{- if .Values.config.auth.kerberos.keytab_file }}
+            - name: KRB5_KEYTAB
+              value: {{ .Values.config.auth.kerberos.keytab_file | quote }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: app-config
+              mountPath: /etc/sql-explorer/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.kerberos.enabled }}
+            - name: app-config
+              mountPath: /etc/krb5.conf
+              subPath: krb5.conf
+              readOnly: true
+            {{- end }}
+            {{- if .Values.customLdapCaCert }}
+            - name: app-config
+              mountPath: /etc/ssl/certs/ldap-ca.crt
+              subPath: ldap-ca.crt
+              readOnly: true
+            {{- end }}
+            {{- if .Values.secrets.kerberosKeytabBase64 }}
+            - name: keytab-volume
+              mountPath: /etc/security/keytabs
+              readOnly: true
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: data-volume
+              mountPath: {{ .Values.persistence.mountPath | default "/app/data" }}
+            {{- end }}
+      volumes:
+        - name: app-config
+          configMap:
+            name: {{ include "sql-explorer.fullname" . }}-config
+        {{- if .Values.secrets.kerberosKeytabBase64 }}
+        - name: keytab-volume
+          secret:
+            secretName: {{ include "sql-explorer.fullname" . }}-secrets
+            items:
+              - key: sql-explorer.keytab
+                path: sql-explorer.keytab
+                mode: 0400
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: {{ include "sql-explorer.fullname" . }}-data
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

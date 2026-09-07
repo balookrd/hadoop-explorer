@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../../common";
+@source "../../../common/**/*.svelte";
 
 @layer base {
   :root {

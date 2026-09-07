@@ -1,0 +1,185 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  cors_origins:
+    - "http://localhost:8000"
+    - "http://localhost:8004"
+    - "http://localhost:5173"
+    - "http://localhost:5174"
+    - "http://127.0.0.1:8004"
+  secure_cookies: false
+
+database:
+  url: "sqlite+aiosqlite:///./data/spark_explorer.db"
+
+auth:
+  mode: "mock"
+  mock_users:
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Александр Админов"
+      email: "admin@company.local"
+      groups: ["hadoop-admins", "platform-admins"]
+    - username: "de_user"
+      password: "password123"
+      display_name: "Иван Датаинженеров"
+      email: "de@company.local"
+      groups: ["data-engineers", "bi-analysts"]
+    - username: "analyst_user"
+      password: "password123"
+      display_name: "Анна Аналитикова"
+      email: "analyst@company.local"
+      groups: ["bi-analysts"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldap://ldap:389"
+    use_ssl: false
+    bind_dn: "cn=admin,dc=company,dc=local"
+    bind_password: "admin"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+    user_display_name_attr: "cn"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    group_name_attr: "cn"
+
+  kerberos:
+    enabled: false
+
+  jwt:
+    secret_key: "spark-explorer-demo-secret-jwt-key-32chars-min"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+    admin_groups: ["hadoop-admins", "platform-admins"]
+
+clusters:
+  - id: "demo-hadoop-spark"
+    name: "Hadoop Cluster 1 (YARN + HDFS + Livy)"
+    description: "Полноценный кластер с Apache Spark 3.5, Apache Livy, YARN и HDFS"
+    type: "spark"
+    livy_url: "http://spark-livy:8998"
+    use_ssl: false
+    auth:
+      type: "none"
+    impersonation:
+      enabled: false
+
+    yarn:
+      cluster_id: "prod-yarn"
+      resource_manager_urls:
+        - "http://yarn-rm-1:8088"
+      default_queue: "root.analytics"
+      allowed_queues: ["root.analytics", "root.adhoc", "root.etl", "root.default"]
+      queue_acl:
+        root.etl:
+          allowed_groups: ["data-engineers", "hadoop-admins"]
+        root.adhoc:
+          allowed_groups: ["*"]
+
+    spark_versions:
+      - id: "spark-3.5"
+        name: "Apache Spark 3.5.1 (Scala 2.12)"
+        is_default: true
+        spark_archive: "hdfs://hdfs-cluster-1:9000/apps/spark/spark-3.5.1-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py310-default"
+            name: "Python 3.10 (Standard Runtime)"
+            python_path: "/usr/bin/python3"
+            is_default: true
+          - id: "py310-ml"
+            name: "Python 3.10 (ML / PyTorch / Pandas / Scikit)"
+            archive_path: "hdfs://hdfs-cluster-1:9000/apps/python/envs/py310_ml.tar.gz#environment"
+            python_path: "./environment/bin/python"
+            is_default: false
+      - id: "spark-3.2"
+        name: "Apache Spark 3.2.4 (Compatibility)"
+        is_default: false
+        spark_archive: "hdfs://hdfs-cluster-1:9000/apps/spark/spark-3.2.4-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py39-standard"
+            name: "Python 3.9"
+            python_path: "/usr/bin/python3"
+            is_default: true
+
+    default_repositories:
+      - "https://repo.maven.apache.org/maven2"
+
+    metastores:
+      - id: "hive-metastore"
+        name: "Hive Metastore (Demo Lakehouse)"
+        is_default: true
+        uris: "thrift://hive-metastore:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
+          "spark.sql.catalogImplementation": "hive"
+
+    resource_profiles:
+      small:
+        name: "Small (1 Driver 1G, 1 Exec 1G)"
+        driver_memory: "1g"
+        driver_cores: 1
+        executor_memory: "1g"
+        executor_cores: 1
+        num_executors: 1
+      medium:
+        name: "Medium (1 Driver 2G, 2 Exec 2G)"
+        driver_memory: "2g"
+        driver_cores: 1
+        executor_memory: "2g"
+        executor_cores: 2
+        num_executors: 2
+      large:
+        name: "Large (1 Driver 4G, 4 Exec 4G)"
+        driver_memory: "4g"
+        driver_cores: 2
+        executor_memory: "4g"
+        executor_cores: 2
+        num_executors: 4
+
+    session_idle_timeout_seconds: 1800
+    max_sessions_per_user: 3
+
+  - id: "sandbox-mock"
+    name: "Spark Sandbox (Mock / Fast Test)"
+    description: "Песочница с мгновенным выполнением PySpark и Scala Spark без ожидания YARN"
+    type: "mock"
+    livy_url: "http://localhost:8998"
+    use_ssl: false
+    auth:
+      type: "none"
+    yarn:
+      cluster_id: "dev-yarn"
+      resource_manager_urls: ["http://yarn-rm-1:8088"]
+      default_queue: "default"
+      allowed_queues: ["default", "dev"]
+    spark_versions:
+      - id: "spark-3.5-mock"
+        name: "Apache Spark 3.5 (Fast Sandbox)"
+        is_default: true
+        python_versions:
+          - id: "py310-mock"
+            name: "Python 3.10"
+            python_path: "python3"
+            is_default: true
+    metastores:
+      - id: "mock-hms"
+        name: "Sandbox Metastore"
+        is_default: true
+        uris: "thrift://localhost:9083"
+    resource_profiles:
+      small:
+        name: "Sandbox Profile (1c/1G)"
+        driver_memory: "1g"
+        driver_cores: 1
+        executor_memory: "1g"
+        executor_cores: 1
+        num_executors: 1
+    session_idle_timeout_seconds: 1800

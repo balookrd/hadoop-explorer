@@ -1,0 +1,39 @@
+name: hadoop-explorer-shared-hms
+
+include:
+  - path: ../infra/docker-compose.infra.yml
+
+volumes:
+  sql-metastore-data:
+    name: sql-metastore-data
+
+services:
+  # ==========================================
+  # Hive Metastore (Apache Hive 4.0.0, Thrift 9083)
+  # ==========================================
+  sql-hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: sql-demo-hive-metastore
+    hostname: hive-metastore
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+    ports:
+      - "9083:9083"
+    volumes:
+      - ../sql/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../sql/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - sql-metastore-data:/opt/hive/data
+    depends_on:
+      kdc:
+        condition: service_healthy
+    networks:
+      demo-platform-net:
+        aliases:
+          - hive-metastore

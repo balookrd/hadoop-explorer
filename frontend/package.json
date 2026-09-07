@@ -6,11 +6,13 @@
     "apps/*"
   ],
   "scripts": {
-    "build:all": "npm run build --workspace=apps/hdfs && npm run build --workspace=apps/sql && npm run build --workspace=apps/yarn",
+    "build:all": "npm run build --workspace=apps/hdfs && npm run build --workspace=apps/spark && npm run build --workspace=apps/sql && npm run build --workspace=apps/yarn",
     "build:hdfs": "npm run build --workspace=apps/hdfs",
+    "build:spark": "npm run build --workspace=apps/spark",
     "build:sql": "npm run build --workspace=apps/sql",
     "build:yarn": "npm run build --workspace=apps/yarn",
     "dev:hdfs": "npm run dev --workspace=apps/hdfs",
+    "dev:spark": "npm run dev --workspace=apps/spark",
     "dev:sql": "npm run dev --workspace=apps/sql",
     "dev:yarn": "npm run dev --workspace=apps/yarn"
   }

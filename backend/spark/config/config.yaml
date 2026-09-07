@@ -1,0 +1,215 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+  cors_origins: ["http://localhost:8000", "http://localhost:5173", "http://127.0.0.1:5173"]
+  secure_cookies: false
+
+database:
+  url: "sqlite+aiosqlite:///./data/spark_explorer.db"
+
+auth:
+  mode: "mock"
+  mock_users:
+    - username: "admin_user"
+      password: "password123"
+      display_name: "Александр Админов"
+      email: "admin@company.local"
+      groups: ["hadoop-admins", "platform-admins"]
+    - username: "de_user"
+      password: "password123"
+      display_name: "Иван Датаинженеров"
+      email: "de@company.local"
+      groups: ["data-engineers", "bi-analysts"]
+    - username: "analyst_user"
+      password: "password123"
+      display_name: "Анна Аналитикова"
+      email: "analyst@company.local"
+      groups: ["bi-analysts"]
+
+  ldap:
+    enabled: true
+    server_uri: "ldaps://ad.company.local:636"
+    use_ssl: true
+    bind_dn: "cn=svc_spark_explorer,ou=services,dc=company,dc=local"
+    bind_password: "ServicePasswordHere"
+    user_base_dn: "ou=users,dc=company,dc=local"
+    user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+    user_display_name_attr: "displayName"
+    user_email_attr: "mail"
+    group_base_dn: "ou=groups,dc=company,dc=local"
+    group_filter: "(&(objectClass=group)(member={user_dn}))"
+    group_name_attr: "cn"
+    ca_cert_file: null
+    allow_insecure_ssl: false
+
+  kerberos:
+    enabled: true
+    keytab_file: "/etc/security/keytabs/spark-explorer.keytab"
+    service_principal: "HTTP/spark-explorer.company.local@COMPANY.LOCAL"
+
+  jwt:
+    secret_key: "spark-explorer-super-secret-jwt-key-for-dev-32chars"
+    algorithm: "HS256"
+    expire_minutes: 480
+
+acl:
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+    admin_groups: ["hadoop-admins", "platform-admins"]
+
+clusters:
+  - id: "prod-hadoop"
+    name: "Production Hadoop (Spark & HMS)"
+    description: "Основной кластер CDP/HDP с поддержкой Spark 3.5, 3.2 и 2.4"
+    type: "spark"
+    livy_url: "http://livy-prod.company.local:8998"
+    use_ssl: false
+    auth:
+      type: "kerberos"
+      service_name: "livy"
+    impersonation:
+      enabled: true
+      method: "proxyUser"
+    acl:
+      allowed_groups: ["*"]
+      allowed_users: []
+
+    # Матрица версий Spark
+    spark_versions:
+      - id: "spark-3.5"
+        name: "Apache Spark 3.5.1 (Scala 2.12)"
+        is_default: true
+        spark_archive: "hdfs:///apps/spark/spark-3.5.1-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py310-default"
+            name: "Python 3.10 (Standard Runtime)"
+            python_path: "/opt/conda/envs/py310/bin/python"
+            is_default: true
+          - id: "py310-ml"
+            name: "Python 3.10 (ML / PyTorch / Pandas / Sklearn)"
+            archive_path: "hdfs:///apps/python/envs/py310_ml.tar.gz#environment"
+            python_path: "./environment/bin/python"
+            is_default: false
+      - id: "spark-3.2"
+        name: "Apache Spark 3.2.4 (Scala 2.12)"
+        is_default: false
+        spark_archive: "hdfs:///apps/spark/spark-3.2.4-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py39-standard"
+            name: "Python 3.9 (Standard)"
+            python_path: "/opt/conda/envs/py39/bin/python"
+            is_default: true
+      - id: "spark-2.4"
+        name: "Apache Spark 2.4.8 (Legacy Scala 2.11)"
+        is_default: false
+        livy_url: "http://livy-spark2.prod.company.local:8998"
+        spark_archive: "hdfs:///apps/spark/spark-2.4.8-bin-hadoop2.7.tgz"
+        python_versions:
+          - id: "py37-legacy"
+            name: "Python 3.7 (Legacy)"
+            python_path: "/opt/conda/envs/py37/bin/python"
+            is_default: true
+
+    default_repositories:
+      - "https://repo.maven.apache.org/maven2"
+      - "http://nexus.company.local/repository/maven-central/"
+
+    # Интеграция с YARN
+    yarn:
+      cluster_id: "prod-yarn"
+      resource_manager_urls:
+        - "http://rm1.prod.company.local:8088"
+        - "http://rm2.prod.company.local:8088"
+      default_queue: "root.analytics"
+      allowed_queues: ["root.analytics", "root.adhoc", "root.etl"]
+      queue_acl:
+        root.etl:
+          allowed_groups: ["data-engineers", "hadoop-admins"]
+        root.adhoc:
+          allowed_groups: ["*"]
+
+    # Множественные Metastore для этого кластера
+    metastores:
+      - id: "lakehouse-core"
+        name: "Lakehouse Core Metastore (HMS)"
+        is_default: true
+        uris: "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
+          "spark.sql.catalogImplementation": "hive"
+      - id: "marts-metastore"
+        name: "Data Marts Metastore"
+        is_default: false
+        uris: "thrift://hms-marts.prod.company.local:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://hms-marts.prod.company.local:9083"
+          "spark.sql.catalogImplementation": "hive"
+
+    # Предустановленные профили ресурсов
+    resource_profiles:
+      small:
+        name: "Small (Driver 2G/1c, 2 Exec 4G/2c)"
+        driver_memory: "2g"
+        driver_cores: 1
+        executor_memory: "4g"
+        executor_cores: 2
+        num_executors: 2
+      medium:
+        name: "Medium (Driver 4G/2c, 4 Exec 8G/2c)"
+        driver_memory: "4g"
+        driver_cores: 2
+        executor_memory: "8g"
+        executor_cores: 2
+        num_executors: 4
+      large:
+        name: "Large (Driver 8G/4c, 8 Exec 16G/4c)"
+        driver_memory: "8g"
+        driver_cores: 4
+        executor_memory: "16g"
+        executor_cores: 4
+        num_executors: 8
+
+    session_idle_timeout_seconds: 1800
+    max_sessions_per_user: 3
+
+  - id: "dev-hadoop"
+    name: "Development Sandbox (Local/Mock)"
+    description: "Песочница для тестирования PySpark и Scala Spark"
+    type: "mock"
+    livy_url: "http://localhost:8998"
+    use_ssl: false
+    auth:
+      type: "none"
+    yarn:
+      cluster_id: "dev-yarn"
+      resource_manager_urls: ["http://localhost:8088"]
+      default_queue: "default"
+      allowed_queues: ["default", "dev"]
+    spark_versions:
+      - id: "spark-3.5-dev"
+        name: "Apache Spark 3.5.1 (Dev Sandbox)"
+        is_default: true
+        spark_archive: "/apps/spark/spark-3.5.tgz"
+        python_versions:
+          - id: "py310-dev"
+            name: "Python 3.10"
+            python_path: "python3"
+            is_default: true
+    metastores:
+      - id: "dev-hms"
+        name: "Sandbox Hive Metastore"
+        is_default: true
+        uris: "thrift://localhost:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://localhost:9083"
+    resource_profiles:
+      small:
+        name: "Sandbox Small (1 Driver 1G, 1 Exec 1G)"
+        driver_memory: "1g"
+        driver_cores: 1
+        executor_memory: "1g"
+        executor_cores: 1
+        num_executors: 1
+    session_idle_timeout_seconds: 1800

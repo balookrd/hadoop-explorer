@@ -1,0 +1,7 @@
+name: hadoop-explorer-core-platform
+
+include:
+  - path: ../infra/docker-compose.infra.yml
+  - path: ./docker-compose.hdfs.yml
+  - path: ./docker-compose.yarn.yml
+  - path: ./docker-compose.hms.yml

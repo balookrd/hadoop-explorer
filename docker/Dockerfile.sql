@@ -13,15 +13,33 @@ COPY frontend/apps/sql ./apps/sql
 RUN npm run build --workspace=apps/sql
 
 # ==========================================
-# Этап 2: Финальный образ Backend + Static
+# Этап 2: Сборка зависимостей Backend
 # ==========================================
-FROM python:3.12-slim
+FROM python:3.12-slim AS backend-builder
 
-# Системные зависимости для Kerberos, SASL, LDAP
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libkrb5-dev \
     libsasl2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY backend/common /tmp/backend/common
+COPY backend/sql /tmp/backend/sql
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /tmp/backend/common /tmp/backend/sql
+
+# ==========================================
+# Этап 3: Финальный образ Backend + Static
+# ==========================================
+FROM python:3.12-slim
+
+# Системные runtime зависимости (без компиляторов и dev-пакетов)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libkrb5-3 \
+    libsasl2-2 \
     libsasl2-modules-gssapi-mit \
     krb5-user \
     ldap-utils \
@@ -29,15 +47,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Копирование виртуального окружения с установленными зависимостями
+COPY --from=backend-builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 WORKDIR /app
 
-# Установка Python пакетов по pyproject.toml (Вариант 3)
+# Исходный код сервиса, конфигурация и entrypoint
 COPY backend/common ./backend/common
 COPY backend/sql ./backend/sql
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir ./backend/common ./backend/sql
-
-# Конфигурация и entrypoint
 COPY backend/sql/config ./config
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

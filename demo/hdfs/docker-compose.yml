@@ -1,55 +1,9 @@
 name: hdfs-explorer-demo
 
 include:
-  - path: ../infra/docker-compose.infra.yml
-
-volumes:
-  hdfs-demo-data:
-    name: hdfs-demo-data
+  - path: ../platform/docker-compose.hdfs.yml
 
 services:
-  hdfs-cluster-1:
-    build:
-      context: ./hadoop
-    container_name: hdfs-demo-cluster-1
-    hostname: hdfs-cluster-1
-    restart: unless-stopped
-    environment:
-      CLUSTER_ID: "hdfs-cluster-1"
-      CLUSTER_NAME: "Production DataLake"
-    volumes:
-      - demo-shared-keytabs:/shared/keytabs:ro
-      - demo-shared-krb5:/shared/conf:ro
-    ports:
-      - "9870:9870"
-      - "9864:9864"
-    depends_on:
-      kdc:
-        condition: service_healthy
-    networks:
-      - demo-platform-net
-
-  hdfs-cluster-2:
-    build:
-      context: ./hadoop
-    container_name: hdfs-demo-cluster-2
-    hostname: hdfs-cluster-2
-    restart: unless-stopped
-    environment:
-      CLUSTER_ID: "hdfs-cluster-2"
-      CLUSTER_NAME: "Archive & Analytics DataLake"
-    volumes:
-      - demo-shared-keytabs:/shared/keytabs:ro
-      - demo-shared-krb5:/shared/conf:ro
-    ports:
-      - "9872:9870"
-      - "9865:9864"
-    depends_on:
-      kdc:
-        condition: service_healthy
-    networks:
-      - demo-platform-net
-
   hdfs-explorer:
     build:
       context: ../..
@@ -80,4 +34,3 @@ services:
         condition: service_started
     networks:
       - demo-platform-net
-

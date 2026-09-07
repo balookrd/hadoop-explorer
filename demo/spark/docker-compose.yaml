@@ -1,0 +1,71 @@
+name: spark-explorer-demo
+
+include:
+  - path: ../platform/docker-compose.core.yml
+
+volumes:
+  spark-demo-data:
+    name: spark-demo-data
+
+services:
+  # ==========================================
+  # 1. Apache Livy Server + Apache Spark 3.5
+  # ==========================================
+  spark-livy:
+    build:
+      context: ./livy
+    container_name: spark-demo-livy
+    hostname: spark-livy
+    restart: unless-stopped
+    environment:
+      SPARK_MASTER: "local[*]" # Для быстрого интерактивного отклика контейнеров demo
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      HIVE_METASTORE_URIS: "thrift://hive-metastore:9083"
+    ports:
+      - "8998:8998"
+    volumes:
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-livy
+    depends_on:
+      hdfs-cluster-1:
+        condition: service_started
+      yarn-demo-rm-1:
+        condition: service_started
+      sql-hive-metastore:
+        condition: service_started
+
+  # ==========================================
+  # 2. Spark Explorer (Web UI + Backend)
+  # ==========================================
+  spark-explorer:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.spark
+    container_name: spark-demo-explorer
+    hostname: spark-explorer
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    environment:
+      CONFIG_PATH: "/app/config/config.yaml"
+      DATABASE_URL: "sqlite+aiosqlite:////app/data/spark_explorer.db"
+      SERVER_DEBUG: "true"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./config.demo.yaml:/app/config/config.yaml:ro
+      - spark-demo-data:/app/data
+      - demo-shared-krb5:/etc/krb5_shared:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-explorer
+    depends_on:
+      spark-livy:
+        condition: service_started
+      ldap:
+        condition: service_healthy

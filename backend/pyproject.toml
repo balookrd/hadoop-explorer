@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "hadoop-explorer-common",
     "hadoop-explorer-hdfs",
+    "hadoop-explorer-spark",
     "hadoop-explorer-sql",
     "hadoop-explorer-yarn",
 ]
@@ -23,6 +24,7 @@ dev = [
 members = [
     "common",
     "hdfs",
+    "spark",
     "sql",
     "yarn",
 ]
@@ -30,6 +32,7 @@ members = [
 [tool.uv.sources]
 hadoop-explorer-common = { workspace = true }
 hadoop-explorer-hdfs = { workspace = true }
+hadoop-explorer-spark = { workspace = true }
 hadoop-explorer-sql = { workspace = true }
 hadoop-explorer-yarn = { workspace = true }
 
@@ -38,6 +41,7 @@ minversion = "8.0"
 addopts = "-ra -q"
 testpaths = [
     "hdfs/tests",
+    "spark/tests",
     "sql/tests",
     "yarn/tests",
 ]
@@ -46,6 +50,7 @@ pythonpath = [
     "..",
     "common",
     "hdfs",
+    "spark",
     "sql",
     "yarn",
 ]

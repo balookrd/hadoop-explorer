@@ -1,69 +1,9 @@
 name: yarn-explorer-demo
 
 include:
-  - path: ../infra/docker-compose.infra.yml
-
-volumes:
-  yarn-demo-data:
-    name: yarn-demo-data
+  - path: ../platform/docker-compose.yarn.yml
 
 services:
-  yarn-demo-rm-1:
-    image: apache/hadoop:3.4.0
-    container_name: yarn-demo-rm-1
-    hostname: yarn-rm-1
-    user: "root"
-    networks:
-      demo-platform-net:
-        aliases:
-          - yarn-rm-1.yarn-demo-net
-          - yarn-rm-1
-    ports:
-      - "8088:8088"
-    environment:
-      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - KEYTAB_SRC=/etc/security/keytabs/yarn-cluster-1.keytab
-    volumes:
-      - demo-shared-krb5:/shared-krb5:ro
-      - demo-shared-keytabs:/etc/security/keytabs:ro
-      - ./cluster-1/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./cluster-1/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./cluster-1/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
-      - ./hadoop-common/entrypoint.sh:/entrypoint.sh:ro
-    entrypoint: ["/entrypoint.sh"]
-    depends_on:
-      kdc:
-        condition: service_healthy
-    restart: unless-stopped
-
-  yarn-demo-rm-2:
-    image: apache/hadoop:3.4.0
-    container_name: yarn-demo-rm-2
-    hostname: yarn-rm-2
-    user: "root"
-    networks:
-      demo-platform-net:
-        aliases:
-          - yarn-rm-2.yarn-demo-net
-          - yarn-rm-2
-    ports:
-      - "8089:8088"
-    environment:
-      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - KEYTAB_SRC=/etc/security/keytabs/yarn-cluster-2.keytab
-    volumes:
-      - demo-shared-krb5:/shared-krb5:ro
-      - demo-shared-keytabs:/etc/security/keytabs:ro
-      - ./cluster-2/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./cluster-2/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./cluster-2/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
-      - ./hadoop-common/entrypoint.sh:/entrypoint.sh:ro
-    entrypoint: ["/entrypoint.sh"]
-    depends_on:
-      kdc:
-        condition: service_healthy
-    restart: unless-stopped
-
   yarn-demo-explorer:
     build:
       context: ../..
@@ -105,4 +45,8 @@ services:
         condition: service_healthy
       ldap:
         condition: service_healthy
+      yarn-demo-rm-1:
+        condition: service_started
+      yarn-demo-rm-2:
+        condition: service_started
     restart: unless-stopped
