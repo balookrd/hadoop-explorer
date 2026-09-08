@@ -91,9 +91,9 @@
     {/if}
 
     {#if rowsCount > 0}
-      <div class="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md border border-slate-200 text-[11px] font-mono">
-        <Layers class="w-3.5 h-3.5 text-slate-400" />
-        <span>{rowsCount} строк</span>
+      <div class="flex items-center gap-1 text-emerald-700 font-mono text-[11px] bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md font-medium">
+        <Layers class="w-3.5 h-3.5 text-emerald-600" />
+        <span>{rowsCount.toLocaleString()} строк</span>
       </div>
     {/if}
   </div>
