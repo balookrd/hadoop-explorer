@@ -100,8 +100,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.server.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Sec-Fetch-Site"],
 )
 
 # Подключение API роутеров (v1)
@@ -138,6 +138,7 @@ async def health():
 async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
     from app.services.storage import storage_service
+    from backend.common.core.circuit_breaker import circuit_breaker_registry
     from fastapi.responses import JSONResponse
 
     storage_ok = await storage_service.ping_async()
@@ -145,6 +146,14 @@ async def readyz():
         return JSONResponse(
             status_code=503, content={"status": "unavailable", "app": "sql-explorer", "service": "sql-explorer", "database": "unreachable"}
         )
+
+    cb_stats = circuit_breaker_registry.get_all_stats()
+    if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "app": "sql-explorer", "reason": "all_circuits_open"}
+        )
+
     return {"status": "ready", "app": "sql-explorer", "service": "sql-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
 
 

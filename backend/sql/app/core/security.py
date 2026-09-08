@@ -8,6 +8,7 @@ from backend.common.core.security import (
     create_jwt_token,
     decode_jwt_token,
     make_get_current_user,
+    make_token_helpers,
 )
 from backend.common.core.rate_limiter import get_client_ip, is_trusted_proxy
 from app.core.config import settings
@@ -25,20 +26,11 @@ class UserSession(CommonUserSession):
     auth_method: str = "ldap"  # ldap, kerberos, mock
 
 
-def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
-    return create_jwt_token(
-        data=data,
-        secret_key=settings.auth.jwt.secret_key,
-        algorithm=settings.auth.jwt.algorithm,
-        expires_minutes=settings.auth.jwt.expire_minutes,
-        expires_delta=expires_delta,
-    )
-
-
-def decode_access_token(token: str) -> Optional[dict]:
-    return decode_jwt_token(
-        token=token, secret_key=settings.auth.jwt.secret_key, algorithms=[settings.auth.jwt.algorithm]
-    )
+create_access_token, decode_access_token = make_token_helpers(
+    get_secret_key=lambda: settings.auth.jwt.secret_key,
+    get_algorithm=lambda: settings.auth.jwt.algorithm,
+    default_expire_minutes=settings.auth.jwt.expire_minutes,
+)
 
 
 class _RevokedCacheCompat(set):

@@ -1,5 +1,6 @@
 # Количество реплик. Внимание: при использовании локальной SQLite БД поддерживается только 1 реплика (replicaCount: 1).
 # Для запуска 2 и более реплик настройте внешний PostgreSQL (config.database.url: postgresql://...).
+# Подробное руководство по переходу см. в docs/production-database.md
 replicaCount: 1
 
 image:
@@ -98,6 +99,13 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 2
+
+# Автомасштабирование подов (требует PostgreSQL вместо локальной SQLite БД)
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
 
 # Персистентное хранилище для SQLite базы данных заявок Change Requests (/app/data/yarn_explorer.db)
 persistence:
@@ -262,9 +270,12 @@ config:
 
 # Настройка сетевых политик Kubernetes NetworkPolicy
 networkPolicy:
-  enabled: false
+  enabled: true
   ingress:
-    from: []
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
   egress:
     allowDns: true
     allowKerberos: true

@@ -202,6 +202,45 @@ def decode_access_token(
     )
 
 
+def make_token_helpers(
+    get_secret_key: Callable[[], str],
+    get_algorithm: Callable[[], str],
+    default_expire_minutes: int = 480,
+) -> tuple[
+    Callable[..., str],
+    Callable[[str], Optional[dict]],
+]:
+    """
+    Фабрика для генерации типизированных вспомогательных функций создания и декодирования
+    JWT токенов с динамическим получением секретного ключа и алгоритма сервиса.
+    Позволяет устранить дублирование однотипного boilerplate-кода в микросервисах.
+    """
+
+    def create_token(
+        user_data: Optional[dict] = None,
+        expires_minutes: Optional[int] = None,
+        expires_delta: Optional[timedelta] = None,
+        data: Optional[dict] = None,
+    ) -> str:
+        payload = user_data if user_data is not None else (data or {})
+        return create_jwt_token(
+            data=payload,
+            secret_key=get_secret_key(),
+            algorithm=get_algorithm(),
+            expires_minutes=expires_minutes or default_expire_minutes,
+            expires_delta=expires_delta,
+        )
+
+    def decode_token(token: str) -> Optional[dict]:
+        return decode_jwt_token(
+            token=token,
+            secret_key=get_secret_key(),
+            algorithms=[get_algorithm()],
+        )
+
+    return create_token, decode_token
+
+
 # Тип для callback'а определения admin-прав
 AdminResolver = Callable[[str, List[str], Optional[dict]], bool]
 
@@ -411,6 +450,12 @@ CSP_DEFAULT_DIRECTIVES = (
     "form-action 'self';"
 )
 
+# Примечание по безопасности (SEC-4):
+# Для Monaco Editor и Web Workers требуются директивы 'unsafe-eval' и blob:
+# (см. https://github.com/microsoft/monaco-editor/issues/2026).
+# Во избежание ослабления защиты всего приложения эти послабления изолированы исключительно
+# в CSP_CODE_EDITOR_DIRECTIVES для интерактивных редакторов кода (SQL Explorer / Spark Explorer).
+# Для стандартных страниц всегда применяется жесткий CSP_DEFAULT_DIRECTIVES без eval.
 CSP_CODE_EDITOR_DIRECTIVES = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "

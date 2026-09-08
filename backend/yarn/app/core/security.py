@@ -9,6 +9,7 @@ from backend.common.core.security import (
     create_jwt_token,
     decode_jwt_token,
     make_get_current_user,
+    make_token_helpers,
 )
 from app.core.config import settings
 from app.services.storage import storage_service
@@ -25,20 +26,15 @@ def verify_csrf(request: Request, is_cookie_auth: bool):
     common_verify_csrf(request, is_cookie_auth, allowed_cors=settings.server.cors_origins)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    return create_jwt_token(
-        data=data,
-        secret_key=settings.auth.jwt.secret_key,
-        algorithm=settings.auth.jwt.algorithm,
-        expires_minutes=settings.auth.jwt.expire_minutes,
-        expires_delta=expires_delta,
-    )
+create_access_token, _raw_decode_access_token = make_token_helpers(
+    get_secret_key=lambda: settings.auth.jwt.secret_key,
+    get_algorithm=lambda: settings.auth.jwt.algorithm,
+    default_expire_minutes=settings.auth.jwt.expire_minutes,
+)
 
 
 def decode_access_token(token: str) -> Optional[dict]:
-    payload = decode_jwt_token(
-        token=token, secret_key=settings.auth.jwt.secret_key, algorithms=[settings.auth.jwt.algorithm]
-    )
+    payload = _raw_decode_access_token(token)
     if not payload:
         return None
 

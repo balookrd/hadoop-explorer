@@ -552,9 +552,10 @@ spark-explorer:
 ```
 
 ### 8.1 Рекомендации по High-Availability в продакшне
-1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: postgresql://...`). Локальная SQLite поддерживает только 1 реплику.
-2. **PodDisruptionBudget (PDB)**: Включите `podDisruptionBudget.enabled: true` во всех сервисах, чтобы гарантировать доступность сервиса при плановом drain или обновлении узлов Kubernetes.
-3. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
+1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: postgresql+asyncpg://...`). Локальная SQLite поддерживает только 1 реплику. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
+2. **PodDisruptionBudget (PDB)**: Шаблоны чартов автоматически активируют `PodDisruptionBudget` при запуске более 1 реплики (`replicaCount > 1`), предотвращая одновременный drain всех реплик узлами k8s.
+3. **NetworkPolicy**: Включена по умолчанию (`networkPolicy.enabled: true`) для изоляции сетевого взаимодействия и разрешения ingress-трафика только от Ingress-контроллера.
+4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
 
 ---
 

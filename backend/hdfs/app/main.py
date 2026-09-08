@@ -79,8 +79,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.server.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Sec-Fetch-Site"],
 )
 
 # Подключение API роутов
@@ -113,6 +113,7 @@ async def healthz():
 async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий."""
     from app.services.storage import storage_service
+    from backend.common.core.circuit_breaker import circuit_breaker_registry
     from fastapi.responses import JSONResponse
 
     storage_ok = await storage_service.ping_async()
@@ -120,6 +121,14 @@ async def readyz():
         return JSONResponse(
             status_code=503, content={"status": "unavailable", "app": "hdfs-explorer", "database": "unreachable"}
         )
+
+    cb_stats = circuit_breaker_registry.get_all_stats()
+    if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "app": "hdfs-explorer", "reason": "all_circuits_open"}
+        )
+
     return {"status": "ready", "app": "hdfs-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
 
 

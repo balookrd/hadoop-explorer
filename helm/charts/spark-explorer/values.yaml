@@ -1,5 +1,6 @@
 # Количество реплик. Внимание: при использовании локальной SQLite БД поддерживается только 1 реплика (replicaCount: 1).
 # Для запуска 2 и более реплик настройте внешний PostgreSQL (config.database.url: postgresql+asyncpg://...).
+# Подробное руководство по переходу см. в docs/production-database.md
 replicaCount: 1
 
 image:
@@ -206,9 +207,12 @@ affinity: {}
 
 # Настройка сетевых политик Kubernetes NetworkPolicy
 networkPolicy:
-  enabled: false
+  enabled: true
   ingress:
-    from: []
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
   egress:
     allowDns: true
     allowKerberos: true

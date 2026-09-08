@@ -10,6 +10,7 @@ from backend.common.core.security import (
     create_jwt_token,
     decode_jwt_token,
     make_get_current_user,
+    make_token_helpers,
 )
 from backend.common.core.rate_limiter import get_client_ip
 from app.core.config import settings
@@ -30,15 +31,11 @@ class UserSession(CommonUserSession):
     token_jti: Optional[str] = None
 
 
-def create_access_token(user_data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
-    to_encode = user_data.copy()
-    return create_jwt_token(
-        data=to_encode,
-        secret_key=settings.auth.jwt.secret_key,
-        algorithm=settings.auth.jwt.algorithm,
-        expires_minutes=settings.auth.jwt.expire_minutes,
-        expires_delta=expires_delta,
-    )
+create_access_token, decode_access_token = make_token_helpers(
+    get_secret_key=lambda: settings.auth.jwt.secret_key,
+    get_algorithm=lambda: settings.auth.jwt.algorithm,
+    default_expire_minutes=settings.auth.jwt.expire_minutes,
+)
 
 
 _get_current_user, _get_current_user_optional = make_get_current_user(

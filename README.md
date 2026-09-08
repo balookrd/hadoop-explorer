@@ -367,6 +367,12 @@ helm install sql-explorer helm/charts/sql-explorer -n hadoop
 helm install spark-explorer helm/charts/spark-explorer -n hadoop
 ```
 
+> [!NOTE]
+> **Production-стандарты в Helm-чартах**:
+> - **Сетевая изоляция (NetworkPolicy)**: включена по умолчанию во всех чартах с ограничением ingress-трафика от Ingress-контроллера.
+> - **Отказоустойчивость (PodDisruptionBudget)**: активируется автоматически при `replicaCount > 1`.
+> - **High Availability (HA)**: для горизонтального масштабирования (2+ реплики) используйте внешний PostgreSQL вместо локального SQLite. Подробное руководство см. в [docs/production-database.md](docs/production-database.md).
+
 Проверка синтаксиса чартов:
 ```bash
 make helm-lint

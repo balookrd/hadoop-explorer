@@ -12,3 +12,20 @@
 htmlcov/
 *.local.yaml
 *.local.yml
+
+# Secrets & certificates
+*.keytab
+*.pem
+*.crt
+*.key
+*.csr
+.env
+.env.*
+private/
+
+# Local databases and temporary data
+data/
+tmp/
+*.db
+*.sqlite
+*.sqlite3

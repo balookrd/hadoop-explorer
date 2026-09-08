@@ -1,5 +1,6 @@
 # Количество реплик. Внимание: при использовании локальной SQLite БД поддерживается только 1 реплика (replicaCount: 1).
 # Для запуска 2 и более реплик настройте внешний PostgreSQL (config.database.url: postgresql://...).
+# Подробное руководство по переходу см. в docs/production-database.md
 replicaCount: 1
 
 image:
@@ -207,11 +208,13 @@ persistence:
 
 # NetworkPolicy для изоляции сетевого взаимодействия Pod
 networkPolicy:
-  enabled: false
+  enabled: true
   ingress:
-    # По умолчанию разрешает трафик на порт 8000 от всех подов (или от Ingress контроллера)
-    # Если указаны элементы в from, они будут добавлены в спецификацию ingress.from
-    from: []
+    # Ограничение входящего трафика: разрешены запросы только от Ingress-контроллера
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
   egress:
     # Разрешить DNS (UDP и TCP 53)
     allowDns: true

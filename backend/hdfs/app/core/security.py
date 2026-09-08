@@ -9,6 +9,7 @@ from backend.common.core.security import (
     decode_jwt_token,
     extract_token_from_request as common_extract_token,
     make_get_current_user,
+    make_token_helpers,
 )
 from app.core.config import settings
 from app.services.storage import storage_service
@@ -17,6 +18,12 @@ from app.core.acl import is_global_admin
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_raw_create_access_token, _raw_decode_access_token = make_token_helpers(
+    get_secret_key=lambda: settings.security.secret_key,
+    get_algorithm=lambda: settings.security.algorithm,
+    default_expire_minutes=settings.security.access_token_expire_minutes,
+)
 
 
 def create_access_token(user: UserInfo) -> str:
@@ -27,18 +34,11 @@ def create_access_token(user: UserInfo) -> str:
         "groups": user.groups,
         "is_admin": user.is_admin,
     }
-    return create_jwt_token(
-        data=payload,
-        secret_key=settings.security.secret_key,
-        algorithm=settings.security.algorithm,
-        expires_minutes=settings.security.access_token_expire_minutes,
-    )
+    return _raw_create_access_token(payload)
 
 
 def decode_access_token(token: str) -> Optional[TokenPayload]:
-    payload = decode_jwt_token(
-        token=token, secret_key=settings.security.secret_key, algorithms=[settings.security.algorithm]
-    )
+    payload = _raw_decode_access_token(token)
     if not payload or "sub" not in payload:
         return None
 
