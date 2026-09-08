@@ -5,7 +5,7 @@ echo "Инициализация демонстрационных таблиц S
 
 SPARK_URL="${SPARK_URL:-http://localhost:8004}"
 
-python3 -c "
+python3 - << 'EOF' || true
 import urllib.request, json, time, sys, os
 
 base_url = os.environ.get('SPARK_URL', 'http://localhost:8004').rstrip('/')
@@ -102,5 +102,5 @@ try:
     print("Таблицы customers и transactions успешно инициализированы!")
 except Exception as e:
     print("Предупреждение: авто-инициализация таблиц Spark пропущена:", e)
-" || true
+EOF
 
