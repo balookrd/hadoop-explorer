@@ -127,13 +127,13 @@
 
   <!-- Селектор кластеров и doAs -->
   {#if clusters && clusters.length > 0}
-    <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs shrink-0 max-w-[220px] sm:max-w-[280px] md:max-w-[360px] lg:max-w-[420px] min-w-0">
-      <Server class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-      <span class="text-xs text-slate-500 font-medium hidden md:inline shrink-0">Кластер:</span>
+    <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-2xs">
+      <Server class="w-4 h-4 text-slate-400 shrink-0" />
+      <span class="text-xs text-slate-500 font-medium hidden sm:inline shrink-0">Кластер:</span>
       <select
         value={selectedClusterId || activeCluster?.id}
         onchange={handleClusterChange}
-        class="bg-transparent text-xs font-semibold text-slate-800 outline-none cursor-pointer pr-1 truncate min-w-0 flex-1"
+        class="bg-transparent text-xs font-semibold text-slate-800 outline-none cursor-pointer pr-2"
       >
         {#each clusters as cluster}
           <option value={cluster.id} class="bg-white text-slate-900">
@@ -143,10 +143,10 @@
       </select>
 
       {#if user && activeCluster}
-        <div class="h-3 w-px bg-slate-300 mx-0.5 hidden lg:block shrink-0"></div>
-        <div class="hidden lg:flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium shrink-0">
-          <Cpu class="w-3 h-3" />
-          <span class="truncate max-w-[100px]">doAs: <strong class="font-mono">{user.username}</strong></span>
+        <div class="h-3.5 w-px bg-slate-300 mx-1 hidden md:block shrink-0"></div>
+        <div class="hidden md:flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-medium shrink-0">
+          <Cpu class="w-3.5 h-3.5" />
+          <span>doAs: <strong class="font-mono">{user.username}</strong></span>
         </div>
       {/if}
     </div>
