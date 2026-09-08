@@ -66,4 +66,3 @@ volumes:
 networks:
   demo-platform-net:
     name: demo-platform-net
-    external: true
