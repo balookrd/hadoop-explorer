@@ -14,7 +14,7 @@ database:
   url: "sqlite+aiosqlite:///./data/spark_explorer.db"
 
 auth:
-  mode: "mock"
+  mode: "hybrid"
   mock_users:
     - username: "admin_user"
       password: "password123"
@@ -37,10 +37,10 @@ auth:
     server_uri: "ldap://ldap:389"
     use_ssl: false
     bind_dn: "cn=admin,dc=company,dc=local"
-    bind_password: "admin"
+    bind_password: "adminpassword"
     user_base_dn: "ou=users,dc=company,dc=local"
     user_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
-    user_display_name_attr: "cn"
+    user_display_name_attr: "displayName"
     user_email_attr: "mail"
     group_base_dn: "ou=groups,dc=company,dc=local"
     group_filter: "(&(objectClass=groupOfNames)(member={user_dn}))"

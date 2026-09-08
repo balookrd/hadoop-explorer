@@ -32,9 +32,9 @@ auth:
     server_uri: "ldaps://ad.company.local:636"
     use_ssl: true
     bind_dn: "cn=svc_spark_explorer,ou=services,dc=company,dc=local"
-    bind_password: "ServicePasswordHere"
+    bind_password: "adminpassword"
     user_base_dn: "ou=users,dc=company,dc=local"
-    user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
+    user_filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
     user_display_name_attr: "displayName"
     user_email_attr: "mail"
     group_base_dn: "ou=groups,dc=company,dc=local"
