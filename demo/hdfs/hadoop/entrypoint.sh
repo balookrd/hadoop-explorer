@@ -54,7 +54,7 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
+        <value>HTTP/_HOST@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.keytab</name>
@@ -162,11 +162,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.namenode.kerberos.internal.spnego.principal</name>
-        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
+        <value>HTTP/_HOST@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
+        <value>HTTP/_HOST@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.keytab</name>
