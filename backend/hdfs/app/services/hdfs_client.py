@@ -655,6 +655,8 @@ class HdfsClient:
                     if resp.status_code >= 400:
                         raise WebHdfsException(resp.text, resp.status_code)
 
+                    return resp
+
                 async def _call_with_retry():
                     return await retry_async(
                         _do_http_call,
