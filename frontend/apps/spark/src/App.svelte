@@ -507,14 +507,20 @@
       if (currentSession && currentSession.cluster_id === selectedClusterId && currentSession.status !== 'killed' && currentSession.status !== 'dead') {
         return currentSession.kind as ('pyspark' | 'spark');
       }
-      // Если среди активных сессий кластера уже есть любая живая сессия, используем её
-      const liveSession = activeSessions.find(
-        (s) => s.cluster_id === selectedClusterId && s.status !== 'killed' && s.status !== 'dead'
+      // Приоритет 1: если есть активная Scala (spark) сессия
+      const liveScala = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === 'spark' && s.status !== 'killed' && s.status !== 'dead'
       );
-      if (liveSession) {
-        return liveSession.kind as ('pyspark' | 'spark');
-      }
-      return 'pyspark';
+      if (liveScala) return 'spark';
+
+      // Приоритет 2: если есть активная PySpark (pyspark) сессия
+      const livePySpark = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === 'pyspark' && s.status !== 'killed' && s.status !== 'dead'
+      );
+      if (livePySpark) return 'pyspark';
+
+      // Приоритет 3: если нет активных сессий — по умолчанию создаем Scala (spark)
+      return 'spark';
     }
     return 'pyspark';
   }
@@ -524,10 +530,19 @@
       if (currentSession && currentSession.cluster_id === selectedClusterId && currentSession.status !== 'killed' && currentSession.status !== 'dead') {
         return;
       }
-      const anyLive = activeSessions.find(
-        (s) => s.cluster_id === selectedClusterId && s.status !== 'killed' && s.status !== 'dead'
+      // Приоритет 1: активная Scala (spark) сессия
+      const liveScala = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === 'spark' && s.status !== 'killed' && s.status !== 'dead'
       );
-      currentSession = anyLive || null;
+      if (liveScala) {
+        currentSession = liveScala;
+        return;
+      }
+      // Приоритет 2: активная PySpark (pyspark) сессия
+      const livePySpark = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.kind === 'pyspark' && s.status !== 'killed' && s.status !== 'dead'
+      );
+      currentSession = livePySpark || null;
       return;
     }
 
