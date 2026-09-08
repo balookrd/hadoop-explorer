@@ -19,8 +19,8 @@ frontend/src/
 │   ├── XmlExportModal.svelte    # Модальное окно экспорта capacity-scheduler.xml
 │   ├── QueueMappingsModal.svelte# Конструктор правил сопоставления очередей
 │   ├── ChangeRequestsModal.svelte # Центр согласования заявок (Approval Workflow)
-│   ├── CapacityBar.svelte       # Компонент визуализации прогресс-бара ресурсов
-│   └── Header.svelte            # Шапка: выбор кластера, профиль, индикатор заявок
+│   └── CapacityBar.svelte       # Компонент визуализации прогресс-бара ресурсов
+│   (Header и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/                       # Утилиты форматирования и вычислений
 │   ├── formatters.ts            # Форматирование MB/GB/TB, ядер vCPU и процентов
 │   └── tree.ts                  # Построение дерева очередей и пересчет емкости

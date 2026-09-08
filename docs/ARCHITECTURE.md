@@ -67,11 +67,16 @@
 
 ## 3. Подсистема безопасности (`backend/common`)
 
-### 3.1 Аутентификация: Kerberos SPNEGO SSO и LDAPS
-1. **Kerberos SPNEGO**: браузер передает билет Kerberos в заголовке `Authorization: Negotiate <ticket>`. Бэкенд валидирует билет через GSSAPI и извлекает принципала пользователя (`user@REALM`).
-2. **LDAPS / Active Directory**: безопасная проверка пароля через `CommonLdapAuthService` с экранированием фильтров (защита от LDAP Injection, CWE-90) и извлечением групп (`memberOf`).
-3. **Mock-режим**: предназначен исключительно для разработки и демонстрационных стендов (`auth.mode: "mock"`). В режиме `debug: false` запуск mock-провайдера категорически блокируется.
-4. **Унифицированный Security Middleware**: фабрика `make_get_current_user` гарантирует единообразную валидацию JWT-токенов, проверку серверного отзыва (Revocation check) и преобразование в `CommonUserSession` во всех микросервисах.
+### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и единый `create_auth_router`
+1. **Централизованный Auth APIRouter (`backend.common.api.auth_router`)**:
+   - Фабрика `create_auth_router` генерирует стандартизированный набор эндпоинтов аутентификации (`POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`) для всех микросервисов платформы.
+   - Поддерживает скользящее продление сессий (Sliding Session), установку безопасных `HttpOnly` Cookie, работу с mock-пользователями и аутентификацию по LDAP/Kerberos.
+2. **Единый KerberosManager (`backend.common.core.kerberos`)**:
+   - Потокобезопасный класс для управления тикетами Kerberos (инициализация `kinit -kt`, проверка валидности через `klist`, генерация SPNEGO-заголовков `Authorization: Negotiate` для внутренних клиентов WebHDFS, YARN RM и Livy).
+   - Валидация Kerberos SPNEGO билетов браузера через GSSAPI и извлечение принципала пользователя (`user@REALM`).
+3. **LDAPS / Active Directory**: безопасная проверка пароля через `CommonLdapAuthService` с экранированием фильтров (защита от LDAP Injection, CWE-90) и извлечением групп (`memberOf`).
+4. **Mock-режим**: предназначен исключительно для разработки и демонстрационных стендов (`auth.mode: "mock"`). В режиме `debug: false` запуск mock-провайдера категорически блокируется.
+5. **Унифицированный Security Middleware**: фабрика `make_get_current_user` гарантирует единообразную валидацию JWT-токенов, проверку серверного отзыва (Revocation check) и преобразование в `CommonUserSession` во всех микросервисах.
 
 ### 3.2 Персистентное сессионное хранилище (`SessionStore`)
 - Защита от использования отозванных токенов (CWE-613).
@@ -172,10 +177,12 @@
   - Все тяжелые модальные окна, мастера настроек и выдвижные панели (Drawers) загружаются асинхронно по требованию через `{#await import(...) then { default: Component }}`.
   - Это минимизирует первоначальный размер JavaScript-бандла (Time-to-Interactive) и ускоряет первую отрисовку страниц.
 - **Унифицированный UX модальных окон и диалогов**:
-  - Все модальные окна во всех 4 приложениях поддерживают интуитивное закрытие по клику вне диалога (backdrop overlay `e.target === e.currentTarget` + `stopPropagation` на карточке) и глобальный перехват клавиши `Escape` (`<svelte:window onkeydown={...}>`).
-- **Интерактивное изменение размера областей (Resizable Split Panes)**:
-  - В SQL Explorer и Spark Explorer реализованы гибкие разделители (Splitters) с перетаскиванием мыши для настройки ширины боковой панели каталогов (`sidebarWidth`) и высоты редактора кода / панели результатов (`editorHeightPercent`).
-  - Поддержка `user-select: none` во время перетаскивания и автоматическое сохранение выбранных пропорций в `localStorage`.
+- **Унифицированный API-клиент (`BaseApiClient`)**:
+  - Все клиенты приложений (`YarnApiClient`, `SparkApiClient`, `ApiClient` в SQL, `hdfs/client.ts`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
+  - Централизованная обработка HTTP 401 с прозрачной попыткой Kerberos SSO (`/auth/sso`), защита от CSRF (`X-Requested-With`), `credentials: 'include'` и поддержка Sliding Sessions.
+- **Автоматическая кодогенерация TypeScript-типов из OpenAPI**:
+  - Команда `make generate-types` запускает скрипт [`scripts/generate-types.sh`](../scripts/generate-types.sh), который автоматически извлекает актуальные OpenAPI JSON схемы бэкенд-сервисов (`hdfs`, `spark`, `sql`, `yarn`) и генерирует строгие TypeScript-интерфейсы в `frontend/common/types/generated/`.
+  - Это исключает расхождения контрактов данных (Data Drift) между Pydantic-моделями бэкенда и фронтенд-клиентом.
 
 ---
 

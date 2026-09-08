@@ -22,14 +22,12 @@ frontend/apps/spark/src/
 ├── api/
 │   └── client.ts             # Типизированный клиент API: сессии Livy, statements, метаданные, workspace, auth
 ├── components/
-│   ├── Header.svelte         # Шапка: выбор кластера, статус сессии Livy, YARN App ID, профиль пользователя
 │   ├── SessionBar.svelte     # Панель управления сессией: Start/Stop, выбор языка (PySpark / Scala / SQL), кнопка Configure
-│   ├── ConfigModal.svelte    # Модальное окно конфигурации сессии (версии Spark/Python, очереди YARN, JARs, PyFiles)
+│   ├── SessionConfigModal.svelte # Модальное окно конфигурации сессии (версии Spark/Python, очереди YARN, JARs, PyFiles)
 │   ├── Sidebar.svelte        # Дерево каталога метаданных (Hive Metastore / Iceberg: DB -> Tables -> Columns)
-│   ├── Editor.svelte         # Monaco Editor с поддержкой нескольких вкладок, горячих клавиш и сниппетов
-│   ├── ResultsView.svelte    # Панель вывода результатов: таблица строк с пагинацией, лог сессии, блок ошибок
-│   ├── QueueView.svelte      # Мониторинг очереди задач и истории выполнения с возможностью отмены
-│   └── LoginModal.svelte     # Модальное окно входа с поддержкой Kerberos SPNEGO SSO и LDAPS
+│   ├── SparkEditor.svelte    # Monaco Editor с поддержкой нескольких вкладок, горячих клавиш и сниппетов
+│   └── ResultsView.svelte    # Панель вывода результатов: таблица строк с пагинацией, лог сессии, блок ошибок
+│   (Header и LoginModal подключаются из @hadoop-explorer/common)
 ├── types.ts                  # TypeScript интерфейсы: SessionConfig, Statement, Tab, TabResultData, Catalog
 ├── app.css                   # Глобальные стили Tailwind 4 и темы Monaco
 ├── App.svelte                # Главный контейнер приложения, управление вкладками, буферами языков и синхронизация с БД

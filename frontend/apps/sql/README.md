@@ -23,13 +23,12 @@ frontend/src/
 │   └── client.ts              # Типизированный клиент API, методы ИИ-ассистента и SSE стриминг
 ├── components/
 │   ├── AIAssistantModal.svelte # Интерактивная модальная панель ИИ (Линтер, Explain, Optimize, Fix)
-│   ├── Header.svelte          # Шапка: выбор кластера, doAs плашка, профиль и группы LDAP
 │   ├── Sidebar.svelte         # Дерево схемы (Каталог -> Схема -> Таблица -> Колонки)
 │   ├── SqlEditor.svelte       # Monaco Editor с поддержкой маркеров ИИ, мульти-запросов и шорткатов
 │   ├── QueryToolbar.svelte    # Тулбар запуска («Run», «Stop», «Save», «ИИ Анализ»)
 │   ├── ResultsGrid.svelte     # Таблица результатов, экспорт и кнопка «Исправить с ИИ»
-│   ├── QueueView.svelte       # Фоновая очередь задач, отмена и загрузка архива результатов
-│   └── LoginModal.svelte      # Модальное окно входа (Kerberos SPNEGO SSO / LDAPS)
+│   └── QueueView.svelte       # Фоновая очередь задач, отмена и загрузка архива результатов
+│   (Header и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/
 │   └── sqlSplitter.ts         # Утилита парсинга и разбивки мульти-запросов по точкам с запятой
 ├── types.ts                   # TypeScript интерфейсы и типы данных (включая AI схемы)

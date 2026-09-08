@@ -10,29 +10,27 @@
 backend/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
-│   │   ├── auth.py              # Аутентификация (/api/v1/auth/login, /sso, /me, /logout)
+│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
 │   │   ├── clusters.py          # Доступные кластеры HDFS (/api/v1/clusters, /cross-copy)
 │   │   └── files.py             # Операции с файлами и директориями (/api/v1/clusters/{id}/files)
 │   ├── core/                    # Ядро сервиса
 │   │   ├── acl.py               # Проверка прав доступа и роли пользователя
 │   │   ├── audit.py             # Структурированный аудит операций с HDFS
 │   │   ├── config.py            # Pydantic Settings, загрузка config.yaml
-│   │   ├── kerberos.py          # KerberosClient (kinit, SPNEGO)
 │   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAP/AD
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
 │   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита
 │   ├── models/                  # Pydantic-схемы данных
-│   │   ├── auth.py              # Схемы аутентификации и пользователей
 │   │   ├── cluster.py           # Конфигурация кластеров
 │   │   └── hdfs.py              # Статусы файлов, операции чтения/записи
 │   ├── services/                # Бизнес-логика
-│   │   ├── hdfs_client.py       # Клиент WebHDFS/HttpFS с поддержкой Kerberos и Circuit Breaker
+│   │   ├── hdfs_client.py       # Клиент WebHDFS/HttpFS с поддержкой KerberosManager и Circuit Breaker
 │   │   ├── mock_hdfs.py         # Mock данные для dev-режима
 │   │   ├── preview.py           # Потоковый просмотр файлов Parquet/ORC (PyArrow)
-│   │   └── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
+│   │   └── storage.py           # Конфигурация хранилища на базе SessionStore
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
-├── tests/                       # Автоматические тесты (pytest - 50 тестов)
+├── tests/                       # Автоматические тесты (pytest - 51 тест)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_acl.py              # Тесты проверки прав доступа
 │   ├── test_api.py              # Тесты основных API эндпоинтов

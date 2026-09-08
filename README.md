@@ -54,8 +54,9 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), SessionStore, Circuit Breaker, Lock, Shutdown, LDAP, Kerberos, Rate Limiter, Audit
-│   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession)
+│   │   ├── api/            # Фабрика create_auth_router для унификации /login, /sso, /logout, /me
+│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), KerberosManager, SessionStore, Circuit Breaker, Lock, Shutdown, LDAP, Rate Limiter, Audit
+│   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   ├── hdfs/               # Сервис HDFS Explorer (51 тест)
 │   ├── spark/              # Сервис Spark Explorer (15 тестов)
@@ -64,9 +65,9 @@ hadoop-explorer/
 │
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты и API-клиент ───
-│   │   ├── api/            # Cookie-first HTTP-клиент с защитой от CSRF и поддержкой Kerberos SPNEGO
-│   │   ├── components/     # StatusBadge, NotificationToast, LoginModal (с backdrop/Escape закрытием)
-│   │   └── types/          # Общие TypeScript интерфейсы сессий и ролей
+│   │   ├── api/            # BaseApiClient (Cookie-first, CSRF guard, Kerberos SPNEGO SSO)
+│   │   ├── components/     # Header, LoginModal, StatusBadge, NotificationToast
+│   │   └── types/          # Общие TypeScript интерфейсы и сгенерированные OpenAPI типы (generated/)
 │   ├── apps/
 │   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация + Lazy Modals)
 │   │   ├── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
@@ -99,7 +100,8 @@ hadoop-explorer/
 │
 ├── scripts/
 │   ├── run-tests.sh        # Скрипт прогона всех 143 тестов
-│   └── build-containers.sh # Скрипт сборки контейнеров
+│   ├── build-containers.sh # Скрипт сборки контейнеров
+│   └── generate-types.sh   # Генерация TypeScript типов из OpenAPI схем FastAPI
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
 └── README.md
@@ -369,6 +371,7 @@ make test-yarn
 | `make build-yarn` | Сборка Docker-образа YARN Explorer |
 | `make frontend-install` | Установка NPM зависимостей фронтенда |
 | `make frontend-build` | Компиляция SPA фронтендов через Vite |
+| `make generate-types` | Генерация TypeScript-типов из OpenAPI схем FastAPI бэкенда |
 | `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8001`) |
 | `make demo-hdfs-stop` | Остановка демо-стенда HDFS Explorer |
 | `make demo-spark` | Запуск демо-стенда Spark Explorer (`:8004`) |

@@ -10,7 +10,7 @@
 backend/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
-│   │   ├── auth.py              # Аутентификация (/api/v1/auth/login, /sso, /me, /logout)
+│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
 │   │   ├── clusters.py          # Список кластеров (/api/v1/clusters)
 │   │   ├── queues.py            # Очереди, валидация, diff, XML (/api/v1/clusters/{cluster_id}/...)
 │   │   └── change_requests.py   # Управление заявками (/api/v1/change-requests) с DistributedLock
@@ -18,21 +18,19 @@ backend/
 │   │   ├── acl.py               # Проверка ACL (check_ui_access, resolve_cluster_role, check_cluster_permission)
 │   │   ├── audit.py             # Структурированный аудит безопасности и изменений очередей
 │   │   ├── config.py            # Pydantic Settings, загрузка config.yaml
-│   │   ├── kerberos.py          # KerberosManager (kinit, SPNEGO)
 │   │   ├── ldap_auth.py         # LdapService с защитой от LDAP-инъекций и валидацией TLS
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
 │   │   └── security.py          # JWT-токены, make_get_current_user с валидацией UI ACL
 │   ├── models/                  # Pydantic-модели и схемы данных
-│   │   ├── auth.py              # UserSession, Role, TokenResponse, LoginRequest
 │   │   ├── cluster.py           # ClusterConfig, ClusterAcl, ClusterResources
 │   │   ├── yarn.py              # QueueNode, QueueDraftItem (с regex-валидацией), PartitionResourceConfig
 │   │   └── change_requests.py   # ChangeRequestCreate, ChangeRequestReview, ChangeRequestResponse
 │   ├── services/                # Бизнес-логика
 │   │   ├── capacity_scheduler.py# Алгоритмы проверки баланса очередей
 │   │   ├── mock_yarn.py         # Mock данные для dev режима
-│   │   ├── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
+│   │   ├── storage.py           # Конфигурация хранилища на базе SessionStore
 │   │   ├── xml_generator.py     # Точечная модификация capacity-scheduler.xml с санитизацией
-│   │   └── yarn_client.py       # REST API клиент YARN RM с Kerberos SPNEGO, HA и Circuit Breaker
+│   │   └── yarn_client.py       # REST API клиент YARN RM с KerberosManager, HA и Circuit Breaker
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
 ├── tests/                       # Автоматические тесты (pytest - 43 теста)

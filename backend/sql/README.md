@@ -11,7 +11,7 @@ backend/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
 │   │   ├── ai.py                # ИИ-ассистент (/api/v1/ai/check, /explain, /optimize, /fix, /status)
-│   │   ├── auth.py              # Аутентификация (/api/v1/auth/login, /sso, /me, /logout)
+│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
 │   │   ├── catalog.py           # Каталог данных (/api/v1/clusters/{id}/catalogs, schemas, tables)
 │   │   ├── clusters.py          # Доступные аналитические кластеры (/api/v1/clusters)
 │   │   ├── queries.py           # Исполнение и стриминг SQL (/api/v1/queries/execute, stream, cancel)
@@ -20,7 +20,6 @@ backend/
 │   │   ├── acl.py               # Проверка прав (check_cluster_access, check_ui_access)
 │   │   ├── audit.py             # Журнал аудита безопасности и SQL-активности
 │   │   ├── config.py            # Pydantic Settings, конфигурация AI и загрузка config.yaml
-│   │   ├── kerberos.py          # Kerberos SPNEGO аутентификация
 │   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAPS
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
 │   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user
@@ -28,7 +27,6 @@ backend/
 │   │   ├── models.py            # Модели истории запросов, сохраненных скриптов, SqlUserWorkspace
 │   │   └── session.py           # Подключение к SQLite или PostgreSQL
 │   ├── models/                  # Pydantic-схемы
-│   │   ├── auth.py              # UserInfo, TokenResponse, LoginRequest
 │   │   ├── catalog.py           # Схемы каталогов, таблиц и колонок
 │   │   ├── query.py             # QueryRequest, QueryStatus, QueryResult
 │   │   └── workspace.py         # SqlUserWorkspaceCreate, SqlUserWorkspaceResponse
@@ -37,7 +35,7 @@ backend/
 │   │   ├── hive_engine.py       # Клиент HiveServer2 (TCLIService / Thrift / Impyla)
 │   │   ├── mock_engine.py       # Демонстрационный движок для dev-режима
 │   │   ├── query_manager.py     # Диспетчеризация, отмена и управление состоянием запросов
-│   │   ├── storage.py           # Tri-Storage: Redis, PostgreSQL, SQLite
+│   │   ├── storage.py           # Конфигурация хранилища на базе SessionStore
 │   │   └── trino_engine.py      # Клиент Trino DB API с поддержкой impersonation
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz

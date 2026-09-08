@@ -12,7 +12,7 @@
 backend/spark/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
-│   │   ├── auth.py              # Аутентификация (/api/v1/auth/login, /sso, /me, /logout)
+│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
 │   │   ├── catalog.py           # Метаданные Hive/Iceberg (/api/v1/metastore/{cluster_id}/databases, tables)
 │   │   ├── clusters.py          # Доступные кластеры и конфигурации (/api/v1/clusters)
 │   │   ├── sessions.py          # Интерактивные сессии Livy (/api/v1/sessions/create, list, delete, status)
