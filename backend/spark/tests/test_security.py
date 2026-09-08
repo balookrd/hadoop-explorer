@@ -127,3 +127,23 @@ async def test_spnego_sso_endpoint():
         assert data["user"]["username"] == "admin_user"
         assert data["user"]["auth_method"] == "kerberos"
         assert "access_token" in data
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_protected_endpoints_return_401():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        ac.cookies.clear()
+        
+        # /auth/me возвращает 401 без токена
+        me_resp = await ac.get("/api/v1/auth/me")
+        assert me_resp.status_code == 401
+
+        # /clusters возвращает 401 без токена
+        clusters_resp = await ac.get("/api/v1/clusters")
+        assert clusters_resp.status_code == 401
+
+        # /sessions возвращает 401 без токена
+        sessions_resp = await ac.get("/api/v1/sessions")
+        assert sessions_resp.status_code == 401
+

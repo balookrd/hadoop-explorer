@@ -70,7 +70,17 @@ run_yarn() {
    $pt tests)
 }
 
+run_frontend() {
+  echo "=========================================="
+  echo "🧪 Запуск тестов: Frontend UI & Auth Lifecycle (12 тестов)"
+  echo "=========================================="
+  (cd "$ROOT_DIR/frontend" && npm test)
+}
+
 case "$APP" in
+  frontend)
+    run_frontend
+    ;;
   hdfs)
     run_hdfs
     ;;
@@ -84,6 +94,7 @@ case "$APP" in
     run_yarn
     ;;
   all)
+    run_frontend
     run_hdfs
     run_spark
     run_sql
@@ -94,7 +105,7 @@ case "$APP" in
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|hdfs|spark|sql|yarn]"
+    echo "Использование: $0 [all|frontend|hdfs|spark|sql|yarn]"
     exit 1
     ;;
 esac

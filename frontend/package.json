@@ -14,9 +14,11 @@
     "dev:hdfs": "npm run dev --workspace=apps/hdfs",
     "dev:spark": "npm run dev --workspace=apps/spark",
     "dev:sql": "npm run dev --workspace=apps/sql",
-    "dev:yarn": "npm run dev --workspace=apps/yarn"
+    "dev:yarn": "npm run dev --workspace=apps/yarn",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.13.0"
+    "openapi-typescript": "^7.13.0",
+    "vitest": "^5.0.0"
   }
 }
