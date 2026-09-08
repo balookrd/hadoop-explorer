@@ -3,46 +3,50 @@ set -e
 
 echo "Инициализация демонстрационных таблиц Spark (customers, transactions)..."
 
-python3 -c '
-import urllib.request, json, time, sys
+SPARK_URL="${SPARK_URL:-http://localhost:8004}"
+
+python3 -c "
+import urllib.request, json, time, sys, os
+
+base_url = os.environ.get('SPARK_URL', 'http://localhost:8004').rstrip('/')
 
 try:
-    req = urllib.request.Request("http://localhost:8004/api/auth/login", data=json.dumps({"username": "de_user", "password": "password123"}).encode(), headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(f'{base_url}/api/v1/auth/login', data=json.dumps({'username': 'de_user', 'password': 'password123'}).encode(), headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req) as response:
-        token = json.loads(response.read().decode())["access_token"]
+        token = json.loads(response.read().decode())['access_token']
 
-    req_sess = urllib.request.Request("http://localhost:8004/api/sessions", headers={"Authorization": f"Bearer {token}"})
+    req_sess = urllib.request.Request(f'{base_url}/api/v1/sessions', headers={'Authorization': f'Bearer {token}'})
     with urllib.request.urlopen(req_sess) as response:
         sessions = json.loads(response.read().decode())
 
-    active = [s for s in sessions if s.get("status") in ("idle", "busy", "starting") and s.get("kind") == "pyspark"]
+    active = [s for s in sessions if s.get('status') in ('idle', 'busy', 'starting') and s.get('kind') == 'pyspark']
     if not active:
         # Создаем начальную сессию
         p = json.dumps({
-            "cluster_id": "demo-hadoop-spark",
-            "spark_version_id": "spark-3.5",
-            "metastore_id": "hive-metastore",
-            "yarn_queue": "root.analytics",
-            "resource_profile": "small",
-            "kind": "pyspark"
+            'cluster_id': 'demo-hadoop-spark',
+            'spark_version_id': 'spark-3.5',
+            'metastore_id': 'hive-metastore',
+            'yarn_queue': 'root.analytics',
+            'resource_profile': 'small',
+            'kind': 'pyspark'
         }).encode()
-        req_c = urllib.request.Request("http://localhost:8004/api/sessions", data=p, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        req_c = urllib.request.Request(f'{base_url}/api/v1/sessions', data=p, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
         with urllib.request.urlopen(req_c) as response:
             s_data = json.loads(response.read().decode())
-            sess_id = s_data["id"]
+            sess_id = s_data['id']
         
         # Ждем, пока сессия станет idle
         for _ in range(30):
             time.sleep(2)
-            req_check = urllib.request.Request(f"http://localhost:8004/api/sessions/{sess_id}", headers={"Authorization": f"Bearer {token}"})
+            req_check = urllib.request.Request(f'{base_url}/api/v1/sessions/{sess_id}', headers={'Authorization': f'Bearer {token}'})
             with urllib.request.urlopen(req_check) as chk_res:
-                st = json.loads(chk_res.read().decode()).get("status")
-                if st == "idle":
+                st = json.loads(chk_res.read().decode()).get('status')
+                if st == 'idle':
                     break
     else:
-        sess_id = active[0]["id"]
+        sess_id = active[0]['id']
 
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
     sqls = [
         """CREATE TABLE IF NOT EXISTS customers (
@@ -90,7 +94,7 @@ try:
 
     for sql in sqls:
         p = json.dumps({"session_id": sess_id, "code": sql, "language": "sql"}).encode()
-        r = urllib.request.Request("http://localhost:8004/api/statements/execute", data=p, headers=headers)
+        r = urllib.request.Request(f"{base_url}/api/v1/statements/execute", data=p, headers=headers)
         with urllib.request.urlopen(r) as res:
             eid = json.loads(res.read().decode())["execution_id"]
         time.sleep(1)
@@ -98,4 +102,5 @@ try:
     print("Таблицы customers и transactions успешно инициализированы!")
 except Exception as e:
     print("Предупреждение: авто-инициализация таблиц Spark пропущена:", e)
-' || true
+" || true
+
