@@ -501,10 +501,36 @@
   }
 
   function getTargetKind(lang: 'pyspark' | 'scalaspark' | 'sql'): 'pyspark' | 'spark' {
-    return lang === 'scalaspark' ? 'spark' : 'pyspark';
+    if (lang === 'scalaspark') return 'spark';
+    if (lang === 'sql') {
+      // Для SQL: если текущая выбранная сессия жива, сохраняем ее тип (spark или pyspark)
+      if (currentSession && currentSession.cluster_id === selectedClusterId && currentSession.status !== 'killed' && currentSession.status !== 'dead') {
+        return currentSession.kind as ('pyspark' | 'spark');
+      }
+      // Если среди активных сессий кластера уже есть любая живая сессия, используем её
+      const liveSession = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.status !== 'killed' && s.status !== 'dead'
+      );
+      if (liveSession) {
+        return liveSession.kind as ('pyspark' | 'spark');
+      }
+      return 'pyspark';
+    }
+    return 'pyspark';
   }
 
   function pickSessionForLanguage(lang: 'pyspark' | 'scalaspark' | 'sql') {
+    if (lang === 'sql') {
+      if (currentSession && currentSession.cluster_id === selectedClusterId && currentSession.status !== 'killed' && currentSession.status !== 'dead') {
+        return;
+      }
+      const anyLive = activeSessions.find(
+        (s) => s.cluster_id === selectedClusterId && s.status !== 'killed' && s.status !== 'dead'
+      );
+      currentSession = anyLive || null;
+      return;
+    }
+
     const targetKind = getTargetKind(lang);
     const matching = activeSessions.find(
       (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
@@ -521,25 +547,21 @@
     try {
       activeSessions = await api.getSessions();
       const currentLang = activeTab?.language || 'pyspark';
-      const targetKind = getTargetKind(currentLang);
 
       // Если текущая сессия уже выбрана, проверяем ее в свежем списке
       if (currentSession) {
         const updated = activeSessions.find((s) => s.id === currentSession?.id);
-        if (updated && updated.status !== 'killed' && updated.status !== 'dead' && updated.kind === targetKind) {
+        const isCompatible = currentLang === 'sql' || (updated && updated.kind === getTargetKind(currentLang));
+        if (updated && updated.status !== 'killed' && updated.status !== 'dead' && isCompatible) {
           currentSession = updated;
           return;
         } else if (!updated || updated.status === 'killed' || updated.status === 'dead') {
-          // Сессия была остановлена или умерла
           currentSession = null;
         }
       }
 
-      // Иначе ищем подходящую живую сессию нужного типа для текущего языка
-      const validSession = activeSessions.find(
-        (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
-      );
-      currentSession = validSession || null;
+      // Иначе ищем подходящую сессию
+      pickSessionForLanguage(currentLang);
     } catch (err) {
       console.error('Ошибка получения сессий:', err);
     }
@@ -747,23 +769,38 @@
 
     const targetKind = getTargetKind(activeTab.language);
 
+    // СРАЗУ переводим интерфейс в статус выполнения и подготовки
+    const isFragment = targetCode !== (activeTab.code || '').trim();
+    activeTab.isRunning = true;
+    activeTab.statusText = 'Подготовка...';
+    activeTab.errorMessage = null;
+    activeTab.columns = [];
+    activeTab.rows = [];
+    activeTab.logs = isFragment
+      ? `[Выполнение выделенного фрагмента (${targetCode.split('\n').length} строк)]\n\n${targetCode}\n\nПодготовка сессии Spark...`
+      : 'Подготовка сессии Spark...';
+
     // Проверяем актуальность currentSession
     const isSessionValid = currentSession &&
       currentSession.cluster_id === selectedClusterId &&
-      currentSession.kind === targetKind &&
+      (activeTab.language === 'sql' || currentSession.kind === targetKind) &&
       currentSession.status !== 'killed' &&
       currentSession.status !== 'dead';
 
     if (!isSessionValid) {
       // Ищем подходящую живую сессию среди существующих
       const existing = activeSessions.find(
-        (s) => s.cluster_id === selectedClusterId && s.kind === targetKind && s.status !== 'killed' && s.status !== 'dead'
+        (s) => s.cluster_id === selectedClusterId &&
+               (activeTab.language === 'sql' || s.kind === targetKind) &&
+               s.status !== 'killed' && s.status !== 'dead'
       );
 
       if (existing) {
         currentSession = existing;
       } else {
         // Создаем новую сессию
+        activeTab.statusText = 'Аллокация в YARN...';
+        activeTab.logs += '\nАллокация ресурсов и запуск сессии Spark в YARN...';
         try {
           const defVer = clusterDetails.spark_versions.find((v) => v.is_default)?.id || clusterDetails.spark_versions[0].id;
           const vObj = clusterDetails.spark_versions.find((v) => v.id === defVer);
@@ -788,6 +825,8 @@
           scheduleSessionPoll(true);
           await refreshSessions();
         } catch (err: any) {
+          activeTab.isRunning = false;
+          activeTab.statusText = '';
           activeTab.errorMessage = `Не удалось создать сессию Spark: ${err.message}`;
           return;
         }
@@ -795,23 +834,20 @@
     }
 
     if (!currentSession) {
+      activeTab.isRunning = false;
+      activeTab.statusText = '';
       activeTab.errorMessage = 'Ошибка: сессия Spark не инициализирована';
       return;
     }
 
-    const isFragment = targetCode !== (activeTab.code || '').trim();
-    activeTab.isRunning = true;
-    activeTab.errorMessage = null;
-    activeTab.columns = [];
-    activeTab.rows = [];
-    activeTab.logs = isFragment
-      ? `[Выполнение выделенного фрагмента (${targetCode.split('\n').length} строк)]\n\n${targetCode}\n\nОтправка задачи в Apache Spark...`
-      : 'Отправка задачи в Apache Spark...';
+    activeTab.statusText = 'Отправка...';
+    activeTab.logs += '\nОтправка задачи в Apache Spark...';
 
     try {
       const execRes = await api.executeCode(currentSession.id, targetCode, activeTab.language);
       activeTab.executionId = execRes.execution_id;
       const currentExecutionId = execRes.execution_id;
+      activeTab.statusText = 'Выполнение...';
 
       let isCompleted = false;
 
@@ -822,6 +858,7 @@
         if (pollInterval) clearInterval(pollInterval);
 
         activeTab.isRunning = false;
+        activeTab.statusText = '';
         activeTab.executionTimeMs = execTime || 0;
         if (eventLogs) {
           activeTab.logs = eventLogs;
@@ -894,6 +931,7 @@
 
     } catch (err: any) {
       activeTab.isRunning = false;
+      activeTab.statusText = '';
       activeTab.errorMessage = err.message;
       activeTab.activeResultTab = 'logs';
       if (!activeTab.resultBuffers) {
@@ -1133,6 +1171,7 @@
         language={activeTab?.language || 'pyspark'}
         session={currentSession}
         isRunning={activeTab?.isRunning || false}
+        statusText={activeTab?.statusText}
         yarnClusterId={clusterDetails?.yarn_cluster_id}
         onLanguageChange={handleLanguageChange}
         onRun={() => {

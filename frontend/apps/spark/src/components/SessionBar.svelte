@@ -6,6 +6,7 @@
     language = 'pyspark',
     session,
     isRunning,
+    statusText = '',
     yarnClusterId,
     onLanguageChange,
     onRun,
@@ -17,6 +18,7 @@
     language: 'pyspark' | 'scalaspark' | 'sql';
     session: SparkSessionItem | null;
     isRunning: boolean;
+    statusText?: string;
     yarnClusterId?: string | null;
     onLanguageChange: (lang: 'pyspark' | 'scalaspark' | 'sql') => void;
     onRun: () => void;
@@ -60,7 +62,7 @@
 </script>
 
 <div class="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between select-none shrink-0 shadow-2xs">
-  <!-- Левая часть: Кнопка Run + Переключатель языка -->
+  <!-- Левая часть: Кнопка Run + Индикатор статуса + Переключатель языка -->
   <div class="flex items-center gap-3">
     {#if !isRunning}
       <button
@@ -81,6 +83,13 @@
         <Square class="w-3.5 h-3.5 fill-current" />
         <span>Остановить</span>
       </button>
+
+      {#if statusText || session?.status === 'starting'}
+        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium animate-pulse">
+          <div class="w-2 h-2 rounded-full bg-amber-500"></div>
+          <span>{statusText || 'Подготовка...'}</span>
+        </div>
+      {/if}
     {/if}
 
     <div class="h-4 w-px bg-slate-200"></div>
