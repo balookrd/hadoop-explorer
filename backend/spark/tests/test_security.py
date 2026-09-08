@@ -7,6 +7,8 @@ from app.db.session import init_db
 @pytest.fixture(autouse=True)
 async def setup_database():
     await init_db()
+    from app.services.storage import storage_service
+    storage_service.clear_rate_limits()
 
 
 @pytest.mark.asyncio

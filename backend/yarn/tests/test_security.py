@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.models.yarn import QueueDraftItem, PartitionResourceConfig
 from app.models.cluster import ClusterConfig, ClusterResources, ClusterAcl
-from app.models.auth import UserSession, Role
+from backend.common.models.auth import UserSession, Role
 from app.services.xml_generator import generate_capacity_scheduler_xml, _sanitize_xml_comment
 from app.core.ldap_auth import ldap_service
 from app.core.acl import check_ui_access
@@ -428,7 +428,7 @@ def test_spnego_kerberos_ldap_enrichment(monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import app
     import app.api.auth as auth_module
-    from app.models.auth import UserSession, Role
+    from backend.common.models.auth import UserSession, Role
 
     client = TestClient(app)
 

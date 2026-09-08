@@ -12,7 +12,7 @@ from backend.common.core.security import (
 )
 from app.core.config import settings
 from app.services.storage import storage_service
-from app.models.auth import TokenPayload, UserInfo
+from backend.common.models.auth import TokenPayload, UserInfo
 from app.core.acl import is_global_admin
 
 

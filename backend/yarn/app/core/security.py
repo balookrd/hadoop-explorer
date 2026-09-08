@@ -12,7 +12,7 @@ from backend.common.core.security import (
 )
 from app.core.config import settings
 from app.services.storage import storage_service
-from app.models.auth import UserSession, Role
+from backend.common.models.auth import UserSession, Role
 from app.core.acl import check_ui_access
 
 security_scheme = HTTPBearer(auto_error=False)

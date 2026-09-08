@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 from app.models.cluster import ClusterConfig
-from app.models.auth import Role
+from backend.common.models.auth import Role
 
 
 class ServerConfig(BaseModel):

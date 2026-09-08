@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
-from app.models.auth import Role
+from backend.common.models.auth import Role
 
 
 class ClusterResources(BaseModel):

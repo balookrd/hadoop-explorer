@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 import asyncio
 import requests
 from requests_kerberos import HTTPKerberosAuth, OPTIONAL
-from app.core.kerberos import kerberos_manager
+from backend.common.core.kerberos import kerberos_manager
 from backend.common.core.circuit_breaker import circuit_breaker_registry, CircuitBreakerOpenException
 
 

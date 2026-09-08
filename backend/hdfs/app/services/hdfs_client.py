@@ -11,7 +11,7 @@ import httpx
 from app.core.config import settings
 from app.models.cluster import ClusterConfig
 from app.models.hdfs import HdfsFileStatus, DirectoryListingResponse
-from app.core.kerberos import kerberos_manager
+from backend.common.core.kerberos import kerberos_manager
 from backend.common.core.circuit_breaker import circuit_breaker_registry, CircuitBreakerOpenException
 
 logger = logging.getLogger(__name__)

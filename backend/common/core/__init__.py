@@ -27,6 +27,7 @@ from backend.common.core.circuit_breaker import (
 )
 from backend.common.core.shutdown import GracefulShutdownManager, shutdown_manager
 from backend.common.core.lock import DistributedLock, distributed_lock, LockAcquireError
+from backend.common.core.kerberos import KerberosManager, kerberos_manager
 
 __all__ = [
     "hash_token",
@@ -53,4 +54,6 @@ __all__ = [
     "DistributedLock",
     "distributed_lock",
     "LockAcquireError",
+    "KerberosManager",
+    "kerberos_manager",
 ]

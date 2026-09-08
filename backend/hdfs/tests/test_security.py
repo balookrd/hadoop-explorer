@@ -5,7 +5,7 @@ from app.main import app
 from app.core.ldap_auth import ldap_client
 from app.api.files import sanitize_hdfs_path, MAX_ZIP_FILES
 from app.core.security import create_access_token
-from app.models.auth import UserInfo
+from backend.common.models.auth import UserInfo
 
 
 @pytest.mark.asyncio

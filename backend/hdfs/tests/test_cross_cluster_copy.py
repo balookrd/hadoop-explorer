@@ -3,7 +3,7 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.core.config import cluster_registry
 from app.core.security import create_access_token
-from app.models.auth import UserInfo
+from backend.common.models.auth import UserInfo
 from app.services.hdfs_client import hdfs_service, WebHdfsException
 
 

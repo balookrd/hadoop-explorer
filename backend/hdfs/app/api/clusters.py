@@ -5,7 +5,7 @@ from app.core.security import get_current_user
 from app.core.rate_limiter import get_client_ip
 from app.core.audit import audit_log
 from app.core.acl import get_visible_clusters, can_access_cluster, is_cluster_read_only
-from app.models.auth import UserInfo
+from backend.common.models.auth import UserInfo
 from app.models.cluster import ClusterPublicInfo
 from app.models.hdfs import CrossClusterCopyRequest, CrossClusterCopyResponse
 from app.services.hdfs_client import hdfs_service, WebHdfsException

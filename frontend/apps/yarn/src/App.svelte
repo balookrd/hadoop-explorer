@@ -5,7 +5,7 @@
     UserSession, ClusterSummary, QueueNode, ClusterMetrics,
     BranchBalance, DraftQueueItem, DiffItem, QueueMappingsDiff,
   } from './types';
-  import Header from './components/Header.svelte';
+  import { Header, LoginModal } from '@hadoop-explorer/common';
   import ClusterMetricsBar from './components/ClusterMetricsBar.svelte';
   import PartitionSelector from './components/PartitionSelector.svelte';
   import QueueTreeTable from './components/QueueTreeTable.svelte';
@@ -466,21 +466,43 @@
   });
 </script>
 
-<div class="h-screen w-screen flex flex-col overflow-hidden">
+  {#snippet extraHeaderActions()}
+    {#if canAdmin}
+      <button
+        onclick={() => showCrDrawer = true}
+        class="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition cursor-pointer shadow-2xs"
+      >
+        <GitPullRequest class="w-3.5 h-3.5" />
+        <span>Заявки на изменение</span>
+        {#if pendingCrCount > 0}
+          <span class="flex h-2 w-2 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
+          </span>
+          <span class="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-bold font-mono">
+            {pendingCrCount}
+          </span>
+        {/if}
+      </button>
+    {/if}
+  {/snippet}
+
   {#if !user}
-    {#await import('./components/LoginModal.svelte') then { default: LoginModal }}
-      <LoginModal
-        initialError={authErrorMessage}
-        onLogin={handleLogin}
-      />
-    {/await}
+    <LoginModal
+      title="YARN Explorer"
+      subtitle="Capacity Scheduler"
+      initialError={authErrorMessage}
+      onLogin={handleLogin}
+    />
   {:else}
-    <Header
+    <div class="min-h-screen flex flex-col bg-slate-50">
+      <Header
+      title="YARN Explorer"
+      subtitle="Capacity Scheduler"
       {user}
       {clusters}
       bind:selectedClusterId
-      {pendingCrCount}
-      onOpenChangeRequests={() => showCrDrawer = true}
+      extraActions={extraHeaderActions}
       onLogout={handleLogout}
     />
 
@@ -694,5 +716,5 @@
       onViewXml={handleViewCrXml}
       onStatusChange={loadPendingCrCount}
     />
+    </div>
   {/if}
-</div>

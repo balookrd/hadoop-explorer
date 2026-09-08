@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from backend.common.core.ldap_auth import LdapAuthService, CommonLdapAuthService
 from app.core.config import settings
-from app.models.auth import UserSession, Role
+from backend.common.models.auth import UserSession, Role
 
 logger = logging.getLogger(__name__)
 

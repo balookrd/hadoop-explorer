@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.models.auth import UserSession, Role
+from backend.common.models.auth import UserSession, Role
 from app.models.cluster import ClusterConfig
 
 

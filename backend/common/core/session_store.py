@@ -34,20 +34,52 @@ logger = logging.getLogger(__name__)
 
 
 class SessionStore:
-    """
-    Централизованное хранилище активных и отозванных сессий в базе данных (SQLite / PostgreSQL / Redis).
-    Гарантирует, что при перезапуске бэкенда клиенты не разлогиниваются (токены и сессии сохраняются в БД).
-    """
+    @staticmethod
+    def _normalize_db_url(raw_url: str) -> tuple[str, bool, bool]:
+        """Нормализует DB URL для SQLAlchemy."""
+        if raw_url == ":memory:":
+            return "sqlite:///:memory:", True, True
 
-    def __init__(self, db_url: Optional[str] = None, default_db_path: str = "/app/data/sessions.db"):
-        redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
+        url = raw_url.replace("postgresql+asyncpg://", "postgresql://")
+        url = url.replace("sqlite+aiosqlite://", "sqlite://")
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+
+        is_sqlite = url.startswith("sqlite")
+        is_memory = ":memory:" in url
+
+        if not (url.startswith("sqlite://") or url.startswith("postgresql://") or "://" in url):
+            url = f"sqlite:///{url}"
+            is_sqlite = True
+
+        return url, is_sqlite, is_memory
+
+    def __init__(
+        self,
+        db_url: Optional[str] = None,
+        default_db_path: str = "/app/data/sessions.db",
+        service_name: Optional[str] = None,
+        redis_url: Optional[str] = None,
+    ):
+        redis_env = redis_url or os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
+        env_prefix = f"{service_name.upper()}_" if service_name else ""
+        service_db_env = os.environ.get(f"{env_prefix}DATABASE_URL") if env_prefix else None
+
         if db_url:
-            self.db_url = db_url
+            raw_url = db_url
+        elif service_db_env:
+            raw_url = service_db_env
         elif redis_env and redis_env.startswith(("redis://", "rediss://")):
-            self.db_url = redis_env
+            raw_url = redis_env
         else:
-            self.db_url = os.environ.get("DATABASE_URL") or f"sqlite:///{default_db_path}"
+            raw_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_PATH") or f"sqlite:///{default_db_path}"
 
+        if raw_url == ":memory:":
+            raw_url = "sqlite:///:memory:"
+        elif not (raw_url.startswith(("sqlite", "postgres", "redis://", "rediss://")) or "://" in raw_url):
+            raw_url = f"sqlite:///{raw_url}"
+
+        self.db_url = raw_url
         self._is_redis = self.db_url.startswith(("redis://", "rediss://"))
         sync_url = self.db_url.replace("postgresql+asyncpg://", "postgresql://").replace(
             "sqlite+aiosqlite://", "sqlite://"

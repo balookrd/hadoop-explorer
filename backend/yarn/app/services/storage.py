@@ -47,24 +47,11 @@ class StorageService(SessionStore):
     """
 
     def __init__(self, db_path: Optional[str] = None, db_url: Optional[str] = None):
-        redis_env = os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
-        if db_url:
-            resolved_url = db_url
-        elif redis_env and redis_env.startswith(("redis://", "rediss://")):
-            resolved_url = redis_env
-        elif db_path:
-            if db_path == ":memory:":
-                resolved_url = "sqlite:///:memory:"
-            elif "://" in db_path:
-                resolved_url = db_path
-            else:
-                resolved_url = f"sqlite:///{db_path}"
-        else:
-            resolved_url = (
-                os.environ.get("YARN_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database.url
-            )
-
-        super().__init__(db_url=resolved_url, default_db_path="/app/data/yarn_explorer.db")
+        super().__init__(
+            db_url=db_url or db_path or getattr(settings.database, "url", None),
+            default_db_path="/app/data/yarn_explorer.db",
+            service_name="yarn",
+        )
 
         if not self._is_redis:
             self.cr_table = Table(

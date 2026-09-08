@@ -13,7 +13,7 @@ from app.core.security import get_current_user
 from app.core.rate_limiter import get_client_ip
 from app.core.audit import audit_log
 from app.core.acl import can_access_cluster, is_cluster_read_only
-from app.models.auth import UserInfo
+from backend.common.models.auth import UserInfo
 from app.models.hdfs import DirectoryListingResponse, FilePreviewResponse, FileActionResponse, HdfsFileStatus
 from app.services.hdfs_client import hdfs_service, WebHdfsException
 from app.services.preview import preview_service

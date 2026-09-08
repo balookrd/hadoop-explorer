@@ -42,6 +42,8 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserSession
+    success: bool = True
+    message: str = "Авторизация успешна"
 
 
 # AuthResponse синонимичен TokenResponse для обратной совместимости

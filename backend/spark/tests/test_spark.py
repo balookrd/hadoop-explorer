@@ -7,6 +7,8 @@ from app.db.session import init_db
 @pytest.fixture(autouse=True)
 async def setup_database():
     await init_db()
+    from app.services.storage import storage_service
+    storage_service.clear_rate_limits()
 
 
 @pytest.fixture
@@ -39,7 +41,7 @@ async def test_auth_and_logout():
         assert me_auth.json()["username"] == "admin_user"
 
         # Logout возвращает 200 OK
-        logout_resp = await ac.post("/api/auth/logout")
+        logout_resp = await ac.post("/api/auth/logout", headers={"X-Requested-With": "XMLHttpRequest"})
         assert logout_resp.status_code == 200
 
 

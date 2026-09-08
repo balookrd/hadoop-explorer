@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from './api/client';
   import type { UserSession, ClusterSummary, ColumnMeta } from './types';
-  import { Header } from '@hadoop-explorer/common';
+  import { Header, LoginModal } from '@hadoop-explorer/common';
   import Sidebar from './components/Sidebar.svelte';
   import SqlEditor from './components/SqlEditor.svelte';
   import QueryToolbar from './components/QueryToolbar.svelte';
@@ -722,12 +722,10 @@
   </div>
 
   {#if !user}
-    {#await import('./components/LoginModal.svelte') then { default: LoginModal }}
-      <LoginModal
-        initialError={authErrorMessage}
-        onLoginSuccess={handleLoginSuccess}
-      />
-    {/await}
+    <LoginModal
+      initialError={authErrorMessage}
+      onLoginSuccess={handleLoginSuccess}
+    />
   {/if}
 
   {#if isAiModalOpen}

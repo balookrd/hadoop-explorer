@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from backend.common.core.ldap_auth import LdapAuthService, CommonLdapAuthService
 from app.core.config import settings
-from app.models.auth import UserInfo
+from backend.common.models.auth import UserInfo
 from app.core.acl import is_global_admin
 
 logger = logging.getLogger(__name__)

@@ -15,5 +15,8 @@
     "dev:spark": "npm run dev --workspace=apps/spark",
     "dev:sql": "npm run dev --workspace=apps/sql",
     "dev:yarn": "npm run dev --workspace=apps/yarn"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
   }
 }

@@ -1,6 +1,6 @@
 .PHONY: help venv sync install-dev lint format test test-hdfs test-spark test-sql test-yarn \
         build build-hdfs build-spark build-sql build-yarn \
-        frontend-build frontend-install demo-hdfs demo-spark demo-sql demo-yarn demo-all \
+        frontend-build frontend-install generate-types demo-hdfs demo-spark demo-sql demo-yarn demo-all \
         demo-hdfs-stop demo-spark-stop demo-sql-stop demo-yarn-stop demo-all-stop helm-lint helm-package
 
 TAG ?= latest
@@ -33,6 +33,7 @@ help:
 	@echo "  Фронтенд:"
 	@echo "    make frontend-install - Установка зависимостей frontend apps"
 	@echo "    make frontend-build   - Сборка всех SPA приложений"
+	@echo "    make generate-types   - Генерация TypeScript типов из OpenAPI схем FastAPI бэкенда"
 	@echo ""
 	@echo "  Раздельные демо стенды (Docker Compose):"
 	@echo "    make demo-hdfs        - Запуск стенда HDFS (WebHDFS, Kerberos, OpenLDAP)"
@@ -101,6 +102,9 @@ frontend-install:
 
 frontend-build:
 	cd frontend && npm run build:all
+
+generate-types:
+	./scripts/generate-types.sh
 
 demo-platform:
 	cd demo/platform && ./start-platform.sh

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.core.acl import resolve_cluster_role
-from app.models.auth import UserSession, Role
+from backend.common.models.auth import UserSession, Role
 from app.models.cluster import ClusterSummary
 
 logger = logging.getLogger(__name__)
