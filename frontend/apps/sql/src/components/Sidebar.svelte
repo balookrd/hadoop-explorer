@@ -85,11 +85,12 @@
   }
 
   async function toggleSchema(sch: string) {
-    expandedSchemas[sch] = !expandedSchemas[sch];
-    if (expandedSchemas[sch] && !tablesBySchema[sch]) {
+    const schKey = `${selectedCatalog}.${sch}`;
+    expandedSchemas[schKey] = !expandedSchemas[schKey];
+    if (expandedSchemas[schKey] && !tablesBySchema[schKey]) {
       try {
         const tbls = await api.getTables(clusterId, selectedCatalog, sch);
-        tablesBySchema[sch] = tbls;
+        tablesBySchema[schKey] = tbls;
       } catch (err) {
         console.error('Ошибка загрузки таблиц', err);
       }
@@ -97,12 +98,12 @@
   }
 
   async function toggleTable(sch: string, tbl: string) {
-    const key = `${sch}.${tbl}`;
-    expandedTables[key] = !expandedTables[key];
-    if (expandedTables[key] && !columnsByTable[key]) {
+    const tableKey = `${selectedCatalog}.${sch}.${tbl}`;
+    expandedTables[tableKey] = !expandedTables[tableKey];
+    if (expandedTables[tableKey] && !columnsByTable[tableKey]) {
       try {
         const cols = await api.getColumns(clusterId, selectedCatalog, sch, tbl);
-        columnsByTable[key] = cols;
+        columnsByTable[tableKey] = cols;
       } catch (err) {
         console.error('Ошибка загрузки колонок', err);
       }
@@ -211,12 +212,13 @@
         </div>
       {:else}
         {#each schemas as sch}
+          {@const schKey = `${selectedCatalog}.${sch}`}
           <div class="mb-1">
             <button
               onclick={() => toggleSchema(sch)}
               class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-slate-100 text-slate-700 font-medium text-left transition cursor-pointer"
             >
-              {#if expandedSchemas[sch]}
+              {#if expandedSchemas[schKey]}
                 <ChevronDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
               {:else}
                 <ChevronRight class="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -225,17 +227,18 @@
               <span class="truncate">{sch}</span>
             </button>
 
-            {#if expandedSchemas[sch]}
+            {#if expandedSchemas[schKey]}
               <div class="pl-4 mt-0.5 space-y-0.5 border-l border-slate-200 ml-2.5">
-                {#if tablesBySchema[sch]}
-                  {#each (tablesBySchema[sch] || []).filter(t => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase())) as tbl}
+                {#if tablesBySchema[schKey]}
+                  {#each (tablesBySchema[schKey] || []).filter(t => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase())) as tbl}
+                    {@const tableKey = `${selectedCatalog}.${sch}.${tbl}`}
                     <div>
                       <div class="flex items-center justify-between group rounded-md hover:bg-sky-50/70 px-1.5 py-1 transition">
                         <button
                           onclick={() => toggleTable(sch, tbl)}
                           class="flex items-center gap-1.5 text-slate-600 group-hover:text-slate-900 text-left truncate flex-1 cursor-pointer"
                         >
-                          {#if expandedTables[`${sch}.${tbl}`]}
+                          {#if expandedTables[tableKey]}
                             <ChevronDown class="w-3 h-3 text-slate-400 shrink-0" />
                           {:else}
                             <ChevronRight class="w-3 h-3 text-slate-400 shrink-0" />
@@ -253,9 +256,9 @@
                         </button>
                       </div>
 
-                      {#if expandedTables[`${sch}.${tbl}`] && columnsByTable[`${sch}.${tbl}`]}
+                      {#if expandedTables[tableKey] && columnsByTable[tableKey]}
                         <div class="pl-4 py-1 space-y-1 border-l border-slate-200 ml-2">
-                          {#each columnsByTable[`${sch}.${tbl}`] as col}
+                          {#each columnsByTable[tableKey] as col}
                             <div class="flex items-center justify-between text-[11px] text-slate-600 pr-2">
                               <span class="truncate text-slate-700 font-mono">{col.name}</span>
                               <span class="text-[10px] text-slate-400 font-mono shrink-0 ml-1">{col.type}</span>
