@@ -72,6 +72,38 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
         <name>hadoop.proxyuser.hdfs.groups</name>
         <value>*</value>
     </property>
+    <property>
+        <name>hadoop.proxyuser.svc_sql_explorer.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.svc_sql_explorer.groups</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.livy.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.livy.groups</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.spark.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.spark.groups</name>
+        <value>*</value>
+    </property>
 </configuration>
 EOF
 
@@ -196,12 +228,13 @@ done
 echo "Создание демонстрационных файлов и каталогов в HDFS..."
 su -s /bin/bash hadoop -c "
     kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
-    /opt/hadoop/bin/hdfs dfs -mkdir -p /tmp /data /user/admin /user/engineer /user/analyst
-    /opt/hadoop/bin/hdfs dfs -chmod 1777 /tmp
+    /opt/hadoop/bin/hdfs dfs -mkdir -p /tmp /tmp/hive /data /user/admin /user/engineer /user/analyst /user/hive/warehouse
+    /opt/hadoop/bin/hdfs dfs -chmod 1777 /tmp /tmp/hive
     /opt/hadoop/bin/hdfs dfs -chmod 755 /data
     /opt/hadoop/bin/hdfs dfs -chown admin:hadoop-admins /user/admin
     /opt/hadoop/bin/hdfs dfs -chown engineer:data-engineers /user/engineer
     /opt/hadoop/bin/hdfs dfs -chown analyst:analytics /user/analyst
+    /opt/hadoop/bin/hdfs dfs -chmod -R 777 /user/hive
 " || true
 
 if [ "${CLUSTER_ID}" = "hdfs-cluster-1" ]; then

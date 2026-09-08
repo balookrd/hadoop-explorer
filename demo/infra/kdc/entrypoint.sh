@@ -115,6 +115,7 @@ add_principal "hdfs/hdfs-cluster-2@${REALM}" ""
 
 # 3. SQL принципалы (Hive & Trino)
 add_principal "hive/hive-server@${REALM}" ""
+add_principal "hive/hive-server-2@${REALM}" ""
 add_principal "hive/localhost@${REALM}" ""
 add_principal "trino/trino-coordinator@${REALM}" ""
 add_principal "trino/localhost@${REALM}" ""
@@ -153,7 +154,7 @@ kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hdfs-cluster-2.keytab nn/hdfs-c
 
 # SQL Explorer & Engines
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/sql-explorer.keytab svc_sql_explorer@${REALM} HTTP/sql-explorer@${REALM} HTTP/localhost@${REALM}"
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hive.keytab hive/hive-server@${REALM} hive/localhost@${REALM}"
+kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hive.keytab hive/hive-server@${REALM} hive/hive-server-2@${REALM} hive/localhost@${REALM}"
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/trino.keytab trino/trino-coordinator@${REALM} trino/localhost@${REALM}"
 
 # YARN Explorer & Clusters

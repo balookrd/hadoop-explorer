@@ -19,7 +19,7 @@ try:
     with urllib.request.urlopen(req_sess) as response:
         sessions = json.loads(response.read().decode())
 
-    active = [s for s in sessions if s.get('status') in ('idle', 'busy', 'starting') and s.get('kind') == 'pyspark']
+    active = [s for s in sessions if s.get('status') in ('idle', 'busy', 'starting') and s.get('kind') == 'pyspark' and s.get('cluster_id') == 'demo-hadoop-spark']
     sess_id = None
 
     # Проверяем, существует ли активная сессия реально на Livy
@@ -126,6 +126,69 @@ try:
                     break
 
     print("Таблицы customers и transactions успешно инициализированы!")
+
+    # Инициализация Cluster 2 (archive-hadoop-spark)
+    try:
+        active2 = [s for s in sessions if s.get('status') in ('idle', 'busy', 'starting') and s.get('kind') == 'pyspark' and s.get('cluster_id') == 'archive-hadoop-spark']
+        sess_id2 = None
+        if active2:
+            for candidate in active2:
+                try:
+                    chk_req = urllib.request.Request(f'{base_url}/api/v1/sessions/{candidate["id"]}', headers={'Authorization': f'Bearer {token}'})
+                    with urllib.request.urlopen(chk_req) as chk_res:
+                        c_data = json.loads(chk_res.read().decode())
+                        if c_data.get('status') in ('idle', 'busy', 'starting'):
+                            sess_id2 = candidate['id']
+                            break
+                except Exception:
+                    pass
+
+        if not sess_id2:
+            p2 = json.dumps({
+                'cluster_id': 'archive-hadoop-spark',
+                'spark_version_id': 'spark-3.5',
+                'metastore_id': 'hive-metastore-2',
+                'yarn_queue': 'root.default',
+                'resource_profile': 'small',
+                'kind': 'pyspark'
+            }).encode()
+            req_c2 = urllib.request.Request(f'{base_url}/api/v1/sessions', data=p2, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req_c2) as response2:
+                s_data2 = json.loads(response2.read().decode())
+                sess_id2 = s_data2['id']
+
+        for _ in range(45):
+            time.sleep(2)
+            req_chk2 = urllib.request.Request(f'{base_url}/api/v1/sessions/{sess_id2}', headers={'Authorization': f'Bearer {token}'})
+            with urllib.request.urlopen(req_chk2) as chk2:
+                if json.loads(chk2.read().decode()).get('status') == 'idle':
+                    break
+
+        sqls2 = [
+            "DROP TABLE IF EXISTS historical_orders",
+            """CREATE TABLE historical_orders (
+                order_id BIGINT, department STRING, revenue DOUBLE, year INT
+            ) USING parquet""",
+            """INSERT INTO historical_orders VALUES
+                (2001, 'Retail', 45000.0, 2025),
+                (2002, 'Online', 98000.0, 2025),
+                (2003, 'Wholesale', 32000.0, 2025)"""
+        ]
+        for sql in sqls2:
+            p = json.dumps({"session_id": sess_id2, "code": sql, "language": "sql"}).encode()
+            r = urllib.request.Request(f"{base_url}/api/v1/statements/execute", data=p, headers=headers)
+            with urllib.request.urlopen(r) as res:
+                eid = json.loads(res.read().decode())["execution_id"]
+            for _ in range(30):
+                time.sleep(1)
+                r_chk = urllib.request.Request(f"{base_url}/api/v1/statements/{eid}/result", headers=headers)
+                with urllib.request.urlopen(r_chk) as chk_res:
+                    if json.loads(chk_res.read().decode()).get("status") in ("FINISHED", "FAILED"):
+                        break
+        print("Таблицы Spark Cluster 2 (historical_orders) успешно инициализированы!")
+    except Exception as e2:
+        print("Предупреждение: авто-инициализация таблиц Spark Cluster 2 пропущена:", e2)
+
 except Exception as e:
     print("Предупреждение: авто-инициализация таблиц Spark пропущена:", e)
 EOF

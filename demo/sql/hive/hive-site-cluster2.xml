@@ -4,7 +4,7 @@
   <!-- Хранилище метаданных (Apache Derby) -->
   <property>
     <name>javax.jdo.option.ConnectionURL</name>
-    <value>jdbc:derby:;databaseName=metastore_db;create=true</value>
+    <value>jdbc:derby:;databaseName=metastore_cluster2_db;create=true</value>
   </property>
   <property>
     <name>javax.jdo.option.ConnectionDriverName</name>
@@ -19,17 +19,17 @@
     <value>mine</value>
   </property>
 
-  <!-- URI сервиса метастора -->
+  <!-- URI сервиса метастора кластера 2 -->
   <property>
     <name>hive.metastore.uris</name>
-    <value>thrift://hive-metastore:9083</value>
+    <value>thrift://hive-metastore-2:9083</value>
   </property>
   <property>
     <name>hive.metastore.execute.setugi</name>
     <value>false</value>
   </property>
 
-  <!-- Хранилище таблиц -->
+  <!-- Хранилище таблиц кластера 2 -->
   <property>
     <name>hive.metastore.warehouse.dir</name>
     <value>/opt/hive/warehouse</value>
@@ -46,7 +46,7 @@
   </property>
   <property>
     <name>hive.server2.authentication.kerberos.principal</name>
-    <value>hive/hive-server@COMPANY.LOCAL</value>
+    <value>hive/hive-server-2@COMPANY.LOCAL</value>
   </property>
   <property>
     <name>hive.server2.authentication.kerberos.keytab</name>
@@ -54,7 +54,7 @@
   </property>
   <property>
     <name>hive.metastore.kerberos.principal</name>
-    <value>hive/hive-server@COMPANY.LOCAL</value>
+    <value>hive/hive-server-2@COMPANY.LOCAL</value>
   </property>
   <property>
     <name>hive.metastore.kerberos.keytab.file</name>
@@ -70,7 +70,7 @@
   <!-- Порты и транспорт HiveServer2 -->
   <property>
     <name>hive.server2.thrift.port</name>
-    <value>10000</value>
+    <value>10001</value>
   </property>
   <property>
     <name>hive.server2.thrift.bind.host</name>

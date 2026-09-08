@@ -24,8 +24,10 @@ services:
     ports:
       - "8998:8998"
     volumes:
+      - ./livy/entrypoint.sh:/entrypoint.sh
       - demo-shared-krb5:/shared/conf:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-warehouse:/opt/hive/warehouse
     networks:
       demo-platform-net:
         aliases:
@@ -36,6 +38,38 @@ services:
       yarn-demo-rm-1:
         condition: service_started
       sql-hive-metastore:
+        condition: service_started
+
+  # ==========================================
+  # 1b. Apache Livy Server 2 (Cluster 2 - Archive)
+  # ==========================================
+  spark-livy-2:
+    build:
+      context: ./livy
+    container_name: spark-demo-livy-2
+    hostname: spark-livy-2
+    restart: unless-stopped
+    environment:
+      SPARK_MASTER: "local[*]"
+      LIVY_PORT: "8999"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-2@COMPANY.LOCAL"
+      HIVE_METASTORE_URIS: "thrift://hive-metastore-2:9083"
+    ports:
+      - "8999:8999"
+    volumes:
+      - ./livy/entrypoint.sh:/entrypoint.sh
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-warehouse-2:/opt/hive/warehouse
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-livy-2
+    depends_on:
+      hdfs-cluster-2:
+        condition: service_started
+      sql-hive-metastore-2:
         condition: service_started
 
   # ==========================================
@@ -66,6 +100,8 @@ services:
           - spark-explorer
     depends_on:
       spark-livy:
+        condition: service_started
+      spark-livy-2:
         condition: service_started
       ldap:
         condition: service_healthy

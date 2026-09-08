@@ -9,14 +9,14 @@ volumes:
 
 services:
   # ==========================================
-  # 1. HiveServer2 (Kerberized + doAs)
+  # 1. HiveServer2 - Cluster 1 (Kerberized + doAs)
   # ==========================================
   sql-hive-server:
     image: apache/hive:4.0.0
     container_name: sql-demo-hive-server
     hostname: hive-server
     restart: unless-stopped
-    entrypoint: ["sh", "-c", "mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
+    entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
     environment:
       SERVICE_NAME: hiveserver2
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
@@ -31,6 +31,7 @@ services:
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-warehouse:/opt/hive/warehouse
     depends_on:
       - sql-hive-metastore
       - kdc
@@ -38,6 +39,38 @@ services:
       demo-platform-net:
         aliases:
           - hive-server
+
+  # ==========================================
+  # 1b. HiveServer2 - Cluster 2 (Kerberized + doAs)
+  # ==========================================
+  sql-hive-server-2:
+    image: apache/hive:4.0.0
+    container_name: sql-demo-hive-server-2
+    hostname: hive-server-2
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
+    environment:
+      SERVICE_NAME: hiveserver2
+      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
+      IS_RESUME: "true"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+    ports:
+      - "10001:10001"
+      - "10003:10002"
+    volumes:
+      - ./hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ./hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-warehouse-2:/opt/hive/warehouse
+    depends_on:
+      - sql-hive-metastore-2
+      - kdc
+    networks:
+      demo-platform-net:
+        aliases:
+          - hive-server-2
 
   # ==========================================
   # 2. Trino Coordinator (Kerberized + TPCH + Hive)
@@ -89,6 +122,8 @@ services:
       ldap:
         condition: service_healthy
       sql-hive-server:
+        condition: service_started
+      sql-hive-server-2:
         condition: service_started
       sql-trino-coordinator:
         condition: service_started

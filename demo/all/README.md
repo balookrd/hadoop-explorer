@@ -10,13 +10,17 @@
 |---|---|---|---|
 | **`demo-kdc`** | MIT Kerberos KDC (`COMPANY.LOCAL`) | `88/tcp`, `88/udp` | `88` |
 | **`demo-ldap`** | OpenLDAP (`dc=company,dc=local`) | `389` | `389` |
-| **`hdfs-demo-cluster-1`** | Hadoop NameNode + DataNode + WebHDFS | `9870`, `9000` | `9870`, `9000` |
-| **`yarn-demo-rm-1`** | YARN ResourceManager (Capacity Scheduler) | `8088` | `8088` |
-| **`sql-demo-postgres`** | PostgreSQL (БД Hive Metastore + User Workspaces) | `5432` | `5432` |
-| **`sql-demo-hive-metastore`**| Apache Hive Metastore Service (Thrift) | `9083` | `9083` |
-| **`sql-demo-hiveserver2`** | Apache HiveServer2 (Thrift TCLIService) | `10000`, `10002` | `10000`, `10002` |
-| **`sql-demo-trino`** | Trino Coordinator с Hive/Postgres коннекторами | `8080` | `8080` |
-| **`spark-demo-livy`** | Apache Livy Server REST API для Spark | `8998` | `8998` |
+| **`hdfs-demo-cluster-1`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 1) | `9870`, `9000` | `9870`, `9864` |
+| **`hdfs-demo-cluster-2`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 2 - Archive) | `9870`, `9000` | `9872`, `9865` |
+| **`yarn-demo-rm-1`** | YARN ResourceManager 1 (Capacity Scheduler) | `8088` | `8088` |
+| **`yarn-demo-rm-2`** | YARN ResourceManager 2 (Ad-hoc Cluster) | `8088` | `8089` |
+| **`sql-demo-hive-metastore`**| Apache Hive Metastore 1 (Thrift, Cluster 1) | `9083` | `9083` |
+| **`sql-demo-hive-metastore-2`**| Apache Hive Metastore 2 (Thrift, Cluster 2) | `9083` | `9084` |
+| **`sql-demo-hive-server`** | Apache HiveServer2 1 (Kerberized Thrift, Cluster 1) | `10000`, `10002` | `10000`, `10002` |
+| **`sql-demo-hive-server-2`** | Apache HiveServer2 2 (Kerberized Thrift, Cluster 2) | `10001`, `10002` | `10001`, `10003` |
+| **`sql-demo-trino`** | Trino Coordinator с Hive/TPCH коннекторами | `8080` | `8080` |
+| **`spark-demo-livy`** | Apache Livy Server 1 REST API для Spark (Cluster 1) | `8998` | `8998` |
+| **`spark-demo-livy-2`** | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
 | **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8001`** |
 | **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8002`** |
 | **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8000` | **`8003`** |

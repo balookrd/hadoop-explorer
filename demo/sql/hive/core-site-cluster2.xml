@@ -3,7 +3,7 @@
 <configuration>
   <property>
     <name>fs.defaultFS</name>
-    <value>hdfs://hdfs-cluster-1:9000</value>
+    <value>hdfs://hdfs-cluster-2:9000</value>
   </property>
 
   <property>
@@ -17,7 +17,7 @@
 
   <property>
     <name>dfs.namenode.kerberos.principal</name>
-    <value>nn/hdfs-cluster-1@COMPANY.LOCAL</value>
+    <value>nn/hdfs-cluster-2@COMPANY.LOCAL</value>
   </property>
 
   <property>
@@ -25,12 +25,6 @@
     <value>integrity</value>
   </property>
 
-  <property>
-    <name>mapreduce.jobhistory.principal</name>
-    <value>hive/hive-server@COMPANY.LOCAL</value>
-  </property>
-
-  <!-- Разрешение сервисному аккаунту svc_sql_explorer делать doAs от имени аналитиков -->
   <property>
     <name>hadoop.proxyuser.svc_sql_explorer.hosts</name>
     <value>*</value>

@@ -96,12 +96,30 @@ clusters:
       allowed_users: []
 
   - id: "hive-demo-analytics"
-    name: "Hive Server (Demo DB - All Roles)"
+    name: "Hive Server 1 (Production Lakehouse - All Roles)"
     type: "hive"
     host: "hive-server"
     port: 10000
     use_ssl: false
     schema: "demo_db"
+    auth:
+      type: "kerberos"
+      kerberos_service_name: "hive"
+      user: "svc_sql_explorer"
+    impersonation:
+      enabled: true
+      method: "doAs"
+    acl:
+      allowed_groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+      allowed_users: []
+
+  - id: "hive-archive-analytics"
+    name: "Hive Server 2 (Archive DataLake - All Roles)"
+    type: "hive"
+    host: "hive-server-2"
+    port: 10001
+    use_ssl: false
+    schema: "archive_db"
     auth:
       type: "kerberos"
       kerberos_service_name: "hive"

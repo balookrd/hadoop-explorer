@@ -8,8 +8,21 @@ echo "=== Запуск объединенного демо-стенда Hadoop E
 docker compose -f docker-compose.all.yml up -d --build
 
 echo ""
-echo "=== Инициализация демонстрационных таблиц Spark ==="
+echo "=== Ожидание готовности HDFS NameNode (Cluster 1 & Cluster 2) ==="
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+HDFS_WAIT=0
+until docker exec hdfs-demo-cluster-1 /opt/hadoop/bin/hdfs dfsadmin -report >/dev/null 2>&1 && docker exec hdfs-demo-cluster-2 /opt/hadoop/bin/hdfs dfsadmin -report >/dev/null 2>&1 || [ $HDFS_WAIT -ge 30 ]; do
+    HDFS_WAIT=$((HDFS_WAIT + 1))
+    echo " -> Ожидание готовности NameNode HDFS ($HDFS_WAIT/30)..."
+    sleep 2
+done
+
+echo ""
+echo "=== Инициализация демонстрационных таблиц Hive (Cluster 1 & Cluster 2) ==="
+"$ROOT_DIR/demo/sql/hive/init-demo-data.sh" || true
+
+echo ""
+echo "=== Инициализация демонстрационных таблиц Spark ==="
 MAX_WAIT=30
 WAIT_COUNT=0
 until curl -s "http://localhost:8004/healthz" >/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do

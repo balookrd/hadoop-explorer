@@ -120,6 +120,8 @@ clusters:
         spark_conf:
           "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
           "spark.sql.catalogImplementation": "hive"
+          "spark.hadoop.hive.metastore.execute.setugi": "false"
+          "spark.sql.warehouse.dir": "file:///opt/hive/warehouse"
 
     resource_profiles:
       small:
@@ -143,6 +145,68 @@ clusters:
         executor_memory: "4g"
         executor_cores: 2
         num_executors: 4
+
+    session_idle_timeout_seconds: 1800
+    max_sessions_per_user: 3
+
+  - id: "archive-hadoop-spark"
+    name: "Hadoop Cluster 2 (Archive HDFS + Livy + Metastore)"
+    description: "Архивный аналитический кластер с Apache Spark 3.5, Apache Livy и HDFS Cluster 2"
+    type: "spark"
+    livy_url: "http://spark-livy-2:8999"
+    use_ssl: false
+    auth:
+      type: "none"
+    impersonation:
+      enabled: false
+
+    yarn:
+      cluster_id: "archive-yarn"
+      resource_manager_urls:
+        - "http://yarn-rm-1:8088"
+      default_queue: "root.default"
+      allowed_queues: ["root.default", "root.analytics"]
+
+    spark_versions:
+      - id: "spark-3.5"
+        name: "Apache Spark 3.5.1 (Scala 2.12)"
+        is_default: true
+        spark_archive: "hdfs://hdfs-cluster-2:9000/apps/spark/spark-3.5.1-bin-hadoop3.tgz"
+        python_versions:
+          - id: "py310-default"
+            name: "Python 3.10 (Standard Runtime)"
+            python_path: "/usr/bin/python3"
+            is_default: true
+
+    default_repositories:
+      - "https://repo.maven.apache.org/maven2"
+
+    metastores:
+      - id: "hive-metastore-2"
+        name: "Hive Metastore 2 (Archive DataLake)"
+        is_default: true
+        uris: "thrift://hive-metastore-2:9083"
+        spark_conf:
+          "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore-2:9083"
+          "spark.sql.catalogImplementation": "hive"
+          "spark.hadoop.hive.metastore.execute.setugi": "false"
+          "spark.sql.warehouse.dir": "file:///opt/hive/warehouse"
+
+    resource_profiles:
+      small:
+        name: "Small (1 Driver 1G, 1 Exec 1G)"
+        driver_memory: "1g"
+        driver_cores: 1
+        executor_memory: "1g"
+        executor_cores: 1
+        num_executors: 1
+      medium:
+        name: "Medium (1 Driver 2G, 2 Exec 2G)"
+        driver_memory: "2g"
+        driver_cores: 1
+        executor_memory: "2g"
+        executor_cores: 2
+        num_executors: 2
 
     session_idle_timeout_seconds: 1800
     max_sessions_per_user: 3

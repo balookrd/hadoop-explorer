@@ -6,10 +6,16 @@ include:
 volumes:
   sql-metastore-data:
     name: sql-metastore-data
+  sql-metastore-2-data:
+    name: sql-metastore-2-data
+  demo-shared-warehouse:
+    name: demo-shared-warehouse
+  demo-shared-warehouse-2:
+    name: demo-shared-warehouse-2
 
 services:
   # ==========================================
-  # Hive Metastore (Apache Hive 4.0.0, Thrift 9083)
+  # Hive Metastore 1 (Apache Hive 4.0.0, Thrift 9083, Cluster 1)
   # ==========================================
   sql-hive-metastore:
     image: apache/hive:4.0.0
@@ -30,6 +36,7 @@ services:
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
       - sql-metastore-data:/opt/hive/data
+      - demo-shared-warehouse:/opt/hive/warehouse
     depends_on:
       kdc:
         condition: service_healthy
@@ -37,3 +44,34 @@ services:
       demo-platform-net:
         aliases:
           - hive-metastore
+
+  # ==========================================
+  # Hive Metastore 2 (Apache Hive 4.0.0, Thrift 9084, Cluster 2)
+  # ==========================================
+  sql-hive-metastore-2:
+    image: apache/hive:4.0.0
+    container_name: sql-demo-hive-metastore-2
+    hostname: hive-metastore-2
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+    ports:
+      - "9084:9083"
+    volumes:
+      - ../sql/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../sql/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - sql-metastore-2-data:/opt/hive/data
+      - demo-shared-warehouse-2:/opt/hive/warehouse
+    depends_on:
+      kdc:
+        condition: service_healthy
+    networks:
+      demo-platform-net:
+        aliases:
+          - hive-metastore-2
