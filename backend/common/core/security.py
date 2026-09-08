@@ -153,6 +153,7 @@ def decode_jwt_token(token: str, secret_key: str, algorithms: Optional[List[str]
 
 from pydantic import BaseModel
 from typing import Callable, Any, Awaitable
+from backend.common.models.auth import Role, resolve_system_role
 
 
 class CommonUserSession(BaseModel):
@@ -167,6 +168,8 @@ class CommonUserSession(BaseModel):
     groups: List[str] = []
     is_admin: bool = False
     auth_method: str = "ldap"
+    system_role: Role = Role.READER
+
 
 
 def create_access_token(
@@ -249,9 +252,23 @@ def make_get_current_user(
         if session_data:
             username = session_data["username"]
             groups = session_data.get("groups", [])
+            calc_role, calc_adm = resolve_system_role(username, groups)
             is_admin = session_data.get("is_admin")
             if is_admin is None:
-                is_admin = admin_resolver(username, groups, session_data)
+                is_admin = admin_resolver(username, groups, session_data) or calc_adm
+            else:
+                is_admin = bool(is_admin or calc_adm)
+
+            raw_role = session_data.get("system_role")
+            if is_admin:
+                role = Role.ADMIN
+            elif raw_role and raw_role != Role.READER:
+                try:
+                    role = Role(raw_role)
+                except ValueError:
+                    role = calc_role
+            else:
+                role = calc_role
 
             fields = {
                 "username": username,
@@ -261,6 +278,8 @@ def make_get_current_user(
                 "is_admin": bool(is_admin),
                 "auth_method": session_data.get("auth_method", "ldap"),
             }
+            if "system_role" in getattr(user_session_class, "model_fields", {}):
+                fields["system_role"] = role
             if extra_user_fields:
                 fields.update(extra_user_fields(session_data))
             return user_session_class(**fields)
@@ -284,6 +303,13 @@ def make_get_current_user(
             user_dict = payload.get("user")
             if user_dict and isinstance(user_dict, dict):
                 try:
+                    u_groups = user_dict.get("groups", [])
+                    c_role, c_adm = resolve_system_role(user_dict.get("username", ""), u_groups)
+                    if c_adm:
+                        user_dict["is_admin"] = True
+                        user_dict["system_role"] = Role.ADMIN
+                    elif "system_role" not in user_dict or user_dict["system_role"] == Role.READER:
+                        user_dict["system_role"] = c_role
                     user = user_session_class(**user_dict)
                     # Сохраняем сессию
                     storage.save_session(
@@ -298,16 +324,30 @@ def make_get_current_user(
             return None
 
         groups = payload.get("groups", [])
-        is_admin = admin_resolver(username, groups, payload)
+        calc_role, calc_adm = resolve_system_role(username, groups)
+        is_admin = admin_resolver(username, groups, payload) or calc_adm or bool(payload.get("is_admin", False))
+
+        raw_role = payload.get("system_role")
+        if is_admin:
+            role = Role.ADMIN
+        elif raw_role and raw_role != Role.READER:
+            try:
+                role = Role(raw_role)
+            except ValueError:
+                role = calc_role
+        else:
+            role = calc_role
 
         fields = {
             "username": username,
             "display_name": payload.get("display_name", username),
             "email": payload.get("email"),
             "groups": groups,
-            "is_admin": is_admin,
+            "is_admin": bool(is_admin),
             "auth_method": payload.get("auth_method", "jwt"),
         }
+        if "system_role" in getattr(user_session_class, "model_fields", {}):
+            fields["system_role"] = role
         if extra_user_fields:
             fields.update(extra_user_fields(payload))
         user = user_session_class(**fields)
@@ -321,6 +361,7 @@ def make_get_current_user(
         )
 
         return user
+
 
     async def get_current_user(request: Request) -> Any:
         token, is_cookie_auth = extract_token_from_request(request, get_cookie_names())

@@ -53,14 +53,9 @@
     }
   }
 
-  function getRoleBadgeClass(role?: string, isAdmin?: boolean): string {
-    if (isAdmin || role === 'admin') return 'text-purple-700 bg-purple-50 border-purple-200';
-    if (role === 'writer') return 'text-amber-700 bg-amber-50 border-amber-200';
-    return 'text-slate-600 bg-slate-50 border-slate-200';
-  }
-
   interface RoleBadgeInfo {
     label: 'ADM' | 'RW' | 'RO';
+    name: 'ADMIN' | 'WRITER' | 'READER';
     fullLabel: string;
     class: string;
   }
@@ -69,6 +64,7 @@
     if (isAdmin || role === 'admin') {
       return {
         label: 'ADM',
+        name: 'ADMIN',
         fullLabel: 'Администратор (ADMIN)',
         class: 'bg-purple-50 text-purple-700 border-purple-200 font-bold'
       };
@@ -76,16 +72,19 @@
     if (role === 'writer') {
       return {
         label: 'RW',
+        name: 'WRITER',
         fullLabel: 'Чтение и запись (WRITER)',
         class: 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
       };
     }
     return {
       label: 'RO',
+      name: 'READER',
       fullLabel: 'Только чтение (READER)',
       class: 'bg-slate-100 text-slate-700 border-slate-200 font-semibold'
     };
   }
+
 
   const effectiveRole = $derived(
     user ? getShortRole(user.system_role, user.is_admin) : null
@@ -211,12 +210,13 @@
             <div class="mb-3">
               <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center justify-between">
                 <span>Группы LDAP / Роли:</span>
-                <span class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border {getRoleBadgeClass(user.system_role, user.is_admin)}">
-                  {#if user.is_admin}
+                <span class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border {effectiveRole?.class}">
+                  {#if effectiveRole?.name === 'ADMIN'}
                     <Shield class="w-3 h-3" />
                   {/if}
-                  {(user.system_role || (user.is_admin ? 'ADMIN' : 'USER')).toUpperCase()}
+                  {effectiveRole?.name || 'READER'}
                 </span>
+
               </div>
               <div class="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                 {#if user.groups && user.groups.length > 0}

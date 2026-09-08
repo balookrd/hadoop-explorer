@@ -9,6 +9,75 @@ class Role(str, Enum):
     ADMIN = "admin"
 
 
+DEFAULT_ADMIN_GROUPS = {
+    "hadoop-admins",
+    "admins",
+    "data-platform-admins",
+    "platform-admins",
+    "superusers",
+}
+DEFAULT_WRITER_GROUPS = {
+    "data-engineers",
+    "engineers",
+    "spark-users",
+    "etl-developers",
+}
+
+
+def resolve_system_role(
+    username: str,
+    groups: Optional[List[str]] = None,
+    settings: Optional[object] = None,
+) -> tuple[Role, bool]:
+    """
+    Централизованно определяет (system_role, is_admin) по имени пользователя, его группам
+    и конфигурационным настройкам сервиса.
+    """
+    user_groups = set(g.lower() for g in (groups or []))
+    uname = (username or "").lower()
+
+    admin_groups = set(DEFAULT_ADMIN_GROUPS)
+    admin_users = set()
+    writer_groups = set(DEFAULT_WRITER_GROUPS)
+    writer_users = set()
+
+    if settings:
+        acl = getattr(settings, "acl", None)
+        if acl:
+            # YARN style: acl.roles.admin / writer
+            roles = getattr(acl, "roles", None)
+            if roles:
+                adm = getattr(roles, "admin", None)
+                if adm:
+                    admin_groups.update(g.lower() for g in getattr(adm, "groups", []))
+                    admin_users.update(u.lower() for u in getattr(adm, "users", []))
+                wri = getattr(roles, "writer", None)
+                if wri:
+                    writer_groups.update(g.lower() for g in getattr(wri, "groups", []))
+                    writer_users.update(u.lower() for u in getattr(wri, "users", []))
+
+            # SQL / Spark style: acl.ui_access.admin_groups
+            ui_acc = getattr(acl, "ui_access", None)
+            if ui_acc:
+                admin_groups.update(g.lower() for g in getattr(ui_acc, "admin_groups", []))
+
+            # HDFS style: acl.admin_groups
+            if hasattr(acl, "admin_groups") and isinstance(acl.admin_groups, (list, tuple, set)):
+                admin_groups.update(g.lower() for g in acl.admin_groups)
+
+    # 1. Проверка Admin
+    if uname in admin_users or bool(user_groups & admin_groups):
+        return Role.ADMIN, True
+
+    # 2. Проверка Writer
+    if uname in writer_users or bool(user_groups & writer_groups):
+        return Role.WRITER, False
+
+    # 3. Reader по умолчанию
+    return Role.READER, False
+
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -59,3 +128,5 @@ class TokenPayload(BaseModel):
     jti: Optional[str] = None
     auth_method: Optional[str] = "jwt"
     is_admin: Optional[bool] = False
+    system_role: Optional[str] = "reader"
+

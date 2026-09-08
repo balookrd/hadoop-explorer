@@ -21,7 +21,9 @@ from backend.common.models.auth import (
     UserSession,
     UserInfo,
     Role,
+    resolve_system_role,
 )
+
 
 logger = logging.getLogger("hadoop_explorer.auth")
 security_scheme = HTTPBearer(auto_error=False)
@@ -86,25 +88,35 @@ def create_auth_router(
         return secret_key, algorithm, expire_minutes
 
     def _extract_mock_user(username: str, password: str) -> Optional[UserSession]:
+        settings = _get_settings()
         if authenticate_mock_fn:
             res = authenticate_mock_fn(username, password)
             if res:
                 if isinstance(res, UserSession):
+                    role, is_adm = resolve_system_role(res.username, res.groups, settings)
+                    if is_adm or res.is_admin:
+                        res.is_admin = True
+                        res.system_role = Role.ADMIN
+                    elif not res.system_role or res.system_role == Role.READER:
+                        res.system_role = role
                     return res
                 if isinstance(res, UserInfo):
+                    role, is_adm = resolve_system_role(res.username, res.groups, settings)
                     return UserSession(
                         username=res.username,
                         display_name=res.display_name,
                         email=res.email,
                         groups=res.groups,
                         auth_method="mock",
-                        is_admin=res.is_admin,
-                        system_role=Role.ADMIN if res.is_admin else Role.READER,
+                        is_admin=res.is_admin or is_adm,
+                        system_role=Role.ADMIN if (res.is_admin or is_adm) else role,
                     )
                 if isinstance(res, dict):
+                    role, is_adm = resolve_system_role(res.get("username", username), res.get("groups", []), settings)
+                    res.setdefault("is_admin", is_adm)
+                    res.setdefault("system_role", role)
                     return UserSession(**res)
 
-        settings = _get_settings()
         mock_users = getattr(getattr(settings, "auth", None), "mock_users", None) or []
         for m in mock_users:
             m_username = getattr(m, "username", "")
@@ -124,7 +136,7 @@ def create_auth_router(
 
                 if valid:
                     groups = getattr(m, "groups", [])
-                    is_adm = "hadoop-admins" in groups or "admins" in groups
+                    role, is_adm = resolve_system_role(m_username, groups, settings)
                     return UserSession(
                         username=m_username,
                         display_name=getattr(m, "display_name", m_username),
@@ -132,9 +144,10 @@ def create_auth_router(
                         groups=groups,
                         auth_method="mock",
                         is_admin=is_adm,
-                        system_role=Role.ADMIN if is_adm else Role.READER,
+                        system_role=role,
                     )
         return None
+
 
     @router.post("/login", response_model=TokenResponse)
     async def login(req: LoginRequest, request: Request, response: Response):
@@ -160,16 +173,22 @@ def create_auth_router(
                     if isinstance(ldap_res, UserSession):
                         user_session = ldap_res
                     elif isinstance(ldap_res, UserInfo):
+                        role, is_adm = resolve_system_role(ldap_res.username, ldap_res.groups, settings)
                         user_session = UserSession(
                             username=ldap_res.username,
                             display_name=ldap_res.display_name,
                             email=ldap_res.email,
                             groups=ldap_res.groups,
                             auth_method="ldap",
-                            is_admin=ldap_res.is_admin,
-                            system_role=Role.ADMIN if ldap_res.is_admin else Role.READER,
+                            is_admin=ldap_res.is_admin or is_adm,
+                            system_role=Role.ADMIN if (ldap_res.is_admin or is_adm) else role,
                         )
                     elif isinstance(ldap_res, dict):
+                        role, is_adm = resolve_system_role(
+                            ldap_res.get("username", req.username), ldap_res.get("groups", []), settings
+                        )
+                        ldap_res.setdefault("is_admin", is_adm)
+                        ldap_res.setdefault("system_role", role)
                         user_session = UserSession(**ldap_res)
 
         if not user_session:
@@ -178,6 +197,13 @@ def create_auth_router(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Неверное имя пользователя или пароль",
             )
+
+        role, is_adm = resolve_system_role(user_session.username, user_session.groups, settings)
+        if is_adm or user_session.is_admin:
+            user_session.is_admin = True
+            user_session.system_role = Role.ADMIN
+        elif user_session.system_role == Role.READER and role == Role.WRITER:
+            user_session.system_role = Role.WRITER
 
         if acl_checker_fn and not acl_checker_fn(user_session):
             audit_log(AuditEventType.ACCESS_DENIED_ACL, user_session.username, client_ip, status="DENIED")
@@ -195,8 +221,12 @@ def create_auth_router(
             "groups": user_session.groups,
             "auth_method": user_session.auth_method,
             "is_admin": user_session.is_admin,
+            "system_role": user_session.system_role.value
+            if hasattr(user_session.system_role, "value")
+            else str(user_session.system_role),
             "user": user_session.model_dump(),
         }
+
         token = create_jwt_token(token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes)
         payload = decode_jwt_token(token, secret_key=secret_key, algorithms=[algorithm])
 
@@ -264,21 +294,33 @@ def create_auth_router(
                             path="/",
                         )
 
+        settings = _get_settings()
         if isinstance(current_user, UserSession):
+            role, is_adm = resolve_system_role(current_user.username, current_user.groups, settings)
+            if is_adm or current_user.is_admin:
+                current_user.is_admin = True
+                current_user.system_role = Role.ADMIN
+            elif current_user.system_role == Role.READER and role == Role.WRITER:
+                current_user.system_role = Role.WRITER
             return current_user
-        if isinstance(current_user, UserInfo):
-            return UserSession(
-                username=current_user.username,
-                display_name=current_user.display_name,
-                email=current_user.email,
-                groups=current_user.groups,
-                auth_method="jwt",
-                is_admin=current_user.is_admin,
-                system_role=Role.ADMIN if current_user.is_admin else Role.READER,
-            )
-        if isinstance(current_user, dict):
-            return UserSession(**current_user)
-        return current_user
+
+        u_dict = current_user if isinstance(current_user, dict) else current_user.model_dump()
+        username = u_dict.get("username", "")
+        groups = u_dict.get("groups", [])
+        role, is_adm = resolve_system_role(username, groups, settings)
+        is_admin_final = bool(u_dict.get("is_admin", False) or is_adm)
+        system_role_final = Role.ADMIN if is_admin_final else (u_dict.get("system_role") or role)
+
+        return UserSession(
+            username=username,
+            display_name=u_dict.get("display_name", username),
+            email=u_dict.get("email"),
+            groups=groups,
+            auth_method=u_dict.get("auth_method", "jwt"),
+            is_admin=is_admin_final,
+            system_role=system_role_final,
+        )
+
 
     @router.get("/sso", response_model=TokenResponse)
     async def kerberos_sso(request: Request, response: Response):
@@ -345,7 +387,7 @@ def create_auth_router(
                     display_name = ldap_info.get("display_name", display_name)
                     email = ldap_info.get("email", email)
 
-        is_adm = "hadoop-admins" in groups or "admins" in groups
+        role, is_adm = resolve_system_role(username, groups, settings)
         user_session = UserSession(
             username=username,
             display_name=display_name,
@@ -353,7 +395,7 @@ def create_auth_router(
             groups=groups,
             auth_method="kerberos",
             is_admin=is_adm,
-            system_role=Role.ADMIN if is_adm else Role.READER,
+            system_role=role,
         )
 
         if acl_checker_fn and not acl_checker_fn(user_session):
@@ -371,8 +413,12 @@ def create_auth_router(
             "groups": user_session.groups,
             "auth_method": "kerberos",
             "is_admin": user_session.is_admin,
+            "system_role": user_session.system_role.value
+            if hasattr(user_session.system_role, "value")
+            else str(user_session.system_role),
             "user": user_session.model_dump(),
         }
+
         token = create_jwt_token(token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes)
         payload = decode_jwt_token(token, secret_key=secret_key, algorithms=[algorithm])
 

@@ -5,8 +5,9 @@
   </g>
   <defs>
     <linearGradient id="sparkGrad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f59e0b"/>
-      <stop offset="1" stop-color="#ea580c"/>
+      <stop stop-color="#0284c7"/>
+      <stop offset="1" stop-color="#6366f1"/>
     </linearGradient>
+
   </defs>
 </svg>
