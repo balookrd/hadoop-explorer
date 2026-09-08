@@ -139,13 +139,16 @@
   }
 
   async function handleLogin(username: string, password: string) {
-    user = await api.login(username, password);
+    const res = await api.login(username, password);
+    user = res.user || (await api.getMe());
+    authErrorMessage = null;
     await loadClusters();
   }
 
   async function handleKerberosSso() {
     const res = await api.kerberosNegotiate();
     user = res.user || (await api.getMe());
+    authErrorMessage = null;
     await loadClusters();
   }
 
