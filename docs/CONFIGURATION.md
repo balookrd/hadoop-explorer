@@ -2,10 +2,10 @@
 
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
 - **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища, Circuit Breaker, Distributed Lock, Graceful Shutdown).
+- **YARN Explorer** (`backend/yarn` — YARN RM HA, Capacity Scheduler, партиции, Change Requests, Distributed Lock, генерация XML).
 - **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов, Circuit Breaker).
 - **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
-- **YARN Explorer** (`backend/yarn` — YARN RM HA, Capacity Scheduler, партиции, Change Requests, Distributed Lock, генерация XML).
 - **Развертывание в Kubernetes (Helm)**.
 
 ---
@@ -19,20 +19,20 @@
    - [Конфигурация ролевой модели и прав доступа (RBAC)](#24-конфигурация-ролевой-модели-и-прав-доступа-rbac)
    - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage & L1 Cache)](#25-хранилище-сессий-токенов-и-rate-limiting-tri-storage--l1-cache)
    - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#26-отказоустойчивость-circuit-breaker-distributed-lock-и-graceful-shutdown)
-3. [Настройка HDFS Explorer](#3-настройка-hdfs-explorer)
-4. [Настройка SQL Explorer (Trino & Hive)](#4-настройка-sql-explorer-trino--hive)
-   - [Аналитические кластеры](#41-аналитические-кластеры)
-   - [Параметры выполнения запросов и сохранение воркспейса](#42-параметры-выполнения-запросов-и-сохранение-воркспейса)
-   - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#43-ии-ассистент-on-premise-llm--ollama--vllm)
-5. [Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)](#5-настройка-spark-explorer-livy-pyspark-scala-metastore)
-   - [Кластеры и интеграция с Apache Livy](#51-кластеры-и-интеграция-с-apache-livy)
-   - [Версии Spark и среды Python (HDFS Archives)](#52-версии-spark-и-среды-python-hdfs-archives)
-   - [Интеграция с YARN и разграничение очередей](#53-интеграция-с-yarn-и-разграничение-очередей)
-   - [Hive Metastore, Iceberg и профили ресурсов](#54-hive-metastore-iceberg-и-профили-ресурсов)
-   - [Персистентность рабочих пространств пользователя](#55-персистентность-рабочих-пространств-пользователя)
-6. [Настройка YARN Explorer](#6-настройка-yarn-explorer)
-   - [YARN кластеры и партиции](#61-yarn-кластеры-и-партиции)
-   - [Ролевая модель и Change Requests](#62-ролевая-модель-и-change-requests)
+3. [Настройка YARN Explorer](#3-настройка-yarn-explorer)
+   - [YARN кластеры и партиции](#31-yarn-кластеры-и-партиции)
+   - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
+4. [Настройка HDFS Explorer](#4-настройка-hdfs-explorer)
+5. [Настройка SQL Explorer (Trino & Hive)](#5-настройка-sql-explorer-trino--hive)
+   - [Аналитические кластеры](#51-аналитические-кластеры)
+   - [Параметры выполнения запросов и сохранение воркспейса](#52-параметры-выполнения-запросов-и-сохранение-воркспейса)
+   - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#53-ии-ассистент-on-premise-llm--ollama--vllm)
+6. [Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)](#6-настройка-spark-explorer-livy-pyspark-scala-metastore)
+   - [Кластеры и интеграция с Apache Livy](#61-кластеры-и-интеграция-с-apache-livy)
+   - [Версии Spark и среды Python (HDFS Archives)](#62-версии-spark-и-среды-python-hdfs-archives)
+   - [Интеграция с YARN и разграничение очередей](#63-интеграция-с-yarn-и-разграничение-очередей)
+   - [Hive Metastore, Iceberg и профили ресурсов](#64-hive-metastore-iceberg-и-профили-ресурсов)
+   - [Персистентность рабочих пространств пользователя](#65-персистентность-рабочих-пространств-пользователя)
 7. [Переменные окружения](#7-переменные-окружения)
 8. [Конфигурация в Kubernetes (Helm)](#8-конфигурация-в-kubernetes-helm)
 
@@ -42,7 +42,7 @@
 
 Каждый бэкенд-сервис загружает конфигурацию по следующей цепочке приоритетов:
 1. **Переменные окружения** (наивысший приоритет — переопределяют значения из YAML для секретов и путей).
-2. **Файл конфигурации YAML**, заданный через переменную `CONFIG_PATH` или `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` / `SQL_CONFIG_PATH`.
+2. **Файл конфигурации YAML**, заданный через переменную `CONFIG_PATH` или `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH`.
 3. **Локальный файл по умолчанию**: `config/config.yaml` внутри каталога соответствующего сервиса.
 
 > [!IMPORTANT]
@@ -178,7 +178,59 @@ database:
 
 ---
 
-## 3. Настройка HDFS Explorer
+## 3. Настройка YARN Explorer
+
+Файл конфигурации: `backend/yarn/config/config.yaml`.
+
+### 3.1 YARN кластеры и партиции
+
+```yaml
+clusters:
+  - id: "prod-yarn"
+    name: "Production Hadoop Cluster"
+    description: "Основной YARN кластер (120 узлов)"
+    resource_manager_urls:
+      - "http://rm1.prod.company.local:8088"
+      - "http://rm2.prod.company.local:8088" # High Availability failover
+    kerberos_enabled: true
+    kerberos_principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
+    impersonation_enabled: true
+    default_partition: "DEFAULT"
+    partitions:
+      - "DEFAULT"
+      - "GPU"
+      - "HIGH_MEM"
+    resource_mode: "percentage" # percentage (Capacity Scheduler %) | absolute (MB / Cores)
+    total_resources:
+      memory_mb: 2097152        # 2 TB
+      vcores: 1024
+```
+
+### 3.2 Ролевая модель и Change Requests
+
+YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) и защитой от состояний гонки через `DistributedLock` при согласовании заявок:
+
+```yaml
+acl:
+  ui_access:
+    allowed_users: ["*"]
+    allowed_groups: ["*"]
+
+  roles:
+    admin:
+      groups: ["hadoop-admins", "platform-admins"]
+      users: ["admin_user"]
+    writer:
+      groups: ["yarn-operators", "data-engineers"]
+      users: []
+    reader:
+      groups: ["*"]
+      users: ["*"]
+```
+
+---
+
+## 4. Настройка HDFS Explorer
 
 Файл конфигурации: `backend/hdfs/config/config.yaml`.
 
@@ -218,11 +270,11 @@ clusters:
 
 ---
 
-## 4. Настройка SQL Explorer (Trino & Hive)
+## 5. Настройка SQL Explorer (Trino & Hive)
 
 Файл конфигурации: `backend/sql/config/config.yaml`.
 
-### 4.1 Аналитические кластеры
+### 5.1 Аналитические кластеры
 
 ```yaml
 clusters:
@@ -263,7 +315,7 @@ clusters:
       allowed_groups: ["data-engineers", "data-platform-admins"]
 ```
 
-### 4.2 Параметры выполнения запросов и сохранение воркспейса
+### 5.2 Параметры выполнения запросов и сохранение воркспейса
 
 ```yaml
 query_defaults:
@@ -279,7 +331,7 @@ SQL Explorer сохраняет открытые вкладки редактор
 - Для каждого аутентифицированного пользователя создается изолированное рабочее пространство.
 - При смене пользователя загружается его персональный контекст, исключая отображение чужой истории.
 
-### 4.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
+### 5.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
 SQL Explorer включает модуль генерации, оптимизации и автоисправления SQL-запросов:
 
@@ -297,11 +349,11 @@ ai:
 
 ---
 
-## 5. Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)
+## 6. Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)
 
 Файл конфигурации: `backend/spark/config/config.yaml`.
 
-### 5.1 Кластеры и интеграция с Apache Livy
+### 6.1 Кластеры и интеграция с Apache Livy
 
 Spark Explorer связывается с серверами **Apache Livy** для выполнения интерактивных сессий и пакетных расчетов:
 
@@ -324,7 +376,7 @@ clusters:
       allowed_users: []
 ```
 
-### 5.2 Версии Spark и среды Python (HDFS Archives)
+### 6.2 Версии Spark и среды Python (HDFS Archives)
 
 Поддерживается выбор версии Spark и изолированных Conda/Venv окружений, упакованных в HDFS:
 
@@ -356,7 +408,7 @@ clusters:
             is_default: true
 ```
 
-### 5.3 Интеграция с YARN и разграничение очередей
+### 6.3 Интеграция с YARN и разграничение очередей
 
 ```yaml
     yarn:
@@ -373,7 +425,7 @@ clusters:
           allowed_groups: ["*"]
 ```
 
-### 5.4 Hive Metastore, Iceberg и профили ресурсов
+### 6.4 Hive Metastore, Iceberg и профили ресурсов
 
 ```yaml
     # Подключение каталогов данных (HMS / Iceberg)
@@ -404,63 +456,11 @@ clusters:
         num_executors: 4
 ```
 
-### 5.5 Персистентность рабочих пространств пользователя
+### 6.5 Персистентность рабочих пространств пользователя
 
 Spark Explorer сохраняет состояние сессий, активные вкладки, отдельные буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов в базу данных (`SparkUserWorkspace`, `/api/v1/workspace`):
 - При смене языка (PySpark ↔ Scala ↔ SQL) результаты вычислений изолируются и не затираются.
 - При входе нового пользователя загружается его индивидуальное рабочее пространство.
-
----
-
-## 6. Настройка YARN Explorer
-
-Файл конфигурации: `backend/yarn/config/config.yaml`.
-
-### 6.1 YARN кластеры и партиции
-
-```yaml
-clusters:
-  - id: "prod-yarn"
-    name: "Production Hadoop Cluster"
-    description: "Основной YARN кластер (120 узлов)"
-    resource_manager_urls:
-      - "http://rm1.prod.company.local:8088"
-      - "http://rm2.prod.company.local:8088" # High Availability failover
-    kerberos_enabled: true
-    kerberos_principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
-    impersonation_enabled: true
-    default_partition: "DEFAULT"
-    partitions:
-      - "DEFAULT"
-      - "GPU"
-      - "HIGH_MEM"
-    resource_mode: "percentage" # percentage (Capacity Scheduler %) | absolute (MB / Cores)
-    total_resources:
-      memory_mb: 2097152        # 2 TB
-      vcores: 1024
-```
-
-### 6.2 Ролевая модель и Change Requests
-
-YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) и защитой от состояний гонки через `DistributedLock` при согласовании заявок:
-
-```yaml
-acl:
-  ui_access:
-    allowed_users: ["*"]
-    allowed_groups: ["*"]
-
-  roles:
-    admin:
-      groups: ["hadoop-admins", "platform-admins"]
-      users: ["admin_user"]
-    writer:
-      groups: ["yarn-operators", "data-engineers"]
-      users: []
-    reader:
-      groups: ["*"]
-      users: ["*"]
-```
 
 ---
 
@@ -470,7 +470,7 @@ acl:
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
-| `CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SPARK_CONFIG_PATH` / `SQL_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
+| `CONFIG_PATH` / `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
 | `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
 | `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |
 | `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |

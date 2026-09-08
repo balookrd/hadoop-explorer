@@ -54,13 +54,13 @@
                    │  - Structured Audit Logger                   │
                    └──────────────────────┬───────────────────────┘
                                           │
-    ┌─────────────────────────┬───────────┴───────────┬─────────────────────────┐
-    ▼                         ▼                       ▼                         ▼
-┌───────────────┐     ┌───────────────┐       ┌───────────────┐         ┌───────────────┐
-│ Apache Hadoop │     │  Apache Hive  │       │  Apache YARN  │         │  Apache Spark │
-│ WebHDFS HA    │     │ HiveServer2 / │       │ Resource-     │         │ Apache Livy / │
-│ & HttpFS      │     │   Metastore   │       │ Manager HA    │         │ Hive Metastore│
-└───────────────┘     └───────────────┘       └───────────────┘         └───────────────┘
+     ┌─────────────────────────┬───────────┴───────────┬─────────────────────────┐
+     ▼                         ▼                       ▼                         ▼
+ ┌───────────────┐     ┌───────────────┐       ┌───────────────┐         ┌───────────────┐
+ │  Apache YARN  │     │ Apache Hadoop │       │  Apache Hive  │         │  Apache Spark │
+ │ Resource-     │     │ WebHDFS HA    │       │ HiveServer2 / │         │ Apache Livy / │
+ │ Manager HA    │     │ & HttpFS      │       │   Metastore   │         │ Hive Metastore│
+ └───────────────┘     └───────────────┘       └───────────────┘         └───────────────┘
 ```
 
 ---
@@ -101,8 +101,8 @@
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
 Централизованный модуль `backend.common.core.security` предоставляет функцию `apply_security_headers`, гарантирующую соблюдение современных стандартов защиты веб-клиента:
 - **Content-Security-Policy (CSP)**:
-  - **Базовая строгая политика (`CSP_DEFAULT_DIRECTIVES`)**: применяется для HDFS и YARN Explorer (`default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`).
-  - **Политика для редакторов кода (`CSP_CODE_EDITOR_DIRECTIVES`)**: применяется для Spark и SQL Explorer для безопасного функционирования Monaco Editor и Web Workers (`worker-src 'self' blob:`, `script-src 'self' 'unsafe-eval' blob:`, `connect-src 'self' ws: wss: http: https:`, `img-src 'self' data: blob:`).
+  - **Базовая строгая политика (`CSP_DEFAULT_DIRECTIVES`)**: применяется для YARN и HDFS Explorer (`default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`).
+  - **Политика для редакторов кода (`CSP_CODE_EDITOR_DIRECTIVES`)**: применяется для SQL и Spark Explorer для безопасного функционирования Monaco Editor и Web Workers (`worker-src 'self' blob:`, `script-src 'self' 'unsafe-eval' blob:`, `connect-src 'self' ws: wss: http: https:`, `img-src 'self' data: blob:`).
   - Дублирование CSP в `index.html` через `<meta http-equiv="Content-Security-Policy">` для защиты статических файлов при независимой раздаче.
 - **Защитные заголовки**:
   - `X-Frame-Options: DENY` — абсолютная защита от Clickjacking.
@@ -187,10 +187,10 @@
   - `sqlSplitter.ts` — общий парсер и анализатор SQL-скриптов с поддержкой строковых литералов, комментариев и выполнения запроса под курсором (`getStatementAtCursor`).
   - `useResizable.svelte.ts` — Svelte 5 runes хелперы для плавного Drag & Drop изменения размеров сплиттеров (сайдбары и редакторы кода).
 - **Унифицированный API-клиент (`BaseApiClient`)**:
-  - Все клиенты приложений (`YarnApiClient`, `SparkApiClient`, `ApiClient` в SQL, `hdfs/client.ts`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
+  - Все клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
   - Централизованная обработка HTTP 401 с прозрачной попыткой Kerberos SSO (`/auth/sso`), защита от CSRF (`X-Requested-With`), `credentials: 'include'` и поддержка Sliding Sessions.
 - **Автоматическая кодогенерация TypeScript-типов из OpenAPI**:
-  - Команда `make generate-types` запускает скрипт [`scripts/generate-types.sh`](../scripts/generate-types.sh), который автоматически извлекает актуальные OpenAPI JSON схемы бэкенд-сервисов (`hdfs`, `spark`, `sql`, `yarn`) и генерирует строгие TypeScript-интерфейсы в `frontend/common/types/generated/`.
+  - Команда `make generate-types` запускает скрипт [`scripts/generate-types.sh`](../scripts/generate-types.sh), который автоматически извлекает актуальные OpenAPI JSON схемы бэкенд-сервисов (`yarn`, `hdfs`, `sql`, `spark`) и генерирует строгие TypeScript-интерфейсы в `frontend/common/types/generated/`.
   - Это исключает расхождения контрактов данных (Data Drift) между Pydantic-моделями бэкенда и фронтенд-клиентом.
 
 ---

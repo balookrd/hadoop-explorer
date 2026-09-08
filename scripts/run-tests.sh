@@ -22,6 +22,18 @@ find_pytest() {
 
 APP="${1:-all}"
 
+run_yarn() {
+  echo "=========================================="
+  echo "🧪 Запуск тестов: YARN Explorer (43 теста)"
+  echo "=========================================="
+  local pt
+  pt="$(find_pytest yarn)"
+  (cd "$ROOT_DIR/backend/yarn" && \
+   CONFIG_PATH=config/config.yaml \
+   PYTHONPATH=".:$ROOT_DIR" \
+   $pt tests)
+}
+
 run_hdfs() {
   echo "=========================================="
   echo "🧪 Запуск тестов: HDFS Explorer (51 тест)"
@@ -58,21 +70,9 @@ run_spark() {
    $pt tests)
 }
 
-run_yarn() {
-  echo "=========================================="
-  echo "🧪 Запуск тестов: YARN Explorer (43 теста)"
-  echo "=========================================="
-  local pt
-  pt="$(find_pytest yarn)"
-  (cd "$ROOT_DIR/backend/yarn" && \
-   CONFIG_PATH=config/config.yaml \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
-}
-
 run_frontend() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Frontend UI & Auth Lifecycle (12 тестов)"
+  echo "🧪 Запуск тестов: Frontend UI & Auth Lifecycle (13 тестов)"
   echo "=========================================="
   (cd "$ROOT_DIR/frontend" && npm test)
 }
@@ -81,24 +81,24 @@ case "$APP" in
   frontend)
     run_frontend
     ;;
+  yarn)
+    run_yarn
+    ;;
   hdfs)
     run_hdfs
-    ;;
-  spark)
-    run_spark
     ;;
   sql)
     run_sql
     ;;
-  yarn)
-    run_yarn
+  spark)
+    run_spark
     ;;
   all)
     run_frontend
-    run_hdfs
-    run_spark
-    run_sql
     run_yarn
+    run_hdfs
+    run_sql
+    run_spark
     echo ""
     echo "========================================================"
     echo "🎉 ВСЕ ТЕСТЫ ПЛАТФОРМЫ HADOOP EXPLORER ПРОЙДЕНЫ УСПЕШНО!"

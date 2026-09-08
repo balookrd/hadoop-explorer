@@ -47,4 +47,4 @@
 
 ### 5. Типы (`types/`)
 - **`types/auth.ts`** — интерфейсы `UserSession`, `UserInfo`, `TokenResponse`, `ClusterPublicInfo`.
-- **`types/generated/`** — автоматически сгенерированные TypeScript-типы из OpenAPI схем FastAPI (`hdfs.ts`, `spark.ts`, `sql.ts`, `yarn.ts`).
+- **`types/generated/`** — автоматически сгенерированные TypeScript-типы из OpenAPI схем FastAPI (`yarn.ts`, `hdfs.ts`, `sql.ts`, `spark.ts`).

@@ -59,11 +59,10 @@ hadoop-explorer/
 │   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), KerberosManager, SessionStore, Circuit Breaker, Lock, Shutdown, LDAP, Rate Limiter, Audit
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
+│   ├── yarn/               # Сервис YARN Explorer (43 теста)
 │   ├── hdfs/               # Сервис HDFS Explorer (51 тест)
-│   ├── spark/              # Сервис Spark Explorer (16 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
-│   └── yarn/               # Сервис YARN Explorer (43 теста)
-
+│   └── spark/              # Сервис Spark Explorer (16 тестов)
 │
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты, утилиты и API-клиент ───
@@ -72,26 +71,26 @@ hadoop-explorer/
 │   │   ├── utils/          # sqlSplitter (SQL parser/statement at cursor), useResizable (DnD splitter)
 │   │   └── types/          # Общие TypeScript интерфейсы и сгенерированные OpenAPI типы (generated/)
 │   ├── apps/
+│   │   ├── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4 + Lazy Modals & Drawers)
 │   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация + Lazy Modals)
-│   │   ├── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
 │   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
-│   │   └── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4 + Lazy Modals & Drawers)
+│   │   └── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
 │   └── package.json        # NPM Workspaces монорепозитория
 │
 ├── docker/
-│   ├── Dockerfile.hdfs     # Multi-stage сборка образа hadoop-explorer/hdfs
-│   ├── Dockerfile.spark    # Multi-stage сборка образа hadoop-explorer/spark
-│   ├── Dockerfile.sql      # Multi-stage сборка образа hadoop-explorer/sql
 │   ├── Dockerfile.yarn     # Multi-stage сборка образа hadoop-explorer/yarn
+│   ├── Dockerfile.hdfs     # Multi-stage сборка образа hadoop-explorer/hdfs
+│   ├── Dockerfile.sql      # Multi-stage сборка образа hadoop-explorer/sql
+│   ├── Dockerfile.spark    # Multi-stage сборка образа hadoop-explorer/spark
 │   └── .dockerignore
 │
 ├── helm/
 │   ├── hadoop-explorer/    # Umbrella Chart для комплексного деплоя платформы
 │   └── charts/
+│       ├── yarn-explorer/  # Автономный чарт YARN
 │       ├── hdfs-explorer/  # Автономный чарт HDFS
-│       ├── spark-explorer/ # Автономный чарт Spark
 │       ├── sql-explorer/   # Автономный чарт SQL
-│       └── yarn-explorer/  # Автономный чарт YARN
+│       └── spark-explorer/ # Автономный чарт Spark
 │
 ├── demo/                   # ─── Изолированные демонстрационные стенды ───
 │   ├── infra/              # Единый инфраструктурный стек (MIT KDC + OpenLDAP)
@@ -171,10 +170,10 @@ hadoop-explorer/
 
 - **Корневой `pyproject.toml`** определяет единый воркспейс со всеми сервисами:
   - `backend/common` (`hadoop-explorer-common`)
-  - `backend/hdfs` (`hadoop-explorer-hdfs`)
-  - `backend/spark` (`hadoop-explorer-spark`)
-  - `backend/sql` (`hadoop-explorer-sql`)
   - `backend/yarn` (`hadoop-explorer-yarn`)
+  - `backend/hdfs` (`hadoop-explorer-hdfs`)
+  - `backend/sql` (`hadoop-explorer-sql`)
+  - `backend/spark` (`hadoop-explorer-spark`)
 - **Единое виртуальное окружение** `.venv` для мгновенной синхронизации всех зависимостей.
 - **Быстрый линтинг и форматирование** через **Ruff**.
 
@@ -267,18 +266,18 @@ make demo-all
 make build
 
 # Либо по отдельности:
-make build-hdfs     # hadoop-explorer/hdfs:latest
-make build-spark    # hadoop-explorer/spark:latest
-make build-sql      # hadoop-explorer/sql:latest
 make build-yarn     # hadoop-explorer/yarn:latest
+make build-hdfs     # hadoop-explorer/hdfs:latest
+make build-sql      # hadoop-explorer/sql:latest
+make build-spark    # hadoop-explorer/spark:latest
 ```
 
 Прямой запуск через Docker CLI:
 ```bash
-docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
-docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
-docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql .
 docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn .
+docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
+docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql .
+docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
 ```
 
 ---
@@ -295,36 +294,36 @@ helm install hadoop-explorer helm/hadoop-explorer -n hadoop --create-namespace
 
 Выборочное включение компонентов через `values.yaml`:
 ```yaml
-hdfs-explorer:
+yarn-explorer:
   enabled: true
 
-spark-explorer:
+hdfs-explorer:
   enabled: true
 
 sql-explorer:
   enabled: true
 
-yarn-explorer:
-  enabled: false
+spark-explorer:
+  enabled: true
 ```
 
 Либо через параметры командной строки:
 ```bash
 helm install hadoop-explorer helm/hadoop-explorer \
+  --set yarn-explorer.enabled=true \
   --set hdfs-explorer.enabled=true \
-  --set spark-explorer.enabled=true \
   --set sql-explorer.enabled=true \
-  --set yarn-explorer.enabled=false
+  --set spark-explorer.enabled=true
 ```
 
 ### Вариант 2: Автономные чарты
 
 Каждое приложение можно установить в кластер независимо:
 ```bash
-helm install hdfs-explorer helm/charts/hdfs-explorer -n hadoop
-helm install spark-explorer helm/charts/spark-explorer -n hadoop
-helm install sql-explorer helm/charts/sql-explorer -n hadoop
 helm install yarn-explorer helm/charts/yarn-explorer -n hadoop
+helm install hdfs-explorer helm/charts/hdfs-explorer -n hadoop
+helm install sql-explorer helm/charts/sql-explorer -n hadoop
+helm install spark-explorer helm/charts/spark-explorer -n hadoop
 ```
 
 Проверка синтаксиса чартов:

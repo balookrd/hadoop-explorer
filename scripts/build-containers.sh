@@ -19,29 +19,29 @@ build_app() {
 TARGET="${1:-all}"
 
 case "$TARGET" in
+  yarn)
+    build_app yarn
+    ;;
   hdfs)
     build_app hdfs
-    ;;
-  spark)
-    build_app spark
     ;;
   sql)
     build_app sql
     ;;
-  yarn)
-    build_app yarn
+  spark)
+    build_app spark
     ;;
   all)
-    build_app hdfs
-    build_app spark
-    build_app sql
     build_app yarn
+    build_app hdfs
+    build_app sql
+    build_app spark
     echo "=========================================="
     echo "🎉 Все контейнеры платформы успешно собраны!"
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|hdfs|spark|sql|yarn]"
+    echo "Использование: $0 [all|yarn|hdfs|sql|spark]"
     exit 1
     ;;
 esac

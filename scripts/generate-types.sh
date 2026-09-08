@@ -18,7 +18,7 @@ trap cleanup EXIT
 
 echo "=== [1/3] Извлечение OpenAPI схем из backend-сервисов ==="
 
-SERVICES=("hdfs" "spark" "sql" "yarn")
+SERVICES=("yarn" "hdfs" "sql" "spark")
 
 for SVC in "${SERVICES[@]}"; do
     echo " -> Генерация OpenAPI JSON для: ${SVC}"
@@ -51,10 +51,10 @@ cat << 'TYPES_INDEX' > "${OUTPUT_DIR}/index.ts"
  * Не редактируйте данный файл вручную — запускайте `make generate-types`!
  */
 
-export * as HdfsApi from './hdfs';
-export * as SparkApi from './spark';
-export * as SqlApi from './sql';
 export * as YarnApi from './yarn';
+export * as HdfsApi from './hdfs';
+export * as SqlApi from './sql';
+export * as SparkApi from './spark';
 TYPES_INDEX
 
 echo "=== Генерация типов успешно завершена! ==="
