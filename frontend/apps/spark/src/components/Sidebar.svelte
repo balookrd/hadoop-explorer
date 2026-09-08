@@ -61,11 +61,13 @@
   }
 
   async function toggleDb(db: string) {
-    expandedDbs[db] = !expandedDbs[db];
-    if (expandedDbs[db] && !tablesByDb[db] && clusterDetails) {
+    if (!clusterDetails) return;
+    const dbKey = `${clusterDetails.id}.${selectedMetastoreId}.${db}`;
+    expandedDbs[dbKey] = !expandedDbs[dbKey];
+    if (expandedDbs[dbKey] && !tablesByDb[dbKey]) {
       try {
         const tbls = await api.getTables(clusterDetails.id, db, selectedMetastoreId);
-        tablesByDb[db] = tbls;
+        tablesByDb[dbKey] = tbls;
       } catch (err) {
         console.error('Ошибка загрузки таблиц', err);
       }
@@ -73,9 +75,10 @@
   }
 
   async function toggleTable(db: string, tbl: string) {
-    const key = `${db}.${tbl}`;
+    if (!clusterDetails) return;
+    const key = `${clusterDetails.id}.${selectedMetastoreId}.${db}.${tbl}`;
     expandedTables[key] = !expandedTables[key];
-    if (expandedTables[key] && !columnsByTable[key] && clusterDetails) {
+    if (expandedTables[key] && !columnsByTable[key]) {
       try {
         const cols = await api.getColumns(clusterDetails.id, db, tbl, selectedMetastoreId);
         columnsByTable[key] = cols;
@@ -188,12 +191,13 @@
         </div>
       {:else}
         {#each databases as db}
+          {@const dbKey = `${clusterDetails?.id}.${selectedMetastoreId}.${db}`}
           <div>
             <button
               onclick={() => toggleDb(db)}
               class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-700 hover:bg-slate-200/60 font-medium transition cursor-pointer text-left truncate"
             >
-              {#if expandedDbs[db]}
+              {#if expandedDbs[dbKey]}
                 <ChevronDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
               {:else}
                 <ChevronRight class="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -202,10 +206,10 @@
               <span class="truncate font-semibold">{db}</span>
             </button>
 
-            {#if expandedDbs[db] && tablesByDb[db]}
+            {#if expandedDbs[dbKey] && tablesByDb[dbKey]}
               <div class="pl-4 ml-2 border-l border-slate-200/80 space-y-0.5 mt-0.5">
-                {#each tablesByDb[db].filter((t) => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase())) as tbl}
-                  {@const key = `${db}.${tbl}`}
+                {#each tablesByDb[dbKey].filter((t) => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase())) as tbl}
+                  {@const key = `${clusterDetails?.id}.${selectedMetastoreId}.${db}.${tbl}`}
                   <div>
                     <div class="flex items-center justify-between group rounded-lg hover:bg-slate-200/60 pr-1">
                       <button

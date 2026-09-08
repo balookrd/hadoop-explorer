@@ -80,9 +80,10 @@ class SparkCatalogService:
 
         if cluster.type == "mock":
             res = await mock_spark_engine.get_databases(metastore_id)
+        elif "archive" in cluster.id or metastore_id == "hive-metastore-2":
+            res = ["default", "archive_db"]
         else:
-            # В реальной среде можно выполнить `SHOW DATABASES` или запросить HMS thrift
-            res = ["default", "lakehouse_core", "raw_zone"]
+            res = ["default", "demo_db"]
 
         _spark_meta_cache.set(cache_key, res)
         return res
@@ -98,8 +99,16 @@ class SparkCatalogService:
 
         if cluster.type == "mock":
             res = await mock_spark_engine.get_tables(db_name, metastore_id)
+        elif "archive" in cluster.id or metastore_id == "hive-metastore-2":
+            if db_name == "archive_db":
+                res = ["quarterly_reports"]
+            else:
+                res = ["historical_orders"]
         else:
-            res = ["customers", "transactions", "orders", "events_log", "daily_metrics"]
+            if db_name == "demo_db":
+                res = ["sales"]
+            else:
+                res = ["customers", "transactions", "orders", "events_log", "daily_metrics", "demo_users"]
 
         _spark_meta_cache.set(cache_key, res)
         return res
@@ -153,6 +162,30 @@ class SparkCatalogService:
                     {"name": "total_revenue", "type": "double"},
                     {"name": "conversion_rate", "type": "double"},
                 ],
+                "demo_users": [
+                    {"name": "id", "type": "bigint"},
+                    {"name": "name", "type": "string"},
+                    {"name": "email", "type": "string"},
+                ],
+                "sales": [
+                    {"name": "id", "type": "int"},
+                    {"name": "item", "type": "string"},
+                    {"name": "amount", "type": "double"},
+                    {"name": "category", "type": "string"},
+                    {"name": "sale_date", "type": "string"},
+                ],
+                "historical_orders": [
+                    {"name": "order_id", "type": "bigint"},
+                    {"name": "department", "type": "string"},
+                    {"name": "revenue", "type": "double"},
+                    {"name": "year", "type": "int"},
+                ],
+                "quarterly_reports": [
+                    {"name": "report_id", "type": "string"},
+                    {"name": "department", "type": "string"},
+                    {"name": "total_sales", "type": "double"},
+                    {"name": "quarter", "type": "string"},
+                ],
             }
             res = SCHEMAS.get(
                 table_name,
@@ -175,3 +208,4 @@ class SparkCatalogService:
 
 
 catalog_service = SparkCatalogService()
+
