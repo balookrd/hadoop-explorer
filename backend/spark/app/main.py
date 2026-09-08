@@ -66,18 +66,12 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Ошибка Crash Recovery задач Spark: {e}")
 
     gc_task = asyncio.create_task(_gc_worker())
-    
-    # 4. Автоматическая фоновая инициализация демонстрационных таблиц (customers, transactions)
-    from app.services.demo_initializer import start_demo_table_initialization_task
-    demo_init_task = asyncio.create_task(start_demo_table_initialization_task())
 
     yield
     from backend.common.core.shutdown import shutdown_manager
 
     if gc_task:
         gc_task.cancel()
-    if demo_init_task:
-        demo_init_task.cancel()
 
     if hasattr(session_manager, "aclose"):
         shutdown_manager.register(session_manager.aclose)
