@@ -708,7 +708,6 @@
             }
           }}
           onCancel={cancelQuery}
-          onSave={handleSaveQuery}
           onOpenAi={handleOpenAi}
           onFormat={handleFormatSql}
         />

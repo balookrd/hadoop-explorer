@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Square, Save, Sparkles, Clock, Layers, ShieldCheck, Zap, BookOpen, AlignLeft, Wand2 } from 'lucide-svelte';
+  import { Play, Square, Sparkles, Clock, Layers, ShieldCheck, Zap, BookOpen, AlignLeft, Wand2 } from 'lucide-svelte';
 
   let {
     isRunning,
@@ -8,7 +8,6 @@
     rowsCount,
     onRun,
     onCancel,
-    onSave,
     onOpenAi,
     onFormat
   }: {
@@ -18,7 +17,6 @@
     rowsCount: number;
     onRun: () => void;
     onCancel: () => void;
-    onSave: () => void;
     onOpenAi?: (tab: 'check' | 'explain' | 'optimize' | 'generate') => void;
     onFormat?: () => void;
   } = $props();
@@ -47,15 +45,6 @@
         <span>Остановить</span>
       </button>
     {/if}
-
-    <button
-      onclick={onSave}
-      class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200 transition cursor-pointer shadow-2xs"
-      title="Сохранить в избранное"
-    >
-      <Save class="w-3.5 h-3.5 text-slate-500" />
-      <span class="hidden sm:inline">Сохранить</span>
-    </button>
 
     {#if onFormat}
       <button
