@@ -142,7 +142,7 @@
               {user.display_name || user.username || 'Гость'}
             </span>
             <span class="text-[10px] text-slate-500 leading-tight font-medium font-mono truncate">
-              {user.auth_method ? `${user.auth_method.toUpperCase()} SSO` : `@${user.username}`}
+              @{user.username}
             </span>
           </div>
           <ChevronDown class="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0 transition-transform duration-200 {showUserMenu ? 'rotate-180' : ''}" />
@@ -155,7 +155,12 @@
             style="z-index: 1000;"
           >
             <div class="border-b border-slate-100 pb-2.5 mb-2.5">
-              <div class="text-xs font-bold text-slate-800">{user.display_name || user.username}</div>
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs font-bold text-slate-800 truncate">{user.display_name || user.username}</div>
+                <span class="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-100 text-slate-600 border border-slate-200 shrink-0">
+                  {user.auth_method === 'kerberos' ? 'Kerberos SSO' : user.auth_method === 'mock' ? 'Demo' : 'LDAP'}
+                </span>
+              </div>
               <div class="text-[11px] text-slate-500 font-mono">@{user.username}</div>
               {#if user.email}
                 <div class="text-[11px] text-slate-500 mt-0.5">{user.email}</div>
