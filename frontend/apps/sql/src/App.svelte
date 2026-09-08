@@ -356,6 +356,17 @@
     }
   }
 
+  async function handleLogin(u: string, p: string) {
+    const res = await api.login(u, p);
+    await handleLoginSuccess(res.user);
+  }
+
+  async function handleKerberosSso() {
+    const res = await api.kerberosNegotiate();
+    const u = res.user || (await api.getMe());
+    await handleLoginSuccess(u);
+  }
+
   async function handleLoginSuccess(u: UserSession) {
     user = u;
     await loadClusters();
@@ -723,8 +734,11 @@
 
   {#if !user}
     <LoginModal
+      title="SQL Web Explorer"
+      subtitle="Trino & Hive"
       initialError={authErrorMessage}
-      onLoginSuccess={handleLoginSuccess}
+      onLogin={handleLogin}
+      onKerberosSso={handleKerberosSso}
     />
   {/if}
 

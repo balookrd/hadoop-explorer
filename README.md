@@ -64,9 +64,10 @@ hadoop-explorer/
 │   └── yarn/               # Сервис YARN Explorer (43 теста)
 │
 ├── frontend/
-│   ├── common/             # ─── Общие UI-компоненты и API-клиент ───
-│   │   ├── api/            # BaseApiClient (Cookie-first, CSRF guard, Kerberos SPNEGO SSO)
-│   │   ├── components/     # Header, LoginModal, StatusBadge, NotificationToast
+│   ├── common/             # ─── Общие UI-компоненты, утилиты и API-клиент ───
+│   │   ├── api/            # BaseApiClient (Zero LocalStorage, Cookie-first, CSRF guard, SPNEGO SSO)
+│   │   ├── components/     # Header, LoginModal, Modal, StatusBadge, NotificationToast
+│   │   ├── utils/          # sqlSplitter (SQL parser/statement at cursor), useResizable (DnD splitter)
 │   │   └── types/          # Общие TypeScript интерфейсы и сгенерированные OpenAPI типы (generated/)
 │   ├── apps/
 │   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация + Lazy Modals)

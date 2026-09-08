@@ -323,11 +323,29 @@ def make_get_current_user(
         return user
 
     async def get_current_user(request: Request) -> Any:
+        token, is_cookie_auth = extract_token_from_request(request, get_cookie_names())
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Требуется авторизация",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        verify_csrf(request, is_cookie_auth, allowed_cors=get_cors_origins())
+
+        storage = get_storage_service()
+        if storage.is_token_revoked(token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Токен отозван при выходе из системы",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         user = await get_current_user_optional(request)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Требуется авторизация",
+                detail="Недействительный или просроченный токен",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return user

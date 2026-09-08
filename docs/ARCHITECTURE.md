@@ -176,7 +176,12 @@
 - **Lazy Loading модальных окон (Code-Splitting)**:
   - Все тяжелые модальные окна, мастера настроек и выдвижные панели (Drawers) загружаются асинхронно по требованию через `{#await import(...) then { default: Component }}`.
   - Это минимизирует первоначальный размер JavaScript-бандла (Time-to-Interactive) и ускоряет первую отрисовку страниц.
-- **Унифицированный UX модальных окон и диалогов**:
+- **Единый пакет интерфейсных компонентов (`@hadoop-explorer/common`)**:
+  - `Header.svelte` — централизованная шапка с профилем пользователя, отображением LDAP-групп/ролей, селектором кластеров и кнопкой выхода (`Logout`) для всех SPA-приложений платформы.
+  - `LoginModal.svelte` — стандартизированный диалог аутентификации с поддержкой Kerberos SPNEGO SSO, входа по учетной записи LDAP и быстрого переключения mock-пользователей.
+  - `Modal.svelte` — базовый переиспользуемый компонент диалогового окна с backdrop-blur, закрытием по Escape/клику вне окна и доступностью.
+  - `sqlSplitter.ts` — общий парсер и анализатор SQL-скриптов с поддержкой строковых литералов, комментариев и выполнения запроса под курсором (`getStatementAtCursor`).
+  - `useResizable.svelte.ts` — Svelte 5 runes хелперы для плавного Drag & Drop изменения размеров сплиттеров (сайдбары и редакторы кода).
 - **Унифицированный API-клиент (`BaseApiClient`)**:
   - Все клиенты приложений (`YarnApiClient`, `SparkApiClient`, `ApiClient` в SQL, `hdfs/client.ts`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
   - Централизованная обработка HTTP 401 с прозрачной попыткой Kerberos SSO (`/auth/sso`), защита от CSRF (`X-Requested-With`), `credentials: 'include'` и поддержка Sliding Sessions.
