@@ -115,25 +115,23 @@
 
 
   <!-- Правая группа статусов и метрик -->
-  <div class="flex items-center gap-3 text-xs">
-    {#if statusText}
-      <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-700">
-        {#if isRunning}
-          <div class="w-2 h-2 rounded-full bg-sky-500 animate-ping"></div>
-        {/if}
+  <div class="flex items-center gap-2 text-xs shrink-0">
+    {#if isRunning && statusText}
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-50 border border-sky-200 text-sky-800 animate-pulse">
+        <div class="w-2 h-2 rounded-full bg-sky-500 animate-ping"></div>
         <span class="text-[11px] font-mono font-medium">{statusText}</span>
       </div>
     {/if}
 
     {#if executionTimeMs > 0}
-      <div class="flex items-center gap-1 text-slate-500 font-mono text-[11px]">
+      <div class="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md border border-slate-200 text-slate-600 font-mono text-[11px]">
         <Clock class="w-3 h-3 text-slate-400" />
         <span>{(executionTimeMs / 1000).toFixed(2)} с</span>
       </div>
     {/if}
 
     {#if rowsCount > 0}
-      <div class="flex items-center gap-1 text-emerald-700 font-mono text-[11px] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-medium">
+      <div class="flex items-center gap-1 text-emerald-700 font-mono text-[11px] bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md font-medium">
         <Layers class="w-3 h-3 text-emerald-600" />
         <span>{rowsCount.toLocaleString()} строк</span>
       </div>
