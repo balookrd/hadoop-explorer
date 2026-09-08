@@ -75,23 +75,15 @@ app = FastAPI(
 # Защитные HTTP-заголовки
 @app.middleware("http")
 async def add_security_headers(request, call_next):
+    from backend.common.core.security import apply_security_headers
+
     response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "font-src 'self' data:; "
-        "img-src 'self' data:; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self';"
+    is_secure = bool(getattr(settings.server, "secure_cookies", False))
+    return apply_security_headers(
+        response,
+        is_secure_cookie=is_secure,
+        is_code_editor=False,
     )
-    return response
 
 
 # CORS: разрешены только доверенные origins

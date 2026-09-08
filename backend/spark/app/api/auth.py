@@ -106,7 +106,26 @@ async def login(req: LoginRequest, request: Request, response: Response):
 
 
 @router.get("/me", response_model=UserSession)
-async def get_me(current_user: UserSession = Depends(get_current_user)):
+async def get_me(request: Request, response: Response, current_user: UserSession = Depends(get_current_user)):
+    from backend.common.core.security import extract_token_from_request
+
+    token, is_cookie_auth = extract_token_from_request(
+        request, ["session_token", "access_token", "hdfs_explorer_session", "hadoop_explorer_session"]
+    )
+    if token:
+        storage_service.touch_session(token, extend_seconds=settings.auth.jwt.expire_minutes * 60)
+        if is_cookie_auth:
+            for c_name in ["session_token", "access_token"]:
+                if c_name in request.cookies:
+                    response.set_cookie(
+                        key=c_name,
+                        value=token,
+                        httponly=True,
+                        secure=settings.server.secure_cookies,
+                        samesite="lax",
+                        max_age=settings.auth.jwt.expire_minutes * 60,
+                        path="/",
+                    )
     return current_user
 
 

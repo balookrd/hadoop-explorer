@@ -4,9 +4,11 @@
   let {
     onLogin,
     initialError = null,
+    onClose,
   }: {
     onLogin: (username: string, password: string) => Promise<void>;
     initialError?: string | null;
+    onClose?: () => void;
   } = $props();
 
   let username = $state('admin_user');
@@ -44,8 +46,6 @@
       if (resp.ok) {
         const data = await resp.json();
         if (data.user) {
-          // SSO вернул пользователя — передаём через onLogin не получится,
-          // перезагружаем страницу для подхвата сессии
           window.location.reload();
           return;
         }
@@ -64,8 +64,17 @@
   }
 </script>
 
-<div class="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 select-none">
-  <div class="w-full max-w-md bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-5 text-slate-800">
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && onClose) onClose(); }} />
+
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+<div
+  class="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 select-none"
+  onclick={(e) => { if (onClose && e.target === e.currentTarget) onClose(); }}
+>
+  <div
+    class="w-full max-w-md bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-5 text-slate-800 select-auto"
+    onclick={(e) => e.stopPropagation()}
+  >
     <!-- Шапка -->
     <div class="flex items-center gap-3.5">
       <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">

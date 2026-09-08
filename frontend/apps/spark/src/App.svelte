@@ -11,12 +11,11 @@
     TabResultData,
     HistoryItem
   } from './types';
-  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import { Header } from '@hadoop-explorer/common';
   import Sidebar from './components/Sidebar.svelte';
   import SessionBar from './components/SessionBar.svelte';
   import SparkEditor from './components/SparkEditor.svelte';
   import ResultsView from './components/ResultsView.svelte';
-  import SessionConfigModal from './components/SessionConfigModal.svelte';
   import { Flame, Plus, X, Server } from 'lucide-svelte';
 
   let user = $state<UserSession | null>(null);
@@ -133,8 +132,12 @@
     activeTab?.language === 'scalaspark' ? 'spark' : 'pyspark'
   );
 
+  let sidebarWidth = $state(280);
+  let isResizingSidebar = $state(false);
+  let isResizingEditor = $state(false);
+  let mainAreaRef = $state<HTMLDivElement | null>(null);
+
   let editorHeightPercent = $state(50);
-  let isResizing = $state(false);
   let saveTimeout: any = null;
 
   function getStorageKey(uname?: string | null): string {
@@ -207,6 +210,12 @@
     if (state.selectedClusterId) {
       selectedClusterId = state.selectedClusterId;
     }
+    if (typeof state.sidebarWidth === 'number' && state.sidebarWidth >= 180 && state.sidebarWidth <= 800) {
+      sidebarWidth = state.sidebarWidth;
+    }
+    if (typeof state.editorHeightPercent === 'number' && state.editorHeightPercent >= 15 && state.editorHeightPercent <= 85) {
+      editorHeightPercent = state.editorHeightPercent;
+    }
     if (activeTab) {
       pickSessionForLanguage(activeTab.language);
     }
@@ -256,6 +265,8 @@
         const stateToSave = {
           selectedClusterId,
           activeTabId,
+          sidebarWidth,
+          editorHeightPercent,
           savedConfigByKind,
           tabs: tabs.map((t) => {
             // Синхронизируем текущий активный результат вкладки в ее resultBuffers
@@ -941,26 +952,73 @@
   }
 
 
-  function handleMouseDown() {
-    isResizing = true;
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+  // Обработчики изменения размера сайдбара (каталогов Hive Metastore)
+  function handleSidebarMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    isResizingSidebar = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleSidebarMouseMove);
+    window.addEventListener('mouseup', handleSidebarMouseUp);
   }
 
-  function handleMouseMove(e: MouseEvent) {
-    if (!isResizing) return;
-    const containerHeight = window.innerHeight - 110;
-    const newPercent = (e.clientY / containerHeight) * 100;
-    if (newPercent >= 20 && newPercent <= 80) {
-      editorHeightPercent = newPercent;
+  function handleSidebarMouseMove(e: MouseEvent) {
+    if (!isResizingSidebar) return;
+    const newWidth = Math.max(200, Math.min(window.innerWidth * 0.55, e.clientX));
+    sidebarWidth = Math.round(newWidth);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  function handleSidebarMouseUp() {
+    if (!isResizingSidebar) return;
+    isResizingSidebar = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', handleSidebarMouseMove);
+    window.removeEventListener('mouseup', handleSidebarMouseUp);
+    saveStateToStorage(true);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  // Обработчики изменения размера редактора кода и результатов
+  function handleEditorMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    isResizingEditor = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleEditorMouseMove);
+    window.addEventListener('mouseup', handleEditorMouseUp);
+  }
+
+  function handleEditorMouseMove(e: MouseEvent) {
+    if (!isResizingEditor || !mainAreaRef) return;
+    const rect = mainAreaRef.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const relativeY = e.clientY - rect.top;
+    const newPercent = (relativeY / rect.height) * 100;
+    if (newPercent >= 15 && newPercent <= 85) {
+      editorHeightPercent = Math.round(newPercent * 10) / 10;
+      window.dispatchEvent(new Event('resize'));
     }
   }
 
-  function handleMouseUp() {
-    isResizing = false;
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', handleMouseUp);
+  function handleEditorMouseUp() {
+    if (!isResizingEditor) return;
+    isResizingEditor = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', handleEditorMouseMove);
+    window.removeEventListener('mouseup', handleEditorMouseUp);
+    saveStateToStorage(true);
+    window.dispatchEvent(new Event('resize'));
   }
+
+  onDestroy(() => {
+    window.removeEventListener('mousemove', handleSidebarMouseMove);
+    window.removeEventListener('mouseup', handleSidebarMouseUp);
+    window.removeEventListener('mousemove', handleEditorMouseMove);
+    window.removeEventListener('mouseup', handleEditorMouseUp);
+  });
 </script>
 
 <div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
@@ -978,18 +1036,33 @@
   />
 
   <div class="flex-1 flex overflow-hidden">
-    <!-- Сайдбар слева -->
-    <Sidebar
-      clusterDetails={clusterDetails}
-      bind:selectedMetastoreId
-      targetLanguage={activeTab?.language || 'pyspark'}
-      username={user?.username}
-      onSelectTable={handleSelectTable}
-      onRestoreHistory={handleRestoreHistory}
-    />
+    <!-- Сайдбар каталогов и истории с настраиваемой шириной -->
+    <div style="width: {sidebarWidth}px;" class="h-full shrink-0 flex">
+      <Sidebar
+        clusterDetails={clusterDetails}
+        bind:selectedMetastoreId
+        targetLanguage={activeTab?.language || 'pyspark'}
+        username={user?.username}
+        onSelectTable={handleSelectTable}
+        onRestoreHistory={handleRestoreHistory}
+      />
+    </div>
+
+    <!-- Вертикальный разделитель (ширина каталогов Metastore) -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+      onmousedown={handleSidebarMouseDown}
+      ondblclick={() => { sidebarWidth = 280; saveStateToStorage(true); window.dispatchEvent(new Event('resize')); }}
+      class="w-1.5 hover:w-2 bg-slate-200/80 hover:bg-amber-500 active:bg-amber-600 transition-all cursor-col-resize shrink-0 z-20 flex items-center justify-center group select-none"
+      title="Изменить ширину каталогов (двойной клик для сброса)"
+    >
+      <div class="w-0.5 h-8 bg-slate-400/50 group-hover:bg-white rounded-full transition"></div>
+    </div>
 
     <!-- Основная рабочая область -->
-    <main class="flex-1 flex flex-col overflow-hidden">
+    <main class="flex-1 flex flex-col overflow-hidden min-w-0">
       <!-- Session Bar -->
       <SessionBar
         language={activeTab?.language || 'pyspark'}
@@ -1043,9 +1116,9 @@
       </div>
 
       <!-- Рабочая зона: Редактор и Результаты (Resizable Split) -->
-      <div class="flex-1 flex flex-col overflow-hidden relative">
+      <div bind:this={mainAreaRef} class="flex-1 flex flex-col overflow-hidden relative min-h-0">
         <!-- Редактор кода -->
-        <div style="height: {editorHeightPercent}%;" class="w-full overflow-hidden">
+        <div style="height: {editorHeightPercent}%;" class="w-full overflow-hidden shrink-0">
           {#if activeTab}
             <SparkEditor
               bind:code={activeTab.code}
@@ -1060,14 +1133,18 @@
         <!-- Разделитель (Split Handle) -->
         <div
           role="separator"
-          aria-valuenow={editorHeightPercent}
+          aria-orientation="horizontal"
           tabindex="0"
-          onmousedown={handleMouseDown}
-          class="h-1.5 bg-slate-200 hover:bg-amber-400 transition cursor-row-resize shrink-0 z-20"
-        ></div>
+          onmousedown={handleEditorMouseDown}
+          ondblclick={() => { editorHeightPercent = 50; saveStateToStorage(true); window.dispatchEvent(new Event('resize')); }}
+          class="h-1.5 hover:h-2 bg-slate-200/80 hover:bg-amber-500 active:bg-amber-600 transition-all cursor-row-resize shrink-0 z-20 flex items-center justify-center group select-none"
+          title="Изменить размер редактора и результатов (двойной клик для сброса)"
+        >
+          <div class="h-0.5 w-8 bg-slate-400/50 group-hover:bg-white rounded-full transition"></div>
+        </div>
 
         <!-- Результаты и Логи -->
-        <div style="height: {100 - editorHeightPercent}%;" class="w-full overflow-hidden">
+        <div style="height: {100 - editorHeightPercent}%;" class="w-full overflow-hidden min-h-0">
           {#if activeTab}
             <ResultsView
               columns={activeTab.columns}
@@ -1085,24 +1162,31 @@
     </main>
   </div>
 
-  <!-- Модальное окно конфигурации сессии Spark -->
-  <SessionConfigModal
-    isOpen={isConfigModalOpen}
-    clusterDetails={clusterDetails}
-    initialValues={sessionPayload}
-    targetKind={currentTabKind}
-    targetLanguage={activeTab?.language || 'pyspark'}
-    onClose={() => (isConfigModalOpen = false)}
-    onSave={handleSaveSessionConfig}
-  />
+  <!-- Модальное окно конфигурации сессии Spark (Lazy Loaded) -->
+  {#if isConfigModalOpen}
+    {#await import('./components/SessionConfigModal.svelte') then { default: SessionConfigModal }}
+      <SessionConfigModal
+        isOpen={isConfigModalOpen}
+        clusterDetails={clusterDetails}
+        initialValues={sessionPayload}
+        targetKind={currentTabKind}
+        targetLanguage={activeTab?.language || 'pyspark'}
+        onClose={() => (isConfigModalOpen = false)}
+        onSave={handleSaveSessionConfig}
+      />
+    {/await}
+  {/if}
 
   {#if !isAuthChecking && (!user || isLoginModalOpen)}
-    <LoginModal
-      title="Spark Explorer"
-      subtitle="Аутентификация LDAP & SSO"
-      icon={Flame}
-      mockUsers={mockUsers}
-      onLogin={handleLogin}
-    />
+    {#await import('@hadoop-explorer/common') then { LoginModal }}
+      <LoginModal
+        title="Spark Explorer"
+        subtitle="Аутентификация LDAP & SSO"
+        icon={Flame}
+        mockUsers={mockUsers}
+        onClose={() => (isLoginModalOpen = false)}
+        onLogin={handleLogin}
+      />
+    {/await}
   {/if}
 </div>

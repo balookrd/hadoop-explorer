@@ -626,3 +626,20 @@ def test_storage_l1_fail_open_protection_hdfs():
     # Должен вернуть True благодаря L1 кэшу
     assert storage.is_token_revoked(jti) is True
     assert storage.is_token_revoked("unknown-hdfs-jti") is False
+
+
+@pytest.mark.asyncio
+async def test_security_headers_and_csp():
+    """Проверяет наличие защитных заголовков (включая CSP) в ответах HDFS Explorer."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert resp.headers.get("X-Frame-Options") == "DENY"
+        assert "strict-origin-when-cross-origin" in resp.headers.get("Referrer-Policy", "")
+        csp = resp.headers.get("Content-Security-Policy", "")
+        assert "default-src 'self'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert "object-src 'none'" in csp
+

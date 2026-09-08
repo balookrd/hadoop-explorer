@@ -127,7 +127,7 @@
   }
 </script>
 
-<aside class="w-64 bg-slate-50 border-r border-slate-200 flex flex-col h-full select-none shrink-0 overflow-hidden">
+<aside class="w-full bg-slate-50 border-r border-slate-200 flex flex-col h-full select-none shrink-0 overflow-hidden">
   <!-- Вкладки Сайдбара: Схема / История -->
   <div class="flex border-b border-slate-200 bg-white">
     <button

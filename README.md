@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-142%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-143%20passed-brightgreen.svg)](#-тестирование-платформы)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -39,7 +39,7 @@
 
 **Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
-1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
+1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
 2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
 4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой от состояний гонки через `DistributedLock`.
@@ -54,10 +54,10 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── core/           # Безопасность, SessionStore, Circuit Breaker, Lock, Shutdown, JWT, CSRF, LDAP, Kerberos, Rate Limiter, Audit
+│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), SessionStore, Circuit Breaker, Lock, Shutdown, LDAP, Kerberos, Rate Limiter, Audit
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession)
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
-│   ├── hdfs/               # Сервис HDFS Explorer (50 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (51 тест)
 │   ├── spark/              # Сервис Spark Explorer (15 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── yarn/               # Сервис YARN Explorer (43 теста)
@@ -65,13 +65,13 @@ hadoop-explorer/
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты и API-клиент ───
 │   │   ├── api/            # Cookie-first HTTP-клиент с защитой от CSRF и поддержкой Kerberos SPNEGO
-│   │   ├── components/     # StatusBadge, NotificationToast
+│   │   ├── components/     # StatusBadge, NotificationToast, LoginModal (с backdrop/Escape закрытием)
 │   │   └── types/          # Общие TypeScript интерфейсы сессий и ролей
 │   ├── apps/
-│   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4)
-│   │   ├── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco)
-│   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco)
-│   │   └── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4)
+│   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация + Lazy Modals)
+│   │   ├── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
+│   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
+│   │   └── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4 + Lazy Modals & Drawers)
 │   └── package.json        # NPM Workspaces монорепозитория
 │
 ├── docker/
@@ -98,7 +98,7 @@ hadoop-explorer/
 │   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 142 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 143 тестов
 │   └── build-containers.sh # Скрипт сборки контейнеров
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -115,6 +115,7 @@ hadoop-explorer/
   - Централизованная генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
   - Строгая CSRF-защита (блокировка межсайтовых запросов `Sec-Fetch-Site: cross-site`, валидация заголовков `Origin`, `Referer` по белому списку, требование заголовка `X-Requested-With`).
   - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis) и защитой от Fail-Open.
+  - Защитные HTTP-заголовки и Content-Security-Policy (CSP): централизованная функция `apply_security_headers` с поддержкой строгих политик для SPA и редакторов Monaco (`worker-src`, `blob:`, `unsafe-eval`), защита от Clickjacking (`X-Frame-Options: DENY`), MIME-sniffing (`X-Content-Type-Options: nosniff`), `Referrer-Policy: strict-origin-when-cross-origin` и автоматический HSTS (`Strict-Transport-Security`) при HTTPS.
   - Безопасная валидация секретов (строгий fail-fast в продакшне, автогенерация временных ключей в dev).
 - **`backend.common.core.circuit_breaker`**:
   - Автомат состояний `CircuitBreaker` (`CLOSED`, `OPEN`, `HALF_OPEN`) для Fast-Fail сетевых сбоев и предотвращения каскадной деградации сервисов при недоступности NameNode, YARN RM или Livy.
@@ -135,6 +136,7 @@ hadoop-explorer/
   - Провайдер mock-пользователей с верификацией хэшей `pbkdf2:sha256` и защитой от timing-атак (`hmac.compare_digest`).
 - **`backend.common.core.kerberos`**:
   - Аутентификация Kerberos SPNEGO SSO через HTTP-заголовок `Authorization: Negotiate <ticket>`.
+  - Валидация Kerberos-билетов, извлечение принципалов и интеграция с LDAP для получения групп.
 - **`backend.common.core.rate_limiter`**:
   - Скользящее окно (Sliding Window) с возможностью сохранения состояния в SQLite (WAL), PostgreSQL и Redis.
   - Безопасное определение клиентского IP-адреса с проверкой доверенных прокси (`is_trusted_proxy`, защита от IP Spoofing).
@@ -145,10 +147,15 @@ hadoop-explorer/
 - **`backend.common.models.auth`**:
   - Базовые модели Pydantic: `Role` (`READER`, `WRITER`, `ADMIN`), `UserSession`, `CommonUserSession`, `UserInfo`, `TokenPayload`, `LoginRequest`, `TokenResponse`.
 
-### 2. `frontend/common` (Пакет `@hadoop-explorer/common`)
-- **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
+### 2. `frontend/common` и архитектура SPA
+- **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), поддержкой Sliding Sessions, автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
+- **Унифицированный UI/UX на Svelte 5 (Runes) & Tailwind CSS 4**:
+  - Быстрая **виртуализация списков файлов** (`FileList.svelte`) с O(1) DOM-узлов для директорий любого объема.
+  - **Интерактивное изменение размера областей (Resizable Split Panes)** с перетаскиванием мыши и сохранением пропорций для боковых панелей каталогов, редактора кода и результатов в SQL и Spark Explorer.
+  - **Lazy Loading (Code-Splitting)** всех тяжелых модальных окон и диалоговых панелей через асинхронные импорты.
+  - **Унифицированное закрытие модальных окон** по клику вне диалога (Backdrop Overlay) и по нажатию клавиши `Escape`.
 - **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
-- **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`) и всплывающих уведомлений (`NotificationToast`).
+- **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и всплывающих уведомлений (`NotificationToast`).
 
 ---
 
@@ -323,14 +330,14 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**142 теста**) успешно проходят комплексную проверку:
-- **HDFS Explorer**: 50 тестов (ACL, API, Readiness / Healthz, Security, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
+Все тесты (**143 теста**) успешно проходят комплексную проверку:
+- **HDFS Explorer**: 51 тест (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
 - **Spark Explorer**: 15 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
 
 ```bash
-# Запуск всех 142 тестов платформы
+# Запуск всех 143 тестов платформы
 make test
 
 # Либо по сервисам:
@@ -350,8 +357,8 @@ make test-yarn
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 142 модульных и интеграционных тестов |
-| `make test-hdfs` | Запуск 50 тестов сервиса HDFS Explorer |
+| `make test` | Запуск всех 143 модульных и интеграционных тестов |
+| `make test-hdfs` | Запуск 51 теста сервиса HDFS Explorer |
 | `make test-spark` | Запуск 15 тестов сервиса Spark Explorer |
 | `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
 | `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |

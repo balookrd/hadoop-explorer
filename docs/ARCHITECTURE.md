@@ -93,6 +93,18 @@
 - Определение реального IP-клиента с защитой от спуфинга заголовка `X-Forwarded-For` через список доверенных прокси (`trusted_proxies`).
 - Структурированное JSON-логирование критических событий безопасности (`AUDIT_LOGIN_SUCCESS`, `AUDIT_LOGIN_FAILURE`, `AUDIT_TOKEN_REVOKED`, `AUDIT_CSRF_REJECT`).
 
+### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
+Централизованный модуль `backend.common.core.security` предоставляет функцию `apply_security_headers`, гарантирующую соблюдение современных стандартов защиты веб-клиента:
+- **Content-Security-Policy (CSP)**:
+  - **Базовая строгая политика (`CSP_DEFAULT_DIRECTIVES`)**: применяется для HDFS и YARN Explorer (`default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`).
+  - **Политика для редакторов кода (`CSP_CODE_EDITOR_DIRECTIVES`)**: применяется для Spark и SQL Explorer для безопасного функционирования Monaco Editor и Web Workers (`worker-src 'self' blob:`, `script-src 'self' 'unsafe-eval' blob:`, `connect-src 'self' ws: wss: http: https:`, `img-src 'self' data: blob:`).
+  - Дублирование CSP в `index.html` через `<meta http-equiv="Content-Security-Policy">` для защиты статических файлов при независимой раздаче.
+- **Защитные заголовки**:
+  - `X-Frame-Options: DENY` — абсолютная защита от Clickjacking.
+  - `X-Content-Type-Options: nosniff` — блокировка MIME-sniffing атак.
+  - `Referrer-Policy: strict-origin-when-cross-origin` — ограничение передачи заголовка Referer на сторонние ресурсы.
+  - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS) — принудительный переход на HTTPS при включенной опции `secure_cookies`.
+
 ---
 
 ## 4. Отказоустойчивость и надежность (Resilience Core)
@@ -149,6 +161,29 @@
 - **Моделирование и валидация**: проверка корректности весов очередей (правило 100% емкости, минимальные/максимальные лимиты пользователя).
 - **Change Requests (Four-Eyes Principle)**: процесс внесения изменений через создание заявок инженерами данных (`WRITER`) и их обязательное согласование администраторами (`ADMIN`) под защитой `DistributedLock`.
 - **Генерация XML**: экспорт готовой валидной конфигурации `capacity-scheduler.xml`.
+
+### 5.5 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)
+Клиентская часть всех приложений построена на базе Svelte 5 с использованием системы реактивности Runes (`$state`, `$derived`, `$effect`):
+- **Виртуализация списков (Virtual Windowing)**:
+  - Компонент `FileList.svelte` в HDFS Explorer реализует легковесную виртуализацию с высотой строки `ROW_HEIGHT = 37px` и запасом рендеринга `OVERSCAN = 12`.
+  - Динамический расчет диапазона видимости `[startIndex, endIndex]` на основе `scrollTop` контейнера и `topSpacerHeight` / `bottomSpacerHeight` обеспечивает плавный скроллинг и мгновенную работу с каталогами, содержащими десятки тысяч файлов (O(1) DOM-узлов).
+  - Sticky-позиционирование шапки таблицы (`sticky top-0 z-10`) и автосброс скролла в 0 при переходе по директориям.
+- **Lazy Loading модальных окон (Code-Splitting)**:
+  - Все тяжелые модальные окна, мастера настроек и выдвижные панели (Drawers) загружаются асинхронно по требованию через `{#await import(...) then { default: Component }}`.
+  - Это минимизирует первоначальный размер JavaScript-бандла (Time-to-Interactive) и ускоряет первую отрисовку страниц.
+- **Унифицированный UX модальных окон и диалогов**:
+  - Все модальные окна во всех 4 приложениях поддерживают интуитивное закрытие по клику вне диалога (backdrop overlay `e.target === e.currentTarget` + `stopPropagation` на карточке) и глобальный перехват клавиши `Escape` (`<svelte:window onkeydown={...}>`).
+- **Интерактивное изменение размера областей (Resizable Split Panes)**:
+  - В SQL Explorer и Spark Explorer реализованы гибкие разделители (Splitters) с перетаскиванием мыши для настройки ширины боковой панели каталогов (`sidebarWidth`) и высоты редактора кода / панели результатов (`editorHeightPercent`).
+  - Поддержка `user-select: none` во время перетаскивания и автоматическое сохранение выбранных пропорций в `localStorage`.
+
+---
+
+### 3.6 Скользящее продление сессий (Sliding Session Expiration)
+Для обеспечения бесперебойной работы пользователей при длительных сессиях без риска внезапного разлогина реализован механизм Sliding Session:
+- При каждом запросе к `/auth/me` (а также ключевым API-вызовам) метод `touch_session` обновляет время истечения сессии (`expires_at`) в базе данных (`SessionStore`) и продлевает `max_age` безопасной `HttpOnly` Cookie.
+- Унифицирован список канонических имен Cookie (`CANONICAL_COOKIE_NAMES`), что обеспечивает прозрачную аутентификацию во всей экосистеме микросервисов платформы.
+- Сетевые сбои SSE-потоков системных уведомлений изолированы от сброса сессии и снабжены автоматическим фоновым реконнектом.
 
 ---
 

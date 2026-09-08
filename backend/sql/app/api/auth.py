@@ -227,7 +227,24 @@ async def kerberos_negotiate(request: Request, response: Response):
 
 
 @router.get("/me", response_model=UserSession)
-async def get_me(current_user: UserSession = Depends(get_current_user)):
+async def get_me(request: Request, response: Response, current_user: UserSession = Depends(get_current_user)):
+    from app.services.storage import storage_service
+    from backend.common.core.security import extract_token_from_request
+
+    token, is_cookie_auth = extract_token_from_request(
+        request, ["access_token", "hdfs_explorer_session", "session_token", "hadoop_explorer_session"]
+    )
+    if token:
+        storage_service.touch_session(token, extend_seconds=settings.auth.jwt.expire_minutes * 60)
+        if is_cookie_auth:
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                httponly=True,
+                secure=settings.server.secure_cookies,
+                samesite="lax",
+                max_age=settings.auth.jwt.expire_minutes * 60,
+            )
     return current_user
 
 

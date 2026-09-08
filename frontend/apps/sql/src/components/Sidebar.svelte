@@ -145,7 +145,7 @@
   });
 </script>
 
-<aside class="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 select-none overflow-hidden h-full">
+<aside class="w-full bg-white border-r border-slate-200 flex flex-col shrink-0 select-none overflow-hidden h-full">
   <!-- Вкладки сайдбара -->
   <div class="flex border-b border-slate-200 bg-slate-50 p-1.5 gap-1 shrink-0">
     <button

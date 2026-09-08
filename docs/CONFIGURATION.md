@@ -77,6 +77,15 @@ security:                       # или auth.jwt
   cookie_samesite: "lax"
 ```
 
+> [!NOTE]
+> **Автоматические HTTP-заголовки безопасности и CSP**:
+> Все бэкенд-сервисы автоматически инжектируют в ответы HTTP-заголовки безопасности через middleware `apply_security_headers`:
+> - `Content-Security-Policy`: строгие директивы защиты контента для предотвращения XSS (`CSP_DEFAULT_DIRECTIVES` для HDFS/YARN и `CSP_CODE_EDITOR_DIRECTIVES` с поддержкой Web Workers для Monaco Editor в Spark/SQL).
+> - `X-Frame-Options: DENY`: предотвращение встраивания в iframe (Clickjacking).
+> - `X-Content-Type-Options: nosniff`: защита от подмены MIME-типов.
+> - `Referrer-Policy: strict-origin-when-cross-origin`: контроль заголовка `Referer`.
+> - `Strict-Transport-Security` (HSTS): автоматически активируется при `secure_cookies: true` или `debug: false`.
+
 ### 2.2 Аутентификация: LDAPS / Active Directory
 
 Модуль `CommonLdapAuthService` поддерживает подключение к корпоративным каталогам OpenLDAP, FreeIPA и Microsoft Active Directory с защитой от LDAP Injection (экранирование спецсимволов):

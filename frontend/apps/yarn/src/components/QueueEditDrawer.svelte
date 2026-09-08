@@ -378,6 +378,8 @@
   const isModeChanged = $derived(inputMode !== origMode);
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isOpen) isOpen = false; }} />
+
 {#if isOpen && queue}
   <!-- Backdrop -->
   <div

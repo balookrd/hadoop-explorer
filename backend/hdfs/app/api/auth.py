@@ -71,7 +71,25 @@ async def login(login_req: LoginRequest, request: Request, response: Response):
 
 
 @router.get("/me", response_model=UserInfo)
-async def get_me(current_user: UserInfo = Depends(get_current_user)):
+async def get_me(
+    request: Request,
+    response: Response,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    token = extract_token_from_request(request)
+    if token:
+        extend_sec = settings.security.access_token_expire_minutes * 60
+        storage_service.touch_session(token, extend_seconds=extend_sec)
+        cookie_name = settings.security.cookie_name or "access_token"
+        response.set_cookie(
+            key=cookie_name,
+            value=token,
+            httponly=True,
+            secure=settings.security.cookie_secure,
+            samesite=settings.security.cookie_samesite,
+            max_age=extend_sec,
+            path="/",
+        )
     return current_user
 
 

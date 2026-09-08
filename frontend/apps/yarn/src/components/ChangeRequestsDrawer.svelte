@@ -188,6 +188,8 @@
 
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isOpen) isOpen = false; }} />
+
 {#if isOpen}
   <!-- Backdrop -->
   <div

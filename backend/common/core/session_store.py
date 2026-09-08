@@ -316,6 +316,48 @@ class SessionStore:
             logger.error(f"Ошибка удаления сессии: {e}")
             return False
 
+    def touch_session(self, token: str, extend_seconds: int = 28800) -> bool:
+        """
+        Продлевает срок действия активной сессии (Sliding Session Expiration).
+        Обновляет expires_at на now + extend_seconds.
+        """
+        if not token:
+            return False
+        h = hash_token(token)
+        now = time.time()
+        new_exp = now + float(extend_seconds)
+        try:
+            if self._is_redis:
+                raw = self.redis_client.get(f"session:{h}")
+                if not raw:
+                    return False
+                data = json.loads(raw)
+                data["expires_at"] = new_exp
+                self.redis_client.set(f"session:{h}", json.dumps(data, ensure_ascii=False), ex=int(extend_seconds))
+                jti = data.get("jti")
+                if jti:
+                    self.redis_client.expire(f"session_jti:{jti}", int(extend_seconds))
+                return True
+
+            with self.engine.begin() as conn:
+                stmt = (
+                    update(self.sessions_table)
+                    .where(
+                        self.sessions_table.c.token_hash == h,
+                        self.sessions_table.c.expires_at >= now,
+                    )
+                    .values(expires_at=new_exp)
+                )
+                res = conn.execute(stmt)
+                return bool(res.rowcount and res.rowcount > 0)
+        except Exception as e:
+            logger.error(f"Ошибка продления сессии: {e}")
+            return False
+
+    async def touch_session_async(self, token: str, extend_seconds: int = 28800) -> bool:
+        """Асинхронное неблокирующее продление активной сессии."""
+        return await anyio.to_thread.run_sync(self.touch_session, token, extend_seconds)
+
     # ==================== TOKEN REVOCATION ====================
 
     def revoke_token(

@@ -80,7 +80,7 @@ async def is_token_revoked_in_db(token: str) -> bool:
 _get_current_user, _get_current_user_optional = make_get_current_user(
     get_secret_key=lambda: settings.auth.jwt.secret_key,
     get_algorithm=lambda: settings.auth.jwt.algorithm,
-    get_cookie_names=lambda: ["access_token"],
+    get_cookie_names=lambda: ["access_token", "hdfs_explorer_session", "session_token", "hadoop_explorer_session"],
     get_cors_origins=lambda: settings.server.cors_origins,
     get_storage_service=lambda: storage_service,
     admin_resolver=lambda username, groups, data: bool(set(groups) & set(settings.acl.ui_access.admin_groups)),
@@ -95,9 +95,12 @@ async def get_current_user(
     is_cookie_auth = False
     if auth_header and auth_header.credentials:
         token = auth_header.credentials
-    elif "access_token" in request.cookies:
-        token = request.cookies.get("access_token")
-        is_cookie_auth = True
+    else:
+        for c_name in ["access_token", "hdfs_explorer_session", "session_token", "hadoop_explorer_session"]:
+            if c_name in request.cookies:
+                token = request.cookies.get(c_name)
+                is_cookie_auth = True
+                break
 
     if not token:
         raise HTTPException(

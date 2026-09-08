@@ -7,8 +7,6 @@
   import SqlEditor from './components/SqlEditor.svelte';
   import QueryToolbar from './components/QueryToolbar.svelte';
   import ResultsGrid from './components/ResultsGrid.svelte';
-  import LoginModal from './components/LoginModal.svelte';
-  import AIAssistantModal from './components/AIAssistantModal.svelte';
   import type { AIIssue } from './types';
   import { Plus, X, Terminal, Bell, Database } from 'lucide-svelte';
 
@@ -62,9 +60,82 @@
     tabs.find((t) => t.id === activeTabId) || tabs[0]
   );
 
+  let sidebarWidth = $state(320);
+  let isResizingSidebar = $state(false);
+  let isResizingEditor = $state(false);
+  let mainAreaRef = $state<HTMLDivElement | null>(null);
+
   let editorHeightPercent = $state(45);
   let runEditorTrigger: (() => void) | null = $state(null);
   let sqlEditorRef: any = $state(null);
+
+  // Обработчики изменения размера сайдбара (каталогов)
+  function handleSidebarMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    isResizingSidebar = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleSidebarMouseMove);
+    window.addEventListener('mouseup', handleSidebarMouseUp);
+  }
+
+  function handleSidebarMouseMove(e: MouseEvent) {
+    if (!isResizingSidebar) return;
+    const newWidth = Math.max(200, Math.min(window.innerWidth * 0.55, e.clientX));
+    sidebarWidth = Math.round(newWidth);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  function handleSidebarMouseUp() {
+    if (!isResizingSidebar) return;
+    isResizingSidebar = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', handleSidebarMouseMove);
+    window.removeEventListener('mouseup', handleSidebarMouseUp);
+    saveStateToStorage(true);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  // Обработчики изменения размера редактора кода и результатов
+  function handleEditorMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    isResizingEditor = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleEditorMouseMove);
+    window.addEventListener('mouseup', handleEditorMouseUp);
+  }
+
+  function handleEditorMouseMove(e: MouseEvent) {
+    if (!isResizingEditor || !mainAreaRef) return;
+    const rect = mainAreaRef.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const relativeY = e.clientY - rect.top;
+    const newPercent = (relativeY / rect.height) * 100;
+    if (newPercent >= 15 && newPercent <= 85) {
+      editorHeightPercent = Math.round(newPercent * 10) / 10;
+      window.dispatchEvent(new Event('resize'));
+    }
+  }
+
+  function handleEditorMouseUp() {
+    if (!isResizingEditor) return;
+    isResizingEditor = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', handleEditorMouseMove);
+    window.removeEventListener('mouseup', handleEditorMouseUp);
+    saveStateToStorage(true);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  onDestroy(() => {
+    window.removeEventListener('mousemove', handleSidebarMouseMove);
+    window.removeEventListener('mouseup', handleSidebarMouseUp);
+    window.removeEventListener('mousemove', handleEditorMouseMove);
+    window.removeEventListener('mouseup', handleEditorMouseUp);
+  });
 
   // Состояние ИИ-ассистента
   let isAiModalOpen = $state(false);
@@ -106,7 +177,10 @@
     if (state.selectedClusterId) {
       selectedClusterId = state.selectedClusterId;
     }
-    if (typeof state.editorHeightPercent === 'number' && state.editorHeightPercent >= 20 && state.editorHeightPercent <= 80) {
+    if (typeof state.sidebarWidth === 'number' && state.sidebarWidth >= 180 && state.sidebarWidth <= 800) {
+      sidebarWidth = state.sidebarWidth;
+    }
+    if (typeof state.editorHeightPercent === 'number' && state.editorHeightPercent >= 15 && state.editorHeightPercent <= 85) {
       editorHeightPercent = state.editorHeightPercent;
     }
     return true;
@@ -154,6 +228,7 @@
         const stateToSave = {
           selectedClusterId,
           activeTabId,
+          sidebarWidth,
           editorHeightPercent,
           tabs: tabs.map((t) => ({
             id: t.id,
@@ -536,16 +611,32 @@
   />
 
   <div class="flex-1 flex overflow-hidden">
-    <Sidebar
-      bind:this={sidebarRef}
-      clusterId={selectedClusterId}
-      {user}
-      onSelectTable={handleSelectTable}
-      onSelectHistoryQuery={handleSelectHistoryQuery}
-      onLoadCachedResult={handleLoadCachedResult}
-    />
+    <!-- Сайдбар каталогов и схем с настраиваемой шириной -->
+    <div style="width: {sidebarWidth}px;" class="h-full shrink-0 flex">
+      <Sidebar
+        bind:this={sidebarRef}
+        clusterId={selectedClusterId}
+        {user}
+        onSelectTable={handleSelectTable}
+        onSelectHistoryQuery={handleSelectHistoryQuery}
+        onLoadCachedResult={handleLoadCachedResult}
+      />
+    </div>
 
-    <main class="flex-1 flex flex-col overflow-hidden bg-slate-50">
+    <!-- Вертикальный разделитель (ширина каталогов) -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+      onmousedown={handleSidebarMouseDown}
+      ondblclick={() => { sidebarWidth = 320; saveStateToStorage(true); window.dispatchEvent(new Event('resize')); }}
+      class="w-1.5 hover:w-2 bg-slate-200/80 hover:bg-sky-500 active:bg-sky-600 transition-all cursor-col-resize shrink-0 z-20 flex items-center justify-center group select-none"
+      title="Изменить ширину каталогов (двойной клик для сброса)"
+    >
+      <div class="w-0.5 h-8 bg-slate-400/50 group-hover:bg-white rounded-full transition"></div>
+    </div>
+
+    <main class="flex-1 flex flex-col overflow-hidden bg-slate-50 min-w-0">
       <!-- Вкладки запросов -->
       <div class="h-10 bg-slate-100/80 border-b border-slate-200 flex items-center px-2.5 gap-1 overflow-x-auto select-none shrink-0">
         {#each tabs as tab}
@@ -592,45 +683,67 @@
           onFormat={handleFormatSql}
         />
 
-        <div style="height: {editorHeightPercent}%" class="w-full shrink-0 border-b border-slate-200 overflow-hidden bg-white">
-          <SqlEditor
-            bind:this={sqlEditorRef}
-            bind:value={activeTab.query}
-            onExecute={(q) => executeQuery(q)}
-            registerTrigger={(fn) => { runEditorTrigger = fn; }}
-          />
-        </div>
+        <!-- Область Редактора и Результатов с изменяемым разделением -->
+        <div bind:this={mainAreaRef} class="flex-1 flex flex-col overflow-hidden relative min-h-0">
+          <div style="height: {editorHeightPercent}%;" class="w-full shrink-0 border-b border-slate-200 overflow-hidden bg-white">
+            <SqlEditor
+              bind:this={sqlEditorRef}
+              bind:value={activeTab.query}
+              onExecute={(q) => executeQuery(q)}
+              registerTrigger={(fn) => { runEditorTrigger = fn; }}
+            />
+          </div>
 
-        <div class="flex-1 w-full overflow-hidden">
-          <ResultsGrid
-            columns={activeTab.columns}
-            rows={activeTab.rows}
-            errorMessage={activeTab.errorMessage}
-            totalRows={activeTab.totalRows}
-            onFixWithAi={() => handleOpenAi('fix')}
-          />
+          <!-- Горизонтальный разделитель (высота редактора vs результаты) -->
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            tabindex="0"
+            onmousedown={handleEditorMouseDown}
+            ondblclick={() => { editorHeightPercent = 45; saveStateToStorage(true); window.dispatchEvent(new Event('resize')); }}
+            class="h-1.5 hover:h-2 bg-slate-200/80 hover:bg-sky-500 active:bg-sky-600 transition-all cursor-row-resize shrink-0 z-20 flex items-center justify-center group select-none"
+            title="Изменить размер редактора и результатов (двойной клик для сброса)"
+          >
+            <div class="h-0.5 w-8 bg-slate-400/50 group-hover:bg-white rounded-full transition"></div>
+          </div>
+
+          <div style="height: {100 - editorHeightPercent}%;" class="w-full overflow-hidden min-h-0">
+            <ResultsGrid
+              columns={activeTab.columns}
+              rows={activeTab.rows}
+              errorMessage={activeTab.errorMessage}
+              totalRows={activeTab.totalRows}
+              onFixWithAi={() => handleOpenAi('fix')}
+            />
+          </div>
         </div>
       {/if}
     </main>
   </div>
 
   {#if !user}
-    <LoginModal
-      initialError={authErrorMessage}
-      onLoginSuccess={handleLoginSuccess}
-    />
+    {#await import('./components/LoginModal.svelte') then { default: LoginModal }}
+      <LoginModal
+        initialError={authErrorMessage}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    {/await}
   {/if}
 
-  <AIAssistantModal
-    bind:isOpen={isAiModalOpen}
-    initialTab={aiInitialTab}
-    sqlQuery={activeTab ? activeTab.query : ''}
-    clusterId={selectedClusterId}
-    engineType={currentCluster ? currentCluster.type : 'trino'}
-    errorMessage={activeTab?.errorMessage || ''}
-    onApplySql={handleApplyAiSql}
-    onHighlightIssues={handleHighlightIssues}
-    onNavigateToLine={handleNavigateToLine}
-  />
+  {#if isAiModalOpen}
+    {#await import('./components/AIAssistantModal.svelte') then { default: AIAssistantModal }}
+      <AIAssistantModal
+        bind:isOpen={isAiModalOpen}
+        initialTab={aiInitialTab}
+        sqlQuery={activeTab ? activeTab.query : ''}
+        clusterId={selectedClusterId}
+        engineType={currentCluster ? currentCluster.type : 'trino'}
+        errorMessage={activeTab?.errorMessage || ''}
+        onApplySql={handleApplyAiSql}
+        onHighlightIssues={handleHighlightIssues}
+        onNavigateToLine={handleNavigateToLine}
+      />
+    {/await}
+  {/if}
 </div>
 

@@ -76,26 +76,14 @@ app = FastAPI(
 # Защитные HTTP-заголовки (Security Headers Middleware)
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    from backend.common.core.security import apply_security_headers
+
     response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
-        "font-src 'self' data:; "
-        "connect-src 'self' ws: wss:; "
-        "worker-src 'self' blob:; "
-        "frame-ancestors 'none'; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self';"
+    return apply_security_headers(
+        response,
+        is_secure_cookie=settings.server.secure_cookies,
+        is_code_editor=True,
     )
-    if settings.server.secure_cookies:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    return response
 
 
 # CORS

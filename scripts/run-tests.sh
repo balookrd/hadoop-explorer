@@ -24,7 +24,7 @@ APP="${1:-all}"
 
 run_hdfs() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: HDFS Explorer (50 тестов)"
+  echo "🧪 Запуск тестов: HDFS Explorer (51 тест)"
   echo "=========================================="
   local pt
   pt="$(find_pytest hdfs)"

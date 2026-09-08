@@ -50,9 +50,19 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isOpen) { isOpen = false; resetForm(); } }} />
+
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg border border-slate-200">
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 select-none"
+    onclick={(e) => { if (e.target === e.currentTarget) { isOpen = false; resetForm(); } }}
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div
+      class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg border border-slate-200 select-auto"
+      onclick={(e) => e.stopPropagation()}
+    >
       <!-- Header -->
       <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
         <div class="flex items-center gap-2">

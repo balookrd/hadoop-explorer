@@ -215,8 +215,26 @@ async def spnego_login(
 
 
 @router.get("/me", response_model=UserSession)
-async def get_me(user: UserSession = Depends(get_current_user)):
-    """Возвращает текущего авторизованного пользователя."""
+async def get_me(request: Request, response: Response, user: UserSession = Depends(get_current_user)):
+    """Возвращает текущего авторизованного пользователя и продлевает сессию."""
+    from app.services.storage import storage_service
+    from backend.common.core.security import extract_token_from_request
+
+    token, is_cookie_auth = extract_token_from_request(
+        request, ["access_token", "hdfs_explorer_session", "session_token", "hadoop_explorer_session"]
+    )
+    if token:
+        storage_service.touch_session(token, extend_seconds=settings.auth.jwt.expire_minutes * 60)
+        if is_cookie_auth:
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                httponly=True,
+                max_age=settings.auth.jwt.expire_minutes * 60,
+                samesite="lax",
+                secure=getattr(settings.server, "secure_cookies", False),
+                path="/",
+            )
     return user
 
 

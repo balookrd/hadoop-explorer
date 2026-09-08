@@ -84,6 +84,14 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
         )
 
 
+CANONICAL_COOKIE_NAMES: List[str] = [
+    "access_token",
+    "hdfs_explorer_session",
+    "session_token",
+    "hadoop_explorer_session",
+]
+
+
 def extract_token_from_request(
     request: Request, cookie_names: Optional[List[str]] = None
 ) -> tuple[Optional[str], bool]:
@@ -97,7 +105,7 @@ def extract_token_from_request(
         if token:
             return token, False
 
-    cookies = cookie_names or ["access_token", "hdfs_explorer_session", "session_token"]
+    cookies = cookie_names or CANONICAL_COOKIE_NAMES
     for c_name in cookies:
         token = request.cookies.get(c_name)
         if token:
@@ -325,3 +333,56 @@ def make_get_current_user(
         return user
 
     return get_current_user, get_current_user_optional
+
+
+# ==============================================================================
+# Content-Security-Policy (CSP) и стандартизация Security Headers
+# ==============================================================================
+
+CSP_DEFAULT_DIRECTIVES = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self';"
+)
+
+CSP_CODE_EDITOR_DIRECTIVES = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self' ws: wss: http: https:; "
+    "worker-src 'self' blob:; "
+    "frame-ancestors 'none'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self';"
+)
+
+
+def apply_security_headers(
+    response: Any,
+    is_secure_cookie: bool = False,
+    is_code_editor: bool = False,
+    custom_csp: Optional[str] = None,
+) -> Any:
+    """
+    Применяет единый набор защитных HTTP-заголовков безопасности к ответу FastAPI.
+    """
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = custom_csp or (
+        CSP_CODE_EDITOR_DIRECTIVES if is_code_editor else CSP_DEFAULT_DIRECTIVES
+    )
+    if is_secure_cookie:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+

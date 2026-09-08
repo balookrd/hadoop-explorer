@@ -17,6 +17,7 @@
     isModal?: boolean;
     mockUsers?: MockUserOption[];
     initialError?: string | null;
+    onClose?: () => void;
     onLogin: (username: string, password: string) => Promise<boolean | UserSession | void>;
     onKerberosSso?: () => Promise<boolean | UserSession | void>;
   }
@@ -28,6 +29,7 @@
     isModal = true,
     mockUsers = [],
     initialError = null,
+    onClose,
     onLogin,
     onKerberosSso,
   }: Props = $props();
@@ -88,8 +90,17 @@
   }
 </script>
 
-<div class={isModal ? "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4" : "flex items-center justify-center min-h-[calc(100vh-4rem)] p-4"}>
-  <div class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6">
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isModal && onClose) onClose(); }} />
+
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+<div
+  class={isModal ? "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 select-none" : "flex items-center justify-center min-h-[calc(100vh-4rem)] p-4 select-none"}
+  onclick={(e) => { if (isModal && onClose && e.target === e.currentTarget) onClose(); }}
+>
+  <div
+    class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 select-auto"
+    onclick={(e) => e.stopPropagation()}
+  >
     <!-- Header -->
     <div class="flex items-center gap-3.5 border-b border-slate-100 pb-5">
       <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-sky-500/30 shrink-0">

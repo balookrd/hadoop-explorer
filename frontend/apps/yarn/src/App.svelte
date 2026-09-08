@@ -6,18 +6,13 @@
     BranchBalance, DraftQueueItem, DiffItem, QueueMappingsDiff,
   } from './types';
   import Header from './components/Header.svelte';
-  import LoginModal from './components/LoginModal.svelte';
   import ClusterMetricsBar from './components/ClusterMetricsBar.svelte';
   import PartitionSelector from './components/PartitionSelector.svelte';
   import QueueTreeTable from './components/QueueTreeTable.svelte';
   import QueueEditDrawer from './components/QueueEditDrawer.svelte';
-  import AddQueueModal from './components/AddQueueModal.svelte';
   import ResourceBalanceCard from './components/ResourceBalanceCard.svelte';
   import DiffPanel from './components/DiffPanel.svelte';
-  import XmlExportModal from './components/XmlExportModal.svelte';
-  import SubmitChangeRequestModal from './components/SubmitChangeRequestModal.svelte';
   import ChangeRequestsDrawer from './components/ChangeRequestsDrawer.svelte';
-  import QueueMappingsModal from './components/QueueMappingsModal.svelte';
   import { GitCompareArrows, RotateCcw, FileDown, RefreshCw, Send, GitPullRequest, ArrowRightLeft } from 'lucide-svelte';
 
   // Auth state
@@ -473,10 +468,12 @@
 
 <div class="h-screen w-screen flex flex-col overflow-hidden">
   {#if !user}
-    <LoginModal
-      initialError={authErrorMessage}
-      onLogin={handleLogin}
-    />
+    {#await import('./components/LoginModal.svelte') then { default: LoginModal }}
+      <LoginModal
+        initialError={authErrorMessage}
+        onLogin={handleLogin}
+      />
+    {/await}
   {:else}
     <Header
       {user}
@@ -626,15 +623,19 @@
       onSave={handleSaveDraft}
     />
 
-    <AddQueueModal
-      parentPath={addParentPath}
-      bind:isOpen={showAddModal}
-      {resourceMode}
-      clusterResources={activeCluster?.total_resources}
-      {selectedPartition}
-      {partitions}
-      onConfirm={handleConfirmAdd}
-    />
+    {#if showAddModal}
+      {#await import('./components/AddQueueModal.svelte') then { default: AddQueueModal }}
+        <AddQueueModal
+          parentPath={addParentPath}
+          bind:isOpen={showAddModal}
+          {resourceMode}
+          clusterResources={activeCluster?.total_resources}
+          {selectedPartition}
+          {partitions}
+          onConfirm={handleConfirmAdd}
+        />
+      {/await}
+    {/if}
 
     <DiffPanel
       {diffs}
@@ -645,33 +646,44 @@
       onSubmitCr={() => showSubmitCrModal = true}
     />
 
-    <QueueMappingsModal
-      rootQueue={rootQueue}
-      draftMappings={draftQueueMappings}
-      draftOverride={draftQueueMappingsOverride}
-      liveMappings={liveQueueMappings}
-      liveOverride={liveQueueMappingsOverride}
-      {canWrite}
-      bind:isOpen={isMappingsModalOpen}
-      onSave={handleSaveMappings}
-    />
+    {#if isMappingsModalOpen}
+      {#await import('./components/QueueMappingsModal.svelte') then { default: QueueMappingsModal }}
+        <QueueMappingsModal
+          rootQueue={rootQueue}
+          draftMappings={draftQueueMappings}
+          draftOverride={draftQueueMappingsOverride}
+          liveMappings={liveQueueMappings}
+          liveOverride={liveQueueMappingsOverride}
+          {canWrite}
+          bind:isOpen={isMappingsModalOpen}
+          onSave={handleSaveMappings}
+        />
+      {/await}
+    {/if}
 
+    {#if showXmlModal}
+      {#await import('./components/XmlExportModal.svelte') then { default: XmlExportModal }}
+        <XmlExportModal
+          {xmlContent}
+          filename={xmlFilename}
+          instructions={xmlInstructions}
+          currentMode={exportMode}
+          bind:isOpen={showXmlModal}
+          onModeChange={(newMode) => handleGenerateXml(newMode)}
+        />
+      {/await}
+    {/if}
 
-    <XmlExportModal
-      {xmlContent}
-      filename={xmlFilename}
-      instructions={xmlInstructions}
-      currentMode={exportMode}
-      bind:isOpen={showXmlModal}
-      onModeChange={(newMode) => handleGenerateXml(newMode)}
-    />
-
-    <SubmitChangeRequestModal
-      clusterId={selectedClusterId}
-      changes={Array.from(draftChanges.values())}
-      bind:isOpen={showSubmitCrModal}
-      onSubmit={handleSubmitChangeRequest}
-    />
+    {#if showSubmitCrModal}
+      {#await import('./components/SubmitChangeRequestModal.svelte') then { default: SubmitChangeRequestModal }}
+        <SubmitChangeRequestModal
+          clusterId={selectedClusterId}
+          changes={Array.from(draftChanges.values())}
+          bind:isOpen={showSubmitCrModal}
+          onSubmit={handleSubmitChangeRequest}
+        />
+      {/await}
+    {/if}
 
     <ChangeRequestsDrawer
       clusterId={selectedClusterId}

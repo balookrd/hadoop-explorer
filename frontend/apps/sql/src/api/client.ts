@@ -248,21 +248,49 @@ class ApiClient {
   }
 
   listenUserNotifications(onEvent: (event: any) => void): () => void {
-    const eventSource = new EventSource(`${API_BASE}/queries/notifications/stream`, {
-      withCredentials: true
-    });
+    let closed = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: any = null;
 
-    eventSource.onmessage = (event) => {
+    const connect = () => {
+      if (closed) return;
       try {
-        const data = JSON.parse(event.data);
-        onEvent(data);
-      } catch (err) {
-        console.error('Ошибка парсинга уведомления', err);
+        eventSource = new EventSource(`${API_BASE}/queries/notifications/stream`, {
+          withCredentials: true
+        });
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            onEvent(data);
+          } catch (err) {
+            console.error('Ошибка парсинга уведомления', err);
+          }
+        };
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!closed) {
+            // Тихий фоновый реконнект без вызова onUnauthorized
+            reconnectTimer = setTimeout(connect, 5000);
+          }
+        };
+      } catch (_) {
+        if (!closed) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
       }
     };
 
+    connect();
+
     return () => {
-      eventSource.close();
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (eventSource) eventSource.close();
     };
   }
 
