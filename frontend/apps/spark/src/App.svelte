@@ -131,7 +131,7 @@
   );
 
   const currentTabKind = $derived<'pyspark' | 'spark'>(
-    activeTab?.language === 'scalaspark' ? 'spark' : 'pyspark'
+    getTargetKind(activeTab?.language || 'pyspark')
   );
 
   let sidebarWidth = $state(280);
