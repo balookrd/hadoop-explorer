@@ -425,7 +425,13 @@
     scheduleSessionPoll();
   }
 
+  let sessionPollingTimer: any = null;
+
   async function handleLogout() {
+    if (sessionPollingTimer) {
+      clearTimeout(sessionPollingTimer);
+      sessionPollingTimer = null;
+    }
     try {
       await api.logout();
     } catch (err) {
@@ -436,23 +442,32 @@
     currentSession = null;
     activeSessions = [];
     clusters = [];
+    clusterDetails = null;
     tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
     activeTabId = 'tab-1';
   }
 
   onDestroy(() => {
-    if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+    if (sessionPollingTimer) {
+      clearTimeout(sessionPollingTimer);
+      sessionPollingTimer = null;
+    }
     if (unsubscribeAuth) unsubscribeAuth();
   });
 
-  let sessionPollingTimer: any = null;
-
   function scheduleSessionPoll(urgent: boolean = false) {
-    if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+    if (sessionPollingTimer) {
+      clearTimeout(sessionPollingTimer);
+      sessionPollingTimer = null;
+    }
+    if (!user || !selectedClusterId) return;
     const delay = urgent || currentSession?.status === 'starting' || currentSession?.status === 'busy' ? 1500 : 5000;
     sessionPollingTimer = setTimeout(async () => {
+      if (!user) return;
       await refreshSessions();
-      scheduleSessionPoll();
+      if (user) {
+        scheduleSessionPoll();
+      }
     }, delay);
   }
 
@@ -502,7 +517,7 @@
   }
 
   async function refreshSessions() {
-    if (!selectedClusterId) return;
+    if (!user || !selectedClusterId) return;
     try {
       activeSessions = await api.getSessions();
       const currentLang = activeTab?.language || 'pyspark';

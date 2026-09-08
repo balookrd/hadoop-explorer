@@ -171,4 +171,49 @@ describe('Frontend Unified Auth Lifecycle (HDFS, SQL, YARN, Spark)', () => {
     expect(app.authErrorMessage).toBeNull();
     expect(app.authLoading).toBe(false);
   });
+
+  it('Сценарий 6: После штатного logout фоновый поллинг отменяется и не вызывает ложного warning', async () => {
+    vi.useFakeTimers();
+    const app = new AppAuthLifecycleSimulator(client);
+    app.user = { username: 'spark_user' };
+
+    let pollingTimer: any = null;
+    let backgroundRequestsCount = 0;
+
+    const schedulePoll = () => {
+      if (pollingTimer) clearTimeout(pollingTimer);
+      if (!app.user) return;
+      pollingTimer = setTimeout(async () => {
+        if (!app.user) return;
+        backgroundRequestsCount++;
+        await client.request('/sessions');
+        if (app.user) schedulePoll();
+      }, 5000);
+    };
+
+    schedulePoll();
+
+    // Пользователь нажимает Logout
+    global.fetch = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ success: true }),
+    } as any);
+
+    if (pollingTimer) {
+      clearTimeout(pollingTimer);
+      pollingTimer = null;
+    }
+    await app.handleLogout();
+
+    // Перематываем время на 10 секунд вперед
+    vi.advanceTimersByTime(10000);
+
+    // Никаких фоновых запросов не должно было уйти
+    expect(backgroundRequestsCount).toBe(0);
+    expect(app.authErrorMessage).toBeNull();
+    expect(app.user).toBeNull();
+    vi.useRealTimers();
+  });
 });
