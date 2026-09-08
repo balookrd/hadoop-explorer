@@ -1,6 +1,7 @@
 {
   "name": "hadoop-explorer-monorepo",
   "private": true,
+  "type": "module",
   "workspaces": [
     "common",
     "apps/*"
@@ -15,9 +16,18 @@
     "dev:spark": "npm run dev --workspace=apps/spark",
     "dev:sql": "npm run dev --workspace=apps/sql",
     "dev:yarn": "npm run dev --workspace=apps/yarn",
-    "test": "vitest run"
+    "check:all": "npm run check --workspace=apps/hdfs && npm run check --workspace=apps/spark && npm run check --workspace=apps/sql && npm run check --workspace=apps/yarn",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test:ui": "npm run check:all && npm run test:unit",
+    "test": "npm run check:all && npm run test:unit"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "^5.4.2",
+    "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "vitest": "^5.0.0"
   }

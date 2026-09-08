@@ -1,14 +1,6 @@
 export type Role = 'reader' | 'writer' | 'admin';
-
-export interface UserSession {
-  username: string;
-  display_name: string;
-  email?: string;
-  groups: string[];
-  auth_method: string;
-  is_admin: boolean;
-  system_role: Role;
-}
+import type { UserSession } from '@hadoop-explorer/common';
+export type { UserSession };
 
 export interface ClusterSummary {
   id: string;

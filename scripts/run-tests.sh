@@ -72,9 +72,9 @@ run_spark() {
 
 run_frontend() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Frontend UI & Auth Lifecycle (13 тестов)"
+  echo "🧪 Запуск тестов: Frontend Static Check & UI Suite (23 теста)"
   echo "=========================================="
-  (cd "$ROOT_DIR/frontend" && npm test)
+  (cd "$ROOT_DIR/frontend" && npm run test:ui)
 }
 
 case "$APP" in

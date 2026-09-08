@@ -386,7 +386,7 @@
         user = await api.getMe();
       } catch {
         const auto = await api.tryAutoLogin();
-        user = auto.user;
+        user = auto ? ((auto as any).user || auto) : null;
       }
 
       if (user) {
@@ -406,7 +406,7 @@
 
   async function handleLogin(u: string, p: string) {
     const res = await api.login(u, p);
-    user = res.user;
+    user = res.user || (await api.getMe());
     authErrorMessage = null;
     isLoginModalOpen = false;
     await loadUserWorkspace(user);
@@ -710,7 +710,7 @@
 
   async function handleSaveSessionConfig(payload: CreateSessionPayload) {
     isConfigModalOpen = false;
-    const kind = payload.kind || currentTabKind;
+    const kind = (payload.kind || currentTabKind) as 'pyspark' | 'spark';
     savedConfigByKind[kind] = payload;
     sessionPayload = payload;
     saveStateToStorage(true);

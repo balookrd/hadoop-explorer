@@ -79,7 +79,7 @@
 
     const packages = packagesText
       .split(',')
-      .map((p) => p.strip ? p.trim() : p.trim())
+      .map((p) => p.trim())
       .filter(Boolean);
 
     const jars = jarsText

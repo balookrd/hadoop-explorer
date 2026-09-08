@@ -1,3 +1,5 @@
+import type { UserSession, AuthResponse } from '../types';
+
 type UnauthorizedHandler = (message: string) => void;
 
 export class BaseApiClient {

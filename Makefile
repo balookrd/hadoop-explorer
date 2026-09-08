@@ -84,6 +84,9 @@ test-sql:
 test-spark:
 	./scripts/run-tests.sh spark
 
+test-ui:
+	./scripts/run-tests.sh frontend
+
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
 
@@ -101,6 +104,15 @@ build-spark:
 
 frontend-install:
 	cd frontend && npm install
+
+frontend-check:
+	cd frontend && npm run check:all
+
+frontend-test:
+	cd frontend && npm test
+
+frontend-e2e:
+	cd frontend && npm run test:e2e
 
 frontend-build:
 	cd frontend && npm run build:all

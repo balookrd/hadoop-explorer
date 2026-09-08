@@ -1,11 +1,5 @@
-export interface UserSession {
-  username: string;
-  display_name: string;
-  email: string | null;
-  groups: string[];
-  is_admin: boolean;
-  auth_method: string;
-}
+import type { UserSession } from '@hadoop-explorer/common';
+export type { UserSession };
 
 export interface ClusterSummary {
   id: string;

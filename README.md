@@ -376,17 +376,24 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**153 теста**) успешно проходят комплексную проверку:
+Все тесты (**176 тестов**) успешно проходят комплексную проверку:
+- **Frontend UI & Static Suite**: 23 теста + строгий `svelte-check` (статическая верификация контрактов и типов во всех 4 SPA, компонентные smoke-тесты `App.svelte` для HDFS, Spark, SQL, YARN, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
 - **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
 - **HDFS Explorer**: 60 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 153 тестов платформы
+# Запуск всех 176 тестов платформы (Backend + Frontend UI)
 make test
 
-# Либо по сервисам:
+# Тестирование интерфейса фронтенда:
+make test-ui        # svelte-check по 4 SPA + 23 теста Vitest
+make frontend-check # проверка типов svelte-check
+make frontend-test  # юнит и компонентные тесты Vitest
+make frontend-e2e   # E2E тесты Playwright (Chromium)
+
+# Либо по бэкенд сервисам:
 make test-yarn
 make test-hdfs
 make test-sql
@@ -403,11 +410,17 @@ make test-spark
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 153 модульных и интеграционных тестов |
+| `make test` | Запуск всех 176 модульных, компонентных и интеграционных тестов |
+| `make test-ui` | Запуск статической проверки типов (`svelte-check`) и 23 UI тестов Vitest |
 | `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |
 | `make test-hdfs` | Запуск 60 тестов сервиса HDFS Explorer |
 | `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
 | `make test-spark` | Запуск 16 тестов сервиса Spark Explorer |
+| `make frontend-install` | Установка NPM зависимостей фронтенда |
+| `make frontend-check` | Статическая проверка типов Svelte 5 во всех 4 SPA (`svelte-check`) |
+| `make frontend-test` | Запуск компонентных и юнит-тестов фронтенда |
+| `make frontend-e2e` | Запуск браузерных E2E тестов Playwright |
+| `make frontend-build` | Компиляция всех SPA фронтендов через Vite |
 
 | `make build` | Сборка Docker-образов всех 4 приложений (yarn, hdfs, sql, spark) |
 | `make build-yarn` | Сборка Docker-образа YARN Explorer |
