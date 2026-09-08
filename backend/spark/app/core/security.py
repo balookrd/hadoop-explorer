@@ -44,7 +44,7 @@ def create_access_token(user_data: dict, expires_delta: Optional[datetime.timede
 _get_current_user, _get_current_user_optional = make_get_current_user(
     get_secret_key=lambda: settings.auth.jwt.secret_key,
     get_algorithm=lambda: settings.auth.jwt.algorithm,
-    get_cookie_names=lambda: ["session_token", "access_token", "hdfs_explorer_session", "hadoop_explorer_session"],
+    get_cookie_names=lambda: ["spark_explorer_session", "hadoop_explorer_session"],
     get_cors_origins=lambda: settings.server.cors_origins,
     get_storage_service=lambda: storage_service,
     admin_resolver=lambda username, groups, data: (

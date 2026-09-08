@@ -20,8 +20,8 @@ router = create_auth_router(
     acl_checker_fn=lambda u: getattr(_this_module, "check_ui_access", check_ui_access)(u),
     kerberos_authenticator=lambda h: getattr(_this_module, "authenticate_spnego", authenticate_spnego)(h),
     rate_limiter=auth_rate_limiter,
-    cookie_name="access_token",
-    additional_cookie_names=["session_token", "sql_explorer_session"],
+    cookie_name="sql_explorer_session",
+    additional_cookie_names=["hadoop_explorer_session"],
     prefix="/auth",
 )
 

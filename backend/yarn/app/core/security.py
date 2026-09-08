@@ -68,7 +68,7 @@ def _resolve_session_fields(data: dict) -> dict:
 _get_current_user, _get_current_user_optional = make_get_current_user(
     get_secret_key=lambda: settings.auth.jwt.secret_key,
     get_algorithm=lambda: settings.auth.jwt.algorithm,
-    get_cookie_names=lambda: ["access_token", "hdfs_explorer_session", "session_token", "hadoop_explorer_session"],
+    get_cookie_names=lambda: ["yarn_explorer_session", "hadoop_explorer_session"],
     get_cors_origins=lambda: settings.server.cors_origins,
     get_storage_service=lambda: storage_service,
     admin_resolver=lambda username, groups, data: _resolve_session_fields(data if isinstance(data, dict) else {})[

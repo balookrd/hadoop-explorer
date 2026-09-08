@@ -75,8 +75,8 @@ router = create_auth_router(
     acl_checker_fn=lambda u: getattr(_this_module, "check_ui_access", check_ui_access)(u),
     rate_limiter=auth_rate_limiter,
     kerberos_authenticator=lambda header: getattr(_this_module, "kerberos_manager", kerberos_manager).authenticate_spnego(header),
-    cookie_name="access_token",
-    additional_cookie_names=["yarn_explorer_session", "session_token"],
+    cookie_name="yarn_explorer_session",
+    additional_cookie_names=["hadoop_explorer_session"],
     prefix="/api/v1/auth",
 )
 

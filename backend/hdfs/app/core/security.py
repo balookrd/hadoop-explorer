@@ -70,7 +70,7 @@ def extract_token_from_request(request: Request) -> Optional[str]:
 get_current_user, get_current_user_optional = make_get_current_user(
     get_secret_key=lambda: settings.security.secret_key,
     get_algorithm=lambda: settings.security.algorithm,
-    get_cookie_names=lambda: [settings.security.cookie_name, "access_token", "session_token", "hadoop_explorer_session"],
+    get_cookie_names=lambda: [settings.security.cookie_name, "hadoop_explorer_session"],
     get_cors_origins=lambda: settings.server.cors_origins,
     get_storage_service=lambda: storage_service,
     admin_resolver=lambda username, groups, data: is_global_admin(username, groups),

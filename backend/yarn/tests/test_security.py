@@ -251,7 +251,7 @@ def test_token_revocation_on_logout():
     login_resp = client.post("/api/v1/auth/login", json={"username": "admin_user", "password": "password123"})
     assert login_resp.status_code == 200
     token = login_resp.json()["access_token"]
-    assert "access_token" in login_resp.cookies
+    assert "yarn_explorer_session" in login_resp.cookies
 
     # 2. Проверяем, что токен работает
     me_resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})

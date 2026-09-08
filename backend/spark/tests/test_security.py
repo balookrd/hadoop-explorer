@@ -67,17 +67,17 @@ async def test_csrf_protection_on_cookie_auth():
         ac.cookies.clear()
 
         # 1. Запрос с cookie и Sec-Fetch-Site: cross-site блокируется (403)
-        cookie_header = {"Cookie": f"session_token={token}", "Sec-Fetch-Site": "cross-site"}
+        cookie_header = {"Cookie": f"spark_explorer_session={token}", "Sec-Fetch-Site": "cross-site"}
         bad_post = await ac.post("/api/v1/sessions", json=session_payload, headers=cookie_header)
         assert bad_post.status_code == 403
 
         # 2. Запрос с cookie без X-Requested-With и без Origin/Referer блокируется (403)
-        no_csrf_header = {"Cookie": f"session_token={token}"}
+        no_csrf_header = {"Cookie": f"spark_explorer_session={token}"}
         bad_post2 = await ac.post("/api/v1/sessions", json=session_payload, headers=no_csrf_header)
         assert bad_post2.status_code == 403
 
         # 3. Запрос с cookie и X-Requested-With: XMLHttpRequest успешно проходит CSRF
-        good_csrf_header = {"Cookie": f"session_token={token}", "X-Requested-With": "XMLHttpRequest"}
+        good_csrf_header = {"Cookie": f"spark_explorer_session={token}", "X-Requested-With": "XMLHttpRequest"}
         good_post = await ac.post("/api/v1/sessions", json=session_payload, headers=good_csrf_header)
         assert good_post.status_code == 200
 
