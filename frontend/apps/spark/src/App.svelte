@@ -19,11 +19,13 @@
   import { Flame, Plus, X, Server } from 'lucide-svelte';
 
   let user = $state<UserSession | null>(null);
+  let authErrorMessage = $state<string | null>(null);
   let isAuthChecking = $state(true);
   let isLoginModalOpen = $state(false);
   let clusters = $state<ClusterSummary[]>([]);
   let selectedClusterId = $state<string>('');
   let clusterDetails = $state<ClusterDetailResponse | null>(null);
+  let unsubscribeAuth: (() => void) | null = null;
 
   const mockUsers = [
     {
@@ -366,6 +368,18 @@
   }
 
   onMount(async () => {
+    unsubscribeAuth = api.onUnauthorized((msg) => {
+      user = null;
+      clusters = [];
+      clusterDetails = null;
+      currentSession = null;
+      activeSessions = [];
+      authErrorMessage = msg;
+      tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
+      activeTabId = 'tab-1';
+      if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+    });
+
     try {
       try {
         user = await api.getMe();
@@ -392,6 +406,7 @@
   async function handleLogin(u: string, p: string) {
     const res = await api.login(u, p);
     user = res.user;
+    authErrorMessage = null;
     isLoginModalOpen = false;
     await loadUserWorkspace(user);
     await loadClusters();
@@ -402,6 +417,7 @@
   async function handleKerberosSso() {
     const res = await api.kerberosNegotiate();
     user = res.user || (await api.getMe());
+    authErrorMessage = null;
     isLoginModalOpen = false;
     await loadUserWorkspace(user);
     await loadClusters();
@@ -416,6 +432,7 @@
       console.warn('Ошибка вызова logout API:', err);
     }
     user = null;
+    authErrorMessage = null;
     currentSession = null;
     activeSessions = [];
     clusters = [];
@@ -425,6 +442,7 @@
 
   onDestroy(() => {
     if (sessionPollingTimer) clearTimeout(sessionPollingTimer);
+    if (unsubscribeAuth) unsubscribeAuth();
   });
 
   let sessionPollingTimer: any = null;
@@ -1048,6 +1066,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Flame}
     isModal={false}
+    initialError={authErrorMessage}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}
   />
@@ -1214,6 +1233,7 @@
       subtitle="Аутентификация LDAP & Kerberos SSO"
       icon={Flame}
       isModal={true}
+      initialError={authErrorMessage}
       onClose={() => (isLoginModalOpen = false)}
       onLogin={handleLogin}
       onKerberosSso={handleKerberosSso}
