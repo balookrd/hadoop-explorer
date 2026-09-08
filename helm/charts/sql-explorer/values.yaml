@@ -248,3 +248,10 @@ networkPolicy:
     allowLdap: true
     allowTrino: true
     allowHive: true
+
+# PodDisruptionBudget для защиты от сбоев при drain нод Kubernetes
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  minAvailable: ""
+

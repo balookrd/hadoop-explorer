@@ -4,7 +4,8 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-144%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-158%20passed-brightgreen.svg)](#-тестирование-платформы)
+
 
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
@@ -12,6 +13,7 @@
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20Charts-326CE5.svg)](helm/)
+[![Grafana](https://img.shields.io/badge/Grafana-Dashboards%20Ready-F46800.svg)](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
 
 </div>
 
@@ -25,6 +27,7 @@
 - [Выделенные общие модули](#-выделенные-общие-модули)
 - [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
+- [Мониторинг, Prometheus и Grafana Dashboards](#-мониторинг-prometheus-и-grafana-dashboards)
 - [Руководство по конфигурации компонентов (docs/CONFIGURATION.md)](docs/CONFIGURATION.md)
 - [Быстрый старт: Раздельные демо-стенды](#-быстрый-старт-раздельные-демо-стенды)
 - [Сборка Docker-контейнеров](#-сборка-docker-контейнеров)
@@ -55,12 +58,12 @@
 hadoop-explorer/
 ├── backend/
 │   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── api/            # Фабрика create_auth_router для унификации /login, /sso, /logout, /me
-│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), KerberosManager, SessionStore, Circuit Breaker, Lock, Shutdown, LDAP, Rate Limiter, Audit
-│   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
-│   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
+│   │   ├── api/            # auth_router (/login, /sso, /logout, /me), error_handlers (CWE-209 защита, incident_id)
+│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), Kerberos, SessionStore, Circuit Breaker, Metrics (Prometheus), Retry (Backoff), Lock, Shutdown, LDAP, Rate Limiter, Audit
+│   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
+│   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   ├── yarn/               # Сервис YARN Explorer (43 теста)
-│   ├── hdfs/               # Сервис HDFS Explorer (51 тест)
+│   ├── hdfs/               # Сервис HDFS Explorer (65 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── spark/              # Сервис Spark Explorer (16 тестов)
 │
@@ -76,6 +79,11 @@ hadoop-explorer/
 │   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
 │   │   └── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
 │   └── package.json        # NPM Workspaces монорепозитория
+│
+├── monitoring/             # ─── Мониторинг и наблюдаемость (Observability) ───
+│   └── grafana/
+│       ├── dashboards/     # Готовый JSON-дашборд (HTTP Golden Signals, Circuit Breakers, Retries, Auth, Errors)
+│       └── provisioning/   # Автопровижининг дашбордов для Docker Compose и Kubernetes
 │
 ├── docker/
 │   ├── Dockerfile.yarn     # Multi-stage сборка образа hadoop-explorer/yarn
@@ -101,9 +109,8 @@ hadoop-explorer/
 │   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 144 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 158 тестов
 │   ├── build-containers.sh # Скрипт сборки контейнеров
-
 │   └── generate-types.sh   # Генерация TypeScript типов из OpenAPI схем FastAPI
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -122,10 +129,19 @@ hadoop-explorer/
   - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis) и защитой от Fail-Open.
   - Защитные HTTP-заголовки и Content-Security-Policy (CSP): централизованная функция `apply_security_headers` с поддержкой строгих политик для SPA и редакторов Monaco (`worker-src`, `blob:`, `unsafe-eval`), защита от Clickjacking (`X-Frame-Options: DENY`), MIME-sniffing (`X-Content-Type-Options: nosniff`), `Referrer-Policy: strict-origin-when-cross-origin` и автоматический HSTS (`Strict-Transport-Security`) при HTTPS.
   - Безопасная валидация секретов (строгий fail-fast в продакшне, автогенерация временных ключей в dev).
+- **`backend.common.api.error_handlers`**:
+  - Централизованная фабрика `setup_global_exception_handlers` для безопасной обработки непредвиденных исключений (CWE-209).
+  - Скрытие внутреннего stack trace, генерация уникального `incident_id` и структурированное логирование инцидентов.
+  - Автоматическая трансляция `CircuitBreakerOpenException` в HTTP 503 с заголовком `Retry-After`.
+- **`backend.common.core.retry`**:
+  - Асинхронный модуль повторных попыток `retry_async` и декоратор `@with_retry`.
+  - Поддержка экспоненциального backoff, джиттера, настройки максимального числа попыток и фильтрации исключений.
 - **`backend.common.core.circuit_breaker`**:
   - Автомат состояний `CircuitBreaker` (`CLOSED`, `OPEN`, `HALF_OPEN`) для Fast-Fail сетевых сбоев и предотвращения каскадной деградации сервисов при недоступности NameNode, YARN RM или Livy.
   - Исключение 4xx клиентских ошибок и поддержка мгновенного Failover на standby-узлы.
+  - Сбор статистики и экспорт метрик в Prometheus text format (`GET /metrics` и `GET /api/v1/metrics`).
 - **`backend.common.core.lock`**:
+
   - Распределенная блокировка `DistributedLock` на базе Redis (`SET NX PX` + Lua) с автоматическим fallback на In-Memory/DB для защиты критических секций.
 - **`backend.common.core.shutdown`**:
   - Менеджер `GracefulShutdownManager` для корректного освобождения ресурсов при завершении процессов (SIGTERM/SIGINT): закрытие пулов `ThreadPoolExecutor`, HTTP-клиентов и БД соединений.
@@ -193,12 +209,37 @@ make format     # или uv run ruff format backend
 
 ## 🧩 Компоненты платформы
 
-| Приложение | Веб-интерфейс | Проверка Health | Контейнер | Helm Chart |
-|---|---|---|---|---|
-| **YARN Explorer** | `http://localhost:8001` | `GET /healthz` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
-| **HDFS Explorer** | `http://localhost:8002` | `GET /healthz` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
-| **SQL Explorer** | `http://localhost:8003` | `GET /healthz` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
-| **Spark Explorer** | `http://localhost:8004` | `GET /healthz` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
+| Приложение | Веб-интерфейс | Проверка Health | Метрики Prometheus | Контейнер | Helm Chart |
+|---|---|---|---|---|---|
+| **YARN Explorer** | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
+| **HDFS Explorer** | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
+| **SQL Explorer** | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
+| **Spark Explorer** | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
+
+---
+
+## 📊 Мониторинг, Prometheus и Grafana Dashboards
+
+Все микросервисы платформы оснащены встроенным легковесным коллектором метрик в формате OpenMetrics / Prometheus, доступным на эндпоинтах `GET /metrics` и `GET /api/v1/metrics`.
+
+### 1. Состав экспортируемых метрик
+- **HTTP Golden Signals**:
+  - `http_requests_total{app="...", method="...", path="...", status="..."}` — счетчик запросов с нормализацией URI.
+  - `http_request_duration_seconds` (гистограмма задержек p50, p90, p99 с бакетами от `5ms` до `10s`).
+  - `http_requests_in_progress{app="..."}` — количество запросов в параллельной обработке (concurrency).
+- **Отказоустойчивость и зависимости**:
+  - `hadoop_circuit_breaker_state{name="..."}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN) — состояние автоматов защиты NameNode, YARN RM, Livy, Trino.
+  - `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}` — статистика вызовов.
+  - `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}` — учет срабатываний retry с backoff.
+- **Безопасность и сбои**:
+  - `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}` — аудит попыток аутентификации.
+  - `hadoop_rate_limit_blocks_total{app="..."}` — количество заблокированных по частоте запросов (429).
+  - `hadoop_exceptions_total{app="...", exception_type="..."}` — учет непредвиденных 500 ошибок (CWE-209 защита).
+
+### 2. Готовые дашборды для Grafana
+В репозитории подготовлен production-grade дашборд для визуализации состояния всей платформы:
+- 📁 **JSON-модель**: [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
+- ⚙️ **Файл автопровижининга**: [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](monitoring/grafana/provisioning/dashboards/dashboards.yaml)
 
 > 📖 **Подробное описание параметров, форматов файлов и переменных окружения приведено в [Руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).**
 
@@ -335,14 +376,14 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**144 теста**) успешно проходят комплексную проверку:
+Все тесты (**153 теста**) успешно проходят комплексную проверку:
 - **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
-- **HDFS Explorer**: 51 тест (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
+- **HDFS Explorer**: 60 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 144 тестов платформы
+# Запуск всех 153 тестов платформы
 make test
 
 # Либо по сервисам:
@@ -362,11 +403,12 @@ make test-spark
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 144 модульных и интеграционных тестов |
+| `make test` | Запуск всех 153 модульных и интеграционных тестов |
 | `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |
-| `make test-hdfs` | Запуск 51 теста сервиса HDFS Explorer |
+| `make test-hdfs` | Запуск 60 тестов сервиса HDFS Explorer |
 | `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
 | `make test-spark` | Запуск 16 тестов сервиса Spark Explorer |
+
 | `make build` | Сборка Docker-образов всех 4 приложений (yarn, hdfs, sql, spark) |
 | `make build-yarn` | Сборка Docker-образа YARN Explorer |
 | `make build-hdfs` | Сборка Docker-образа HDFS Explorer |

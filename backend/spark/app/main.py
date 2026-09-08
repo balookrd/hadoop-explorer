@@ -5,7 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+
+from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
+
 
 from app.core.config import settings
 from app.db.session import init_db
@@ -90,6 +94,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Регистрация централизованных обработчиков исключений (защита от CWE-209)
+setup_global_exception_handlers(app)
+
 
 # Защитные HTTP-заголовки (Security Headers Middleware)
 @app.middleware("http")
@@ -104,6 +111,9 @@ async def add_security_headers(request: Request, call_next):
         is_code_editor=True,
     )
 
+
+# Metrics Middleware
+app.add_middleware(PrometheusMetricsMiddleware, app_name="spark-explorer")
 
 # CORS
 app.add_middleware(
@@ -125,10 +135,21 @@ for prefix in ("/api/v1", "/api"):
     app.include_router(workspace_router, prefix=prefix)
 
 
+@app.get("/metrics", tags=["monitoring"])
+@app.get("/api/v1/metrics", tags=["monitoring"])
+async def metrics():
+    """Экспорт Prometheus метрик (HTTP Golden Signals, Circuit Breaker, Auth, Retry)."""
+    return Response(
+        content=metrics_registry.format_prometheus_metrics(),
+        media_type="text/plain",
+    )
+
+
 @app.get("/healthz", tags=["system"])
 @app.get("/api/health", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def healthz():
+
     """Liveness probe: проверка жизнеспособности процесса."""
     return {"status": "ok", "app": "spark-explorer", "service": "spark-explorer", "version": "1.0.0"}
 

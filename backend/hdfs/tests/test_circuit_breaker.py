@@ -115,3 +115,39 @@ def test_circuit_breaker_registry():
 
     registry.reset_all()
     assert cb1.state == CircuitState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_stats_and_prometheus_metrics():
+    """Проверяет сбор статистики и форматирование метрик Prometheus."""
+    registry = CircuitBreakerRegistry()
+    cb = registry.get("test-metrics-cluster", failure_threshold=2, recovery_timeout=10.0)
+
+    async def ok_fn():
+        return "ok"
+
+    async def fail_fn():
+        raise RuntimeError("err")
+
+    await cb.call_async(ok_fn)
+    try:
+        await cb.call_async(fail_fn)
+    except RuntimeError:
+        pass
+
+    stats = cb.get_stats()
+    assert stats["name"] == "test-metrics-cluster"
+    assert stats["total_calls"] == 2
+    assert stats["successful_calls"] == 1
+    assert stats["failed_calls"] == 1
+    assert stats["state"] == "CLOSED"
+
+    all_stats = registry.get_all_stats()
+    assert len(all_stats) == 1
+    assert all_stats[0]["name"] == "test-metrics-cluster"
+
+    prom = registry.format_prometheus_metrics()
+    assert "hadoop_circuit_breaker_state" in prom
+    assert 'name="test-metrics-cluster"' in prom
+    assert 'status="success"' in prom
+

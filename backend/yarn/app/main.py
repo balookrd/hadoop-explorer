@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -10,6 +10,10 @@ from app.api.auth import router as auth_router
 from app.api.clusters import router as clusters_router
 from app.api.queues import router as queues_router
 from app.api.change_requests import router as change_requests_router
+
+from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
+
 
 logging.basicConfig(
     level=logging.DEBUG if settings.server.debug else logging.INFO,
@@ -71,6 +75,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Регистрация централизованных обработчиков исключений (защита от CWE-209)
+setup_global_exception_handlers(app)
+
 
 # Защитные HTTP-заголовки
 @app.middleware("http")
@@ -85,6 +92,9 @@ async def add_security_headers(request, call_next):
         is_code_editor=False,
     )
 
+
+# Metrics Middleware
+app.add_middleware(PrometheusMetricsMiddleware, app_name="yarn-explorer")
 
 # CORS: разрешены только доверенные origins
 app.add_middleware(
@@ -102,12 +112,23 @@ app.include_router(queues_router)
 app.include_router(change_requests_router)
 
 
+@app.get("/metrics", tags=["monitoring"])
+@app.get("/api/v1/metrics", tags=["monitoring"])
+async def metrics():
+    """Экспорт Prometheus метрик (HTTP Golden Signals, Circuit Breaker, Auth, Retry)."""
+    return Response(
+        content=metrics_registry.format_prometheus_metrics(),
+        media_type="text/plain",
+    )
+
+
 @app.get("/healthz", tags=["system"])
 @app.get("/api/health", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
     """Liveness probe: проверка жизнеспособности для Kubernetes liveness probes."""
     return {"status": "ok", "app": "yarn-explorer"}
+
 
 
 @app.get("/readyz", tags=["system"])

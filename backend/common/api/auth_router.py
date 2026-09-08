@@ -192,6 +192,14 @@ def create_auth_router(
                         user_session = UserSession(**ldap_res)
 
         if not user_session:
+            try:
+                from backend.common.core.metrics import metrics_registry
+
+                metrics_registry.auth_attempts_total.inc(
+                    app="hadoop-common", provider=mode, status="failure"
+                )
+            except Exception:
+                pass
             audit_log(AuditEventType.AUTH_LOGIN_FAILED, req.username, client_ip, status="FAILURE")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -237,6 +245,17 @@ def create_auth_router(
             expires_at=payload.get("exp") if payload else (expire_minutes * 60),
             jti=payload.get("jti") if payload else None,
         )
+
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            metrics_registry.auth_attempts_total.inc(
+                app="hadoop-common",
+                provider=user_session.auth_method or "password",
+                status="success",
+            )
+        except Exception:
+            pass
 
         audit_log(AuditEventType.AUTH_LOGIN_SUCCESS, user_session.username, client_ip, status="SUCCESS")
 

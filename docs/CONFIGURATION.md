@@ -170,13 +170,16 @@ database:
   redis_url: "redis://redis-host:6379/0" # Опционально
 ```
 
-### 2.6 Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown
+### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 
-- **Circuit Breaker**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются.
+- **Circuit Breaker & Prometheus Metrics**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются. Метрики экспортируются через `GET /metrics` и `GET /api/v1/metrics`.
+- **Retry с экспоненциальным Backoff (`retry_async`, `@with_retry`)**: автоматический повтор при возникновении транзиентных ошибок соединения и таймаутов (`httpx.ConnectError`, `httpx.TimeoutException`) со случайным джиттером.
+- **Global Exception Handlers (`setup_global_exception_handlers`)**: перехват всех необработанных исключений 500 сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incident_id` и возвратом стандартизированного ответа.
 - **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
 - **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolExecutor`, отменой асинхронных задач и закрытием соединений с базами данных и сетевыми клиентами.
 
 ---
+
 
 ## 3. Настройка YARN Explorer
 
@@ -497,6 +500,9 @@ global:
 yarn-explorer:
   enabled: true
   replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
   config:
     clusters:
       - id: "prod-yarn"
@@ -507,6 +513,9 @@ yarn-explorer:
 hdfs-explorer:
   enabled: true
   replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
   config:
     server:
       debug: false
@@ -521,6 +530,9 @@ hdfs-explorer:
 
 sql-explorer:
   enabled: true
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
   config:
     ai:
       enabled: true
@@ -530,8 +542,96 @@ sql-explorer:
 spark-explorer:
   enabled: true
   replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
   config:
     clusters:
       - id: "prod-hadoop"
         livy_url: "http://livy.hadoop.svc:8998"
 ```
+
+### 8.1 Рекомендации по High-Availability в продакшне
+1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: postgresql://...`). Локальная SQLite поддерживает только 1 реплику.
+2. **PodDisruptionBudget (PDB)**: Включите `podDisruptionBudget.enabled: true` во всех сервисах, чтобы гарантировать доступность сервиса при плановом drain или обновлении узлов Kubernetes.
+3. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
+
+---
+
+## 9. Мониторинг Prometheus и дашборды Grafana
+
+Все сервисы платформы предоставляют единый интерфейс метрик в формате OpenMetrics / Prometheus.
+
+### 9.1 Экспортируемые метрики
+
+| Метрика | Тип | Лейблы | Описание |
+|---|---|---|---|
+| `http_requests_total` | Counter | `app`, `method`, `path`, `status` | Количество входящих HTTP-запросов (с нормализацией путей) |
+| `http_request_duration_seconds` | Histogram | `app`, `method`, `path`, `le` | Задержка обработки запросов (бакеты от 5ms до 10s) |
+| `http_requests_in_progress` | Gauge | `app` | Число одновременных запросов в обработке (concurrency) |
+| `hadoop_circuit_breaker_state` | Gauge | `name` | Текущий статус Circuit Breaker: `0=CLOSED`, `1=HALF_OPEN`, `2=OPEN` |
+| `hadoop_circuit_breaker_calls_total` | Counter | `name`, `status` | Вызовы Circuit Breaker со статусами `success`, `failed`, `rejected` |
+| `hadoop_retry_attempts_total` | Counter | `app`, `operation`, `status` | Срабатывания механизма повторов (`retry`, `exhausted`, `success`) |
+| `hadoop_auth_attempts_total` | Counter | `app`, `provider`, `status` | Попытки аутентификации (`ldap`, `kerberos`, `mock`) и результат |
+| `hadoop_rate_limit_blocks_total` | Counter | `app` | Блокировки по Rate Limiter (HTTP 429) |
+| `hadoop_exceptions_total` | Counter | `app`, `exception_type` | Непредвиденные исключения 500 с `incident_id` (CWE-209) |
+
+### 9.2 Настройка сбора метрик в Prometheus (Scrape Config)
+
+```yaml
+scrape_configs:
+  - job_name: 'hadoop-explorer'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'yarn-explorer:8000'
+          - 'hdfs-explorer:8000'
+          - 'sql-explorer:8000'
+          - 'spark-explorer:8000'
+```
+
+Пример Kubernetes `ServiceMonitor` (Prometheus Operator):
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hadoop-explorer-monitor
+  namespace: hadoop-explorer
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: hadoop-explorer
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+```
+
+### 9.3 Импорт дашборда в Grafana
+
+1. В веб-интерфейсе Grafana перейдите в **Dashboards** $\rightarrow$ **New** $\rightarrow$ **Import**.
+2. Загрузите файл [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json).
+3. Выберите ваш источник данных Prometheus и нажмите **Import**.
+
+Для автоматического развертывания через Grafana Provisioning скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
+
+### 9.4 Примеры полезных PromQL запросов
+
+- **Текущий RPS всей платформы**:
+  ```promql
+  sum(rate(http_requests_total[1m]))
+  ```
+- **Процент ошибок 5xx**:
+  ```promql
+  (sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m]))) * 100
+  ```
+- **Задержка p95 по сервисам**:
+  ```promql
+  histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le, app))
+  ```
+- **Алерт на срабатывание Circuit Breaker (кластер недоступен)**:
+  ```promql
+  hadoop_circuit_breaker_state == 2
+  ```
+

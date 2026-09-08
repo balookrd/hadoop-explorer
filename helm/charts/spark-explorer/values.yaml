@@ -216,3 +216,10 @@ networkPolicy:
     allowLivy: true
     allowYarn: true
     allowHiveMetastore: true
+
+# PodDisruptionBudget для защиты от сбоев при drain нод Kubernetes
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  minAvailable: ""
+

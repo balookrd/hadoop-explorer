@@ -1,22 +1,22 @@
-import os
 from pathlib import Path
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.core.config import settings
 from app.api.auth import router as auth_router
 from app.api.clusters import router as clusters_router
 from app.api.files import router as files_router
 
-import logging
-from contextlib import asynccontextmanager
+from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
 
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.storage import storage_service
 
@@ -54,6 +54,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Регистрация централизованных обработчиков исключений (защита от CWE-209)
+setup_global_exception_handlers(app)
+
 
 # Защитные HTTP-заголовки
 @app.middleware("http")
@@ -68,6 +71,9 @@ async def add_security_headers(request: Request, call_next):
     )
 
 
+# Metrics Middleware
+app.add_middleware(PrometheusMetricsMiddleware, app_name="hdfs-explorer")
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -81,6 +87,16 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(clusters_router)
 app.include_router(files_router)
+
+
+@app.get("/metrics", tags=["monitoring"])
+@app.get("/api/v1/metrics", tags=["monitoring"])
+async def metrics():
+    """Экспорт Prometheus метрик (HTTP Golden Signals, Circuit Breaker, Auth, Retry)."""
+    return Response(
+        content=metrics_registry.format_prometheus_metrics(),
+        media_type="text/plain",
+    )
 
 
 @app.get("/healthz", tags=["system"])
@@ -105,6 +121,7 @@ async def readyz():
             status_code=503, content={"status": "unavailable", "app": "hdfs-explorer", "database": "unreachable"}
         )
     return {"status": "ready", "app": "hdfs-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
+
 
 
 # Раздача собранного Frontend SPA (если существует директория frontend/dist)

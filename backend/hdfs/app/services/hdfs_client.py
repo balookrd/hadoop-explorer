@@ -13,6 +13,7 @@ from app.models.cluster import ClusterConfig
 from app.models.hdfs import HdfsFileStatus, DirectoryListingResponse
 from backend.common.core.kerberos import kerberos_manager
 from backend.common.core.circuit_breaker import circuit_breaker_registry, CircuitBreakerOpenException
+from backend.common.core.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -654,11 +655,20 @@ class HdfsClient:
                     if resp.status_code >= 400:
                         raise WebHdfsException(resp.text, resp.status_code)
 
-                    return resp
+                async def _call_with_retry():
+                    return await retry_async(
+                        _do_http_call,
+                        max_attempts=2,
+                        initial_delay=0.2,
+                        max_delay=1.0,
+                        retry_exceptions=(httpx.ConnectError, httpx.TimeoutException),
+                        operation_name=f"WebHDFS {method} {clean_path}",
+                    )
 
-                resp = await cb.call_async(_do_http_call)
+                resp = await cb.call_async(_call_with_retry)
                 if resp is not None:
                     return resp
+
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 logger.warning(f"Ошибка подключения к {nn_url}: {e}")

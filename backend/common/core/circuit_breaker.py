@@ -2,7 +2,7 @@ import time
 import logging
 import threading
 from enum import Enum
-from typing import Callable, Any, Optional, Dict, Tuple, Type
+from typing import Callable, Any, Optional, Dict, Tuple, Type, List
 
 logger = logging.getLogger("hadoop_explorer.circuit_breaker")
 
@@ -51,6 +51,12 @@ class CircuitBreaker:
         self._last_state_change = time.time()
         self._lock = threading.Lock()
 
+        # Статистика метрик
+        self._total_calls = 0
+        self._successful_calls = 0
+        self._failed_calls = 0
+        self._rejected_calls = 0
+
     @property
     def state(self) -> CircuitState:
         with self._lock:
@@ -69,6 +75,7 @@ class CircuitBreaker:
 
     def _on_success(self):
         with self._lock:
+            self._successful_calls += 1
             if self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
                 if self._success_count >= self.half_open_success_threshold:
@@ -85,6 +92,7 @@ class CircuitBreaker:
             return
 
         with self._lock:
+            self._failed_calls += 1
             self._failure_count += 1
             now = time.time()
             if self._state == CircuitState.HALF_OPEN:
@@ -104,8 +112,10 @@ class CircuitBreaker:
 
     def before_call(self):
         with self._lock:
+            self._total_calls += 1
             self._evaluate_state()
             if self._state == CircuitState.OPEN:
+                self._rejected_calls += 1
                 remaining = max(0.0, self.recovery_timeout - (time.time() - self._last_state_change))
                 raise CircuitBreakerOpenException(self.name, remaining)
 
@@ -139,6 +149,25 @@ class CircuitBreaker:
             self._success_count = 0
             self._last_state_change = time.time()
 
+    def get_stats(self) -> Dict[str, Any]:
+        """Возвращает текущую статистику и метрики Circuit Breaker."""
+        with self._lock:
+            self._evaluate_state()
+            state_numeric = 0 if self._state == CircuitState.CLOSED else (1 if self._state == CircuitState.HALF_OPEN else 2)
+            return {
+                "name": self.name,
+                "state": self._state.value,
+                "state_code": state_numeric,
+                "failure_count": self._failure_count,
+                "failure_threshold": self.failure_threshold,
+                "recovery_timeout": self.recovery_timeout,
+                "total_calls": self._total_calls,
+                "successful_calls": self._successful_calls,
+                "failed_calls": self._failed_calls,
+                "rejected_calls": self._rejected_calls,
+                "last_state_change": self._last_state_change,
+            }
+
 
 class CircuitBreakerRegistry:
     """Глобальный реестр экземпляров Circuit Breaker по имени кластера/эндпоинта."""
@@ -170,6 +199,33 @@ class CircuitBreakerRegistry:
         with self._lock:
             for cb in self._breakers.values():
                 cb.reset()
+
+    def get_all_stats(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return [cb.get_stats() for cb in self._breakers.values()]
+
+    def format_prometheus_metrics(self) -> str:
+        """Форматирует метрики всех Circuit Breaker в формате Prometheus exposition."""
+        stats = self.get_all_stats()
+        lines = [
+            "# HELP hadoop_circuit_breaker_state Current state of circuit breaker (0=CLOSED, 1=HALF_OPEN, 2=OPEN)",
+            "# TYPE hadoop_circuit_breaker_state gauge",
+        ]
+        for s in stats:
+            name = s["name"]
+            lines.append(f'hadoop_circuit_breaker_state{{name="{name}"}} {s["state_code"]}')
+
+        lines.extend([
+            "# HELP hadoop_circuit_breaker_calls_total Total calls through circuit breaker",
+            "# TYPE hadoop_circuit_breaker_calls_total counter",
+        ])
+        for s in stats:
+            name = s["name"]
+            lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="success"}} {s["successful_calls"]}')
+            lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="failed"}} {s["failed_calls"]}')
+            lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="rejected"}} {s["rejected_calls"]}')
+
+        return "\n".join(lines) + "\n"
 
 
 circuit_breaker_registry = CircuitBreakerRegistry()

@@ -77,9 +77,12 @@ backend/sql/
    - Защита от XSS и инъекций (`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`).
 9. **Поддержка PostgreSQL и SQLite**:
    - Асинхронное подключение через `SQLAlchemy` (`postgresql+asyncpg` / `aiosqlite`) с пулом соединений и автоматической защитой concurrency.
-10. **Graceful Shutdown**:
+10. **Отказоустойчивость, метрики и обработка ошибок (CWE-209 & Prometheus)**:
+    - Защита подключений через `CircuitBreaker` с экспортом метрик в Prometheus на `/metrics` и `/api/v1/metrics`.
+    - Централизованный перехват ошибок через `setup_global_exception_handlers` с санитизацией ответов и `incident_id`.
+11. **Graceful Shutdown**:
     - Завершение активных сессий и пулов потоков при остановке пода в Kubernetes через `GracefulShutdownManager`.
-11. **Ролевая модель и разграничение доступа (RBAC)**:
+12. **Ролевая модель и разграничение доступа (RBAC)**:
     - Интеграция с общей ролевой моделью `resolve_system_role`: автоматическое присвоение ролей `ADMIN` (полный доступ к кластерам), `WRITER` (выполнение DDL/DML), `READER` (только SELECT-запросы).
 
 ---

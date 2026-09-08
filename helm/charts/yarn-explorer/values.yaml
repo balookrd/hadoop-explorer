@@ -277,3 +277,10 @@ secrets:
   ldapBindPassword: "ChangeMeServicePassword"
   # Пароль базы данных PostgreSQL (опционально)
   databasePassword: ""
+
+# PodDisruptionBudget для защиты от сбоев при drain нод Kubernetes
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  minAvailable: ""
+

@@ -53,6 +53,7 @@ backend/yarn/
 2. **Отказоустойчивость вызовов YARN RM (Circuit Breaker & HA Failover)**:
    - Встроенный `CircuitBreaker` в `YARNClient`: мгновенный отказ (Fast-Fail) при недоступности RM без блокировки пулов потоков.
    - Автоматический failover на Standby ResourceManager при падении Active RM. 4xx клиентские ошибки игнорируются автоматом.
+   - Экспорт метрик состояний автоматов защиты в Prometheus формате на эндпоинтах `/metrics` и `/api/v1/metrics`.
 3. **Защита от состояний гонки при согласовании (Distributed Lock)**:
    - Согласование и отклонение заявок (`/approve`, `/reject`) защищено `DistributedLock` (Redis с fallback на In-Memory), гарантируя атомарность и исключая двойное одобрение.
 4. **Защита от инъекций и XXE**:
@@ -75,7 +76,9 @@ backend/yarn/
 10. **Безопасные сессии (HttpOnly Cookies) и CSP**:
     - Токены принимаются через `Authorization: Bearer` или `HttpOnly`, `SameSite=Lax`, `Path=/` (и `Secure` в продакшне) Cookie. Токены в query-параметрах заблокированы.
     - Защитные заголовки Content-Security-Policy: `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
-11. **Graceful Shutdown**:
+11. **Централизованная обработка исключений (CWE-209)**:
+    - Интеграция `setup_global_exception_handlers` с генерацией `incident_id` и скрытием внутренних трассировок при 500 ошибках.
+12. **Graceful Shutdown**:
     - Интеграция с `GracefulShutdownManager` в lifespan приложения.
 
 ---
@@ -108,6 +111,7 @@ backend/yarn/
 
 ### Системные эндпоинты
 - `GET /healthz` — проверка жизнеспособности сервиса (`{"status": "ok"}`) для Kubernetes Liveness/Readiness probes (без авторизации).
+- `GET /metrics` и `GET /api/v1/metrics` — экспорт метрик Circuit Breaker и состояния очередей в формате Prometheus для мониторинга.
 
 ---
 

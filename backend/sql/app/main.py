@@ -4,10 +4,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from app.core.config import settings
 from app.db.session import init_db
 from app.api import auth, clusters, catalog, queries, ai, workspace
+from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
+
 
 logger = logging.getLogger("main")
 
@@ -72,6 +75,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Регистрация централизованных обработчиков исключений (защита от CWE-209)
+setup_global_exception_handlers(app)
+
 
 # Защитные HTTP-заголовки (Security Headers Middleware)
 @app.middleware("http")
@@ -85,6 +91,9 @@ async def add_security_headers(request: Request, call_next):
         is_code_editor=True,
     )
 
+
+# Metrics Middleware
+app.add_middleware(PrometheusMetricsMiddleware, app_name="sql-explorer")
 
 # CORS
 app.add_middleware(
@@ -104,12 +113,23 @@ app.include_router(ai.router, prefix="/api/v1")
 app.include_router(workspace.router, prefix="/api/v1")
 
 
+@app.get("/metrics", tags=["monitoring"])
+@app.get("/api/v1/metrics", tags=["monitoring"])
+async def metrics():
+    """Экспорт Prometheus метрик (HTTP Golden Signals, Circuit Breaker, Auth, Retry)."""
+    return Response(
+        content=metrics_registry.format_prometheus_metrics(),
+        media_type="text/plain",
+    )
+
+
 @app.get("/healthz", tags=["system"])
 @app.get("/api/health", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def health():
     """Liveness probe: проверка жизнеспособности процесса."""
     return {"status": "healthy", "app": "sql-explorer", "service": "sql-explorer", "auth_mode": settings.auth.mode, "clusters_count": len(settings.clusters)}
+
 
 
 @app.get("/readyz", tags=["system"])

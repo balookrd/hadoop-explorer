@@ -1,3 +1,4 @@
+import asyncio
 import io
 import tempfile
 import zipfile
@@ -118,6 +119,7 @@ MAX_UPLOAD_ARCHIVE_BYTES = 500 * 1024 * 1024  # 500 МБ
 async def create_directory_zip(client, base_path: str, username: str) -> tempfile.SpooledTemporaryFile:
     """
     Рекурсивно собирает содержимое каталога HDFS в ZIP-архив с потоковой записью чанками.
+    Выполняет сканирование и запись файлов без блокировки Event Loop FastAPI.
     Имеет встроенную защиту от DoS/OOM по количеству файлов и размеру.
     """
     spooled_file = tempfile.SpooledTemporaryFile(max_size=20 * 1024 * 1024, mode="w+b")
@@ -125,46 +127,60 @@ async def create_directory_zip(client, base_path: str, username: str) -> tempfil
     total_files = 0
     total_bytes = 0
 
+    entries = []  # list of (type, sub_path, sub_rel, length)
+
     try:
-        with zipfile.ZipFile(spooled_file, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(f"{dir_name}/", b"")
+        async def _scan(curr_path: str, rel_prefix: str):
+            nonlocal total_files, total_bytes
+            items = await client.list_status(curr_path, username)
+            for item in items:
+                sub_path = f"{curr_path.rstrip('/')}/{item.pathSuffix}"
+                sub_rel = f"{rel_prefix}/{item.pathSuffix}"
 
-            async def _walk(curr_path: str, rel_prefix: str):
-                nonlocal total_files, total_bytes
-                items = await client.list_status(curr_path, username)
-                for item in items:
-                    sub_path = f"{curr_path.rstrip('/')}/{item.pathSuffix}"
-                    sub_rel = f"{rel_prefix}/{item.pathSuffix}"
+                if item.type == "DIRECTORY":
+                    entries.append(("DIRECTORY", sub_path, sub_rel, 0))
+                    await _scan(sub_path, sub_rel)
+                else:
+                    total_files += 1
+                    total_bytes += item.length
+                    if total_files > MAX_ZIP_FILES:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Каталог содержит более {MAX_ZIP_FILES} файлов. Архивация заблокирована для защиты от перегрузки.",
+                        )
+                    if total_bytes > MAX_ZIP_TOTAL_BYTES:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Суммарный объем файлов каталога превышает лимит 500 МБ. Скачивайте файлы напрямую.",
+                        )
+                    entries.append(("FILE", sub_path, sub_rel, item.length))
 
-                    if item.type == "DIRECTORY":
+        await _scan(base_path, dir_name)
+
+        # Создание структуры каталогов в ZIP без блокировки Event Loop
+        def _init_zip_dirs():
+            with zipfile.ZipFile(spooled_file, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(f"{dir_name}/", b"")
+                for entry_type, _, sub_rel, _ in entries:
+                    if entry_type == "DIRECTORY":
                         zf.writestr(f"{sub_rel}/", b"")
-                        await _walk(sub_path, sub_rel)
-                    else:
-                        total_files += 1
-                        total_bytes += item.length
-                        if total_files > MAX_ZIP_FILES:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"Каталог содержит более {MAX_ZIP_FILES} файлов. Архивация заблокирована для защиты от перегрузки.",
-                            )
-                        if total_bytes > MAX_ZIP_TOTAL_BYTES:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="Суммарный объем файлов каталога превышает лимит 500 МБ. Скачивайте файлы напрямую.",
-                            )
 
-                        # Потоковая запись файла в zip-архив чанками без загрузки в память
-                        with zf.open(sub_rel, mode="w", force_zip64=True) as dest_f:
-                            async for chunk in client.open_stream(sub_path, username):
-                                dest_f.write(chunk)
+        await asyncio.to_thread(_init_zip_dirs)
 
-            await _walk(base_path, dir_name)
+        # Потоковая запись файлов в ZIP-архив с неблокирующей записью чанков
+        with zipfile.ZipFile(spooled_file, mode="a", compression=zipfile.ZIP_DEFLATED) as zf:
+            for entry_type, sub_path, sub_rel, _ in entries:
+                if entry_type == "FILE":
+                    with zf.open(sub_rel, mode="w", force_zip64=True) as dest_f:
+                        async for chunk in client.open_stream(sub_path, username):
+                            await asyncio.to_thread(dest_f.write, chunk)
 
         spooled_file.seek(0)
         return spooled_file
     except Exception:
         spooled_file.close()
         raise
+
 
 
 @router.get("/download")
@@ -371,9 +387,31 @@ async def upload_archive(
 
         temp_archive.seek(0)
 
-        if not zipfile.is_zipfile(temp_archive):
+        def _inspect_zip(archive_fp):
+            if not zipfile.is_zipfile(archive_fp):
+                return None, 0, 0
+            archive_fp.seek(0)
+            with zipfile.ZipFile(archive_fp, mode="r") as zf:
+                infolist = zf.infolist()
+                total_uncomp = sum(info.file_size for info in infolist)
+                return infolist, len(infolist), total_uncomp
+
+        infolist, count_files, total_uncompressed = await asyncio.to_thread(_inspect_zip, temp_archive)
+        if infolist is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Загруженный файл не является корректным ZIP-архивом"
+            )
+
+        if count_files > MAX_EXTRACT_FILES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Архив содержит слишком много файлов (максимум {MAX_EXTRACT_FILES})",
+            )
+
+        if total_uncompressed > MAX_EXTRACT_TOTAL_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Распакованный размер архива превышает лимит безопасности 1 ГБ",
             )
 
         temp_archive.seek(0)
@@ -381,20 +419,6 @@ async def upload_archive(
         dirs_created = set()
 
         with zipfile.ZipFile(temp_archive, mode="r") as zf:
-            infolist = zf.infolist()
-            if len(infolist) > MAX_EXTRACT_FILES:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Архив содержит слишком много файлов (максимум {MAX_EXTRACT_FILES})",
-                )
-
-            total_uncompressed = sum(info.file_size for info in infolist)
-            if total_uncompressed > MAX_EXTRACT_TOTAL_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Распакованный размер архива превышает лимит безопасности 1 ГБ",
-                )
-
             for info in infolist:
                 safe_filename = info.filename.replace("\\", "/").strip("/")
                 parts = [p for p in safe_filename.split("/") if p and p not in (".", "..")]
@@ -413,12 +437,12 @@ async def upload_archive(
                         await client.mkdirs(parent_d, do_as_user=current_user.username)
                         dirs_created.add(parent_d)
 
-                    # Асинхронный генератор потока для передачи файла чанками без загрузки в RAM
+                    # Асинхронный генератор потока с неблокирующим чтением
                     def make_file_stream(zf_inst, member_info):
                         async def _stream():
                             with zf_inst.open(member_info, mode="r") as src_f:
                                 while True:
-                                    f_chunk = src_f.read(65536)
+                                    f_chunk = await asyncio.to_thread(src_f.read, 65536)
                                     if not f_chunk:
                                         break
                                     yield f_chunk
@@ -429,6 +453,7 @@ async def upload_archive(
                         dst_item_path, make_file_stream(zf, info), do_as_user=current_user.username, overwrite=overwrite
                     )
                     files_created += 1
+
 
         audit_log(
             action="ARCHIVE_UPLOAD_EXTRACT",

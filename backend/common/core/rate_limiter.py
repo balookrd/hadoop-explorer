@@ -124,6 +124,13 @@ class RateLimiter:
         client_ip = self._get_client_ip(request)
         from backend.common.core.audit import audit_log
 
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            metrics_registry.rate_limit_blocks_total.inc(app="hadoop-common")
+        except Exception:
+            pass
+
         audit_log(
             action="RATE_LIMIT_EXCEEDED",
             username="anonymous",

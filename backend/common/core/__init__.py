@@ -27,7 +27,15 @@ from backend.common.core.circuit_breaker import (
 )
 from backend.common.core.shutdown import GracefulShutdownManager, shutdown_manager
 from backend.common.core.lock import DistributedLock, distributed_lock, LockAcquireError
-from backend.common.core.kerberos import KerberosManager, kerberos_manager
+from backend.common.core.retry import retry_async, with_retry
+from backend.common.core.metrics import (
+    metrics_registry,
+    MetricsRegistry,
+    PrometheusMetricsMiddleware,
+    Counter,
+    Gauge,
+    Histogram,
+)
 
 __all__ = [
     "hash_token",
@@ -56,4 +64,12 @@ __all__ = [
     "LockAcquireError",
     "KerberosManager",
     "kerberos_manager",
+    "retry_async",
+    "with_retry",
+    "metrics_registry",
+    "MetricsRegistry",
+    "PrometheusMetricsMiddleware",
+    "Counter",
+    "Gauge",
+    "Histogram",
 ]

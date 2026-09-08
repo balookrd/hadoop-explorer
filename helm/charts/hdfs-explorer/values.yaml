@@ -224,3 +224,11 @@ networkPolicy:
     # Дополнительные правила egress (например, для внешних proxy, мониторинга и др.)
     customRules: []
 
+# PodDisruptionBudget для защиты от сбоев при drain нод Kubernetes
+# Рекомендуется включать при replicaCount > 1 и подключенном внешнем PostgreSQL
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  minAvailable: ""
+
+

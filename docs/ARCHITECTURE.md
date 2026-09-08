@@ -114,23 +114,52 @@
 
 ## 4. Отказоустойчивость и надежность (Resilience Core)
 
-### 4.1 Circuit Breaker (`backend.common.core.circuit_breaker`)
+### 4.1 Расширенная система метрик Prometheus и Grafana Dashboards (`backend.common.core.metrics`)
+Все микросервисы платформы оснащены встроенным легковесным коллектором метрик OpenMetrics / Prometheus и `PrometheusMetricsMiddleware` для всесторонней наблюдаемости:
+- **HTTP Golden Signals**:
+  - `http_requests_total{app="...", method="...", path="...", status="..."}`: счетчик запросов с нормализацией путей по шаблонам роутов (предотвращение взрыва кардинальности по динамическим ID).
+  - `http_request_duration_seconds`: гистограмма задержек p50, p90, p99 с бакетами от `5ms` до `10s`.
+  - `http_requests_in_progress{app="..."}`: уровень параллелизма / активные запросы в обработке (concurrency).
+- **Метрики отказоустойчивости и сетевых вызовов**:
+  - `hadoop_circuit_breaker_state{name="..."}`: автомат состояний (0=CLOSED, 1=HALF_OPEN, 2=OPEN) для NameNode, ResourceManager, Livy.
+  - `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}`: учет успешных, сбойных и заблокированных по Fast-Fail вызовов.
+  - `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}`: срабатывания механизма повторных попыток.
+- **Метрики безопасности и ошибок**:
+  - `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}`: мониторинг входов и сбоев каталога.
+  - `hadoop_rate_limit_blocks_total{app="..."}`: учет срабатываний Rate Limiter (HTTP 429).
+  - `hadoop_exceptions_total{app="...", exception_type="..."}`: непредвиденные 500 ошибки (CWE-209).
+- **Grafana Dashboard**:
+  - Готовый JSON-дашборд в [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) и конфигурация автопровижининга [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) для визуализации всех сервисов платформы.
+
+### 4.2 Circuit Breaker (`backend.common.core.circuit_breaker`)
 Для предотвращения каскадных сбоев при недоступности внешних кластеров Hadoop (NameNode, YARN RM, Livy) все исходящие сетевые клиенты защищены автоматом состояний `CircuitBreaker`:
 - **Состояния**: `CLOSED` (нормальная работа) $\rightarrow$ `OPEN` (кластер недоступен, вызовы сразу отклоняются с `CircuitBreakerOpenException` без ожидания сетевых таймаутов) $\rightarrow$ `HALF_OPEN` (пробная отправка запроса для проверки восстановления кластера).
 - **Фильтрация ошибок**: клиентские HTTP-ошибки (4xx) считаются легитимными ответами и не приводят к срабатыванию автомата; учитываются только сетевые ошибки, сбои подключения, таймауты и серверные 5xx.
 - **HA Failover**: автоматическое переключение на резервный узел (Standby NameNode / Standby ResourceManager) при фиксации сбоя на Active-узле.
 
-### 4.2 Distributed Lock (`backend.common.core.lock`)
+### 4.3 Модуль повторных попыток с экспоненциальным Backoff (`backend.common.core.retry`)
+Для обработки кратковременных транзиентных сбоев сети и сокетов:
+- Асинхронная функция `retry_async` и декоратор `@with_retry`.
+- Экспоненциальный рост интервала задержки (`backoff_factor`) с добавлением случайного джиттера (`jitter=True`) для исключения эффекта «громоподобного стада» (Thundering Herd).
+- Настраиваемый список повторяемых сетевых исключений (`httpx.ConnectError`, `httpx.TimeoutException`) и исключение критических ошибок бизнес-логики.
+
+### 4.4 Централизованные обработчики исключений (`backend.common.api.error_handlers`)
+- Защита от раскрытия чувствительной информации и структуры бэкенда при 500-х ошибках (CWE-209).
+- Функция `setup_global_exception_handlers(app)` перехватывает необработанные ошибки, генерирует уникальный `incident_id`, детально логирует инцидент внутри сервера и возвращает клиенту безопасный ответ.
+- Автоматическая трансляция состояния `CircuitBreakerOpenException` в HTTP 503 с заголовком `Retry-After`.
+
+### 4.5 Distributed Lock (`backend.common.core.lock`)
 Для предотвращения состояний гонки (Race Conditions) при параллельных операциях:
 - Распределенная блокировка на базе Redis (`SET resource_key token NX PX expiry_ms`) с безопасным освобождением через Lua-скрипт.
 - Автоматический fallback на потокобезопасную блокировку в памяти / БД при отсутствии Redis.
 - Применяется в YARN Explorer для защиты согласования и отклонения заявок на изменение конфигурации очередей (Change Requests).
 
-### 4.3 Graceful Shutdown (`backend.common.core.shutdown`)
+### 4.5 Graceful Shutdown (`backend.common.core.shutdown`)
 Все микросервисы платформы интегрированы с `GracefulShutdownManager` в FastAPI lifespan:
 - Перехват сигналов завершения подов Kubernetes (`SIGTERM`, `SIGINT`).
 - Корректная остановка фоновых пулов потоков (`ThreadPoolExecutor.shutdown(wait=True)`).
 - Закрытие активных HTTP-сессий, клиентов баз данных и сброс логов аудита до остановки процесса.
+
 
 ---
 
@@ -143,10 +172,12 @@
 - **Генерация XML**: экспорт готовой валидной конфигурации `capacity-scheduler.xml`.
 
 ### 5.2 HDFS Explorer
-- **Интеграция**: подключение к WebHDFS / HttpFS с поддержкой NameNode High Availability и защитой через Circuit Breaker.
+- **Интеграция**: подключение к WebHDFS / HttpFS с поддержкой NameNode High Availability, защитой через Circuit Breaker и повторными попытками с экспоненциальным backoff (`retry_async`).
 - **Имперсонация (`doAs`)**: выполнение файловых операций от имени аутентифицированного пользователя при наличии привилегий у сервисного аккаунта.
+- **Неблокирующая архивация (Non-blocking ZIP)**: упаковка и распаковка директорий в ZIP-архивы с выносом ресурсоемких операций сжатия и чтения в пул рабочих потоков (`asyncio.to_thread`), защита Event Loop от DoS/OOM и ликвидация N+1 задержек.
 - **Предпросмотр данных**: потоковое чтение и конвертация форматов Apache Parquet и ORC в структурированный JSON прямо в памяти сервера без выгрузки на диск хоста.
 - **Кросс-кластерное копирование**: асинхронная передача файлов между независимыми кластерами HDFS.
+
 
 ### 5.3 SQL Explorer
 - **Мульти-движок**: одновременная работа с распределенным движком Trino (Trino DB-API) и Apache Hive (HiveServer2 / TCLIService Thrift).
@@ -225,14 +256,18 @@
 
 ## 7. Модель развертывания и надежность (Reliability)
 
-1. **Docker Multi-Stage Build & масштабируемость воркеров**:
+1. **Docker Multi-Stage Build & оптимизация кэширования слоев**:
    - Stage 1: сборка frontend SPA на Node.js 22 (Svelte 5 + Vite).
-   - Stage 2: минимальный образ Python 3.12-slim с системными библиотеками Kerberos, SASL, OpenLDAP, запуском под непривилегированным пользователем `appuser (UID 10001)`.
+   - Stage 2: сборка зависимостей Python с отдельным слоем для сторонних пакетов, что исключает повторную загрузку и компиляцию библиотек при изменении кода.
+   - Stage 3: минимальный runtime образ Python 3.12-slim с системными библиотеками Kerberos, SASL, OpenLDAP, запуском под непривилегированным пользователем `appuser (UID 10001)`.
    - Конфигурирование количества Uvicorn воркеров через переменную окружения `WEB_CONCURRENCY` / `WORKERS` (по умолчанию `2`).
 2. **Kubernetes (Helm)**:
    - **Umbrella Chart (`helm/hadoop-explorer`)**: единая декларативная установка всех сервисов с Ingress-маршрутизацией.
    - **Автономные чарты (`helm/charts/*`)**: независимое развертывание компонентов в различных неймспейсах.
-   - **Liveness & Readiness Probes (`/readyz`)**: периодическая диагностика доступности базы данных и сессионного хранилища со статусом HTTP 503 при деградации хранилища.
+   - **PodDisruptionBudget (`pdb.yaml`)**: защита от случайного одновременного удаления реплик при drain и обслуживании узлов кластера Kubernetes.
+   - **Liveness & Readiness Probes (`/healthz`, `/readyz`)**: периодическая диагностика доступности базы данных и сессионного хранилища со статусом HTTP 503 при деградации хранилища.
+   - **Prometheus Metrics (`/metrics`)**: экспорт состояния и статистики вызовов Circuit Breaker в формате Prometheus.
    - **Корректное завершение (Graceful Shutdown)**: перехват SIGTERM и штатная остановка пулов задач без обрыва пользовательских операций.
 3. **Демо-стенды (`demo/`)**:
    - Раздельные стенды под каждый сервис и единый комплексный стенд `demo/all` с общими контейнерами OpenLDAP и MIT Kerberos KDC.
+
