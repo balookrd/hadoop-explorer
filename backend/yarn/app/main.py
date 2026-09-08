@@ -104,13 +104,15 @@ app.include_router(change_requests_router)
 
 @app.get("/healthz", tags=["system"])
 @app.get("/api/health", tags=["system"])
+@app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    """Проверка жизнеспособности для Kubernetes liveness probes."""
+    """Liveness probe: проверка жизнеспособности для Kubernetes liveness probes."""
     return {"status": "ok", "app": "yarn-explorer"}
 
 
 @app.get("/readyz", tags=["system"])
 @app.get("/api/readyz", tags=["system"])
+@app.get("/api/v1/readyz", tags=["system"])
 async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и запросов на изменение."""
     from app.services.storage import storage_service

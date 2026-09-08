@@ -125,12 +125,15 @@ for prefix in ("/api/v1", "/api"):
 
 
 @app.get("/healthz", tags=["system"])
+@app.get("/api/health", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def healthz():
-    return {"status": "ok", "service": "spark-explorer", "version": "1.0.0"}
+    """Liveness probe: проверка жизнеспособности процесса."""
+    return {"status": "ok", "app": "spark-explorer", "service": "spark-explorer", "version": "1.0.0"}
 
 
 @app.get("/readyz", tags=["system"])
+@app.get("/api/readyz", tags=["system"])
 @app.get("/api/v1/readyz", tags=["system"])
 async def readyz():
     """Readiness probe: проверяет доступность базы данных сессий и метаданных."""
@@ -139,9 +142,9 @@ async def readyz():
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503, content={"status": "unavailable", "service": "spark-explorer", "database": "unreachable"}
+            status_code=503, content={"status": "unavailable", "app": "spark-explorer", "service": "spark-explorer", "database": "unreachable"}
         )
-    return {"status": "ready", "service": "spark-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
+    return {"status": "ready", "app": "spark-explorer", "service": "spark-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
 
 
 # Раздача Frontend SPA статики если собрана

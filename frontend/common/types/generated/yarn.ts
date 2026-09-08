@@ -342,6 +342,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health Check
+         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
+         */
+        get: operations["health_check_api_v1_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -351,7 +371,7 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Проверка жизнеспособности для Kubernetes liveness probes.
+         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
          */
         get: operations["health_check_api_health_get"];
         put?: never;
@@ -371,9 +391,29 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Проверка жизнеспособности для Kubernetes liveness probes.
+         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
          */
         get: operations["health_check_healthz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/readyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readyz
+         * @description Readiness probe: проверяет доступность базы данных сессий и запросов на изменение.
+         */
+        get: operations["readyz_api_v1_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1640,6 +1680,26 @@ export interface operations {
             };
         };
     };
+    health_check_api_v1_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     health_check_api_health_get: {
         parameters: {
             query?: never;
@@ -1661,6 +1721,26 @@ export interface operations {
         };
     };
     health_check_healthz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    readyz_api_v1_readyz_get: {
         parameters: {
             query?: never;
             header?: never;
