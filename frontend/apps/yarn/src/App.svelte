@@ -13,7 +13,7 @@
   import ResourceBalanceCard from './components/ResourceBalanceCard.svelte';
   import DiffPanel from './components/DiffPanel.svelte';
   import ChangeRequestsDrawer from './components/ChangeRequestsDrawer.svelte';
-  import { GitCompareArrows, RotateCcw, FileDown, RefreshCw, Send, GitPullRequest, ArrowRightLeft } from 'lucide-svelte';
+  import { GitCompareArrows, RotateCcw, FileDown, RefreshCw, Send, GitPullRequest, ArrowRightLeft, Cpu } from 'lucide-svelte';
 
   // Auth state
   let user = $state<UserSession | null>(null);
@@ -137,6 +137,12 @@
 
   async function handleLogin(username: string, password: string) {
     user = await api.login(username, password);
+    await loadClusters();
+  }
+
+  async function handleKerberosSso() {
+    const res = await api.kerberosNegotiate();
+    user = res.user || (await api.getMe());
     await loadClusters();
   }
 
@@ -490,9 +496,11 @@
   {#if !user}
     <LoginModal
       title="YARN Explorer"
-      subtitle="Capacity Scheduler"
+      subtitle="Аутентификация LDAP & Kerberos SSO"
+      icon={Cpu}
       initialError={authErrorMessage}
       onLogin={handleLogin}
+      onKerberosSso={handleKerberosSso}
     />
   {:else}
     <div class="min-h-screen flex flex-col bg-slate-50">

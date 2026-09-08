@@ -17,30 +17,6 @@
   let activePreviewFile = $state<HdfsFileStatus | null>(null);
   let activeCopyFile = $state<HdfsFileStatus | null>(null);
 
-  const mockUsers = [
-    {
-      username: 'admin',
-      password: 'password123',
-      displayName: 'admin (Global Admin)',
-      description: 'Группы: admins, engineers • R/W все кластеры',
-      badgeColor: 'text-purple-600'
-    },
-    {
-      username: 'engineer',
-      password: 'password123',
-      displayName: 'engineer (Data Engineer)',
-      description: 'Группы: engineers • R/W в Main Cluster',
-      badgeColor: 'text-sky-600'
-    },
-    {
-      username: 'analyst',
-      password: 'password123',
-      displayName: 'analyst (BI Analyst)',
-      description: 'Группы: analysts • Read-Only доступ',
-      badgeColor: 'text-emerald-600'
-    }
-  ];
-
   async function handleLogin(u: string, p: string) {
     const success = await authStore.login(u, p);
     if (success) {
@@ -91,10 +67,9 @@
 {:else if !authStore.isAuthenticated}
   <LoginModal
     title="HDFS Explorer"
-    subtitle="Корпоративный файловый менеджер для кластеров Hadoop HDFS"
+    subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Server}
     isModal={false}
-    {mockUsers}
     initialError={authStore.error}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}

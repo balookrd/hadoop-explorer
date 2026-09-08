@@ -735,7 +735,8 @@
   {#if !user}
     <LoginModal
       title="SQL Web Explorer"
-      subtitle="Trino & Hive"
+      subtitle="Аутентификация LDAP & Kerberos SSO"
+      icon={Database}
       initialError={authErrorMessage}
       onLogin={handleLogin}
       onKerberosSso={handleKerberosSso}

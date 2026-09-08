@@ -392,6 +392,16 @@
     scheduleSessionPoll();
   }
 
+  async function handleKerberosSso() {
+    const res = await api.kerberosNegotiate();
+    user = res.user || (await api.getMe());
+    isLoginModalOpen = false;
+    await loadUserWorkspace(user);
+    await loadClusters();
+    await refreshSessions();
+    scheduleSessionPoll();
+  }
+
   async function handleLogout() {
     try {
       await api.logout();
@@ -1181,11 +1191,11 @@
     {#await import('@hadoop-explorer/common') then { LoginModal }}
       <LoginModal
         title="Spark Explorer"
-        subtitle="Аутентификация LDAP & SSO"
+        subtitle="Аутентификация LDAP & Kerberos SSO"
         icon={Flame}
-        mockUsers={mockUsers}
         onClose={() => (isLoginModalOpen = false)}
         onLogin={handleLogin}
+        onKerberosSso={handleKerberosSso}
       />
     {/await}
   {/if}

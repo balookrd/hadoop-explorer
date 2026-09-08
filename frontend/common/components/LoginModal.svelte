@@ -10,6 +10,30 @@
     badgeColor?: string;
   }
 
+  export const DEFAULT_MOCK_USERS: MockUserOption[] = [
+    {
+      username: 'admin_user',
+      password: 'password123',
+      displayName: 'Александр Админов',
+      description: 'Администратор платформы, полный доступ',
+      badgeColor: 'text-purple-600',
+    },
+    {
+      username: 'de_user',
+      password: 'password123',
+      displayName: 'Иван Датаинженеров',
+      description: 'Data Engineer, запуск вычислений / R/W',
+      badgeColor: 'text-sky-600',
+    },
+    {
+      username: 'analyst_user',
+      password: 'password123',
+      displayName: 'Анна Аналитикова',
+      description: 'Data Analyst, интерактивные запросы (Read-Only)',
+      badgeColor: 'text-emerald-600',
+    },
+  ];
+
   interface Props {
     title?: string;
     subtitle?: string;
@@ -24,10 +48,10 @@
 
   let {
     title = 'Hadoop Explorer',
-    subtitle = 'Аутентификация LDAP / Kerberos',
+    subtitle = 'Аутентификация LDAP & Kerberos SSO',
     icon: IconComponent = Server,
     isModal = true,
-    mockUsers = [],
+    mockUsers = DEFAULT_MOCK_USERS,
     initialError = null,
     onClose,
     onLogin,
@@ -46,7 +70,7 @@
 
   // Инициализируем первым тестовым пользователем, если список не пуст
   $effect(() => {
-    if (mockUsers.length > 0 && !username) {
+    if (mockUsers && mockUsers.length > 0 && !username) {
       username = mockUsers[0].username;
       if (mockUsers[0].password) {
         password = mockUsers[0].password;
@@ -98,16 +122,16 @@
   onclick={(e) => { if (isModal && onClose && e.target === e.currentTarget) onClose(); }}
 >
   <div
-    class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 select-auto"
+    class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 sm:p-7 flex flex-col gap-5 select-auto text-slate-800"
     onclick={(e) => e.stopPropagation()}
   >
     <!-- Header -->
-    <div class="flex items-center gap-3.5 border-b border-slate-100 pb-5">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-sky-500/30 shrink-0">
-        <IconComponent class="w-6 h-6" />
+    <div class="flex items-center gap-3.5 border-b border-slate-100 pb-4">
+      <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-sky-500/25 shrink-0">
+        <IconComponent class="w-5 h-5" />
       </div>
       <div>
-        <h2 class="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
+        <h2 class="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
         <p class="text-xs text-slate-500">{subtitle}</p>
       </div>
     </div>
@@ -132,17 +156,17 @@
         <span>{ssoLoading ? 'Проверка SPNEGO билета...' : 'Войти через Kerberos SSO (SPNEGO)'}</span>
       </button>
 
-      <div class="relative flex py-1 items-center">
+      <div class="relative flex py-0.5 items-center">
         <div class="grow border-t border-slate-200"></div>
-        <span class="shrink mx-3 text-[11px] text-slate-400 font-medium uppercase tracking-wider">или по паролю</span>
+        <span class="shrink mx-3 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">или по паролю</span>
         <div class="grow border-t border-slate-200"></div>
       </div>
     {/if}
 
     <!-- Standard Login Form -->
-    <form onsubmit={handlePasswordLogin} class="flex flex-col gap-4">
+    <form onsubmit={handlePasswordLogin} class="flex flex-col gap-3.5">
       <div>
-        <label for="username" class="block text-xs font-semibold text-slate-700 mb-1.5">Учетная запись (LDAP UID / sAMAccountName)</label>
+        <label for="username" class="block text-xs font-semibold text-slate-700 mb-1">Учетная запись (LDAP UID / sAMAccountName)</label>
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             <User class="w-4 h-4" />
@@ -151,7 +175,7 @@
             id="username"
             type="text"
             bind:value={username}
-            placeholder="например, engineer"
+            placeholder="например, admin_user"
             required
             class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition"
           />
@@ -159,7 +183,7 @@
       </div>
 
       <div>
-        <label for="password" class="block text-xs font-semibold text-slate-700 mb-1.5">Пароль</label>
+        <label for="password" class="block text-xs font-semibold text-slate-700 mb-1">Пароль</label>
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             <Lock class="w-4 h-4" />
@@ -178,7 +202,7 @@
       <button
         type="submit"
         disabled={isLoading || ssoLoading}
-        class="w-full mt-2 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-semibold shadow-md shadow-sky-600/25 transition cursor-pointer disabled:opacity-50"
+        class="w-full mt-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-semibold shadow-md shadow-sky-600/25 transition cursor-pointer disabled:opacity-50"
       >
         <span>{isLoading ? 'Аутентификация...' : 'Войти в систему'}</span>
         <ArrowRight class="w-4 h-4" />
@@ -187,18 +211,18 @@
 
     <!-- Mock Quick-Select Accounts -->
     {#if mockUsers && mockUsers.length > 0}
-      <div class="pt-4 border-t border-slate-100 flex flex-col gap-2">
+      <div class="pt-3.5 border-t border-slate-100 flex flex-col gap-2">
         <div class="text-[11px] font-semibold text-slate-500 mb-0.5">Быстрый вход для демо/тестирования:</div>
         <div class="flex flex-col gap-1.5">
           {#each mockUsers as mockUser}
             <button
               type="button"
               onclick={() => pickUser(mockUser)}
-              class="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-sky-50/70 border border-slate-200/80 text-left transition cursor-pointer shadow-2xs group"
+              class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-sky-50/70 border border-slate-200/80 text-left transition cursor-pointer shadow-2xs group"
             >
               <div>
                 <div class="text-xs font-bold text-slate-800 group-hover:text-sky-700 transition-colors">
-                  {mockUser.displayName} <span class="font-mono font-normal text-slate-500">(@{mockUser.username})</span>
+                  {mockUser.displayName} <span class="font-mono font-normal text-slate-500 text-[11px]">(@{mockUser.username})</span>
                 </div>
                 <div class="text-[10px] text-slate-500 mt-0.5">{mockUser.description}</div>
               </div>
