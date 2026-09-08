@@ -2,10 +2,10 @@
 
 В данном каталоге представлены конфигурации локальных стендов в Docker Compose для демонстрации и интеграционного тестирования всех компонентов платформы:
 - **`demo/infra`** — Единый инфраструктурный стек безопасности (MIT Kerberos KDC и OpenLDAP) с преднастроенными пользователями, группами и генерацией keytab-файлов.
-- **`demo/hdfs`** — Стенд HDFS Explorer (:8001) с двумя кластерами DataLake (WebHDFS + Kerberos).
+- **`demo/yarn`** — Стенд YARN Explorer (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
+- **`demo/hdfs`** — Стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
+- **`demo/sql`** — Стенд SQL Web Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - **`demo/spark`** — Стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
-- **`demo/sql`** — Стенд SQL Web Explorer (:8002) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
-- **`demo/yarn`** — Стенд YARN Explorer (:8003) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
 - **`demo/all`** — Объединенный запуск всех 4 компонентов с общим KDC и LDAP без дублирования сервисов.
 
 ---
@@ -19,10 +19,10 @@ make demo-all
 ```
 
 Сервисы доступны по адресам:
-- 📁 **HDFS Explorer**: [http://localhost:8001](http://localhost:8001)
+- 🎛️ **YARN Explorer**: [http://localhost:8001](http://localhost:8001)
+- 📁 **HDFS Explorer**: [http://localhost:8002](http://localhost:8002)
+- 📊 **SQL Web Explorer**: [http://localhost:8003](http://localhost:8003)
 - ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
-- 📊 **SQL Web Explorer**: [http://localhost:8002](http://localhost:8002)
-- 🎛️ **YARN Explorer**: [http://localhost:8003](http://localhost:8003)
 
 Остановка всех сервисов:
 ```bash
@@ -30,10 +30,10 @@ make demo-all-stop
 ```
 
 ### 2. Запуск раздельных стендов
-- HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
-- Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
-- SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
 - YARN Explorer: `make demo-yarn` (остановка: `make demo-yarn-stop`)
+- HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
+- SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
+- Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
 
 ---
 

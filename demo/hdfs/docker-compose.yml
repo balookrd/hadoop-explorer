@@ -22,7 +22,7 @@ services:
       - demo-shared-krb5:/etc/krb5_shared:ro
       - hdfs-demo-data:/app/data
     ports:
-      - "8001:8000"
+      - "8002:8000"
     depends_on:
       kdc:
         condition: service_healthy

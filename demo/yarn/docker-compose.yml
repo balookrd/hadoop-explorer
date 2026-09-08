@@ -16,7 +16,7 @@ services:
           - yarn-explorer.yarn-demo-net
           - yarn-explorer
     ports:
-      - "8003:8000"
+      - "8001:8000"
     environment:
       - CONFIG_PATH=/app/demo/config.yaml
       - KRB5_CONFIG=/etc/krb5.conf

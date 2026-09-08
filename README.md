@@ -39,10 +39,10 @@
 
 **Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
-1. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
-2. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
+1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой от состояний гонки через `DistributedLock`.
+2. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
-4. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой от состояний гонки через `DistributedLock`.
+4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
 
 Каждое приложение может собираться в **независимый легковесный Docker-контейнер**, развертываться автономно или в составе единого **Umbrella Helm Chart**, а также запускаться в собственном **раздельном демо-стенде**.
 
@@ -93,10 +93,10 @@ hadoop-explorer/
 │
 ├── demo/                   # ─── Изолированные демонстрационные стенды ───
 │   ├── infra/              # Единый инфраструктурный стек (MIT KDC + OpenLDAP)
-│   ├── hdfs/               # Стенд HDFS (2 кластера WebHDFS) -> :8001
+│   ├── yarn/               # Стенд YARN (2 кластера YARN RM) -> :8001
+│   ├── hdfs/               # Стенд HDFS (2 кластера WebHDFS) -> :8002
+│   ├── sql/                # Стенд SQL (Postgres, Hive, Trino) -> :8003
 │   ├── spark/              # Стенд Spark (Livy + Hive Metastore + YARN + HDFS) -> :8004
-│   ├── sql/                # Стенд SQL (Postgres, Hive, Trino) -> :8002
-│   ├── yarn/               # Стенд YARN (2 кластера YARN RM) -> :8003
 │   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
@@ -193,10 +193,10 @@ make format     # или uv run ruff format backend
 
 | Приложение | Веб-интерфейс | Проверка Health | Контейнер | Helm Chart |
 |---|---|---|---|---|
-| **HDFS Explorer** | `http://localhost:8001` | `GET /healthz` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
+| **YARN Explorer** | `http://localhost:8001` | `GET /healthz` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
+| **HDFS Explorer** | `http://localhost:8002` | `GET /healthz` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
+| **SQL Explorer** | `http://localhost:8003` | `GET /healthz` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
 | **Spark Explorer** | `http://localhost:8004` | `GET /healthz` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
-| **SQL Explorer** | `http://localhost:8002` | `GET /healthz` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
-| **YARN Explorer** | `http://localhost:8003` | `GET /healthz` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
 
 > 📖 **Подробное описание параметров, форматов файлов и переменных окружения приведено в [Руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).**
 
@@ -206,36 +206,36 @@ make format     # или uv run ruff format backend
 
 Каждый сервис укомплектован изолированным демонстрационным стендом в Docker Compose с тестовым KDC (Kerberos), OpenLDAP и необходимым окружением.
 
-### 1. Демо-стенд HDFS Explorer
+### 1. Демо-стенд YARN Explorer
+Включает: KDC, OpenLDAP, 2 кластера YARN ResourceManager с иерархией очередей Capacity Scheduler и YARN Explorer:
+```bash
+make demo-yarn
+# Веб-интерфейс: http://localhost:8001
+# Остановка: make demo-yarn-stop
+```
+
+### 2. Демо-стенд HDFS Explorer
 Включает: KDC, OpenLDAP, 2 кластера DataLake с Kerberized WebHDFS и сервис HDFS Explorer:
 ```bash
 make demo-hdfs
-# Веб-интерфейс: http://localhost:8001
+# Веб-интерфейс: http://localhost:8002
 # Остановка: make demo-hdfs-stop
-```
-
-### 2. Демо-стенд Spark Explorer
-Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN Resource Manager и сервис Spark Explorer:
-```bash
-make demo-spark
-# Веб-интерфейс: http://localhost:8004
-# Остановка: make demo-spark-stop
 ```
 
 ### 3. Демо-стенд SQL Explorer
 Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и SQL Explorer:
 ```bash
 make demo-sql
-# Веб-интерфейс: http://localhost:8002
+# Веб-интерфейс: http://localhost:8003
 # Остановка: make demo-sql-stop
 ```
 
-### 4. Демо-стенд YARN Explorer
-Включает: KDC, OpenLDAP, 2 кластера YARN ResourceManager с иерархией очередей Capacity Scheduler и YARN Explorer:
+### 4. Демо-стенд Spark Explorer
+Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN Resource Manager и сервис Spark Explorer:
 ```bash
-make demo-yarn
-# Веб-интерфейс: http://localhost:8003
-# Остановка: make demo-yarn-stop
+make demo-spark
+# Веб-интерфейс: http://localhost:8004
+# Остановка: make demo-spark-stop
 ```
 
 ### 5. Объединенный запуск всех стендов

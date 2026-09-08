@@ -17,9 +17,9 @@
 | **`sql-demo-hiveserver2`** | Apache HiveServer2 (Thrift TCLIService) | `10000`, `10002` | `10000`, `10002` |
 | **`sql-demo-trino`** | Trino Coordinator с Hive/Postgres коннекторами | `8080` | `8080` |
 | **`spark-demo-livy`** | Apache Livy Server REST API для Spark | `8998` | `8998` |
-| **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8001`** |
-| **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8000` | **`8002`** |
-| **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8003`** |
+| **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8001`** |
+| **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8002`** |
+| **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8000` | **`8003`** |
 | **`spark-explorer`** | **Spark Web Explorer UI & Backend** | `8000` | **`8004`** |
 
 ---
@@ -43,9 +43,9 @@ cd demo/all && ./start-all-demo.sh
 6. Запускает 4 веб-сервиса Hadoop Explorer.
 
 ### Веб-интерфейсы приложений:
-- 📁 **HDFS Explorer**: [http://localhost:8001](http://localhost:8001)
-- 📊 **SQL Web Explorer**: [http://localhost:8002](http://localhost:8002)
-- 🎛️ **YARN Explorer**: [http://localhost:8003](http://localhost:8003)
+- 🎛️ **YARN Explorer**: [http://localhost:8001](http://localhost:8001)
+- 📁 **HDFS Explorer**: [http://localhost:8002](http://localhost:8002)
+- 📊 **SQL Web Explorer**: [http://localhost:8003](http://localhost:8003)
 - ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
 
 ---
@@ -72,22 +72,26 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 Все учетные записи синхронизированы через единый OpenLDAP и Kerberos KDC.
 Пароль для всех пользователей: **`password123`**
 
-| Логин | Роль | Группы LDAP | Права в HDFS | Права в SQL | Права в Spark | Права в YARN |
+| Логин | Роль | Группы LDAP | Права в YARN | Права в HDFS | Права в SQL | Права в Spark |
 |---|---|---|---|---|---|---|
-| **`admin`** / `admin_user` | `ADMIN` | `admins`, `hadoop-admins` | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры | Утверждение Change Requests |
-| **`engineer`** / `engineer_user` | `WRITER` | `engineers`, `data-engineers` | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` | Создание Change Requests |
-| **`analyst`** / `analyst_user` | `READER` | `analytics`, `analysts` | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` | Только просмотр очередей |
+| **`admin`** / `admin_user` | `ADMIN` | `admins`, `hadoop-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
+| **`engineer`** / `engineer_user` | `WRITER` | `engineers`, `data-engineers` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
+| **`analyst`** / `analyst_user` | `READER` | `analytics`, `analysts` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
 
 ---
 
 ## 🧪 Сценарии сквозного тестирования
 
-### 1. HDFS Explorer (`:8001`)
+### 1. YARN Explorer (`:8001`)
+- Авторизуйтесь как `engineer` и создайте заявку на перераспределение весов очередей `root.etl` и `root.analytics`.
+- Войдите как `admin` и согласуйте заявку (Approve & Apply).
+
+### 2. HDFS Explorer (`:8002`)
 - Авторизуйтесь как `engineer` (`password123`).
 - Перейдите в `/data` и просмотрите директории таблиц Hive.
 - Откройте предпросмотр файлов Parquet или текстовых логов.
 
-### 2. SQL Explorer (`:8002`)
+### 3. SQL Explorer (`:8003`)
 - Авторизуйтесь как `analyst` (`password123`).
 - В дереве каталога выберите `hive -> default -> customers`.
 - Выполните аналитический запрос:
@@ -99,7 +103,7 @@ docker compose -f demo/all/docker-compose.all.yml down -v
   ```
 - Убедитесь, что вкладки и история запросов сохраняются в БД при обновлении страницы.
 
-### 3. Spark Explorer (`:8004`)
+### 4. Spark Explorer (`:8004`)
 - Авторизуйтесь как `engineer` (`password123`).
 - Создайте интерактивную сессию PySpark в очереди `root.etl`.
 - Выполните код:
@@ -108,7 +112,3 @@ docker compose -f demo/all/docker-compose.all.yml down -v
   df.groupBy("country").count().show()
   ```
 - Переключитесь на вкладку Spark SQL и выполните запрос. Обратите внимание на независимость буферов результатов между движками.
-
-### 4. YARN Explorer (`:8003`)
-- Авторизуйтесь как `engineer` и создайте заявку на перераспределение весов очередей `root.etl` и `root.analytics`.
-- Войдите как `admin` и согласуйте заявку (Approve & Apply).

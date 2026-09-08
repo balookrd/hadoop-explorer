@@ -72,7 +72,7 @@ services:
     hostname: sql-explorer
     restart: unless-stopped
     ports:
-      - "8002:8000"
+      - "8003:8000"
     environment:
       CONFIG_PATH: /app/demo-config/config.demo.yaml
       KRB5_KEYTAB: /etc/security/keytabs/sql-explorer.keytab

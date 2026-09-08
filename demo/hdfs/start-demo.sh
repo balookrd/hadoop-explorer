@@ -10,14 +10,14 @@ echo "  1. Kerberos KDC (EXAMPLE.COM) -> порт 88"
 echo "  2. OpenLDAP (dc=example,dc=com) -> порт 389"
 echo "  3. HDFS Кластер 1 (Production DataLake) -> WebHDFS порт 9870"
 echo "  4. HDFS Кластер 2 (Archive & Analytics) -> WebHDFS порт 9872"
-echo "  5. Сервис hdfs-explorer (Web UI + Backend) -> http://localhost:8001"
+echo "  5. Сервис hdfs-explorer (Web UI + Backend) -> http://localhost:8002"
 echo ""
 
 docker compose up --build -d
 
 echo ""
 echo "=== Демонстрационный стенд успешно запущен! ==="
-echo "Веб-интерфейс доступен по адресу: http://localhost:8001"
+echo "Веб-интерфейс доступен по адресу: http://localhost:8002"
 echo ""
 echo "Учетные записи для входа (OpenLDAP):"
 echo "  - Администратор:  admin / password123      (полный доступ, hadoop-admins)"

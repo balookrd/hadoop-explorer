@@ -17,7 +17,7 @@ docker compose ps
 echo ""
 echo "Стенд успешно запущен!"
 echo "--------------------------------------------------------"
-echo "Yarn Explorer UI:        http://localhost:8003"
+echo "Yarn Explorer UI:        http://localhost:8001"
 echo "YARN RM 1 (prod-yarn):   http://localhost:8088"
 echo "YARN RM 2 (analytics):   http://localhost:8089"
 echo "LDAP сервер:             ldap://localhost:389"

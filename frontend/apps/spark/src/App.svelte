@@ -14,6 +14,7 @@
   import { Header, LoginModal } from '@hadoop-explorer/common';
   import Sidebar from './components/Sidebar.svelte';
   import SessionBar from './components/SessionBar.svelte';
+  import SparkSessionWidget from './components/SparkSessionWidget.svelte';
   import SparkEditor from './components/SparkEditor.svelte';
   import ResultsView from './components/ResultsView.svelte';
   import { Flame, Plus, X, Server } from 'lucide-svelte';
@@ -1139,6 +1140,16 @@
     onKerberosSso={handleKerberosSso}
   />
 {:else}
+  {#snippet sparkSessionHeaderActions()}
+    <SparkSessionWidget
+      session={currentSession}
+      yarnClusterId={clusterDetails?.yarn_cluster_id}
+      onOpenSettings={openSessionConfigModal}
+      onRestartSession={handleRestartSession}
+      onStopSession={handleStopSession}
+    />
+  {/snippet}
+
   <div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
   <!-- Главный Header платформы -->
   <Header
@@ -1148,6 +1159,7 @@
     user={user}
     clusters={clusters}
     selectedClusterId={selectedClusterId}
+    extraActions={sparkSessionHeaderActions}
     onClusterSelect={handleClusterSelect}
     onLogout={handleLogout}
     onLoginClick={() => (isLoginModalOpen = true)}
@@ -1181,36 +1193,15 @@
 
     <!-- Основная рабочая область -->
     <main class="flex-1 flex flex-col overflow-hidden min-w-0">
-      <!-- Session Bar -->
-      <SessionBar
-        language={activeTab?.language || 'pyspark'}
-        session={currentSession}
-        isRunning={activeTab?.isRunning || false}
-        statusText={activeTab?.statusText}
-        yarnClusterId={clusterDetails?.yarn_cluster_id}
-        onLanguageChange={handleLanguageChange}
-        onRun={() => {
-          if (runEditorTrigger) {
-            runEditorTrigger();
-          } else {
-            handleRun();
-          }
-        }}
-        onCancel={handleCancel}
-        onOpenSettings={openSessionConfigModal}
-        onRestartSession={handleRestartSession}
-        onStopSession={handleStopSession}
-      />
-
       <!-- Вкладки редактора скриптов -->
-      <div class="h-9 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1 shrink-0 overflow-x-auto select-none">
+      <div class="h-10 bg-slate-100/80 border-b border-slate-200 flex items-center px-2.5 gap-1 shrink-0 overflow-x-auto select-none">
         {#each tabs as tab}
           <div
             role="button"
             tabindex="0"
             onclick={() => selectTab(tab.id)}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectTab(tab.id); }}
-            class="group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition border-t-2 {tab.id === activeTabId ? 'bg-white border-amber-500 text-slate-800 shadow-xs' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}"
+            class="group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition border-t-2 {tab.id === activeTabId ? 'bg-white border-amber-500 text-slate-900 font-semibold shadow-xs' : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}"
           >
             <span class="truncate max-w-xs">{tab.title}</span>
             <span class="text-[9px] font-mono uppercase px-1 rounded bg-slate-100 text-slate-500">{tab.language}</span>
@@ -1227,12 +1218,32 @@
 
         <button
           onclick={addTab}
-          class="p-1 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 transition cursor-pointer ml-1"
+          class="p-1 rounded-md hover:bg-slate-200 text-slate-500 hover:text-amber-600 transition cursor-pointer ml-1"
           title="Новый скрипт"
         >
-          <Plus class="w-3.5 h-3.5" />
+          <Plus class="w-4 h-4" />
         </button>
       </div>
+
+      {#if activeTab}
+        <!-- Тулбар активного скрипта -->
+        <SessionBar
+          language={activeTab.language}
+          isRunning={activeTab.isRunning}
+          statusText={activeTab.statusText}
+          executionTimeMs={activeTab.executionTimeMs}
+          rowsCount={activeTab.totalRows}
+          onLanguageChange={handleLanguageChange}
+          onRun={() => {
+            if (runEditorTrigger) {
+              runEditorTrigger();
+            } else {
+              handleRun();
+            }
+          }}
+          onCancel={handleCancel}
+        />
+      {/if}
 
       <!-- Рабочая зона: Редактор и Результаты (Resizable Split) -->
       <div bind:this={mainAreaRef} class="flex-1 flex flex-col overflow-hidden relative min-h-0">

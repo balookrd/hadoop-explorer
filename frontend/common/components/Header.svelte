@@ -58,6 +58,38 @@
     if (role === 'writer') return 'text-amber-700 bg-amber-50 border-amber-200';
     return 'text-slate-600 bg-slate-50 border-slate-200';
   }
+
+  interface RoleBadgeInfo {
+    label: 'ADM' | 'RW' | 'RO';
+    fullLabel: string;
+    class: string;
+  }
+
+  function getShortRole(role?: string, isAdmin?: boolean): RoleBadgeInfo {
+    if (isAdmin || role === 'admin') {
+      return {
+        label: 'ADM',
+        fullLabel: 'Администратор (ADMIN)',
+        class: 'bg-purple-50 text-purple-700 border-purple-200 font-bold'
+      };
+    }
+    if (role === 'writer') {
+      return {
+        label: 'RW',
+        fullLabel: 'Чтение и запись (WRITER)',
+        class: 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
+      };
+    }
+    return {
+      label: 'RO',
+      fullLabel: 'Только чтение (READER)',
+      class: 'bg-slate-100 text-slate-700 border-slate-200 font-semibold'
+    };
+  }
+
+  const effectiveRole = $derived(
+    user ? getShortRole(user.system_role, user.is_admin) : null
+  );
 </script>
 
 <svelte:window
@@ -145,7 +177,15 @@
               @{user.username}
             </span>
           </div>
-          <ChevronDown class="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0 transition-transform duration-200 {showUserMenu ? 'rotate-180' : ''}" />
+          {#if effectiveRole}
+            <span
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono border tracking-wider shrink-0 {effectiveRole.class}"
+              title="Эффективная роль: {effectiveRole.fullLabel}"
+            >
+              {effectiveRole.label}
+            </span>
+          {/if}
+          <ChevronDown class="w-3.5 h-3.5 text-slate-400 ml-0.5 shrink-0 transition-transform duration-200 {showUserMenu ? 'rotate-180' : ''}" />
         </button>
 
         {#if showUserMenu}

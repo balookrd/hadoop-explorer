@@ -17,7 +17,7 @@
   *(или `docker compose down -v`)*
 
 После запуска веб-интерфейс доступен по адресу:
-👉 **http://localhost:8002**
+👉 **http://localhost:8003**
 
 ---
 
