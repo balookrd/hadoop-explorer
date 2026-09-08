@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>dfs.namenode.kerberos.principal</name>
+        <value>nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>dfs.namenode.kerberos.principal.pattern</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>dfs.data.transfer.protection</name>
+        <value>integrity</value>
+    </property>
+</configuration>

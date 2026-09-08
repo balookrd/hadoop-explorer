@@ -491,7 +491,7 @@
     saveStateToStorage();
     try {
       clusterDetails = await api.getClusterDetails(clusterId);
-      if (clusterDetails.metastores.length > 0) {
+      if (clusterDetails && Array.isArray(clusterDetails.metastores) && clusterDetails.metastores.length > 0) {
         selectedMetastoreId = clusterDetails.metastores.find((m) => m.is_default)?.id || clusterDetails.metastores[0].id;
       }
       await refreshSessions();

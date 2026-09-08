@@ -34,7 +34,7 @@ cat <<EOF > "$HADOOP_CONF_DIR/core-site.xml"
     </property>
     <property>
         <name>hadoop.security.authentication</name>
-        <value>simple</value>
+        <value>kerberos</value>
     </property>
     <property>
         <name>ipc.client.fallback-to-simple-auth-allowed</name>
@@ -48,7 +48,7 @@ cat <<EOF > "$HADOOP_CONF_DIR/hdfs-site.xml"
 <configuration>
     <property>
         <name>dfs.namenode.kerberos.principal</name>
-        <value>${HDFS_NN_PRINCIPAL:-nn/hdfs-cluster-1@COMPANY.LOCAL}</value>
+        <value>${HDFS_NN_PRINCIPAL:-nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL}</value>
     </property>
     <property>
         <name>dfs.data.transfer.protection</name>
@@ -62,19 +62,31 @@ cat <<EOF > "$HADOOP_CONF_DIR/hive-site.xml"
 <configuration>
     <property>
         <name>hive.metastore.uris</name>
-        <value>${HIVE_METASTORE_URIS:-thrift://hive-metastore:9083}</value>
+        <value>${HIVE_METASTORE_URIS:-thrift://hive-metastore-1:9083}</value>
     </property>
     <property>
         <name>hive.metastore.warehouse.dir</name>
-        <value>/opt/hive/warehouse</value>
+        <value>${HDFS_DEFAULT_FS:-hdfs://hdfs-cluster-1:9000}/warehouse</value>
     </property>
     <property>
         <name>fs.defaultFS</name>
-        <value>file:///</value>
+        <value>${HDFS_DEFAULT_FS:-hdfs://hdfs-cluster-1:9000}</value>
     </property>
     <property>
         <name>hive.metastore.execute.setugi</name>
         <value>false</value>
+    </property>
+    <property>
+        <name>hive.metastore.sasl.enabled</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>hive.metastore.kerberos.principal</name>
+        <value>${HIVE_METASTORE_PRINCIPAL:-hive/hive-metastore-1.demo-platform-net@COMPANY.LOCAL}</value>
+    </property>
+    <property>
+        <name>hive.metastore.kerberos.keytab.file</name>
+        <value>/etc/security/keytabs/hive.keytab</value>
     </property>
 </configuration>
 EOF
@@ -88,18 +100,24 @@ livy.server.host = 0.0.0.0
 livy.spark.master = ${SPARK_MASTER:-local[*]}
 livy.spark.deploy-mode = client
 livy.file.local-dir-whitelist = /
-livy.impersonation.enabled = true
+livy.impersonation.enabled = false
 livy.repl.enable-hive-context = true
+livy.server.launch.kerberos.principal = ${HIVE_SERVER_PRINCIPAL:-hive/hive-server@COMPANY.LOCAL}
+livy.server.launch.kerberos.keytab = /etc/security/keytabs/hive.keytab
 EOF
 
 cat <<EOF > /opt/livy/conf/spark-defaults.conf
 spark.master = ${SPARK_MASTER:-local[*]}
 spark.app.name = LivySparkApp
-spark.hadoop.fs.defaultFS = file:///
-spark.hadoop.hive.metastore.uris = ${HIVE_METASTORE_URIS:-thrift://hive-metastore:9083}
+spark.hadoop.fs.defaultFS = ${HDFS_DEFAULT_FS:-hdfs://hdfs-cluster-1:9000}
+spark.hadoop.hive.metastore.uris = ${HIVE_METASTORE_URIS:-thrift://hive-metastore-1:9083}
 spark.hadoop.hive.metastore.execute.setugi = false
+spark.hadoop.hive.metastore.sasl.enabled = true
+spark.hadoop.hive.metastore.kerberos.principal = ${HIVE_METASTORE_PRINCIPAL:-hive/hive-metastore-1.demo-platform-net@COMPANY.LOCAL}
+spark.hadoop.hadoop.security.authentication = kerberos
+spark.hadoop.dfs.namenode.kerberos.principal = ${HDFS_NN_PRINCIPAL:-nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL}
 spark.sql.catalogImplementation = hive
-spark.sql.warehouse.dir = file:///opt/hive/warehouse
+spark.sql.warehouse.dir = ${HDFS_DEFAULT_FS:-hdfs://hdfs-cluster-1:9000}/warehouse
 spark.driver.memory = 1g
 spark.executor.memory = 1g
 EOF

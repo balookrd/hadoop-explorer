@@ -31,6 +31,13 @@ describe('All 4 SPA Applications Smoke Mounting Tests', () => {
             json: async () => mockUser
           });
         }
+        if (url.includes('/clusters/')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'cluster-1', name: 'Primary Cluster', type: 'spark', metastores: [], queues: [] })
+          });
+        }
         if (url.includes('/clusters')) {
           return Promise.resolve({
             ok: true,

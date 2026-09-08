@@ -32,11 +32,23 @@
   <!-- Хранилище таблиц -->
   <property>
     <name>hive.metastore.warehouse.dir</name>
-    <value>/opt/hive/warehouse</value>
+    <value>hdfs://hdfs-cluster-1:9000/warehouse</value>
   </property>
   <property>
-    <name>fs.defaultFS</name>
-    <value>file:///</value>
+    <name>hive.exec.scratchdir</name>
+    <value>file:///tmp/hive</value>
+  </property>
+  <property>
+    <name>hive.start.cleanup.scratchdir</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>hive.query.results.cache.enabled</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>hive.query.results.cache.directory</name>
+    <value>file:///tmp/hive/_resultscache_</value>
   </property>
 
   <!-- Kerberos аутентификация для HiveServer2 -->
@@ -53,8 +65,12 @@
     <value>/etc/security/keytabs/hive.keytab</value>
   </property>
   <property>
+    <name>hive.metastore.sasl.enabled</name>
+    <value>true</value>
+  </property>
+  <property>
     <name>hive.metastore.kerberos.principal</name>
-    <value>hive/hive-server@COMPANY.LOCAL</value>
+    <value>hive/hive-metastore@COMPANY.LOCAL</value>
   </property>
   <property>
     <name>hive.metastore.kerberos.keytab.file</name>

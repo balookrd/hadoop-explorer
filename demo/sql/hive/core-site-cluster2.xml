@@ -14,10 +14,18 @@
     <name>ipc.client.fallback-to-simple-auth-allowed</name>
     <value>true</value>
   </property>
+  <property>
+    <name>hadoop.security.auth_to_local</name>
+    <value>
+      RULE:[2:$1@$0](.*@COMPANY.LOCAL)s/@.*//
+      RULE:[1:$1@$0](.*@COMPANY.LOCAL)s/@.*//
+      DEFAULT
+    </value>
+  </property>
 
   <property>
     <name>dfs.namenode.kerberos.principal</name>
-    <value>nn/hdfs-cluster-2@COMPANY.LOCAL</value>
+    <value>nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL</value>
   </property>
 
   <property>

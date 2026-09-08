@@ -16,22 +16,23 @@ services:
     container_name: hive-server-1
     hostname: hive-server
     restart: unless-stopped
-    entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
+    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; until (echo > /dev/tcp/hdfs-cluster-1/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-1/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-1 (9000) & Metastore-1 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
     environment:
       SERVICE_NAME: hiveserver2
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
       IS_RESUME: "true"
-      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf -Djava.security.auth.login.config=/opt/hive/custom-conf/jaas.conf"
     ports:
       - "10000:10000"
       - "10002:10002"
     volumes:
+      - ./hive/jaas-server-1.conf:/opt/hive/custom-conf/jaas.conf:ro
       - ./hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ./hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ./hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
-      - demo-shared-warehouse:/opt/hive/warehouse
     depends_on:
       - sql-hive-metastore
       - kdc
@@ -49,22 +50,23 @@ services:
     container_name: hive-server-2
     hostname: hive-server-2
     restart: unless-stopped
-    entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
+    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; until (echo > /dev/tcp/hdfs-cluster-2/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-2/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-2 (9000) & Metastore-2 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
     environment:
       SERVICE_NAME: hiveserver2
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
       IS_RESUME: "true"
-      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf -Djava.security.auth.login.config=/opt/hive/custom-conf/jaas.conf -Dsun.security.krb5.debug=true"
     ports:
       - "10001:10001"
       - "10003:10002"
     volumes:
+      - ./hive/jaas-server-2.conf:/opt/hive/custom-conf/jaas.conf:ro
       - ./hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ./hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ./hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
       - ./hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
-      - demo-shared-warehouse-2:/opt/hive/warehouse
     depends_on:
       - sql-hive-metastore-2
       - kdc

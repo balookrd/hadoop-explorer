@@ -21,17 +21,7 @@ echo ""
 echo "=== Инициализация демонстрационных таблиц Hive (Cluster 1 & Cluster 2) ==="
 "$ROOT_DIR/demo/sql/hive/init-demo-data.sh" || true
 
-echo ""
-echo "=== Инициализация демонстрационных таблиц Spark ==="
-MAX_WAIT=30
-WAIT_COUNT=0
-until curl -s "http://localhost:8004/healthz" >/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do
-    WAIT_COUNT=$((WAIT_COUNT + 1))
-    echo " -> Ожидание готовности Spark Explorer ($WAIT_COUNT/$MAX_WAIT)..."
-    sleep 2
-done
 
-"$ROOT_DIR/demo/spark/init-demo-tables.sh" || true
 
 echo ""
 echo "========================================================="

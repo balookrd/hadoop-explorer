@@ -18,6 +18,7 @@ services:
       CLUSTER_ID: "hdfs-cluster-1"
       CLUSTER_NAME: "Production DataLake"
     volumes:
+      - ../hdfs/hadoop/entrypoint.sh:/entrypoint.sh:ro
       - demo-shared-keytabs:/shared/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     ports:
@@ -41,6 +42,7 @@ services:
       CLUSTER_ID: "hdfs-cluster-2"
       CLUSTER_NAME: "Archive & Analytics DataLake"
     volumes:
+      - ../hdfs/hadoop/entrypoint.sh:/entrypoint.sh:ro
       - demo-shared-keytabs:/shared/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     ports:

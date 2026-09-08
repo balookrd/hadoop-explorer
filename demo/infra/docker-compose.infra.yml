@@ -15,6 +15,7 @@ services:
       - "88:88/udp"
       - "749:749"
     volumes:
+      - ./kdc/entrypoint.sh:/entrypoint.sh:ro
       - demo-shared-keytabs:/shared/keytabs
       - demo-shared-krb5:/shared/conf
     networks:

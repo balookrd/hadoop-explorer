@@ -41,12 +41,20 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
         <value>true</value>
     </property>
     <property>
+        <name>hadoop.security.auth_to_local</name>
+        <value>
+            RULE:[2:\$1@\$0](.*@COMPANY.LOCAL)s/@.*//
+            RULE:[1:\$1@\$0](.*@COMPANY.LOCAL)s/@.*//
+            DEFAULT
+        </value>
+    </property>
+    <property>
         <name>hadoop.http.authentication.type</name>
         <value>kerberos</value>
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
+        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>hadoop.http.authentication.kerberos.keytab</name>
@@ -142,7 +150,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.namenode.kerberos.principal</name>
-        <value>nn/${CLUSTER_ID}@COMPANY.LOCAL</value>
+        <value>nn/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>dfs.namenode.kerberos.principal.pattern</name>
+        <value>*</value>
     </property>
     <property>
         <name>dfs.namenode.keytab.file</name>
@@ -150,11 +162,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.namenode.kerberos.internal.spnego.principal</name>
-        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
+        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.principal</name>
-        <value>HTTP/${CLUSTER_ID}@COMPANY.LOCAL</value>
+        <value>HTTP/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
     </property>
     <property>
         <name>dfs.web.authentication.kerberos.keytab</name>
@@ -162,7 +174,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/hdfs-site.xml"
     </property>
     <property>
         <name>dfs.datanode.kerberos.principal</name>
-        <value>dn/${CLUSTER_ID}@COMPANY.LOCAL</value>
+        <value>dn/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>dfs.datanode.kerberos.principal.pattern</name>
+        <value>*</value>
     </property>
     <property>
         <name>dfs.datanode.keytab.file</name>
@@ -209,7 +225,8 @@ if [ ! -d "/opt/hadoop/dfs/name/current" ]; then
 fi
 
 echo "Запуск NameNode..."
-su -s /bin/bash hadoop -c "/opt/hadoop/bin/hdfs --daemon start namenode"
+export HADOOP_OPTS="-Dsun.security.krb5.debug=true $HADOOP_OPTS"
+su -s /bin/bash hadoop -c "export HADOOP_OPTS='-Dsun.security.krb5.debug=true'; /opt/hadoop/bin/hdfs --daemon start namenode"
 
 echo "Запуск DataNode..."
 su -s /bin/bash hadoop -c "/opt/hadoop/bin/hdfs --daemon start datanode"
@@ -227,19 +244,20 @@ done
 # Инициализация тестовых данных в HDFS под принципалом nn (суперпользователь)
 echo "Создание демонстрационных файлов и каталогов в HDFS..."
 su -s /bin/bash hadoop -c "
-    kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
-    /opt/hadoop/bin/hdfs dfs -mkdir -p /tmp /tmp/hive /data /user/admin /user/engineer /user/analyst /user/hive/warehouse
-    /opt/hadoop/bin/hdfs dfs -chmod 1777 /tmp /tmp/hive
+    kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL
+    /opt/hadoop/bin/hdfs dfs -mkdir -p /tmp /tmp/hive /data /user/admin /user/engineer /user/analyst /warehouse
+    /opt/hadoop/bin/hdfs dfs -chmod 1777 /tmp /tmp/hive /warehouse
+    /opt/hadoop/bin/hdfs dfs -chown hive:hadoop-admins /warehouse
     /opt/hadoop/bin/hdfs dfs -chmod 755 /data
     /opt/hadoop/bin/hdfs dfs -chown admin:hadoop-admins /user/admin
     /opt/hadoop/bin/hdfs dfs -chown engineer:data-engineers /user/engineer
     /opt/hadoop/bin/hdfs dfs -chown analyst:analytics /user/analyst
-    /opt/hadoop/bin/hdfs dfs -chmod -R 777 /user/hive
+    /opt/hadoop/bin/hdfs dfs -chmod -R 777 /user
 " || true
 
 if [ "${CLUSTER_ID}" = "hdfs-cluster-1" ]; then
     su -s /bin/bash hadoop -c "
-        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}@COMPANY.LOCAL
+        kinit -kt /etc/security/keytabs/hdfs.keytab nn/${CLUSTER_ID}.demo-platform-net@COMPANY.LOCAL
         echo 'Добро пожаловать в Production DataLake HDFS Cluster 1' | /opt/hadoop/bin/hdfs dfs -put -f - /user/admin/README.txt
         echo 'event_id,event_name,user_id,timestamp
 101,login,admin,2026-09-05T09:00:00Z

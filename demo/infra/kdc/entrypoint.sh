@@ -34,6 +34,10 @@ cat <<EOF > /etc/krb5.conf
     }
 
 [domain_realm]
+    .demo-platform-net = ${REALM}
+    demo-platform-net = ${REALM}
+    .yarn-demo-net = ${REALM}
+    yarn-demo-net = ${REALM}
     .company.local = ${REALM}
     company.local = ${REALM}
     .example.com = ${REALM}
@@ -48,6 +52,9 @@ cat <<EOF > /etc/krb5.conf
     hive-server = ${REALM}
     hive-server-1 = ${REALM}
     hive-server-2 = ${REALM}
+    hive-metastore = ${REALM}
+    hive-metastore-1 = ${REALM}
+    hive-metastore-2 = ${REALM}
     trino-coordinator = ${REALM}
 EOF
 
@@ -108,18 +115,33 @@ add_principal "HTTP/localhost@${REALM}" ""
 
 # 2. HDFS принципалы (Кластер 1 и 2)
 add_principal "nn/hdfs-cluster-1@${REALM}" ""
+add_principal "nn/hdfs-cluster-1.demo-platform-net@${REALM}" ""
 add_principal "dn/hdfs-cluster-1@${REALM}" ""
+add_principal "dn/hdfs-cluster-1.demo-platform-net@${REALM}" ""
 add_principal "HTTP/hdfs-cluster-1@${REALM}" ""
+add_principal "HTTP/hdfs-cluster-1.demo-platform-net@${REALM}" ""
 add_principal "hdfs/hdfs-cluster-1@${REALM}" ""
 add_principal "nn/hdfs-cluster-2@${REALM}" ""
+add_principal "nn/hdfs-cluster-2.demo-platform-net@${REALM}" ""
 add_principal "dn/hdfs-cluster-2@${REALM}" ""
+add_principal "dn/hdfs-cluster-2.demo-platform-net@${REALM}" ""
 add_principal "HTTP/hdfs-cluster-2@${REALM}" ""
+add_principal "HTTP/hdfs-cluster-2.demo-platform-net@${REALM}" ""
 add_principal "hdfs/hdfs-cluster-2@${REALM}" ""
 
 # 3. SQL принципалы (Hive & Trino)
 add_principal "hive/hive-server@${REALM}" ""
+add_principal "hive/hive-server.demo-platform-net@${REALM}" ""
 add_principal "hive/hive-server-1@${REALM}" ""
+add_principal "hive/hive-server-1.demo-platform-net@${REALM}" ""
 add_principal "hive/hive-server-2@${REALM}" ""
+add_principal "hive/hive-server-2.demo-platform-net@${REALM}" ""
+add_principal "hive/hive-metastore@${REALM}" ""
+add_principal "hive/hive-metastore.demo-platform-net@${REALM}" ""
+add_principal "hive/hive-metastore-1@${REALM}" ""
+add_principal "hive/hive-metastore-1.demo-platform-net@${REALM}" ""
+add_principal "hive/hive-metastore-2@${REALM}" ""
+add_principal "hive/hive-metastore-2.demo-platform-net@${REALM}" ""
 add_principal "hive/localhost@${REALM}" ""
 add_principal "trino/trino-coordinator@${REALM}" ""
 add_principal "trino/localhost@${REALM}" ""
@@ -151,15 +173,23 @@ add_principal "hdfs@${REALM}" "password123"
 echo "[kdc] Экспорт keytab файлов..."
 rm -f "$KEYTAB_DIR"/*.keytab "$KEYTAB_DIR/.ready"
 
-# HDFS Explorer
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hdfs-explorer.keytab hdfs-explorer/hdfs-explorer@${REALM} hdfs-explorer@${REALM} HTTP/hdfs-explorer@${REALM} HTTP/localhost@${REALM}"
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hdfs-cluster-1.keytab nn/hdfs-cluster-1@${REALM} dn/hdfs-cluster-1@${REALM} HTTP/hdfs-cluster-1@${REALM} hdfs/hdfs-cluster-1@${REALM}"
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hdfs-cluster-2.keytab nn/hdfs-cluster-2@${REALM} dn/hdfs-cluster-2@${REALM} HTTP/hdfs-cluster-2@${REALM} hdfs/hdfs-cluster-2@${REALM}"
+add_to_keytab() {
+    local keytab=$1
+    shift
+    for princ in "$@"; do
+        kadmin.local -q "ktadd -norandkey -k $keytab $princ" 2>/dev/null || true
+    done
+}
+
+# HDFS Explorer & Clusters
+add_to_keytab "$KEYTAB_DIR/hdfs-explorer.keytab" hdfs-explorer/hdfs-explorer@${REALM} hdfs-explorer@${REALM} HTTP/hdfs-explorer@${REALM} HTTP/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/hdfs-cluster-1.keytab" nn/hdfs-cluster-1@${REALM} nn/hdfs-cluster-1.demo-platform-net@${REALM} dn/hdfs-cluster-1@${REALM} dn/hdfs-cluster-1.demo-platform-net@${REALM} HTTP/hdfs-cluster-1@${REALM} HTTP/hdfs-cluster-1.demo-platform-net@${REALM} hdfs/hdfs-cluster-1@${REALM}
+add_to_keytab "$KEYTAB_DIR/hdfs-cluster-2.keytab" nn/hdfs-cluster-2@${REALM} nn/hdfs-cluster-2.demo-platform-net@${REALM} dn/hdfs-cluster-2@${REALM} dn/hdfs-cluster-2.demo-platform-net@${REALM} HTTP/hdfs-cluster-2@${REALM} HTTP/hdfs-cluster-2.demo-platform-net@${REALM} hdfs/hdfs-cluster-2@${REALM}
 
 # SQL Explorer & Engines
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/sql-explorer.keytab svc_sql_explorer@${REALM} HTTP/sql-explorer@${REALM} HTTP/localhost@${REALM}"
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/hive.keytab hive/hive-server@${REALM} hive/hive-server-1@${REALM} hive/hive-server-2@${REALM} hive/localhost@${REALM}"
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/trino.keytab trino/trino-coordinator@${REALM} trino/localhost@${REALM}"
+add_to_keytab "$KEYTAB_DIR/sql-explorer.keytab" svc_sql_explorer@${REALM} HTTP/sql-explorer@${REALM} HTTP/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/hive.keytab" hive/hive-server@${REALM} hive/hive-server.demo-platform-net@${REALM} hive/hive-server-1@${REALM} hive/hive-server-1.demo-platform-net@${REALM} hive/hive-server-2@${REALM} hive/hive-server-2.demo-platform-net@${REALM} hive/hive-metastore@${REALM} hive/hive-metastore.demo-platform-net@${REALM} hive/hive-metastore-1@${REALM} hive/hive-metastore-1.demo-platform-net@${REALM} hive/hive-metastore-2@${REALM} hive/hive-metastore-2.demo-platform-net@${REALM} hive/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/trino.keytab" trino/trino-coordinator@${REALM} trino/localhost@${REALM}
 
 # YARN Explorer & Clusters
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/yarn-explorer.keytab yarn-explorer@${REALM} HTTP/yarn-explorer@${REALM} HTTP/yarn-explorer.yarn-demo-net@${REALM} HTTP/localhost@${REALM}"

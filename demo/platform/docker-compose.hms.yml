@@ -8,10 +8,6 @@ volumes:
     name: sql-metastore-data
   sql-metastore-2-data:
     name: sql-metastore-2-data
-  demo-shared-warehouse:
-    name: demo-shared-warehouse
-  demo-shared-warehouse-2:
-    name: demo-shared-warehouse-2
 
 services:
   # ==========================================
@@ -26,17 +22,18 @@ services:
       SERVICE_NAME: metastore
       DB_DRIVER: derby
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
-      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf -Djava.security.auth.login.config=/opt/hive/custom-conf/jaas.conf"
     ports:
       - "9083:9083"
     volumes:
+      - ../sql/hive/jaas-metastore-1.conf:/opt/hive/custom-conf/jaas.conf:ro
       - ../sql/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ../sql/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../sql/hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
       - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
       - sql-metastore-data:/opt/hive/data
-      - demo-shared-warehouse:/opt/hive/warehouse
     depends_on:
       kdc:
         condition: service_healthy
@@ -58,17 +55,18 @@ services:
       SERVICE_NAME: metastore
       DB_DRIVER: derby
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
-      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf -Djava.security.auth.login.config=/opt/hive/custom-conf/jaas.conf -Dsun.security.krb5.debug=true"
     ports:
       - "9084:9083"
     volumes:
+      - ../sql/hive/jaas-metastore-2.conf:/opt/hive/custom-conf/jaas.conf:ro
       - ../sql/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
       - ../sql/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../sql/hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
       - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
       - sql-metastore-2-data:/opt/hive/data
-      - demo-shared-warehouse-2:/opt/hive/warehouse
     depends_on:
       kdc:
         condition: service_healthy
