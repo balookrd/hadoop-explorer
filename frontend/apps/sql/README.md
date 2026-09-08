@@ -18,7 +18,7 @@
 ## Архитектура компонентов (`src/`)
 
 ```
-frontend/src/
+frontend/apps/sql/src/
 ├── api/
 │   └── client.ts              # Типизированный клиент API, методы ИИ-ассистента и SSE стриминг
 ├── components/
@@ -28,7 +28,7 @@ frontend/src/
 │   ├── QueryToolbar.svelte    # Тулбар запуска («Run», «Stop», «Save», «ИИ Анализ»)
 │   ├── ResultsGrid.svelte     # Таблица результатов, экспорт и кнопка «Исправить с ИИ»
 │   └── QueueView.svelte       # Фоновая очередь задач, отмена и загрузка архива результатов
-│   (Header и LoginModal подключаются из @hadoop-explorer/common)
+│   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/
 │   └── sqlSplitter.ts         # Утилита парсинга и разбивки мульти-запросов по точкам с запятой
 ├── types.ts                   # TypeScript интерфейсы и типы данных (включая AI схемы)
@@ -74,7 +74,7 @@ npm install
 ```bash
 npm run dev
 ```
-Сервер разработки запустится на `http://localhost:5173`. Запросы к `/api` автоматически проксируются на бэкенд `http://localhost:8000`.
+Сервер разработки запустится на `http://localhost:5173`. Запросы к `/api` автоматически проксируются на бэкенд `http://localhost:8003`.
 
 ### Сборка для продакшн
 ```bash

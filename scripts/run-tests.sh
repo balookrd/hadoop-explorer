@@ -48,7 +48,7 @@ run_sql() {
 
 run_spark() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Spark Explorer (15 тестов)"
+  echo "🧪 Запуск тестов: Spark Explorer (16 тестов)"
   echo "=========================================="
   local pt
   pt="$(find_pytest spark)"

@@ -7,7 +7,7 @@
 ## 🏛 Архитектура компонентов бэкенда
 
 ```
-backend/
+backend/sql/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
 │   │   ├── ai.py                # ИИ-ассистент (/api/v1/ai/check, /explain, /optimize, /fix, /status)
@@ -22,7 +22,7 @@ backend/
 │   │   ├── config.py            # Pydantic Settings, конфигурация AI и загрузка config.yaml
 │   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAPS
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user
+│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user, resolve_system_role
 │   ├── db/                      # Персистентное хранилище (SQLAlchemy / Alembic)
 │   │   ├── models.py            # Модели истории запросов, сохраненных скриптов, SqlUserWorkspace
 │   │   └── session.py           # Подключение к SQLite или PostgreSQL
@@ -79,6 +79,8 @@ backend/
    - Асинхронное подключение через `SQLAlchemy` (`postgresql+asyncpg` / `aiosqlite`) с пулом соединений и автоматической защитой concurrency.
 10. **Graceful Shutdown**:
     - Завершение активных сессий и пулов потоков при остановке пода в Kubernetes через `GracefulShutdownManager`.
+11. **Ролевая модель и разграничение доступа (RBAC)**:
+    - Интеграция с общей ролевой моделью `resolve_system_role`: автоматическое присвоение ролей `ADMIN` (полный доступ к кластерам), `WRITER` (выполнение DDL/DML), `READER` (только SELECT-запросы).
 
 ---
 

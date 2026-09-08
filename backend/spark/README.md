@@ -31,8 +31,8 @@ backend/spark/
 │   └── main.py                  # Точка входа FastAPI, CORS, Security Headers, Graceful Shutdown, Healthcheck (/healthz)
 ├── config/
 │   └── config.yaml              # Конфигурационный файл по умолчанию
-├── tests/                       # Автоматические тесты (pytest - 15 тестов)
-│   ├── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace
+├── tests/                       # Автоматические тесты (pytest - 16 тестов)
+│   ├── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace, Logout cleanup
 │   └── test_spark_circuit_breaker.py # Тесты Circuit Breaker для Livy вызовов
 └── pyproject.toml               # Конфигурация пакета hadoop-explorer-spark
 ```
@@ -41,10 +41,12 @@ backend/spark/
 
 ## 🛡️ Безопасность и архитектурные решения
 
-1. **Двухуровневая аутентификация и SSO**:
+1. **Двухуровневая аутентификация, SSO и автоочистка сессий Livy**:
    - Поддержка Kerberos SPNEGO Negotiate (`Authorization: Negotiate <ticket>`) и защищённого входа по логину/паролю через корпоративный LDAPS / Active Directory.
    - Выпуск защищённых `HttpOnly`, `SameSite=Lax`, `Secure` Cookie-токенов.
    - Изоляция сессий в персистентном `SessionStore` (PostgreSQL / SQLite WAL) с мгновенным отзывом при выходе.
+   - При логауте пользователя (`POST /api/v1/auth/logout`) все связанные интерактивные сессии Livy автоматически закрываются и освобождают ресурсы YARN кластера.
+   - Поддержка системных ролей `ADMIN`, `WRITER`, `READER` через централизованную `resolve_system_role`.
 
 2. **Отказоустойчивость сетевых вызовов (Circuit Breaker)**:
    - Защита вызовов к Apache Livy через автомат состояний `CircuitBreaker`. При отказе Livy бэкенд мгновенно возвращает понятную ошибку (Fast-Fail) без блокировки пула потоков.

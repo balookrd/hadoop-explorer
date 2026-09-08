@@ -72,11 +72,11 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 Все учетные записи синхронизированы через единый OpenLDAP и Kerberos KDC.
 Пароль для всех пользователей: **`password123`**
 
-| Логин | Роль | Группы LDAP | Права в YARN | Права в HDFS | Права в SQL | Права в Spark |
+| Логин | Роль (UI-бейдж) | Группы LDAP | Права в YARN | Права в HDFS | Права в SQL | Права в Spark |
 |---|---|---|---|---|---|---|
-| **`admin`** / `admin_user` | `ADMIN` | `admins`, `hadoop-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
-| **`engineer`** / `engineer_user` | `WRITER` | `engineers`, `data-engineers` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
-| **`analyst`** / `analyst_user` | `READER` | `analytics`, `analysts` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
+| **`admin`** / `admin_user` | `ADMIN` (`ADM`) | `admins`, `hadoop-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
+| **`engineer`** / `engineer_user` | `WRITER` (`RW`) | `engineers`, `data-engineers` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
+| **`analyst`** / `analyst_user` | `READER` (`RO`) | `analytics`, `analysts` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
 
 ---
 

@@ -7,7 +7,7 @@
 ## 🏛 Архитектура компонентов бэкенда
 
 ```
-backend/
+backend/yarn/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
 │   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
@@ -20,7 +20,7 @@ backend/
 │   │   ├── config.py            # Pydantic Settings, загрузка config.yaml
 │   │   ├── ldap_auth.py         # LdapService с защитой от LDAP-инъекций и валидацией TLS
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # JWT-токены, make_get_current_user с валидацией UI ACL
+│   │   └── security.py          # JWT-токены, make_get_current_user с валидацией UI ACL и resolve_system_role
 │   ├── models/                  # Pydantic-модели и схемы данных
 │   │   ├── cluster.py           # ClusterConfig, ClusterAcl, ClusterResources
 │   │   ├── yarn.py              # QueueNode, QueueDraftItem (с regex-валидацией), PartitionResourceConfig

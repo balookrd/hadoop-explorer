@@ -15,5 +15,5 @@
 - **`backend.common.core.rate_limiter`** — скользящее окно (sliding window) rate limiting с неблокирующей асинхронной проверкой, поддержкой SQLite WAL, PostgreSQL и Redis, а также безопасным извлечением клиентского IP (`is_trusted_proxy`).
 - **`backend.common.core.audit`** — структурированное JSON-логирование событий безопасности (`AuditEventType`) в кольцевой буфер и файл.
 - **`backend.common.db.storage`** — базовый `BaseStorageService` (алиас `SessionStore`) для отзыва токенов и ограничения частоты запросов с полной обратной совместимостью.
-- **`backend.common.models.auth`** — общие Pydantic-модели ролей (`Role`), сессий (`UserSession`, `CommonUserSession`) и аутентификации (`TokenResponse`, `LoginRequest`, `UserInfo`).
+- **`backend.common.models.auth`** — общие Pydantic-модели ролей (`Role`), сессий (`UserSession`, `CommonUserSession`) и аутентификации (`TokenResponse`, `LoginRequest`, `UserInfo`), а также централизованная функция `resolve_system_role(username, groups, settings)` для вычисления системной роли (`ADMIN`, `WRITER`, `READER`) по спискам `admin_users`, `admin_groups` и `writer_groups` во всех сервисах платформы.
 

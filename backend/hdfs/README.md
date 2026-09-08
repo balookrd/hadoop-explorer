@@ -7,7 +7,7 @@
 ## 🏛 Архитектура компонентов бэкенда
 
 ```
-backend/
+backend/hdfs/
 ├── app/
 │   ├── api/                     # REST API контроллеры (v1)
 │   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
@@ -19,7 +19,7 @@ backend/
 │   │   ├── config.py            # Pydantic Settings, загрузка config.yaml
 │   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAP/AD
 │   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита
+│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user, resolve_system_role
 │   ├── models/                  # Pydantic-схемы данных
 │   │   ├── cluster.py           # Конфигурация кластеров
 │   │   └── hdfs.py              # Статусы файлов, операции чтения/записи
@@ -72,6 +72,8 @@ backend/
    - Все операции создания, изменения, удаления и скачивания файлов логируются с указанием инициатора, реального IP-адреса и результата.
 10. **Graceful Shutdown**:
     - Интеграция с `GracefulShutdownManager` для корректного освобождения сетевых сессий и закрытия пулов потоков при остановке пода в Kubernetes.
+11. **Ролевая модель и разграничение доступа (RBAC)**:
+    - Интеграция с централизованной функцией `resolve_system_role`: автоматическое назначение системных ролей `ADMIN` (полный доступ к операциям и квотам), `WRITER` (запись/модификация в разрешенных директориях), `READER` (только чтение/листинг).
 
 ---
 

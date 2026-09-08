@@ -4,7 +4,8 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-143%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-144%20passed-brightgreen.svg)](#-тестирование-платформы)
+
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -59,9 +60,10 @@ hadoop-explorer/
 │   │   ├── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   │   └── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   ├── hdfs/               # Сервис HDFS Explorer (51 тест)
-│   ├── spark/              # Сервис Spark Explorer (15 тестов)
+│   ├── spark/              # Сервис Spark Explorer (16 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── yarn/               # Сервис YARN Explorer (43 теста)
+
 │
 ├── frontend/
 │   ├── common/             # ─── Общие UI-компоненты, утилиты и API-клиент ───
@@ -100,8 +102,9 @@ hadoop-explorer/
 │   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
 │
 ├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 143 тестов
+│   ├── run-tests.sh        # Скрипт прогона всех 144 тестов
 │   ├── build-containers.sh # Скрипт сборки контейнеров
+
 │   └── generate-types.sh   # Генерация TypeScript типов из OpenAPI схем FastAPI
 │
 ├── Makefile                # Единый CLI для автоматизации всех операций
@@ -333,21 +336,21 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**143 теста**) успешно проходят комплексную проверку:
-- **HDFS Explorer**: 51 тест (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
-- **Spark Explorer**: 15 тестов (Livy клиент, интерактивные сессии, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
-- **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+Все тесты (**144 теста**) успешно проходят комплексную проверку:
 - **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
+- **HDFS Explorer**: 51 тест (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker).
+- **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 143 тестов платформы
+# Запуск всех 144 тестов платформы
 make test
 
 # Либо по сервисам:
-make test-hdfs
-make test-spark
-make test-sql
 make test-yarn
+make test-hdfs
+make test-sql
+make test-spark
 ```
 
 ---
@@ -360,31 +363,32 @@ make test-yarn
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 143 модульных и интеграционных тестов |
-| `make test-hdfs` | Запуск 51 теста сервиса HDFS Explorer |
-| `make test-spark` | Запуск 15 тестов сервиса Spark Explorer |
-| `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
+| `make test` | Запуск всех 144 модульных и интеграционных тестов |
 | `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |
-| `make build` | Сборка Docker-образов всех 4 приложений (hdfs, spark, sql, yarn) |
-| `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
-| `make build-spark` | Сборка Docker-образа Spark Explorer |
-| `make build-sql` | Сборка Docker-образа SQL Explorer |
+| `make test-hdfs` | Запуск 51 теста сервиса HDFS Explorer |
+| `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
+| `make test-spark` | Запуск 16 тестов сервиса Spark Explorer |
+| `make build` | Сборка Docker-образов всех 4 приложений (yarn, hdfs, sql, spark) |
 | `make build-yarn` | Сборка Docker-образа YARN Explorer |
+| `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
+| `make build-sql` | Сборка Docker-образа SQL Explorer |
+| `make build-spark` | Сборка Docker-образа Spark Explorer |
 | `make frontend-install` | Установка NPM зависимостей фронтенда |
 | `make frontend-build` | Компиляция SPA фронтендов через Vite |
 | `make generate-types` | Генерация TypeScript-типов из OpenAPI схем FastAPI бэкенда |
-| `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8001`) |
+| `make demo-yarn` | Запуск демо-стенда YARN Explorer (`:8001`) |
+| `make demo-yarn-stop` | Остановка демо-стенда YARN Explorer |
+| `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8002`) |
 | `make demo-hdfs-stop` | Остановка демо-стенда HDFS Explorer |
+| `make demo-sql` | Запуск демо-стенда SQL Explorer (`:8003`) |
+| `make demo-sql-stop` | Остановка демо-стенда SQL Explorer |
 | `make demo-spark` | Запуск демо-стенда Spark Explorer (`:8004`) |
 | `make demo-spark-stop` | Остановка демо-стенда Spark Explorer |
-| `make demo-sql` | Запуск демо-стенда SQL Explorer (`:8002`) |
-| `make demo-sql-stop` | Остановка демо-стенда SQL Explorer |
-| `make demo-yarn` | Запуск демо-стенда YARN Explorer (`:8003`) |
-| `make demo-yarn-stop` | Остановка демо-стенда YARN Explorer |
 | `make demo-all` | Запуск объединенного демо-стенда |
 | `make demo-all-stop` | Остановка объединенного демо-стенда |
 | `make helm-lint` | Валидация синтаксиса всех Helm-чартов |
 | `make helm-package` | Упаковка чартов платформы в `.tgz` архивы |
+
 
 ---
 

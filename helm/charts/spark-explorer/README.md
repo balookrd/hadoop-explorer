@@ -1,17 +1,16 @@
-# Helm Chart: SQL Web Explorer
+# Helm Chart: Spark Web Explorer
 
-Production Helm chart для развертывания веб-портала аналитических запросов **SQL Web Explorer (Trino & Hive)** в Kubernetes.
+Production Helm chart для развертывания веб-портала аналитических вычислений **Spark Explorer (PySpark, Scala Spark, Spark SQL)** в Kubernetes.
 
 ## Возможности
 
-- 🚀 **Trino & Hive (HS2)**: готовая интеграция с аналитическими кластерами компании.
+- 🚀 **Apache Spark & Livy**: готовая интеграция с интерактивными вычислениями на YARN / Kubernetes.
 - 🔐 **Безопасность**:
   - Kerberos SPNEGO SSO и LDAPS аутентификация.
   - Автоматическая инициализация сервисного билета Kerberos (`kinit`) из Secret keytab с правами `0400`.
-  - Проброс реального пользователя (`X-Trino-User` для Trino, `doAs` для Hive).
-  - RBAC / ACL правила доступа на уровне кластеров и UI.
-- ⚡ **Стриминг результатов**: конфигурация Ingress оптимизирована под Server-Sent Events (отключена буферизация Nginx, увеличены таймауты).
-- 💾 **Хранение состояния**: поддержка внешнего PostgreSQL или встроенного SQLite через PersistentVolumeClaim.
+  - Проброс реального пользователя (`proxyUser` для Livy).
+  - RBAC / ACL правила доступа на уровне очередей YARN и UI.
+- 💾 **Хранение состояния**: поддержка внешнего PostgreSQL или встроенного SQLite через PersistentVolumeClaim для сохранения сессий и воркспейсов.
 
 ## Быстрый старт
 
@@ -19,7 +18,7 @@ Production Helm chart для развертывания веб-портала а
 
 ```bash
 # Установка с дефолтными значениями
-helm install my-sql-explorer ./helm/sql-explorer -n analytics --create-namespace
+helm install my-spark-explorer ./helm/spark-explorer -n analytics --create-namespace
 ```
 
 ### 2. Установка с Kerberos Keytab и внешним PostgreSQL
@@ -28,13 +27,13 @@ helm install my-sql-explorer ./helm/sql-explorer -n analytics --create-namespace
 
 ```yaml
 image:
-  repository: registry.company.local/analytics/sql-explorer
+  repository: registry.company.local/analytics/spark-explorer
   tag: "0.1.0"
 
 ingress:
   enabled: true
   hosts:
-    - host: sql-explorer.company.local
+    - host: spark-explorer.company.local
       paths:
         - path: /
           pathType: Prefix
@@ -89,7 +88,7 @@ kerberos:
 Примените установку:
 
 ```bash
-helm upgrade --install sql-explorer ./helm/sql-explorer \
+helm upgrade --install spark-explorer ./helm/spark-explorer \
   -n analytics \
   -f custom-values.yaml
 ```

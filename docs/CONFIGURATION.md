@@ -16,8 +16,9 @@
    - [Сервер и безопасность (CORS, CSRF, Cookies, JWT)](#21-сервер-и-безопасность-cors-csrf-cookies-jwt)
    - [Аутентификация: LDAPS / Active Directory](#22-аутентификация-ldaps--active-directory)
    - [Аутентификация: Kerberos SPNEGO SSO](#23-аутентификация-kerberos-spnego-sso)
-   - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage & L1 Cache)](#24-хранилище-сессий-токенов-и-rate-limiting-tri-storage--l1-cache)
-   - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#25-отказоустойчивость-circuit-breaker-distributed-lock-и-graceful-shutdown)
+   - [Конфигурация ролевой модели и прав доступа (RBAC)](#24-конфигурация-ролевой-модели-и-прав-доступа-rbac)
+   - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage & L1 Cache)](#25-хранилище-сессий-токенов-и-rate-limiting-tri-storage--l1-cache)
+   - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#26-отказоустойчивость-circuit-breaker-distributed-lock-и-graceful-shutdown)
 3. [Настройка HDFS Explorer](#3-настройка-hdfs-explorer)
 4. [Настройка SQL Explorer (Trino & Hive)](#4-настройка-sql-explorer-trino--hive)
    - [Аналитические кластеры](#41-аналитические-кластеры)
@@ -129,7 +130,25 @@ kerberos_sso:                   # или auth.kerberos
   keytab_path: "/etc/security/keytabs/spnego.keytab"
 ```
 
-### 2.4 Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)
+### 2.4 Конфигурация ролевой модели и прав доступа (RBAC)
+
+Все сервисы платформы используют унифицированную модель определения прав пользователя `resolve_system_role`:
+
+```yaml
+auth:
+  # Списки пользователей и групп для назначения ролей
+  admin_users: ["admin", "superadmin"]
+  admin_groups: ["hadoop-admins", "platform-admins", "domain admins"]
+  writer_groups: ["data-engineers", "yarn-operators", "etl-developers"]
+```
+
+**Резолюция ролей**:
+- Пользователи из `admin_users` или состоящие в любой группе из `admin_groups` получают роль **`ADMIN`** (краткий UI-бейдж `ADM`).
+- Пользователи, входящие в группы из `writer_groups`, получают роль **`WRITER`** (краткий UI-бейдж `RW`).
+- Все остальные аутентифицированные пользователи получают роль **`READER`** (краткий UI-бейдж `RO`).
+- Роль вычисляется на сервере, включается в полезную нагрузку токена и сессии, и возвращается через `/api/v1/auth/me`.
+
+### 2.5 Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)
 
 Платформа использует универсальный слой хранения данных (`SessionStore` и `BaseStorageService`), поддерживающий:
 - **Персистентность сессий пользователей (`active_sessions`)**: При авторизации пользователя активная сессия сохраняется в базе данных с абсолютным Unix Timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). При перезапуске бэкенд-контейнеров или сервисов пользователи **не разлогиниваются**, сессия автоматически восстанавливается из БД.
@@ -151,7 +170,7 @@ database:
   redis_url: "redis://redis-host:6379/0" # Опционально
 ```
 
-### 2.5 Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown
+### 2.6 Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown
 
 - **Circuit Breaker**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются.
 - **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
@@ -475,6 +494,16 @@ global:
   environment: "production"
   ingressDomain: "hadoop.company.local"
 
+yarn-explorer:
+  enabled: true
+  replicaCount: 2
+  config:
+    clusters:
+      - id: "prod-yarn"
+        resource_manager_urls:
+          - "http://rm1.prod.company.local:8088"
+          - "http://rm2.prod.company.local:8088"
+
 hdfs-explorer:
   enabled: true
   replicaCount: 2
@@ -490,14 +519,6 @@ hdfs-explorer:
     jwtSecretKey: "super-secure-production-jwt-token-key-32-chars"
     ldapBindPassword: "LdapPasswordHere"
 
-spark-explorer:
-  enabled: true
-  replicaCount: 2
-  config:
-    clusters:
-      - id: "prod-hadoop"
-        livy_url: "http://livy.hadoop.svc:8998"
-
 sql-explorer:
   enabled: true
   config:
@@ -506,6 +527,11 @@ sql-explorer:
       base_url: "http://ollama-service.ai.svc:11434/v1"
       model: "qwen2.5-coder:7b"
 
-yarn-explorer:
+spark-explorer:
   enabled: true
+  replicaCount: 2
+  config:
+    clusters:
+      - id: "prod-hadoop"
+        livy_url: "http://livy.hadoop.svc:8998"
 ```

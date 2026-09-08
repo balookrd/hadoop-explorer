@@ -41,11 +41,11 @@ make demo-all-stop
 
 Все пароли для пользователей: **`password123`**
 
-| Пользователь | Отображаемое имя | Роль | Группы LDAP | Права и возможности |
+| Пользователь | Отображаемое имя | Роль (UI-бейдж) | Группы LDAP | Права и возможности |
 |---|---|---|---|---|
-| **`admin`** / **`admin_user`** | Главный Администратор | `ADMIN` | `admins`, `engineers`, `analytics` | Полный доступ (R/W во всех HDFS кластерах, утверждение Change Requests в YARN, админ SQL) |
-| **`engineer`** / **`engineer_user`** / **`de_user`** | Инженер данных | `WRITER` | `engineers`, `data-engineers` | Чтение и запись в рабочие директории HDFS, создание заявок Change Requests в YARN |
-| **`analyst`** / **`analyst_user`** / **`reader_user`** | Аналитик данных | `READER` | `analytics`, `analysts`, `bi-analysts` | Доступ только для чтения к данным HDFS, выполнение SELECT-запросов в SQL Explorer, мониторинг очередей YARN |
+| **`admin`** / **`admin_user`** | Главный Администратор | `ADMIN` (`ADM`) | `admins`, `engineers`, `analytics`, `hadoop-admins` | Полный доступ (R/W во всех HDFS кластерах, утверждение Change Requests в YARN, управление сессиями Spark, админ SQL) |
+| **`engineer`** / **`engineer_user`** / **`de_user`** | Инженер данных | `WRITER` (`RW`) | `engineers`, `data-engineers` | Чтение и запись в рабочие директории HDFS, создание заявок Change Requests в YARN, запуск расчетов в Livy Spark |
+| **`analyst`** / **`analyst_user`** / **`reader_user`** | Аналитик данных | `READER` (`RO`) | `analytics`, `analysts`, `bi-analysts` | Доступ только для чтения к данным HDFS, выполнение SELECT-запросов в SQL Explorer, мониторинг очередей YARN и статусов сессий Spark |
 
 ---
 
