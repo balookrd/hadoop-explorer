@@ -1,3 +1,4 @@
+import inspect
 import logging
 import secrets
 from typing import Optional, Callable, Any, List
@@ -39,6 +40,7 @@ def create_auth_router(
     kerberos_authenticator: Optional[Callable[[str], Optional[Any]]] = None,
     cookie_name: str = "access_token",
     additional_cookie_names: Optional[List[str]] = None,
+    on_logout_fn: Optional[Callable[[str], Any]] = None,
     prefix: str = "/api/v1/auth",
     tags: Optional[List[str]] = None,
 ) -> APIRouter:
@@ -454,6 +456,14 @@ def create_auth_router(
 
         for c_name in all_cookie_names:
             response.delete_cookie(key=c_name, path="/")
+
+        if username and username != "unknown" and on_logout_fn:
+            try:
+                res = on_logout_fn(username)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.warning(f"Ошибка в on_logout_fn для пользователя {username}: {e}")
 
         return {"success": True, "message": "Вы успешно вышли из системы"}
 

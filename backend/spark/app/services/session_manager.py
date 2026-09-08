@@ -308,6 +308,34 @@ class SessionManager:
             await db.commit()
             return True
 
+    async def stop_all_user_sessions(self, username: str) -> int:
+        """
+        Останавливает все активные сессии Spark указанного пользователя (например, при выходе из системы).
+        """
+        stopped_count = 0
+        async with AsyncSessionLocal() as db:
+            stmt = select(SparkSessionRecord).where(
+                SparkSessionRecord.username == username,
+                SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+            )
+            res = await db.execute(stmt)
+            records = res.scalars().all()
+            for record in records:
+                cluster = next((c for c in settings.clusters if c.id == record.cluster_id), None)
+                if cluster and cluster.type != "mock" and record.livy_session_id:
+                    try:
+                        livy = self._get_livy_client(cluster)
+                        await livy.delete_session(record.livy_session_id)
+                    except Exception as e:
+                        logger.warning(f"Ошибка при удалении сессии #{record.livy_session_id} в Livy при logout: {e}")
+                record.status = "killed"
+                record.stopped_at = datetime.datetime.now(datetime.timezone.utc)
+                stopped_count += 1
+            if stopped_count > 0:
+                await db.commit()
+                logger.info(f"Остановлено {stopped_count} сессий Spark при выходе пользователя {username}")
+        return stopped_count
+
     async def execute_code(self, session_id: str, code: str, language: str, user: UserSession) -> str:
         """
         Запускает исполнение кода в сессии, возвращает execution_id.
