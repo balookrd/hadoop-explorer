@@ -88,6 +88,10 @@ services:
       - "8443:8443"
     volumes:
       - ./trino/etc:/etc/trino:ro
+      - ./hive/core-site.xml:/etc/hadoop/conf/core-site.xml:ro
+      - ./hive/hdfs-site.xml:/etc/hadoop/conf/hdfs-site.xml:ro
+      - ./hive/core-site-cluster2.xml:/etc/hadoop/conf/core-site-cluster2.xml:ro
+      - ./hive/hdfs-site-cluster2.xml:/etc/hadoop/conf/hdfs-site-cluster2.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
     depends_on:
       - kdc
