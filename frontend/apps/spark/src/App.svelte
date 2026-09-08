@@ -11,7 +11,7 @@
     TabResultData,
     HistoryItem
   } from './types';
-  import { Header } from '@hadoop-explorer/common';
+  import { Header, LoginModal } from '@hadoop-explorer/common';
   import Sidebar from './components/Sidebar.svelte';
   import SessionBar from './components/SessionBar.svelte';
   import SparkEditor from './components/SparkEditor.svelte';
@@ -367,16 +367,23 @@
 
   onMount(async () => {
     try {
-      user = await api.getMe();
-      await loadUserWorkspace(user);
-      await loadClusters();
-      scheduleSessionPoll();
+      try {
+        user = await api.getMe();
+      } catch {
+        const auto = await api.tryAutoLogin();
+        user = auto.user;
+      }
+
+      if (user) {
+        await loadUserWorkspace(user);
+        await loadClusters();
+        scheduleSessionPoll();
+      }
     } catch {
-      // Пользователь не авторизован - показываем модалку входа
+      // Пользователь не авторизован
       user = null;
       tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
       activeTabId = 'tab-1';
-      isLoginModalOpen = true;
     } finally {
       isAuthChecking = false;
     }
@@ -414,7 +421,6 @@
     clusters = [];
     tabs = [createTabObject('tab-1', 'Скрипт 1 (PySpark)', 'pyspark', true)];
     activeTabId = 'tab-1';
-    isLoginModalOpen = true;
   }
 
   onDestroy(() => {
@@ -1031,7 +1037,22 @@
   });
 </script>
 
-<div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
+{#if isAuthChecking}
+  <div class="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 gap-3">
+    <div class="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+    <span class="text-xs font-medium text-slate-500">Проверка сессии...</span>
+  </div>
+{:else if !user}
+  <LoginModal
+    title="Spark Explorer"
+    subtitle="Аутентификация LDAP & Kerberos SSO"
+    icon={Flame}
+    isModal={false}
+    onLogin={handleLogin}
+    onKerberosSso={handleKerberosSso}
+  />
+{:else}
+  <div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
   <!-- Главный Header платформы -->
   <Header
     title="Spark Explorer"
@@ -1187,16 +1208,16 @@
     {/await}
   {/if}
 
-  {#if !isAuthChecking && (!user || isLoginModalOpen)}
-    {#await import('@hadoop-explorer/common') then { LoginModal }}
-      <LoginModal
-        title="Spark Explorer"
-        subtitle="Аутентификация LDAP & Kerberos SSO"
-        icon={Flame}
-        onClose={() => (isLoginModalOpen = false)}
-        onLogin={handleLogin}
-        onKerberosSso={handleKerberosSso}
-      />
-    {/await}
+  {#if isLoginModalOpen}
+    <LoginModal
+      title="Spark Explorer"
+      subtitle="Аутентификация LDAP & Kerberos SSO"
+      icon={Flame}
+      isModal={true}
+      onClose={() => (isLoginModalOpen = false)}
+      onLogin={handleLogin}
+      onKerberosSso={handleKerberosSso}
+    />
   {/if}
 </div>
+{/if}

@@ -26,6 +26,7 @@
     closeStream?: () => void;
   }
 
+  let authLoading = $state(true);
   let user = $state<UserSession | null>(null);
   let authErrorMessage = $state<string | null>(null);
   let clusters = $state<ClusterSummary[]>([]);
@@ -309,6 +310,8 @@
       } catch {
         await loadUserWorkspace(null);
       }
+    } finally {
+      authLoading = false;
     }
   });
 
@@ -610,16 +613,32 @@
   );
 </script>
 
-<div class="h-screen w-screen flex flex-col bg-slate-50 text-slate-800 font-sans overflow-hidden">
-  <Header
+{#if authLoading}
+  <div class="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 gap-3">
+    <div class="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+    <span class="text-xs font-medium text-slate-500">Проверка сессии...</span>
+  </div>
+{:else if !user}
+  <LoginModal
     title="SQL Web Explorer"
-    subtitle="Trino & Hive"
+    subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Database}
-    {user}
-    {clusters}
-    bind:selectedClusterId
-    onLogout={handleLogout}
+    isModal={false}
+    initialError={authErrorMessage}
+    onLogin={handleLogin}
+    onKerberosSso={handleKerberosSso}
   />
+{:else}
+  <div class="h-screen w-screen flex flex-col bg-slate-50 text-slate-800 font-sans overflow-hidden">
+    <Header
+      title="SQL Web Explorer"
+      subtitle="Trino & Hive"
+      icon={Database}
+      {user}
+      {clusters}
+      bind:selectedClusterId
+      onLogout={handleLogout}
+    />
 
   <div class="flex-1 flex overflow-hidden">
     <!-- Сайдбар каталогов и схем с настраиваемой шириной -->
@@ -732,17 +751,6 @@
     </main>
   </div>
 
-  {#if !user}
-    <LoginModal
-      title="SQL Web Explorer"
-      subtitle="Аутентификация LDAP & Kerberos SSO"
-      icon={Database}
-      initialError={authErrorMessage}
-      onLogin={handleLogin}
-      onKerberosSso={handleKerberosSso}
-    />
-  {/if}
-
   {#if isAiModalOpen}
     {#await import('./components/AIAssistantModal.svelte') then { default: AIAssistantModal }}
       <AIAssistantModal
@@ -759,4 +767,5 @@
     {/await}
   {/if}
 </div>
+{/if}
 

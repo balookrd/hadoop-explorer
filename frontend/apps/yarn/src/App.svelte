@@ -16,6 +16,7 @@
   import { GitCompareArrows, RotateCcw, FileDown, RefreshCw, Send, GitPullRequest, ArrowRightLeft, Cpu } from 'lucide-svelte';
 
   // Auth state
+  let authLoading = $state(true);
   let user = $state<UserSession | null>(null);
   let authErrorMessage = $state<string | null>(null);
   let clusters = $state<ClusterSummary[]>([]);
@@ -91,6 +92,8 @@
           await loadClusters();
         }
       } catch {}
+    } finally {
+      authLoading = false;
     }
   });
 
@@ -493,11 +496,17 @@
     {/if}
   {/snippet}
 
-  {#if !user}
+  {#if authLoading}
+    <div class="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 gap-3">
+      <div class="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      <span class="text-xs font-medium text-slate-500">Проверка сессии...</span>
+    </div>
+  {:else if !user}
     <LoginModal
       title="YARN Explorer"
       subtitle="Аутентификация LDAP & Kerberos SSO"
       icon={Cpu}
+      isModal={false}
       initialError={authErrorMessage}
       onLogin={handleLogin}
       onKerberosSso={handleKerberosSso}
