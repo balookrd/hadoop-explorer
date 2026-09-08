@@ -121,7 +121,9 @@ clusters:
           "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
           "spark.sql.catalogImplementation": "hive"
           "spark.hadoop.hive.metastore.execute.setugi": "false"
-          "spark.sql.warehouse.dir": "file:///opt/hive/warehouse"
+          "spark.hadoop.hive.metastore.sasl.enabled": "true"
+          "spark.hadoop.hive.metastore.kerberos.principal": "hive/hive-metastore@COMPANY.LOCAL"
+          "spark.sql.warehouse.dir": "hdfs://hdfs-cluster-1:9000/warehouse"
 
     resource_profiles:
       small:
@@ -190,7 +192,9 @@ clusters:
           "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore-2:9083"
           "spark.sql.catalogImplementation": "hive"
           "spark.hadoop.hive.metastore.execute.setugi": "false"
-          "spark.sql.warehouse.dir": "file:///opt/hive/warehouse"
+          "spark.hadoop.hive.metastore.sasl.enabled": "true"
+          "spark.hadoop.hive.metastore.kerberos.principal": "hive/hive-metastore-2.demo-platform-net@COMPANY.LOCAL"
+          "spark.sql.warehouse.dir": "hdfs://hdfs-cluster-2:9000/warehouse"
 
     resource_profiles:
       small:

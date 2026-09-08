@@ -21,9 +21,9 @@ services:
       SPARK_MASTER: "local[*]" # Для быстрого интерактивного отклика контейнеров demo
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
       HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL"
-      HIVE_SERVER_PRINCIPAL: "hive/hive-server-1.demo-platform-net@COMPANY.LOCAL"
+      HIVE_SERVER_PRINCIPAL: "hive/hive-server@COMPANY.LOCAL"
       HIVE_METASTORE_URIS: "thrift://hive-metastore-1:9083"
-      HIVE_METASTORE_PRINCIPAL: "hive/hive-metastore-1.demo-platform-net@COMPANY.LOCAL"
+      HIVE_METASTORE_PRINCIPAL: "hive/hive-metastore@COMPANY.LOCAL"
     ports:
       - "8998:8998"
     volumes:

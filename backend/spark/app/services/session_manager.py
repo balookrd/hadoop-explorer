@@ -157,10 +157,12 @@ class SessionManager:
             res = await db.execute(stmt)
             existing = res.scalars().first()
             if existing:
-                existing.last_activity_at = datetime.datetime.now(datetime.timezone.utc)
-                await db.commit()
-                await db.refresh(existing)
-                return existing
+                await self._sync_session_record(existing, db)
+                if existing.status in ("starting", "idle", "busy"):
+                    existing.last_activity_at = datetime.datetime.now(datetime.timezone.utc)
+                    await db.commit()
+                    await db.refresh(existing)
+                    return existing
 
             # 3. Проверка лимита сессий на пользователя
             count_stmt = select(SparkSessionRecord).where(

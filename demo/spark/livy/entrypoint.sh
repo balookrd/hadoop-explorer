@@ -15,9 +15,9 @@ if [ -d "/shared/conf" ]; then
     cp /shared/conf/krb5.conf /etc/krb5.conf 2>/dev/null || true
 fi
 
-# Получение тикета Kerberos для доступа к HDFS
+# Получение тикета Kerberos для доступа к HDFS и Metastore
 if [ -f "/etc/security/keytabs/hive.keytab" ]; then
-    kinit -kt /etc/security/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL 2>/dev/null || true
+    kinit -kt /etc/security/keytabs/hive.keytab "${HIVE_SERVER_PRINCIPAL:-hive/hive-server@COMPANY.LOCAL}"
 fi
 
 # Генерация базовой конфигурации Hadoop клиента для Spark
@@ -53,6 +53,30 @@ cat <<EOF > "$HADOOP_CONF_DIR/hdfs-site.xml"
     <property>
         <name>dfs.data.transfer.protection</name>
         <value>integrity</value>
+    </property>
+</configuration>
+EOF
+
+cat <<EOF > "$HADOOP_CONF_DIR/yarn-site.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property>
+        <name>yarn.resourcemanager.principal</name>
+        <value>rm/yarn-rm-1@COMPANY.LOCAL</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.principal</name>
+        <value>rm/yarn-rm-1@COMPANY.LOCAL</value>
+    </property>
+</configuration>
+EOF
+
+cat <<EOF > "$HADOOP_CONF_DIR/mapred-site.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property>
+        <name>mapreduce.jobhistory.principal</name>
+        <value>rm/yarn-rm-1@COMPANY.LOCAL</value>
     </property>
 </configuration>
 EOF
