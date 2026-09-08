@@ -44,7 +44,9 @@ help:
 	@echo "    make demo-sql-stop    - Остановка стенда SQL"
 	@echo "    make demo-spark       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore) -> :8004"
 	@echo "    make demo-spark-stop  - Остановка стенда Spark"
-	@echo "    make demo-all         - Запуск объединенного демо-стенда"
+	@echo "    make demo-monitoring  - Запуск стека мониторинга (Prometheus :9090 + Grafana :3000)"
+	@echo "    make demo-monitoring-stop - Остановка стека мониторинга"
+	@echo "    make demo-all         - Запуск объединенного демо-стенда (все сервисы + мониторинг)"
 	@echo "    make demo-all-stop    - Остановка объединенного демо-стенда"
 	@echo ""
 	@echo "  Kubernetes / Helm:"
@@ -135,6 +137,12 @@ demo-spark:
 
 demo-spark-stop:
 	cd demo/spark && ./stop-demo.sh
+
+demo-monitoring:
+	cd demo/monitoring && ./start-monitoring.sh
+
+demo-monitoring-stop:
+	cd demo/monitoring && ./stop-monitoring.sh
 
 demo-all:
 	cd demo/all && ./start-all-demo.sh

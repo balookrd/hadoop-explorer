@@ -7,3 +7,4 @@ include:
   - path: ../hdfs/docker-compose.yml
   - path: ../sql/docker-compose.yaml
   - path: ../spark/docker-compose.yaml
+  - path: ../monitoring/docker-compose.monitoring.yml

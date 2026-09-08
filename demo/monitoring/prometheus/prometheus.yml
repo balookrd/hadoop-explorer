@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'hadoop-explorer'
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - 'yarn-explorer:8000'
+          - 'hdfs-explorer:8000'
+          - 'sql-explorer:8000'
+          - 'spark-explorer:8000'
+        labels:
+          env: 'demo'
+          cluster: 'hadoop-explorer-local'

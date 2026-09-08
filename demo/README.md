@@ -6,7 +6,8 @@
 - **`demo/hdfs`** — Стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
 - **`demo/sql`** — Стенд SQL Web Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - **`demo/spark`** — Стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
-- **`demo/all`** — Объединенный запуск всех 4 компонентов с общим KDC и LDAP без дублирования сервисов.
+- **`demo/monitoring`** — Стек наблюдаемости (Prometheus :9090 + Grafana :3000) с преднастроенным дашбордом.
+- **`demo/all`** — Объединенный запуск всех 4 компонентов + KDC + LDAP + Prometheus + Grafana без дублирования сервисов.
 
 ---
 
@@ -23,6 +24,8 @@ make demo-all
 - 📁 **HDFS Explorer**: [http://localhost:8002](http://localhost:8002)
 - 📊 **SQL Web Explorer**: [http://localhost:8003](http://localhost:8003)
 - ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
+- 📈 **Grafana Dashboard**: [http://localhost:3000](http://localhost:3000) (anonymous admin)
+- 🎯 **Prometheus UI**: [http://localhost:9090](http://localhost:9090)
 
 Остановка всех сервисов:
 ```bash
@@ -34,6 +37,7 @@ make demo-all-stop
 - HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
 - SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
 - Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
+- Стек мониторинга: `make demo-monitoring` (остановка: `make demo-monitoring-stop`)
 
 ---
 
