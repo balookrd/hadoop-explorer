@@ -1140,16 +1140,6 @@
     onKerberosSso={handleKerberosSso}
   />
 {:else}
-  {#snippet sparkSessionHeaderActions()}
-    <SparkSessionWidget
-      session={currentSession}
-      yarnClusterId={clusterDetails?.yarn_cluster_id}
-      onOpenSettings={openSessionConfigModal}
-      onRestartSession={handleRestartSession}
-      onStopSession={handleStopSession}
-    />
-  {/snippet}
-
   <div class="h-screen w-screen flex flex-col overflow-hidden bg-white">
   <!-- Главный Header платформы -->
   <Header
@@ -1159,7 +1149,6 @@
     user={user}
     clusters={clusters}
     selectedClusterId={selectedClusterId}
-    extraActions={sparkSessionHeaderActions}
     onClusterSelect={handleClusterSelect}
     onLogout={handleLogout}
     onLoginClick={() => (isLoginModalOpen = true)}
@@ -1193,36 +1182,50 @@
 
     <!-- Основная рабочая область -->
     <main class="flex-1 flex flex-col overflow-hidden min-w-0">
-      <!-- Вкладки редактора скриптов -->
-      <div class="h-10 bg-slate-100/80 border-b border-slate-200 flex items-center px-2.5 gap-1 shrink-0 overflow-x-auto select-none">
-        {#each tabs as tab}
-          <div
-            role="button"
-            tabindex="0"
-            onclick={() => selectTab(tab.id)}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectTab(tab.id); }}
-            class="group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition border-t-2 {tab.id === activeTabId ? 'bg-white border-amber-500 text-slate-900 font-semibold shadow-xs' : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}"
-          >
-            <span class="truncate max-w-xs">{tab.title}</span>
-            <span class="text-[9px] font-mono uppercase px-1 rounded bg-slate-100 text-slate-500">{tab.language}</span>
-            {#if tabs.length > 1}
-              <button
-                onclick={(e) => closeTab(tab.id, e)}
-                class="opacity-0 group-hover:opacity-100 hover:bg-slate-200 p-0.5 rounded text-slate-400 hover:text-slate-600 transition"
-              >
-                <X class="w-3 h-3" />
-              </button>
-            {/if}
-          </div>
-        {/each}
+      <!-- Вкладки редактора скриптов и статус сессии -->
+      <div class="h-11 bg-slate-100/90 border-b border-slate-200 flex items-center justify-between px-2.5 gap-2 shrink-0 select-none">
+        <!-- Слева: скроллируемые вкладки скриптов -->
+        <div class="flex items-center gap-1 overflow-x-auto min-w-0 py-1">
+          {#each tabs as tab}
+            <div
+              role="button"
+              tabindex="0"
+              onclick={() => selectTab(tab.id)}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectTab(tab.id); }}
+              class="group flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition border-t-2 shrink-0 {tab.id === activeTabId ? 'bg-white border-amber-500 text-slate-900 font-semibold shadow-xs' : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}"
+            >
+              <span class="truncate max-w-[150px]">{tab.title}</span>
+              <span class="text-[9px] font-mono uppercase px-1 rounded bg-slate-100 text-slate-500">{tab.language}</span>
+              {#if tabs.length > 1}
+                <button
+                  onclick={(e) => closeTab(tab.id, e)}
+                  class="opacity-0 group-hover:opacity-100 hover:bg-slate-200 p-0.5 rounded text-slate-400 hover:text-slate-600 transition"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              {/if}
+            </div>
+          {/each}
 
-        <button
-          onclick={addTab}
-          class="p-1 rounded-md hover:bg-slate-200 text-slate-500 hover:text-amber-600 transition cursor-pointer ml-1"
-          title="Новый скрипт"
-        >
-          <Plus class="w-4 h-4" />
-        </button>
+          <button
+            onclick={addTab}
+            class="p-1 rounded-md hover:bg-slate-200 text-slate-500 hover:text-amber-600 transition cursor-pointer ml-0.5 shrink-0"
+            title="Новый скрипт"
+          >
+            <Plus class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Справа: Статус и управление сессией Spark -->
+        <div class="shrink-0 flex items-center">
+          <SparkSessionWidget
+            session={currentSession}
+            yarnClusterId={clusterDetails?.yarn_cluster_id}
+            onOpenSettings={openSessionConfigModal}
+            onRestartSession={handleRestartSession}
+            onStopSession={handleStopSession}
+          />
+        </div>
       </div>
 
       {#if activeTab}
