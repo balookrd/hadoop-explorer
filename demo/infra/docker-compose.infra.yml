@@ -7,7 +7,7 @@ services:
   kdc:
     build:
       context: ./kdc
-    container_name: demo-kdc
+    container_name: kdc
     hostname: kdc
     restart: unless-stopped
     ports:
@@ -35,7 +35,7 @@ services:
   ldap:
     build:
       context: ./ldap
-    container_name: demo-ldap
+    container_name: ldap
     hostname: ldap
     restart: unless-stopped
     ports:

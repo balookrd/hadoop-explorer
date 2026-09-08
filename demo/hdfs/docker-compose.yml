@@ -8,7 +8,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.hdfs
-    container_name: hdfs-demo-explorer
+    container_name: hdfs-explorer
     hostname: hdfs-explorer
     restart: unless-stopped
     environment:

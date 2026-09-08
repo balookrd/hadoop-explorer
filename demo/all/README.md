@@ -8,19 +8,21 @@
 
 | Контейнер | Назначение | Внутренний порт | Внешний порт хоста |
 |---|---|---|---|
-| **`demo-kdc`** | MIT Kerberos KDC (`COMPANY.LOCAL`) | `88/tcp`, `88/udp` | `88` |
-| **`demo-ldap`** | OpenLDAP (`dc=company,dc=local`) | `389` | `389` |
-| **`hdfs-demo-cluster-1`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 1) | `9870`, `9000` | `9870`, `9864` |
-| **`hdfs-demo-cluster-2`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 2 - Archive) | `9870`, `9000` | `9872`, `9865` |
-| **`yarn-demo-rm-1`** | YARN ResourceManager 1 (Capacity Scheduler) | `8088` | `8088` |
-| **`yarn-demo-rm-2`** | YARN ResourceManager 2 (Ad-hoc Cluster) | `8088` | `8089` |
-| **`sql-demo-hive-metastore`**| Apache Hive Metastore 1 (Thrift, Cluster 1) | `9083` | `9083` |
-| **`sql-demo-hive-metastore-2`**| Apache Hive Metastore 2 (Thrift, Cluster 2) | `9083` | `9084` |
-| **`sql-demo-hive-server`** | Apache HiveServer2 1 (Kerberized Thrift, Cluster 1) | `10000`, `10002` | `10000`, `10002` |
-| **`sql-demo-hive-server-2`** | Apache HiveServer2 2 (Kerberized Thrift, Cluster 2) | `10001`, `10002` | `10001`, `10003` |
-| **`sql-demo-trino`** | Trino Coordinator с Hive/TPCH коннекторами | `8080` | `8080` |
-| **`spark-demo-livy`** | Apache Livy Server 1 REST API для Spark (Cluster 1) | `8998` | `8998` |
-| **`spark-demo-livy-2`** | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
+| **`kdc`** | MIT Kerberos KDC (`COMPANY.LOCAL`) | `88/tcp`, `88/udp` | `88` |
+| **`ldap`** | OpenLDAP (`dc=company,dc=local`) | `389` | `389` |
+| **`hdfs-cluster-1`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 1) | `9870`, `9000` | `9870`, `9864` |
+| **`hdfs-cluster-2`** | Hadoop NameNode + DataNode + WebHDFS (Cluster 2 - Archive) | `9870`, `9000` | `9872`, `9865` |
+| **`yarn-rm-1`** | YARN ResourceManager 1 (Capacity Scheduler) | `8088` | `8088` |
+| **`yarn-rm-2`** | YARN ResourceManager 2 (Ad-hoc Cluster) | `8088` | `8089` |
+| **`hive-metastore-1`**| Apache Hive Metastore 1 (Thrift, Cluster 1) | `9083` | `9083` |
+| **`hive-metastore-2`**| Apache Hive Metastore 2 (Thrift, Cluster 2) | `9083` | `9084` |
+| **`hive-server-1`** | Apache HiveServer2 1 (Kerberized Thrift, Cluster 1) | `10000`, `10002` | `10000`, `10002` |
+| **`hive-server-2`** | Apache HiveServer2 2 (Kerberized Thrift, Cluster 2) | `10001`, `10002` | `10001`, `10003` |
+| **`trino-coordinator`** | Trino Coordinator с Hive/TPCH коннекторами | `8080` | `8080` |
+| **`spark-livy-1`** | Apache Livy Server 1 REST API для Spark (Cluster 1) | `8998` | `8998` |
+| **`spark-livy-2`** | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
+| **`prometheus`** | Prometheus Server (Сбор метрик) | `9090` | `9090` |
+| **`grafana`** | Grafana Dashboard (Дашборды мониторинга) | `3000` | `3000` |
 | **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8001`** |
 | **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8002`** |
 | **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8000` | **`8003`** |
@@ -40,7 +42,7 @@ cd demo/all && ./start-all-demo.sh
 
 Скрипт `start-all-demo.sh`:
 1. Проверяет доступность Docker и Docker Compose.
-2. Поднимает инфраструктурные контейнеры (`demo-kdc`, `demo-ldap`, `sql-demo-postgres`).
+2. Поднимает инфраструктурные контейнеры (`kdc`, `ldap`).
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
 5. Инициализирует демо-таблицы в Hive Metastore (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`) через Livy.

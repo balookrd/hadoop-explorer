@@ -6,7 +6,7 @@ services:
   # ==========================================
   prometheus:
     image: prom/prometheus:v2.50.0
-    container_name: demo-prometheus
+    container_name: prometheus
     hostname: prometheus
     restart: unless-stopped
     ports:
@@ -31,7 +31,7 @@ services:
   # ==========================================
   grafana:
     image: grafana/grafana:10.4.0
-    container_name: demo-grafana
+    container_name: grafana
     hostname: grafana
     restart: unless-stopped
     ports:

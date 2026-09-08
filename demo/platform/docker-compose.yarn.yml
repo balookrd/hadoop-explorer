@@ -10,7 +10,7 @@ volumes:
 services:
   yarn-demo-rm-1:
     image: apache/hadoop:3.4.0
-    container_name: yarn-demo-rm-1
+    container_name: yarn-rm-1
     hostname: yarn-rm-1
     user: "root"
     networks:
@@ -38,7 +38,7 @@ services:
 
   yarn-demo-rm-2:
     image: apache/hadoop:3.4.0
-    container_name: yarn-demo-rm-2
+    container_name: yarn-rm-2
     hostname: yarn-rm-2
     user: "root"
     networks:

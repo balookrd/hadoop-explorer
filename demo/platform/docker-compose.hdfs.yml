@@ -11,7 +11,7 @@ services:
   hdfs-cluster-1:
     build:
       context: ../hdfs/hadoop
-    container_name: hdfs-demo-cluster-1
+    container_name: hdfs-cluster-1
     hostname: hdfs-cluster-1
     restart: unless-stopped
     environment:
@@ -34,7 +34,7 @@ services:
   hdfs-cluster-2:
     build:
       context: ../hdfs/hadoop
-    container_name: hdfs-demo-cluster-2
+    container_name: hdfs-cluster-2
     hostname: hdfs-cluster-2
     restart: unless-stopped
     environment:

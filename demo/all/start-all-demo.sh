@@ -11,7 +11,7 @@ echo ""
 echo "=== Ожидание готовности HDFS NameNode (Cluster 1 & Cluster 2) ==="
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HDFS_WAIT=0
-until docker exec hdfs-demo-cluster-1 /opt/hadoop/bin/hdfs dfsadmin -report >/dev/null 2>&1 && docker exec hdfs-demo-cluster-2 /opt/hadoop/bin/hdfs dfsadmin -report >/dev/null 2>&1 || [ $HDFS_WAIT -ge 30 ]; do
+until curl -s http://localhost:9870 >/dev/null && curl -s http://localhost:9872 >/dev/null || [ $HDFS_WAIT -ge 30 ]; do
     HDFS_WAIT=$((HDFS_WAIT + 1))
     echo " -> Ожидание готовности NameNode HDFS ($HDFS_WAIT/30)..."
     sleep 2

@@ -16,7 +16,7 @@ echo "[2/4] Ожидание готовности KDC и LDAP..."
 sleep 5
 
 # Проверка kdc
-if docker exec sql-demo-kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
+if docker exec kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
     echo " -> Kerberos KDC готов и Realm COMPANY.LOCAL инициализирован."
 else
     echo " -> Ожидание KDC..."
@@ -24,22 +24,22 @@ else
 fi
 
 # Проверка openldap
-if docker exec sql-demo-ldap ldapsearch -x -b "dc=company,dc=local" >/dev/null 2>&1; then
+if docker exec ldap ldapsearch -x -b "dc=company,dc=local" >/dev/null 2>&1; then
     echo " -> OpenLDAP готов и пользователи загружены."
 fi
 
 echo "[3/4] Проверка готовности SQL Explorer и Kerberos Ticket..."
 MAX_WAIT=20
 WAIT_COUNT=0
-until docker exec sql-demo-explorer klist -s 2>/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do
+until docker exec sql-explorer klist -s 2>/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do
     WAIT_COUNT=$((WAIT_COUNT + 1))
     echo " -> Ожидание инициализации Kerberos ccache в sql-explorer ($WAIT_COUNT/$MAX_WAIT)..."
     sleep 2
 done
 
-if docker exec sql-demo-explorer klist -s 2>/dev/null; then
+if docker exec sql-explorer klist -s 2>/dev/null; then
     echo " -> Kerberos тикет для svc_sql_explorer успешно получен:"
-    docker exec sql-demo-explorer klist | head -n 4
+    docker exec sql-explorer klist | head -n 4
 fi
 
 echo "[4/4] Инициализация демонстрационных таблиц в Hive..."

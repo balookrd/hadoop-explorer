@@ -14,7 +14,7 @@ services:
   spark-livy:
     build:
       context: ./livy
-    container_name: spark-demo-livy
+    container_name: spark-livy-1
     hostname: spark-livy
     restart: unless-stopped
     environment:
@@ -32,6 +32,7 @@ services:
       demo-platform-net:
         aliases:
           - spark-livy
+          - spark-livy-1
     depends_on:
       hdfs-cluster-1:
         condition: service_started
@@ -46,7 +47,7 @@ services:
   spark-livy-2:
     build:
       context: ./livy
-    container_name: spark-demo-livy-2
+    container_name: spark-livy-2
     hostname: spark-livy-2
     restart: unless-stopped
     environment:
@@ -79,7 +80,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.spark
-    container_name: spark-demo-explorer
+    container_name: spark-explorer
     hostname: spark-explorer
     restart: unless-stopped
     ports:

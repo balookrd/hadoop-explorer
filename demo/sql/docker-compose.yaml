@@ -13,7 +13,7 @@ services:
   # ==========================================
   sql-hive-server:
     image: apache/hive:4.0.0
-    container_name: sql-demo-hive-server
+    container_name: hive-server-1
     hostname: hive-server
     restart: unless-stopped
     entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
@@ -39,13 +39,14 @@ services:
       demo-platform-net:
         aliases:
           - hive-server
+          - hive-server-1
 
   # ==========================================
   # 1b. HiveServer2 - Cluster 2 (Kerberized + doAs)
   # ==========================================
   sql-hive-server-2:
     image: apache/hive:4.0.0
-    container_name: sql-demo-hive-server-2
+    container_name: hive-server-2
     hostname: hive-server-2
     restart: unless-stopped
     entrypoint: ["sh", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive && chmod 777 /tmp/hive; exec /entrypoint.sh"]
@@ -77,7 +78,7 @@ services:
   # ==========================================
   sql-trino-coordinator:
     image: trinodb/trino:latest
-    container_name: sql-demo-trino
+    container_name: trino-coordinator
     hostname: trino-coordinator
     restart: unless-stopped
     ports:
@@ -101,7 +102,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.sql
-    container_name: sql-demo-explorer
+    container_name: sql-explorer
     hostname: sql-explorer
     restart: unless-stopped
     ports:
