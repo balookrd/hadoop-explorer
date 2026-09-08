@@ -52,7 +52,7 @@ export class SparkApiClient extends BaseApiClient {
   }
 
   streamExecution(executionId: string, onEvent: (event: any) => void): () => void {
-    const url = `${API_BASE}/statements/${executionId}/stream`;
+    const url = `${this.baseUrl}/statements/${executionId}/stream`;
     // EventSource автоматически передает HttpOnly cookies
     const es = new EventSource(url, { withCredentials: true });
     es.onmessage = (e) => {

@@ -79,7 +79,7 @@ class ApiClient extends BaseApiClient {
   }
 
   streamQueryEvents(queryId: string, onEvent: (event: any) => void, onError?: (err: any) => void): () => void {
-    const eventSource = new EventSource(`${API_BASE}/queries/${queryId}/stream`, {
+    const eventSource = new EventSource(`${this.baseUrl}/queries/${queryId}/stream`, {
       withCredentials: true
     });
 
@@ -113,7 +113,7 @@ class ApiClient extends BaseApiClient {
     const connect = () => {
       if (closed) return;
       try {
-        eventSource = new EventSource(`${API_BASE}/queries/notifications/stream`, {
+        eventSource = new EventSource(`${this.baseUrl}/queries/notifications/stream`, {
           withCredentials: true
         });
 
