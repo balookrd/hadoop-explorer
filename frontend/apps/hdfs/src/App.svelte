@@ -10,6 +10,13 @@
   import ActionToolbar from './lib/components/ActionToolbar.svelte';
   import FileList from './lib/components/FileList.svelte';
 
+  import UploadModal from './lib/components/Modals/UploadModal.svelte';
+  import MkdirModal from './lib/components/Modals/MkdirModal.svelte';
+  import RenameModal from './lib/components/Modals/RenameModal.svelte';
+  import DeleteModal from './lib/components/Modals/DeleteModal.svelte';
+  import PreviewModal from './lib/components/Modals/PreviewModal.svelte';
+  import CrossClusterCopyModal from './lib/components/Modals/CrossClusterCopyModal.svelte';
+
   let isUploadOpen = $state(false);
   let isMkdirOpen = $state(false);
   let activeRenameFile = $state<HdfsFileStatus | null>(null);
@@ -101,59 +108,47 @@
       />
     </main>
 
-    <!-- Modals (Lazy Loaded) -->
+    <!-- Modals -->
     {#if isUploadOpen}
-      {#await import('./lib/components/Modals/UploadModal.svelte') then { default: UploadModal }}
-        <UploadModal
-          isOpen={isUploadOpen}
-          onClose={() => { isUploadOpen = false; }}
-        />
-      {/await}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => { isUploadOpen = false; }}
+      />
     {/if}
 
     {#if isMkdirOpen}
-      {#await import('./lib/components/Modals/MkdirModal.svelte') then { default: MkdirModal }}
-        <MkdirModal
-          isOpen={isMkdirOpen}
-          onClose={() => { isMkdirOpen = false; }}
-        />
-      {/await}
+      <MkdirModal
+        isOpen={isMkdirOpen}
+        onClose={() => { isMkdirOpen = false; }}
+      />
     {/if}
 
     {#if activeRenameFile}
-      {#await import('./lib/components/Modals/RenameModal.svelte') then { default: RenameModal }}
-        <RenameModal
-          file={activeRenameFile}
-          onClose={() => { activeRenameFile = null; }}
-        />
-      {/await}
+      <RenameModal
+        file={activeRenameFile}
+        onClose={() => { activeRenameFile = null; }}
+      />
     {/if}
 
     {#if activeDeleteFile}
-      {#await import('./lib/components/Modals/DeleteModal.svelte') then { default: DeleteModal }}
-        <DeleteModal
-          file={activeDeleteFile}
-          onClose={() => { activeDeleteFile = null; }}
-        />
-      {/await}
+      <DeleteModal
+        file={activeDeleteFile}
+        onClose={() => { activeDeleteFile = null; }}
+      />
     {/if}
 
     {#if activePreviewFile}
-      {#await import('./lib/components/Modals/PreviewModal.svelte') then { default: PreviewModal }}
-        <PreviewModal
-          file={activePreviewFile}
-          onClose={() => { activePreviewFile = null; }}
-        />
-      {/await}
+      <PreviewModal
+        file={activePreviewFile}
+        onClose={() => { activePreviewFile = null; }}
+      />
     {/if}
 
     {#if activeCopyFile}
-      {#await import('./lib/components/Modals/CrossClusterCopyModal.svelte') then { default: CrossClusterCopyModal }}
-        <CrossClusterCopyModal
-          file={activeCopyFile}
-          onClose={() => { activeCopyFile = null; }}
-        />
-      {/await}
+      <CrossClusterCopyModal
+        file={activeCopyFile}
+        onClose={() => { activeCopyFile = null; }}
+      />
     {/if}
   </div>
 {/if}

@@ -85,6 +85,8 @@ class QueryManager:
         self.semaphore = asyncio.Semaphore(10)
 
     def _get_engine(self, cluster: ClusterConfig):
+        if settings.auth.mode == "mock" or getattr(cluster, "mock_storage", False):
+            return MockExecutionEngine(cluster)
         if cluster.type == "trino":
             return TrinoExecutionEngine(cluster)
         elif cluster.type == "hive":
@@ -366,6 +368,38 @@ class QueryManager:
                 await self._broadcast(ctx, event)
 
         except Exception as e:
+            if settings.auth.mode == "mock":
+                logger.warning(f"Кластер {ctx.cluster.id} недоступен ({e}). Переключение на MockExecutionEngine для dev-режима...")
+                try:
+                    mock_engine = MockExecutionEngine(ctx.cluster)
+                    generator = mock_engine.execute_query(
+                        query=ctx.query_text,
+                        user_login=ctx.user.username,
+                        max_rows=settings.query_defaults.max_rows_in_ui,
+                        cancel_event=ctx.cancel_event,
+                    )
+                    async for event in generator:
+                        event_type = event.get("type")
+                        if event_type == "status":
+                            ctx.status = event.get("status", ctx.status)
+                        elif event_type == "columns":
+                            ctx.columns = event.get("columns", [])
+                        elif event_type == "rows":
+                            new_rows = event.get("rows", [])
+                            ctx.collected_rows.extend(new_rows)
+                            ctx.total_rows = len(ctx.collected_rows)
+                        elif event_type == "finished":
+                            ctx.status = "FINISHED"
+                        elif event_type == "error":
+                            ctx.status = "FAILED"
+                            ctx.error_message = event.get("error")
+
+                        await self._broadcast(ctx, event)
+                    await self._finalize_query(ctx)
+                    return
+                except Exception as mock_err:
+                    logger.error(f"Ошибка в MockExecutionEngine: {mock_err}")
+
             logger.error(f"Ошибка в фоновом выполнении запроса {ctx.query_id}: {e}", exc_info=True)
             ctx.status = "FAILED"
             ctx.error_message = str(e)

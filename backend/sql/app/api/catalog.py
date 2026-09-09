@@ -33,6 +33,8 @@ def _get_cluster_or_404(cluster_id: str, user: UserSession) -> ClusterConfig:
 
 
 def _get_engine(cluster: ClusterConfig):
+    if settings.auth.mode == "mock" or getattr(cluster, "mock_storage", False):
+        return MockExecutionEngine(cluster)
     if cluster.type == "trino":
         return TrinoExecutionEngine(cluster)
     elif cluster.type == "hive":

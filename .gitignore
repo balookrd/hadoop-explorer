@@ -79,3 +79,4 @@ Thumbs.db
 private/
 *.local.yaml
 *.local.yml
+.agents/

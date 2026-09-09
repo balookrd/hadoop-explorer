@@ -4,8 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [
-    tailwindcss(),
-    svelte()
+    svelte(),
+    tailwindcss()
   ],
   server: {
     port: 5174,

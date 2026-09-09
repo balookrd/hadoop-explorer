@@ -178,6 +178,31 @@ async def get_query_result(
     return CachedResultResponse(**cached_data)
 
 
+@router.get("/notifications/stream")
+async def stream_user_notifications(current_user: UserSession = Depends(get_current_user)):
+    """
+    Глобальный SSE поток фоновых уведомлений для пользователя (завершение задач, статусы).
+    """
+    q = query_manager.event_hub.subscribe(current_user.username)
+
+    async def event_generator():
+        try:
+            # Отправляем начальный heartbeat
+            yield f"data: {json.dumps({'type': 'CONNECTED'})}\n\n"
+            while True:
+                event = await q.get()
+                payload = json.dumps(event, default=str)
+                yield f"data: {payload}\n\n"
+        finally:
+            query_manager.event_hub.unsubscribe(current_user.username, q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/{query_id}/stream")
 async def stream_query_results(query_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
     """
@@ -213,31 +238,6 @@ async def stream_query_results(query_id: str, request: Request, current_user: Us
                     break
         finally:
             query_manager.unsubscribe(query_id, queue)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
-
-
-@router.get("/notifications/stream")
-async def stream_user_notifications(current_user: UserSession = Depends(get_current_user)):
-    """
-    Глобальный SSE поток фоновых уведомлений для пользователя (завершение задач, статусы).
-    """
-    q = query_manager.event_hub.subscribe(current_user.username)
-
-    async def event_generator():
-        try:
-            # Отправляем начальный heartbeat
-            yield f"data: {json.dumps({'type': 'CONNECTED'})}\n\n"
-            while True:
-                event = await q.get()
-                payload = json.dumps(event, default=str)
-                yield f"data: {payload}\n\n"
-        finally:
-            query_manager.event_hub.unsubscribe(current_user.username, q)
 
     return StreamingResponse(
         event_generator(),
