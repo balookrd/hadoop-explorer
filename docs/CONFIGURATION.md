@@ -22,6 +22,7 @@
 3. [Настройка YARN Explorer](#3-настройка-yarn-explorer)
    - [YARN кластеры и партиции](#31-yarn-кластеры-и-партиции)
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
+   - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
 4. [Настройка HDFS Explorer](#4-настройка-hdfs-explorer)
 5. [Настройка SQL Explorer (Trino & Hive)](#5-настройка-sql-explorer-trino--hive)
    - [Аналитические кластеры](#51-аналитические-кластеры)
@@ -230,6 +231,43 @@ acl:
       groups: ["*"]
       users: ["*"]
 ```
+
+### 3.3 Интеграция с Ansible AWX (доставка и применение конфигурации)
+
+YARN Explorer поддерживает автоматизированную доставку и горячее применение сгенерированной XML-конфигурации через запуск Job Template в **Ansible AWX / Red Hat Ansible Automation Platform**:
+
+```yaml
+awx:
+  # Глобальные параметры подключения к AWX
+  enabled: true                          # Включение интеграции с AWX
+  base_url: "https://awx.company.local"  # Базовый URL сервера AWX
+  token: "SampleAwxApplicationTokenHere" # Токен приложения AWX (PAT / OAuth2)
+  verify_ssl: true                       # Проверка TLS/SSL сертификата сервера
+  default_job_template_id: 101           # ID Job Template по умолчанию
+  poll_interval_seconds: 2               # Интервал опроса статуса задачи (сек)
+  timeout_seconds: 180                   # Таймаут ожидания завершения задачи (сек)
+
+clusters:
+  - id: "prod-yarn"
+    name: "Production Hadoop Cluster"
+    # ...
+    awx:
+      enabled: true                      # Включение деплоя для конкретного кластера
+      job_template_id: 101               # Индивидуальный ID Job Template кластера
+```
+
+#### Соответствующие переменные окружения:
+| Переменная | Пример значения | Описание |
+|---|---|---|
+| `AWX_ENABLED` | `true` | Активация модуля автоматизации AWX |
+| `AWX_BASE_URL` | `https://awx.company.local` | Базовый URL сервера AWX |
+| `AWX_TOKEN` | `BearerSecretToken...` | Токен доступа к REST API AWX |
+| `AWX_VERIFY_SSL` | `true` | Проверка TLS сертификата сервера AWX |
+| `AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
+| `AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
+
+> 📖 **Пошаговая инструкция по развертыванию роли Ansible, настройке шаблона AWX и процессу Rollback приведена в [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).**
+> 📖 **Сценарии применения в интерфейсе Change Requests описаны в [docs/yarn-user-guide.md](yarn-user-guide.md).**
 
 ---
 

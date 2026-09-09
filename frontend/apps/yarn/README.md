@@ -18,13 +18,13 @@ frontend/apps/yarn/src/
 │   ├── DiffPanel.svelte         # Панель Unified Diff (Live vs Draft)
 │   ├── XmlExportModal.svelte    # Модальное окно экспорта capacity-scheduler.xml
 │   ├── QueueMappingsModal.svelte# Конструктор правил сопоставления очередей
-│   ├── ChangeRequestsModal.svelte # Центр согласования заявок (Approval Workflow)
+│   ├── ChangeRequestsDrawer.svelte # Центр согласования заявок (Approval & AWX Deployment)
 │   └── CapacityBar.svelte       # Компонент визуализации прогресс-бара ресурсов
 │   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/                       # Утилиты форматирования и вычислений
 │   ├── formatters.ts            # Форматирование MB/GB/TB, ядер vCPU и процентов
 │   └── tree.ts                  # Построение дерева очередей и пересчет емкости
-├── types.ts                     # TypeScript интерфейсы (QueueNode, Cluster, Diff и др.)
+├── types.ts                     # TypeScript интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)
 ├── App.svelte                   # Корневой компонент приложения с роутингом состояний
 └── main.ts                      # Входная точка Svelte приложения
 ```
@@ -47,6 +47,13 @@ frontend/apps/yarn/src/
    - Поддержка режима быстрого редактирования Raw-строки.
 5. **Центр согласования заявок (Change Requests)**:
    - Разделение прав доступа: операторы (**WRITER**, бейдж `RW`) создают заявки с обоснованием, администраторы (**ADMIN**, бейдж `ADM`) одобряют или отклоняют их. Аналитики (**READER**, бейдж `RO`) имеют доступ только для просмотра.
+6. **Автоматизированная доставка и применение через Ansible AWX**:
+   - Запуск деплоя из карточки одобренной заявки или напрямую из модального окна экспорта XML (`XmlExportModal`).
+   - Индикация статусов доставки (`AWX...`, `AWX ✓`, `AWX ✕`), фиксация времени деплоя и ссылки на `AWX Job #ID`.
+   - Встроенный интерактивный терминал **«Лог AWX»** для просмотра вывода выполнения плейбука (`stdout`) в реальном времени.
+
+> 📖 **Руководство пользователя интерфейса**: [docs/yarn-user-guide.md](../../../docs/yarn-user-guide.md)  
+> 📖 **Техническое описание архитектуры доставки**: [docs/awx-yarn-deployment.md](../../../docs/awx-yarn-deployment.md)
 
 ---
 

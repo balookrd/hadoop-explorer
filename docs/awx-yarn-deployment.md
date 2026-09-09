@@ -303,3 +303,14 @@ Content-Type: application/json
    * Проверьте список администраторов в `yarn-site.xml` (`yarn.admin.acl`).
 4. **Таймаут ожидания в API (`HTTP 504`)**:
    * Если кластер насчитывает сотни узлов или сеть перегружена, увеличьте параметр `timeout_seconds` в `config.yaml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
+
+---
+
+## 8. Связанная документация
+
+- 📖 [Руководство пользователя: YARN Queue Explorer](yarn-user-guide.md) — пользовательский интерфейс, процесс согласования Change Requests и работа с окном экспорта XML.
+- 🏛️ [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — общая системная архитектура, подсистемы безопасности и отказоустойчивости.
+- ⚙️ [Руководство по конфигурации платформы](CONFIGURATION.md) — параметры настройки секции `awx:`, переменные окружения и RBAC.
+- 🛠️ [README бэкенд-сервиса YARN Explorer](../backend/yarn/README.md) — спецификация REST API эндпоинтов деплоя и запуска тестов.
+- 📦 [README модуля Ansible Automation](../ansible/README.md) — структура каталога плейбуков и Ansible-ролей.
+- 🏠 [Главная страница репозитория](../README.md) — общий обзор монорепозитория Hadoop Explorer Platform.

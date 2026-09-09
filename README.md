@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-158%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-183%20passed-brightgreen.svg)](#-тестирование-платформы)
 
 
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
@@ -25,6 +25,7 @@
 - [Архитектура монорепозитория](#-архитектура-монорепозитория)
 - [Детальная системная архитектура (docs/ARCHITECTURE.md)](docs/ARCHITECTURE.md)
 - [Руководство пользователя YARN Explorer (docs/yarn-user-guide.md)](docs/yarn-user-guide.md)
+- [Автоматизированная доставка и применение через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
 - [Руководство пользователя HDFS Explorer (docs/hdfs-user-guide.md)](docs/hdfs-user-guide.md)
 - [Руководство пользователя SQL Explorer (docs/sql-user-guide.md)](docs/sql-user-guide.md)
 - [Руководство пользователя Spark Explorer (docs/spark-user-guide.md)](docs/spark-user-guide.md)
@@ -48,7 +49,7 @@
 
 **Hadoop Explorer Platform** объединяет в единый монорепозиторий четыре ключевых корпоративных инструмента для работы с Big Data инфраструктурой:
 
-1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой от состояний гонки через `DistributedLock`.
+1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой Four-Eyes, а также автоматизированной доставкой и горячим применением (`yarn rmadmin -refreshQueues`) через **Ansible AWX** с автоматическим откатом (Rollback).
 2. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
 4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
@@ -67,15 +68,16 @@ hadoop-explorer/
 │   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), Kerberos, SessionStore, Circuit Breaker, Metrics (Prometheus), Retry (Backoff), Lock, Shutdown, LDAP, Rate Limiter, Audit
 │   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
-│   ├── yarn/               # Сервис YARN Explorer (43 теста)
-│   ├── hdfs/               # Сервис HDFS Explorer (65 тестов)
+│   ├── yarn/               # Сервис YARN Explorer (50 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (60 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── spark/              # Сервис Spark Explorer (16 тестов)
 │
-├── frontend/
-│   ├── common/             # ─── Общие UI-компоненты, утилиты и API-клиент ───
-│   │   ├── api/            # BaseApiClient (Zero LocalStorage, Cookie-first, CSRF guard, SPNEGO SSO)
-│   │   ├── components/     # Header, LoginModal, Modal, StatusBadge, NotificationToast
+├── ansible/                # ─── Автоматизация деплоя и применения (AWX) ───
+│   ├── playbooks/          # deploy_capacity_scheduler.yml (Job Template)
+│   ├── roles/              # yarn_capacity_scheduler (Backup, Deploy, refreshQueues, Rollback)
+│   └── inventory.example.ini
+│
 │   │   ├── utils/          # sqlSplitter (SQL parser/statement at cursor), useResizable (DnD splitter)
 │   │   └── types/          # Общие TypeScript интерфейсы и сгенерированные OpenAPI типы (generated/)
 │   ├── apps/
@@ -397,7 +399,7 @@ make helm-lint
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 176 тестов платформы (Backend + Frontend UI)
+# Запуск всех 183 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
@@ -407,10 +409,10 @@ make frontend-test  # юнит и компонентные тесты Vitest
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Либо по бэкенд сервисам:
-make test-yarn
-make test-hdfs
-make test-sql
-make test-spark
+make test-yarn      # 50 тестов (включая AWX интеграцию)
+make test-hdfs      # 60 тестов
+make test-sql       # 34 теста
+make test-spark     # 16 тестов
 ```
 
 ---
@@ -423,9 +425,9 @@ make test-spark
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 176 модульных, компонентных и интеграционных тестов |
+| `make test` | Запуск всех 183 модульных, компонентных и интеграционных тестов |
 | `make test-ui` | Запуск статической проверки типов (`svelte-check`) и 23 UI тестов Vitest |
-| `make test-yarn` | Запуск 43 тестов сервиса YARN Explorer |
+| `make test-yarn` | Запуск 50 тестов сервиса YARN Explorer (включая интеграцию с AWX) |
 | `make test-hdfs` | Запуск 60 тестов сервиса HDFS Explorer |
 | `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
 | `make test-spark` | Запуск 16 тестов сервиса Spark Explorer |
