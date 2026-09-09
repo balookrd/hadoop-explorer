@@ -24,6 +24,7 @@
 - [Обзор платформы](#-обзор-платформы)
 - [Архитектура монорепозитория](#-архитектура-монорепозитория)
 - [Детальная системная архитектура (docs/ARCHITECTURE.md)](docs/ARCHITECTURE.md)
+- [Работа Hive и Spark без кластера YARN (docs/hive-spark-without-yarn.md)](docs/hive-spark-without-yarn.md)
 - [Выделенные общие модули](#-выделенные-общие-модули)
 - [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
@@ -286,6 +287,8 @@ make demo-spark
 make demo-all
 # Остановка: make demo-all-stop
 ```
+
+> 💡 **Подробное руководство по работе без YARN**: Описание архитектуры выполнения запросов Hive и Spark в легковесных стендах без запуска ResourceManager/NodeManager см. в [docs/hive-spark-without-yarn.md](docs/hive-spark-without-yarn.md).
 
 ### 🔑 Тестовые учетные записи (LDAP)
 | Пользователь | Пароль | Роли и группы | Назначение |
