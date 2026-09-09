@@ -3,7 +3,8 @@
   import { api } from '../api/client';
   import { 
     X, CheckCircle, XCircle, Clock, Ban, User, Calendar, 
-    FileCode, RefreshCw, GitPullRequest, ArrowRight, Eye, Check, Trash2, ArrowUpRight
+    FileCode, RefreshCw, GitPullRequest, ArrowRight, Eye, Check, Trash2, ArrowUpRight,
+    Rocket, Terminal
   } from 'lucide-svelte';
   import { formatMemory, formatVcores, formatMemoryDelta, formatVcoresDelta } from '../utils/resourceUtils';
 
@@ -33,6 +34,10 @@
   let isDetailLoading = $state(false);
   let reviewComment = $state('');
   let actionLoading = $state(false);
+  let isDeploying = $state(false);
+  let deployStdout = $state<string | null>(null);
+  let showLogs = $state(false);
+  let deploySuccessMessage = $state('');
   let errorMessage = $state('');
 
   const displayedRequests = $derived(
@@ -147,6 +152,43 @@
       errorMessage = err.message || 'Ошибка предпросмотра XML';
     } finally {
       actionLoading = false;
+    }
+  }
+
+  async function handleDeploy() {
+    if (!selectedId) return;
+    isDeploying = true;
+    errorMessage = '';
+    deploySuccessMessage = '';
+    try {
+      const resp = await api.deployChangeRequest(selectedId, true);
+      if (selectedDetail) {
+        selectedDetail.deployment_status = resp.status;
+        selectedDetail.awx_job_id = resp.awx_job_id;
+        selectedDetail.deployed_at = resp.deployed_at;
+        if (resp.stdout) {
+          deployStdout = resp.stdout;
+          showLogs = true;
+        }
+      }
+      deploySuccessMessage = resp.message || 'Конфигурация успешно применена на кластере через AWX';
+      await loadRequests();
+      onStatusChange?.();
+    } catch (err: any) {
+      errorMessage = err.message || 'Ошибка при развертывании через AWX';
+    } finally {
+      isDeploying = false;
+    }
+  }
+
+  async function handleFetchLogs() {
+    if (!selectedId) return;
+    try {
+      const resp = await api.getDeployStatus(selectedId);
+      deployStdout = resp.stdout || 'Лог AWX пуст или формируется...';
+      showLogs = true;
+    } catch (err: any) {
+      errorMessage = err.message || 'Ошибка получения логов AWX';
     }
   }
 
@@ -281,10 +323,19 @@
               >
                 <div class="flex items-center justify-between gap-1 mb-1">
                   <span class="text-[10px] font-mono font-bold text-slate-500">#CR-{r.id}</span>
-                  <span class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded border {badge.bg}">
-                    <BadgeIcon class="w-2.5 h-2.5" />
-                    <span>{badge.text}</span>
-                  </span>
+                  <div class="flex items-center gap-1">
+                    {#if r.deployment_status === 'SUCCESS'}
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">AWX ✓</span>
+                    {:else if r.deployment_status === 'DEPLOYING'}
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200 animate-pulse">AWX...</span>
+                    {:else if r.deployment_status === 'FAILED'}
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-100 text-red-800 border border-red-200">AWX ✕</span>
+                    {/if}
+                    <span class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded border {badge.bg}">
+                      <BadgeIcon class="w-2.5 h-2.5" />
+                      <span>{badge.text}</span>
+                    </span>
+                  </div>
                 </div>
                 <div class="text-xs font-semibold text-slate-900 truncate mb-1">{r.title}</div>
                 <div class="flex items-center justify-between text-[11px] text-slate-400">
@@ -514,6 +565,103 @@
                   <FileCode class="w-3.5 h-3.5" />
                   <span>Просмотреть XML</span>
                 </button>
+              </div>
+
+              <!-- AWX Deployment Card -->
+              <div class="p-4 rounded-xl border space-y-3 {
+                selectedDetail.deployment_status === 'SUCCESS'
+                  ? 'bg-emerald-50/70 border-emerald-200'
+                  : selectedDetail.deployment_status === 'FAILED'
+                  ? 'bg-red-50/70 border-red-200'
+                  : 'bg-indigo-50/70 border-indigo-200'
+              }">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-lg {
+                      selectedDetail.deployment_status === 'SUCCESS' ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white'
+                    }">
+                      <Rocket class="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold {
+                          selectedDetail.deployment_status === 'SUCCESS' ? 'text-emerald-950' : 'text-indigo-950'
+                        }">
+                          {#if selectedDetail.deployment_status === 'SUCCESS'}
+                            Конфигурация успешно применена на кластере через AWX
+                          {:else if selectedDetail.deployment_status === 'DEPLOYING'}
+                            Выполняется доставка и применение через AWX...
+                          {:else if selectedDetail.deployment_status === 'FAILED'}
+                            Сбой применения конфигурации через AWX
+                          {:else}
+                            Автоматическая доставка через Ansible AWX
+                          {/if}
+                        </span>
+                        {#if selectedDetail.awx_job_id}
+                          <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-semibold">
+                            Job #{selectedDetail.awx_job_id}
+                          </span>
+                        {/if}
+                      </div>
+                      <p class="text-[11px] text-slate-600 mt-0.5">
+                        {#if selectedDetail.deployment_status === 'SUCCESS'}
+                          Очереди обновлены в Active RM без перезапуска. {selectedDetail.deployed_at ? `Время: ${formatDate(selectedDetail.deployed_at)}` : ''}
+                        {:else if selectedDetail.deployment_status === 'FAILED'}
+                          {selectedDetail.deployment_error || 'Ошибка при вызове rmadmin -refreshQueues. Сработал автоматический откат.'}
+                        {:else}
+                          Раскладка capacity-scheduler.xml на все ноды RM с горячим обновлением очередей (refreshQueues).
+                        {/if}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    {#if selectedDetail.awx_job_id}
+                      <button
+                        onclick={handleFetchLogs}
+                        class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                        title="Просмотреть консольный лог выполнения задачи"
+                      >
+                        <Terminal class="w-3.5 h-3.5" />
+                        <span>Лог AWX</span>
+                      </button>
+                    {/if}
+
+                    {#if canAdmin}
+                      <button
+                        onclick={handleDeploy}
+                        disabled={isDeploying}
+                        class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-sky-600 text-white text-xs font-semibold shadow-xs hover:shadow-md disabled:opacity-50 transition cursor-pointer"
+                      >
+                        {#if isDeploying}
+                          <RefreshCw class="w-3.5 h-3.5 animate-spin" />
+                          <span>Применение...</span>
+                        {:else}
+                          <Rocket class="w-3.5 h-3.5" />
+                          <span>{selectedDetail.deployment_status === 'SUCCESS' ? 'Применить повторно' : 'Применить на кластере'}</span>
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+
+                {#if showLogs && deployStdout}
+                  <div class="mt-3 border-t border-slate-200/80 pt-3">
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-[11px] font-mono font-bold text-slate-700 flex items-center gap-1">
+                        <Terminal class="w-3 h-3 text-slate-500" />
+                        Вывод консоли Ansible (stdout):
+                      </span>
+                      <button
+                        onclick={() => showLogs = false}
+                        class="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        Скрыть лог
+                      </button>
+                    </div>
+                    <pre class="p-3 bg-slate-900 text-emerald-400 text-[11px] font-mono rounded-lg overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">{deployStdout}</pre>
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>

@@ -71,12 +71,28 @@ class StorageService(SessionStore):
                 Column("changes_json", Text, nullable=False),
                 Column("diffs_json", Text, nullable=False),
                 Column("xml_content", Text, nullable=True),
+                Column("deployment_status", String(50), nullable=True, default=None),
+                Column("awx_job_id", Integer, nullable=True, default=None),
+                Column("deployed_at", String(100), nullable=True, default=None),
+                Column("deployment_error", Text, nullable=True, default=None),
             )
             self._init_yarn_tables()
 
     def _init_yarn_tables(self):
         try:
             self.metadata.create_all(self.engine)
+            # Защитная проверка и добавление колонок, если таблица уже существовала в SQLite
+            with self.engine.begin() as conn:
+                for col_name, col_type in [
+                    ("deployment_status", "VARCHAR(50)"),
+                    ("awx_job_id", "INTEGER"),
+                    ("deployed_at", "VARCHAR(100)"),
+                    ("deployment_error", "TEXT"),
+                ]:
+                    try:
+                        conn.execute(text(f"ALTER TABLE change_requests ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"Ошибка инициализации таблиц Change Requests: {e}")
 
@@ -166,6 +182,9 @@ class StorageService(SessionStore):
                         updated_at=d.get("updated_at", ""),
                         reviewer=d.get("reviewer") or None,
                         reviewed_at=d.get("reviewed_at") or None,
+                        deployment_status=d.get("deployment_status") or None,
+                        awx_job_id=d.get("awx_job_id"),
+                        deployed_at=d.get("deployed_at") or None,
                     )
                 )
             return result
@@ -181,6 +200,9 @@ class StorageService(SessionStore):
             self.cr_table.c.reviewer,
             self.cr_table.c.reviewed_at,
             self.cr_table.c.changes_json,
+            self.cr_table.c.deployment_status,
+            self.cr_table.c.awx_job_id,
+            self.cr_table.c.deployed_at,
         )
         if cluster_id:
             stmt = stmt.where(self.cr_table.c.cluster_id == cluster_id)
@@ -205,6 +227,9 @@ class StorageService(SessionStore):
                         updated_at=r["updated_at"],
                         reviewer=r["reviewer"],
                         reviewed_at=r["reviewed_at"],
+                        deployment_status=r.get("deployment_status"),
+                        awx_job_id=r.get("awx_job_id"),
+                        deployed_at=r.get("deployed_at"),
                     )
                 )
             return result
@@ -234,6 +259,10 @@ class StorageService(SessionStore):
                 changes=changes,
                 diffs=diffs,
                 xml_content=d.get("xml_content") or None,
+                deployment_status=d.get("deployment_status") or None,
+                awx_job_id=d.get("awx_job_id"),
+                deployed_at=d.get("deployed_at") or None,
+                deployment_error=d.get("deployment_error") or None,
             )
 
         stmt = select(self.cr_table).where(self.cr_table.c.id == cr_id)
@@ -263,6 +292,10 @@ class StorageService(SessionStore):
                 changes=changes,
                 diffs=diffs,
                 xml_content=r["xml_content"],
+                deployment_status=r.get("deployment_status"),
+                awx_job_id=r.get("awx_job_id"),
+                deployed_at=r.get("deployed_at"),
+                deployment_error=r.get("deployment_error"),
             )
 
     def approve_change_request(
@@ -378,6 +411,47 @@ class StorageService(SessionStore):
             with self.engine.begin() as conn:
                 result = conn.execute(stmt)
                 return result.rowcount > 0
+
+    def update_deployment_status(
+        self,
+        cr_id: int,
+        deployment_status: str,
+        awx_job_id: Optional[int] = None,
+        deployed_at: Optional[str] = None,
+        deployment_error: Optional[str] = None,
+    ) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        if self._is_redis:
+            raw = self.redis_client.get(f"yarn:cr:{cr_id}")
+            if not raw:
+                return False
+            d = json.loads(raw)
+            d["deployment_status"] = deployment_status
+            if awx_job_id is not None:
+                d["awx_job_id"] = awx_job_id
+            if deployed_at is not None:
+                d["deployed_at"] = deployed_at
+            if deployment_error is not None:
+                d["deployment_error"] = deployment_error
+            d["updated_at"] = now
+            self.redis_client.set(f"yarn:cr:{cr_id}", json.dumps(d, ensure_ascii=False))
+            return True
+
+        values: Dict[str, Any] = {
+            "deployment_status": deployment_status,
+            "updated_at": now,
+        }
+        if awx_job_id is not None:
+            values["awx_job_id"] = awx_job_id
+        if deployed_at is not None:
+            values["deployed_at"] = deployed_at
+        if deployment_error is not None:
+            values["deployment_error"] = deployment_error
+
+        stmt = update(self.cr_table).where(self.cr_table.c.id == cr_id).values(**values)
+        with self.engine.begin() as conn:
+            res = conn.execute(stmt)
+            return res.rowcount > 0
 
     def count_pending(self, cluster_id: Optional[str] = None) -> int:
         if self._is_redis:

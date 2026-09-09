@@ -1,0 +1,10 @@
+---
+# Раскладка новой конфигурации capacity-scheduler.xml на узел RM
+- name: Deploy new capacity-scheduler.xml
+  ansible.builtin.copy:
+    content: "{{ capacity_scheduler_xml }}"
+    dest: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_group }}"
+    mode: "0644"
+    backup: false

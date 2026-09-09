@@ -27,6 +27,9 @@ class ChangeRequestSummary(BaseModel):
     updated_at: str
     reviewer: Optional[str] = None
     reviewed_at: Optional[str] = None
+    deployment_status: Optional[str] = None  # PENDING, DEPLOYING, SUCCESS, FAILED, ROLLED_BACK
+    awx_job_id: Optional[int] = None
+    deployed_at: Optional[str] = None
 
 
 class ChangeRequestResponse(BaseModel):
@@ -44,3 +47,17 @@ class ChangeRequestResponse(BaseModel):
     changes: List[DraftQueueItem]
     diffs: List[DiffItem]
     xml_content: Optional[str] = None
+    deployment_status: Optional[str] = None  # PENDING, DEPLOYING, SUCCESS, FAILED, ROLLED_BACK
+    awx_job_id: Optional[int] = None
+    deployed_at: Optional[str] = None
+    deployment_error: Optional[str] = None
+
+
+class DeployResponse(BaseModel):
+    cr_id: int
+    cluster_id: str
+    awx_job_id: int
+    status: str
+    message: str
+    deployed_at: Optional[str] = None
+    stdout: Optional[str] = None

@@ -54,6 +54,15 @@ auth:
     algorithm: "HS256"
     expire_minutes: 480
 
+awx:
+  enabled: true
+  base_url: "mock://awx"
+  token: "mock"
+  verify_ssl: false
+  default_job_template_id: 101
+  poll_interval_seconds: 1
+  timeout_seconds: 30
+
 acl:
   ui_access:
     allowed_users: ["*"]

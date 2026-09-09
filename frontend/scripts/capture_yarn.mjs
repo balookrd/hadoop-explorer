@@ -22,8 +22,8 @@ async function run() {
   page.on('console', msg => console.log('  [Browser]', msg.text()));
   page.on('pageerror', err => console.error('  [PageError]', err.message));
 
-  console.log('🌐 Переход на http://127.0.0.1:5173 ...');
-  await page.goto('http://127.0.0.1:5173');
+  console.log('🌐 Переход на http://localhost:5173 ...');
+  await page.goto('http://localhost:5173');
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1000);
 
@@ -128,7 +128,20 @@ async function run() {
   // 9. Центр согласования заявок (ChangeRequestsDrawer)
   console.log('📸 9. Скриншот центра заявок на изменение...');
   await page.locator('header').locator('button:has-text("Заявки на изменение")').click({ force: true });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1000);
+  // Клик по первой одобренной заявке в списке
+  const firstCrItem = page.locator('.space-y-2 button, div.space-y-2 > div').first();
+  if (await firstCrItem.isVisible()) {
+    await firstCrItem.click();
+    await page.waitForTimeout(600);
+  }
+  // Нажатие на кнопку «Лог AWX», если она доступна
+  const logBtn = page.locator('button:has-text("Лог AWX")');
+  if (await logBtn.isVisible()) {
+    console.log('   📜 Раскрытие терминала «Лог AWX»...');
+    await logBtn.click();
+    await page.waitForTimeout(600);
+  }
   await page.screenshot({ path: path.join(imagesDir, '09_change_requests_drawer.png'), fullPage: false });
   console.log('   ✅ 09_change_requests_drawer.png сохранен');
   await page.keyboard.press('Escape');

@@ -56,6 +56,16 @@ auth:
     algorithm: "HS256"
     expire_minutes: 480
 
+awx:
+  # Интеграция с Ansible AWX для доставки и применения capacity-scheduler.xml
+  enabled: true
+  base_url: "https://awx.company.local"
+  token: "SampleAwxApplicationTokenHere"
+  verify_ssl: true
+  default_job_template_id: 101
+  poll_interval_seconds: 2
+  timeout_seconds: 180
+
 acl:
   # Глобальный доступ к UI
   ui_access:
@@ -90,6 +100,9 @@ clusters:
     total_resources:
       memory_mb: 2097152 # 2 TB
       vcores: 1024
+    awx:
+      enabled: true
+      job_template_id: 101
     acl:
       allowed_users: ["*"]
       allowed_groups: ["*"]

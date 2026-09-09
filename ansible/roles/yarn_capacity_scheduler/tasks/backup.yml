@@ -1,0 +1,33 @@
+---
+# Создание резервной копии текущей конфигурации capacity-scheduler.xml
+- name: Ensure backup directory exists on RM node
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_group }}"
+    mode: "0750"
+
+- name: Set backup timestamp fact
+  ansible.builtin.set_fact:
+    backup_timestamp: "{{ ansible_date_time.iso8601_basic_short | default(lookup('pipe', 'date +%Y%m%d%H%M%S')) }}"
+  run_once: true
+
+- name: Define backup file path
+  ansible.builtin.set_fact:
+    backup_file_path: "{{ backup_dir }}/capacity-scheduler-{{ backup_timestamp }}.xml"
+
+- name: Check if current capacity-scheduler.xml exists
+  ansible.builtin.stat:
+    path: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+  register: current_xml_stat
+
+- name: Create timestamped backup of current capacity-scheduler.xml
+  ansible.builtin.copy:
+    src: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+    dest: "{{ backup_file_path }}"
+    remote_src: true
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_group }}"
+    mode: "0644"
+  when: current_xml_stat.stat.exists

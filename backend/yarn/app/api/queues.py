@@ -16,6 +16,8 @@ from app.models.yarn import (
     GenerateXmlResponse,
     DraftDiffResponse,
     DiffItem,
+    DirectDeployXmlRequest,
+    DirectDeployXmlResponse,
 )
 from app.services.mock_yarn import get_mock_queue_tree, get_mock_cluster_metrics
 from app.services.capacity_scheduler import validate_queue_balance, compute_balances_from_tree
@@ -339,3 +341,67 @@ async def generate_xml(
         generated_at=now,
         instructions=instructions,
     )
+
+
+@router.post("/{cluster_id}/deploy-xml", response_model=DirectDeployXmlResponse)
+async def deploy_cluster_xml(
+    cluster_id: str,
+    body: DirectDeployXmlRequest,
+    user: UserSession = Depends(get_current_user),
+):
+    """
+    Прямое развертывание и применение capacity-scheduler.xml на кластере через AWX.
+    Доступно: ТОЛЬКО admin.
+    """
+    cluster = _find_cluster(cluster_id)
+    check_cluster_permission(user, cluster, Role.ADMIN)
+
+    if not body.xml_content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Тело XML не может быть пустым",
+        )
+
+    job_template_id = None
+    if cluster.awx and cluster.awx.job_template_id:
+        job_template_id = cluster.awx.job_template_id
+    elif settings.awx.default_job_template_id:
+        job_template_id = settings.awx.default_job_template_id
+
+    if not job_template_id:
+        if settings.auth.mode == "mock" or (settings.awx.enabled is False and not settings.awx.token):
+            job_template_id = 1
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"AWX Job Template ID не настроен для кластера '{cluster.name}'",
+            )
+
+    from app.services.awx_client import AwxClient, AwxClientError, AwxJobFailedError
+
+    awx_client = AwxClient()
+    try:
+        job_id = await awx_client.launch_job(
+            job_template_id=job_template_id,
+            xml_content=body.xml_content,
+            applied_by=user.username,
+            cluster_id=cluster.id,
+            change_request_id=None,
+        )
+        result = await awx_client.wait_for_job(job_id)
+        now_str = datetime.now(timezone.utc).isoformat()
+        return DirectDeployXmlResponse(
+            cluster_id=cluster_id,
+            awx_job_id=job_id,
+            status="SUCCESS",
+            message=f"XML успешно применен на кластере '{cluster.name}' через AWX",
+            deployed_at=now_str,
+            stdout=result.get("stdout"),
+        )
+    except AwxJobFailedError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Сбой выполнения AWX Job #{e.job_id} ({e.status}): {e.stdout[-300:] if e.stdout else 'Без лога'}",
+        )
+    except AwxClientError as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка взаимодействия с AWX: {e}")

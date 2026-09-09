@@ -710,6 +710,8 @@
           filename={xmlFilename}
           instructions={xmlInstructions}
           currentMode={exportMode}
+          clusterId={selectedClusterId}
+          {canAdmin}
           bind:isOpen={showXmlModal}
           onModeChange={(newMode) => handleGenerateXml(newMode)}
         />

@@ -196,6 +196,9 @@ export interface ChangeRequestSummary {
   updated_at: string;
   reviewer?: string;
   reviewed_at?: string;
+  deployment_status?: 'PENDING' | 'DEPLOYING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK' | string;
+  awx_job_id?: number;
+  deployed_at?: string;
 }
 
 export interface ChangeRequestResponse {
@@ -213,6 +216,10 @@ export interface ChangeRequestResponse {
   changes: DraftQueueItem[];
   diffs: DiffItem[];
   xml_content?: string;
+  deployment_status?: 'PENDING' | 'DEPLOYING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK' | string;
+  awx_job_id?: number;
+  deployed_at?: string;
+  deployment_error?: string;
 }
 
 export interface ChangeRequestCreate {
@@ -220,5 +227,24 @@ export interface ChangeRequestCreate {
   title: string;
   description?: string;
   changes: DraftQueueItem[];
+}
+
+export interface DeployResponse {
+  cr_id: number;
+  cluster_id: string;
+  awx_job_id: number;
+  status: string;
+  message: string;
+  deployed_at?: string;
+  stdout?: string;
+}
+
+export interface DirectDeployXmlResponse {
+  cluster_id: string;
+  awx_job_id: number;
+  status: string;
+  message: string;
+  deployed_at: string;
+  stdout?: string;
 }
 

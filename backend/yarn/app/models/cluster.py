@@ -25,6 +25,12 @@ class ClusterAcl(BaseModel):
     roles: RolesConfig = Field(default_factory=RolesConfig)
 
 
+class AwxClusterConfig(BaseModel):
+    enabled: bool = True
+    job_template_id: Optional[int] = None
+    inventory_id: Optional[int] = None
+
+
 class ClusterConfig(BaseModel):
     id: str
     name: str
@@ -41,6 +47,7 @@ class ClusterConfig(BaseModel):
     capacity_scheduler_xml_path: Optional[str] = None
     total_resources: ClusterResources
     acl: ClusterAcl = Field(default_factory=ClusterAcl)
+    awx: Optional[AwxClusterConfig] = Field(default_factory=AwxClusterConfig)
 
 
 class ClusterSummary(BaseModel):

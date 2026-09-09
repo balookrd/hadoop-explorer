@@ -252,3 +252,17 @@ class GenerateXmlResponse(BaseModel):
     applied_by: str
     generated_at: str
     instructions: str
+
+
+class DirectDeployXmlRequest(BaseModel):
+    xml_content: str
+    comment: Optional[str] = "Manual direct XML deployment"
+
+
+class DirectDeployXmlResponse(BaseModel):
+    cluster_id: str
+    awx_job_id: int
+    status: str
+    message: str
+    deployed_at: str
+    stdout: Optional[str] = None

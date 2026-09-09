@@ -1,0 +1,24 @@
+---
+# Переменные роли yarn_capacity_scheduler по умолчанию
+
+# Пути к директории конфигурации Hadoop
+hadoop_conf_dir: "/etc/hadoop/conf"
+hadoop_user: "yarn"
+hadoop_group: "hadoop"
+
+# Директория для создания резервных копий перед применением нового конфига
+backup_dir: "/etc/hadoop/conf/backups"
+
+# Настройки безопасности Kerberos
+kerberos_enabled: true
+yarn_keytab: "/etc/security/keytabs/yarn.service.keytab"
+yarn_principal: "yarn/{{ inventory_hostname }}@CORP.DOMAIN"
+
+# Переменные, передаваемые динамически через AWX extra_vars:
+# Base64-закодированное содержимое capacity-scheduler.xml
+capacity_scheduler_xml_b64: ""
+
+# Метаданные для аудита в логах AWX
+applied_by: "system"
+change_request_id: "manual"
+cluster_id: ""

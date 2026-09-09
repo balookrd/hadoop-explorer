@@ -99,6 +99,7 @@ backend/yarn/
 - `POST /api/v1/clusters/{cluster_id}/validate` — валидация баланса ресурсов веток очередей (RAM / vCPU). Доступно: `WRITER`, `ADMIN`.
 - `POST /api/v1/clusters/{cluster_id}/diff` — расчет дельты изменений между live и draft состоянием. Доступно: `WRITER`, `ADMIN`.
 - `POST /api/v1/clusters/{cluster_id}/generate-xml` — генерация `capacity-scheduler.xml`. Доступно: только `ADMIN`.
+- `POST /api/v1/clusters/{cluster_id}/deploy-xml` — прямое горячее развертывание и применение `capacity-scheduler.xml` на кластере через Ansible AWX. Доступно: только `ADMIN`.
 
 ### Заявки на согласование (`/api/v1/change-requests`)
 - `GET /api/v1/change-requests` — список заявок с фильтрацией по кластеру и статусу (только для разрешенных кластеров).
@@ -106,8 +107,12 @@ backend/yarn/
 - `GET /api/v1/change-requests/{cr_id}` — детальная информация о заявке (требуются права `READER` в кластере заявки).
 - `POST /api/v1/change-requests` — создание заявки на изменение очередей. Доступно: `WRITER`, `ADMIN`.
 - `POST /api/v1/change-requests/{cr_id}/approve` — согласование заявки и генерация XML (защищено `DistributedLock`). Доступно: только `ADMIN`.
+- `POST /api/v1/change-requests/{cr_id}/deploy` — запуск задачи автоматизированной доставки и применения конфигурации через **Ansible AWX**. Доступно: только `ADMIN`.
+- `GET /api/v1/change-requests/{cr_id}/deploy-status` — получение актуального статуса исполнения задачи деплоя в AWX и консольного вывода (stdout).
 - `POST /api/v1/change-requests/{cr_id}/reject` — отклонение заявки (защищено `DistributedLock`). Доступно: только `ADMIN`.
 - `POST /api/v1/change-requests/{cr_id}/cancel` — отзыв заявки (доступно автору заявки или `ADMIN`).
+
+Подробное руководство по архитектуре, настройке и запуску AWX деплоя описано в [docs/awx-yarn-deployment.md](../../docs/awx-yarn-deployment.md).
 
 ### Системные эндпоинты
 - `GET /healthz` — проверка жизнеспособности сервиса (`{"status": "ok"}`) для Kubernetes Liveness/Readiness probes (без авторизации).

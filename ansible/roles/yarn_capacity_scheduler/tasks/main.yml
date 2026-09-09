@@ -1,0 +1,63 @@
+---
+# Главный пайплайн роли yarn_capacity_scheduler
+
+- name: Validate that capacity_scheduler_xml_b64 is provided
+  ansible.builtin.fail:
+    msg: "Mandatory variable 'capacity_scheduler_xml_b64' is missing or empty!"
+  when: capacity_scheduler_xml_b64 | default('') | length == 0
+
+- name: Decode Base64 XML content
+  ansible.builtin.set_fact:
+    capacity_scheduler_xml: "{{ capacity_scheduler_xml_b64 | b64decode }}"
+  no_log: true
+
+- name: Pre-flight XML validation on Ansible Controller
+  run_once: true
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    cmd: >-
+      python3 -c "import sys, xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read()); print('XML syntax is valid')"
+    stdin: "{{ capacity_scheduler_xml }}"
+  changed_when: false
+
+- name: Create backups of current configuration on all RM nodes
+  ansible.builtin.include_tasks: backup.yml
+
+- name: Deploy and apply configuration with automatic rollback on error
+  block:
+    - name: Deploy new capacity-scheduler.xml to all RM nodes
+      ansible.builtin.include_tasks: deploy.yml
+
+    - name: Apply queues via rmadmin on Active RM
+      ansible.builtin.include_tasks: refresh.yml
+
+  rescue:
+    - name: Log critical error and initiate rollback
+      ansible.builtin.debug:
+        msg: >-
+          [CRITICAL ERROR] Failed to apply capacity-scheduler.xml on Active RM!
+          Initiating automated rollback to previous configuration on all RM nodes.
+
+    - name: Restore previous capacity-scheduler.xml from backup on all RM nodes
+      ansible.builtin.copy:
+        src: "{{ backup_file_path }}"
+        dest: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+        remote_src: true
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_group }}"
+        mode: "0644"
+      when: backup_file_path is defined
+
+    - name: Re-apply restored configuration on Active RM
+      when: is_active_rm | default(false) | bool
+      become_user: "{{ hadoop_user }}"
+      ansible.builtin.command:
+        cmd: "yarn rmadmin -refreshQueues"
+      ignore_errors: true
+
+    - name: Terminate job with failure
+      ansible.builtin.fail:
+        msg: >-
+          Deployment failed and was rolled back to previous configuration.
+          Check YARN RM logs and previous error output for details.

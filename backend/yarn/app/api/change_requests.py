@@ -13,6 +13,7 @@ from app.models.change_requests import (
     ChangeRequestReview,
     ChangeRequestResponse,
     ChangeRequestSummary,
+    DeployResponse,
 )
 from app.services.storage import storage_service
 from app.services.xml_generator import generate_capacity_scheduler_xml
@@ -457,3 +458,206 @@ async def preview_change_request_xml(
         "filename": f"capacity-scheduler-{cr.cluster_id}.xml",
         "xml_content": xml_content,
     }
+
+
+@router.post("/{cr_id}/deploy", response_model=DeployResponse)
+async def deploy_change_request(
+    cr_id: int,
+    http_request: Request,
+    wait: bool = Query(default=True, description="Ожидать ли завершения выполнения задачи в AWX"),
+    current_user: UserSession = Depends(get_current_user),
+):
+    """
+    Развертывание и применение конфигурации approved заявки на кластере через AWX.
+    Доступно: только ADMIN в кластере заявки.
+    """
+    cr = storage_service.get_change_request(cr_id)
+    if not cr:
+        raise HTTPException(status_code=404, detail=f"Заявка #{cr_id} не найдена")
+
+    cluster = _find_cluster(cr.cluster_id)
+    check_cluster_permission(current_user, cluster, Role.ADMIN)
+
+    if cr.status != "APPROVED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Нельзя развернуть заявку со статусом '{cr.status}' (ожидается APPROVED)",
+        )
+
+    # Определение job_template_id
+    job_template_id = None
+    if cluster.awx and cluster.awx.job_template_id:
+        job_template_id = cluster.awx.job_template_id
+    elif settings.awx.default_job_template_id:
+        job_template_id = settings.awx.default_job_template_id
+
+    # В mock-режиме, если ID не задан, используем дефолтный 1
+    if not job_template_id:
+        if settings.auth.mode == "mock" or (settings.awx.enabled is False and not settings.awx.token):
+            job_template_id = 1
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"AWX Job Template ID не настроен для кластера '{cluster.name}' (проверьте config.yaml)",
+            )
+
+    xml_content = cr.xml_content
+    if not xml_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="В заявке отсутствует сгенерированный capacity-scheduler.xml",
+        )
+
+    from app.services.awx_client import AwxClient, AwxClientError, AwxJobFailedError
+    from app.core.audit import audit_log
+    from datetime import datetime, timezone
+
+    awx_client = AwxClient()
+
+    try:
+        job_id = await awx_client.launch_job(
+            job_template_id=job_template_id,
+            xml_content=xml_content,
+            applied_by=current_user.username,
+            cluster_id=cluster.id,
+            change_request_id=cr.id,
+        )
+    except AwxClientError as e:
+        logger.error(f"Ошибка запуска AWX джоба для CR #{cr_id}: {e}")
+        storage_service.update_deployment_status(
+            cr_id=cr.id,
+            deployment_status="FAILED",
+            deployment_error=str(e),
+        )
+        raise HTTPException(status_code=502, detail=f"Ошибка запуска задачи в AWX: {e}")
+
+    storage_service.update_deployment_status(
+        cr_id=cr.id,
+        deployment_status="DEPLOYING",
+        awx_job_id=job_id,
+    )
+
+    if not wait:
+        return DeployResponse(
+            cr_id=cr.id,
+            cluster_id=cluster.id,
+            awx_job_id=job_id,
+            status="DEPLOYING",
+            message=f"Задача #{job_id} запущена в AWX",
+        )
+
+    now_str = datetime.now(timezone.utc).isoformat()
+    try:
+        result = await awx_client.wait_for_job(job_id)
+        storage_service.update_deployment_status(
+            cr_id=cr.id,
+            deployment_status="SUCCESS",
+            awx_job_id=job_id,
+            deployed_at=now_str,
+        )
+        audit_log(
+            action="CR_DEPLOYED",
+            username=current_user.username,
+            client_ip=get_client_ip(http_request),
+            details={"cr_id": cr.id, "cluster_id": cluster.id, "awx_job_id": job_id},
+            status="SUCCESS",
+        )
+        return DeployResponse(
+            cr_id=cr.id,
+            cluster_id=cluster.id,
+            awx_job_id=job_id,
+            status="SUCCESS",
+            message="Конфигурация успешно развернута и применена на кластере через AWX",
+            deployed_at=now_str,
+            stdout=result.get("stdout"),
+        )
+    except AwxJobFailedError as e:
+        storage_service.update_deployment_status(
+            cr_id=cr.id,
+            deployment_status="FAILED",
+            awx_job_id=job_id,
+            deployment_error=f"Статус {e.status}: {e.stdout[-300:] if e.stdout else 'Без лога'}",
+        )
+        audit_log(
+            action="CR_DEPLOY_FAILED",
+            username=current_user.username,
+            client_ip=get_client_ip(http_request),
+            details={"cr_id": cr.id, "cluster_id": cluster.id, "awx_job_id": job_id, "error": e.status},
+            status="FAILURE",
+        )
+        return DeployResponse(
+            cr_id=cr.id,
+            cluster_id=cluster.id,
+            awx_job_id=job_id,
+            status="FAILED",
+            message=f"Сбой выполнения плейбука в AWX: {e.status}",
+            stdout=e.stdout,
+        )
+    except AwxClientError as e:
+        storage_service.update_deployment_status(
+            cr_id=cr.id,
+            deployment_status="FAILED",
+            awx_job_id=job_id,
+            deployment_error=str(e),
+        )
+        raise HTTPException(status_code=504, detail=f"Таймаут или ошибка ожидания AWX: {e}")
+
+
+@router.get("/{cr_id}/deploy-status", response_model=DeployResponse)
+async def get_deploy_status(
+    cr_id: int,
+    current_user: UserSession = Depends(get_current_user),
+):
+    """
+    Получение актуального статуса выполнения задачи деплоя в AWX.
+    Доступно: READER и выше.
+    """
+    cr = storage_service.get_change_request(cr_id)
+    if not cr:
+        raise HTTPException(status_code=404, detail=f"Заявка #{cr_id} не найдена")
+
+    cluster = _find_cluster(cr.cluster_id)
+    check_cluster_permission(current_user, cluster, Role.READER)
+
+    if not cr.awx_job_id:
+        return DeployResponse(
+            cr_id=cr.id,
+            cluster_id=cluster.id,
+            awx_job_id=0,
+            status=cr.deployment_status or "NOT_STARTED",
+            message="Задача деплоя еще не запускалась",
+            deployed_at=cr.deployed_at,
+        )
+
+    from app.services.awx_client import AwxClient
+    awx_client = AwxClient()
+    job_info = await awx_client.get_job_status(cr.awx_job_id)
+    stdout = await awx_client.get_job_stdout(cr.awx_job_id)
+    awx_status = job_info.get("status", "unknown")
+
+    # Синхронизация статуса в БД при необходимости
+    mapped_status = "DEPLOYING"
+    if awx_status == "successful":
+        mapped_status = "SUCCESS"
+    elif awx_status in ("failed", "error", "canceled"):
+        mapped_status = "FAILED"
+
+    if mapped_status != cr.deployment_status and mapped_status != "DEPLOYING":
+        from datetime import datetime, timezone
+        storage_service.update_deployment_status(
+            cr_id=cr.id,
+            deployment_status=mapped_status,
+            awx_job_id=cr.awx_job_id,
+            deployed_at=datetime.now(timezone.utc).isoformat() if mapped_status == "SUCCESS" else None,
+            deployment_error=None if mapped_status == "SUCCESS" else f"AWX status: {awx_status}",
+        )
+
+    return DeployResponse(
+        cr_id=cr.id,
+        cluster_id=cluster.id,
+        awx_job_id=cr.awx_job_id,
+        status=mapped_status,
+        message=f"AWX job #{cr.awx_job_id} статус: {awx_status}",
+        deployed_at=cr.deployed_at,
+        stdout=stdout,
+    )

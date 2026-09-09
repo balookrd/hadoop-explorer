@@ -1,0 +1,25 @@
+galaxy_info:
+  author: "Hadoop Explorer Platform Team"
+  description: "Ansible role for delivering capacity-scheduler.xml and hot-reloading queues via YARN ResourceManager rmadmin"
+  company: "Hadoop Explorer"
+  license: "Apache-2.0"
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "20.04"
+        - "22.04"
+        - "24.04"
+    - name: Debian
+      versions:
+        - "11"
+        - "12"
+  categories:
+    - system
+    - monitoring
+
+dependencies: []

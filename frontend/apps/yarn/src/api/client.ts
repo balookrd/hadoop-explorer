@@ -7,6 +7,8 @@ import type {
   ChangeRequestSummary,
   ChangeRequestResponse,
   ChangeRequestCreate,
+  DeployResponse,
+  DirectDeployXmlResponse,
 } from '../types';
 
 export class YarnApiClient extends BaseApiClient {
@@ -142,6 +144,26 @@ export class YarnApiClient extends BaseApiClient {
     return this.request<{ cr_id: number; title: string; filename: string; xml_content: string }>(
       `/change-requests/${id}/preview-xml`
     );
+  }
+
+  async deployChangeRequest(crId: number, wait: boolean = true) {
+    return this.request<DeployResponse>(`/change-requests/${crId}/deploy?wait=${wait}`, {
+      method: 'POST',
+    });
+  }
+
+  async getDeployStatus(crId: number) {
+    return this.request<DeployResponse>(`/change-requests/${crId}/deploy-status`);
+  }
+
+  async deployXmlDirect(clusterId: string, xmlContent: string, comment?: string) {
+    return this.request<DirectDeployXmlResponse>(`/clusters/${clusterId}/deploy-xml`, {
+      method: 'POST',
+      body: JSON.stringify({
+        xml_content: xmlContent,
+        comment: comment || 'Manual direct XML deployment',
+      }),
+    });
   }
 }
 

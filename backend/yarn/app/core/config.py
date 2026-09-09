@@ -84,11 +84,22 @@ class DatabaseConfig(BaseModel):
     url: str = "sqlite:///data/yarn_explorer.db"
 
 
+class AwxConfig(BaseModel):
+    enabled: bool = False
+    base_url: str = "https://awx.company.local"
+    token: Optional[str] = None
+    verify_ssl: bool = True
+    default_job_template_id: Optional[int] = None
+    poll_interval_seconds: int = 2
+    timeout_seconds: int = 180
+
+
 class Settings(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     acl: AclConfig = Field(default_factory=AclConfig)
+    awx: AwxConfig = Field(default_factory=AwxConfig)
     clusters: List[ClusterConfig] = Field(default_factory=list)
 
     def validate_production_security(self) -> "Settings":
@@ -161,6 +172,19 @@ class Settings(BaseSettings):
         env_four_eyes = os.environ.get("ENFORCE_FOUR_EYES") or os.environ.get("YARN_ENFORCE_FOUR_EYES")
         if env_four_eyes is not None:
             inst.acl.enforce_four_eyes = env_four_eyes.lower() in ("1", "true", "yes")
+
+        env_awx_enabled = os.environ.get("AWX_ENABLED")
+        if env_awx_enabled is not None:
+            inst.awx.enabled = env_awx_enabled.lower() in ("1", "true", "yes")
+        env_awx_url = os.environ.get("AWX_BASE_URL")
+        if env_awx_url:
+            inst.awx.base_url = env_awx_url
+        env_awx_token = os.environ.get("AWX_TOKEN")
+        if env_awx_token:
+            inst.awx.token = env_awx_token
+        env_awx_template = os.environ.get("AWX_JOB_TEMPLATE_ID")
+        if env_awx_template and env_awx_template.isdigit():
+            inst.awx.default_job_template_id = int(env_awx_template)
 
         from backend.common.core.base_config import INSECURE_DEFAULT_KEYS
 

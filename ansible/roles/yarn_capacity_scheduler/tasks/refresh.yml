@@ -1,0 +1,42 @@
+---
+# Определение активного ResourceManager и горячее применение очередей
+
+- name: Check YARN RM HA state if rm_id is defined
+  when: rm_id is defined
+  ansible.builtin.command:
+    cmd: "yarn rmadmin -getServiceState {{ rm_id }}"
+  become_user: "{{ hadoop_user }}"
+  register: rm_service_state
+  changed_when: false
+  failed_when: false
+
+- name: Determine if current node is Active RM
+  ansible.builtin.set_fact:
+    is_active_rm: >-
+      {{
+        (rm_id is not defined) or
+        ('active' in (rm_service_state.stdout | default('') | lower))
+      }}
+
+- name: Apply configuration on Active RM
+  when: is_active_rm | bool
+  block:
+    - name: Authenticate with Kerberos keytab (if Kerberos is enabled)
+      when: kerberos_enabled | bool
+      ansible.builtin.command:
+        cmd: "kinit -kt {{ yarn_keytab }} {{ yarn_principal }}"
+      become_user: "{{ hadoop_user }}"
+      changed_when: false
+
+    - name: Execute yarn rmadmin -refreshQueues
+      ansible.builtin.command:
+        cmd: "yarn rmadmin -refreshQueues"
+      become_user: "{{ hadoop_user }}"
+      register: refresh_cmd_output
+      changed_when: true
+
+    - name: Log successful refresh in AWX job output
+      ansible.builtin.debug:
+        msg: >-
+          [SUCCESS] YARN queues refreshed on Active RM ({{ inventory_hostname }}).
+          Applied by: {{ applied_by }}, CR: {{ change_request_id }}, Cluster: {{ cluster_id }}.

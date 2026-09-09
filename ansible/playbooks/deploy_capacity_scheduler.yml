@@ -1,0 +1,10 @@
+---
+# Playbook для запуска в AWX Job Template
+# Применяет роль yarn_capacity_scheduler к группе хостов yarn_rm
+
+- name: Deploy YARN Capacity Scheduler via AWX
+  hosts: yarn_rm
+  become: true
+  gather_facts: true
+  roles:
+    - role: yarn_capacity_scheduler
