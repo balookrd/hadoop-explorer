@@ -242,6 +242,57 @@ class MetricsRegistry:
             "Total unhandled 500 exceptions captured with incident_id",
             ["app", "exception_type"],
         )
+        # 1. YARN Explorer Metrics
+        self.yarn_queues_active = self.gauge(
+            "yarn_queues_active_gauge",
+            "Active YARN queues count",
+            ["cluster", "state"],
+        )
+        self.yarn_change_requests_total = self.counter(
+            "yarn_change_requests_total",
+            "Total YARN capacity change requests processed",
+            ["cluster", "status"],
+        )
+        # 2. Spark Explorer Metrics
+        self.spark_sessions_active = self.gauge(
+            "spark_sessions_active_gauge",
+            "Current active Spark/Livy sessions",
+            ["cluster", "kind"],
+        )
+        self.spark_statements_total = self.counter(
+            "spark_statements_total",
+            "Total interactive Spark statements executed",
+            ["cluster", "status"],
+        )
+        self.spark_statement_duration_seconds = self.histogram(
+            "spark_statement_duration_seconds",
+            "Spark statement execution duration in seconds",
+            ["cluster"],
+            buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+        )
+        # 3. SQL Explorer Metrics
+        self.sql_queries_total = self.counter(
+            "sql_queries_total",
+            "Total Trino/Hive SQL queries executed",
+            ["engine", "status"],
+        )
+        self.sql_query_duration_seconds = self.histogram(
+            "sql_query_duration_seconds",
+            "SQL query execution duration in seconds",
+            ["engine"],
+            buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+        )
+        # 4. HDFS Explorer Metrics
+        self.hdfs_operations_total = self.counter(
+            "hdfs_operations_total",
+            "Total HDFS file operations",
+            ["cluster", "operation", "status"],
+        )
+        self.hdfs_bytes_transferred_total = self.counter(
+            "hdfs_bytes_transferred_total",
+            "Total HDFS transferred bytes (uploads/downloads)",
+            ["cluster", "direction"],
+        )
 
     def counter(self, name: str, documentation: str, label_names: Optional[Sequence[str]] = None) -> Counter:
         with self._lock:

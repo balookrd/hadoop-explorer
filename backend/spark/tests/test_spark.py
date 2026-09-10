@@ -298,3 +298,27 @@ async def test_spark_metadata_caching_and_refresh(client: AsyncClient):
     # 4. Очистка кэша
     catalog_service.clear_metadata_cache()
     assert _spark_meta_cache.get(cache_key) is None
+
+
+@pytest.mark.asyncio
+async def test_session_status_stream_sse(client: AsyncClient):
+    """Проверяет SSE стриминг состояния сессии Spark."""
+    create_resp = await client.post(
+        "/api/sessions",
+        json={
+            "cluster_id": "dev-hadoop",
+            "spark_version_id": "spark-3.5-dev",
+            "python_env_id": "py310-dev",
+            "metastore_id": "dev-hms",
+            "yarn_queue": "default",
+            "resource_profile": "small",
+            "kind": "pyspark",
+        },
+    )
+    assert create_resp.status_code == 200
+    sess_id = create_resp.json()["id"]
+
+    stream_resp = await client.get(f"/api/sessions/{sess_id}/stream")
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers["content-type"]
+    assert "data: " in stream_resp.text

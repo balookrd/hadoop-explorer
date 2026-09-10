@@ -2,7 +2,8 @@ import asyncio
 import io
 import tempfile
 import zipfile
-from typing import Optional
+from datetime import datetime
+from typing import Optional, List, Dict
 import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status, Response, Request
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,15 @@ from app.core.rate_limiter import get_client_ip
 from app.core.audit import audit_log
 from app.core.acl import can_access_cluster, is_cluster_read_only
 from backend.common.models.auth import UserInfo
-from app.models.hdfs import DirectoryListingResponse, FilePreviewResponse, FileActionResponse, HdfsFileStatus
+from app.models.hdfs import (
+    DirectoryListingResponse,
+    FilePreviewResponse,
+    FileActionResponse,
+    HdfsFileStatus,
+    BatchDeleteRequest,
+    BatchDeleteResponse,
+    BatchDownloadRequest,
+)
 from app.services.hdfs_client import hdfs_service, WebHdfsException
 from app.services.preview import preview_service
 
@@ -607,3 +616,139 @@ async def delete_path(
             status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/batch-delete", response_model=BatchDeleteResponse)
+async def batch_delete_paths(
+    cluster_id: str,
+    request: Request,
+    req: BatchDeleteRequest,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """
+    Пакетное удаление нескольких файлов и директорий HDFS за один вызов.
+    """
+    cluster = _get_cluster_and_validate(cluster_id, current_user)
+    if is_cluster_read_only(cluster, current_user.username, current_user.groups):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Кластер доступен только для чтения")
+
+    client = hdfs_service.get_client(cluster)
+    deleted: List[str] = []
+    failed: List[Dict[str, str]] = []
+
+    for path in req.paths:
+        clean_path = sanitize_hdfs_path(path)
+        if clean_path == "/":
+            failed.append({"path": clean_path, "error": "Удаление корневой директории (/) запрещено"})
+            continue
+
+        try:
+            await client.delete(clean_path, do_as_user=current_user.username, recursive=req.recursive)
+            deleted.append(clean_path)
+        except Exception as e:
+            err_msg = e.message if isinstance(e, WebHdfsException) else str(e)
+            failed.append({"path": clean_path, "error": err_msg})
+
+    audit_log(
+        action="BATCH_PATH_DELETE",
+        username=current_user.username,
+        client_ip=get_client_ip(request),
+        details={
+            "cluster_id": cluster_id,
+            "deleted_count": len(deleted),
+            "failed_count": len(failed),
+            "deleted": deleted,
+            "failed": failed,
+        },
+        status="SUCCESS" if not failed else ("WARNING" if deleted else "FAILED"),
+    )
+
+    return BatchDeleteResponse(
+        deleted=deleted,
+        failed=failed,
+        total_requested=len(req.paths),
+        success=len(failed) == 0,
+    )
+
+
+@router.post("/batch-download")
+async def batch_download_paths(
+    cluster_id: str,
+    request: Request,
+    req: BatchDownloadRequest,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """
+    Пакетное скачивание нескольких файлов и директорий HDFS в едином ZIP-архиве.
+    """
+    cluster = _get_cluster_and_validate(cluster_id, current_user)
+    client = hdfs_service.get_client(cluster)
+
+    if not req.paths:
+        raise HTTPException(status_code=400, detail="Список путей для скачивания не может быть пустым")
+
+    temp_zip = tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024, mode="w+b")
+    total_files = 0
+    total_uncompressed_bytes = 0
+
+    try:
+        with zipfile.ZipFile(temp_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in req.paths:
+                clean_path = sanitize_hdfs_path(path)
+                if clean_path == "/":
+                    continue
+
+                status_obj = await client.get_file_status(clean_path, do_as_user=current_user.username)
+                if status_obj.type == "FILE":
+                    total_files += 1
+                    total_uncompressed_bytes += status_obj.length
+                    if total_files > MAX_ZIP_FILES or total_uncompressed_bytes > MAX_ZIP_TOTAL_BYTES:
+                        raise HTTPException(
+                            status_code=400, detail="Превышен лимит размера или количества файлов для ZIP архива"
+                        )
+                    content = await client.get_file_content(clean_path, do_as_user=current_user.username)
+                    arcname = clean_path.lstrip("/")
+                    zf.writestr(arcname, content)
+                else:
+                    # Directory: list files and add recursively
+                    dir_content = await create_directory_zip(client, clean_path, current_user.username)
+                    with zipfile.ZipFile(dir_content, mode="r") as dir_zf:
+                        for item in dir_zf.infolist():
+                            total_files += 1
+                            total_uncompressed_bytes += item.file_size
+                            if total_files > MAX_ZIP_FILES or total_uncompressed_bytes > MAX_ZIP_TOTAL_BYTES:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail="Превышен лимит размера или количества файлов для ZIP архива",
+                                )
+                            zf.writestr(item.filename, dir_zf.read(item.filename))
+                    dir_content.close()
+
+        temp_zip.seek(0)
+        audit_log(
+            action="BATCH_FILE_DOWNLOAD_ZIP",
+            username=current_user.username,
+            client_ip=get_client_ip(request),
+            details={"cluster_id": cluster_id, "paths": req.paths, "total_files": total_files},
+            status="SUCCESS",
+        )
+
+        def iterfile():
+            try:
+                while chunk := temp_zip.read(65536):
+                    yield chunk
+            finally:
+                temp_zip.close()
+
+        filename = f"hdfs_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        return StreamingResponse(
+            iterfile(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except WebHdfsException as e:
+        temp_zip.close()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        temp_zip.close()
+        raise HTTPException(status_code=400, detail=str(e))

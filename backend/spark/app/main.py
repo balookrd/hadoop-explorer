@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 
 from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.api.request_id_middleware import RequestIdMiddleware
 from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
 
 
@@ -112,6 +113,19 @@ async def add_security_headers(request: Request, call_next):
     )
 
 
+# Request ID correlation Middleware
+app.add_middleware(RequestIdMiddleware)
+
+# OpenTelemetry Tracing Middleware
+from backend.common.core.tracing import OpenTelemetryMiddleware
+
+app.add_middleware(OpenTelemetryMiddleware)
+
+# ETag Caching Middleware
+from backend.common.api.etag_middleware import ETagMiddleware
+
+app.add_middleware(ETagMiddleware)
+
 # Metrics Middleware
 app.add_middleware(PrometheusMetricsMiddleware, app_name="spark-explorer")
 
@@ -124,6 +138,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Sec-Fetch-Site"],
 )
 
+from app.api.pipelines import router as pipelines_router
+
 # Подключение API роутеров (с версионированием /api/v1 и обратной совместимостью /api)
 for prefix in ("/api/v1", "/api"):
     app.include_router(auth_router, prefix=prefix)
@@ -131,6 +147,7 @@ for prefix in ("/api/v1", "/api"):
     app.include_router(sessions_router, prefix=prefix)
     app.include_router(statements_router, prefix=prefix)
     app.include_router(catalog_router, prefix=prefix)
+    app.include_router(pipelines_router, prefix=prefix)
     app.include_router(history_router, prefix=prefix)
     app.include_router(workspace_router, prefix=prefix)
 

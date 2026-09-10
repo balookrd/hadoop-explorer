@@ -12,6 +12,7 @@ from app.api.clusters import router as clusters_router
 from app.api.files import router as files_router
 
 from backend.common.api.error_handlers import setup_global_exception_handlers
+from backend.common.api.request_id_middleware import RequestIdMiddleware
 from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_registry
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,19 @@ async def add_security_headers(request: Request, call_next):
         is_code_editor=False,
     )
 
+
+# Request ID correlation Middleware
+app.add_middleware(RequestIdMiddleware)
+
+# OpenTelemetry Tracing Middleware
+from backend.common.core.tracing import OpenTelemetryMiddleware
+
+app.add_middleware(OpenTelemetryMiddleware)
+
+# ETag Caching Middleware
+from backend.common.api.etag_middleware import ETagMiddleware
+
+app.add_middleware(ETagMiddleware)
 
 # Metrics Middleware
 app.add_middleware(PrometheusMetricsMiddleware, app_name="hdfs-explorer")

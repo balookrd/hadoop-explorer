@@ -44,12 +44,20 @@ def audit_log(
     Записывает структурированное событие аудита безопасности в JSON.
     """
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        from backend.common.api.request_id_middleware import get_request_id
+
+        req_id = get_request_id()
+    except Exception:
+        req_id = ""
+
     event = {
         "timestamp": now_iso,
         "action": action,
         "event_type": action,
         "username": username or "anonymous",
         "client_ip": client_ip or "unknown",
+        "request_id": req_id or "unknown",
         "status": status,
         "details": details or {},
     }

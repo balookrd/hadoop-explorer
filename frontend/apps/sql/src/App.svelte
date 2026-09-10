@@ -31,7 +31,7 @@
   let authErrorMessage = $state<string | null>(null);
   let clusters = $state<ClusterSummary[]>([]);
   let selectedClusterId = $state<string>('');
-  let sidebarRef: Sidebar | null = null;
+  let sidebarRef = $state<Sidebar | null>(null);
   let unsubscribeNotifications: (() => void) | null = null;
   let unsubscribeAuth: (() => void) | null = null;
 

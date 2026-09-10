@@ -18,7 +18,7 @@ from backend.common.core.rate_limiter import (
 )
 from backend.common.core.cache import L1RevokedTokenCache
 from backend.common.core.ldap_auth import CommonLdapAuthService
-from backend.common.core.session_store import SessionStore
+from backend.common.core.session_store import SessionStore, StorageUnavailableException
 from backend.common.core.circuit_breaker import (
     CircuitBreaker,
     CircuitState,
@@ -35,6 +35,17 @@ from backend.common.core.metrics import (
     Counter,
     Gauge,
     Histogram,
+)
+from backend.common.core.logging_config import JSONFormatter, setup_logging
+from backend.common.core.http_client import create_async_http_client
+from backend.common.core.jwt_keys import JWTKeyManager, global_jwt_key_manager
+from backend.common.core.tracing import (
+    OpenTelemetryTracer,
+    OpenTelemetryMiddleware,
+    global_tracer,
+    get_current_trace_id,
+    get_current_span_id,
+    Span,
 )
 
 __all__ = [
@@ -53,6 +64,7 @@ __all__ = [
     "L1RevokedTokenCache",
     "CommonLdapAuthService",
     "SessionStore",
+    "StorageUnavailableException",
     "CircuitBreaker",
     "CircuitState",
     "CircuitBreakerOpenException",
@@ -72,4 +84,15 @@ __all__ = [
     "Counter",
     "Gauge",
     "Histogram",
+    "create_async_http_client",
+    "JSONFormatter",
+    "setup_logging",
+    "JWTKeyManager",
+    "global_jwt_key_manager",
+    "OpenTelemetryTracer",
+    "OpenTelemetryMiddleware",
+    "global_tracer",
+    "get_current_trace_id",
+    "get_current_span_id",
+    "Span",
 ]

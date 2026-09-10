@@ -37,7 +37,7 @@
   let searchQuery = $state('');
   let loadingSchema = $state(false);
   let loadingHistory = $state(false);
-  let queueViewRef: QueueView | null = null;
+  let queueViewRef = $state<QueueView | null>(null);
 
   // Схема
   let catalogs = $state<string[]>([]);

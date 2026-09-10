@@ -518,12 +518,14 @@ class HdfsClient:
 
     def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    self.cluster.timeout_seconds, connect=min(float(self.cluster.timeout_seconds), 10.0)
-                ),
+            from backend.common.core.http_client import create_async_http_client
+
+            self._http_client = create_async_http_client(
+                timeout=float(self.cluster.timeout_seconds),
+                max_keepalive=20,
+                max_connections=50,
+                keepalive_expiry=30.0,
                 follow_redirects=False,
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0),
             )
         return self._http_client
 

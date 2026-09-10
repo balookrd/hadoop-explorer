@@ -139,3 +139,43 @@ async def stop_session(session_id: str, current_user: UserSession = Depends(get_
         return {"status": "ok", "message": f"Сессия {session_id} остановлена"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
+
+@router.get("/{session_id}/stream")
+async def stream_session_status(session_id: str, current_user: UserSession = Depends(get_current_user)):
+    """
+    SSE стриминг состояния и статуса Spark/Livy сессии.
+    """
+    import asyncio
+    from fastapi.responses import StreamingResponse
+    import json
+
+    async def event_generator():
+        last_status = None
+        for _ in range(120):  # До 2 минут стриминга
+            sess = await session_manager.get_session(session_id)
+            if not sess:
+                yield f"data: {json.dumps({'status': 'not_found'})}\n\n"
+                break
+
+            current_status = sess.status
+            if current_status != last_status:
+                last_status = current_status
+                payload = {
+                    "session_id": sess.id,
+                    "status": sess.status,
+                    "yarn_application_id": sess.yarn_application_id,
+                    "kind": sess.kind,
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+
+            if current_status in ("idle", "dead", "killed", "error"):
+                break
+
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )

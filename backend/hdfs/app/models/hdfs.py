@@ -1,4 +1,4 @@
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field
 
 
@@ -64,3 +64,19 @@ class CrossClusterCopyResponse(BaseModel):
     target_path: str
     copied_files: int = 0
     copied_bytes: int = 0
+
+
+class BatchDeleteRequest(BaseModel):
+    paths: List[str]
+    recursive: bool = True
+
+
+class BatchDeleteResponse(BaseModel):
+    deleted: List[str]
+    failed: List[Dict[str, str]]
+    total_requested: int
+    success: bool
+
+
+class BatchDownloadRequest(BaseModel):
+    paths: List[str]

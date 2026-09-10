@@ -528,4 +528,11 @@ def create_auth_router(
 
         return {"success": True, "message": "Вы успешно вышли из системы"}
 
+    @router.get("/jwks.json", tags=["auth"])
+    async def get_jwks():
+        """Возвращает набор публичных ключей JWKS (RFC 7517) для верификации асимметричных JWT токенов."""
+        from backend.common.core.jwt_keys import global_jwt_key_manager
+
+        return global_jwt_key_manager.get_jwks()
+
     return router

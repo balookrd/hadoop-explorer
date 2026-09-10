@@ -33,6 +33,12 @@ from backend.common.core.cache import L1RevokedTokenCache
 logger = logging.getLogger(__name__)
 
 
+class StorageUnavailableException(Exception):
+    """Исключение при недоступности L2 хранилища сессий в режиме fail_closed."""
+
+    pass
+
+
 class SessionStore:
     @staticmethod
     def _normalize_db_url(raw_url: str) -> tuple[str, bool, bool]:
@@ -60,7 +66,13 @@ class SessionStore:
         default_db_path: str = "/app/data/sessions.db",
         service_name: Optional[str] = None,
         redis_url: Optional[str] = None,
+        fail_closed: bool = False,
     ):
+        self.fail_closed = fail_closed or os.environ.get("FAIL_CLOSED_ON_DB_ERROR", "").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
         redis_env = redis_url or os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL")
         env_prefix = f"{service_name.upper()}_" if service_name else ""
         service_db_env = os.environ.get(f"{env_prefix}DATABASE_URL") if env_prefix else None
@@ -551,6 +563,8 @@ class SessionStore:
             return False
         except Exception as e:
             logger.error(f"Ошибка проверки отзыва токена: {e}")
+            if self.fail_closed:
+                raise StorageUnavailableException(f"Хранилище сессий временно недоступно (Fail-Closed): {e}") from e
             return self._l1_cache.contains(h) or self._l1_cache.contains(token_or_jti)
 
     # ==================== RATE LIMITING ====================
@@ -601,6 +615,10 @@ class SessionStore:
                 return True, 0
         except Exception as e:
             logger.error(f"Ошибка проверки rate limit: {e}")
+            if self.fail_closed:
+                raise StorageUnavailableException(
+                    f"Хранилище rate limits временно недоступно (Fail-Closed): {e}"
+                ) from e
             return True, 0
 
     def clear_rate_limits(self):

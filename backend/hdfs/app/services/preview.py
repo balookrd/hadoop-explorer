@@ -152,6 +152,23 @@ class PreviewService:
                                 schema_lines.append(f"  - {col_schema.name} ({col_schema.physical_type})")
                             schema_desc = "\n".join(schema_lines)
 
+                            # Попытка извлечь строки данных из Row Group 0 через комбинированный поток
+                            sample_rows = []
+                            try:
+                                stream = io.BufferedReader(
+                                    _SeekableFooterStream(total_size, footer_bytes[-(footer_len + 8) :], header=content)
+                                )
+                                pf = pq.ParquetFile(stream)
+                                if pf.num_row_groups > 0:
+                                    rg0 = pf.read_row_group(0)
+                                    pylist = rg0.slice(0, 50).to_pylist()
+                                    sample_rows = [
+                                        [str(r.get(c, "")) if r.get(c) is not None else "" for c in columns]
+                                        for r in pylist
+                                    ]
+                            except Exception:
+                                pass
+
                             return FilePreviewResponse(
                                 cluster_id=cluster_id,
                                 path=path,
@@ -164,8 +181,8 @@ class PreviewService:
                                     f"Схема и метаданные колонок успешно извлечены из футера файла:\n\n{schema_desc}"
                                 ),
                                 columns=columns,
-                                rows=[],
-                                row_count=0,
+                                rows=sample_rows,
+                                row_count=len(sample_rows),
                             )
                     except Exception as fe:
                         logger.warning(f"Не удалось распарсить футер Parquet файла {path}: {fe}")
@@ -251,6 +268,18 @@ class PreviewService:
                         schema_lines.append(f"  - {field.name} ({field.type})")
                     schema_desc = "\n".join(schema_lines)
 
+                    # Попытка извлечь строки данных из Stripe 0 через комбинированный поток
+                    sample_rows = []
+                    try:
+                        if num_stripes > 0:
+                            stripe0 = reader.read_stripe(0)
+                            pylist = stripe0.slice(0, 50).to_pylist()
+                            sample_rows = [
+                                [str(r.get(c, "")) if r.get(c) is not None else "" for c in columns] for r in pylist
+                            ]
+                    except Exception:
+                        pass
+
                     return FilePreviewResponse(
                         cluster_id=cluster_id,
                         path=path,
@@ -263,8 +292,8 @@ class PreviewService:
                             f"Схема и метаданные колонок успешно извлечены из футера файла:\n\n{schema_desc}"
                         ),
                         columns=columns,
-                        rows=[],
-                        row_count=0,
+                        rows=sample_rows,
+                        row_count=len(sample_rows),
                     )
                 except Exception as fe:
                     logger.warning(f"Не удалось распарсить футер ORC файла {path}: {fe}")

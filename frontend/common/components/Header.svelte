@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { UserSession } from '../types';
-  import { Shield, User, LogOut, ChevronDown, Server, Cpu } from 'lucide-svelte';
+  import { Shield, User, LogOut, ChevronDown, Server, Cpu, Sun, Moon } from 'lucide-svelte';
+  import { themeStore } from '../stores/theme.svelte';
 
   interface ClusterOption {
     id: string;
@@ -105,7 +106,7 @@
 />
 
 <header
-  class="h-14 bg-white border-b border-slate-200 shadow-xs flex items-center justify-between px-3 sm:px-4 select-none shrink-0 sticky top-0 z-50 gap-2"
+  class="h-14 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between px-3 sm:px-4 select-none shrink-0 sticky top-0 z-50 gap-2 text-slate-800 dark:text-slate-100"
   style="position: sticky; top: 0; z-index: 50;"
 >
   <!-- Логотип и Бренд -->
@@ -157,6 +158,20 @@
     {#if extraActions}
       {@render extraActions()}
     {/if}
+
+    <!-- Переключатель темы (Dark / Light) -->
+    <button
+      onclick={() => themeStore.toggleTheme()}
+      class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
+      title={themeStore.isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+      aria-label="Toggle theme"
+    >
+      {#if themeStore.isDark}
+        <Sun class="w-4 h-4 text-amber-400" />
+      {:else}
+        <Moon class="w-4 h-4 text-slate-600" />
+      {/if}
+    </button>
 
     {#if user}
       <div class="relative shrink-0" bind:this={menuContainerRef}>

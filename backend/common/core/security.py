@@ -120,7 +120,10 @@ def create_jwt_token(
     algorithm: str = "HS256",
     expires_minutes: int = 480,
     expires_delta: Optional[timedelta] = None,
+    kid: Optional[str] = None,
 ) -> str:
+    from backend.common.core.jwt_keys import global_jwt_key_manager
+
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
     if expires_delta:
@@ -136,12 +139,37 @@ def create_jwt_token(
             "jti": jti,
         }
     )
+
+    if algorithm.startswith("RS") or algorithm.startswith("ES"):
+        # Если есть зарегистрированный приватный ключ в KeyManager
+        active_priv_key = global_jwt_key_manager.get_active_private_key()
+        if active_priv_key is not None:
+            return global_jwt_key_manager.sign_jwt(to_encode)
+        # Иначе используем secret_key как PEM-строку
+        headers = {"kid": kid} if kid else None
+        return jwt.encode(to_encode, secret_key, algorithm=algorithm, headers=headers)
+
     return jwt.encode(to_encode, secret_key, algorithm=algorithm)
 
 
 def decode_jwt_token(token: str, secret_key: str, algorithms: Optional[List[str]] = None) -> Optional[dict]:
+    from backend.common.core.jwt_keys import global_jwt_key_manager
+
+    algs = algorithms or ["HS256", "RS256"]
+    # 1. Пробуем декодировать через KeyManager (если токен содержит kid или подписан RS256)
     try:
-        payload = jwt.decode(token, secret_key, algorithms=algorithms or ["HS256"])
+        unverified_headers = jwt.get_unverified_header(token)
+        alg = unverified_headers.get("alg", "HS256")
+        if alg.startswith("RS") or alg.startswith("ES"):
+            key_mgr_res = global_jwt_key_manager.verify_jwt(token)
+            if key_mgr_res is not None:
+                return key_mgr_res
+    except Exception:
+        pass
+
+    # 2. Стандартная проверка по secret_key (симметричный ключ или PEM-публичный ключ)
+    try:
+        payload = jwt.decode(token, secret_key, algorithms=algs)
         return payload
     except (jwt.PyJWTError, KeyError, ValueError):
         return None

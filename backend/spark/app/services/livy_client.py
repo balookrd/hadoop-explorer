@@ -36,7 +36,9 @@ class LivyClient:
 
     def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=30.0, verify=self.use_ssl)
+            from backend.common.core.http_client import create_async_http_client
+
+            self._http_client = create_async_http_client(timeout=30.0, verify=self.use_ssl)
         return self._http_client
 
     async def aclose(self):

@@ -154,3 +154,64 @@ def test_rate_limiter_optimized_without_per_request_delete():
     # Проверяем плановую очистку
     deleted = store.cleanup_expired()
     assert isinstance(deleted, int)
+
+
+@pytest.mark.asyncio
+async def test_request_id_middleware_and_audit():
+    """Проверяет проброс X-Request-ID через RequestIdMiddleware и его регистрацию в audit_log."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from backend.common.core.audit import recent_audit_events
+
+    transport = ASGITransport(app=app)
+    custom_req_id = "test-custom-req-id-12345"
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/healthz", headers={"X-Request-ID": custom_req_id})
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Request-ID") == custom_req_id
+
+
+def test_session_store_fail_closed_mode():
+    """Проверяет режим fail_closed в SessionStore при сбоях в базе данных."""
+    from backend.common.core.session_store import SessionStore, StorageUnavailableException
+    from unittest.mock import MagicMock
+
+    store = SessionStore(db_url="sqlite:///:memory:", fail_closed=True)
+    # Имитируем сбой подключения к БД
+    store.engine = MagicMock()
+    store.engine.connect.side_effect = Exception("Database connection lost")
+    store.engine.begin.side_effect = Exception("Database connection lost")
+
+    # В режиме fail_closed проверка отзыва токена должна возбуждать StorageUnavailableException
+    with pytest.raises(StorageUnavailableException):
+        store.is_token_revoked("some-unseen-token-jti")
+
+    # Проверка rate limit в режиме fail_closed также должна возбуждать исключение
+    with pytest.raises(StorageUnavailableException):
+        store.check_and_record_rate_limit("user:test", max_requests=5, window_seconds=60)
+
+
+def test_json_logging_formatter():
+    """Проверяет корректность JSON-форматирования записей лога."""
+    import logging
+    import json
+    from backend.common.core.logging_config import JSONFormatter
+
+    formatter = JSONFormatter(service_name="hdfs-test")
+    record = logging.LogRecord(
+        name="test_logger",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=10,
+        msg="Тестовое сообщение лога",
+        args=(),
+        exc_info=None,
+    )
+    formatted = formatter.format(record)
+    parsed = json.loads(formatted)
+
+    assert parsed["service"] == "hdfs-test"
+    assert parsed["level"] == "INFO"
+    assert parsed["logger"] == "test_logger"
+    assert parsed["message"] == "Тестовое сообщение лога"
+    assert "timestamp" in parsed
