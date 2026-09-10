@@ -72,6 +72,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Jwks
+         * @description Возвращает набор публичных ключей JWKS (RFC 7517) для верификации асимметричных JWT токенов.
+         */
+        get: operations["get_jwks_api_v1_auth_jwks_json_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clusters": {
         parameters: {
             query?: never;
@@ -180,6 +200,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clusters/{cluster_id}/files/upload-chunk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload File Chunk
+         * @description Пошаговая загрузка больших файлов чанками с защитой от сбоев сети и path traversal.
+         *     При загрузке всех частей (0..total_chunks-1) файл собирается и передается потоком в WebHDFS.
+         */
+        post: operations["upload_file_chunk_api_v1_clusters__cluster_id__files_upload_chunk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{cluster_id}/files/upload-chunk/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Chunked Upload Status
+         * @description Проверяет статус загруженных чанков для возобновления загрузки после сбоя.
+         */
+        get: operations["get_chunked_upload_status_api_v1_clusters__cluster_id__files_upload_chunk_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clusters/{cluster_id}/files/upload-archive": {
         parameters: {
             query?: never;
@@ -252,6 +313,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clusters/{cluster_id}/files/batch-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Delete Paths
+         * @description Пакетное удаление нескольких файлов и директорий HDFS за один вызов.
+         */
+        post: operations["batch_delete_paths_api_v1_clusters__cluster_id__files_batch_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{cluster_id}/files/batch-download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Download Paths
+         * @description Пакетное скачивание нескольких файлов и директорий HDFS в едином ZIP-архиве.
+         */
+        post: operations["batch_download_paths_api_v1_clusters__cluster_id__files_batch_download_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -260,10 +361,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Healthz
+         * Health Check
          * @description Liveness probe: проверка жизнеспособности процесса.
          */
-        get: operations["healthz_api_v1_health_get"];
+        get: operations["health_check_api_v1_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -280,10 +381,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Healthz
+         * Health Check
          * @description Liveness probe: проверка жизнеспособности процесса.
          */
-        get: operations["healthz_api_health_get"];
+        get: operations["health_check_api_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -300,10 +401,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Healthz
+         * Health Check
          * @description Liveness probe: проверка жизнеспособности процесса.
          */
-        get: operations["healthz_healthz_get"];
+        get: operations["health_check_healthz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -320,10 +421,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_api_v1_readyz_get"];
+        get: operations["readyz_endpoint_api_v1_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -340,10 +441,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_api_readyz_get"];
+        get: operations["readyz_endpoint_api_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -360,10 +461,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_readyz_get"];
+        get: operations["readyz_endpoint_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -376,6 +477,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BatchDeleteRequest */
+        BatchDeleteRequest: {
+            /** Paths */
+            paths: string[];
+            /**
+             * Recursive
+             * @default true
+             */
+            recursive: boolean;
+        };
+        /** BatchDeleteResponse */
+        BatchDeleteResponse: {
+            /** Deleted */
+            deleted: string[];
+            /** Failed */
+            failed: {
+                [key: string]: string;
+            }[];
+            /** Total Requested */
+            total_requested: number;
+            /** Success */
+            success: boolean;
+        };
+        /** BatchDownloadRequest */
+        BatchDownloadRequest: {
+            /** Paths */
+            paths: string[];
+        };
         /** Body_upload_archive_api_v1_clusters__cluster_id__files_upload_archive_post */
         Body_upload_archive_api_v1_clusters__cluster_id__files_upload_archive_post: {
             /** Path */
@@ -401,6 +530,37 @@ export interface components {
              * @default true
              */
             overwrite: boolean;
+        };
+        /** Body_upload_file_chunk_api_v1_clusters__cluster_id__files_upload_chunk_post */
+        Body_upload_file_chunk_api_v1_clusters__cluster_id__files_upload_chunk_post: {
+            /** Upload Id */
+            upload_id: string;
+            /** Path */
+            path: string;
+            /** Filename */
+            filename: string;
+            /** Chunk Index */
+            chunk_index: number;
+            /** Total Chunks */
+            total_chunks: number;
+            /** File */
+            file: string;
+            /**
+             * Overwrite
+             * @default true
+             */
+            overwrite: boolean;
+        };
+        /** ChunkedUploadStatusResponse */
+        ChunkedUploadStatusResponse: {
+            /** Upload Id */
+            upload_id: string;
+            /** Received Chunks */
+            received_chunks: number[];
+            /** Total Chunks */
+            total_chunks: number;
+            /** Is Complete */
+            is_complete: boolean;
         };
         /** ClusterPublicInfo */
         ClusterPublicInfo: {
@@ -730,6 +890,26 @@ export interface operations {
             };
         };
     };
+    get_jwks_api_v1_auth_jwks_json_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_clusters_api_v1_clusters_get: {
         parameters: {
             query?: never;
@@ -917,6 +1097,75 @@ export interface operations {
             };
         };
     };
+    upload_file_chunk_api_v1_clusters__cluster_id__files_upload_chunk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_file_chunk_api_v1_clusters__cluster_id__files_upload_chunk_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chunked_upload_status_api_v1_clusters__cluster_id__files_upload_chunk_status_get: {
+        parameters: {
+            query: {
+                upload_id: string;
+                total_chunks: number;
+            };
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChunkedUploadStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_archive_api_v1_clusters__cluster_id__files_upload_archive_post: {
         parameters: {
             query?: never;
@@ -1053,7 +1302,143 @@ export interface operations {
             };
         };
     };
-    healthz_api_v1_health_get: {
+    batch_delete_paths_api_v1_clusters__cluster_id__files_batch_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_download_paths_api_v1_clusters__cluster_id__files_batch_download_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDownloadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    health_check_api_v1_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    health_check_api_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    health_check_healthz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    readyz_endpoint_api_v1_readyz_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1073,7 +1458,7 @@ export interface operations {
             };
         };
     };
-    healthz_api_health_get: {
+    readyz_endpoint_api_readyz_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1093,67 +1478,7 @@ export interface operations {
             };
         };
     };
-    healthz_healthz_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    readyz_api_v1_readyz_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    readyz_api_readyz_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    readyz_readyz_get: {
+    readyz_endpoint_readyz_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -15,6 +15,8 @@ class SparkSessionRecord(Base):
     cluster_id = Column(String(64), index=True, nullable=False)
     spark_version_id = Column(String(64), nullable=False)
     python_env_id = Column(String(64), nullable=True)
+    custom_python_archive = Column(String(512), nullable=True)
+    custom_python_path = Column(String(256), nullable=True)
     metastore_id = Column(String(64), nullable=False)
     yarn_queue = Column(String(128), nullable=False)
     resource_profile = Column(String(64), nullable=False)

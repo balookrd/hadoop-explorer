@@ -18,6 +18,8 @@ class CreateSessionRequest(BaseModel):
     resource_profile: str
     kind: str = "pyspark"  # pyspark, spark
     python_env_id: Optional[str] = None
+    custom_python_archive: Optional[str] = None
+    custom_python_path: Optional[str] = None
     packages: Optional[List[str]] = None
     jars: Optional[List[str]] = None
     py_files: Optional[List[str]] = None
@@ -29,6 +31,8 @@ class SessionResponse(BaseModel):
     cluster_id: str
     spark_version_id: str
     python_env_id: Optional[str] = None
+    custom_python_archive: Optional[str] = None
+    custom_python_path: Optional[str] = None
     metastore_id: str
     yarn_queue: str
     resource_profile: str
@@ -62,6 +66,8 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
             resource_profile_id=req.resource_profile,
             kind=req.kind,
             python_env_id=req.python_env_id,
+            custom_python_archive=req.custom_python_archive,
+            custom_python_path=req.custom_python_path,
             packages=req.packages,
             jars=req.jars,
             py_files=req.py_files,
@@ -85,6 +91,8 @@ async def create_session(req: CreateSessionRequest, current_user: UserSession = 
             cluster_id=session.cluster_id,
             spark_version_id=session.spark_version_id,
             python_env_id=session.python_env_id,
+            custom_python_archive=session.custom_python_archive,
+            custom_python_path=session.custom_python_path,
             metastore_id=session.metastore_id,
             yarn_queue=session.yarn_queue,
             resource_profile=session.resource_profile,
@@ -112,6 +120,8 @@ async def get_session(session_id: str, current_user: UserSession = Depends(get_c
         cluster_id=sess.cluster_id,
         spark_version_id=sess.spark_version_id,
         python_env_id=sess.python_env_id,
+        custom_python_archive=sess.custom_python_archive,
+        custom_python_path=sess.custom_python_path,
         metastore_id=sess.metastore_id,
         yarn_queue=sess.yarn_queue,
         resource_profile=sess.resource_profile,

@@ -24,6 +24,15 @@ async def get_db():
 
 async def init_db():
     import app.models.models  # noqa: F401
+    from sqlalchemy import text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for col_name, col_type in [
+            ("custom_python_archive", "VARCHAR(512)"),
+            ("custom_python_path", "VARCHAR(256)"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE spark_sessions ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                pass

@@ -151,6 +151,8 @@ class SessionManager:
                     "cluster_id": s.cluster_id,
                     "spark_version_id": s.spark_version_id,
                     "python_env_id": s.python_env_id,
+                    "custom_python_archive": s.custom_python_archive,
+                    "custom_python_path": s.custom_python_path,
                     "metastore_id": s.metastore_id,
                     "yarn_queue": s.yarn_queue,
                     "resource_profile": s.resource_profile,
@@ -173,6 +175,8 @@ class SessionManager:
         resource_profile_id: str,
         kind: str = "pyspark",
         python_env_id: Optional[str] = None,
+        custom_python_archive: Optional[str] = None,
+        custom_python_path: Optional[str] = None,
         packages: Optional[List[str]] = None,
         jars: Optional[List[str]] = None,
         py_files: Optional[List[str]] = None,
@@ -184,7 +188,7 @@ class SessionManager:
 
         # 2. Поиск существующей активной сессии
         async with AsyncSessionLocal() as db:
-            stmt = select(SparkSessionRecord).where(
+            conditions = [
                 SparkSessionRecord.username == user.username,
                 SparkSessionRecord.cluster_id == cluster.id,
                 SparkSessionRecord.spark_version_id == spark_version_id,
@@ -193,7 +197,13 @@ class SessionManager:
                 SparkSessionRecord.resource_profile == resource_profile_id,
                 SparkSessionRecord.kind == kind,
                 SparkSessionRecord.status.in_(["starting", "idle", "busy"]),
-            )
+            ]
+            if kind == "pyspark":
+                conditions.append(SparkSessionRecord.python_env_id == python_env_id)
+                if custom_python_archive:
+                    conditions.append(SparkSessionRecord.custom_python_archive == custom_python_archive)
+
+            stmt = select(SparkSessionRecord).where(*conditions)
             res = await db.execute(stmt)
             existing = res.scalars().first()
             if existing:
@@ -233,7 +243,22 @@ class SessionManager:
         if spark_ver and spark_ver.spark_archive:
             spark_conf["spark.yarn.archive"] = spark_ver.spark_archive
 
-        if python_env_id and spark_ver:
+        final_python_env_id = python_env_id
+        is_custom_env = (python_env_id == "custom") or bool(custom_python_archive)
+        if is_custom_env and custom_python_archive:
+            archive_entry = custom_python_archive.strip()
+            if "#" not in archive_entry:
+                archive_entry = f"{archive_entry}#environment"
+                py_path = (custom_python_path or "").strip() or "./environment/bin/python"
+            else:
+                alias = archive_entry.split("#", 1)[1].strip()
+                py_path = (custom_python_path or "").strip() or f"./{alias}/bin/python"
+
+            archives.append(archive_entry)
+            spark_conf["spark.pyspark.python"] = py_path
+            spark_conf["spark.pyspark.driver.python"] = py_path
+            final_python_env_id = python_env_id or "custom"
+        elif python_env_id and spark_ver:
             py_env = next((p for p in spark_ver.python_versions if p.id == python_env_id), None)
             if py_env:
                 if py_env.archive_path:
@@ -289,7 +314,9 @@ class SessionManager:
             username=user.username,
             cluster_id=cluster.id,
             spark_version_id=spark_version_id,
-            python_env_id=python_env_id,
+            python_env_id=final_python_env_id,
+            custom_python_archive=custom_python_archive,
+            custom_python_path=custom_python_path,
             metastore_id=metastore_id,
             yarn_queue=yarn_queue,
             resource_profile=resource_profile_id,

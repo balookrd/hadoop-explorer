@@ -322,3 +322,63 @@ async def test_session_status_stream_sse(client: AsyncClient):
     assert stream_resp.status_code == 200
     assert "text/event-stream" in stream_resp.headers["content-type"]
     assert "data: " in stream_resp.text
+
+
+@pytest.mark.asyncio
+async def test_session_with_custom_python_venv(client: AsyncClient):
+    """Проверяет создание PySpark сессии с кастомным виртуальным окружением venv из HDFS."""
+    from app.services.session_manager import session_manager
+
+    # 1. Создание с явным путем к python и архивом с алиасом
+    custom_archive = "hdfs:///user/testuser/envs/custom_pytorch.tar.gz#my_torch_env"
+    custom_path = "./my_torch_env/bin/python"
+    create_resp = await client.post(
+        "/api/sessions",
+        json={
+            "cluster_id": "dev-hadoop",
+            "spark_version_id": "spark-3.5-dev",
+            "python_env_id": "custom",
+            "custom_python_archive": custom_archive,
+            "custom_python_path": custom_path,
+            "metastore_id": "dev-hms",
+            "yarn_queue": "default",
+            "resource_profile": "small",
+            "kind": "pyspark",
+        },
+    )
+    assert create_resp.status_code == 200
+    data = create_resp.json()
+    sess_id = data["id"]
+    assert data["python_env_id"] == "custom"
+    assert data["custom_python_archive"] == custom_archive
+    assert data["custom_python_path"] == custom_path
+
+    # Проверяем в БД и spark_conf
+    sess_rec = await session_manager.get_session(sess_id)
+    assert sess_rec is not None
+    assert sess_rec.custom_python_archive == custom_archive
+    assert sess_rec.custom_python_path == custom_path
+    assert sess_rec.spark_conf["spark.pyspark.python"] == custom_path
+    assert sess_rec.spark_conf["spark.pyspark.driver.python"] == custom_path
+
+    # 2. Создание с архивом без псевдонима и без указания python path (проверка дефолтов #environment)
+    simple_archive = "hdfs:///apps/python/envs/data_analysis.tar.gz"
+    create_resp2 = await client.post(
+        "/api/sessions",
+        json={
+            "cluster_id": "dev-hadoop",
+            "spark_version_id": "spark-3.5-dev",
+            "python_env_id": "custom",
+            "custom_python_archive": simple_archive,
+            "metastore_id": "dev-hms",
+            "yarn_queue": "default",
+            "resource_profile": "small",
+            "kind": "pyspark",
+        },
+    )
+    assert create_resp2.status_code == 200
+    data2 = create_resp2.json()
+    sess_rec2 = await session_manager.get_session(data2["id"])
+    assert sess_rec2 is not None
+    assert sess_rec2.spark_conf["spark.pyspark.python"] == "./environment/bin/python"
+    assert sess_rec2.spark_conf["spark.pyspark.driver.python"] == "./environment/bin/python"

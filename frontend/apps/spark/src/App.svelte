@@ -702,7 +702,11 @@
 
     if (currentSession && currentSession.kind === targetKind) {
       if (currentSession.spark_version_id) sessionPayload.spark_version_id = currentSession.spark_version_id;
-      if (currentSession.python_env_id && targetKind === 'pyspark') sessionPayload.python_env_id = currentSession.python_env_id;
+      if (currentSession.python_env_id && targetKind === 'pyspark') {
+        sessionPayload.python_env_id = currentSession.python_env_id;
+        sessionPayload.custom_python_archive = currentSession.custom_python_archive || undefined;
+        sessionPayload.custom_python_path = currentSession.custom_python_path || undefined;
+      }
     }
 
     isConfigModalOpen = true;
@@ -741,6 +745,8 @@
         cluster_id: selectedClusterId,
         spark_version_id: currentSession?.spark_version_id || baseConfig.spark_version_id || defVer,
         python_env_id: targetKind === 'pyspark' ? (currentSession?.python_env_id || baseConfig.python_env_id || defPy) : undefined,
+        custom_python_archive: targetKind === 'pyspark' ? (currentSession?.custom_python_archive || baseConfig.custom_python_archive) : undefined,
+        custom_python_path: targetKind === 'pyspark' ? (currentSession?.custom_python_path || baseConfig.custom_python_path) : undefined,
         metastore_id: currentSession?.metastore_id || baseConfig.metastore_id || defMeta,
         yarn_queue: currentSession?.yarn_queue || baseConfig.yarn_queue || clusterDetails.default_queue || 'root.analytics',
         resource_profile: currentSession?.resource_profile || baseConfig.resource_profile || clusterDetails.resource_profiles[0]?.id || 'small',
@@ -828,6 +834,8 @@
             cluster_id: selectedClusterId,
             spark_version_id: baseConfig.spark_version_id || defVer,
             python_env_id: targetKind === 'pyspark' ? (baseConfig.python_env_id || defPy) : undefined,
+            custom_python_archive: targetKind === 'pyspark' ? baseConfig.custom_python_archive : undefined,
+            custom_python_path: targetKind === 'pyspark' ? baseConfig.custom_python_path : undefined,
             metastore_id: baseConfig.metastore_id || defMeta,
             yarn_queue: baseConfig.yarn_queue || clusterDetails.default_queue || 'root.analytics',
             resource_profile: baseConfig.resource_profile || clusterDetails.resource_profiles[0]?.id || 'small',

@@ -282,7 +282,39 @@ LIMIT 50;
 ### 7.2. Матрица версий Spark и виртуальные окружения Python
 
 - **Версия ядра Spark:** Выбор между стабильной версией **Apache Spark 3.5.1**, **Spark 3.2.4** и устаревшими кластерами **Spark 2.4.8**.
-- **Python Runtime:** Выбор изолированного Conda/Venv окружения, распространяемого через HDFS-архивы (`spark.yarn.dist.archives`). Доступны как базовые среды с минимальным набором библиотек, так и специализированные ML-окружения (`py310-ml`).
+- **Python Runtime (Виртуальные окружения):** 
+  - **Предустановленные окружения:** Выбор изолированного Conda/Venv окружения, распространяемого через HDFS-архивы (`spark.yarn.dist.archives`). Доступны как базовые среды с минимальным набором библиотек (`py310-default`), так и специализированные ML-окружения (`py310-ml` с PyTorch, Pandas, Scikit-Learn).
+  - **Кастомный venv из HDFS:** Возможность запуска сессии с произвольным пользовательским виртуальным окружением.
+
+#### 🛠️ Инструкция: Подготовка и подключение кастомного Python venv
+
+1. **Создание и упаковка окружения на хосте подготовки:**
+   Стандартный `virtualenv` содержит абсолютные пути хоста. Для распространения на узлы YARN окружение необходимо упаковать с помощью [`venv-pack`](https://jcristharif.com/venv-pack/):
+   ```bash
+   # 1. Создание стандартного venv и установка зависимостей
+   python3 -m venv my_project_env
+   source my_project_env/bin/activate
+   pip install pandas scikit-learn catboost venv-pack
+
+   # 2. Упаковка в переносимый gzip-архив
+   venv-pack -o my_project_env.tar.gz
+   ```
+
+2. **Загрузка архива в HDFS:**
+   ```bash
+   hdfs dfs -mkdir -p /apps/python/envs/
+   hdfs dfs -put my_project_env.tar.gz /apps/python/envs/
+   # или в домашний каталог пользователя:
+   hdfs dfs -put my_project_env.tar.gz /user/$USER/envs/
+   ```
+
+3. **Подключение в интерфейсе Spark Explorer:**
+   - Нажмите значок шестерёнки **«Параметры сессии Spark»** в верхней панели.
+   - В выпадающем списке **«Окружение Python (Runtime)»** выберите пункт `📦 Кастомный venv (HDFS archive)...`.
+   - В появившемся блоке укажите:
+     - **HDFS путь к архиву:** `hdfs:///apps/python/envs/my_project_env.tar.gz#environment` (если суффикс `#environment` не указан, система добавит его автоматически).
+     - **Путь к интерпретатору:** `./environment/bin/python`.
+   - Нажмите **«Сохранить и перезапустить»** для старта сессии с кастомными библиотеками.
 
 ### 7.3. Внешние библиотеки: Maven Packages, JAR и Py-Files
 

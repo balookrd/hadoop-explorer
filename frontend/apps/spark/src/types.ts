@@ -58,6 +58,8 @@ export interface SparkSessionItem {
   cluster_id: string;
   spark_version_id: string;
   python_env_id: string | null;
+  custom_python_archive?: string | null;
+  custom_python_path?: string | null;
   metastore_id: string;
   yarn_queue: string;
   resource_profile: string;
@@ -76,6 +78,8 @@ export interface CreateSessionPayload {
   resource_profile: string;
   kind: string;
   python_env_id?: string;
+  custom_python_archive?: string;
+  custom_python_path?: string;
   packages?: string[];
   jars?: string[];
   py_files?: string[];

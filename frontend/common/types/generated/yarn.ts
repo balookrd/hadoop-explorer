@@ -72,6 +72,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Jwks
+         * @description Возвращает набор публичных ключей JWKS (RFC 7517) для верификации асимметричных JWT токенов.
+         */
+        get: operations["get_jwks_api_v1_auth_jwks_json_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clusters": {
         parameters: {
             query?: never;
@@ -168,6 +188,27 @@ export interface paths {
          *     Writer получит HTTP 403 с указанием обратиться к администратору.
          */
         post: operations["generate_xml_api_v1_clusters__cluster_id__generate_xml_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{cluster_id}/deploy-xml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deploy Cluster Xml
+         * @description Прямое развертывание и применение capacity-scheduler.xml на кластере через AWX.
+         *     Доступно: ТОЛЬКО admin.
+         */
+        post: operations["deploy_cluster_xml_api_v1_clusters__cluster_id__deploy_xml_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -342,6 +383,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/change-requests/{cr_id}/deploy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deploy Change Request
+         * @description Развертывание и применение конфигурации approved заявки на кластере через AWX.
+         *     Доступно: только ADMIN в кластере заявки.
+         */
+        post: operations["deploy_change_request_api_v1_change_requests__cr_id__deploy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/change-requests/{cr_id}/deploy-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deploy Status
+         * @description Получение актуального статуса выполнения задачи деплоя в AWX.
+         *     Доступно: READER и выше.
+         */
+        get: operations["get_deploy_status_api_v1_change_requests__cr_id__deploy_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -351,7 +434,7 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
+         * @description Liveness probe: проверка жизнеспособности процесса.
          */
         get: operations["health_check_api_v1_health_get"];
         put?: never;
@@ -371,7 +454,7 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
+         * @description Liveness probe: проверка жизнеспособности процесса.
          */
         get: operations["health_check_api_health_get"];
         put?: never;
@@ -391,7 +474,7 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Liveness probe: проверка жизнеспособности для Kubernetes liveness probes.
+         * @description Liveness probe: проверка жизнеспособности процесса.
          */
         get: operations["health_check_healthz_get"];
         put?: never;
@@ -410,10 +493,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий и запросов на изменение.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_api_v1_readyz_get"];
+        get: operations["readyz_endpoint_api_v1_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -430,10 +513,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий и запросов на изменение.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_api_readyz_get"];
+        get: operations["readyz_endpoint_api_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -450,10 +533,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readyz
-         * @description Readiness probe: проверяет доступность базы данных сессий и запросов на изменение.
+         * Readyz Endpoint
+         * @description Readiness probe: проверка доступности базы данных и состояния Circuit Breakers.
          */
-        get: operations["readyz_readyz_get"];
+        get: operations["readyz_endpoint_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -539,6 +622,14 @@ export interface components {
             diffs: components["schemas"]["DiffItem"][];
             /** Xml Content */
             xml_content?: string | null;
+            /** Deployment Status */
+            deployment_status?: string | null;
+            /** Awx Job Id */
+            awx_job_id?: number | null;
+            /** Deployed At */
+            deployed_at?: string | null;
+            /** Deployment Error */
+            deployment_error?: string | null;
         };
         /** ChangeRequestReview */
         ChangeRequestReview: {
@@ -570,6 +661,12 @@ export interface components {
             reviewer?: string | null;
             /** Reviewed At */
             reviewed_at?: string | null;
+            /** Deployment Status */
+            deployment_status?: string | null;
+            /** Awx Job Id */
+            awx_job_id?: number | null;
+            /** Deployed At */
+            deployed_at?: string | null;
         };
         /** ClusterMetrics */
         ClusterMetrics: {
@@ -639,6 +736,23 @@ export interface components {
             /** Can Admin */
             can_admin: boolean;
         };
+        /** DeployResponse */
+        DeployResponse: {
+            /** Cr Id */
+            cr_id: number;
+            /** Cluster Id */
+            cluster_id: string;
+            /** Awx Job Id */
+            awx_job_id: number;
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Deployed At */
+            deployed_at?: string | null;
+            /** Stdout */
+            stdout?: string | null;
+        };
         /** DiffItem */
         DiffItem: {
             /** Path */
@@ -707,6 +821,31 @@ export interface components {
             live_max_application_lifetime?: number | null;
             /** Draft Max Application Lifetime */
             draft_max_application_lifetime?: number | null;
+        };
+        /** DirectDeployXmlRequest */
+        DirectDeployXmlRequest: {
+            /** Xml Content */
+            xml_content: string;
+            /**
+             * Comment
+             * @default Manual direct XML deployment
+             */
+            comment: string | null;
+        };
+        /** DirectDeployXmlResponse */
+        DirectDeployXmlResponse: {
+            /** Cluster Id */
+            cluster_id: string;
+            /** Awx Job Id */
+            awx_job_id: number;
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Deployed At */
+            deployed_at: string;
+            /** Stdout */
+            stdout?: string | null;
         };
         /** DraftDiffResponse */
         DraftDiffResponse: {
@@ -1196,6 +1335,26 @@ export interface operations {
             };
         };
     };
+    get_jwks_api_v1_auth_jwks_json_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     get_clusters_api_v1_clusters_get: {
         parameters: {
             query?: never;
@@ -1339,6 +1498,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenerateXmlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deploy_cluster_xml_api_v1_clusters__cluster_id__deploy_xml_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectDeployXmlRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectDeployXmlResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1680,6 +1874,71 @@ export interface operations {
             };
         };
     };
+    deploy_change_request_api_v1_change_requests__cr_id__deploy_post: {
+        parameters: {
+            query?: {
+                /** @description Ожидать ли завершения выполнения задачи в AWX */
+                wait?: boolean;
+            };
+            header?: never;
+            path: {
+                cr_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deploy_status_api_v1_change_requests__cr_id__deploy_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cr_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_check_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -1695,7 +1954,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };
@@ -1715,7 +1976,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };
@@ -1735,12 +1998,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };
     };
-    readyz_api_v1_readyz_get: {
+    readyz_endpoint_api_v1_readyz_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1760,7 +2025,7 @@ export interface operations {
             };
         };
     };
-    readyz_api_readyz_get: {
+    readyz_endpoint_api_readyz_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1780,7 +2045,7 @@ export interface operations {
             };
         };
     };
-    readyz_readyz_get: {
+    readyz_endpoint_readyz_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X, Settings, Cpu, Layers, Box, Package, Database, Check } from 'lucide-svelte';
+  import { X, Settings, Cpu, Layers, Box, Package, Database, Check, FolderArchive } from 'lucide-svelte';
   import type { ClusterDetailResponse, CreateSessionPayload } from '../types';
 
   let {
@@ -24,6 +24,8 @@
 
   let selectedSparkVersionId = $state('');
   let selectedPythonEnvId = $state('');
+  let customPythonArchive = $state('');
+  let customPythonPath = $state('./environment/bin/python');
   let selectedMetastoreId = $state('');
   let selectedYarnQueue = $state('');
   let selectedProfile = $state('');
@@ -39,7 +41,15 @@
       selectedSparkVersionId = initialValues.spark_version_id || clusterDetails.spark_versions.find((v) => v.is_default)?.id || clusterDetails.spark_versions[0]?.id || '';
       
       const v = clusterDetails.spark_versions.find((v) => v.id === selectedSparkVersionId);
-      selectedPythonEnvId = initialValues.python_env_id || v?.python_versions.find((p) => p.is_default)?.id || v?.python_versions[0]?.id || '';
+      if (initialValues.python_env_id === 'custom' || initialValues.custom_python_archive) {
+        selectedPythonEnvId = '__custom__';
+        customPythonArchive = initialValues.custom_python_archive || '';
+        customPythonPath = initialValues.custom_python_path || './environment/bin/python';
+      } else {
+        selectedPythonEnvId = initialValues.python_env_id || v?.python_versions.find((p) => p.is_default)?.id || v?.python_versions[0]?.id || '';
+        customPythonArchive = '';
+        customPythonPath = './environment/bin/python';
+      }
       
       selectedMetastoreId = initialValues.metastore_id || clusterDetails.metastores.find((m) => m.is_default)?.id || clusterDetails.metastores[0]?.id || '';
       selectedYarnQueue = initialValues.yarn_queue || clusterDetails.default_queue || clusterDetails.yarn_queues[0] || 'default';
@@ -103,10 +113,14 @@
     });
 
     const isPythonRequired = targetLanguage === 'pyspark';
+    const isCustom = selectedPythonEnvId === '__custom__';
+
     onSave({
       cluster_id: clusterDetails.id,
       spark_version_id: selectedSparkVersionId,
-      python_env_id: isPythonRequired ? (selectedPythonEnvId || undefined) : undefined,
+      python_env_id: isPythonRequired ? (isCustom ? 'custom' : (selectedPythonEnvId || undefined)) : undefined,
+      custom_python_archive: isPythonRequired && isCustom ? (customPythonArchive.trim() || undefined) : undefined,
+      custom_python_path: isPythonRequired && isCustom ? (customPythonPath.trim() || undefined) : undefined,
       metastore_id: selectedMetastoreId,
       yarn_queue: selectedYarnQueue,
       resource_profile: selectedProfile,
@@ -231,9 +245,14 @@
           </div>
 
           <!-- Окружение Python (требуется ТОЛЬКО для PySpark, не требуется для Scala и Spark SQL) -->
-          {#if targetLanguage === 'pyspark' && currentSparkVersion && currentSparkVersion.python_versions.length > 0}
-            <div>
-              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Окружение Python (Runtime)</label>
+          {#if targetLanguage === 'pyspark' && currentSparkVersion}
+            <div class="space-y-2">
+              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                <span>Окружение Python (Runtime)</span>
+                {#if selectedPythonEnvId === '__custom__'}
+                  <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold px-2 py-0.5 rounded bg-amber-100/60 dark:bg-amber-950/40">Custom Virtualenv</span>
+                {/if}
+              </label>
               <select
                 class="w-full border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-amber-500 font-medium"
                 bind:value={selectedPythonEnvId}
@@ -241,7 +260,45 @@
                 {#each currentSparkVersion.python_versions as py}
                   <option value={py.id}>{py.name} {py.is_default ? '(Default)' : ''}</option>
                 {/each}
+                <option value="__custom__">📦 Кастомный venv (HDFS archive)...</option>
               </select>
+
+              {#if selectedPythonEnvId === '__custom__'}
+                <div class="p-3.5 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/90 dark:border-amber-800/50 rounded-xl space-y-3 mt-2">
+                  <div class="flex items-center gap-2 text-xs font-semibold text-amber-900 dark:text-amber-300">
+                    <FolderArchive class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>Параметры изолированного окружения Python (venv / conda-pack)</span>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      HDFS путь к архиву окружения (*.tar.gz)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="hdfs:///apps/python/envs/custom_env.tar.gz#environment"
+                      bind:value={customPythonArchive}
+                      class="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      Архив venv, подготовленный с помощью <code class="px-1 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono text-[10px]">venv-pack</code> или <code class="px-1 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono text-[10px]">conda-pack</code> и загруженный в HDFS.
+                    </p>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Путь к интерпретатору внутри архива
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="./environment/bin/python"
+                      bind:value={customPythonPath}
+                      class="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      Относительный путь к бинарнику python внутри распакованной папки контейнера (по умолчанию: <code class="px-1 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono text-[10px]">./environment/bin/python</code>).
+                    </p>
+                  </div>
+                </div>
+              {/if}
             </div>
           {/if}
 
