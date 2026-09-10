@@ -3,6 +3,7 @@ FROM eclipse-temurin:11-jdk-jammy
 USER root
 
 # Системные пакеты и Python 3 для PySpark
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
