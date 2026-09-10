@@ -1,22 +1,26 @@
-/* Общие стили темы и скроллбаров Hadoop Explorer Platform */
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --border-color: #e2e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --accent: #0284c7;
-  color-scheme: light;
-}
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
-:root.dark, .dark {
-  --bg-primary: #020617;
-  --bg-secondary: #0f172a;
-  --border-color: #1e293b;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent: #38bdf8;
-  color-scheme: dark;
+@layer base {
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --border-color: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --accent: #0284c7;
+    color-scheme: light;
+  }
+
+  :root.dark, .dark {
+    --bg-primary: #020617;
+    --bg-secondary: #0f172a;
+    --border-color: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent: #38bdf8;
+    color-scheme: dark;
+  }
 }
 
 body {
