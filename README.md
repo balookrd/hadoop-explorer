@@ -69,7 +69,7 @@ hadoop-explorer/
 │   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   ├── yarn/               # Сервис YARN Explorer (50 тестов)
-│   ├── hdfs/               # Сервис HDFS Explorer (69 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (70 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── spark/              # Сервис Spark Explorer (16 тестов)
 │
@@ -391,15 +391,15 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**192 теста**) успешно проходят комплексную проверку:
+Все тесты (**193 теста**) успешно проходят комплексную проверку:
 - **Frontend UI & Static Suite**: 23 теста + строгий `svelte-check` (статическая верификация контрактов и типов во всех 4 SPA, компонентные smoke-тесты `App.svelte` для HDFS, Spark, SQL, YARN, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
 - **YARN Explorer**: 50 тестов (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
-- **HDFS Explorer**: 69 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter).
+- **HDFS Explorer**: 70 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 192 тестов платформы (Backend + Frontend UI)
+# Запуск всех 193 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
