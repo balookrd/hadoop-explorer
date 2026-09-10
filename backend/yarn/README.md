@@ -33,11 +33,15 @@ backend/yarn/
 │   │   └── yarn_client.py       # REST API клиент YARN RM с KerberosManager, HA и Circuit Breaker
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
-├── tests/                       # Автоматические тесты (pytest - 43 теста)
+├── tests/                       # Автоматические тесты (pytest - 65 тестов)
 │   ├── conftest.py              # Автосброс rate limits в тестах
+│   ├── test_awx_client.py       # Тесты интеграции с AWX/Ansible API
 │   ├── test_capacity_scheduler.py # Тесты балансировки и генерации XML
 │   ├── test_change_requests.py   # Тесты CRUD хранилища заявок и DistributedLock
-│   └── test_security.py          # Тесты безопасности (инъекции, BOLA, ACL, валидация)
+│   ├── test_new_enhancements.py # Тесты JWKS, ETag, OpenTelemetry трассировки
+│   ├── test_queues_api.py       # Тесты API очередей, валидации, diff и XML
+│   ├── test_security.py          # Тесты безопасности (инъекции, BOLA, ACL, валидация)
+│   └── test_yarn_client_ha.py   # Тесты ResourceManager HA Failover и метрик кластера
 ├── pyproject.toml               # Конфигурация пакета hadoop-explorer-yarn
 └── requirements.txt             # Зависимости Python
 ```

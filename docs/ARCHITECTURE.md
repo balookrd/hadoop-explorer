@@ -346,3 +346,64 @@
 - Переключатель темы (Sun / Moon) встроен в `Header.svelte` всех 4 фронтенд-приложений.
 - Дизайн адаптирован на базе семантических утилит Tailwind CSS (`dark:bg-slate-950`, `dark:border-slate-800`, `dark:text-slate-100`).
 
+---
+
+## 9. Обеспечение качества и тестовая инфраструктура (Quality Assurance & Testing)
+
+Платформа следует подходу пирамиды тестирования с разделением на изолированные модульные, компонентные, интеграционные и сквозные E2E-тесты:
+
+```
+                  ┌───────────────────────┐
+                  │ Playwright E2E Tests  │
+                  └───────────┬───────────┘
+                              │
+                  ┌───────────┴───────────┐
+                  │ Vitest UI Components  │
+                  └───────────┬───────────┘
+                              │
+                  ┌───────────┴───────────┐
+                  │ FastAPI REST API / IT │
+                  └───────────┬───────────┘
+                              │
+                  ┌───────────┴───────────┐
+                  │ Python Core Unit Test │
+                  └───────────────────────┘
+```
+
+### 9.1 Метрики тестового покрытия платформы (240 тестов)
+
+| Сервис / Уровень | Количество тестов | Ключевые аспекты покрытия |
+|---|---|---|
+| **YARN Explorer** | **65 тестов** | Capacity Scheduler валидация, балансировка долей, Draft Diff, XML Generation, RM HA failover (`STANDBY` → `ACTIVE`), сбор метрик кластера, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker |
+| **HDFS Explorer** | **86 тестов** | NameNode HA Failover при `StandbyException`, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security (CWE-200, CSP, CSRF), Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter |
+| **SQL Explorer** | **42 теста** | Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace |
+| **Spark Explorer** | **24 теста** | Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker |
+| **Frontend UI Suite** | **23 теста** | Строгая проверка типов `svelte-check`, рендеринг и логика `App.svelte` во всех 4 SPA, общие компоненты `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, Zero Console Errors |
+
+### 9.2 Тестирование отказоустойчивости (Resilience Testing)
+1. **Circuit Breaker State Machine**:
+   - Верификация переходов состояний: `CLOSED` → регистрация серии сбоев → `OPEN` (мгновенный Fast-Fail без нагрузки на упавший кластер) → ожидание `recovery_timeout` → `HALF_OPEN` → успешные пробные вызовы → возврат в `CLOSED`.
+2. **High Availability Failover**:
+   - Автоматическое обнаружение и переключение на активные узлы при возврате `StandbyException` от NameNode или `haState: STANDBY` от ResourceManager.
+   - Полноценная обработка сетевых сбоев (`ConnectError`, таймауты) с переключением на резервные URL.
+3. **Retry с экспоненциальным Backoff и джиттером**:
+   - Автоматический повтор сбойных вызовов (`retry_async`) для временных сетевых ошибок с защитой от шторма повторов (jitter).
+
+### 9.3 Тестирование безопасности (Security Assurance)
+1. **CSRF & Origin Verification**:
+   - Проверка Fail-Closed режима для cookie-сессий, валидация заголовков `Origin`, `Referer`, `Host` и `X-Requested-With`.
+2. **SSRF & CWE-200 Protection**:
+   - Проверка `validate_webhdfs_location` на блокировку приватных IP-адресов, метаданных облачных провайдеров (169.254.169.254) и нестандартных схем.
+   - Верификация `is_trusted_redirect_host` перед передачей чувствительных `hadoop.auth` cookie на DataNode.
+3. **SQL & Identifier Injection**:
+   - Строгая валидация идентификаторов `validate_identifier` в SQL Explorer для предотвращения разрыва SQL-команд в Trino и Hive.
+4. **Принцип Four-Eyes**:
+   - Запрет согласования заявок YARN их автором.
+
+### 9.4 Автоматизация проверок (CI/CD Quality Gates)
+- `make sync` — синхронизация единого окружения `uv workspaces`.
+- `make lint` — проверка кодовой базы линтером Ruff.
+- `make format` — форматирование исходного кода.
+- `make test` — запуск всех 240 тестов платформы.
+
+

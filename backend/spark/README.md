@@ -31,10 +31,12 @@ backend/spark/
 │   └── main.py                  # Точка входа FastAPI, CORS, Security Headers, Graceful Shutdown, Healthcheck (/healthz)
 ├── config/
 │   └── config.yaml              # Конфигурационный файл по умолчанию
-├── tests/                       # Автоматические тесты (pytest - 16 тестов)
-│   ├── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace, Logout cleanup
-│   └── test_spark_circuit_breaker.py # Тесты Circuit Breaker для Livy вызовов
-└── pyproject.toml               # Конфигурация пакета hadoop-explorer-spark
+├── tests/                       # Автоматические тесты (pytest - 24 теста)
+│   ├── test_livy_client.py      # Тесты полного жизненного цикла LivyClient (сессии, statements, logs)
+│   ├── test_pipelines.py        # Тесты визуального конструктора и валидации DAG-пайплайнов
+│   ├── test_security.py         # Тесты безопасности, аутентификации, токенов и CSRF
+│   └── test_spark.py            # Тесты Livy клиента, валидаторов, MockSparkEngine, UserWorkspace, Logout cleanup
+├── pyproject.toml               # Конфигурация пакета hadoop-explorer-spark
 ```
 
 ---
