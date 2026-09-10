@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 
 class AwxClientError(Exception):
     """Базовое исключение для ошибок взаимодействия с AWX."""
+
     pass
 
 
 class AwxJobFailedError(AwxClientError):
     """Исключение при неудачном завершении джоба в AWX."""
+
     def __init__(self, job_id: int, status: str, stdout: str):
         super().__init__(f"AWX Job #{job_id} failed with status '{status}'")
         self.job_id = job_id

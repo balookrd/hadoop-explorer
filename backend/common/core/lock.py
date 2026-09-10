@@ -28,17 +28,29 @@ class DistributedLock:
     """
     Распределенная блокировка для предотвращения состояний гонки (Race Conditions)
     при критических операциях (утверждение заявок, создание сессий, выполнение DDL).
-    Автоматически использует Redis (при наличии) или in-memory / DB механизм с TTL.
+    Автоматически использует Redis (при наличии), DB-backed блокировку через SessionStore
+    или in-memory механизм с TTL.
     """
 
     def __init__(self, storage_service: Optional[Any] = None):
-        self.storage = storage_service
+        self._storage = storage_service
         self._in_memory_locks: dict[str, tuple[str, float]] = {}  # key -> (owner_id, expires_at)
         self._local_lock = threading.Lock()
 
+    def _get_storage(self):
+        if self._storage is not None:
+            return self._storage
+        try:
+            from backend.common.db.storage import storage_service
+
+            return storage_service
+        except Exception:
+            return None
+
     def _get_redis(self):
-        if self.storage and getattr(self.storage, "_is_redis", False):
-            return getattr(self.storage, "redis_client", None)
+        storage = self._get_storage()
+        if storage and getattr(storage, "_is_redis", False):
+            return getattr(storage, "redis_client", None)
         return None
 
     def acquire_sync(self, key: str, ttl_seconds: float = 10.0, timeout: float = 5.0) -> str:
@@ -46,6 +58,7 @@ class DistributedLock:
         owner_id = str(uuid.uuid4())
         start_time = time.time()
         redis_client = self._get_redis()
+        storage = self._get_storage()
 
         while True:
             now = time.time()
@@ -53,6 +66,10 @@ class DistributedLock:
                 # Атомарный SET NX PX в Redis
                 px = int(ttl_seconds * 1000)
                 if redis_client.set(f"lock:{key}", owner_id, nx=True, px=px):
+                    return owner_id
+            elif storage and hasattr(storage, "acquire_lock") and getattr(storage, "engine", None) is not None:
+                # DB-backed блокировка через SessionStore / SQLAlchemy
+                if storage.acquire_lock(key, owner_id, ttl_seconds=ttl_seconds):
                     return owner_id
             else:
                 # In-memory / Fallback реализация
@@ -71,11 +88,15 @@ class DistributedLock:
     def release_sync(self, key: str, owner_id: str):
         """Синхронное освобождение блокировки."""
         redis_client = self._get_redis()
+        storage = self._get_storage()
+
         if redis_client:
             try:
                 redis_client.eval(REDIS_RELEASE_LUA, 1, f"lock:{key}", owner_id)
             except Exception as e:
                 logger.warning(f"Ошибка освобождения Redis блокировки '{key}': {e}")
+        elif storage and hasattr(storage, "release_lock") and getattr(storage, "engine", None) is not None:
+            storage.release_lock(key, owner_id)
         else:
             with self._local_lock:
                 existing = self._in_memory_locks.get(key)
@@ -87,13 +108,17 @@ class DistributedLock:
         owner_id = str(uuid.uuid4())
         start_time = time.time()
         redis_client = self._get_redis()
+        storage = self._get_storage()
 
         while True:
             now = time.time()
             if redis_client:
                 px = int(ttl_seconds * 1000)
-                # Redis операции быстрые, но для единообразия
                 acquired = await asyncio.to_thread(redis_client.set, f"lock:{key}", owner_id, nx=True, px=px)
+                if acquired:
+                    return owner_id
+            elif storage and hasattr(storage, "acquire_lock_async") and getattr(storage, "engine", None) is not None:
+                acquired = await storage.acquire_lock_async(key, owner_id, ttl_seconds=ttl_seconds)
                 if acquired:
                     return owner_id
             else:
@@ -111,7 +136,11 @@ class DistributedLock:
 
     async def release_async(self, key: str, owner_id: str):
         """Асинхронное освобождение блокировки."""
-        await asyncio.to_thread(self.release_sync, key, owner_id)
+        storage = self._get_storage()
+        if storage and hasattr(storage, "release_lock_async") and getattr(storage, "engine", None) is not None:
+            await storage.release_lock_async(key, owner_id)
+        else:
+            await asyncio.to_thread(self.release_sync, key, owner_id)
 
     @asynccontextmanager
     async def lock(self, key: str, ttl_seconds: float = 10.0, timeout: float = 5.0):

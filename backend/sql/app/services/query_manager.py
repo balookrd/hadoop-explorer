@@ -369,7 +369,9 @@ class QueryManager:
 
         except Exception as e:
             if settings.auth.mode == "mock":
-                logger.warning(f"Кластер {ctx.cluster.id} недоступен ({e}). Переключение на MockExecutionEngine для dev-режима...")
+                logger.warning(
+                    f"Кластер {ctx.cluster.id} недоступен ({e}). Переключение на MockExecutionEngine для dev-режима..."
+                )
                 try:
                     mock_engine = MockExecutionEngine(ctx.cluster)
                     generator = mock_engine.execute_query(

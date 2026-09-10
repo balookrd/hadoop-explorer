@@ -77,7 +77,6 @@ def resolve_system_role(
     return Role.READER, False
 
 
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -129,4 +128,3 @@ class TokenPayload(BaseModel):
     auth_method: Optional[str] = "jwt"
     is_admin: Optional[bool] = False
     system_role: Optional[str] = "reader"
-

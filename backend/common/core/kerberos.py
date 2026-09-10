@@ -21,9 +21,7 @@ class KerberosManager:
         self.service_principal = service_principal or os.environ.get("KERBEROS_SERVICE_PRINCIPAL")
         self.keytab_path = keytab_path or os.environ.get("KERBEROS_KEYTAB_PATH")
 
-    def ensure_service_ticket(
-        self, principal: Optional[str] = None, keytab_path: Optional[str] = None
-    ) -> bool:
+    def ensure_service_ticket(self, principal: Optional[str] = None, keytab_path: Optional[str] = None) -> bool:
         """
         Инициализирует или обновляет Kerberos TGT билет сервиса с помощью kinit.
         """

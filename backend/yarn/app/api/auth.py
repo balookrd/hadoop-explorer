@@ -63,6 +63,7 @@ def _ldap_authenticate(username: str, password: str):
 
 
 import sys
+
 _this_module = sys.modules[__name__]
 
 router = create_auth_router(
@@ -74,7 +75,9 @@ router = create_auth_router(
     get_ldap_user_info_fn=lambda u: getattr(_this_module, "ldap_service", ldap_service).get_user_info(u),
     acl_checker_fn=lambda u: getattr(_this_module, "check_ui_access", check_ui_access)(u),
     rate_limiter=auth_rate_limiter,
-    kerberos_authenticator=lambda header: getattr(_this_module, "kerberos_manager", kerberos_manager).authenticate_spnego(header),
+    kerberos_authenticator=lambda header: getattr(
+        _this_module, "kerberos_manager", kerberos_manager
+    ).authenticate_spnego(header),
     cookie_name="yarn_explorer_session",
     additional_cookie_names=["hadoop_explorer_session"],
     prefix="/api/v1/auth",

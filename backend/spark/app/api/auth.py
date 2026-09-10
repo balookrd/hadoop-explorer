@@ -17,6 +17,7 @@ def _check_spark_ui_access(user: UserSession) -> bool:
 
 async def _on_spark_logout(username: str):
     from app.services.session_manager import session_manager
+
     await session_manager.stop_all_user_sessions(username)
 
 

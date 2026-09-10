@@ -34,9 +34,7 @@ async def retry_async(
                 try:
                     from backend.common.core.metrics import metrics_registry
 
-                    metrics_registry.retry_attempts_total.inc(
-                        app="hadoop-common", operation=op_name, status="success"
-                    )
+                    metrics_registry.retry_attempts_total.inc(app="hadoop-common", operation=op_name, status="success")
                 except Exception:
                     pass
             return res
@@ -53,17 +51,13 @@ async def retry_async(
                     )
                 except Exception:
                     pass
-                logger.warning(
-                    f"Операция '{op_name}' исчерпала лимит попыток ({max_attempts}/{max_attempts}): {exc}"
-                )
+                logger.warning(f"Операция '{op_name}' исчерпала лимит попыток ({max_attempts}/{max_attempts}): {exc}")
                 raise
 
             try:
                 from backend.common.core.metrics import metrics_registry
 
-                metrics_registry.retry_attempts_total.inc(
-                    app="hadoop-common", operation=op_name, status="retry"
-                )
+                metrics_registry.retry_attempts_total.inc(app="hadoop-common", operation=op_name, status="retry")
             except Exception:
                 pass
 
@@ -95,6 +89,7 @@ def with_retry(
     """
     Декоратор для асинхронных функций, обеспечивающий повторные попытки с экспоненциальным backoff.
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -111,5 +106,7 @@ def with_retry(
                 operation_name=operation_name or func.__name__,
                 **kwargs,
             )
+
         return wrapper
+
     return decorator

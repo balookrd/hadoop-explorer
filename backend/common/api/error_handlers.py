@@ -57,9 +57,7 @@ def setup_global_exception_handlers(app: FastAPI):
             from backend.common.core.metrics import metrics_registry
 
             app_name = getattr(app, "title", "hadoop-explorer")
-            metrics_registry.exceptions_total.inc(
-                app=app_name, exception_type=type(exc).__name__
-            )
+            metrics_registry.exceptions_total.inc(app=app_name, exception_type=type(exc).__name__)
         except Exception:
             pass
 

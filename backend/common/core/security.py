@@ -171,7 +171,6 @@ class CommonUserSession(BaseModel):
     system_role: Role = Role.READER
 
 
-
 def create_access_token(
     user_data: dict,
     secret_key: str,
@@ -401,7 +400,6 @@ def make_get_current_user(
 
         return user
 
-
     async def get_current_user(request: Request) -> Any:
         token, is_cookie_auth = extract_token_from_request(request, get_cookie_names())
         if not token:
@@ -489,4 +487,3 @@ def apply_security_headers(
     if is_secure_cookie:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
-

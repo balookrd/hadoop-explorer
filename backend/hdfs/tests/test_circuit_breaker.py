@@ -150,4 +150,3 @@ async def test_circuit_breaker_stats_and_prometheus_metrics():
     assert "hadoop_circuit_breaker_state" in prom
     assert 'name="test-metrics-cluster"' in prom
     assert 'status="success"' in prom
-

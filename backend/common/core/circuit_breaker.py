@@ -153,7 +153,9 @@ class CircuitBreaker:
         """Возвращает текущую статистику и метрики Circuit Breaker."""
         with self._lock:
             self._evaluate_state()
-            state_numeric = 0 if self._state == CircuitState.CLOSED else (1 if self._state == CircuitState.HALF_OPEN else 2)
+            state_numeric = (
+                0 if self._state == CircuitState.CLOSED else (1 if self._state == CircuitState.HALF_OPEN else 2)
+            )
             return {
                 "name": self.name,
                 "state": self._state.value,
@@ -215,13 +217,17 @@ class CircuitBreakerRegistry:
             name = s["name"]
             lines.append(f'hadoop_circuit_breaker_state{{name="{name}"}} {s["state_code"]}')
 
-        lines.extend([
-            "# HELP hadoop_circuit_breaker_calls_total Total calls through circuit breaker",
-            "# TYPE hadoop_circuit_breaker_calls_total counter",
-        ])
+        lines.extend(
+            [
+                "# HELP hadoop_circuit_breaker_calls_total Total calls through circuit breaker",
+                "# TYPE hadoop_circuit_breaker_calls_total counter",
+            ]
+        )
         for s in stats:
             name = s["name"]
-            lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="success"}} {s["successful_calls"]}')
+            lines.append(
+                f'hadoop_circuit_breaker_calls_total{{name="{name}",status="success"}} {s["successful_calls"]}'
+            )
             lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="failed"}} {s["failed_calls"]}')
             lines.append(f'hadoop_circuit_breaker_calls_total{{name="{name}",status="rejected"}} {s["rejected_calls"]}')
 

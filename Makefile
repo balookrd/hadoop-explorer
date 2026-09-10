@@ -1,7 +1,8 @@
 .PHONY: help venv sync install-dev lint format test test-yarn test-hdfs test-sql test-spark \
         build build-yarn build-hdfs build-sql build-spark \
         frontend-build frontend-install generate-types demo-yarn demo-hdfs demo-sql demo-spark demo-all \
-        demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package
+        demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
+        skeleton skeleton-all skeleton-backend
 
 TAG ?= latest
 REGISTRY ?= hadoop-explorer
@@ -52,6 +53,11 @@ help:
 	@echo "  Kubernetes / Helm:"
 	@echo "    make helm-lint        - Проверка синтаксиса всех Helm-чартов"
 	@echo "    make helm-package     - Упаковка чартов для деплоя"
+	@echo ""
+	@echo "  AST-скелетизация и контекст для LLM:"
+	@echo "    make skeleton         - Генерация легковесного AST-скелета API и контрактов"
+	@echo "    make skeleton-backend - Генерация AST-скелета только для бэкенда"
+	@echo "    make skeleton-all     - Генерация полного AST-каркаса платформы"
 	@echo "========================================================================"
 
 venv:
@@ -175,3 +181,16 @@ helm-package: helm-lint
 	helm package helm/charts/sql-explorer -d dist/helm
 	helm package helm/charts/yarn-explorer -d dist/helm
 	helm package helm/hadoop-explorer -d dist/helm
+
+skeleton:
+	mkdir -p .context
+	python3 scripts/generate_skeleton.py backend/common backend/yarn backend/hdfs backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
+
+skeleton-backend:
+	mkdir -p .context
+	python3 scripts/generate_skeleton.py backend --output .context/backend_skeleton.md
+
+skeleton-all:
+	mkdir -p .context
+	python3 scripts/generate_skeleton.py backend frontend/common frontend/apps --output .context/all_skeleton.md
+

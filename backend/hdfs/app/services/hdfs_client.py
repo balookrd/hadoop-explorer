@@ -671,7 +671,6 @@ class HdfsClient:
                 if resp is not None:
                     return resp
 
-
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 logger.warning(f"Ошибка подключения к {nn_url}: {e}")
                 last_exception = e

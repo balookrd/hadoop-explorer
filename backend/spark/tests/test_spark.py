@@ -8,6 +8,7 @@ from app.db.session import init_db
 async def setup_database():
     await init_db()
     from app.services.storage import storage_service
+
     storage_service.clear_rate_limits()
 
 

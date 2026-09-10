@@ -317,8 +317,7 @@ class SessionManager:
         stopped_count = 0
         async with AsyncSessionLocal() as db:
             stmt = select(SparkSessionRecord).where(
-                SparkSessionRecord.username == username,
-                SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+                SparkSessionRecord.username == username, SparkSessionRecord.status.in_(["starting", "idle", "busy"])
             )
             res = await db.execute(stmt)
             records = res.scalars().all()

@@ -100,6 +100,21 @@ async def preview_file(cluster_id: str, path: str = Query(...), current_user: Us
     try:
         file_status = await client.get_file_status(clean_path, do_as_user=current_user.username)
         total_size = file_status.length
+
+        # Для колоночных форматов (Parquet, ORC) при превышении лимита дополнительно запрашиваем футер
+        file_name = clean_path.split("/")[-1].lower()
+        is_columnar = file_name.endswith(".parquet") or file_name.endswith(".parq") or file_name.endswith(".orc")
+        footer_bytes = None
+        if is_columnar and total_size > max_bytes:
+            footer_fetch_size = min(total_size, 131072)  # 128 КБ с конца файла
+            footer_offset = max(0, total_size - footer_fetch_size)
+            try:
+                footer_bytes = await client.get_file_content(
+                    clean_path, do_as_user=current_user.username, offset=footer_offset, length=footer_fetch_size
+                )
+            except Exception:
+                footer_bytes = None
+
         content = await client.get_file_content(
             clean_path, do_as_user=current_user.username, offset=0, length=max_bytes + 1
         )
@@ -107,7 +122,9 @@ async def preview_file(cluster_id: str, path: str = Query(...), current_user: Us
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
     preview_bytes = content[:max_bytes]
-    return preview_service.generate_preview(clean_path, cluster_id, preview_bytes, total_size, max_bytes)
+    return preview_service.generate_preview(
+        clean_path, cluster_id, preview_bytes, total_size, max_bytes, footer_bytes=footer_bytes
+    )
 
 
 # Лимиты безопасности для предотвращения DoS / OOM (CWE-400)
@@ -130,6 +147,7 @@ async def create_directory_zip(client, base_path: str, username: str) -> tempfil
     entries = []  # list of (type, sub_path, sub_rel, length)
 
     try:
+
         async def _scan(curr_path: str, rel_prefix: str):
             nonlocal total_files, total_bytes
             items = await client.list_status(curr_path, username)
@@ -180,7 +198,6 @@ async def create_directory_zip(client, base_path: str, username: str) -> tempfil
     except Exception:
         spooled_file.close()
         raise
-
 
 
 @router.get("/download")
@@ -453,7 +470,6 @@ async def upload_archive(
                         dst_item_path, make_file_stream(zf, info), do_as_user=current_user.username, overwrite=overwrite
                     )
                     files_created += 1
-
 
         audit_log(
             action="ARCHIVE_UPLOAD_EXTRACT",

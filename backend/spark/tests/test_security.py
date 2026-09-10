@@ -8,6 +8,7 @@ from app.db.session import init_db
 async def setup_database():
     await init_db()
     from app.services.storage import storage_service
+
     storage_service.clear_rate_limits()
 
 
@@ -134,7 +135,7 @@ async def test_unauthenticated_protected_endpoints_return_401():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.cookies.clear()
-        
+
         # /auth/me возвращает 401 без токена
         me_resp = await ac.get("/api/v1/auth/me")
         assert me_resp.status_code == 401
@@ -146,4 +147,3 @@ async def test_unauthenticated_protected_endpoints_return_401():
         # /sessions возвращает 401 без токена
         sessions_resp = await ac.get("/api/v1/sessions")
         assert sessions_resp.status_code == 401
-

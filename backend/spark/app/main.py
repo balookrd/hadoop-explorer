@@ -149,7 +149,6 @@ async def metrics():
 @app.get("/api/health", tags=["system"])
 @app.get("/api/v1/health", tags=["system"])
 async def healthz():
-
     """Liveness probe: проверка жизнеспособности процесса."""
     return {"status": "ok", "app": "spark-explorer", "service": "spark-explorer", "version": "1.0.0"}
 
@@ -166,17 +165,27 @@ async def readyz():
     if not storage_ok:
         return JSONResponse(
             status_code=503,
-            content={"status": "unavailable", "app": "spark-explorer", "service": "spark-explorer", "database": "unreachable"},
+            content={
+                "status": "unavailable",
+                "app": "spark-explorer",
+                "service": "spark-explorer",
+                "database": "unreachable",
+            },
         )
 
     cb_stats = circuit_breaker_registry.get_all_stats()
     if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
         return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "app": "spark-explorer", "reason": "all_circuits_open"}
+            status_code=503, content={"status": "degraded", "app": "spark-explorer", "reason": "all_circuits_open"}
         )
 
-    return {"status": "ready", "app": "spark-explorer", "service": "spark-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
+    return {
+        "status": "ready",
+        "app": "spark-explorer",
+        "service": "spark-explorer",
+        "database": "ok",
+        "clusters_count": len(settings.clusters),
+    }
 
 
 # Раздача Frontend SPA статики если собрана

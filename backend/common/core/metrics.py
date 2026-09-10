@@ -29,9 +29,7 @@ DEFAULT_HTTP_BUCKETS: Tuple[float, ...] = (
 )
 
 # Регулярные выражения для санитизации динамических фрагментов путей при отсутствии route template
-UUID_REGEX = re.compile(
-    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-)
+UUID_REGEX = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 NUMERIC_ID_REGEX = re.compile(r"/\d+(?=/|$)")
 
 

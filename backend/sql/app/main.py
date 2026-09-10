@@ -128,8 +128,13 @@ async def metrics():
 @app.get("/api/v1/health", tags=["system"])
 async def health():
     """Liveness probe: проверка жизнеспособности процесса."""
-    return {"status": "healthy", "app": "sql-explorer", "service": "sql-explorer", "auth_mode": settings.auth.mode, "clusters_count": len(settings.clusters)}
-
+    return {
+        "status": "healthy",
+        "app": "sql-explorer",
+        "service": "sql-explorer",
+        "auth_mode": settings.auth.mode,
+        "clusters_count": len(settings.clusters),
+    }
 
 
 @app.get("/readyz", tags=["system"])
@@ -144,17 +149,28 @@ async def readyz():
     storage_ok = await storage_service.ping_async()
     if not storage_ok:
         return JSONResponse(
-            status_code=503, content={"status": "unavailable", "app": "sql-explorer", "service": "sql-explorer", "database": "unreachable"}
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "app": "sql-explorer",
+                "service": "sql-explorer",
+                "database": "unreachable",
+            },
         )
 
     cb_stats = circuit_breaker_registry.get_all_stats()
     if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
         return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "app": "sql-explorer", "reason": "all_circuits_open"}
+            status_code=503, content={"status": "degraded", "app": "sql-explorer", "reason": "all_circuits_open"}
         )
 
-    return {"status": "ready", "app": "sql-explorer", "service": "sql-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
+    return {
+        "status": "ready",
+        "app": "sql-explorer",
+        "service": "sql-explorer",
+        "database": "ok",
+        "clusters_count": len(settings.clusters),
+    }
 
 
 # Раздача SPA статики

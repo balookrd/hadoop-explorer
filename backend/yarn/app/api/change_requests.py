@@ -630,6 +630,7 @@ async def get_deploy_status(
         )
 
     from app.services.awx_client import AwxClient
+
     awx_client = AwxClient()
     job_info = await awx_client.get_job_status(cr.awx_job_id)
     stdout = await awx_client.get_job_stdout(cr.awx_job_id)
@@ -644,6 +645,7 @@ async def get_deploy_status(
 
     if mapped_status != cr.deployment_status and mapped_status != "DEPLOYING":
         from datetime import datetime, timezone
+
         storage_service.update_deployment_status(
             cr_id=cr.id,
             deployment_status=mapped_status,

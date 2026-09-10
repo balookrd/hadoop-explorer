@@ -125,12 +125,10 @@ async def readyz():
     cb_stats = circuit_breaker_registry.get_all_stats()
     if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
         return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "app": "hdfs-explorer", "reason": "all_circuits_open"}
+            status_code=503, content={"status": "degraded", "app": "hdfs-explorer", "reason": "all_circuits_open"}
         )
 
     return {"status": "ready", "app": "hdfs-explorer", "database": "ok", "clusters_count": len(settings.clusters)}
-
 
 
 # Раздача собранного Frontend SPA (если существует директория frontend/dist)

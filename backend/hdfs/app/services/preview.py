@@ -20,10 +20,59 @@ def format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
+class _SeekableFooterStream(io.RawIOBase):
+    """Потоковый виртуальный адаптер для чтения метаданных футера больших файлов."""
+
+    def __init__(self, total_size: int, footer: bytes, header: bytes = b""):
+        self.total_size = total_size
+        self.footer = footer
+        self.header = header
+        self.footer_offset = max(0, total_size - len(footer))
+        self.pos = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        if whence == 0:
+            self.pos = offset
+        elif whence == 1:
+            self.pos += offset
+        elif whence == 2:
+            self.pos = self.total_size + offset
+        return self.pos
+
+    def tell(self) -> int:
+        return self.pos
+
+    def readinto(self, b) -> int:
+        buf_len = len(b)
+        if self.pos >= self.total_size:
+            return 0
+        if self.pos < len(self.header):
+            chunk = self.header[self.pos : self.pos + buf_len]
+        elif self.pos >= self.footer_offset:
+            idx = self.pos - self.footer_offset
+            chunk = self.footer[idx : idx + buf_len]
+        else:
+            chunk = b"\x00" * min(buf_len, self.footer_offset - self.pos)
+        b[: len(chunk)] = chunk
+        self.pos += len(chunk)
+        return len(chunk)
+
+
 class PreviewService:
     @staticmethod
     def generate_preview(
-        path: str, cluster_id: str, content: bytes, total_size: int, max_bytes: int
+        path: str,
+        cluster_id: str,
+        content: bytes,
+        total_size: int,
+        max_bytes: int,
+        footer_bytes: Optional[bytes] = None,
     ) -> FilePreviewResponse:
         truncated = total_size > max_bytes
         file_name = path.split("/")[-1].lower()
@@ -82,27 +131,63 @@ class PreviewService:
             size_str = format_size(total_size)
             max_str = format_size(max_bytes)
 
-            # Специфика Parquet: метаданные схемы и footer находятся в самом конце файла.
-            # Если файл превышает max_bytes, footer усечен и файл невозможно распарсить через pyarrow.
-            if truncated:
-                return FilePreviewResponse(
-                    cluster_id=cluster_id,
-                    path=path,
-                    file_type="parquet",
-                    size=total_size,
-                    truncated=True,
-                    content=(
-                        f"Файл Apache Parquet (размер: {size_str}) превышает лимит предварительного просмотра ({max_str}). "
-                        "Футер с метаданными схемы усечен. Скачайте файл для полного анализа или выполнения SQL-запросов."
-                    ),
-                    columns=[],
-                    rows=[],
-                    row_count=0,
-                )
-
             try:
+                import struct
                 import pyarrow.parquet as pq
 
+                # Если файл усечен, но передан футер (чтение по Range с конца файла)
+                if truncated and footer_bytes and len(footer_bytes) >= 8 and footer_bytes.endswith(b"PAR1"):
+                    try:
+                        footer_len = struct.unpack("<I", footer_bytes[-8:-4])[0]
+                        if len(footer_bytes) >= footer_len + 8:
+                            synthetic_data = b"PAR1" + footer_bytes[-(footer_len + 8) :]
+                            meta = pq.read_metadata(io.BytesIO(synthetic_data))
+                            columns = list(meta.schema.names)
+                            num_rows = meta.num_rows
+                            num_groups = meta.num_row_groups
+
+                            schema_lines = []
+                            for i in range(len(meta.schema)):
+                                col_schema = meta.schema.column(i)
+                                schema_lines.append(f"  - {col_schema.name} ({col_schema.physical_type})")
+                            schema_desc = "\n".join(schema_lines)
+
+                            return FilePreviewResponse(
+                                cluster_id=cluster_id,
+                                path=path,
+                                file_type="parquet",
+                                size=total_size,
+                                truncated=True,
+                                content=(
+                                    f"Файл Apache Parquet (размер: {size_str}, строк: {num_rows}, групп строк: {num_groups}). "
+                                    f"Размер превышает лимит полного чтения ({max_str}). "
+                                    f"Схема и метаданные колонок успешно извлечены из футера файла:\n\n{schema_desc}"
+                                ),
+                                columns=columns,
+                                rows=[],
+                                row_count=0,
+                            )
+                    except Exception as fe:
+                        logger.warning(f"Не удалось распарсить футер Parquet файла {path}: {fe}")
+
+                # Если файл усечен и футер не получен
+                if truncated:
+                    return FilePreviewResponse(
+                        cluster_id=cluster_id,
+                        path=path,
+                        file_type="parquet",
+                        size=total_size,
+                        truncated=True,
+                        content=(
+                            f"Файл Apache Parquet (размер: {size_str}) превышает лимит предварительного просмотра ({max_str}). "
+                            "Футер с метаданными схемы усечен. Скачайте файл для полного анализа или выполнения SQL-запросов."
+                        ),
+                        columns=[],
+                        rows=[],
+                        row_count=0,
+                    )
+
+                # Полное чтение файла (до max_bytes)
                 reader = pq.ParquetFile(io.BytesIO(content))
                 table = reader.read_row_group(0) if reader.num_row_groups > 0 else reader.read()
                 columns = list(table.column_names)
@@ -149,7 +234,42 @@ class PreviewService:
             size_str = format_size(total_size)
             max_str = format_size(max_bytes)
 
-            # Специфика ORC: PostScript и футер с метаданными также находятся в конце файла.
+            # Если файл усечен, но передан футер (чтение по Range с конца файла)
+            if truncated and footer_bytes and len(footer_bytes) >= 4:
+                try:
+                    import pyarrow.orc as orc
+
+                    stream = io.BufferedReader(_SeekableFooterStream(total_size, footer_bytes, header=content))
+                    reader = orc.ORCFile(stream)
+                    schema = reader.schema
+                    columns = list(schema.names)
+                    num_rows = reader.nrows
+                    num_stripes = reader.nstripes
+
+                    schema_lines = []
+                    for field in schema:
+                        schema_lines.append(f"  - {field.name} ({field.type})")
+                    schema_desc = "\n".join(schema_lines)
+
+                    return FilePreviewResponse(
+                        cluster_id=cluster_id,
+                        path=path,
+                        file_type="orc",
+                        size=total_size,
+                        truncated=True,
+                        content=(
+                            f"Файл Apache ORC (размер: {size_str}, строк: {num_rows}, страйпов: {num_stripes}). "
+                            f"Размер превышает лимит полного чтения ({max_str}). "
+                            f"Схема и метаданные колонок успешно извлечены из футера файла:\n\n{schema_desc}"
+                        ),
+                        columns=columns,
+                        rows=[],
+                        row_count=0,
+                    )
+                except Exception as fe:
+                    logger.warning(f"Не удалось распарсить футер ORC файла {path}: {fe}")
+
+            # Если файл усечен и футер не получен
             if truncated:
                 return FilePreviewResponse(
                     cluster_id=cluster_id,

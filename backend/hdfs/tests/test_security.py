@@ -642,4 +642,3 @@ async def test_security_headers_and_csp():
         assert "default-src 'self'" in csp
         assert "frame-ancestors 'none'" in csp
         assert "object-src 'none'" in csp
-

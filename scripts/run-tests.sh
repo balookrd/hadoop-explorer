@@ -24,7 +24,7 @@ APP="${1:-all}"
 
 run_yarn() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: YARN Explorer (43 теста)"
+  echo "🧪 Запуск тестов: YARN Explorer (50 тестов)"
   echo "=========================================="
   local pt
   pt="$(find_pytest yarn)"
@@ -36,7 +36,7 @@ run_yarn() {
 
 run_hdfs() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: HDFS Explorer (51 тест)"
+  echo "🧪 Запуск тестов: HDFS Explorer (70 тестов)"
   echo "=========================================="
   local pt
   pt="$(find_pytest hdfs)"

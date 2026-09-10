@@ -130,7 +130,6 @@ async def health_check():
     return {"status": "ok", "app": "yarn-explorer"}
 
 
-
 @app.get("/readyz", tags=["system"])
 @app.get("/api/readyz", tags=["system"])
 @app.get("/api/v1/readyz", tags=["system"])
@@ -149,8 +148,7 @@ async def readyz():
     cb_stats = circuit_breaker_registry.get_all_stats()
     if cb_stats and all(s.get("state") == "OPEN" for s in cb_stats):
         return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "app": "yarn-explorer", "reason": "all_circuits_open"}
+            status_code=503, content={"status": "degraded", "app": "yarn-explorer", "reason": "all_circuits_open"}
         )
 
     return {"status": "ready", "app": "yarn-explorer", "database": "ok", "clusters_count": len(settings.clusters)}

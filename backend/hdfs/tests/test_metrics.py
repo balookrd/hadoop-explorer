@@ -132,7 +132,10 @@ def test_prometheus_middleware_integration():
     metrics_content = rm.text
 
     # Проверяем нормализацию путей
-    assert 'http_requests_total{app="test-app",method="GET",path="/api/v1/items/{item_id}",status="200"} 1' in metrics_content
+    assert (
+        'http_requests_total{app="test-app",method="GET",path="/api/v1/items/{item_id}",status="200"} 1'
+        in metrics_content
+    )
     assert 'http_requests_total{app="test-app",method="POST",path="/api/v1/action",status="200"} 1' in metrics_content
     assert "http_request_duration_seconds_bucket" in metrics_content
     assert "http_requests_in_progress" in metrics_content

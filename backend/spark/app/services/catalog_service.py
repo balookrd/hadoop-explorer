@@ -208,4 +208,3 @@ class SparkCatalogService:
 
 
 catalog_service = SparkCatalogService()
-

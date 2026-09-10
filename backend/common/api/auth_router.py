@@ -148,7 +148,6 @@ def create_auth_router(
                     )
         return None
 
-
     @router.post("/login", response_model=TokenResponse)
     async def login(req: LoginRequest, request: Request, response: Response):
         client_ip = get_client_ip(request)
@@ -195,9 +194,7 @@ def create_auth_router(
             try:
                 from backend.common.core.metrics import metrics_registry
 
-                metrics_registry.auth_attempts_total.inc(
-                    app="hadoop-common", provider=mode, status="failure"
-                )
+                metrics_registry.auth_attempts_total.inc(app="hadoop-common", provider=mode, status="failure")
             except Exception:
                 pass
             audit_log(AuditEventType.AUTH_LOGIN_FAILED, req.username, client_ip, status="FAILURE")
@@ -235,7 +232,9 @@ def create_auth_router(
             "user": user_session.model_dump(),
         }
 
-        token = create_jwt_token(token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes)
+        token = create_jwt_token(
+            token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes
+        )
         payload = decode_jwt_token(token, secret_key=secret_key, algorithms=[algorithm])
 
         # Сохранение в SessionStore
@@ -340,7 +339,6 @@ def create_auth_router(
             system_role=system_role_final,
         )
 
-
     @router.get("/sso", response_model=TokenResponse)
     async def kerberos_sso(request: Request, response: Response):
         client_ip = get_client_ip(request)
@@ -381,9 +379,7 @@ def create_auth_router(
 
         if not username:
             audit_log("SPNEGO_FAILED", "unknown", client_ip, status="FAILURE")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный Kerberos токен"
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный Kerberos токен")
 
         display_name = username
         email = f"{username}@company.local"
@@ -419,9 +415,7 @@ def create_auth_router(
 
         if acl_checker_fn and not acl_checker_fn(user_session):
             audit_log(AuditEventType.ACCESS_DENIED_ACL, user_session.username, client_ip, status="DENIED")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Доступ запрещен политикой безопасности"
-            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ запрещен политикой безопасности")
 
         secret_key, algorithm, expire_minutes = _get_jwt_config()
 
@@ -438,7 +432,9 @@ def create_auth_router(
             "user": user_session.model_dump(),
         }
 
-        token = create_jwt_token(token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes)
+        token = create_jwt_token(
+            token_payload, secret_key=secret_key, algorithm=algorithm, expires_minutes=expire_minutes
+        )
         payload = decode_jwt_token(token, secret_key=secret_key, algorithms=[algorithm])
 
         storage_service.save_session(

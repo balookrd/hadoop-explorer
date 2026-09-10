@@ -4,7 +4,7 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-183%20passed-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-193%20passed-brightgreen.svg)](#-тестирование-платформы)
 
 
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
@@ -69,7 +69,7 @@ hadoop-explorer/
 │   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   ├── yarn/               # Сервис YARN Explorer (50 тестов)
-│   ├── hdfs/               # Сервис HDFS Explorer (60 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (69 тестов)
 │   ├── sql/                # Сервис SQL Explorer (34 теста)
 │   └── spark/              # Сервис Spark Explorer (16 тестов)
 │
@@ -391,15 +391,15 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**176 тестов**) успешно проходят комплексную проверку:
+Все тесты (**192 теста**) успешно проходят комплексную проверку:
 - **Frontend UI & Static Suite**: 23 теста + строгий `svelte-check` (статическая верификация контрактов и типов во всех 4 SPA, компонентные smoke-тесты `App.svelte` для HDFS, Spark, SQL, YARN, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
-- **YARN Explorer**: 43 теста (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
-- **HDFS Explorer**: 60 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers).
+- **YARN Explorer**: 50 тестов (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
+- **HDFS Explorer**: 69 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter).
 - **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 183 тестов платформы (Backend + Frontend UI)
+# Запуск всех 192 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:

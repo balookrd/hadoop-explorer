@@ -53,8 +53,10 @@ async def test_awx_client_real_mode_success():
 
     mock_stdout_resp = MagicMock(status_code=200, is_success=True, text="Ansible recap: ok=5 failed=0")
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, \
-         patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+    with (
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+    ):
         mock_post.return_value = mock_launch_resp
         mock_get.side_effect = [mock_status_resp, mock_stdout_resp]
 
@@ -133,7 +135,17 @@ def test_storage_deployment_status_lifecycle():
                 partitions={"DEFAULT": part},
             )
         ],
-        diffs=[DiffItem(path="root.default", name="default", partition="DEFAULT", action="modify", param="capacity", live_value="100", draft_value="80")],
+        diffs=[
+            DiffItem(
+                path="root.default",
+                name="default",
+                partition="DEFAULT",
+                action="modify",
+                param="capacity",
+                live_value="100",
+                draft_value="80",
+            )
+        ],
     )
 
     cr = storage_service.get_change_request(cr_id)

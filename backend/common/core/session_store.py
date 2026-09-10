@@ -99,6 +99,7 @@ class SessionStore:
             self.revoked_tokens_table = None
             self.token_blacklist_table = None
             self.rate_limits_table = None
+            self.locks_table = None
             logger.info(f"SessionStore инициализирован с Redis: {self.db_url}")
         else:
             engine_kwargs = {}
@@ -161,6 +162,15 @@ class SessionStore:
                 Column("id", Integer, primary_key=True, autoincrement=True),
                 Column("key", String(255), nullable=False, index=True),
                 Column("timestamp", Float, nullable=False, index=True),
+            )
+
+            self.locks_table = Table(
+                "distributed_locks",
+                self.metadata,
+                Column("key", String(255), primary_key=True),
+                Column("owner_id", String(255), nullable=False),
+                Column("expires_at", Float, nullable=False, index=True),
+                Column("acquired_at", Float, nullable=False),
             )
 
             self._init_db()
@@ -571,8 +581,6 @@ class SessionStore:
                 return True, 0
 
             with self.engine.begin() as conn:
-                conn.execute(delete(self.rate_limits_table).where(self.rate_limits_table.c.timestamp < window_start))
-
                 stmt = select(
                     func.count(),
                     func.min(self.rate_limits_table.c.timestamp),
@@ -609,8 +617,94 @@ class SessionStore:
         except Exception as e:
             logger.error(f"Ошибка при очистке rate_limits: {e}")
 
+    # ==================== DISTRIBUTED LOCKS ====================
+
+    def acquire_lock(self, key: str, owner_id: str, ttl_seconds: float = 10.0) -> bool:
+        """
+        Захватывает распределенную блокировку для ресурса key.
+        Возвращает True если блокировка успешно получена или продлена текущим владельцем, иначе False.
+        """
+        if not key or not owner_id:
+            return False
+
+        now = time.time()
+        expires_at = now + ttl_seconds
+
+        try:
+            if self._is_redis:
+                px = int(ttl_seconds * 1000)
+                return bool(self.redis_client.set(f"lock:{key}", owner_id, nx=True, px=px))
+
+            if self.engine is None or self.locks_table is None:
+                return False
+
+            with self.engine.begin() as conn:
+                stmt = select(self.locks_table).where(self.locks_table.c.key == key)
+                if not self._is_sqlite:
+                    stmt = stmt.with_for_update()
+
+                row = conn.execute(stmt).mappings().one_or_none()
+                if row:
+                    cur_owner = row["owner_id"]
+                    cur_exp = row["expires_at"]
+
+                    # Если блокировка активна и принадлежит другому владельцу
+                    if cur_exp >= now and cur_owner != owner_id:
+                        return False
+
+                    # Иначе блокировка истекла или принадлежит нам - обновляем
+                    conn.execute(
+                        update(self.locks_table)
+                        .where(self.locks_table.c.key == key)
+                        .values(owner_id=owner_id, expires_at=expires_at, acquired_at=now)
+                    )
+                    return True
+                else:
+                    # Записи нет - создаем новую блокировку
+                    conn.execute(
+                        insert(self.locks_table).values(
+                            key=key,
+                            owner_id=owner_id,
+                            expires_at=expires_at,
+                            acquired_at=now,
+                        )
+                    )
+                    return True
+        except Exception as e:
+            logger.error(f"Ошибка захвата блокировки '{key}': {e}")
+            return False
+
+    def release_lock(self, key: str, owner_id: str) -> bool:
+        """
+        Освобождает распределенную блокировку, только если она принадлежит owner_id.
+        """
+        if not key or not owner_id:
+            return False
+
+        try:
+            if self._is_redis:
+                from backend.common.core.lock import REDIS_RELEASE_LUA
+
+                res = self.redis_client.eval(REDIS_RELEASE_LUA, 1, f"lock:{key}", owner_id)
+                return bool(res)
+
+            if self.engine is None or self.locks_table is None:
+                return False
+
+            with self.engine.begin() as conn:
+                res = conn.execute(
+                    delete(self.locks_table).where(
+                        self.locks_table.c.key == key,
+                        self.locks_table.c.owner_id == owner_id,
+                    )
+                )
+                return bool(res.rowcount and res.rowcount > 0)
+        except Exception as e:
+            logger.error(f"Ошибка освобождения блокировки '{key}': {e}")
+            return False
+
     def cleanup_expired(self) -> int:
-        """Очищает истекшие сессии, отозванные токены и rate limits."""
+        """Очищает истекшие сессии, отозванные токены, rate limits и блокировки."""
         self._l1_cache.cleanup()
         if self._is_redis:
             return 0
@@ -623,6 +717,8 @@ class SessionStore:
                 )
                 res_bl = conn.execute(delete(self.token_blacklist_table).where(self.token_blacklist_table.c.exp < now))
                 conn.execute(delete(self.rate_limits_table).where(self.rate_limits_table.c.timestamp < (now - 3600)))
+                if self.locks_table is not None:
+                    conn.execute(delete(self.locks_table).where(self.locks_table.c.expires_at < now))
                 deleted = (res_sess.rowcount or 0) + (res_tokens.rowcount or 0) + (res_bl.rowcount or 0)
                 return deleted
         except Exception as e:
@@ -685,9 +781,13 @@ class SessionStore:
         """Асинхронная очистка rate limits."""
         await anyio.to_thread.run_sync(self.clear_rate_limits)
 
-    async def cleanup_expired_async(self) -> int:
-        """Асинхронная очистка истекших сессий и токенов."""
-        return await anyio.to_thread.run_sync(self.cleanup_expired)
+    async def acquire_lock_async(self, key: str, owner_id: str, ttl_seconds: float = 10.0) -> bool:
+        """Асинхронный неблокирующий захват распределенной блокировки."""
+        return await anyio.to_thread.run_sync(self.acquire_lock, key, owner_id, ttl_seconds)
+
+    async def release_lock_async(self, key: str, owner_id: str) -> bool:
+        """Асинхронное неблокирующее освобождение распределенной блокировки."""
+        return await anyio.to_thread.run_sync(self.release_lock, key, owner_id)
 
     def ping(self) -> bool:
         """
