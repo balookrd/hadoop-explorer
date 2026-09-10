@@ -80,3 +80,10 @@ class BatchDeleteResponse(BaseModel):
 
 class BatchDownloadRequest(BaseModel):
     paths: List[str]
+
+
+class ChunkedUploadStatusResponse(BaseModel):
+    upload_id: str
+    received_chunks: List[int]
+    total_chunks: int
+    is_complete: bool

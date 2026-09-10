@@ -34,6 +34,8 @@ backend/hdfs/
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_acl.py              # Тесты проверки прав доступа
 │   ├── test_api.py              # Тесты основных API эндпоинтов
+│   ├── test_batch_operations.py # Тесты пакетных операций
+│   ├── test_chunked_upload.py   # Тесты возобновляемой чанковой загрузки файлов
 │   ├── test_circuit_breaker.py  # Тесты Circuit Breaker и сбора Prometheus-метрик
 │   ├── test_common_modules.py   # Тесты интеграции с backend/common (SessionStore, Storage)
 │   ├── test_cross_cluster_copy.py # Тесты надежности межкластерного копирования

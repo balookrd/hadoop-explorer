@@ -67,7 +67,7 @@
         label: 'ADM',
         name: 'ADMIN',
         fullLabel: 'Администратор (ADMIN)',
-        class: 'bg-purple-50 text-purple-700 border-purple-200 font-bold'
+        class: 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 font-bold'
       };
     }
     if (role === 'writer') {
@@ -75,14 +75,14 @@
         label: 'RW',
         name: 'WRITER',
         fullLabel: 'Чтение и запись (WRITER)',
-        class: 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
+        class: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 font-bold'
       };
     }
     return {
       label: 'RO',
       name: 'READER',
       fullLabel: 'Только чтение (READER)',
-      class: 'bg-slate-100 text-slate-700 border-slate-200 font-semibold'
+      class: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 font-semibold'
     };
   }
 
@@ -115,10 +115,10 @@
       <IconComponent class="w-4 h-4" />
     </div>
     <div class="flex flex-col">
-      <span class="text-sm font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent flex items-center gap-1.5">
+      <span class="text-sm font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-200 bg-clip-text text-transparent flex items-center gap-1.5">
         {title}
         {#if subtitle}
-          <span class="text-[9px] px-1.5 py-0.2 rounded-full font-mono bg-sky-50 text-sky-700 border border-sky-200 hidden md:inline-block">
+          <span class="text-[9px] px-1.5 py-0.2 rounded-full font-mono bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hidden md:inline-block">
             {subtitle}
           </span>
         {/if}
@@ -128,24 +128,24 @@
 
   <!-- Селектор кластеров и doAs -->
   {#if clusters && clusters.length > 0}
-    <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-2xs">
-      <Server class="w-4 h-4 text-slate-400 shrink-0" />
-      <span class="text-xs text-slate-500 font-medium hidden sm:inline shrink-0">Кластер:</span>
+    <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 shadow-2xs">
+      <Server class="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
+      <span class="text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:inline shrink-0">Кластер:</span>
       <select
         value={selectedClusterId || activeCluster?.id}
         onchange={handleClusterChange}
-        class="bg-transparent text-xs font-semibold text-slate-800 outline-none cursor-pointer pr-2"
+        class="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer pr-2"
       >
         {#each clusters as cluster}
-          <option value={cluster.id} class="bg-white text-slate-900">
+          <option value={cluster.id} class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
             {cluster.name || cluster.id} {cluster.type ? `(${cluster.type.toUpperCase()})` : ''}
           </option>
         {/each}
       </select>
 
       {#if user && activeCluster}
-        <div class="h-3.5 w-px bg-slate-300 mx-1 hidden md:block shrink-0"></div>
-        <div class="hidden md:flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-medium shrink-0">
+        <div class="h-3.5 w-px bg-slate-300 dark:bg-slate-700 mx-1 hidden md:block shrink-0"></div>
+        <div class="hidden md:flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded font-medium shrink-0">
           <Cpu class="w-3.5 h-3.5" />
           <span>doAs: <strong class="font-mono">{user.username}</strong></span>
         </div>
@@ -178,16 +178,16 @@
         <button
           onclick={() => (showUserMenu = !showUserMenu)}
           aria-expanded={showUserMenu}
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition cursor-pointer text-left shadow-2xs shrink-0"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition cursor-pointer text-left shadow-2xs shrink-0"
         >
-          <div class="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-semibold text-[11px] shrink-0">
+          <div class="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-semibold text-[11px] shrink-0">
             <User class="w-3 h-3" />
           </div>
           <div class="flex flex-col text-left max-w-[90px] sm:max-w-[120px] md:max-w-[150px]">
-            <span class="text-xs font-semibold text-slate-800 leading-tight truncate">
+            <span class="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-tight truncate">
               {user.display_name || user.username || 'Гость'}
             </span>
-            <span class="text-[9px] text-slate-500 leading-tight font-medium font-mono truncate">
+            <span class="text-[9px] text-slate-500 dark:text-slate-400 leading-tight font-medium font-mono truncate">
               @{user.username}
             </span>
           </div>
@@ -199,31 +199,31 @@
               {effectiveRole.label}
             </span>
           {/if}
-          <ChevronDown class="w-3 h-3 text-slate-400 shrink-0 transition-transform duration-200 {showUserMenu ? 'rotate-180' : ''}" />
+          <ChevronDown class="w-3 h-3 text-slate-400 dark:text-slate-500 shrink-0 transition-transform duration-200 {showUserMenu ? 'rotate-180' : ''}" />
         </button>
 
         {#if showUserMenu}
           <!-- Выпадающая карточка профиля -->
           <div
-            class="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-xl p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+            class="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-slate-800 dark:text-slate-100"
             style="z-index: 1000;"
           >
-            <div class="border-b border-slate-100 pb-2.5 mb-2.5">
+            <div class="border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5">
               <div class="flex items-center justify-between gap-2">
-                <div class="text-xs font-bold text-slate-800 truncate">{user.display_name || user.username}</div>
-                <span class="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-100 text-slate-600 border border-slate-200 shrink-0">
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{user.display_name || user.username}</div>
+                <span class="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
                   {user.auth_method === 'kerberos' ? 'Kerberos SSO' : user.auth_method === 'mock' ? 'Demo' : 'LDAP'}
                 </span>
               </div>
-              <div class="text-[11px] text-slate-500 font-mono">@{user.username}</div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">@{user.username}</div>
               {#if user.email}
-                <div class="text-[11px] text-slate-500 mt-0.5">{user.email}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{user.email}</div>
               {/if}
             </div>
 
             <!-- Группы LDAP / Роли -->
             <div class="mb-3">
-              <div class="text-[11px] font-semibold text-slate-500 mb-1.5 flex items-center justify-between">
+              <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
                 <span>Группы LDAP / Роли:</span>
                 <span class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border {effectiveRole?.class}">
                   {#if effectiveRole?.name === 'ADMIN'}
@@ -236,12 +236,12 @@
               <div class="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                 {#if user.groups && user.groups.length > 0}
                   {#each user.groups as group}
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-medium">
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium">
                       {group}
                     </span>
                   {/each}
                 {:else}
-                  <span class="text-[10px] text-slate-400 italic">Нет назначенных групп</span>
+                  <span class="text-[10px] text-slate-400 dark:text-slate-500 italic">Нет назначенных групп</span>
                 {/if}
               </div>
             </div>
@@ -252,7 +252,7 @@
                   showUserMenu = false;
                   onLogout();
                 }}
-                class="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-medium transition cursor-pointer"
+                class="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-medium transition cursor-pointer"
               >
                 <LogOut class="w-3.5 h-3.5" />
                 Выйти из системы

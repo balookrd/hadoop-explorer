@@ -1,0 +1,56 @@
+groups:
+  - name: hadoop_explorer_alerts
+    rules:
+      - alert: HadoopCircuitBreakerOpen
+        expr: hadoop_circuit_breaker_state == 2
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit Breaker {{ $labels.name }} размыкается (состояние OPEN)"
+          description: "Автомат защиты {{ $labels.name }} разомкнут более 30 секунд. Запросы к узлу переводятся в Fast-Fail."
+
+      - alert: HadoopCircuitBreakerHalfOpen
+        expr: hadoop_circuit_breaker_state == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit Breaker {{ $labels.name }} в режиме восстановления (HALF_OPEN)"
+          description: "Автомат защиты {{ $labels.name }} выполняет пробные запросы к целевому узлу."
+
+      - alert: HadoopHigh5xxErrorRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[1m])) by (app) / sum(rate(http_requests_total[1m])) by (app)) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Высокая доля ошибок 5xx в сервисе {{ $labels.app }}"
+          description: "Более 5% запросов к {{ $labels.app }} завершаются кодами 5xx в течение 1 минуты."
+
+      - alert: HadoopHighApiLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, app)) > 2.0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая задержка API p95 в сервисе {{ $labels.app }}"
+          description: "95-й перцентиль задержки ответов {{ $labels.app }} превышает 2 секунды."
+
+      - alert: HadoopRateLimitSpike
+        expr: sum(rate(rate_limit_exceeded_total[5m])) by (app) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Всплеск блокировок Rate Limiter в {{ $labels.app }}"
+          description: "Более 10 запросов в секунду отклоняются Rate Limiter в сервисе {{ $labels.app }}."
+
+      - alert: HdfsOperationsHighFailureRate
+        expr: (sum(rate(hdfs_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(hdfs_operations_total[5m])) by (cluster)) > 0.10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая доля ошибок операций HDFS на кластере {{ $labels.cluster }}"
+          description: "Более 10% операций с файлами HDFS на кластере {{ $labels.cluster }} завершаются ошибками."

@@ -71,6 +71,38 @@
   );
   const totalChangesCount = $derived(draftCount + (isMappingsModified ? 1 : 0));
 
+  function parseUrlState(): { clusterId?: string; partition?: string; queuePath?: string } {
+    if (typeof window === 'undefined') return {};
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const search = window.location.search.startsWith('?') ? window.location.search.slice(1) : window.location.search;
+    const params = new URLSearchParams(hash || search);
+    return {
+      clusterId: params.get('cluster') || undefined,
+      partition: params.get('partition') || undefined,
+      queuePath: params.get('queue') || undefined
+    };
+  }
+
+  function updateUrl(push: boolean = false) {
+    if (typeof window === 'undefined' || !selectedClusterId) return;
+    const params = new URLSearchParams();
+    params.set('cluster', selectedClusterId);
+    if (selectedPartition && selectedPartition !== 'DEFAULT') {
+      params.set('partition', selectedPartition);
+    }
+    if (editingQueue && isDrawerOpen) {
+      params.set('queue', editingQueue.path);
+    }
+    const newHash = `#${params.toString()}`;
+    if (window.location.hash !== newHash) {
+      if (push) {
+        window.history.pushState(null, '', newHash);
+      } else {
+        window.history.replaceState(null, '', newHash);
+      }
+    }
+  }
+
   onMount(async () => {
     // Подписка на истечение сессии / 401 Unauthorized
     api.onUnauthorized((msg) => {
@@ -80,6 +112,25 @@
       clusterMetrics = null;
       authErrorMessage = msg;
     });
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('hashchange', () => {
+        const { clusterId, partition, queuePath } = parseUrlState();
+        if (clusterId && clusterId !== selectedClusterId) {
+          selectedClusterId = clusterId;
+        }
+        if (partition && partition !== selectedPartition) {
+          selectedPartition = partition;
+        }
+        if (queuePath && rootQueue) {
+          const target = findNodeInTree(rootQueue, queuePath);
+          if (target) {
+            editingQueue = target;
+            isDrawerOpen = true;
+          }
+        }
+      });
+    }
 
     try {
       user = await api.getMe();
@@ -104,10 +155,19 @@
     }
   });
 
+  // Синхронизация URL при изменении состояния
+  $effect(() => {
+    if (selectedClusterId) {
+      updateUrl(false);
+    }
+  });
+
   async function loadClusters() {
     clusters = await api.getClusters();
     if (clusters.length > 0 && !selectedClusterId) {
-      selectedClusterId = clusters[0].id;
+      const { clusterId } = parseUrlState();
+      const target = clusters.find(c => c.id === clusterId);
+      selectedClusterId = target ? target.id : clusters[0].id;
     }
   }
 
@@ -122,7 +182,18 @@
       balances = resp.balances;
       partitions = resp.partitions;
       resourceMode = resp.resource_mode;
-      selectedPartition = resp.default_partition;
+      
+      const { partition, queuePath } = parseUrlState();
+      selectedPartition = partition && resp.partitions.includes(partition) ? partition : resp.default_partition;
+
+      if (queuePath && rootQueue) {
+        const target = findNodeInTree(rootQueue, queuePath);
+        if (target) {
+          editingQueue = target;
+          isDrawerOpen = true;
+        }
+      }
+
       liveQueueMappings = resp.queue_mappings || '';
       liveQueueMappingsOverride = resp.queue_mappings_override || false;
       draftQueueMappings = liveQueueMappings;

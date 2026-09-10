@@ -1,5 +1,7 @@
 import asyncio
 import io
+import re
+import shutil
 import tempfile
 import zipfile
 from datetime import datetime
@@ -24,6 +26,7 @@ from app.models.hdfs import (
     BatchDeleteRequest,
     BatchDeleteResponse,
     BatchDownloadRequest,
+    ChunkedUploadStatusResponse,
 )
 from app.services.hdfs_client import hdfs_service, WebHdfsException
 from app.services.preview import preview_service
@@ -369,6 +372,152 @@ async def upload_file(
             status="FAILED",
         )
         raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/upload-chunk", response_model=FileActionResponse)
+async def upload_file_chunk(
+    cluster_id: str,
+    request: Request,
+    upload_id: str = Form(...),
+    path: str = Form(...),
+    filename: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    file: UploadFile = File(...),
+    overwrite: bool = Form(default=True),
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """
+    Пошаговая загрузка больших файлов чанками с защитой от сбоев сети и path traversal.
+    При загрузке всех частей (0..total_chunks-1) файл собирается и передается потоком в WebHDFS.
+    """
+    cluster = _get_cluster_and_validate(cluster_id, current_user)
+    if is_cluster_read_only(cluster, current_user.username, current_user.groups):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Кластер доступен только для чтения")
+
+    if chunk_index < 0 or total_chunks <= 0 or chunk_index >= total_chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный индекс или общее количество чанков"
+        )
+
+    safe_upload_id = re.sub(r"[^a-zA-Z0-9_-]", "", upload_id)
+    if not safe_upload_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный upload_id")
+
+    client = hdfs_service.get_client(cluster)
+    target_dir = sanitize_hdfs_path(path)
+    safe_filename = Path(filename).name
+    if not safe_filename or safe_filename in (".", ".."):
+        safe_filename = "uploaded_file"
+
+    full_path = f"{target_dir}/{safe_filename}" if target_dir != "/" else f"/{safe_filename}"
+
+    temp_base_dir = Path(tempfile.gettempdir()) / "hdfs_chunked_uploads" / safe_upload_id
+    temp_base_dir.mkdir(parents=True, exist_ok=True)
+    chunk_file = temp_base_dir / f"{chunk_index}.part"
+
+    try:
+        with open(chunk_file, "wb") as f:
+            while chunk_data := await file.read(65536):
+                f.write(chunk_data)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ошибка сохранения чанка: {e}")
+
+    existing_chunks = {int(p.stem) for p in temp_base_dir.glob("*.part") if p.stem.isdigit()}
+
+    # Если все чанки загружены -> собираем и передаем единым потоком в WebHDFS
+    if len(existing_chunks) == total_chunks and set(range(total_chunks)).issubset(existing_chunks):
+
+        async def combined_streamer():
+            for idx in range(total_chunks):
+                part_path = temp_base_dir / f"{idx}.part"
+                with open(part_path, "rb") as pf:
+                    while data := pf.read(65536):
+                        yield data
+
+        try:
+            parent_dir = full_path.rsplit("/", 1)[0]
+            if parent_dir and parent_dir != target_dir and parent_dir != "/":
+                try:
+                    await client.mkdirs(parent_dir, do_as_user=current_user.username)
+                except Exception:
+                    pass
+
+            await client.create_file(
+                full_path, combined_streamer(), do_as_user=current_user.username, overwrite=overwrite
+            )
+
+            shutil.rmtree(temp_base_dir, ignore_errors=True)
+
+            audit_log(
+                action="FILE_UPLOAD_CHUNKED",
+                username=current_user.username,
+                client_ip=get_client_ip(request),
+                details={
+                    "cluster_id": cluster_id,
+                    "path": full_path,
+                    "total_chunks": total_chunks,
+                    "overwrite": overwrite,
+                },
+                status="SUCCESS",
+            )
+            return FileActionResponse(
+                success=True,
+                message=f"Файл '{safe_filename}' успешно загружен и собран из {total_chunks} чанков",
+                path=full_path,
+            )
+        except WebHdfsException as e:
+            shutil.rmtree(temp_base_dir, ignore_errors=True)
+            audit_log(
+                action="FILE_UPLOAD_CHUNKED",
+                username=current_user.username,
+                client_ip=get_client_ip(request),
+                details={"cluster_id": cluster_id, "path": full_path, "error": e.message},
+                status="FAILED",
+            )
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        except Exception as e:
+            shutil.rmtree(temp_base_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ошибка сборки файла в HDFS: {e}"
+            )
+
+    return FileActionResponse(
+        success=True,
+        message=f"Чанк {chunk_index + 1}/{total_chunks} успешно сохранен",
+        path=full_path,
+    )
+
+
+@router.get("/upload-chunk/status", response_model=ChunkedUploadStatusResponse)
+async def get_chunked_upload_status(
+    cluster_id: str,
+    upload_id: str = Query(...),
+    total_chunks: int = Query(...),
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """
+    Проверяет статус загруженных чанков для возобновления загрузки после сбоя.
+    """
+    _get_cluster_and_validate(cluster_id, current_user)
+    safe_upload_id = re.sub(r"[^a-zA-Z0-9_-]", "", upload_id)
+    temp_base_dir = Path(tempfile.gettempdir()) / "hdfs_chunked_uploads" / safe_upload_id
+    if not temp_base_dir.exists():
+        return ChunkedUploadStatusResponse(
+            upload_id=upload_id,
+            received_chunks=[],
+            total_chunks=total_chunks,
+            is_complete=False,
+        )
+
+    existing_chunks = sorted([int(p.stem) for p in temp_base_dir.glob("*.part") if p.stem.isdigit()])
+    is_complete = len(existing_chunks) == total_chunks and set(range(total_chunks)).issubset(set(existing_chunks))
+    return ChunkedUploadStatusResponse(
+        upload_id=upload_id,
+        received_chunks=existing_chunks,
+        total_chunks=total_chunks,
+        is_complete=is_complete,
+    )
 
 
 # Лимиты распаковки архивов (защита от Zip Bomb / исчерпания ресурсов)
