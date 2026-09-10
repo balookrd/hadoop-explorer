@@ -15,6 +15,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def init_yarn_metrics():
+    try:
+        from backend.common.core.circuit_breaker import circuit_breaker_registry
+        from backend.common.core.metrics import metrics_registry
+
+        for cluster in settings.clusters:
+            for rm_url in cluster.resource_manager_urls:
+                circuit_breaker_registry.get(
+                    name=f"yarn:{cluster.id}:{rm_url}",
+                    failure_threshold=3,
+                    recovery_timeout=20.0,
+                )
+            for state in ("RUNNING", "STOPPED"):
+                metrics_registry.yarn_queues_active_gauge.set(0.0, cluster=cluster.id, state=state)
+            for status in ("PENDING", "APPROVED", "REJECTED", "DEPLOYED", "FAILED"):
+                metrics_registry.yarn_change_requests_total.inc(0.0, cluster=cluster.id, status=status)
+    except Exception as e:
+        logger.warning(f"Ошибка инициализации метрик YARN: {e}")
+
+
 on_shutdown_hooks = []
 if hasattr(yarn_service, "aclose"):
     on_shutdown_hooks.append(yarn_service.aclose)
@@ -35,6 +56,7 @@ app = create_explorer_app(
     ],
     storage_service=storage_service,
     frontend_app_name="yarn",
+    on_startup=[init_yarn_metrics],
     on_shutdown=on_shutdown_hooks,
 )
 

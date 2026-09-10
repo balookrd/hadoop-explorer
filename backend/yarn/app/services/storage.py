@@ -148,7 +148,16 @@ class StorageService(SessionStore):
                 diffs_json=diffs_json,
             )
             result = conn.execute(stmt)
-            return result.inserted_primary_key[0]
+            cr_id = result.inserted_primary_key[0]
+
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            metrics_registry.yarn_change_requests_total.inc(cluster=cluster_id, status="SUBMITTED")
+        except Exception:
+            pass
+
+        return cr_id
 
     save_change_request = create_change_request
 

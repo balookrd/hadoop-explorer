@@ -348,8 +348,31 @@ class YarnClient:
 
         scheduler_info = scheduler_data.get("scheduler", {}).get("schedulerInfo", {})
         root_queue = self._parse_queue_tree(scheduler_info)
+        self._update_queue_metrics(root_queue)
 
         return root_queue, metrics
+
+    def _update_queue_metrics(self, root_node: QueueNode) -> None:
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            running = 0
+            stopped = 0
+
+            def count_nodes(node: QueueNode):
+                nonlocal running, stopped
+                if node.state == QueueState.RUNNING:
+                    running += 1
+                else:
+                    stopped += 1
+                for ch in node.children:
+                    count_nodes(ch)
+
+            count_nodes(root_node)
+            metrics_registry.yarn_queues_active_gauge.set(running, cluster=self.cluster.id, state="RUNNING")
+            metrics_registry.yarn_queues_active_gauge.set(stopped, cluster=self.cluster.id, state="STOPPED")
+        except Exception:
+            pass
 
     async def get_capacity_scheduler_xml(self, do_as: str = "") -> Optional[str]:
         """

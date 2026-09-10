@@ -248,6 +248,7 @@ class MetricsRegistry:
             "Active YARN queues count",
             ["cluster", "state"],
         )
+        self.yarn_queues_active_gauge = self.yarn_queues_active
         self.yarn_change_requests_total = self.counter(
             "yarn_change_requests_total",
             "Total YARN capacity change requests processed",
@@ -259,6 +260,7 @@ class MetricsRegistry:
             "Current active Spark/Livy sessions",
             ["cluster", "kind"],
         )
+        self.spark_sessions_active_gauge = self.spark_sessions_active
         self.spark_statements_total = self.counter(
             "spark_statements_total",
             "Total interactive Spark statements executed",
