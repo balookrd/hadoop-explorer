@@ -48,3 +48,35 @@
 ### 5. Типы (`types/`)
 - **`types/auth.ts`** — интерфейсы `UserSession`, `UserInfo`, `TokenResponse`, `ClusterPublicInfo`.
 - **`types/generated/`** — автоматически сгенерированные TypeScript-типы из OpenAPI схем FastAPI (`yarn.ts`, `hdfs.ts`, `sql.ts`, `spark.ts`).
+
+### 6. Набор компонентных и интеграционных тестов (`tests/`)
+- **`tests/components.test.ts`** — юнит- и интеграционное тестирование общих UI-компонентов:
+  - `Header`: рендеринг логотипа, индикатора пользователя, бейджа роли (`ADM`, `RW`, `RO`), выпадающей карточки профиля, слота `extraActions`, обработка клика выхода (`onLogout`).
+  - `LoginModal`: ввод учетных данных LDAP, валидация полей, клики выбора демонстрационных пользователей (`mockUsers`), переключение на Kerberos SSO, отображение ошибок авторизации.
+  - `Modal`: рендеринг заголовка, тела и слота подвала, проверка вызова `onClose` при клике на крестик, фон (backdrop) и при нажатии клавиши `Escape`.
+  - `StatusBadge`: корректная цветовая дифференциация и отображение различных статусов выполнения.
+  - `NotificationToast`: отображение текста тостов и авто-скрытие.
+- **`tests/apps_smoke.test.ts`** — smoke-тестирование базового монтирования корневых контейнеров `App.svelte` всех четырёх SPA-приложений платформы (YARN, HDFS, SQL, Spark) в среде jsdom.
+- **`tests/auth_flow.test.ts`** — тестирование сквозного жизненного цикла авторизации, обновления токенов и смены учетных записей.
+- **`tests/client.test.ts`** — тестирование базового сетевого клиента `BaseApiClient`:
+  - Отправка запросов с `credentials: 'include'` и заголовком `X-Requested-With`.
+  - Прозрачный перехват HTTP 401 и вызов коллбэка `onUnauthorized`.
+
+---
+
+## 🚀 Команды разработки и тестирования
+
+```bash
+# Запуск всех тестов пакета common
+npx vitest run common/tests
+
+# Запуск тестов компонентов
+npx vitest run common/tests/components.test.ts
+
+# Запуск тестов сетевого клиента
+npx vitest run common/tests/client.test.ts
+
+# Запуск всех UI-тестов фронтенд-монорепозитория
+npm run test:unit
+```
+

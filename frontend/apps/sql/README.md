@@ -35,6 +35,11 @@ frontend/apps/sql/src/
 ├── app.css                    # Глобальные CSS-переменные темы и стили скроллбаров
 ├── App.svelte                 # Главный контейнер приложения, вкладки запросов и раскладка
 └── main.ts                    # Точка входа приложения
+frontend/apps/sql/tests/       # Модульные и компонентные тесты (Vitest + Testing Library)
+├── query_toolbar.test.ts      # Тесты тулбара запуска, отмены, таймингов и ИИ-кнопок
+├── results_grid.test.ts       # Тесты таблицы результатов, фильтрации, пагинации и ошибок
+├── queue_view.test.ts         # Тесты очереди фоновых запросов Trino/Hive
+└── ai_assistant_modal.test.ts # Тесты модалки ИИ-генератора с шаблонами Text-to-SQL
 ```
 
 ---
@@ -86,3 +91,18 @@ npm run build
 ```bash
 npm run preview
 ```
+
+### Запуск UI и компонентных тестов
+```bash
+# Запуск тестов компонентов SQL Explorer
+npx vitest run apps/sql/tests
+
+# Запуск с отслеживанием изменений (watch-режим)
+npx vitest apps/sql/tests
+```
+
+### Проверка типов (TypeScript / Svelte)
+```bash
+npx svelte-check --tsconfig ./tsconfig.json
+```
+

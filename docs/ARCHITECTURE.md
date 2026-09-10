@@ -370,7 +370,7 @@
                   └───────────────────────┘
 ```
 
-### 9.1 Метрики тестового покрытия платформы (240 тестов)
+### 9.1 Метрики тестового покрытия платформы (308 тестов)
 
 | Сервис / Уровень | Количество тестов | Ключевые аспекты покрытия |
 |---|---|---|
@@ -378,7 +378,7 @@
 | **HDFS Explorer** | **86 тестов** | NameNode HA Failover при `StandbyException`, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security (CWE-200, CSP, CSRF), Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter |
 | **SQL Explorer** | **42 теста** | Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace |
 | **Spark Explorer** | **24 теста** | Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker |
-| **Frontend UI Suite** | **23 теста** | Строгая проверка типов `svelte-check`, рендеринг и логика `App.svelte` во всех 4 SPA, общие компоненты `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, Zero Console Errors |
+| **Frontend UI Suite** | **91 тест** | Полное компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 4 SPA и общем ядре: HDFS (хлебные крошки, тулбар действий, мультивыбор, список файлов с сортировкой, модалки создания/переименования/удаления), YARN (метрики ресурсов кластера, селектор партиций, балансировка квот, дифф конфигураций, модалки очередей и XML), SQL (тулбар запуска, таблица результатов, очередь фоновых задач, ИИ-ассистент), Spark (тулбар сессий и языков, результаты и логи, модалка конфигурации), Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), полифиллы jsdom (ResizeObserver, IntersectionObserver, clipboard), строгая проверка типов `svelte-check` (0 ошибок) и E2E сценарии Playwright |
 
 ### 9.2 Тестирование отказоустойчивости (Resilience Testing)
 1. **Circuit Breaker State Machine**:

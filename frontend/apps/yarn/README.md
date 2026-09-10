@@ -27,6 +27,12 @@ frontend/apps/yarn/src/
 ├── types.ts                     # TypeScript интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)
 ├── App.svelte                   # Корневой компонент приложения с роутингом состояний
 └── main.ts                      # Входная точка Svelte приложения
+frontend/apps/yarn/tests/        # Модульные и компонентные тесты (Vitest + Testing Library)
+├── cluster_metrics_bar.test.ts  # Тесты метрик кластера (память, ядра, ноды, контейнеры)
+├── partition_selector.test.ts   # Тесты селектора партиций нод
+├── resource_balance_card.test.ts# Тесты балансировки долей и перераспределения
+├── diff_panel.test.ts           # Тесты Unified Diff (Live vs Draft)
+└── modals.test.ts               # Тесты модальных окон AddQueueModal и XmlExportModal
 ```
 
 ---
@@ -76,7 +82,13 @@ cd apps/yarn && npm run dev
 npm run check
 ```
 
-### 4. Production-сборка
+### 4. Запуск UI и компонентных тестов
+```bash
+# Из корня frontend
+npx vitest run apps/yarn/tests
+```
+
+### 5. Production-сборка
 ```bash
 npm run build
 ```

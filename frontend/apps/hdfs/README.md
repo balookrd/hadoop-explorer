@@ -20,6 +20,12 @@ frontend/apps/hdfs/
 │   ├── App.svelte               # Корневой компонент интерфейса
 │   ├── app.css                  # Подключение Tailwind CSS v4 и theme.css
 │   └── main.ts                  # Точка входа приложения
+├── tests/                       # Модульные и компонентные тесты (Vitest + Testing Library)
+│   ├── breadcrumbs.test.ts      # Тесты хлебных крошек и навигации
+│   ├── action_toolbar.test.ts   # Тесты тулбара (загрузка, папки, поиск, квоты)
+│   ├── batch_action_bar.test.ts # Тесты панели пакетных действий
+│   ├── file_list.test.ts        # Тесты таблицы файлов, сортировки и состояний
+│   └── modals.test.ts           # Тесты модалок Mkdir, Delete, Rename
 ├── index.html                   # Базовый HTML-шаблон
 ├── package.json                 # Зависимости (@tailwindcss/vite, lucide-svelte, svelte)
 ├── tsconfig.json                # Конфигурация TypeScript
@@ -41,17 +47,29 @@ frontend/apps/hdfs/
 
 ## 🚀 Запуск и сборка
 
+### 1. Установка зависимостей
 ```bash
-# Установка зависимостей (из корня frontend)
+# Из корня frontend
 npm install
+```
 
-# Запуск локального сервера разработки с HMR
+### 2. Запуск локального сервера разработки с HMR
+```bash
 cd apps/hdfs && npm run dev
 ```
 
-# Проверка типов
+### 3. Проверка типов
+```bash
 npm run check
+```
 
-# Сборка production бандла
+### 4. Запуск UI и компонентных тестов
+```bash
+# Из корня frontend
+npx vitest run apps/hdfs/tests
+```
+
+### 5. Сборка production бандла
+```bash
 npm run build
 ```

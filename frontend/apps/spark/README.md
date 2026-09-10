@@ -30,6 +30,10 @@ frontend/apps/spark/src/
 │   └── ResultsView.svelte    # Панель вывода результатов: таблица строк с пагинацией, лог сессии, блок ошибок
 │   (Header и LoginModal подключаются из @hadoop-explorer/common)
 ├── types.ts                  # TypeScript интерфейсы: SessionConfig, Statement, Tab, TabResultData, Catalog
+├── tests/                    # Набор компонентных UI-тестов (Vitest, @testing-library/svelte)
+│   ├── session_bar.test.ts   # Тестирование локального тулбара вкладки: смена языка, запуск/отмена, таймер
+│   ├── results_view.test.ts  # Тестирование панели вывода результатов: пагинация, ошибки, лог сессии
+│   └── session_config_modal.test.ts # Тестирование модального окна конфигурации сессий Livy
 ├── app.css                   # Глобальные стили Tailwind 4, тема theme.css и шрифты Inter
 ├── App.svelte                # Главный контейнер приложения, верхние табы скриптов со SparkSessionWidget, буферы языков и синхронизация с БД
 └── main.ts                   # Точка входа в SPA
@@ -91,4 +95,10 @@ npm run build
 
 # Проверка типов
 npm run check
+
+# Запуск UI и компонентных тестов
+npx vitest run apps/spark/tests
+
+# Запуск тестов в режиме наблюдения (watch-режим)
+npx vitest apps/spark/tests
 ```
