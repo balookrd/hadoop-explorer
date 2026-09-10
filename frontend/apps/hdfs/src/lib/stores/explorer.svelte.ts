@@ -19,6 +19,10 @@ class ExplorerState {
   sortBy = $state<'name' | 'size' | 'modified' | 'type'>('type');
   sortAsc = $state<boolean>(true);
 
+  // Мультивыбор файлов
+  selectedFileNames = $state<string[]>([]);
+  lastSelectedName = $state<string | null>(null);
+
   // Вычисляемый отфильтрованный и отсортированный список файлов
   filteredFiles = $derived.by(() => {
     let result = this.files;
@@ -46,6 +50,32 @@ class ExplorerState {
 
       return this.sortAsc ? cmp : -cmp;
     });
+  });
+
+  // Выбранные объекты файлов
+  selectedItems = $derived.by(() => {
+    const set = new Set(this.selectedFileNames);
+    return this.filteredFiles.filter(f => set.has(f.pathSuffix));
+  });
+
+  // Полные пути выбранных объектов
+  selectedFullPaths = $derived.by(() => {
+    const base = this.currentPath === '/' ? '' : this.currentPath;
+    return this.selectedItems.map(f => `${base}/${f.pathSuffix}`);
+  });
+
+  // Суммарный размер выбранных файлов
+  selectedTotalSize = $derived.by(() => {
+    return this.selectedItems.reduce((acc, f) => acc + (f.length || 0), 0);
+  });
+
+  // Флаги выбора всех или части элементов
+  isAllSelected = $derived.by(() => {
+    return this.filteredFiles.length > 0 && this.selectedFileNames.length === this.filteredFiles.length;
+  });
+
+  isSomeSelected = $derived.by(() => {
+    return this.selectedFileNames.length > 0 && this.selectedFileNames.length < this.filteredFiles.length;
   });
 
   private parseUrlState(): { clusterId?: string; path?: string } {
@@ -120,6 +150,7 @@ class ExplorerState {
 
     this.loading = true;
     this.error = null;
+    this.clearSelection();
     try {
       const resp: DirectoryListingResponse = await api.listFiles(this.currentCluster.id, path);
       this.currentPath = resp.path;
@@ -160,6 +191,54 @@ class ExplorerState {
       this.sortBy = field;
       this.sortAsc = true;
     }
+  }
+
+  // Методы мультивыбора
+  isSelected(fileName: string): boolean {
+    return this.selectedFileNames.includes(fileName);
+  }
+
+  toggleSelect(fileName: string, shiftKey: boolean = false) {
+    const files = this.filteredFiles;
+    const currentIndex = files.findIndex(f => f.pathSuffix === fileName);
+    if (currentIndex === -1) return;
+
+    if (shiftKey && this.lastSelectedName) {
+      const lastIndex = files.findIndex(f => f.pathSuffix === this.lastSelectedName);
+      if (lastIndex !== -1) {
+        const start = Math.min(currentIndex, lastIndex);
+        const end = Math.max(currentIndex, lastIndex);
+        const rangeNames = files.slice(start, end + 1).map(f => f.pathSuffix);
+        const merged = new Set([...this.selectedFileNames, ...rangeNames]);
+        this.selectedFileNames = Array.from(merged);
+        this.lastSelectedName = fileName;
+        return;
+      }
+    }
+
+    if (this.selectedFileNames.includes(fileName)) {
+      this.selectedFileNames = this.selectedFileNames.filter(name => name !== fileName);
+    } else {
+      this.selectedFileNames = [...this.selectedFileNames, fileName];
+    }
+    this.lastSelectedName = fileName;
+  }
+
+  toggleSelectAll() {
+    if (this.isAllSelected) {
+      this.clearSelection();
+    } else {
+      this.selectAll();
+    }
+  }
+
+  selectAll() {
+    this.selectedFileNames = this.filteredFiles.map(f => f.pathSuffix);
+  }
+
+  clearSelection() {
+    this.selectedFileNames = [];
+    this.lastSelectedName = null;
   }
 }
 

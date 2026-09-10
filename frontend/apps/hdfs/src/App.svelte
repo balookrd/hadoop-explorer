@@ -14,11 +14,14 @@
   import MkdirModal from './lib/components/Modals/MkdirModal.svelte';
   import RenameModal from './lib/components/Modals/RenameModal.svelte';
   import DeleteModal from './lib/components/Modals/DeleteModal.svelte';
+  import BatchDeleteModal from './lib/components/Modals/BatchDeleteModal.svelte';
   import PreviewModal from './lib/components/Modals/PreviewModal.svelte';
   import CrossClusterCopyModal from './lib/components/Modals/CrossClusterCopyModal.svelte';
+  import BatchActionBar from './lib/components/BatchActionBar.svelte';
 
   let isUploadOpen = $state(false);
   let isMkdirOpen = $state(false);
+  let isBatchDeleteOpen = $state(false);
   let activeRenameFile = $state<HdfsFileStatus | null>(null);
   let activeDeleteFile = $state<HdfsFileStatus | null>(null);
   let activePreviewFile = $state<HdfsFileStatus | null>(null);
@@ -150,5 +153,18 @@
         onClose={() => { activeCopyFile = null; }}
       />
     {/if}
+
+    <!-- Пакетные действия и модальное окно -->
+    <BatchActionBar
+      onOpenBatchDelete={() => { isBatchDeleteOpen = true; }}
+    />
+
+    {#if isBatchDeleteOpen}
+      <BatchDeleteModal
+        isOpen={isBatchDeleteOpen}
+        onClose={() => { isBatchDeleteOpen = false; }}
+      />
+    {/if}
   </div>
 {/if}
+

@@ -46,6 +46,8 @@ htmlcov/
 node_modules/
 frontend/**/node_modules/
 frontend/**/dist/
+frontend/playwright-report/
+frontend/test-results/
 .svelte-kit/
 .vite/
 npm-debug.log*

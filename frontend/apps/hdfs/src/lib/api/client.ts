@@ -7,6 +7,7 @@ import type {
   FileActionResponse,
   CrossClusterCopyRequest,
   CrossClusterCopyResponse,
+  BatchDeleteResponse,
 } from '../types';
 
 export class HdfsApiClient extends BaseApiClient {
@@ -118,6 +119,35 @@ export class HdfsApiClient extends BaseApiClient {
       method: 'POST',
       body: JSON.stringify(req),
     });
+  }
+
+  async batchDelete(clusterId: string, paths: string[], recursive: boolean = true): Promise<BatchDeleteResponse> {
+    return this.request(`/clusters/${clusterId}/files/batch-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ paths, recursive }),
+    });
+  }
+
+  async batchDownload(clusterId: string, paths: string[]): Promise<Blob> {
+    const url = `${this.baseUrl}/clusters/${clusterId}/files/batch-download`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+    const token = this.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ paths }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Ошибка скачивания архива' }));
+      throw new Error(err.detail || `Ошибка ${res.status}`);
+    }
+    return res.blob();
   }
 }
 

@@ -74,3 +74,24 @@ export interface CrossClusterCopyResponse {
   copied_bytes: number;
 }
 
+export interface BatchDeleteRequest {
+  paths: string[];
+  recursive?: boolean;
+}
+
+export interface BatchDeleteFailedItem {
+  path: string;
+  error: string;
+}
+
+export interface BatchDeleteResponse {
+  deleted: string[];
+  failed: BatchDeleteFailedItem[];
+  total_requested: number;
+  success: boolean;
+}
+
+export interface BatchDownloadRequest {
+  paths: string[];
+}
+
