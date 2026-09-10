@@ -12,7 +12,7 @@ build_app() {
   echo "=========================================="
   echo "🐳 Сборка Docker-образа: $REGISTRY/$app:$TAG"
   echo "=========================================="
-  docker build -t "$REGISTRY/$app:$TAG" -f "$ROOT_DIR/docker/Dockerfile.$app" "$ROOT_DIR"
+  docker build -t "$REGISTRY/$app:$TAG" --build-arg SERVICE_NAME="$app" -f "$ROOT_DIR/docker/Dockerfile" "$ROOT_DIR"
   echo " Образ $REGISTRY/$app:$TAG успешно собран!"
 }
 

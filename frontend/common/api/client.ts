@@ -178,6 +178,70 @@ export class BaseApiClient {
   public async getMe(): Promise<UserSession> {
     return this.request<UserSession>('/auth/me');
   }
+
+  public subscribeSse<T = any>(
+    path: string,
+    onMessage: (data: T) => void,
+    options: {
+      onError?: (err: any) => void;
+      shouldClose?: (data: T) => boolean;
+      reconnect?: boolean;
+      reconnectDelayMs?: number;
+    } = {}
+  ): () => void {
+    const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+    let closed = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: any = null;
+
+    const cleanup = () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const connect = () => {
+      if (closed) return;
+      try {
+        eventSource = new EventSource(url, { withCredentials: true });
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            onMessage(data);
+            if (options.shouldClose && options.shouldClose(data)) {
+              cleanup();
+            }
+          } catch (err) {
+            console.error('Ошибка парсинга SSE события:', err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          if (options.onError) options.onError(err);
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (options.reconnect && !closed) {
+            reconnectTimer = setTimeout(connect, options.reconnectDelayMs || 5000);
+          }
+        };
+      } catch (err) {
+        if (options.onError) options.onError(err);
+        if (options.reconnect && !closed) {
+          reconnectTimer = setTimeout(connect, options.reconnectDelayMs || 5000);
+        }
+      }
+    };
+
+    connect();
+
+    return cleanup;
+  }
 }
 
 export const baseApiClient = new BaseApiClient();

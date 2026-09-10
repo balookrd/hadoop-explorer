@@ -52,26 +52,9 @@ export class SparkApiClient extends BaseApiClient {
   }
 
   streamExecution(executionId: string, onEvent: (event: any) => void): () => void {
-    const url = `${this.baseUrl}/statements/${executionId}/stream`;
-    // EventSource автоматически передает HttpOnly cookies
-    const es = new EventSource(url, { withCredentials: true });
-    es.onmessage = (e) => {
-      try {
-        const parsed = JSON.parse(e.data);
-        onEvent(parsed);
-        if (parsed.type === 'finished' || parsed.type === 'stream_end') {
-          es.close();
-        }
-      } catch (err) {
-        console.error('Ошибка парсинга SSE сообщения:', err);
-      }
-    };
-    es.onerror = () => {
-      es.close();
-    };
-    return () => {
-      es.close();
-    };
+    return this.subscribeSse(`/statements/${executionId}/stream`, onEvent, {
+      shouldClose: (data) => data.type === 'finished' || data.type === 'stream_end',
+    });
   }
 
   async getResult(executionId: string, offset: number = 0, limit: number = 100): Promise<StatementResultResponse> {

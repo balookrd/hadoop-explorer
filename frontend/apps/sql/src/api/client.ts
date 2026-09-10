@@ -79,77 +79,18 @@ class ApiClient extends BaseApiClient {
   }
 
   streamQueryEvents(queryId: string, onEvent: (event: any) => void, onError?: (err: any) => void): () => void {
-    const eventSource = new EventSource(`${this.baseUrl}/queries/${queryId}/stream`, {
-      withCredentials: true
+    return this.subscribeSse(`/queries/${queryId}/stream`, onEvent, {
+      onError,
+      shouldClose: (data) =>
+        data.type === 'stream_end' || data.type === 'error' || ['FINISHED', 'FAILED', 'CANCELLED'].includes(data.status),
     });
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        onEvent(data);
-        if (data.type === 'stream_end' || data.type === 'error' || ['FINISHED', 'FAILED', 'CANCELLED'].includes(data.status)) {
-          eventSource.close();
-        }
-      } catch (err) {
-        console.error('Ошибка парсинга SSE события', err);
-      }
-    };
-
-    eventSource.onerror = (err) => {
-      if (onError) onError(err);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
   }
 
   listenUserNotifications(onEvent: (event: any) => void): () => void {
-    let closed = false;
-    let eventSource: EventSource | null = null;
-    let reconnectTimer: any = null;
-
-    const connect = () => {
-      if (closed) return;
-      try {
-        eventSource = new EventSource(`${this.baseUrl}/queries/notifications/stream`, {
-          withCredentials: true
-        });
-
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            onEvent(data);
-          } catch (err) {
-            console.error('Ошибка парсинга уведомления', err);
-          }
-        };
-
-        eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-          }
-          if (!closed) {
-            // Тихий фоновый реконнект без вызова onUnauthorized
-            reconnectTimer = setTimeout(connect, 5000);
-          }
-        };
-      } catch (_) {
-        if (!closed) {
-          reconnectTimer = setTimeout(connect, 5000);
-        }
-      }
-    };
-
-    connect();
-
-    return () => {
-      closed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (eventSource) eventSource.close();
-    };
+    return this.subscribeSse('/queries/notifications/stream', onEvent, {
+      reconnect: true,
+      reconnectDelayMs: 5000,
+    });
   }
 
   // --- Методы ИИ-ассистента ---

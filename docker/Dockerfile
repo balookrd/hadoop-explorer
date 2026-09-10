@@ -1,0 +1,91 @@
+# ==========================================
+# Единый параметризованный Dockerfile для сервисов Hadoop Explorer
+# Использование: docker build --build-arg SERVICE_NAME=yarn -t hadoop-explorer/yarn:latest -f docker/Dockerfile .
+# Поддерживаемые сервисы: yarn, hdfs, sql, spark
+# ==========================================
+
+ARG SERVICE_NAME=yarn
+
+# ==========================================
+# Этап 1: Сборка Frontend (Svelte 5 + Vite)
+# ==========================================
+FROM node:22-alpine AS frontend-builder
+ARG SERVICE_NAME
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+COPY frontend/common ./common
+COPY frontend/apps/${SERVICE_NAME}/package*.json ./apps/${SERVICE_NAME}/
+RUN npm ci --workspace=apps/${SERVICE_NAME} --include-workspace-root
+
+COPY frontend/apps/${SERVICE_NAME} ./apps/${SERVICE_NAME}
+RUN npm run build --workspace=apps/${SERVICE_NAME}
+
+# ==========================================
+# Этап 2: Сборка зависимостей Backend
+# ==========================================
+FROM python:3.12-slim AS backend-builder
+ARG SERVICE_NAME
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libkrb5-dev \
+    libsasl2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY backend/common /tmp/backend/common
+COPY backend/${SERVICE_NAME} /tmp/backend/${SERVICE_NAME}
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /tmp/backend/common /tmp/backend/${SERVICE_NAME}
+
+# ==========================================
+# Этап 3: Финальный образ Backend + Static
+# ==========================================
+FROM python:3.12-slim
+ARG SERVICE_NAME
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libkrb5-3 \
+    libsasl2-2 \
+    libsasl2-modules-gssapi-mit \
+    krb5-user \
+    ldap-utils \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=backend-builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY backend/common ./backend/common
+COPY backend/${SERVICE_NAME} ./backend/${SERVICE_NAME}
+COPY backend/${SERVICE_NAME}/config ./config
+COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+COPY --from=frontend-builder /app/frontend/apps/${SERVICE_NAME}/dist ./frontend/dist
+
+RUN groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -m -s /bin/bash appuser && \
+    mkdir -p /app/data /etc/security/keytabs && \
+    touch /etc/krb5.conf && \
+    chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
+
+ENV APP_NAME="${SERVICE_NAME}" \
+    PYTHONPATH="/app:/app/backend/common:/app/backend/${SERVICE_NAME}" \
+    CONFIG_PATH="/app/config/config.yaml" \
+    FRONTEND_DIST="/app/frontend/dist"
+
+USER 10001
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/healthz || exit 1
+
+ENTRYPOINT ["/docker-entrypoint.sh"]

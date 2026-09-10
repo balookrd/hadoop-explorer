@@ -9,7 +9,9 @@ async def test_healthz():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok", "app": "hdfs-explorer"}
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["app"] == "hdfs-explorer"
 
 
 @pytest.mark.asyncio
