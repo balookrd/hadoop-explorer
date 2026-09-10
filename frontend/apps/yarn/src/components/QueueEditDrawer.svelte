@@ -383,7 +383,7 @@
 {#if isOpen && queue}
   <!-- Backdrop -->
   <div
-    class="fixed inset-0 bg-black/20 z-40"
+    class="fixed inset-0 bg-black/40 backdrop-blur-xs z-40"
     onclick={() => isOpen = false}
     role="button"
     tabindex="-1"
@@ -391,46 +391,46 @@
   ></div>
 
   <!-- Drawer -->
-  <div class="fixed right-0 top-0 h-full w-[470px] bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col">
+  <div class="fixed right-0 top-0 h-full w-[470px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col">
     <!-- Header -->
-    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
       <div>
         <div class="flex items-center gap-2">
-          <h2 class="text-sm font-bold text-slate-900">Настройки ресурсов очереди</h2>
+          <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">Настройки ресурсов очереди</h2>
           {#if inputMode === 'absolute'}
-            <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-purple-100 text-purple-700 border border-purple-200">
+            <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
               ABS
             </span>
           {:else}
-            <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-sky-100 text-sky-700 border border-sky-200">
+            <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
               %
             </span>
           {/if}
         </div>
-        <p class="text-[11px] text-slate-500 font-mono mt-0.5">{queue.path}</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">{queue.path}</p>
       </div>
       <button
         onclick={() => isOpen = false}
-        class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 text-slate-500 transition cursor-pointer"
+        class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition cursor-pointer"
       >
         <X class="w-4 h-4" />
       </button>
     </div>
 
     {#if queue.path === 'root'}
-      <div class="px-5 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-800">
-        <AlertCircle class="w-4 h-4 text-amber-600 shrink-0" />
+      <div class="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
+        <AlertCircle class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
         <span>Корневая очередь <strong>root</strong> всегда имеет 100% ресурсов кластера. Дочерние очереди делят её ресурсы.</span>
       </div>
     {/if}
 
     <!-- Mode Switcher & Tools -->
-    <div class="px-5 py-2.5 bg-slate-100/60 border-b border-slate-200 flex items-center justify-between">
-      <div class="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-xs">
+    <div class="px-5 py-2.5 bg-slate-100/60 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+      <div class="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
         <button
           onclick={() => inputMode = 'percentage'}
           class="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition cursor-pointer {
-            inputMode === 'percentage' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            inputMode === 'percentage' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }"
         >
           <Percent class="w-3 h-3" />
@@ -439,7 +439,7 @@
         <button
           onclick={() => inputMode = 'absolute'}
           class="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition cursor-pointer {
-            inputMode === 'absolute' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            inputMode === 'absolute' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }"
         >
           <Hash class="w-3 h-3" />
@@ -451,23 +451,25 @@
         onclick={() => isLinked = !isLinked}
         title={isLinked ? 'RAM и vCPU синхронизированы (нажмите для раздельного ввода)' : 'RAM и vCPU настраиваются независимо (нажмите для связывания)'}
         class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition cursor-pointer {
-          isLinked ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-slate-100 border-slate-300 text-slate-600'
+          isLinked
+            ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300'
+            : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'
         }"
       >
         {#if isLinked}
-          <Link class="w-3.5 h-3.5 text-indigo-600" />
+          <Link class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
           <span>Связаны (RAM = vCPU)</span>
         {:else}
-          <Unlink class="w-3.5 h-3.5 text-slate-500" />
+          <Unlink class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
           <span>Раздельно</span>
         {/if}
       </button>
     </div>
 
     {#if isModeChanged}
-      <div class="px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between text-xs text-amber-900">
+      <div class="px-5 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
         <span>Режим изменен: <strong class="font-semibold">{origMode === 'absolute' ? 'Абсолютный' : 'Процентный'}</strong> → <strong class="font-semibold">{inputMode === 'absolute' ? 'Абсолютный (GB/CPU)' : 'Процентный (%)'}</strong></span>
-        <span class="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded">В черновике</span>
+        <span class="text-[10px] font-bold bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-1.5 py-0.5 rounded">В черновике</span>
       </div>
     {/if}
 
@@ -475,20 +477,20 @@
     <div class="flex-1 overflow-auto px-5 py-4 space-y-5">
       
       <!-- Guaranteed Capacity Section -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-3.5">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-          <span class="text-xs font-bold text-slate-800 uppercase tracking-wide">Гарантированная емкость (Capacity)</span>
-          <span class="text-[10px] text-slate-400">Мин. гарантированная доля</span>
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3.5">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+          <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">Гарантированная емкость (Capacity)</span>
+          <span class="text-[10px] text-slate-400 dark:text-slate-500">Мин. гарантированная доля</span>
         </div>
 
         <!-- RAM Guaranteed -->
         <div>
-          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-            <span class="flex items-center gap-1 text-indigo-700">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span class="flex items-center gap-1 text-indigo-700 dark:text-indigo-400">
               <HardDrive class="w-3.5 h-3.5" />
               <span>Память (RAM)</span>
             </span>
-            <span class="text-[11px] font-mono text-slate-500">
+            <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
               {#if inputMode === 'percentage'}
                 ≈ {editRamGb.toFixed(1)} GB ({editRamMb} MB)
               {:else}
@@ -506,9 +508,9 @@
                 min="0"
                 max="100"
                 step="0.1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               />
-              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
             </div>
           {:else}
             <div class="relative">
@@ -519,24 +521,24 @@
                 min="0"
                 max={mbToGb(totalMem)}
                 step="1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               />
-              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">GB</span>
+              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">GB</span>
             </div>
           {/if}
         </div>
 
         <!-- vCPU Guaranteed -->
         <div>
-          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-            <span class="flex items-center gap-1 text-blue-700">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span class="flex items-center gap-1 text-blue-700 dark:text-blue-400">
               <Cpu class="w-3.5 h-3.5" />
               <span>Процессор (vCPU)</span>
               {#if isLinked}
-                <span class="text-[10px] text-indigo-500 font-normal">(синхронизируется с RAM)</span>
+                <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-normal">(синхронизируется с RAM)</span>
               {/if}
             </span>
-            <span class="text-[11px] font-mono text-slate-500">
+            <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
               {#if inputMode === 'percentage'}
                 ≈ {editVcores} Cores
               {:else}
@@ -554,9 +556,9 @@
                 min="0"
                 max="100"
                 step="0.1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
-              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
             </div>
           {:else}
             <div class="relative">
@@ -567,23 +569,23 @@
                 min="0"
                 max={totalCores}
                 step="1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
-              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">Cores</span>
+              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">Cores</span>
             </div>
           {/if}
         </div>
       </div>
 
       <!-- Max Capacity (Burst Limit) -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-3.5">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3.5">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-bold text-slate-800 uppercase tracking-wide">Макс. лимит (Max Capacity)</span>
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">Макс. лимит (Max Capacity)</span>
             <select
               value={editType}
               onchange={handleTypeChange}
-              class="px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-300 bg-slate-50 cursor-pointer"
+              class="px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 cursor-pointer"
             >
               <option value="elastic">Elastic (разрешить burst)</option>
               <option value="fixed">Fixed (строго = capacity)</option>
@@ -594,12 +596,12 @@
         {#if editType === 'elastic'}
           <!-- Max RAM -->
           <div>
-            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-              <span class="flex items-center gap-1 text-indigo-700">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <span class="flex items-center gap-1 text-indigo-700 dark:text-indigo-400">
                 <HardDrive class="w-3.5 h-3.5" />
                 <span>Max RAM</span>
               </span>
-              <span class="text-[11px] font-mono text-slate-500">
+              <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 {#if inputMode === 'percentage'}
                   ≈ {editMaxRamGb.toFixed(1)} GB
                 {:else}
@@ -617,9 +619,9 @@
                   min={editRamPercent}
                   max="100"
                   step="0.1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-indigo-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
                 />
-                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
               </div>
             {:else}
               <div class="relative">
@@ -630,24 +632,24 @@
                   min={editRamGb}
                   max={mbToGb(totalMem)}
                   step="1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-indigo-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
                 />
-                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">GB</span>
+                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">GB</span>
               </div>
             {/if}
           </div>
 
           <!-- Max vCPU -->
           <div>
-            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-              <span class="flex items-center gap-1 text-blue-700">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <span class="flex items-center gap-1 text-blue-700 dark:text-blue-400">
                 <Cpu class="w-3.5 h-3.5" />
                 <span>Max vCPU</span>
                 {#if isLinked}
-                  <span class="text-[10px] text-indigo-500 font-normal">(синхронизируется с RAM)</span>
+                  <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-normal">(синхронизируется с RAM)</span>
                 {/if}
               </span>
-              <span class="text-[11px] font-mono text-slate-500">
+              <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 {#if inputMode === 'percentage'}
                   ≈ {editMaxVcores} Cores
                 {:else}
@@ -665,9 +667,9 @@
                   min={editVcorePercent}
                   max="100"
                   step="0.1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-blue-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
                 />
-                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
               </div>
             {:else}
               <div class="relative">
@@ -678,21 +680,21 @@
                   min={editVcores}
                   max={totalCores}
                   step="1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono text-slate-900 outline-none focus:border-blue-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
                 />
-                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">Cores</span>
+                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">Cores</span>
               </div>
             {/if}
           </div>
 
           {#if editRamPercent > 0}
-            <div class="bg-sky-50 border border-sky-100 rounded-lg p-2 text-[11px] text-sky-800 flex justify-between">
+            <div class="bg-sky-50 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/50 rounded-lg p-2 text-[11px] text-sky-800 dark:text-sky-300 flex justify-between">
               <span>Коэффициент эластичности RAM:</span>
               <span class="font-bold">{(editMaxRamPercent / editRamPercent).toFixed(2)}x</span>
             </div>
           {/if}
         {:else}
-          <div class="text-xs text-slate-500 italic p-2 bg-slate-50 rounded border border-slate-100">
+          <div class="text-xs text-slate-500 dark:text-slate-400 italic p-2 bg-slate-50 dark:bg-slate-800/50 rounded border border-slate-100 dark:border-slate-800">
             Очередь работает в фиксированном режиме. Потребление жестко ограничено гарантированной емкостью.
           </div>
         {/if}
@@ -700,18 +702,18 @@
 
       <!-- User Limits & Ordering Policy (Leaf Queues Only) -->
       {#if queue.is_leaf}
-        <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
             <div class="flex items-center gap-1.5">
-              <Users class="w-4 h-4 text-sky-600" />
-              <span class="text-xs font-bold text-slate-800">Политика планирования и лимиты пользователей</span>
+              <Users class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+              <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Политика планирования и лимиты пользователей</span>
             </div>
-            <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-100 text-slate-600">Leaf Queue</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">Leaf Queue</span>
           </div>
 
           <!-- Ordering Policy -->
           <div>
-            <div class="text-xs font-semibold text-slate-700 mb-1.5">
+            <div class="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Ordering Policy (политика внутри очереди)
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -719,30 +721,34 @@
                 type="button"
                 onclick={() => editOrderingPolicy = 'fifo'}
                 class="flex flex-col items-start p-2 rounded-lg border text-left transition cursor-pointer {
-                  editOrderingPolicy === 'fifo' ? 'bg-sky-50 border-sky-300 text-sky-900 ring-1 ring-sky-400' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white'
+                  editOrderingPolicy === 'fifo'
+                    ? 'bg-sky-50 dark:bg-sky-950/60 border-sky-300 dark:border-sky-700 text-sky-900 dark:text-sky-200 ring-1 ring-sky-400'
+                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800'
                 }"
               >
                 <span class="text-xs font-bold font-mono">FIFO</span>
-                <span class="text-[10px] text-slate-500 mt-0.5">В порядке поступления</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">В порядке поступления</span>
               </button>
               <button
                 type="button"
                 onclick={() => editOrderingPolicy = 'fair'}
                 class="flex flex-col items-start p-2 rounded-lg border text-left transition cursor-pointer {
-                  editOrderingPolicy === 'fair' ? 'bg-indigo-50 border-indigo-300 text-indigo-900 ring-1 ring-indigo-400' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white'
+                  editOrderingPolicy === 'fair'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-400'
+                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800'
                 }"
               >
                 <span class="text-xs font-bold font-mono">FAIR</span>
-                <span class="text-[10px] text-slate-500 mt-0.5">Справедливое разделение</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Справедливое разделение</span>
               </button>
             </div>
           </div>
 
           <!-- User Limit Factor -->
           <div>
-            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               <span>User Limit Factor (ULF)</span>
-              <span class="font-mono text-sky-700 font-bold">{editUserLimitFactor.toFixed(1)}x</span>
+              <span class="font-mono text-sky-700 dark:text-sky-400 font-bold">{editUserLimitFactor.toFixed(1)}x</span>
             </div>
             <div class="flex items-center gap-3">
               <input
@@ -759,10 +765,10 @@
                 max="10.0"
                 step="0.1"
                 bind:value={editUserLimitFactor}
-                class="w-20 px-2 py-1 text-xs font-mono font-bold text-slate-800 rounded border border-slate-300 text-center outline-none focus:border-sky-500"
+                class="w-20 px-2 py-1 text-xs font-mono font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-950 rounded border border-slate-300 dark:border-slate-700 text-center outline-none focus:border-sky-500"
               />
             </div>
-            <p class="text-[10px] text-slate-500 mt-1">
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
               {#if editUserLimitFactor <= 1.0}
                 Один пользователь может занять не более <strong>{(editUserLimitFactor * 100).toFixed(0)}%</strong> от гарантированной емкости очереди.
               {:else}
@@ -774,18 +780,18 @@
       {/if}
 
       <!-- Application Limits -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-3">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
           <div class="flex items-center gap-1.5">
-            <Layers class="w-4 h-4 text-purple-600" />
-            <span class="text-xs font-bold text-slate-800">Лимиты приложений (Application Limits)</span>
+            <Layers class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Лимиты приложений (Application Limits)</span>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <!-- Maximum Applications -->
           <div>
-            <label for="edit-max-applications" class="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label for="edit-max-applications" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Max Applications
             </label>
             <input
@@ -799,14 +805,14 @@
               }}
               min="0"
               step="1"
-              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none focus:border-purple-500"
+              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-purple-500"
             />
-            <p class="text-[10px] text-slate-400 mt-0.5">Лимит всех приложений (running + pending)</p>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Лимит всех приложений (running + pending)</p>
           </div>
 
           <!-- Max Parallel Apps -->
           <div>
-            <label for="edit-max-parallel-apps" class="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label for="edit-max-parallel-apps" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Max Parallel Apps
             </label>
             <input
@@ -820,14 +826,14 @@
               }}
               min="0"
               step="1"
-              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none focus:border-purple-500"
+              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-purple-500"
             />
-            <p class="text-[10px] text-slate-400 mt-0.5">Лимит параллельно запущенных (running)</p>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Лимит параллельно запущенных (running)</p>
           </div>
 
           <!-- Max AM Resource Percent -->
           <div>
-            <label for="edit-max-am-percent" class="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label for="edit-max-am-percent" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Max AM Resource %
             </label>
             <div class="relative">
@@ -843,16 +849,16 @@
                 min="0"
                 max="100"
                 step="1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none focus:border-purple-500"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-purple-500"
               />
-              <span class="absolute right-3 top-1.5 text-xs font-bold text-slate-400">%</span>
+              <span class="absolute right-3 top-1.5 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
             </div>
-            <p class="text-[10px] text-slate-400 mt-0.5">Макс. доля ресурсов на Application Masters</p>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Макс. доля ресурсов на Application Masters</p>
           </div>
 
           <!-- Max Application Lifetime -->
           <div>
-            <label for="edit-max-lifetime" class="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label for="edit-max-lifetime" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Max App Lifetime (сек)
             </label>
             <input
@@ -866,26 +872,26 @@
               }}
               min="-1"
               step="1"
-              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none focus:border-purple-500"
+              class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-purple-500"
             />
-            <p class="text-[10px] text-slate-400 mt-0.5">Время жизни (-1 = бессрочно, 86400 = 24ч)</p>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Время жизни (-1 = бессрочно, 86400 = 24ч)</p>
           </div>
         </div>
       </div>
 
       <!-- Node Labels / Partitioning -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-3">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
           <div class="flex items-center gap-1.5">
-            <Layers class="w-4 h-4 text-emerald-600" />
-            <span class="text-xs font-bold text-slate-800">Node Labels / Разделы кластера</span>
+            <Layers class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Node Labels / Разделы кластера</span>
           </div>
-          <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Partitioning</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Partitioning</span>
         </div>
 
         <!-- Accessible Node Labels -->
         <div>
-          <span class="block text-xs font-semibold text-slate-700 mb-1.5">
+          <span class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
             Доступные метки узлов (Accessible Labels)
           </span>
           {#if partitions.length > 1}
@@ -903,11 +909,11 @@
                   }}
                   class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium transition cursor-pointer border {
                     isChecked
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-400'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-400'
+                      : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }"
                 >
-                  <span class="w-1.5 h-1.5 rounded-full {isChecked ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+                  <span class="w-1.5 h-1.5 rounded-full {isChecked ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-300 dark:bg-slate-600'}"></span>
                   <span>{partName}</span>
                 </button>
               {/each}
@@ -922,21 +928,21 @@
                 }}
                 class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono font-bold transition cursor-pointer border {
                   editAccessibleLabels.includes('*')
-                    ? 'bg-purple-50 text-purple-800 border-purple-300 ring-1 ring-purple-400'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-700 ring-1 ring-purple-400'
+                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }"
               >
                 <span>* (Все метки)</span>
               </button>
             </div>
           {:else}
-            <p class="text-[11px] text-slate-500 italic">В кластере настроен только раздел DEFAULT.</p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 italic">В кластере настроен только раздел DEFAULT.</p>
           {/if}
         </div>
 
         <!-- Default Node Label Expression -->
         <div>
-          <label for="edit-default-node-label" class="block text-[11px] font-semibold text-slate-700 mb-1">
+          <label for="edit-default-node-label" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
             Дефолтная метка задач (Default Label Expression)
           </label>
           <input
@@ -944,21 +950,21 @@
             type="text"
             placeholder="например: gpu или оставьте пустым"
             bind:value={editDefaultLabelExpression}
-            class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none focus:border-emerald-500"
+            class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500"
           />
-          <p class="text-[10px] text-slate-400 mt-0.5">Метка нод, назначаемая приложениям по умолчанию при отправке в эту очередь</p>
+          <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Метка нод, назначаемая приложениям по умолчанию при отправке в эту очередь</p>
         </div>
       </div>
 
       <!-- State -->
       <div>
-        <label for="edit-queue-state" class="block text-xs font-semibold text-slate-700 mb-1.5">
+        <label for="edit-queue-state" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
           Состояние очереди (State)
         </label>
         <select
           id="edit-queue-state"
           bind:value={editState}
-          class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none focus:border-sky-500 cursor-pointer"
+          class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500 cursor-pointer"
         >
           <option value="RUNNING">RUNNING (активна)</option>
           <option value="STOPPED">STOPPED (остановлена)</option>
@@ -966,21 +972,21 @@
       </div>
 
       <!-- Summary -->
-      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
-        <div class="text-[11px] font-semibold text-slate-500 mb-2 uppercase">Кластерные ресурсы</div>
+      <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
+        <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase">Кластерные ресурсы</div>
         <div class="space-y-1 text-xs">
-          <div class="flex justify-between"><span class="text-slate-500">Всего RAM в кластере:</span><span class="font-mono font-semibold">{formatMemory(totalMem)}</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Всего vCPU в кластере:</span><span class="font-mono font-semibold">{formatVcores(totalCores)}</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Текущие приложения:</span><span class="font-semibold">{queue.num_active_applications} акт. / {queue.num_pending_applications} в оч.</span></div>
+          <div class="flex justify-between"><span class="text-slate-500 dark:text-slate-400">Всего RAM в кластере:</span><span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatMemory(totalMem)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500 dark:text-slate-400">Всего vCPU в кластере:</span><span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatVcores(totalCores)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500 dark:text-slate-400">Текущие приложения:</span><span class="font-semibold text-slate-800 dark:text-slate-200">{queue.num_active_applications} акт. / {queue.num_pending_applications} в оч.</span></div>
         </div>
       </div>
     </div>
 
     <!-- Footer -->
-    <div class="flex items-center gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50/50">
+    <div class="flex items-center gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
       <button
         onclick={handleReset}
-        class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-white transition cursor-pointer"
+        class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
       >
         <RotateCcw class="w-3.5 h-3.5" />
         Сбросить к live
@@ -988,7 +994,7 @@
       <div class="flex-1"></div>
       <button
         onclick={() => isOpen = false}
-        class="px-3 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-white transition cursor-pointer"
+        class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
       >
         Отмена
       </button>

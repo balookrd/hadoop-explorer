@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import * as monaco from 'monaco-editor';
   import { getStatementAtCursor, sanitizeSql } from '../utils/sqlSplitter';
+  import { themeStore } from '../../../../common/stores/theme.svelte';
 
   let {
     code = $bindable(),
@@ -105,7 +106,7 @@
     editorInstance = monaco.editor.create(editorContainer, {
       value: code,
       language: getMonacoLanguage(language),
-      theme: 'vs',
+      theme: themeStore.isDark ? 'vs-dark' : 'vs',
       automaticLayout: true,
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
@@ -132,6 +133,13 @@
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       triggerExecution();
     });
+  });
+
+  $effect(() => {
+    const isDark = themeStore.isDark;
+    if (monaco?.editor) {
+      monaco.editor.setTheme(isDark ? 'vs-dark' : 'vs');
+    }
   });
 
   export function triggerExecution() {
@@ -234,7 +242,7 @@
   });
 </script>
 
-<div class="h-full w-full relative" bind:this={editorContainer}></div>
+<div class="h-full w-full relative bg-white dark:bg-slate-950" bind:this={editorContainer}></div>
 
 <style>
   :global(.executing-code-highlight) {

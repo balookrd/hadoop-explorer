@@ -235,7 +235,7 @@
 {#if isOpen}
   <!-- Backdrop -->
   <div
-    class="fixed inset-0 bg-black/30 z-40 backdrop-blur-xs"
+    class="fixed inset-0 bg-black/40 z-40 backdrop-blur-xs"
     onclick={() => isOpen = false}
     role="button"
     tabindex="-1"
@@ -243,29 +243,29 @@
   ></div>
 
   <!-- Main Drawer Panel -->
-  <div class="fixed right-0 top-0 h-full w-[900px] max-w-[95vw] bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col">
+  <div class="fixed right-0 top-0 h-full w-[900px] max-w-[95vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col">
     <!-- Header -->
-    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
       <div class="flex items-center gap-2.5">
-        <div class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
+        <div class="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
           <GitPullRequest class="w-4 h-4" />
         </div>
         <div>
-          <h2 class="text-sm font-bold text-slate-900">Заявки на согласование изменений (Change Requests)</h2>
-          <p class="text-[11px] text-slate-500">Кластер: <span class="font-mono font-semibold">{clusterId}</span></p>
+          <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">Заявки на согласование изменений (Change Requests)</h2>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Кластер: <span class="font-mono font-semibold">{clusterId}</span></p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <button
           onclick={loadRequests}
           title="Обновить список"
-          class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 text-slate-500 transition cursor-pointer"
+          class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition cursor-pointer"
         >
           <RefreshCw class="w-3.5 h-3.5 {isLoading ? 'animate-spin' : ''}" />
         </button>
         <button
           onclick={() => isOpen = false}
-          class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 text-slate-500 transition cursor-pointer"
+          class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition cursor-pointer"
         >
           <X class="w-4 h-4" />
         </button>
@@ -274,18 +274,18 @@
 
     <!-- Error Banner -->
     {#if errorMessage}
-      <div class="px-6 py-2.5 bg-red-50 border-b border-red-200 text-red-700 text-xs flex justify-between items-center">
+      <div class="px-6 py-2.5 bg-red-50 dark:bg-red-950/50 border-b border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs flex justify-between items-center">
         <span>{errorMessage}</span>
-        <button onclick={() => errorMessage = ''} class="text-red-500 hover:text-red-800">✕</button>
+        <button onclick={() => errorMessage = ''} class="text-red-500 hover:text-red-800 dark:hover:text-red-200">✕</button>
       </div>
     {/if}
 
     <!-- Content: Left List & Right Detail -->
     <div class="flex-1 flex overflow-hidden">
       <!-- Left List (35%) -->
-      <div class="w-[330px] border-r border-slate-200 flex flex-col bg-slate-50/50">
+      <div class="w-[330px] border-r border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50/50 dark:bg-slate-950/30">
         <!-- Filter Tabs -->
-        <div class="p-2 border-b border-slate-200 bg-white flex flex-wrap gap-1 text-[11px] font-medium">
+        <div class="p-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap gap-1 text-[11px] font-medium">
           {#each [
             { id: 'ALL', label: 'Все' },
             { id: 'SUBMITTED', label: 'Ожидают' },
@@ -297,7 +297,9 @@
             <button
               onclick={() => { filterStatus = tab.id; }}
               class="px-2 py-0.5 rounded-md text-center transition cursor-pointer {
-                filterStatus === tab.id ? 'bg-sky-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                filterStatus === tab.id
+                  ? 'bg-sky-600 text-white font-semibold shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }"
             >
               {tab.label}
@@ -306,9 +308,9 @@
         </div>
 
         <!-- Requests Scroll Area -->
-        <div class="flex-1 overflow-y-auto divide-y divide-slate-100">
+        <div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
           {#if displayedRequests.length === 0}
-            <div class="p-8 text-center text-xs text-slate-400">
+            <div class="p-8 text-center text-xs text-slate-400 dark:text-slate-500">
               Заявок не найдено
             </div>
           {:else}
@@ -318,18 +320,20 @@
               <button
                 onclick={() => selectRequest(r.id)}
                 class="w-full text-left p-3 transition border-l-3 cursor-pointer {
-                  selectedId === r.id ? 'bg-white border-l-sky-600 shadow-xs' : 'border-l-transparent hover:bg-white/80'
+                  selectedId === r.id
+                    ? 'bg-white dark:bg-slate-900 border-l-sky-600 shadow-xs'
+                    : 'border-l-transparent hover:bg-white/80 dark:hover:bg-slate-800/40'
                 }"
               >
                 <div class="flex items-center justify-between gap-1 mb-1">
-                  <span class="text-[10px] font-mono font-bold text-slate-500">#CR-{r.id}</span>
+                  <span class="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400">#CR-{r.id}</span>
                   <div class="flex items-center gap-1">
                     {#if r.deployment_status === 'SUCCESS'}
-                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">AWX ✓</span>
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">AWX ✓</span>
                     {:else if r.deployment_status === 'DEPLOYING'}
-                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200 animate-pulse">AWX...</span>
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800 animate-pulse">AWX...</span>
                     {:else if r.deployment_status === 'FAILED'}
-                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-100 text-red-800 border border-red-200">AWX ✕</span>
+                      <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800">AWX ✕</span>
                     {/if}
                     <span class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded border {badge.bg}">
                       <BadgeIcon class="w-2.5 h-2.5" />
@@ -337,11 +341,11 @@
                     </span>
                   </div>
                 </div>
-                <div class="text-xs font-semibold text-slate-900 truncate mb-1">{r.title}</div>
-                <div class="flex items-center justify-between text-[11px] text-slate-400">
+                <div class="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate mb-1">{r.title}</div>
+                <div class="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
                   <span class="flex items-center gap-1">
                     <User class="w-3 h-3" />
-                    <span class={r.author === currentUsername ? 'font-semibold text-indigo-600' : ''}>{r.author}</span>
+                    <span class={r.author === currentUsername ? 'font-semibold text-indigo-600 dark:text-indigo-400' : ''}>{r.author}</span>
                   </span>
                   <span>{formatDate(r.created_at)}</span>
                 </div>
@@ -352,9 +356,9 @@
       </div>
 
       <!-- Right Detail View (65%) -->
-      <div class="flex-1 flex flex-col overflow-y-auto bg-white">
+      <div class="flex-1 flex flex-col overflow-y-auto bg-white dark:bg-slate-900">
         {#if !selectedDetail}
-          <div class="flex-1 flex items-center justify-center text-xs text-slate-400">
+          <div class="flex-1 flex items-center justify-center text-xs text-slate-400 dark:text-slate-500">
             Выберите заявку из списка слева
           </div>
         {:else}
@@ -363,42 +367,44 @@
           
           <div class="p-6 space-y-5 flex-1 overflow-y-auto">
             <!-- Title & Meta Header -->
-            <div class="border-b border-slate-100 pb-4">
+            <div class="border-b border-slate-100 dark:border-slate-800 pb-4">
               <div class="flex items-center justify-between gap-2 mb-1.5">
-                <span class="text-xs font-mono font-bold text-slate-400">Заявка #CR-{selectedDetail.id}</span>
+                <span class="text-xs font-mono font-bold text-slate-400 dark:text-slate-500">Заявка #CR-{selectedDetail.id}</span>
                 <span class="flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded border {badge.bg}">
                   <BadgeIcon class="w-3 h-3" />
                   <span>{badge.text}</span>
                 </span>
               </div>
-              <h1 class="text-base font-bold text-slate-900 mb-2">{selectedDetail.title}</h1>
+              <h1 class="text-base font-bold text-slate-900 dark:text-slate-100 mb-2">{selectedDetail.title}</h1>
               
-              <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+              <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
                 <div class="flex items-center gap-1.5">
-                  <User class="w-3.5 h-3.5 text-slate-400" />
-                  <span>Автор: <strong class="text-slate-800">{selectedDetail.author}</strong></span>
+                  <User class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                  <span>Автор: <strong class="text-slate-800 dark:text-slate-200">{selectedDetail.author}</strong></span>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <Calendar class="w-3.5 h-3.5 text-slate-400" />
+                  <Calendar class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                   <span>Создана: {formatDate(selectedDetail.created_at)}</span>
                 </div>
                 {#if selectedDetail.reviewer}
-                  <div class="flex items-center gap-1.5 col-span-2 border-t border-slate-200/60 pt-1.5">
-                    <span>Рецензент: <strong class="text-slate-800">{selectedDetail.reviewer}</strong> ({formatDate(selectedDetail.reviewed_at || '')})</span>
+                  <div class="flex items-center gap-1.5 col-span-2 border-t border-slate-200/60 dark:border-slate-800 pt-1.5">
+                    <span>Рецензент: <strong class="text-slate-800 dark:text-slate-200">{selectedDetail.reviewer}</strong> ({formatDate(selectedDetail.reviewed_at || '')})</span>
                   </div>
                 {/if}
               </div>
 
               {#if selectedDetail.description}
-                <div class="mt-3 text-xs text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
-                  <span class="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Обоснование изменений:</span>
+                <div class="mt-3 text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <span class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-0.5">Обоснование изменений:</span>
                   <p class="whitespace-pre-wrap leading-relaxed">{selectedDetail.description}</p>
                 </div>
               {/if}
 
               {#if selectedDetail.review_comment}
                 <div class="mt-2 text-xs p-2.5 rounded-lg border {
-                  selectedDetail.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-900'
+                  selectedDetail.status === 'APPROVED'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
+                    : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-900 dark:text-red-300'
                 }">
                   <span class="text-[10px] uppercase font-bold block mb-0.5">Комментарий администратора:</span>
                   <p class="whitespace-pre-wrap leading-relaxed">{selectedDetail.review_comment}</p>
@@ -409,21 +415,21 @@
             <!-- Diffs Section -->
             <div>
               <div class="flex items-center justify-between mb-2">
-                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                   Изменения конфигурации ({selectedDetail.diffs.length})
                 </h3>
                 <div class="flex items-center gap-2">
                   <button
                     onclick={handlePreviewXml}
                     disabled={actionLoading}
-                    class="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition cursor-pointer"
+                    class="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
                   >
                     <Eye class="w-3.5 h-3.5" />
                     <span>Предпросмотр XML</span>
                   </button>
                   <button
                     onclick={() => handleLoadDraft()}
-                    class="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 rounded-lg border border-sky-200 transition cursor-pointer"
+                    class="flex items-center gap-1 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-800 dark:hover:text-sky-300 bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800 transition cursor-pointer"
                   >
                     <ArrowUpRight class="w-3.5 h-3.5" />
                     <span>Открыть в редакторе</span>
@@ -431,23 +437,23 @@
                 </div>
               </div>
 
-              <div class="border border-slate-200 rounded-xl overflow-hidden shadow-xs divide-y divide-slate-100">
+              <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs divide-y divide-slate-100 dark:divide-slate-800">
                 {#each selectedDetail.diffs as diff}
-                  <div class="p-3 bg-white text-xs space-y-1.5">
+                  <div class="p-3 bg-white dark:bg-slate-900 text-xs space-y-1.5">
                     <div class="flex items-center justify-between">
                       <div class="flex items-center gap-2">
-                        <span class="font-mono font-semibold text-slate-900">{diff.path}</span>
+                        <span class="font-mono font-semibold text-slate-900 dark:text-slate-100">{diff.path}</span>
                         <span class="text-[10px] font-bold px-1.5 py-0.2 rounded {
-                          diff.action === 'created' ? 'bg-emerald-100 text-emerald-700' :
-                          diff.action === 'deleted' ? 'bg-red-100 text-red-700' :
-                          'bg-sky-100 text-sky-700'
+                          diff.action === 'created' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' :
+                          diff.action === 'deleted' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' :
+                          'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'
                         }">
                           {diff.action.toUpperCase()}
                         </span>
                       </div>
                       <button
                         onclick={() => handleLoadDraft(diff.path)}
-                        class="text-[11px] font-medium text-sky-600 hover:text-sky-800 hover:underline flex items-center gap-1 cursor-pointer bg-sky-50 hover:bg-sky-100 px-2 py-0.5 rounded border border-sky-200 transition"
+                        class="text-[11px] font-medium text-sky-600 dark:text-sky-400 hover:text-sky-800 dark:hover:text-sky-300 hover:underline flex items-center gap-1 cursor-pointer bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800 transition"
                         title="Загрузить и открыть данную очередь в редакторе"
                       >
                         <span>Редактировать</span>
@@ -456,52 +462,52 @@
                     </div>
 
                     <!-- Comparison Grid -->
-                    <div class="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono">
+                    <div class="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-lg text-[11px] font-mono border border-slate-100 dark:border-slate-800/60">
                       <div>
-                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Capacity (%):</span>
+                        <span class="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-sans font-semibold">Capacity (%):</span>
                         {#if diff.live_capacity !== undefined && diff.live_capacity !== null}
-                          <span class="text-slate-700">{diff.live_capacity.toFixed(1)}%</span>
+                          <span class="text-slate-700 dark:text-slate-300">{diff.live_capacity.toFixed(1)}%</span>
                           {#if diff.draft_capacity !== undefined && diff.draft_capacity !== null && Math.abs(diff.draft_capacity - diff.live_capacity) > 0.01}
-                            <span class="text-slate-400 mx-1">→</span>
-                            <span class="font-bold text-indigo-700">{diff.draft_capacity.toFixed(1)}%</span>
+                            <span class="text-slate-400 dark:text-slate-500 mx-1">→</span>
+                            <span class="font-bold text-indigo-700 dark:text-indigo-400">{diff.draft_capacity.toFixed(1)}%</span>
                             {#if diff.delta_capacity !== undefined && diff.delta_capacity !== null}
-                              <span class="text-[10px] ml-1 {diff.delta_capacity > 0 ? 'text-emerald-600' : 'text-red-600'}">
+                              <span class="text-[10px] ml-1 {diff.delta_capacity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}">
                                 ({diff.delta_capacity > 0 ? '+' : ''}{diff.delta_capacity.toFixed(1)}%)
                               </span>
                             {/if}
                           {/if}
                         {:else if diff.draft_capacity !== undefined && diff.draft_capacity !== null}
-                          <span class="font-bold text-emerald-700">+{diff.draft_capacity.toFixed(1)}%</span>
+                          <span class="font-bold text-emerald-700 dark:text-emerald-400">+{diff.draft_capacity.toFixed(1)}%</span>
                         {/if}
                       </div>
 
                       <div>
-                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Max Capacity (%):</span>
+                        <span class="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-sans font-semibold">Max Capacity (%):</span>
                         {#if diff.live_max_capacity !== undefined && diff.live_max_capacity !== null}
-                          <span class="text-slate-700">{diff.live_max_capacity.toFixed(1)}%</span>
+                          <span class="text-slate-700 dark:text-slate-300">{diff.live_max_capacity.toFixed(1)}%</span>
                           {#if diff.draft_max_capacity !== undefined && diff.draft_max_capacity !== null && Math.abs(diff.draft_max_capacity - diff.live_max_capacity) > 0.01}
-                            <span class="text-slate-400 mx-1">→</span>
-                            <span class="font-bold text-indigo-700">{diff.draft_max_capacity.toFixed(1)}%</span>
+                            <span class="text-slate-400 dark:text-slate-500 mx-1">→</span>
+                            <span class="font-bold text-indigo-700 dark:text-indigo-400">{diff.draft_max_capacity.toFixed(1)}%</span>
                             {#if diff.delta_max_capacity !== undefined && diff.delta_max_capacity !== null}
-                              <span class="text-[10px] ml-1 {diff.delta_max_capacity > 0 ? 'text-emerald-600' : 'text-red-600'}">
+                              <span class="text-[10px] ml-1 {diff.delta_max_capacity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}">
                                 ({diff.delta_max_capacity > 0 ? '+' : ''}{diff.delta_max_capacity.toFixed(1)}%)
                               </span>
                             {/if}
                           {/if}
                         {:else if diff.draft_max_capacity !== undefined && diff.draft_max_capacity !== null}
-                          <span class="font-bold text-emerald-700">+{diff.draft_max_capacity.toFixed(1)}%</span>
+                          <span class="font-bold text-emerald-700 dark:text-emerald-400">+{diff.draft_max_capacity.toFixed(1)}%</span>
                         {/if}
                       </div>
 
                       {#if diff.live_memory_mb != null || diff.draft_memory_mb != null}
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Память RAM:</span>
-                          <span>{formatMemory(diff.live_memory_mb)}</span>
+                          <span class="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-sans font-semibold">Память RAM:</span>
+                          <span class="text-slate-700 dark:text-slate-300">{formatMemory(diff.live_memory_mb)}</span>
                           {#if diff.draft_memory_mb != null && diff.draft_memory_mb !== diff.live_memory_mb}
-                            <span class="text-slate-400 mx-1">→</span>
-                            <span class="font-bold text-indigo-700">{formatMemory(diff.draft_memory_mb)}</span>
+                            <span class="text-slate-400 dark:text-slate-500 mx-1">→</span>
+                            <span class="font-bold text-indigo-700 dark:text-indigo-400">{formatMemory(diff.draft_memory_mb)}</span>
                             {#if diff.live_memory_mb != null && formatMemoryDelta(diff.live_memory_mb, diff.draft_memory_mb)}
-                              <span class="text-[10px] ml-1 {diff.draft_memory_mb > diff.live_memory_mb ? 'text-emerald-600' : 'text-red-600'}">
+                              <span class="text-[10px] ml-1 {diff.draft_memory_mb > diff.live_memory_mb ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}">
                                 ({formatMemoryDelta(diff.live_memory_mb, diff.draft_memory_mb)})
                               </span>
                             {/if}
@@ -511,13 +517,13 @@
 
                       {#if diff.live_vcores != null || diff.draft_vcores != null}
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Ядра vCPU:</span>
-                          <span>{formatVcores(diff.live_vcores)}</span>
+                          <span class="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-sans font-semibold">Ядра vCPU:</span>
+                          <span class="text-slate-700 dark:text-slate-300">{formatVcores(diff.live_vcores)}</span>
                           {#if diff.draft_vcores != null && diff.draft_vcores !== diff.live_vcores}
-                            <span class="text-slate-400 mx-1">→</span>
-                            <span class="font-bold text-blue-700">{formatVcores(diff.draft_vcores)}</span>
+                            <span class="text-slate-400 dark:text-slate-500 mx-1">→</span>
+                            <span class="font-bold text-blue-700 dark:text-blue-400">{formatVcores(diff.draft_vcores)}</span>
                             {#if diff.live_vcores != null && formatVcoresDelta(diff.live_vcores, diff.draft_vcores)}
-                              <span class="text-[10px] ml-1 {diff.draft_vcores > diff.live_vcores ? 'text-emerald-600' : 'text-red-600'}">
+                              <span class="text-[10px] ml-1 {diff.draft_vcores > diff.live_vcores ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}">
                                 ({formatVcoresDelta(diff.live_vcores, diff.draft_vcores)})
                               </span>
                             {/if}
@@ -528,19 +534,19 @@
 
                     <!-- Additional Queue Attributes diff -->
                     {#if diff.draft_ordering_policy || diff.draft_user_limit_factor != null || diff.draft_max_applications != null}
-                      <div class="flex flex-wrap gap-2 text-[10px] text-slate-600 font-sans pt-1">
+                      <div class="flex flex-wrap gap-2 text-[10px] text-slate-600 dark:text-slate-400 font-sans pt-1">
                         {#if diff.draft_ordering_policy}
-                          <span class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+                          <span class="bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
                             Policy: <strong>{diff.draft_ordering_policy.toUpperCase()}</strong>
                           </span>
                         {/if}
                         {#if diff.draft_user_limit_factor != null}
-                          <span class="bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200">
+                          <span class="bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded border border-sky-200 dark:border-sky-800">
                             ULF: <strong>{diff.draft_user_limit_factor}x</strong>
                           </span>
                         {/if}
                         {#if diff.draft_max_applications != null}
-                          <span class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                          <span class="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                             Max Apps: <strong>{diff.draft_max_applications}</strong>
                           </span>
                         {/if}
@@ -553,10 +559,10 @@
 
             <!-- Approved XML preview banner -->
             {#if selectedDetail.status === 'APPROVED' && selectedDetail.xml_content}
-              <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+              <div class="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-xl flex items-center justify-between">
                 <div>
-                  <span class="text-xs font-bold text-emerald-900 block">Конфигурация XML сгенерирована и одобрена</span>
-                  <span class="text-[11px] text-emerald-700">Готова для применения на кластере YARN</span>
+                  <span class="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">Конфигурация XML сгенерирована и одобрена</span>
+                  <span class="text-[11px] text-emerald-700 dark:text-emerald-400">Готова для применения на кластере YARN</span>
                 </div>
                 <button
                   onclick={() => onViewXml(selectedDetail?.xml_content || '', selectedDetail?.title || '')}
@@ -570,10 +576,10 @@
               <!-- AWX Deployment Card -->
               <div class="p-4 rounded-xl border space-y-3 {
                 selectedDetail.deployment_status === 'SUCCESS'
-                  ? 'bg-emerald-50/70 border-emerald-200'
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
                   : selectedDetail.deployment_status === 'FAILED'
-                  ? 'bg-red-50/70 border-red-200'
-                  : 'bg-indigo-50/70 border-indigo-200'
+                  ? 'bg-red-50/70 dark:bg-red-950/30 border-red-200 dark:border-red-800'
+                  : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
               }">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-2.5">
@@ -585,7 +591,7 @@
                     <div>
                       <div class="flex items-center gap-2">
                         <span class="text-xs font-bold {
-                          selectedDetail.deployment_status === 'SUCCESS' ? 'text-emerald-950' : 'text-indigo-950'
+                          selectedDetail.deployment_status === 'SUCCESS' ? 'text-emerald-950 dark:text-emerald-200' : 'text-indigo-950 dark:text-indigo-200'
                         }">
                           {#if selectedDetail.deployment_status === 'SUCCESS'}
                             Конфигурация успешно применена на кластере через AWX
@@ -598,12 +604,12 @@
                           {/if}
                         </span>
                         {#if selectedDetail.awx_job_id}
-                          <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-semibold">
+                          <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                             Job #{selectedDetail.awx_job_id}
                           </span>
                         {/if}
                       </div>
-                      <p class="text-[11px] text-slate-600 mt-0.5">
+                      <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                         {#if selectedDetail.deployment_status === 'SUCCESS'}
                           Очереди обновлены в Active RM без перезапуска. {selectedDetail.deployed_at ? `Время: ${formatDate(selectedDetail.deployed_at)}` : ''}
                         {:else if selectedDetail.deployment_status === 'FAILED'}
@@ -619,7 +625,7 @@
                     {#if selectedDetail.awx_job_id}
                       <button
                         onclick={handleFetchLogs}
-                        class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                        class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
                         title="Просмотреть консольный лог выполнения задачи"
                       >
                         <Terminal class="w-3.5 h-3.5" />
@@ -646,20 +652,20 @@
                 </div>
 
                 {#if showLogs && deployStdout}
-                  <div class="mt-3 border-t border-slate-200/80 pt-3">
+                  <div class="mt-3 border-t border-slate-200/80 dark:border-slate-800 pt-3">
                     <div class="flex items-center justify-between mb-1.5">
-                      <span class="text-[11px] font-mono font-bold text-slate-700 flex items-center gap-1">
-                        <Terminal class="w-3 h-3 text-slate-500" />
+                      <span class="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                        <Terminal class="w-3 h-3 text-slate-500 dark:text-slate-400" />
                         Вывод консоли Ansible (stdout):
                       </span>
                       <button
                         onclick={() => showLogs = false}
-                        class="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                        class="text-[10px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                       >
                         Скрыть лог
                       </button>
                     </div>
-                    <pre class="p-3 bg-slate-900 text-emerald-400 text-[11px] font-mono rounded-lg overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">{deployStdout}</pre>
+                    <pre class="p-3 bg-slate-900 dark:bg-slate-950 text-emerald-400 text-[11px] font-mono rounded-lg overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed border border-slate-800">{deployStdout}</pre>
                   </div>
                 {/if}
               </div>
@@ -668,10 +674,10 @@
 
           <!-- Bottom Action Bar -->
           {#if selectedDetail.status === 'SUBMITTED'}
-            <div class="border-t border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div class="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-4 space-y-3">
               {#if canAdmin}
                 <div>
-                  <label for="review-comment" class="block text-[11px] font-semibold text-slate-700 mb-1">
+                  <label for="review-comment" class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Комментарий администратора (опционально для одобрения, рекомендуется при отклонении)
                   </label>
                   <input
@@ -679,7 +685,7 @@
                     type="text"
                     bind:value={reviewComment}
                     placeholder="Причина решения или комментарий к конфигурации..."
-                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 outline-none focus:border-sky-500"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                   />
                 </div>
 
@@ -689,7 +695,7 @@
                       onclick={handleCancel}
                       disabled={actionLoading}
                       title="Отозвать свою заявку"
-                      class="px-3 py-2 rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50 transition cursor-pointer"
+                      class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition cursor-pointer"
                     >
                       <Trash2 class="w-3.5 h-3.5 inline mr-1" />
                       <span>Отозвать</span>
@@ -699,7 +705,7 @@
                   <button
                     onclick={handleReject}
                     disabled={actionLoading}
-                    class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-50 disabled:opacity-50 transition cursor-pointer"
+                    class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 transition cursor-pointer"
                   >
                     <XCircle class="w-4 h-4" />
                     <span>Отклонить заявку</span>
@@ -716,11 +722,11 @@
                 </div>
               {:else if selectedDetail.author === currentUsername}
                 <div class="flex items-center justify-between">
-                  <span class="text-xs text-slate-500">Заявка ожидает проверки администратором</span>
+                  <span class="text-xs text-slate-500 dark:text-slate-400">Заявка ожидает проверки администратором</span>
                   <button
                     onclick={handleCancel}
                     disabled={actionLoading}
-                    class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50 transition cursor-pointer"
+                    class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 transition cursor-pointer"
                   >
                     <Trash2 class="w-3.5 h-3.5" />
                     <span>Отозвать заявку</span>
@@ -728,10 +734,10 @@
                 </div>
               {:else}
                 <div class="flex items-center justify-between">
-                  <span class="text-xs text-slate-500">Заявка ожидает согласования администратором</span>
+                  <span class="text-xs text-slate-500 dark:text-slate-400">Заявка ожидает согласования администратором</span>
                   <button
                     onclick={() => handleLoadDraft()}
-                    class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-sky-200 text-sky-700 text-xs font-semibold hover:bg-sky-50 transition cursor-pointer"
+                    class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-semibold hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer"
                   >
                     <ArrowUpRight class="w-3.5 h-3.5" />
                     <span>Открыть в редакторе очередей</span>

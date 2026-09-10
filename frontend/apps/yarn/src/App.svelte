@@ -482,7 +482,7 @@
     {#if canAdmin}
       <button
         onclick={() => showCrDrawer = true}
-        class="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition cursor-pointer shadow-2xs"
+        class="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition cursor-pointer shadow-2xs"
       >
         <GitPullRequest class="w-3.5 h-3.5" />
         <span>Заявки на изменение</span>
@@ -500,9 +500,9 @@
   {/snippet}
 
   {#if authLoading}
-    <div class="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 gap-3">
+    <div class="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center text-slate-800 dark:text-slate-100 gap-3">
       <div class="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-      <span class="text-xs font-medium text-slate-500">Проверка сессии...</span>
+      <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Проверка сессии...</span>
     </div>
   {:else if !user}
     <LoginModal
@@ -515,7 +515,7 @@
       onKerberosSso={handleKerberosSso}
     />
   {:else}
-    <div class="min-h-screen flex flex-col bg-slate-50">
+    <div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
       <Header
       title="YARN Explorer"
       subtitle="Capacity Scheduler"
@@ -529,7 +529,7 @@
     <ClusterMetricsBar metrics={clusterMetrics} />
 
     <!-- Toolbar: Partitions, Queue Balances, Queue Mappings & Display Mode -->
-    <div class="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
+    <div class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div class="flex items-center gap-3 flex-wrap">
         {#if partitions.length > 1}
           <PartitionSelector {partitions} bind:selectedPartition />
@@ -539,9 +539,9 @@
 
         <button
           onclick={() => isMappingsModalOpen = true}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50 transition cursor-pointer shadow-xs"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer shadow-xs"
         >
-          <ArrowRightLeft class="w-3.5 h-3.5 text-indigo-600" />
+          <ArrowRightLeft class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
           <span>Queue Mappings</span>
           {#if isMappingsModified}
             <span class="w-2 h-2 rounded-full bg-amber-500" title="Есть несохраненные изменения в правилах маппинга"></span>
@@ -551,12 +551,12 @@
 
       <!-- Mode Selector -->
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-500 font-medium">Режим отображения:</span>
-        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+        <span class="text-xs text-slate-500 dark:text-slate-400 font-medium">Режим отображения:</span>
+        <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
           <button
             onclick={() => displayMode = 'percentage'}
             class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition {
-              displayMode === 'percentage' ? 'bg-white text-sky-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              displayMode === 'percentage' ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }"
           >
             % Проценты
@@ -564,7 +564,7 @@
           <button
             onclick={() => displayMode = 'absolute'}
             class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition {
-              displayMode === 'absolute' ? 'bg-white text-sky-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              displayMode === 'absolute' ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }"
           >
             Абсолютные (RAM/CPU)
@@ -577,13 +577,13 @@
       <div class="flex-1 flex items-center justify-center">
         <div class="text-center">
           <div class="w-8 h-8 border-3 border-sky-200 border-t-sky-600 rounded-full animate-spin mx-auto mb-3"></div>
-          <p class="text-sm text-slate-500">Loading queues...</p>
+          <p class="text-sm text-slate-500 dark:text-slate-400">Loading queues...</p>
         </div>
       </div>
     {:else if loadError}
       <div class="flex-1 flex items-center justify-center">
         <div class="text-center max-w-md">
-          <p class="text-sm text-red-600 mb-3">{loadError}</p>
+          <p class="text-sm text-red-600 dark:text-red-400 mb-3">{loadError}</p>
           <button onclick={loadQueueTree}
             class="px-4 py-2 rounded-lg bg-sky-600 text-white text-xs font-medium cursor-pointer">
             Retry
@@ -607,16 +607,16 @@
 
     <!-- Footer Actions Bar -->
     {#if canWrite}
-      <div class="h-12 bg-white border-t border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0">
+      <div class="h-12 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 shrink-0">
         <div class="flex items-center gap-2">
           <button onclick={loadQueueTree}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 transition cursor-pointer">
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
             <RefreshCw class="w-3.5 h-3.5" />
             Обновить
           </button>
           {#if totalChangesCount > 0}
             <button onclick={resetDraft}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-xs font-medium hover:bg-red-50 transition cursor-pointer">
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer">
               <RotateCcw class="w-3.5 h-3.5" />
               Сбросить все ({totalChangesCount})
             </button>
@@ -625,18 +625,18 @@
 
         <div class="flex items-center gap-2">
           {#if totalChangesCount > 0}
-            <span class="text-[11px] text-amber-600 font-medium px-2 py-1 bg-amber-50 border border-amber-200 rounded-lg">
+            <span class="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-2 py-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg">
               {totalChangesCount} изм. в черновике
             </span>
 
             <button onclick={handleShowDiff}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 text-sky-700 text-xs font-medium hover:bg-sky-50 transition cursor-pointer">
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-medium hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer">
               <GitCompareArrows class="w-3.5 h-3.5" />
               Просмотр изменений
             </button>
 
             <button onclick={() => showSubmitCrModal = true}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-50 text-xs font-semibold transition cursor-pointer">
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 text-xs font-semibold transition cursor-pointer">
               <Send class="w-3.5 h-3.5" />
               Отправить на согласование
             </button>

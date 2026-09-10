@@ -19,16 +19,16 @@
   function getStatusBadgeClass(status?: string): string {
     switch (status) {
       case 'idle':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        return 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
       case 'starting':
-        return 'bg-sky-50 text-sky-700 border-sky-200 animate-pulse';
+        return 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800 animate-pulse';
       case 'busy':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
       case 'killed':
       case 'dead':
-        return 'bg-red-50 text-red-700 border-red-200';
+        return 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800';
       default:
-        return 'bg-slate-100 text-slate-600 border-slate-200';
+        return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700';
     }
   }
 
@@ -65,12 +65,12 @@
   }
 </script>
 
-<div class="flex items-center gap-1.5 sm:gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1 sm:px-2 sm:py-1 shadow-2xs shrink-0 select-none">
+<div class="flex items-center gap-1.5 sm:gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-1 sm:px-2 sm:py-1 shadow-2xs shrink-0 select-none">
   <!-- Бейдж статуса Livy сессии -->
   <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold border {getStatusBadgeClass(session?.status)}">
     <span class="w-2 h-2 rounded-full {getStatusDotClass(session?.status)}"></span>
     {#if session}
-      <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-black/5 uppercase tracking-wider">
+      <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-black/5 dark:bg-white/10 uppercase tracking-wider">
         {session.kind === 'spark' ? 'Scala' : 'PySpark'}
       </span>
     {/if}
@@ -83,7 +83,7 @@
       href={yarnClusterId ? `/yarn/#/apps/${session.yarn_application_id}` : '#'}
       target="_blank"
       rel="noopener noreferrer"
-      class="hidden lg:flex items-center gap-1 text-[11px] font-mono font-medium text-slate-600 hover:text-amber-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded transition"
+      class="hidden lg:flex items-center gap-1 text-[11px] font-mono font-medium text-slate-600 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded transition"
       title="Открыть Application в YARN Explorer"
     >
       <span class="truncate max-w-[110px]">{session.yarn_application_id}</span>
@@ -91,13 +91,13 @@
     </a>
   {/if}
 
-  <div class="h-3.5 w-px bg-slate-300 mx-0.5 hidden sm:block"></div>
+  <div class="h-3.5 w-px bg-slate-300 dark:bg-slate-700 mx-0.5 hidden sm:block"></div>
 
   <!-- Кнопки управления сессией -->
   <div class="flex items-center gap-1">
     <button
       onclick={onOpenSettings}
-      class="p-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer shadow-2xs"
+      class="p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer shadow-2xs"
       title="Параметры сессии Spark (версии, зависимости, очереди)"
     >
       <Settings class="w-3.5 h-3.5" />
@@ -115,7 +115,7 @@
     {:else}
       <button
         onclick={onRestartSession}
-        class="p-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer shadow-2xs"
+        class="p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer shadow-2xs"
         title="Перезапустить сессию Spark"
       >
         <RefreshCw class="w-3.5 h-3.5" />
@@ -123,7 +123,7 @@
 
       <button
         onclick={onStopSession}
-        class="p-1 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition cursor-pointer shadow-2xs"
+        class="p-1 rounded-md border border-red-200 dark:border-red-900 bg-white dark:bg-slate-950 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer shadow-2xs"
         title="Остановить сессию и освободить ресурсы YARN"
       >
         <Power class="w-3.5 h-3.5" />

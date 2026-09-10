@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import * as monaco from 'monaco-editor';
   import { getStatementAtCursor, sanitizeSql } from '../utils/sqlSplitter';
+  import { themeStore } from '../../../../common/stores/theme.svelte';
 
   let {
     value = $bindable(),
@@ -54,7 +55,7 @@
     editorInstance = monaco.editor.create(editorContainer, {
       value: value,
       language: 'sql',
-      theme: 'vs',
+      theme: themeStore.isDark ? 'vs-dark' : 'vs',
       automaticLayout: true,
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
@@ -86,6 +87,13 @@
 
     if (registerTrigger) {
       registerTrigger(triggerExecution);
+    }
+  });
+
+  $effect(() => {
+    const isDark = themeStore.isDark;
+    if (monaco?.editor) {
+      monaco.editor.setTheme(isDark ? 'vs-dark' : 'vs');
     }
   });
 
@@ -132,7 +140,6 @@
   }
 
   export function triggerExecution() {
-
     if (!editorInstance) return;
     const model = editorInstance.getModel();
     if (!model) return;
@@ -209,7 +216,7 @@
   });
 </script>
 
-<div class="h-full w-full relative overflow-hidden flex flex-col bg-white">
+<div class="h-full w-full relative overflow-hidden flex flex-col bg-white dark:bg-slate-950">
   <div bind:this={editorContainer} class="flex-1 w-full h-full"></div>
 </div>
 

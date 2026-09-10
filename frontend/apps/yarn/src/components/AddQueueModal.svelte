@@ -223,31 +223,31 @@
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 select-none"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 select-none"
     onclick={(e) => { if (e.target === e.currentTarget) isOpen = false; }}
   >
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div
-      class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] flex flex-col select-auto"
+      class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] flex flex-col select-auto"
       onclick={(e) => e.stopPropagation()}
     >
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-bold text-slate-900">Создание новой очереди</h2>
-        <button onclick={() => isOpen = false} class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 cursor-pointer">
-          <X class="w-4 h-4 text-slate-500" />
+        <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">Создание новой очереди</h2>
+        <button onclick={() => isOpen = false} class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition cursor-pointer">
+          <X class="w-4 h-4" />
         </button>
       </div>
 
-      <div class="mb-4 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg flex justify-between items-center">
+      <div class="mb-4 px-3 py-2 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-lg flex justify-between items-center">
         <div>
-          <span class="text-[11px] text-slate-500">Родительская очередь:</span>
-          <span class="text-xs font-mono font-semibold text-slate-800 ml-1">{parentPath}</span>
+          <span class="text-[11px] text-slate-500 dark:text-slate-400">Родительская очередь:</span>
+          <span class="text-xs font-mono font-semibold text-slate-800 dark:text-slate-200 ml-1">{parentPath}</span>
         </div>
-        <div class="flex items-center gap-1 bg-white p-0.5 rounded border border-slate-200">
+        <div class="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded border border-slate-200 dark:border-slate-800">
           <button
             onclick={() => inputMode = 'percentage'}
             class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer {
-              inputMode === 'percentage' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:text-slate-900'
+              inputMode === 'percentage' ? 'bg-sky-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }"
           >
             %
@@ -255,7 +255,7 @@
           <button
             onclick={() => inputMode = 'absolute'}
             class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer {
-              inputMode === 'absolute' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:text-slate-900'
+              inputMode === 'absolute' ? 'bg-sky-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }"
           >
             GB / Cores
@@ -264,26 +264,26 @@
       </div>
 
       {#if error}
-        <div class="mb-4 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">{error}</div>
+        <div class="mb-4 p-2.5 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs">{error}</div>
       {/if}
 
       <div class="space-y-4 flex-1 overflow-y-auto pr-1">
         <div>
-          <label for="new-queue-name" class="block text-xs font-semibold text-slate-700 mb-1">Имя очереди</label>
+          <label for="new-queue-name" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Имя очереди</label>
           <input
             id="new-queue-name"
             type="text"
             bind:value={queueName}
             placeholder="analytics_batch"
-            class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-sky-500 font-mono"
+            class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500 font-mono"
           />
         </div>
 
         <!-- Guaranteed capacity -->
-        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-          <div class="flex justify-between items-center text-xs font-semibold text-slate-800">
+        <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+          <div class="flex justify-between items-center text-xs font-semibold text-slate-800 dark:text-slate-200">
             <span>Гарантированная емкость (Capacity)</span>
-            <span class="text-[11px] font-mono text-slate-500">
+            <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
               {ramGb.toFixed(1)} GB / {vcores} Cores ({capacity.toFixed(1)}%)
             </span>
           </div>
@@ -297,14 +297,14 @@
                 min="0.1"
                 max="100"
                 step="0.1"
-                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
               />
-              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+              <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
             </div>
           {:else}
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label for="new-ram-gb" class="block text-[11px] text-slate-500 mb-0.5">RAM (GB)</label>
+                <label for="new-ram-gb" class="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">RAM (GB)</label>
                 <input
                   id="new-ram-gb"
                   type="number"
@@ -312,11 +312,11 @@
                   oninput={(e) => updateRamGb(parseVal(e.currentTarget.value, 0))}
                   min="1"
                   step="1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                 />
               </div>
               <div>
-                <label for="new-vcores" class="block text-[11px] text-slate-500 mb-0.5">vCPU (Cores)</label>
+                <label for="new-vcores" class="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">vCPU (Cores)</label>
                 <input
                   id="new-vcores"
                   type="number"
@@ -324,7 +324,7 @@
                   oninput={(e) => updateVcores(parseVal(e.currentTarget.value, 0))}
                   min="1"
                   step="1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                 />
               </div>
             </div>
@@ -332,12 +332,12 @@
         </div>
 
         <div>
-          <label for="new-queue-type" class="block text-xs font-semibold text-slate-700 mb-1">Режим эластичности</label>
+          <label for="new-queue-type" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Режим эластичности</label>
           <select
             id="new-queue-type"
             value={queueType}
             onchange={handleTypeChange}
-            class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm outline-none cursor-pointer"
+            class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-sm outline-none cursor-pointer"
           >
             <option value="elastic">Elastic (разрешить овербукинг)</option>
             <option value="fixed">Fixed (строго по capacity)</option>
@@ -345,10 +345,10 @@
         </div>
 
         {#if queueType === 'elastic'}
-          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-            <div class="flex justify-between items-center text-xs font-semibold text-slate-800">
+          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+            <div class="flex justify-between items-center text-xs font-semibold text-slate-800 dark:text-slate-200">
               <span>Максимальный лимит (Max Capacity)</span>
-              <span class="text-[11px] font-mono text-slate-500">
+              <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 {maxRamGb.toFixed(1)} GB / {maxVcores} Cores ({maxCapacity.toFixed(1)}%)
               </span>
             </div>
@@ -362,14 +362,14 @@
                   min={capacity}
                   max="100"
                   step="0.1"
-                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                 />
-                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+                <span class="absolute right-3 top-2 text-xs font-bold text-slate-400 dark:text-slate-500">%</span>
               </div>
             {:else}
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <label for="new-max-ram-gb" class="block text-[11px] text-slate-500 mb-0.5">Max RAM (GB)</label>
+                  <label for="new-max-ram-gb" class="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Max RAM (GB)</label>
                   <input
                     id="new-max-ram-gb"
                     type="number"
@@ -377,11 +377,11 @@
                     oninput={(e) => updateMaxRamGb(parseVal(e.currentTarget.value, 0))}
                     min={ramGb}
                     step="1"
-                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                   />
                 </div>
                 <div>
-                  <label for="new-max-vcores" class="block text-[11px] text-slate-500 mb-0.5">Max vCPU (Cores)</label>
+                  <label for="new-max-vcores" class="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Max vCPU (Cores)</label>
                   <input
                     id="new-max-vcores"
                     type="number"
@@ -389,7 +389,7 @@
                     oninput={(e) => updateMaxVcores(parseVal(e.currentTarget.value, 0))}
                     min={vcores}
                     step="1"
-                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none focus:border-sky-500"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                   />
                 </div>
               </div>
@@ -398,21 +398,21 @@
         {/if}
 
         <!-- Ordering Policy & User Limit Factor -->
-        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
           <div>
-            <label for="add-queue-ordering-policy" class="block text-xs font-semibold text-slate-700 mb-1">Ordering Policy</label>
+            <label for="add-queue-ordering-policy" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Ordering Policy</label>
             <select
               id="add-queue-ordering-policy"
               bind:value={orderingPolicy}
-              class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:border-sky-500 cursor-pointer"
+              class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-sky-500 cursor-pointer"
             >
               <option value="fifo">FIFO (в порядке очереди)</option>
               <option value="fair">FAIR (справедливое)</option>
             </select>
           </div>
           <div>
-            <label for="add-queue-user-limit-factor" class="block text-xs font-semibold text-slate-700 mb-1">
-              User Limit Factor: <span class="font-mono text-sky-700">{userLimitFactor.toFixed(1)}x</span>
+            <label for="add-queue-user-limit-factor" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              User Limit Factor: <span class="font-mono text-sky-700 dark:text-sky-400">{userLimitFactor.toFixed(1)}x</span>
             </label>
             <input
               id="add-queue-user-limit-factor"
@@ -421,21 +421,21 @@
               max="10.0"
               step="0.1"
               bind:value={userLimitFactor}
-              class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-sky-500"
+              class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-sky-500"
             />
           </div>
         </div>
 
         <!-- Application Limits (Optional) -->
-        <div class="pt-2 border-t border-slate-100">
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800">
           <div class="flex items-center gap-1.5 mb-2">
-            <Layers class="w-3.5 h-3.5 text-purple-600" />
-            <span class="text-xs font-semibold text-slate-800">Лимиты приложений (опционально)</span>
+            <Layers class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+            <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Лимиты приложений (опционально)</span>
           </div>
 
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label for="add-max-applications" class="block text-[10px] text-slate-500 mb-0.5">Max Applications</label>
+              <label for="add-max-applications" class="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">Max Applications</label>
               <input
                 id="add-max-applications"
                 type="number"
@@ -447,12 +447,12 @@
                 }}
                 min="0"
                 step="1"
-                class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-purple-500"
+                class="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-purple-500"
               />
             </div>
 
             <div>
-              <label for="add-max-parallel-apps" class="block text-[10px] text-slate-500 mb-0.5">Max Parallel Apps</label>
+              <label for="add-max-parallel-apps" class="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">Max Parallel Apps</label>
               <input
                 id="add-max-parallel-apps"
                 type="number"
@@ -464,12 +464,12 @@
                 }}
                 min="0"
                 step="1"
-                class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-purple-500"
+                class="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-purple-500"
               />
             </div>
 
             <div>
-              <label for="add-max-am-percent" class="block text-[10px] text-slate-500 mb-0.5">Max AM Resource %</label>
+              <label for="add-max-am-percent" class="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">Max AM Resource %</label>
               <div class="relative">
                 <input
                   id="add-max-am-percent"
@@ -483,14 +483,14 @@
                   min="0"
                   max="100"
                   step="1"
-                  class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-purple-500"
+                  class="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-purple-500"
                 />
-                <span class="absolute right-2 top-1 text-[10px] font-bold text-slate-400">%</span>
+                <span class="absolute right-2 top-1 text-[10px] font-bold text-slate-400 dark:text-slate-500">%</span>
               </div>
             </div>
 
             <div>
-              <label for="add-max-lifetime" class="block text-[10px] text-slate-500 mb-0.5">Max App Lifetime (сек)</label>
+              <label for="add-max-lifetime" class="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">Max App Lifetime (сек)</label>
               <input
                 id="add-max-lifetime"
                 type="number"
@@ -502,7 +502,7 @@
                 }}
                 min="-1"
                 step="1"
-                class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-purple-500"
+                class="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-purple-500"
               />
             </div>
           </div>
@@ -510,14 +510,14 @@
 
         <!-- Node Labels / Partitioning -->
         {#if partitions.length > 1}
-          <div class="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3 space-y-2.5">
-            <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-              <Layers class="w-3.5 h-3.5 text-emerald-600" />
+          <div class="bg-emerald-50/40 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 rounded-xl p-3 space-y-2.5">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+              <Layers class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Node Labels (Метки узлов)</span>
             </div>
 
             <div>
-              <span class="block text-[10px] font-semibold text-slate-600 mb-1">Доступные метки</span>
+              <span class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Доступные метки</span>
               <div class="flex flex-wrap gap-1">
                 {#each partitions.filter(p => p !== 'DEFAULT') as partName}
                   {@const isChecked = accessibleNodeLabels.includes(partName) || accessibleNodeLabels.includes('*')}
@@ -532,8 +532,8 @@
                     }}
                     class="px-2 py-0.5 rounded text-[10px] font-mono font-medium transition cursor-pointer border {
                       isChecked
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700 font-bold'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }"
                   >
                     {partName}
@@ -546,8 +546,8 @@
                   }}
                   class="px-2 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer border {
                     accessibleNodeLabels.includes('*')
-                      ? 'bg-purple-100 text-purple-800 border-purple-300'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-700'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }"
                 >
                   * (Все)
@@ -556,7 +556,7 @@
             </div>
 
             <div>
-              <label for="add-default-label" class="block text-[10px] font-semibold text-slate-600 mb-0.5">
+              <label for="add-default-label" class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
                 Дефолтная метка (Default Label Expression)
               </label>
               <input
@@ -564,7 +564,7 @@
                 type="text"
                 placeholder="например: gpu"
                 bind:value={defaultLabelExpression}
-                class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono text-slate-800 outline-none focus:border-emerald-500"
+                class="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-500"
               />
             </div>
           </div>
@@ -573,7 +573,7 @@
 
       <div class="flex items-center gap-2 mt-6">
         <button onclick={() => isOpen = false}
-          class="flex-1 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 transition cursor-pointer">
+          class="flex-1 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
           Отмена
         </button>
         <button onclick={handleSubmit}

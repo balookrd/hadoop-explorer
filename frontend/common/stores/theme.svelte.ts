@@ -20,6 +20,10 @@ class ThemeStore {
   current = $state<ThemeMode>('light');
   isDark = $state<boolean>(false);
 
+  get theme(): ThemeMode {
+    return this.current;
+  }
+
   constructor() {
     if (typeof window !== 'undefined') {
       const mode = getInitialTheme();

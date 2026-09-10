@@ -230,22 +230,22 @@
   >
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div
-      class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-slate-800 select-auto"
+      class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-slate-800 dark:text-slate-100 select-auto"
       onclick={(e) => e.stopPropagation()}
     >
       
       <!-- Шапка модального окна -->
-      <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
+      <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-950/80 shrink-0">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">
             <Sparkles class="w-5 h-5" />
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h3 class="text-base font-semibold text-slate-900">ИИ SQL Ассистент</h3>
+              <h3 class="text-base font-semibold text-slate-900 dark:text-slate-100">ИИ SQL Ассистент</h3>
               {#if aiStatus}
                 <span
-                  class="text-[11px] px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1.5 {aiStatus.available ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-300'}"
+                  class="text-[11px] px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1.5 {aiStatus.available ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'}"
                   title={aiStatus.message}
                 >
                   <span class="w-1.5 h-1.5 rounded-full {aiStatus.available ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
@@ -257,13 +257,13 @@
                 </span>
               {/if}
             </div>
-            <p class="text-xs text-slate-500">Диалект: <span class="font-mono font-medium text-slate-700 uppercase">{engineType}</span></p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Диалект: <span class="font-mono font-medium text-slate-700 dark:text-slate-300 uppercase">{engineType}</span></p>
           </div>
         </div>
 
         <button
           onclick={() => (isOpen = false)}
-          class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition"
+          class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
           title="Закрыть"
         >
           <X class="w-5 h-5" />
@@ -271,24 +271,24 @@
       </div>
 
       <!-- Вкладки режимов -->
-      <div class="flex items-center gap-1 px-6 border-b border-slate-200 bg-white text-xs font-medium shrink-0">
+      <div class="flex items-center gap-1 px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium shrink-0">
         <button
           onclick={() => handleTabChange('generate')}
-          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'generate' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
+          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'generate' ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}"
         >
-          <Wand2 class="w-4 h-4 text-sky-600" />
+          <Wand2 class="w-4 h-4 text-sky-600 dark:text-sky-400" />
           <span>Генерация SQL</span>
-          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800">YARN</span>
+          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800">YARN</span>
         </button>
 
         <button
           onclick={() => handleTabChange('check')}
-          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'check' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
+          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'check' ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}"
         >
           <ShieldAlert class="w-4 h-4" />
           <span>Анализ и замечания</span>
           {#if checkResult && checkResult.issues.length > 0}
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
               {checkResult.issues.length}
             </span>
           {/if}
@@ -296,7 +296,7 @@
 
         <button
           onclick={() => handleTabChange('explain')}
-          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'explain' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
+          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'explain' ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}"
         >
           <BookOpen class="w-4 h-4" />
           <span>Объяснение запроса</span>
@@ -304,7 +304,7 @@
 
         <button
           onclick={() => handleTabChange('optimize')}
-          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'optimize' ? 'border-sky-600 text-sky-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}"
+          class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'optimize' ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}"
         >
           <Zap class="w-4 h-4" />
           <span>Оптимизация</span>
@@ -313,7 +313,7 @@
         {#if errorMessage || activeTab === 'fix'}
           <button
             onclick={() => handleTabChange('fix')}
-            class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'fix' ? 'border-red-600 text-red-600 font-semibold' : 'border-transparent text-red-500 hover:text-red-700'}"
+            class="flex items-center gap-2 py-3 px-3 border-b-2 transition font-medium cursor-pointer {activeTab === 'fix' ? 'border-red-600 text-red-600 dark:text-red-400 font-semibold' : 'border-transparent text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300'}"
           >
             <Wand2 class="w-4 h-4" />
             <span>Исправление ошибки</span>
@@ -353,17 +353,17 @@
           {#if activeTab === 'generate'}
             <div class="space-y-4">
               <!-- Информационный баннер об оптимизации для YARN и HDFS -->
-              <div class="p-3.5 rounded-xl bg-gradient-to-r from-sky-50 via-indigo-50/60 to-slate-50 border border-sky-200/80 text-xs text-sky-950 flex items-start gap-3 shadow-2xs">
+              <div class="p-3.5 rounded-xl bg-gradient-to-r from-sky-50 dark:from-sky-950/40 via-indigo-50/60 dark:via-indigo-950/30 to-slate-50 dark:to-slate-900 border border-sky-200/80 dark:border-sky-800 text-xs text-sky-950 dark:text-sky-200 flex items-start gap-3 shadow-2xs">
                 <div class="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
                   <Server class="w-4 h-4" />
                 </div>
                 <div class="space-y-1">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-semibold text-slate-900">Интеллектуальная генерация с оптимизацией для Hadoop / YARN</span>
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-100 text-sky-800 border border-sky-200 font-bold">Partition Pruning</span>
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold">OOM Guard</span>
+                    <span class="font-semibold text-slate-900 dark:text-slate-100">Интеллектуальная генерация с оптимизацией для Hadoop / YARN</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800 font-bold">Partition Pruning</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-bold">OOM Guard</span>
                   </div>
-                  <p class="text-slate-600 leading-relaxed text-[11px]">
+                  <p class="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
                     Генератор автоматически учитывает партиционирование таблиц по датам (статическое отсечение директорий HDFS без функций в WHERE), исключает перегрузку единственного Reducer (Top-N Pushdown) и минимизирует Shuffle между узлами кластера YARN.
                   </p>
                 </div>
@@ -371,7 +371,7 @@
 
               <!-- Форма ввода задачи на естественном языке -->
               <div class="space-y-2">
-                <label for="generate-prompt-input" class="block text-xs font-semibold text-slate-700">
+                <label for="generate-prompt-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Опишите задачу на естественном языке (русский или английский):
                 </label>
                 <div class="relative">
@@ -386,17 +386,17 @@
                     }}
                     placeholder="Например: Выведи топ 10 клиентов по сумме покупок за 1998 год из customer и orders с отсечением партиций..."
                     rows="3"
-                    class="w-full text-xs font-mono p-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition resize-none bg-slate-50/50 hover:bg-white text-slate-800"
+                    class="w-full text-xs font-mono p-3 rounded-xl border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition resize-none bg-slate-50/50 dark:bg-slate-950 hover:bg-white dark:hover:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
                   ></textarea>
 
                   <div class="flex items-center justify-between mt-2">
-                    <span class="text-[11px] text-slate-400">
-                      Подсказка: нажмите <kbd class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-600 font-mono text-[10px]">Cmd+Enter</kbd> для генерации
+                    <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                      Подсказка: нажмите <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-mono text-[10px]">Cmd+Enter</kbd> для генерации
                     </span>
                     <button
                       onclick={() => runGenerateSql()}
                       disabled={isGenerating || !generatePrompt.trim()}
-                      class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-medium text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                      class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-medium text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                     >
                       {#if isGenerating}
                         <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -412,15 +412,15 @@
 
               <!-- Быстрые шаблоны задач -->
               <div class="space-y-1.5 pt-1">
-                <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                  <Sparkles class="w-3.5 h-3.5 text-sky-600" />
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                  <Sparkles class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
                   <span>Быстрые шаблоны с оптимизацией под YARN:</span>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                   {#each promptTemplates as tmpl}
                     <button
                       onclick={() => runGenerateSql(tmpl.prompt)}
-                      class="px-2.5 py-1 text-[11px] rounded-lg bg-slate-100 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200 border border-slate-200 text-slate-700 transition cursor-pointer text-left shadow-2xs"
+                      class="px-2.5 py-1 text-[11px] rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950 hover:text-sky-700 dark:hover:text-sky-300 hover:border-sky-200 dark:hover:border-sky-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer text-left shadow-2xs"
                       title="Кликните, чтобы сразу запустить генерацию"
                     >
                       {tmpl.title}
@@ -431,8 +431,8 @@
 
               <!-- Ошибка генерации -->
               {#if generateError}
-                <div class="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2.5">
-                  <AlertCircle class="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div class="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-300 text-xs flex items-start gap-2.5">
+                  <AlertCircle class="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                   <div>
                     <h5 class="font-semibold">Ошибка генерации:</h5>
                     <p class="mt-0.5">{generateError}</p>
@@ -442,29 +442,29 @@
 
               <!-- Индикатор загрузки генерации -->
               {#if isGenerating}
-                <div class="h-48 flex flex-col items-center justify-center text-slate-400 gap-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                <div class="h-48 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 gap-3 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50">
                   <div class="w-7 h-7 border-3 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
-                  <p class="text-xs font-medium text-slate-600">ИИ анализирует схему данных, партиции и генерирует оптимальный SQL для YARN...</p>
+                  <p class="text-xs font-medium text-slate-600 dark:text-slate-400">ИИ анализирует схему данных, партиции и генерирует оптимальный SQL для YARN...</p>
                 </div>
               {/if}
 
               <!-- Результат генерации -->
               {#if generateResult && !isGenerating}
-                <div class="space-y-3 pt-2 border-t border-slate-200">
+                <div class="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
                   <!-- Блок сгенерированного SQL -->
                   <div class="space-y-2">
                     <div class="flex items-center justify-between">
                       <div class="flex items-center gap-2">
-                        <span class="text-xs font-semibold text-slate-800">Сгенерированный SQL-запрос:</span>
-                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
+                        <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Сгенерированный SQL-запрос:</span>
+                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
                           {engineType}
                         </span>
                         {#if generateResult.fallback_used}
-                          <span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                          <span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-medium">
                             AST-генератор (YARN)
                           </span>
                         {:else}
-                          <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                          <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-medium">
                             {generateResult.model}
                           </span>
                         {/if}
@@ -473,13 +473,13 @@
                       <div class="flex items-center gap-2">
                         <button
                           onclick={() => copyToClipboard(generateResult?.generated_sql || '')}
-                          class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition cursor-pointer"
+                          class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1 transition cursor-pointer"
                         >
                           {#if copied}
-                            <Check class="w-3.5 h-3.5 text-emerald-600" />
+                            <Check class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             <span>Скопировано</span>
                           {:else}
-                            <Copy class="w-3.5 h-3.5 text-slate-500" />
+                            <Copy class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                             <span>Копировать</span>
                           {/if}
                         </button>
@@ -494,33 +494,33 @@
                       </div>
                     </div>
 
-                    <div class="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72 shadow-inner">
+                    <div class="p-3.5 rounded-xl bg-slate-900 dark:bg-slate-950 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72 shadow-inner">
                       <pre>{generateResult.generated_sql}</pre>
                     </div>
                   </div>
 
                   <!-- Пояснение и оптимизации для YARN -->
-                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                  <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
                     <div class="flex items-center justify-between">
-                      <h4 class="font-semibold text-slate-900 flex items-center gap-2">
-                        <Info class="w-4 h-4 text-sky-600" />
+                      <h4 class="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        <Info class="w-4 h-4 text-sky-600 dark:text-sky-400" />
                         <span>Пояснение и примененные YARN-оптимизации:</span>
                       </h4>
-                      <span class="text-[11px] text-slate-500 font-mono">
+                      <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                         Время: {generateResult.execution_time_ms} мс
                       </span>
                     </div>
 
-                    <div class="text-slate-700 leading-relaxed whitespace-pre-line bg-white p-3 rounded-lg border border-slate-200/80">
+                    <div class="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800">
                       {generateResult.explanation}
                     </div>
 
                     {#if generateResult.tables_used && generateResult.tables_used.length > 0}
                       <div class="flex items-center gap-2 pt-1">
-                        <span class="text-[11px] font-semibold text-slate-600">Задействованные таблицы:</span>
+                        <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Задействованные таблицы:</span>
                         <div class="flex flex-wrap gap-1.5">
                           {#each generateResult.tables_used as tbl}
-                            <span class="px-2 py-0.5 text-[11px] font-mono bg-sky-50 text-sky-700 border border-sky-200 rounded-md font-medium">
+                            <span class="px-2 py-0.5 text-[11px] font-mono bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 rounded-md font-medium">
                               {tbl}
                             </span>
                           {/each}
@@ -536,16 +536,16 @@
           {:else if activeTab === 'check' && checkResult}
             <div class="space-y-4">
               <!-- Общая сводка -->
-              <div class="p-4 rounded-xl border {checkResult.is_valid ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/70 border-amber-200 text-amber-900'} flex items-start justify-between gap-4">
+              <div class="p-4 rounded-xl border {checkResult.is_valid ? 'bg-emerald-50/70 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200' : 'bg-amber-50/70 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'} flex items-start justify-between gap-4">
                 <div class="flex items-start gap-3">
                   {#if checkResult.is_valid}
-                    <CheckCircle2 class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 class="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   {:else}
-                    <AlertTriangle class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <AlertTriangle class="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   {/if}
                   <div>
                     <h4 class="text-sm font-semibold">{checkResult.summary}</h4>
-                    <p class="text-xs mt-1 text-slate-600">
+                    <p class="text-xs mt-1 text-slate-600 dark:text-slate-400">
                       Время анализа: {checkResult.execution_time_ms} мс | Движок: {checkResult.model}
                     </p>
                   </div>
@@ -553,17 +553,17 @@
 
                 <div class="flex items-center gap-2 shrink-0">
                   {#if errorsCount > 0}
-                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-red-100 text-red-700">
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300">
                       {errorsCount} ошибок
                     </span>
                   {/if}
                   {#if warningsCount > 0}
-                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-amber-100 text-amber-700">
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
                       {warningsCount} преудпр.
                     </span>
                   {/if}
                   {#if infosCount > 0}
-                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-sky-100 text-sky-700">
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
                       {infosCount} инфо
                     </span>
                   {/if}
@@ -572,23 +572,23 @@
 
               <!-- Индекс сложности запроса (Complexity Score) -->
               {#if checkResult.complexity_score}
-                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-2">
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col gap-2">
                   <div class="flex items-center justify-between text-xs font-medium">
                     <div class="flex items-center gap-2">
                       <Zap class="w-4 h-4 text-amber-500" />
-                      <span class="text-slate-700 font-semibold">Индекс сложности выполнения:</span>
-                      <span class="px-2 py-0.5 rounded-md text-[11px] font-bold {checkResult.complexity_score <= 3 ? 'bg-emerald-100 text-emerald-800' : checkResult.complexity_score <= 6 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}">
+                      <span class="text-slate-700 dark:text-slate-300 font-semibold">Индекс сложности выполнения:</span>
+                      <span class="px-2 py-0.5 rounded-md text-[11px] font-bold {checkResult.complexity_score <= 3 ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300' : checkResult.complexity_score <= 6 ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300' : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300'}">
                         {checkResult.complexity_score}/10 ({checkResult.complexity_level})
                       </span>
                     </div>
 
-                    <span class="text-[11px] text-slate-500">
+                    <span class="text-[11px] text-slate-500 dark:text-slate-400">
                       {checkResult.complexity_score <= 3 ? 'Быстрое интерактивное исполнение' : checkResult.complexity_score <= 6 ? 'Умеренная нагрузка на воркеры' : 'Высокая нагрузка / рекомендуется фоновое исполнение'}
                     </span>
                   </div>
 
                   <!-- Прогресс-бар сложности -->
-                  <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                     <div
                       class="h-1.5 rounded-full transition-all duration-300 {checkResult.complexity_score <= 3 ? 'bg-emerald-500' : checkResult.complexity_score <= 6 ? 'bg-amber-500' : 'bg-red-500'}"
                       style="width: {Math.min(100, checkResult.complexity_score * 10)}%"
@@ -598,7 +598,7 @@
                   {#if checkResult.estimated_notes && checkResult.estimated_notes.length > 0}
                     <div class="flex flex-wrap gap-1.5 pt-1">
                       {#each checkResult.estimated_notes as note}
-                        <span class="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 font-mono">
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono">
                           {note}
                         </span>
                       {/each}
@@ -609,40 +609,40 @@
 
               <!-- Список замечаний -->
               {#if checkResult.issues.length === 0}
-                <div class="p-8 text-center text-slate-500 bg-slate-50 rounded-xl border border-slate-100">
+                <div class="p-8 text-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
                   <CheckCircle2 class="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                  <p class="text-sm font-medium text-slate-700">Замечаний не найдено</p>
-                  <p class="text-xs text-slate-500 mt-1">Запрос корректен и оптимизирован для выполнения в кластере {engineType.toUpperCase()}.</p>
+                  <p class="text-sm font-medium text-slate-700 dark:text-slate-300">Замечаний не найдено</p>
+                  <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Запрос корректен и оптимизирован для выполнения в кластере {engineType.toUpperCase()}.</p>
                 </div>
               {:else}
 
                 <div class="space-y-3">
                   {#each checkResult.issues as issue}
-                    <div class="p-4 rounded-xl border transition hover:shadow-xs {issue.severity === 'error' ? 'bg-red-50/40 border-red-200' : issue.severity === 'warning' ? 'bg-amber-50/40 border-amber-200' : 'bg-slate-50 border-slate-200'}">
+                    <div class="p-4 rounded-xl border transition hover:shadow-xs {issue.severity === 'error' ? 'bg-red-50/40 dark:bg-red-950/40 border-red-200 dark:border-red-900' : issue.severity === 'warning' ? 'bg-amber-50/40 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}">
                       <div class="flex items-start justify-between gap-2">
                         <div class="flex items-start gap-2.5">
                           {#if issue.severity === 'error'}
-                            <AlertCircle class="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                            <AlertCircle class="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                           {:else if issue.severity === 'warning'}
-                            <AlertTriangle class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <AlertTriangle class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           {:else}
-                            <Info class="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                            <Info class="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
                           {/if}
 
                           <div>
                             <div class="flex items-center gap-2">
-                              <span class="text-xs font-bold text-slate-900">{issue.message}</span>
-                              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-700">
+                              <span class="text-xs font-bold text-slate-900 dark:text-slate-100">{issue.message}</span>
+                              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                                 {issue.rule}
                               </span>
-                              <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 uppercase font-semibold">
+                              <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase font-semibold">
                                 {issue.category}
                               </span>
                             </div>
 
                             {#if issue.suggestion}
-                              <div class="mt-2 text-xs text-slate-700 bg-white/80 border border-slate-200/80 rounded-lg p-2 flex items-start gap-1.5">
-                                <span class="font-semibold text-sky-700 shrink-0">💡 Совет:</span>
+                              <div class="mt-2 text-xs text-slate-700 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-lg p-2 flex items-start gap-1.5">
+                                <span class="font-semibold text-sky-700 dark:text-sky-400 shrink-0">💡 Совет:</span>
                                 <span>{issue.suggestion}</span>
                               </div>
                             {/if}
@@ -652,7 +652,7 @@
                         {#if onNavigateToLine}
                           <button
                             onclick={() => onNavigateToLine && onNavigateToLine(issue.line)}
-                            class="text-xs text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1 shrink-0 px-2 py-1 rounded-md hover:bg-sky-50 transition cursor-pointer"
+                            class="text-xs text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium flex items-center gap-1 shrink-0 px-2 py-1 rounded-md hover:bg-sky-50 dark:hover:bg-sky-950 transition cursor-pointer"
                             title="Перейти к строке в Monaco Editor"
                           >
                             <span>Стр. {issue.line}</span>
@@ -670,16 +670,16 @@
           {:else if activeTab === 'explain' && explainResult}
             <div class="space-y-4">
               <!-- Сводка и теги -->
-              <div class="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100 space-y-3">
-                <h4 class="text-xs font-semibold text-indigo-950 uppercase tracking-wider">Краткое резюме</h4>
-                <p class="text-sm font-medium text-indigo-900">{explainResult.summary}</p>
+              <div class="p-4 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 space-y-3">
+                <h4 class="text-xs font-semibold text-indigo-950 dark:text-indigo-300 uppercase tracking-wider">Краткое резюме</h4>
+                <p class="text-sm font-medium text-indigo-900 dark:text-indigo-200">{explainResult.summary}</p>
 
-                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-indigo-100/80">
+                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-indigo-100/80 dark:border-indigo-900">
                   {#if explainResult.tables_used.length > 0}
                     <div class="flex items-center gap-1 text-xs">
-                      <span class="text-slate-500">Таблицы:</span>
+                      <span class="text-slate-500 dark:text-slate-400">Таблицы:</span>
                       {#each explainResult.tables_used as tbl}
-                        <span class="px-2 py-0.5 rounded-md font-mono text-[11px] bg-white border border-indigo-200 text-indigo-700 font-medium">
+                        <span class="px-2 py-0.5 rounded-md font-mono text-[11px] bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-medium">
                           {tbl}
                         </span>
                       {/each}
@@ -688,9 +688,9 @@
 
                   {#if explainResult.operations.length > 0}
                     <div class="flex items-center gap-1 text-xs ml-auto">
-                      <span class="text-slate-500">Операции:</span>
+                      <span class="text-slate-500 dark:text-slate-400">Операции:</span>
                       {#each explainResult.operations as op}
-                        <span class="px-2 py-0.5 rounded-md text-[11px] bg-indigo-100 text-indigo-800 font-semibold">
+                        <span class="px-2 py-0.5 rounded-md text-[11px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-semibold">
                           {op}
                         </span>
                       {/each}
@@ -700,7 +700,7 @@
               </div>
 
               <!-- Подробное объяснение -->
-              <div class="p-5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-xs leading-relaxed space-y-3 whitespace-pre-line font-sans">
+              <div class="p-5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs leading-relaxed space-y-3 whitespace-pre-line font-sans">
                 {explainResult.explanation}
               </div>
             </div>
@@ -710,24 +710,24 @@
             <div class="space-y-4">
               <!-- Список улучшений или статус 'уже оптимизирован' -->
               {#if optimizeResult.optimizations.length > 0 && optimizeResult.optimized_sql.trim() !== sqlQuery.trim()}
-                <div class="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
-                  <h4 class="text-xs font-semibold text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap class="w-3.5 h-3.5 text-emerald-600" />
+                <div class="p-4 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
+                  <h4 class="text-xs font-semibold text-emerald-950 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Zap class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>Примененные оптимизации ({optimizeResult.optimizations.length})</span>
                   </h4>
-                  <ul class="space-y-1 text-xs text-emerald-900 list-disc list-inside">
+                  <ul class="space-y-1 text-xs text-emerald-900 dark:text-emerald-300 list-disc list-inside">
                     {#each optimizeResult.optimizations as opt}
                       <li>{opt}</li>
                     {/each}
                   </ul>
                 </div>
               {:else}
-                <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                  <h4 class="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckCircle2 class="w-4 h-4 text-emerald-600" />
+                <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <h4 class="text-xs font-semibold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                     <span>Запрос уже оптимизирован</span>
                   </h4>
-                  <p class="text-xs text-slate-600">
+                  <p class="text-xs text-slate-600 dark:text-slate-400">
                     Текущий SQL-запрос уже структурирован оптимально, содержит необходимые лимиты и не требует дополнительных изменений.
                   </p>
                 </div>
@@ -736,17 +736,17 @@
               <!-- Оптимизированный SQL -->
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-slate-700">Оптимизированный SQL:</span>
+                  <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Оптимизированный SQL:</span>
                   <div class="flex items-center gap-2">
                     <button
                       onclick={() => copyToClipboard(optimizeResult?.optimized_sql || '')}
-                      class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition cursor-pointer"
+                      class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1 transition cursor-pointer"
                     >
                       {#if copied}
-                        <Check class="w-3.5 h-3.5 text-emerald-600" />
+                        <Check class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>Скопировано</span>
                       {:else}
-                        <Copy class="w-3.5 h-3.5 text-slate-500" />
+                        <Copy class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                         <span>Копировать</span>
                       {/if}
                     </button>
@@ -754,9 +754,9 @@
                     {#if optimizeResult.optimized_sql.trim() === sqlQuery.trim()}
                       <button
                         disabled
-                        class="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-400 border border-slate-200 flex items-center gap-1 cursor-not-allowed"
+                        class="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 flex items-center gap-1 cursor-not-allowed"
                       >
-                        <Check class="w-3.5 h-3.5 text-slate-400" />
+                        <Check class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                         <span>Уже применено</span>
                       </button>
                     {:else}
@@ -771,7 +771,7 @@
                   </div>
                 </div>
 
-                <div class="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72">
+                <div class="p-3.5 rounded-xl bg-slate-900 dark:bg-slate-950 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72">
                   <pre>{optimizeResult.optimized_sql}</pre>
                 </div>
               </div>
@@ -780,28 +780,28 @@
           <!-- TAB 4: ИСПРАВЛЕНИЕ ОШИБКИ -->
           {:else if activeTab === 'fix' && fixResult}
             <div class="space-y-4">
-              <div class="p-4 rounded-xl bg-red-50/80 border border-red-200 space-y-2">
-                <h4 class="text-xs font-semibold text-red-950 uppercase tracking-wider flex items-center gap-1.5">
-                  <Wand2 class="w-3.5 h-3.5 text-red-600" />
+              <div class="p-4 rounded-xl bg-red-50/80 dark:bg-red-950/50 border border-red-200 dark:border-red-900 space-y-2">
+                <h4 class="text-xs font-semibold text-red-950 dark:text-red-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Wand2 class="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
                   <span>Анализ ошибки выполнения</span>
                 </h4>
-                <p class="text-xs text-red-900">{fixResult.explanation}</p>
+                <p class="text-xs text-red-900 dark:text-red-300">{fixResult.explanation}</p>
               </div>
 
               <!-- Исправленный SQL -->
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-slate-700">Исправленный вариант:</span>
+                  <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Исправленный вариант:</span>
                   <div class="flex items-center gap-2">
                     <button
                       onclick={() => copyToClipboard(fixResult?.fixed_sql || '')}
-                      class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition cursor-pointer"
+                      class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1 transition cursor-pointer"
                     >
                       {#if copied}
-                        <Check class="w-3.5 h-3.5 text-emerald-600" />
+                        <Check class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>Скопировано</span>
                       {:else}
-                        <Copy class="w-3.5 h-3.5 text-slate-500" />
+                        <Copy class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                         <span>Копировать</span>
                       {/if}
                     </button>
@@ -816,7 +816,7 @@
                   </div>
                 </div>
 
-                <div class="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72">
+                <div class="p-3.5 rounded-xl bg-slate-900 dark:bg-slate-950 text-slate-100 font-mono text-xs overflow-x-auto border border-slate-800 max-h-72">
                   <pre>{fixResult.fixed_sql}</pre>
                 </div>
               </div>
@@ -827,7 +827,7 @@
       </div>
 
       <!-- Футер модалки -->
-      <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0">
+      <div class="px-6 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 shrink-0">
         <div class="flex items-center gap-2">
           <Cpu class="w-3.5 h-3.5 text-slate-400" />
           {#if aiStatus?.available}
@@ -839,7 +839,7 @@
 
         <button
           onclick={() => (isOpen = false)}
-          class="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium transition cursor-pointer"
+          class="px-4 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium transition cursor-pointer"
         >
           Закрыть
         </button>

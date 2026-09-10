@@ -80,9 +80,9 @@
   }
 </script>
 
-<div class="h-full w-full flex flex-col bg-white overflow-hidden select-none">
+<div class="h-full w-full flex flex-col bg-white dark:bg-slate-950 overflow-hidden select-none">
   <!-- Верхняя строка фильтрации и экспорта результатов -->
-  <div class="h-10 bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 shrink-0">
+  <div class="h-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 shrink-0">
     <div class="flex items-center gap-2">
       <div class="relative w-52">
         <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -90,11 +90,11 @@
           type="text"
           bind:value={filterText}
           placeholder="Фильтр в результатах..."
-          class="w-full bg-white border border-slate-300 text-xs rounded-md pl-8 pr-2.5 py-1 text-slate-800 placeholder-slate-400 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition"
+          class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs rounded-md pl-8 pr-2.5 py-1 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition"
         />
       </div>
 
-      <span class="text-xs text-slate-500 font-medium">
+      <span class="text-xs text-slate-500 dark:text-slate-400 font-medium">
         Показано {filteredRows.length} из {totalRows}
       </span>
     </div>
@@ -105,54 +105,54 @@
         <button
           onclick={exportToCsv}
           disabled={rows.length === 0}
-          class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-700 text-xs border border-slate-200 font-medium transition cursor-pointer shadow-2xs"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-slate-700 dark:text-slate-200 text-xs border border-slate-200 dark:border-slate-700 font-medium transition cursor-pointer shadow-2xs"
           title="Скачать в формате CSV"
         >
-          <FileSpreadsheet class="w-3.5 h-3.5 text-emerald-600" />
+          <FileSpreadsheet class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
           <span>CSV</span>
         </button>
 
         <button
           onclick={exportToJson}
           disabled={rows.length === 0}
-          class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-700 text-xs border border-slate-200 font-medium transition cursor-pointer shadow-2xs"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-slate-700 dark:text-slate-200 text-xs border border-slate-200 dark:border-slate-700 font-medium transition cursor-pointer shadow-2xs"
           title="Скачать в формате JSON"
         >
-          <FileJson class="w-3.5 h-3.5 text-amber-600" />
+          <FileJson class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
           <span>JSON</span>
         </button>
       </div>
 
       <!-- Пагинация -->
-      <div class="flex items-center gap-1 text-xs text-slate-600 font-medium">
+      <div class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400 font-medium">
         <button
           onclick={() => (currentPage = Math.max(1, currentPage - 1))}
           disabled={currentPage === 1}
-          class="p-1 rounded-md bg-white hover:bg-slate-100 border border-slate-200 disabled:opacity-40 cursor-pointer shadow-2xs"
+          class="p-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer shadow-2xs"
         >
-          <ChevronLeft class="w-3.5 h-3.5 text-slate-600" />
+          <ChevronLeft class="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
         </button>
         <span class="px-1.5">{currentPage} / {totalPages}</span>
         <button
           onclick={() => (currentPage = Math.min(totalPages, currentPage + 1))}
           disabled={currentPage === totalPages}
-          class="p-1 rounded-md bg-white hover:bg-slate-100 border border-slate-200 disabled:opacity-40 cursor-pointer shadow-2xs"
+          class="p-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer shadow-2xs"
         >
-          <ChevronRight class="w-3.5 h-3.5 text-slate-600" />
+          <ChevronRight class="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
         </button>
       </div>
     </div>
   </div>
 
   <!-- Область таблицы или ошибки -->
-  <div class="flex-1 overflow-auto bg-white">
+  <div class="flex-1 overflow-auto bg-white dark:bg-slate-950">
     {#if errorMessage}
-      <div class="p-4 m-3 rounded-xl bg-red-50 border border-red-200 text-red-800 flex items-start justify-between gap-3 text-xs shadow-2xs">
+      <div class="p-4 m-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-300 flex items-start justify-between gap-3 text-xs shadow-2xs">
         <div class="flex items-start gap-3">
-          <AlertCircle class="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
           <div>
-            <div class="font-bold mb-1 text-red-900">Ошибка исполнения запроса</div>
-            <div class="font-mono text-[11px] whitespace-pre-wrap text-red-800">{errorMessage}</div>
+            <div class="font-bold mb-1 text-red-900 dark:text-red-200">Ошибка исполнения запроса</div>
+            <div class="font-mono text-[11px] whitespace-pre-wrap text-red-800 dark:text-red-300">{errorMessage}</div>
           </div>
         </div>
 
@@ -169,32 +169,32 @@
       </div>
 
     {:else if columns.length === 0}
-      <div class="h-full flex items-center justify-center text-slate-400 text-xs">
+      <div class="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
         Результаты выполнения запроса появятся здесь
       </div>
     {:else}
       <table class="w-full text-left border-collapse font-mono text-xs">
-        <thead class="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 shadow-2xs">
+        <thead class="sticky top-0 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 z-10 shadow-2xs">
           <tr>
-            <th class="py-2 px-3 border-r border-slate-200 text-slate-400 w-12 text-right font-normal">#</th>
+            <th class="py-2 px-3 border-r border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 w-12 text-right font-normal">#</th>
             {#each columns as col}
-              <th class="py-2 px-3 border-r border-slate-200 text-slate-700 font-semibold whitespace-nowrap">
+              <th class="py-2 px-3 border-r border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold whitespace-nowrap">
                 <div>{col.name}</div>
-                <div class="text-[10px] text-slate-400 font-normal">{col.type}</div>
+                <div class="text-[10px] text-slate-400 dark:text-slate-500 font-normal">{col.type}</div>
               </th>
             {/each}
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
           {#each paginatedRows as row, rIdx}
-            <tr class="hover:bg-sky-50/50 transition">
-              <td class="py-1.5 px-3 border-r border-slate-100 text-slate-400 text-right bg-slate-50/30">
+            <tr class="hover:bg-sky-50/50 dark:hover:bg-sky-950/20 transition">
+              <td class="py-1.5 px-3 border-r border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-right bg-slate-50/30 dark:bg-slate-900/30">
                 {(currentPage - 1) * pageSize + rIdx + 1}
               </td>
               {#each row as cell}
-                <td class="py-1.5 px-3 border-r border-slate-100 text-slate-800 whitespace-nowrap max-w-xs truncate">
+                <td class="py-1.5 px-3 border-r border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-200 whitespace-nowrap max-w-xs truncate">
                   {#if cell === null || cell === undefined}
-                    <span class="text-slate-400 italic font-sans">null</span>
+                    <span class="text-slate-400 dark:text-slate-500 italic font-sans">null</span>
                   {:else}
                     {String(cell)}
                   {/if}

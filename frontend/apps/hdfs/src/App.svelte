@@ -67,9 +67,9 @@
 </script>
 
 {#if authStore.loading}
-  <div class="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 gap-3">
+  <div class="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center text-slate-800 dark:text-slate-100 gap-3">
     <div class="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
-    <span class="text-xs font-medium text-slate-500">Проверка сессии...</span>
+    <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Проверка сессии...</span>
   </div>
 {:else if !authStore.isAuthenticated}
   <LoginModal
@@ -82,7 +82,7 @@
     onKerberosSso={handleKerberosSso}
   />
 {:else}
-  <div class="min-h-screen flex flex-col bg-slate-50">
+  <div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
     <Header
       title="HDFS Explorer"
       subtitle="Multi-Cluster"
