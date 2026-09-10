@@ -399,11 +399,11 @@ make helm-lint
 - **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 193 тестов платформы (Backend + Frontend UI)
+# Запуск всех 261 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
-make test-ui        # svelte-check по 4 SPA + 23 теста Vitest
+make test-ui        # svelte-check по 4 SPA + 91 тест Vitest
 make frontend-check # проверка типов svelte-check
 make frontend-test  # юнит и компонентные тесты Vitest
 make frontend-e2e   # E2E тесты Playwright (Chromium)

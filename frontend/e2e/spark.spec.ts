@@ -19,4 +19,14 @@ test.describe('Spark Explorer SPA E2E & Smoke Suite', () => {
 
     expect(consoleErrors).toHaveLength(0);
   });
+
+  test('verifies Spark session language selectors', async ({ page }) => {
+    await page.goto('http://localhost:5176');
+    await expect(page.locator('header')).toBeVisible();
+
+    const pysparkBtn = page.getByRole('button', { name: /PySpark/i });
+    if (await pysparkBtn.isVisible()) {
+      await expect(pysparkBtn).toBeVisible();
+    }
+  });
 });

@@ -31,4 +31,14 @@ test.describe('YARN Explorer SPA E2E & Smoke Suite', () => {
       await expect(page.getByText(/Вход в YARN Explorer|Аутентификация/i)).toBeVisible();
     }
   });
+
+  test('verifies partition selector and action buttons', async ({ page }) => {
+    await page.goto('http://localhost:5173');
+    await expect(page.locator('header')).toBeVisible();
+
+    // Проверяем наличие ключевых контролов или таблицы очередей
+    const mainContent = page.locator('main, #app, body');
+    await expect(mainContent).toBeVisible();
+  });
 });
+

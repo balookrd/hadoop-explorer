@@ -87,6 +87,32 @@ describe('Common UI Components Suite', () => {
       });
       expect(errorEl.textContent).toContain('Ошибка');
     });
+
+    it('renders running status with animated pulse style', () => {
+      const { container } = render(StatusBadge, {
+        props: { status: 'running', text: 'Выполняется' }
+      });
+      const badge = container.querySelector('span');
+      expect(badge?.className).toContain('animate-pulse');
+      expect(container.textContent).toContain('Выполняется');
+    });
+
+    it('renders queued, warning, and custom statuses gracefully', () => {
+      const { container: queuedEl } = render(StatusBadge, {
+        props: { status: 'queued' }
+      });
+      expect(queuedEl.textContent).toContain('queued');
+
+      const { container: warningEl } = render(StatusBadge, {
+        props: { status: 'warning', text: 'Внимание' }
+      });
+      expect(warningEl.textContent).toContain('Внимание');
+
+      const { container: unknownEl } = render(StatusBadge, {
+        props: { status: 'UNKNOWN_STATUS' }
+      });
+      expect(unknownEl.textContent).toContain('UNKNOWN_STATUS');
+    });
   });
 
   describe('Modal Component', () => {
@@ -96,27 +122,73 @@ describe('Common UI Components Suite', () => {
         props: {
           isOpen: true,
           title: 'Тестовое окно',
+          subtitle: 'Подзаголовок модального окна',
           onClose: handleClose
         }
       });
 
       expect(screen.getByText('Тестовое окно')).toBeInTheDocument();
+      expect(screen.getByText('Подзаголовок модального окна')).toBeInTheDocument();
       const closeButtons = screen.getAllByRole('button');
       await fireEvent.click(closeButtons[0]);
+      expect(handleClose).toHaveBeenCalled();
+    });
+
+    it('does not render when isOpen is false', () => {
+      render(Modal, {
+        props: {
+          isOpen: false,
+          title: 'Скрытое окно',
+          onClose: vi.fn()
+        }
+      });
+
+      expect(screen.queryByText('Скрытое окно')).not.toBeInTheDocument();
+    });
+
+    it('closes on Escape key press', async () => {
+      const handleClose = vi.fn();
+      render(Modal, {
+        props: {
+          isOpen: true,
+          title: 'Окно с Escape',
+          onClose: handleClose
+        }
+      });
+
+      await fireEvent.keyDown(window, { key: 'Escape' });
       expect(handleClose).toHaveBeenCalled();
     });
   });
 
   describe('NotificationToast Component', () => {
-    it('renders toast with message', () => {
+    it('renders toast with message and triggers onClose on dismiss click', async () => {
+      const handleClose = vi.fn();
       render(NotificationToast, {
         props: {
           message: 'Файл успешно загружен',
-          type: 'success'
+          type: 'success',
+          onClose: handleClose
         }
       });
 
       expect(screen.getByText('Файл успешно загружен')).toBeInTheDocument();
+      const closeBtn = screen.getByRole('button');
+      await fireEvent.click(closeBtn);
+      expect(handleClose).toHaveBeenCalled();
+    });
+
+    it('renders error notification with error-specific classes', () => {
+      const { container } = render(NotificationToast, {
+        props: {
+          message: 'Ошибка при выполнении операции',
+          type: 'error'
+        }
+      });
+
+      expect(container.textContent).toContain('Ошибка при выполнении операции');
+      const toast = container.firstElementChild;
+      expect(toast?.className).toContain('text-rose-200');
     });
   });
 });

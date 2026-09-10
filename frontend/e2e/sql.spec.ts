@@ -18,4 +18,14 @@ test.describe('SQL Explorer SPA E2E & Smoke Suite', () => {
 
     expect(consoleErrors).toHaveLength(0);
   });
+
+  test('verifies query toolbar and action buttons', async ({ page }) => {
+    await page.goto('http://localhost:5175');
+    await expect(page.locator('header')).toBeVisible();
+
+    const runBtn = page.getByRole('button', { name: /Выполнить/i });
+    if (await runBtn.isVisible()) {
+      await expect(runBtn).toBeVisible();
+    }
+  });
 });

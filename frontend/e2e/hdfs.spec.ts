@@ -18,4 +18,14 @@ test.describe('HDFS Explorer SPA E2E & Smoke Suite', () => {
 
     expect(consoleErrors).toHaveLength(0);
   });
+
+  test('verifies file explorer toolbar and search input presence', async ({ page }) => {
+    await page.goto('http://localhost:5174');
+    await expect(page.locator('header')).toBeVisible();
+
+    const searchInput = page.getByPlaceholder(/Фильтр файлов/i);
+    if (await searchInput.isVisible()) {
+      await expect(searchInput).toBeEnabled();
+    }
+  });
 });

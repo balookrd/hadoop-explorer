@@ -23,4 +23,31 @@ if (typeof window !== 'undefined') {
         dispatchEvent: () => false
       }) as any;
   }
+
+  if (!window.ResizeObserver) {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any;
+  }
+
+  if (!window.IntersectionObserver) {
+    window.IntersectionObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any;
+  }
+
+  if (!navigator.clipboard) {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: () => Promise.resolve(),
+        readText: () => Promise.resolve('')
+      },
+      writable: true,
+      configurable: true
+    });
+  }
 }
