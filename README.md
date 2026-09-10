@@ -68,10 +68,10 @@ hadoop-explorer/
 │   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), Kerberos, SessionStore, Circuit Breaker, Metrics (Prometheus), Retry (Backoff), Lock, Shutdown, LDAP, Rate Limiter, Audit
 │   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
-│   ├── yarn/               # Сервис YARN Explorer (50 тестов)
-│   ├── hdfs/               # Сервис HDFS Explorer (70 тестов)
-│   ├── sql/                # Сервис SQL Explorer (34 теста)
-│   └── spark/              # Сервис Spark Explorer (16 тестов)
+│   ├── yarn/               # Сервис YARN Explorer (65 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (86 тестов)
+│   ├── sql/                # Сервис SQL Explorer (42 теста)
+│   └── spark/              # Сервис Spark Explorer (24 теста)
 │
 ├── ansible/                # ─── Автоматизация деплоя и применения (AWX) ───
 │   ├── playbooks/          # deploy_capacity_scheduler.yml (Job Template)
@@ -391,28 +391,28 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**193 теста**) успешно проходят комплексную проверку:
+Все тесты (**240 тестов**: 217 бэкенд + 23 UI) успешно проходят комплексную проверку:
 - **Frontend UI & Static Suite**: 23 теста + строгий `svelte-check` (статическая верификация контрактов и типов во всех 4 SPA, компонентные smoke-тесты `App.svelte` для HDFS, Spark, SQL, YARN, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
-- **YARN Explorer**: 50 тестов (Capacity Scheduler валидация, балансировка, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
-- **HDFS Explorer**: 70 тестов (ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter).
-- **SQL Explorer**: 34 теста (Trino/Hive движки, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
-- **Spark Explorer**: 16 тестов (Livy клиент, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
+- **YARN Explorer**: 65 тестов (Capacity Scheduler валидация, балансировка, Draft Diff, XML Generation, RM HA failover, метрики кластера, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker).
+- **HDFS Explorer**: 86 тестов (NameNode HA Failover, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security, CSP & Security Headers, CSRF, Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter).
+- **SQL Explorer**: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- **Spark Explorer**: 24 теста (Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 
 ```bash
-# Запуск всех 261 тестов платформы (Backend + Frontend UI)
+# Запуск всех 240 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
-make test-ui        # svelte-check по 4 SPA + 91 тест Vitest
+make test-ui        # svelte-check по 4 SPA + тесты Vitest
 make frontend-check # проверка типов svelte-check
 make frontend-test  # юнит и компонентные тесты Vitest
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Либо по бэкенд сервисам:
-make test-yarn      # 50 тестов (включая AWX интеграцию)
-make test-hdfs      # 60 тестов
-make test-sql       # 34 теста
-make test-spark     # 16 тестов
+make test-yarn      # 65 тестов (включая AWX интеграцию и HA failover)
+make test-hdfs      # 86 тестов (включая NameNode HA и квоты)
+make test-sql       # 42 теста (включая Catalog API и Trino/Hive движки)
+make test-spark     # 24 теста (включая полный LivyClient lifecycle)
 ```
 
 ---
@@ -425,12 +425,12 @@ make test-spark     # 16 тестов
 | `make install-dev` | Установка зависимостей и инструментов разработки |
 | `make lint` | Проверка кодовой базы линтером Ruff |
 | `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 183 модульных, компонентных и интеграционных тестов |
+| `make test` | Запуск всех 240 модульных, компонентных и интеграционных тестов |
 | `make test-ui` | Запуск статической проверки типов (`svelte-check`) и 23 UI тестов Vitest |
-| `make test-yarn` | Запуск 50 тестов сервиса YARN Explorer (включая интеграцию с AWX) |
-| `make test-hdfs` | Запуск 60 тестов сервиса HDFS Explorer |
-| `make test-sql` | Запуск 34 тестов сервиса SQL Explorer |
-| `make test-spark` | Запуск 16 тестов сервиса Spark Explorer |
+| `make test-yarn` | Запуск 65 тестов сервиса YARN Explorer (включая интеграцию с AWX и HA) |
+| `make test-hdfs` | Запуск 86 тестов сервиса HDFS Explorer |
+| `make test-sql` | Запуск 42 тестов сервиса SQL Explorer |
+| `make test-spark` | Запуск 24 тестов сервиса Spark Explorer |
 | `make frontend-install` | Установка NPM зависимостей фронтенда |
 | `make frontend-check` | Статическая проверка типов Svelte 5 во всех 4 SPA (`svelte-check`) |
 | `make frontend-test` | Запуск компонентных и юнит-тестов фронтенда |

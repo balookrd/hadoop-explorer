@@ -30,7 +30,7 @@ backend/hdfs/
 │   │   └── storage.py           # Конфигурация хранилища на базе SessionStore
 │   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
 │   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
-├── tests/                       # Автоматические тесты (pytest - 65 тестов)
+├── tests/                       # Автоматические тесты (pytest - 86 тестов)
 │   ├── conftest.py              # Автосброс rate limits в тестах
 │   ├── test_acl.py              # Тесты проверки прав доступа
 │   ├── test_api.py              # Тесты основных API эндпоинтов

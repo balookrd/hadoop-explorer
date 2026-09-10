@@ -191,3 +191,118 @@ async def test_async_session_store_and_rate_limiter(tmp_path):
     await store.clear_rate_limits_async()
     allowed_after_clear, _ = await limiter.is_allowed_async("test_key")
     assert allowed_after_clear is True
+
+
+def test_circuit_breaker_state_transitions():
+    import time
+    from backend.common.core.circuit_breaker import CircuitBreaker, CircuitState, CircuitBreakerOpenException
+
+    cb = CircuitBreaker(
+        name="test-breaker",
+        failure_threshold=2,
+        recovery_timeout=0.1,
+        half_open_success_threshold=1,
+    )
+    assert cb.state == CircuitState.CLOSED
+
+    # 1. Первая ошибка - остаемся CLOSED
+    try:
+
+        def failing_call():
+            raise ConnectionError("Cluster down")
+
+        cb.call_sync(failing_call)
+    except ConnectionError:
+        pass
+    assert cb.state == CircuitState.CLOSED
+
+    # 2. Вторая ошибка - переходим в OPEN
+    try:
+        cb.call_sync(failing_call)
+    except ConnectionError:
+        pass
+    assert cb.state == CircuitState.OPEN
+
+    # 3. При OPEN вызовы сразу блокируются с CircuitBreakerOpenException
+    with pytest.raises(CircuitBreakerOpenException) as exc:
+        cb.before_call()
+    assert "Circuit Breaker OPEN" in str(exc.value)
+
+    # 4. Ждем истечения recovery_timeout
+    time.sleep(0.15)
+    assert cb.state == CircuitState.HALF_OPEN
+
+    # 5. Успешный вызов в HALF_OPEN переводит автомат обратно в CLOSED
+    res = cb.call_sync(lambda: "recovered")
+    assert res == "recovered"
+    assert cb.state == CircuitState.CLOSED
+
+
+def test_l1_revoked_token_cache():
+    import time
+    from backend.common.core.cache import L1RevokedTokenCache
+
+    cache = L1RevokedTokenCache(max_size=2)
+
+    # 1. Добавление и проверка наличия
+    cache.add("token1", expires_at_ts=time.time() + 3600)
+    assert cache.contains("token1") is True
+    assert cache.contains("token_unknown") is False
+
+    # 2. Истечение по TTL
+    cache.add("token_expired", expires_at_ts=time.time() - 10)
+    assert cache.contains("token_expired") is False
+
+    # 3. LRU вытеснение при превышении max_size (max_size=2)
+    cache.add("t1", expires_at_ts=time.time() + 100)
+    cache.add("t2", expires_at_ts=time.time() + 100)
+    cache.add("t3", expires_at_ts=time.time() + 100)
+    # t1 должно быть вытеснено
+    assert cache.contains("t1") is False
+    assert cache.contains("t2") is True
+    assert cache.contains("t3") is True
+
+    # 4. Очистка
+    cache.clear()
+    assert cache.contains("t2") is False
+
+
+@pytest.mark.asyncio
+async def test_retry_async_behavior():
+    from backend.common.core.retry import retry_async
+
+    # 1. Успех со второй попытки
+    attempts = 0
+
+    async def flaky_op():
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            raise ConnectionResetError("Temporary network glitch")
+        return "success"
+
+    res = await retry_async(
+        flaky_op,
+        max_attempts=3,
+        initial_delay=0.01,
+        retry_exceptions=(ConnectionResetError,),
+    )
+    assert res == "success"
+    assert attempts == 2
+
+    # 2. Необрабатываемое исключение (exclude_exceptions) - завершается сразу
+    calls = 0
+
+    async def critical_op():
+        nonlocal calls
+        calls += 1
+        raise ValueError("Invalid user argument")
+
+    with pytest.raises(ValueError):
+        await retry_async(
+            critical_op,
+            max_attempts=3,
+            initial_delay=0.01,
+            exclude_exceptions=(ValueError,),
+        )
+    assert calls == 1

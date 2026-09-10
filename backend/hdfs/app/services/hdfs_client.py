@@ -36,14 +36,28 @@ def is_trusted_redirect_host(location: str, cluster: Optional[ClusterConfig] = N
     try:
         parsed = urlparse(location)
         loc_host = parsed.hostname.lower() if parsed.hostname else ""
-        nn_host = urlparse(cluster.active_endpoint).hostname.lower() if cluster.active_endpoint else ""
-        if not nn_host:
+        if not loc_host:
+            return False
+
+        trusted_hosts = []
+        if getattr(cluster, "active_endpoint", None):
+            endpoint_host = urlparse(cluster.active_endpoint).hostname
+            if endpoint_host:
+                trusted_hosts.append(endpoint_host.lower())
+        for url in getattr(cluster, "webhdfs_urls", []):
+            uhost = urlparse(url).hostname
+            if uhost:
+                trusted_hosts.append(uhost.lower())
+
+        if not trusted_hosts:
             return True
-        if loc_host == nn_host:
-            return True
-        nn_parts = nn_host.split(".", 1)
-        if len(nn_parts) > 1 and loc_host.endswith("." + nn_parts[1]):
-            return True
+
+        for th in trusted_hosts:
+            if loc_host == th:
+                return True
+            th_parts = th.split(".", 1)
+            if len(th_parts) > 1 and loc_host.endswith("." + th_parts[1]):
+                return True
         return False
     except Exception:
         return False

@@ -24,7 +24,7 @@ APP="${1:-all}"
 
 run_yarn() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: YARN Explorer (50 тестов)"
+  echo "🧪 Запуск тестов: YARN Explorer (65 тестов)"
   echo "=========================================="
   local pt
   pt="$(find_pytest yarn)"
@@ -36,7 +36,7 @@ run_yarn() {
 
 run_hdfs() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: HDFS Explorer (70 тестов)"
+  echo "🧪 Запуск тестов: HDFS Explorer (86 тестов)"
   echo "=========================================="
   local pt
   pt="$(find_pytest hdfs)"
@@ -48,7 +48,7 @@ run_hdfs() {
 
 run_sql() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: SQL Explorer (34 теста)"
+  echo "🧪 Запуск тестов: SQL Explorer (42 теста)"
   echo "=========================================="
   local pt
   pt="$(find_pytest sql)"
@@ -60,7 +60,7 @@ run_sql() {
 
 run_spark() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Spark Explorer (16 тестов)"
+  echo "🧪 Запуск тестов: Spark Explorer (24 теста)"
   echo "=========================================="
   local pt
   pt="$(find_pytest spark)"
