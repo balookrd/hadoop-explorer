@@ -32,6 +32,46 @@ class SessionManager:
         self.execution_listeners: Dict[str, List[asyncio.Queue]] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.active_livy_stmts: Dict[str, Tuple[SparkClusterConfig, int, int]] = {}
+        self._init_metrics()
+
+    def _init_metrics(self):
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            for c in settings.clusters:
+                for k in ("pyspark", "spark", "sparkr", "sql"):
+                    metrics_registry.spark_sessions_active.set(0.0, cluster=c.id, kind=k)
+                for st in ("finished", "failed", "cancelled"):
+                    metrics_registry.spark_statements_total.inc(0.0, cluster=c.id, status=st)
+                metrics_registry.spark_statement_duration_seconds.observe(0.0, cluster=c.id)
+        except Exception:
+            pass
+
+    async def update_active_sessions_gauge(self):
+        """Обновляет значения датчика spark_sessions_active_gauge."""
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            async with AsyncSessionLocal() as db:
+                stmt = select(SparkSessionRecord.cluster_id, SparkSessionRecord.kind).where(
+                    SparkSessionRecord.status.in_(["starting", "idle", "busy"])
+                )
+                res = await db.execute(stmt)
+                rows = res.all()
+
+            counts = {}
+            for c in settings.clusters:
+                for k in ("pyspark", "spark", "sparkr", "sql"):
+                    counts[(c.id, k)] = 0.0
+
+            for cluster_id, kind in rows:
+                key = (cluster_id, kind or "pyspark")
+                counts[key] = counts.get(key, 0.0) + 1.0
+
+            for (cid, k), val in counts.items():
+                metrics_registry.spark_sessions_active.set(val, cluster=cid, kind=k)
+        except Exception as e:
+            logger.debug(f"Не удалось обновить метрики сессий Spark: {e}")
 
     def _get_livy_client(self, cluster: SparkClusterConfig) -> LivyClient:
         if cluster.id not in self.livy_clients:
@@ -276,6 +316,7 @@ class SessionManager:
                     if await self._sync_session_record(record, db):
                         break
 
+        await self.update_active_sessions_gauge()
         return record
 
     async def get_session(self, session_id: str) -> Optional[SparkSessionRecord]:
@@ -308,7 +349,9 @@ class SessionManager:
             record.status = "killed"
             record.stopped_at = datetime.datetime.now(datetime.timezone.utc)
             await db.commit()
-            return True
+
+        await self.update_active_sessions_gauge()
+        return True
 
     async def stop_all_user_sessions(self, username: str) -> int:
         """
@@ -335,6 +378,8 @@ class SessionManager:
             if stopped_count > 0:
                 await db.commit()
                 logger.info(f"Остановлено {stopped_count} сессий Spark при выходе пользователя {username}")
+
+        await self.update_active_sessions_gauge()
         return stopped_count
 
     async def execute_code(self, session_id: str, code: str, language: str, user: UserSession) -> str:
@@ -559,6 +604,16 @@ class SessionManager:
                 .values(status="idle", last_activity_at=datetime.datetime.now(datetime.timezone.utc))
             )
             await db.commit()
+
+        # Запись метрик в Prometheus
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            status_str = status.lower()
+            metrics_registry.spark_statements_total.inc(cluster=cluster_id, status=status_str)
+            metrics_registry.spark_statement_duration_seconds.observe(duration_ms / 1000.0, cluster=cluster_id)
+        except Exception as e:
+            logger.debug(f"Не удалось записать метрики Spark statement: {e}")
 
         # Уведомление подписчиков по SSE
         await self._broadcast_event(
@@ -786,6 +841,7 @@ class SessionManager:
                         except Exception:
                             pass
             await db.commit()
+        await self.update_active_sessions_gauge()
 
     async def recover_stale_executions(self) -> int:
         """

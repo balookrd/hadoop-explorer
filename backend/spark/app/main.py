@@ -40,6 +40,10 @@ async def on_startup():
         await session_manager.recover_stale_executions()
     except Exception as e:
         logger.warning(f"Ошибка Crash Recovery задач Spark: {e}")
+    try:
+        await session_manager.update_active_sessions_gauge()
+    except Exception as e:
+        logger.warning(f"Ошибка инициализации метрик Spark: {e}")
     gc_task = asyncio.create_task(_gc_worker())
 
 

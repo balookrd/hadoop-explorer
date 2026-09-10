@@ -83,6 +83,18 @@ class QueryManager:
         self.event_hub = UserEventHub()
         # Ограничиваем параллелизм фоновых запросов
         self.semaphore = asyncio.Semaphore(10)
+        self._init_metrics()
+
+    def _init_metrics(self):
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            for eng in ("trino", "hive"):
+                for st in ("finished", "failed", "cancelled"):
+                    metrics_registry.sql_queries_total.inc(0.0, engine=eng, status=st)
+                metrics_registry.sql_query_duration_seconds.observe(0.0, engine=eng)
+        except Exception:
+            pass
 
     def _get_engine(self, cluster: ClusterConfig):
         if settings.auth.mode == "mock" or getattr(cluster, "mock_storage", False):
@@ -437,6 +449,17 @@ class QueryManager:
             )
             await db.execute(stmt)
             await db.commit()
+
+        # Запись метрик в Prometheus реестр
+        try:
+            from backend.common.core.metrics import metrics_registry
+
+            engine_type = (getattr(ctx.cluster, "type", None) or "sql").lower()
+            status_str = ctx.status.lower()
+            metrics_registry.sql_queries_total.inc(engine=engine_type, status=status_str)
+            metrics_registry.sql_query_duration_seconds.observe(duration_ms / 1000.0, engine=engine_type)
+        except Exception as e:
+            logger.debug(f"Не удалось обновить метрики SQL: {e}")
 
         # Глобальное уведомление пользователю (даже если вкладка закрыта или не на экране)
         await self.event_hub.notify_user(
