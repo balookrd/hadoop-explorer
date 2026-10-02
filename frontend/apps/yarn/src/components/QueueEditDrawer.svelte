@@ -69,12 +69,51 @@
     return isNaN(n) ? fallback : n;
   }
 
-  function initForm() {
+  let activePartition = $state('');
+  let stagedPartitions = $state<Record<string, PartitionResourceConfig>>({});
+
+  function saveCurrentPartitionToStaged() {
     if (!queue) return;
+    const currentPartConfig: PartitionResourceConfig = {
+      partition_name: activePartition,
+      capacity: editRamPercent,
+      max_capacity: editMaxRamPercent,
+      is_elastic: editMaxRamPercent > editRamPercent || editMaxVcorePercent > editVcorePercent,
+      elasticity_ratio: editRamPercent > 0 ? Math.round((editMaxRamPercent / editRamPercent) * 100) / 100 : 1,
+      memory_mb: editRamMb,
+      vcores: editVcores,
+      max_memory_mb: editMaxRamMb,
+      max_vcores: editMaxVcores,
+      memory_percent: editRamPercent,
+      vcore_percent: editVcorePercent,
+      max_memory_percent: editMaxRamPercent,
+      max_vcore_percent: editMaxVcorePercent,
+      absolute_resources: {
+        memory_mb: editRamMb,
+        vcores: editVcores,
+      },
+      absolute_max_resources: {
+        memory_mb: editMaxRamMb,
+        vcores: editMaxVcores,
+      }
+    };
+    stagedPartitions = { ...stagedPartitions, [activePartition]: currentPartConfig };
+  }
+
+  function initForm(resetPartitions: boolean = false) {
+    if (!queue) return;
+    if (resetPartitions || !activePartition) {
+      activePartition = selectedPartition;
+      stagedPartitions = draftItem?.partitions
+        ? { ...draftItem.partitions }
+        : (queue.partitions ? { ...queue.partitions } : {});
+    }
+
     const draft = draftItem;
-    const part = draft
-      ? (draft.partitions[selectedPartition] || draft.partitions['DEFAULT'] || Object.values(draft.partitions)[0])
-      : (queue.partitions[selectedPartition] || queue.partitions['DEFAULT'] || Object.values(queue.partitions)[0]);
+    const part = stagedPartitions[activePartition]
+      || queue.partitions[activePartition]
+      || queue.partitions['DEFAULT']
+      || Object.values(queue.partitions)[0];
 
     const activeMode = draft?.resource_mode || queue.resource_mode || resourceMode || 'percentage';
     inputMode = activeMode === 'absolute' ? 'absolute' : 'percentage';
@@ -119,6 +158,13 @@
     editDefaultLabelExpression = draft?.default_node_label_expression ?? queue.default_node_label_expression ?? '';
   }
 
+  function switchPartition(newPartName: string) {
+    if (activePartition === newPartName) return;
+    saveCurrentPartitionToStaged();
+    activePartition = newPartName;
+    initForm(false);
+  }
+
   let lastDrawerKey = $state<string>('');
 
   // Заполняем поля при открытии Drawer или смене очереди / партиции / драфта
@@ -133,7 +179,7 @@
       if (lastDrawerKey !== currentKey) {
         lastDrawerKey = currentKey;
         untrack(() => {
-          initForm();
+          initForm(true);
         });
       }
     } else {
@@ -279,9 +325,10 @@
 
   function handleSave() {
     if (!queue) return;
+    saveCurrentPartitionToStaged();
 
     const newPart: PartitionResourceConfig = {
-      partition_name: selectedPartition,
+      partition_name: activePartition,
       capacity: editRamPercent,
       max_capacity: editMaxRamPercent,
       is_elastic: editMaxRamPercent > editRamPercent || editMaxVcorePercent > editVcorePercent,
@@ -304,9 +351,6 @@
       }
     };
 
-    const existingPartitions = draftItem?.partitions || { ...queue.partitions };
-    const updatedPartitions = { ...existingPartitions, [selectedPartition]: newPart };
-
     const draft: DraftQueueItem = {
       path: queue.path,
       name: queue.name,
@@ -323,7 +367,7 @@
       max_application_lifetime: editMaxLifetime !== null && !isNaN(editMaxLifetime) ? editMaxLifetime : undefined,
       accessible_node_labels: editAccessibleLabels.length > 0 ? editAccessibleLabels : undefined,
       default_node_label_expression: editDefaultLabelExpression ? editDefaultLabelExpression : undefined,
-      partitions: updatedPartitions,
+      partitions: { ...stagedPartitions },
     };
 
     onSave(draft);
@@ -376,6 +420,7 @@
   }
   const origMode = $derived(queue?.resource_mode || resourceMode || 'percentage');
   const isModeChanged = $derived(inputMode !== origMode);
+  const availablePartitions = $derived(partitions && partitions.length > 0 ? partitions : [activePartition || 'DEFAULT']);
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isOpen) isOpen = false; }} />
@@ -423,6 +468,29 @@
         <span>Корневая очередь <strong>root</strong> всегда имеет 100% ресурсов кластера. Дочерние очереди делят её ресурсы.</span>
       </div>
     {/if}
+
+    <!-- Partition Selector for Queue Resources -->
+    <div class="px-5 py-2 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+        <Layers class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+        <span class="font-medium">Раздел для настройки:</span>
+      </div>
+      <div class="flex items-center gap-1 flex-wrap">
+        {#each availablePartitions as partName}
+          <button
+            type="button"
+            onclick={() => switchPartition(partName)}
+            class="px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer border {
+              activePartition === partName
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium'
+            }"
+          >
+            {partName}
+          </button>
+        {/each}
+      </div>
+    </div>
 
     <!-- Mode Switcher & Tools -->
     <div class="px-5 py-2.5 bg-slate-100/60 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -479,7 +547,10 @@
       <!-- Guaranteed Capacity Section -->
       <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-xs space-y-3.5">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-          <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">Гарантированная емкость (Capacity)</span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">Гарантированная емкость (Capacity)</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700">[{activePartition}]</span>
+          </div>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Мин. гарантированная доля</span>
         </div>
 
@@ -582,6 +653,7 @@
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
           <div class="flex items-center gap-2">
             <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">Макс. лимит (Max Capacity)</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700">[{activePartition}]</span>
             <select
               value={editType}
               onchange={handleTypeChange}

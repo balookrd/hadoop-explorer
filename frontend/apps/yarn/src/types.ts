@@ -177,6 +177,10 @@ export interface DiffItem {
   draft_max_parallel_apps?: number;
   live_max_application_lifetime?: number;
   draft_max_application_lifetime?: number;
+  live_accessible_node_labels?: string[];
+  draft_accessible_node_labels?: string[];
+  live_default_node_label_expression?: string;
+  draft_default_node_label_expression?: string;
 }
 
 export interface TokenResponse {

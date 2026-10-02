@@ -223,6 +223,12 @@ class DiffItem(BaseModel):
     live_max_application_lifetime: Optional[int] = None
     draft_max_application_lifetime: Optional[int] = None
 
+    # Node Labels / Partitioning diff
+    live_accessible_node_labels: Optional[List[str]] = None
+    draft_accessible_node_labels: Optional[List[str]] = None
+    live_default_node_label_expression: Optional[str] = None
+    draft_default_node_label_expression: Optional[str] = None
+
 
 class DraftDiffResponse(BaseModel):
     cluster_id: str

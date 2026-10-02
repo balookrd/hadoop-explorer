@@ -821,6 +821,14 @@ export interface components {
             live_max_application_lifetime?: number | null;
             /** Draft Max Application Lifetime */
             draft_max_application_lifetime?: number | null;
+            /** Live Accessible Node Labels */
+            live_accessible_node_labels?: string[] | null;
+            /** Draft Accessible Node Labels */
+            draft_accessible_node_labels?: string[] | null;
+            /** Live Default Node Label Expression */
+            live_default_node_label_expression?: string | null;
+            /** Draft Default Node Label Expression */
+            draft_default_node_label_expression?: string | null;
         };
         /** DirectDeployXmlRequest */
         DirectDeployXmlRequest: {

@@ -586,7 +586,7 @@
       onKerberosSso={handleKerberosSso}
     />
   {:else}
-    <div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
+    <div class="min-h-screen flex flex-col w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
       <Header
       title="YARN Explorer"
       subtitle="Capacity Scheduler"
@@ -602,9 +602,7 @@
     <!-- Toolbar: Partitions, Queue Balances, Queue Mappings & Display Mode -->
     <div class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div class="flex items-center gap-3 flex-wrap">
-        {#if partitions.length > 1}
-          <PartitionSelector {partitions} bind:selectedPartition />
-        {/if}
+        <PartitionSelector {partitions} bind:selectedPartition />
 
         <ResourceBalanceCard {balances} {resourceMode} {displayMode} inline={true} />
 
@@ -662,18 +660,20 @@
         </div>
       </div>
     {:else}
-      <QueueTreeTable
-        {rootQueue}
-        {resourceMode}
-        {displayMode}
-        clusterResources={activeCluster?.total_resources}
-        {selectedPartition}
-        {canWrite}
-        {draftChanges}
-        onAddChild={handleAddChild}
-        onDelete={handleDelete}
-        onEditQueue={handleEditQueue}
-      />
+      <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <QueueTreeTable
+          {rootQueue}
+          {resourceMode}
+          {displayMode}
+          clusterResources={activeCluster?.total_resources}
+          {selectedPartition}
+          {canWrite}
+          {draftChanges}
+          onAddChild={handleAddChild}
+          onDelete={handleDelete}
+          onEditQueue={handleEditQueue}
+        />
+      </div>
     {/if}
 
     <!-- Footer Actions Bar -->

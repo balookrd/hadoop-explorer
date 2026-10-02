@@ -100,7 +100,32 @@
               {#each changedDiffs as d}
                 <tr class="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td class="px-4 py-2 font-mono text-slate-800 dark:text-slate-200">
-                    <div class="font-semibold">{d.path}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="font-semibold">{d.path}</span>
+                      {#if d.partition}
+                        <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          {d.partition}
+                        </span>
+                      {/if}
+                    </div>
+                    {#if d.draft_accessible_node_labels != null}
+                      {@const liveLbl = (d.live_accessible_node_labels || []).join(', ') || '—'}
+                      {@const draftLbl = (d.draft_accessible_node_labels || []).join(', ') || '—'}
+                      {#if liveLbl !== draftLbl}
+                        <div class="text-[10px] text-emerald-700 dark:text-emerald-400 font-sans mt-0.5">
+                          Метки узлов: <span class="font-bold">{liveLbl} → {draftLbl}</span>
+                        </div>
+                      {/if}
+                    {/if}
+                    {#if d.draft_default_node_label_expression != null || d.live_default_node_label_expression != null}
+                      {@const liveDef = d.live_default_node_label_expression || '—'}
+                      {@const draftDef = d.draft_default_node_label_expression || '—'}
+                      {#if liveDef !== draftDef}
+                        <div class="text-[10px] text-emerald-700 dark:text-emerald-400 font-sans mt-0.5">
+                          Дефолтная метка: <span class="font-bold">{liveDef} → {draftDef}</span>
+                        </div>
+                      {/if}
+                    {/if}
                     {#if d.draft_resource_mode && d.live_resource_mode && d.draft_resource_mode !== d.live_resource_mode}
                       <div class="text-[10px] text-amber-700 dark:text-amber-400 font-sans mt-0.5">
                         Режим: <span class="font-bold">{d.live_resource_mode === 'absolute' ? 'ABS' : '%'} → {d.draft_resource_mode === 'absolute' ? 'ABS' : '%'}</span>

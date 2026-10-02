@@ -101,7 +101,7 @@ backend/yarn/
 ### Очереди и моделирование (`/api/v1/clusters/{cluster_id}`)
 - `GET /api/v1/clusters/{cluster_id}/queues` — получение дерева очередей и метрик утилизации кластера. Доступно: `READER`, `WRITER`, `ADMIN`.
 - `POST /api/v1/clusters/{cluster_id}/validate` — валидация баланса ресурсов веток очередей (RAM / vCPU). Доступно: `WRITER`, `ADMIN`.
-- `POST /api/v1/clusters/{cluster_id}/diff` — расчет дельты изменений между live и draft состоянием. Доступно: `WRITER`, `ADMIN`.
+- `POST /api/v1/clusters/{cluster_id}/diff` — расчет дельты изменений между live и draft состоянием с полной поддержкой разделов узлов (partitions) и меток очередей (`accessible-node-labels`, `default-node-label-expression`). Доступно: `WRITER`, `ADMIN`.
 - `POST /api/v1/clusters/{cluster_id}/generate-xml` — генерация `capacity-scheduler.xml`. Доступно: только `ADMIN`.
 - `POST /api/v1/clusters/{cluster_id}/deploy-xml` — прямое горячее развертывание и применение `capacity-scheduler.xml` на кластере через Ansible AWX. Доступно: только `ADMIN`.
 

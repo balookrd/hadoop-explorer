@@ -90,11 +90,11 @@
   }
 </script>
 
-<div class="overflow-auto flex-1">
+<div class="overflow-x-auto overflow-y-auto flex-1 min-w-0">
   <table class="w-full text-xs">
     <thead class="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
       <tr class="text-[11px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-        <th class="text-left px-4 py-2.5 w-full min-w-[260px]">Queue</th>
+        <th class="text-left px-4 py-2.5 min-w-[200px]">Queue</th>
         <th class="text-center px-2 py-2.5 w-1 whitespace-nowrap">Status</th>
         <th class="text-center px-2 py-2.5 w-1 whitespace-nowrap">Mode</th>
         <th class="text-center px-2 py-2.5 w-1 whitespace-nowrap">Policy</th>
@@ -104,6 +104,7 @@
           <div class="flex items-center justify-end gap-1">
             <HardDrive class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
             <span>RAM Cap</span>
+            <span class="text-[9px] font-mono text-sky-600 dark:text-sky-400">[{selectedPartition}]</span>
           </div>
         </th>
 
@@ -112,6 +113,7 @@
           <div class="flex items-center justify-end gap-1">
             <Cpu class="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
             <span>vCPU Cap</span>
+            <span class="text-[9px] font-mono text-sky-600 dark:text-sky-400">[{selectedPartition}]</span>
           </div>
         </th>
 
@@ -120,6 +122,7 @@
           <div class="flex items-center justify-end gap-1">
             <HardDrive class="w-3.5 h-3.5 text-indigo-400 dark:text-indigo-300" />
             <span>RAM Max</span>
+            <span class="text-[9px] font-mono text-sky-600 dark:text-sky-400">[{selectedPartition}]</span>
           </div>
         </th>
 
@@ -128,6 +131,7 @@
           <div class="flex items-center justify-end gap-1">
             <Cpu class="w-3.5 h-3.5 text-blue-400 dark:text-blue-300" />
             <span>vCPU Max</span>
+            <span class="text-[9px] font-mono text-sky-600 dark:text-sky-400">[{selectedPartition}]</span>
           </div>
         </th>
 
@@ -143,6 +147,11 @@
         {@const isNew = draftItem?.action === 'create'}
         {@const isDelete = draftItem?.action === 'delete'}
         {@const isDraft = hasDraftChange(row.node.path)}
+        {@const configuredPartitions = Object.keys({ ...(row.node.partitions || {}), ...(draftItem?.partitions || {}) })}
+        {@const hasDirectPartition = Boolean(
+          (draftItem?.partitions && draftItem.partitions[selectedPartition]) ||
+          (row.node.partitions && row.node.partitions[selectedPartition])
+        )}
 
         {@const part = isNew
           ? (draftItem?.partitions[selectedPartition] || Object.values(draftItem?.partitions || {})[0])
@@ -202,34 +211,63 @@
               {/if}
 
               {#if row.node.is_leaf}
-                <FileText class="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
+                <span title="Листовая очередь: {row.node.path}" class="shrink-0 flex items-center">
+                  <FileText class="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                </span>
               {:else}
-                <Folder class="w-4 h-4 text-sky-500 dark:text-sky-400 shrink-0" />
+                <span title="Родительская очередь: {row.node.path}" class="shrink-0 flex items-center">
+                  <Folder class="w-4 h-4 text-sky-500 dark:text-sky-400" />
+                </span>
               {/if}
 
-              <span class="font-semibold text-slate-800 dark:text-slate-200">{row.node.name}</span>
-              <span class="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{row.node.path}</span>
+              <span
+                class="font-semibold text-slate-800 dark:text-slate-200 cursor-help whitespace-nowrap"
+                title="Путь очереди: {row.node.path}"
+              >
+                {row.node.name}
+              </span>
 
               {#if draftItem?.action === 'create'}
-                <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold">NEW</span>
+                <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold whitespace-nowrap shrink-0">NEW</span>
               {/if}
               {#if draftItem?.action === 'delete'}
-                <span class="text-[9px] px-1.5 py-0.2 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold">DEL</span>
+                <span class="text-[9px] px-1.5 py-0.2 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold whitespace-nowrap shrink-0">DEL</span>
               {/if}
 
               <!-- Node Labels Badge -->
               {#if (draftItem?.accessible_node_labels ?? row.node.accessible_node_labels)?.length}
                 {@const effectiveLabels = draftItem?.accessible_node_labels ?? row.node.accessible_node_labels ?? []}
-                <div class="flex items-center gap-1" title="Accessible Node Labels: {effectiveLabels.join(', ')}">
+                <div class="flex items-center gap-1 shrink-0" title="Accessible Node Labels: {effectiveLabels.join(', ')}">
                   {#each effectiveLabels.slice(0, 2) as lbl}
-                    <span class="text-[9px] px-1 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono font-bold">
+                    <span class="text-[9px] px-1 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono font-bold whitespace-nowrap">
                       {lbl}
                     </span>
                   {/each}
                   {#if effectiveLabels.length > 2}
-                    <span class="text-[9px] text-slate-400 dark:text-slate-500 font-mono font-bold">+{effectiveLabels.length - 2}</span>
+                    <span class="text-[9px] text-slate-400 dark:text-slate-500 font-mono font-bold whitespace-nowrap">+{effectiveLabels.length - 2}</span>
                   {/if}
                 </div>
+              {/if}
+
+              <!-- Configured Partitions Badges -->
+              {#if configuredPartitions.some(p => p !== 'DEFAULT')}
+                <div class="flex items-center gap-1 shrink-0" title="Настроенные разделы (Partitions): {configuredPartitions.join(', ')}">
+                  {#each configuredPartitions as partName}
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold whitespace-nowrap {
+                      partName === selectedPartition
+                        ? 'bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-400'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }">
+                      {partName}
+                    </span>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if !hasDirectPartition && selectedPartition !== 'DEFAULT'}
+                <span class="text-[9px] px-1.5 py-0.2 rounded text-slate-400 dark:text-slate-500 font-sans italic bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 whitespace-nowrap shrink-0" title="Для раздела {selectedPartition} нет индивидуальных квот, действуют квоты из раздела DEFAULT">
+                  fallback DEFAULT
+                </span>
               {/if}
             </div>
           </td>

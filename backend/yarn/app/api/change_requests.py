@@ -95,62 +95,155 @@ async def create_change_request(
     live_map = {n.path: n for n in live_nodes}
 
     diffs: List[DiffItem] = []
+    default_partition = cluster.default_partition or "DEFAULT"
+
     for draft_q in request.changes:
         live_q = live_map.get(draft_q.path)
-        draft_part = draft_q.partitions.get(partition)
-        live_part = live_q.partitions.get(partition) if live_q else None
 
-        if draft_q.action == "delete":
-            action = "deleted"
-        elif live_q:
-            has_changes = False
-            if live_part and draft_part:
-                if (
-                    abs(live_part.capacity - draft_part.capacity) > 0.01
-                    or abs(live_part.max_capacity - draft_part.max_capacity) > 0.01
-                ):
-                    has_changes = True
-            if live_q.state != draft_q.state:
-                has_changes = True
-            action = "modified" if has_changes else "unchanged"
-        else:
-            action = "created"
+        live_mode = getattr(live_q, "resource_mode", None) if live_q else None
+        draft_mode = draft_q.resource_mode or live_mode or cluster.resource_mode
 
-        diffs.append(
-            DiffItem(
+        live_ulf = getattr(live_q, "user_limit_factor", None) if live_q else None
+        draft_ulf = draft_q.user_limit_factor
+        live_ordering = getattr(live_q, "ordering_policy", None) if live_q else None
+        draft_ordering = draft_q.ordering_policy
+
+        live_max_apps = getattr(live_q, "max_applications", None) if live_q else None
+        draft_max_apps = draft_q.max_applications
+
+        live_max_am = getattr(live_q, "max_am_resource_percent", None) if live_q else None
+        draft_max_am = draft_q.max_am_resource_percent
+
+        live_max_parallel = getattr(live_q, "max_parallel_apps", None) if live_q else None
+        draft_max_parallel = draft_q.max_parallel_apps
+
+        live_lifetime = getattr(live_q, "max_application_lifetime", None) if live_q else None
+        draft_lifetime = draft_q.max_application_lifetime
+
+        live_labels = getattr(live_q, "accessible_node_labels", None) if live_q else None
+        draft_labels = draft_q.accessible_node_labels
+        live_default_label = getattr(live_q, "default_node_label_expression", None) if live_q else None
+        draft_default_label = draft_q.default_node_label_expression
+
+        def build_cr_diff_item(part_name: str, action: str) -> DiffItem:
+            d_part = draft_q.partitions.get(part_name) if draft_q.partitions else None
+            l_part = live_q.partitions.get(part_name) if (live_q and live_q.partitions) else None
+
+            delta_cap = round(d_part.capacity - l_part.capacity, 2) if (d_part and l_part) else None
+            delta_max_cap = round(d_part.max_capacity - l_part.max_capacity, 2) if (d_part and l_part) else None
+            delta_mem = (
+                d_part.memory_mb - l_part.memory_mb
+                if d_part and l_part and d_part.memory_mb is not None and l_part.memory_mb is not None
+                else None
+            )
+            delta_vcores = (
+                d_part.vcores - l_part.vcores
+                if d_part and l_part and d_part.vcores is not None and l_part.vcores is not None
+                else None
+            )
+
+            return DiffItem(
                 path=draft_q.path,
                 name=draft_q.name,
                 parent_path=draft_q.parent_path,
-                partition=partition,
+                partition=part_name,
                 action=action,
-                live_capacity=live_part.capacity if live_part else None,
-                draft_capacity=draft_part.capacity if draft_part else None,
-                delta_capacity=(
-                    round(draft_part.capacity - live_part.capacity, 2) if draft_part and live_part else None
-                ),
-                live_max_capacity=live_part.max_capacity if live_part else None,
-                draft_max_capacity=draft_part.max_capacity if draft_part else None,
-                delta_max_capacity=(
-                    round(draft_part.max_capacity - live_part.max_capacity, 2) if draft_part and live_part else None
-                ),
-                live_memory_mb=live_part.memory_mb if live_part else None,
-                draft_memory_mb=draft_part.memory_mb if draft_part else None,
-                delta_memory_mb=(
-                    draft_part.memory_mb - live_part.memory_mb
-                    if draft_part and live_part and draft_part.memory_mb is not None and live_part.memory_mb is not None
-                    else None
-                ),
-                live_vcores=live_part.vcores if live_part else None,
-                draft_vcores=draft_part.vcores if draft_part else None,
-                delta_vcores=(
-                    draft_part.vcores - live_part.vcores
-                    if draft_part and live_part and draft_part.vcores is not None and live_part.vcores is not None
-                    else None
-                ),
+                live_capacity=l_part.capacity if l_part else None,
+                draft_capacity=d_part.capacity if d_part else None,
+                delta_capacity=delta_cap,
+                live_max_capacity=l_part.max_capacity if l_part else None,
+                draft_max_capacity=d_part.max_capacity if d_part else None,
+                delta_max_capacity=delta_max_cap,
+                live_memory_mb=l_part.memory_mb if l_part else None,
+                draft_memory_mb=d_part.memory_mb if d_part else None,
+                delta_memory_mb=delta_mem,
+                live_vcores=l_part.vcores if l_part else None,
+                draft_vcores=d_part.vcores if d_part else None,
+                delta_vcores=delta_vcores,
                 live_state=live_q.state if live_q else None,
                 draft_state=draft_q.state,
+                live_resource_mode=live_mode,
+                draft_resource_mode=draft_mode,
+                live_user_limit_factor=live_ulf,
+                draft_user_limit_factor=draft_ulf,
+                live_ordering_policy=live_ordering,
+                draft_ordering_policy=draft_ordering,
+                live_max_applications=live_max_apps,
+                draft_max_applications=draft_max_apps,
+                live_max_am_resource_percent=live_max_am,
+                draft_max_am_resource_percent=draft_max_am,
+                live_max_parallel_apps=live_max_parallel,
+                draft_max_parallel_apps=draft_max_parallel,
+                live_max_application_lifetime=live_lifetime,
+                draft_max_application_lifetime=draft_lifetime,
+                live_accessible_node_labels=live_labels,
+                draft_accessible_node_labels=draft_labels,
+                live_default_node_label_expression=live_default_label,
+                draft_default_node_label_expression=draft_default_label,
             )
-        )
+
+        if draft_q.action == "create":
+            parts = list(draft_q.partitions.keys()) if draft_q.partitions else [default_partition]
+            for p in parts:
+                diffs.append(build_cr_diff_item(p, "created"))
+        elif draft_q.action == "delete":
+            diffs.append(build_cr_diff_item(default_partition, "deleted"))
+        elif live_q:
+            queue_props_changed = False
+            if live_q.state != draft_q.state:
+                queue_props_changed = True
+            if draft_q.resource_mode and live_mode and draft_q.resource_mode != live_mode:
+                queue_props_changed = True
+            if draft_ulf is not None and live_ulf is not None and abs(draft_ulf - live_ulf) > 0.001:
+                queue_props_changed = True
+            if draft_ordering and live_ordering and draft_ordering.lower() != live_ordering.lower():
+                queue_props_changed = True
+            if draft_max_apps is not None and draft_max_apps != live_max_apps:
+                queue_props_changed = True
+            if draft_max_am is not None and (live_max_am is None or abs(draft_max_am - live_max_am) > 0.001):
+                queue_props_changed = True
+            if draft_max_parallel is not None and draft_max_parallel != live_max_parallel:
+                queue_props_changed = True
+            if draft_lifetime is not None and draft_lifetime != live_lifetime:
+                queue_props_changed = True
+
+            if draft_labels is not None:
+                if sorted(draft_labels) != sorted(live_labels or []):
+                    queue_props_changed = True
+            if draft_default_label is not None or live_default_label is not None:
+                if (draft_default_label or "").strip() != (live_default_label or "").strip():
+                    queue_props_changed = True
+
+            all_parts = set(draft_q.partitions.keys()) | (set(live_q.partitions.keys()) if live_q.partitions else set())
+            if not all_parts:
+                all_parts = {default_partition}
+
+            changed_parts = []
+            for p in all_parts:
+                d_p = draft_q.partitions.get(p) if draft_q.partitions else None
+                l_p = live_q.partitions.get(p) if live_q.partitions else None
+                p_changed = False
+                if (d_p is None) != (l_p is None):
+                    p_changed = True
+                elif d_p and l_p:
+                    if abs(d_p.capacity - l_p.capacity) > 0.01 or abs(d_p.max_capacity - l_p.max_capacity) > 0.01:
+                        p_changed = True
+                    elif d_p.memory_mb is not None and l_p.memory_mb is not None and d_p.memory_mb != l_p.memory_mb:
+                        p_changed = True
+                    elif d_p.vcores is not None and l_p.vcores is not None and d_p.vcores != l_p.vcores:
+                        p_changed = True
+                if p_changed:
+                    changed_parts.append(p)
+
+            if changed_parts:
+                for p in changed_parts:
+                    diffs.append(build_cr_diff_item(p, "modified"))
+            elif queue_props_changed:
+                diffs.append(build_cr_diff_item(default_partition, "modified"))
+            else:
+                diffs.append(build_cr_diff_item(default_partition, "unchanged"))
+        else:
+            diffs.append(build_cr_diff_item(default_partition, "created"))
 
     cr_id = storage_service.create_change_request(
         cluster_id=request.cluster_id,

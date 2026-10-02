@@ -69,4 +69,36 @@ describe('YARN DiffPanel Component', () => {
     await fireEvent.click(xmlBtn);
     expect(handleXml).toHaveBeenCalled();
   });
+
+  it('renders partition badges and node label changes', () => {
+    const labelDiffs: DiffItem[] = [
+      {
+        path: 'root.prod.spark',
+        name: 'spark',
+        partition: 'GPU',
+        action: 'modified',
+        live_capacity: 60,
+        draft_capacity: 75,
+        live_accessible_node_labels: ['DEFAULT'],
+        draft_accessible_node_labels: ['DEFAULT', 'GPU'],
+        live_default_node_label_expression: '',
+        draft_default_node_label_expression: 'GPU'
+      }
+    ];
+
+    render(DiffPanel, {
+      props: {
+        diffs: labelDiffs,
+        canAdmin: true,
+        isOpen: true,
+        onGenerateXml: vi.fn()
+      }
+    });
+
+    expect(screen.getByText('root.prod.spark')).toBeInTheDocument();
+    expect(screen.getByText('GPU')).toBeInTheDocument();
+    expect(screen.getByText(/Метки узлов:/i)).toBeInTheDocument();
+    expect(screen.getByText(/DEFAULT → DEFAULT, GPU/i)).toBeInTheDocument();
+    expect(screen.getByText(/Дефолтная метка:/i)).toBeInTheDocument();
+  });
 });
