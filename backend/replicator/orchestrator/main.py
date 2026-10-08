@@ -348,6 +348,7 @@ async def login(req: LoginRequest, response: Response):
         httponly=True,
         samesite="lax",
         max_age=86400,
+        path="/",
     )
     return AuthTokenResponse(access_token=token, user=user)
 
@@ -361,7 +362,7 @@ async def get_me(current_user: UserSession = Depends(get_current_user)):
 @app.post("/api/v1/auth/logout", tags=["Auth"])
 async def logout(response: Response):
     """Выход из системы с очисткой сессионной Cookie."""
-    response.delete_cookie(COOKIE_NAME)
+    response.delete_cookie(COOKIE_NAME, path="/")
     return {"success": True, "message": "Сессия успешно завершена"}
 
 
@@ -379,6 +380,7 @@ async def kerberos_sso(response: Response):
         httponly=True,
         samesite="lax",
         max_age=86400,
+        path="/",
     )
     return AuthTokenResponse(access_token=token, user=user, message="Вход выполнен через Kerberos SSO")
 

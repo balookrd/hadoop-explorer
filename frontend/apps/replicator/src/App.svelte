@@ -266,13 +266,27 @@
     }
   }
 
+  // Единая обертка fetch с гарантированной передачей HttpOnly Cookies сессии и CSRF заголовка
+  async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(options.headers || {});
+    headers.set('X-Requested-With', 'XMLHttpRequest');
+    if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+      headers.set('Content-Type', 'application/json');
+    }
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
+  }
+
   // Аутентификация
   async function checkAuth() {
     try {
-      const res = await fetch('/api/v1/auth/me');
+      const res = await apiFetch('/api/v1/auth/me');
       if (res.ok) {
         const data = await res.json();
-        user = data.user;
+        user = data?.user || (data?.username ? data : null);
       } else {
         user = null;
       }
@@ -285,14 +299,13 @@
 
   async function handleLogin(u: string, p: string) {
     authErrorMessage = null;
-    const res = await fetch('/api/v1/auth/login', {
+    const res = await apiFetch('/api/v1/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: u, password: p }),
     });
     if (res.ok) {
       const data = await res.json();
-      user = data.user;
+      user = data?.user || (data?.username ? data : null);
       isLoginModalOpen = false;
       await loadInitialData();
     } else {
@@ -303,10 +316,10 @@
 
   async function handleKerberosSso() {
     authErrorMessage = null;
-    const res = await fetch('/api/v1/auth/sso');
+    const res = await apiFetch('/api/v1/auth/sso');
     if (res.ok) {
       const data = await res.json();
-      user = data.user;
+      user = data?.user || (data?.username ? data : null);
       isLoginModalOpen = false;
       await loadInitialData();
     } else {
@@ -316,7 +329,7 @@
   }
 
   async function handleLogout() {
-    await fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    await apiFetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
     user = null;
     isLoginModalOpen = true;
   }
@@ -325,7 +338,7 @@
   async function loadJobs() {
     if (!user) return;
     try {
-      const res = await fetch('/jobs');
+      const res = await apiFetch('/jobs');
       if (res.ok) {
         jobs = await res.json();
       }
@@ -339,7 +352,7 @@
     if (!user) return;
     topologyLoading = true;
     try {
-      const res = await fetch('/api/v1/topology');
+      const res = await apiFetch('/api/v1/topology');
       if (res.ok) {
         const data: TopologyData = await res.json();
         topology = data;
@@ -389,7 +402,7 @@
     if (!user) return;
     agentsLoading = true;
     try {
-      const res = await fetch('/api/v1/agents');
+      const res = await apiFetch('/api/v1/agents');
       if (res.ok) {
         registeredAgents = await res.json();
       }
@@ -426,9 +439,8 @@
         payload.cron_expression = newJobCronPreset;
       }
 
-      const res = await fetch('/jobs', {
+      const res = await apiFetch('/jobs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -449,7 +461,7 @@
   // Управление жизненным циклом задач: Запуск / Стоп / Редактирование / Удаление
   async function handleStartJob(id: string) {
     try {
-      const res = await fetch(`/jobs/${id}/start`, { method: 'POST' });
+      const res = await apiFetch(`/jobs/${id}/start`, { method: 'POST' });
       if (res.ok) {
         await loadJobs();
       } else {
@@ -464,7 +476,7 @@
   async function handleStopJob(id: string) {
     if (!confirm(`Остановить задачу ${id.substring(0, 8)}...?`)) return;
     try {
-      const res = await fetch(`/jobs/${id}/stop`, { method: 'POST' });
+      const res = await apiFetch(`/jobs/${id}/stop`, { method: 'POST' });
       if (res.ok) {
         await loadJobs();
       } else {
@@ -509,9 +521,8 @@
         payload.cron_expression = editJobCronPreset;
       }
 
-      const res = await fetch(`/jobs/${editingJobId}`, {
+      const res = await apiFetch(`/jobs/${editingJobId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -532,7 +543,7 @@
   async function handleDeleteJob(id: string) {
     if (!confirm(`Вы действительно хотите удалить задачу ${id.substring(0, 8)}...? Это действие необратимо.`)) return;
     try {
-      const res = await fetch(`/jobs/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/jobs/${id}`, { method: 'DELETE' });
       if (res.ok) {
         await loadJobs();
       } else {
@@ -556,7 +567,7 @@
   async function loadJobRuns(jobId: string) {
     runsLoading = true;
     try {
-      const res = await fetch(`/jobs/${jobId}/runs`);
+      const res = await apiFetch(`/jobs/${jobId}/runs`);
       if (res.ok) {
         jobRuns = await res.json();
       } else {
@@ -579,9 +590,8 @@
     savingRetention = true;
     retentionSaveSuccess = false;
     try {
-      const res = await fetch(`/jobs/${jobId}`, {
+      const res = await apiFetch(`/jobs/${jobId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ history_retention_runs: val }),
       });
       if (res.ok) {
@@ -619,9 +629,8 @@
     topologyStatusMsg = null;
     const limitMb = globalUnlimited ? 0 : Number(globalLimitMb) || 0;
     try {
-      const res = await fetch('/api/v1/limits/global', {
+      const res = await apiFetch('/api/v1/limits/global', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ limit_bytes_per_sec: limitMb * 1024 * 1024 }),
       });
       if (res.ok) {
@@ -644,9 +653,8 @@
     const mb = item.unlimited ? 0 : Number(item.mb) || 0;
 
     try {
-      const res = await fetch('/api/v1/limits/dc-dc', {
+      const res = await apiFetch('/api/v1/limits/dc-dc', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source_dc: parts[0],
           target_dc: parts[1],
@@ -673,9 +681,8 @@
     const mb = item.unlimited ? 0 : Number(item.mb) || 0;
 
     try {
-      const res = await fetch('/api/v1/limits/hdfs-hdfs', {
+      const res = await apiFetch('/api/v1/limits/hdfs-hdfs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source_cluster: parts[0],
           target_cluster: parts[1],
