@@ -3,8 +3,8 @@
 Перенаправляет вызовы на централизованный SessionStore.
 """
 
-from backend.common.core.session_store import SessionStore
 from backend.common.core.cache import L1RevokedTokenCache
+from backend.common.core.session_store import SessionStore
 
 # BaseStorageService является синонимом SessionStore для полной обратной совместимости
 BaseStorageService = SessionStore

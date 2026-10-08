@@ -1,0 +1,36 @@
+# ========================================================
+# Hadoop Explorer :: Spark Explorer API (Java 21 / Spring Boot 3)
+# ========================================================
+FROM eclipse-temurin:21-jre-jammy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    krb5-user \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Копирование собранного Spring Boot Fat JAR
+COPY backend/spark/spark-java/target/spark-explorer-java-1.0.0.jar /app/spark-explorer.jar
+
+# Копирование собранного Frontend SPA (Svelte 5)
+COPY backend/spark/spark-java/src/main/resources/static /app/frontend/dist
+
+# Создание непривилегированного пользователя appuser (UID 10001)
+RUN groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -m -s /bin/bash appuser && \
+    mkdir -p /app/data /etc/security/keytabs /app/config && \
+    touch /etc/krb5.conf && \
+    chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
+
+ENV APP_NAME="spark" \
+    FRONTEND_DIST="/app/frontend/dist" \
+    SERVER_PORT="8004"
+
+EXPOSE 8004
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8004/health || curl -f http://localhost:8004/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/spark-explorer.jar"]

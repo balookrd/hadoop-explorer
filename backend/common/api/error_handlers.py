@@ -1,9 +1,10 @@
 import logging
 import uuid
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError, HTTPException
+
 from backend.common.core.circuit_breaker import CircuitBreakerOpenException
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("hadoop_explorer.error_handlers")
 

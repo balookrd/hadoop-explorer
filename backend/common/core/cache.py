@@ -1,7 +1,6 @@
-import time
 import threading
+import time
 from collections import OrderedDict
-from typing import Optional
 
 
 class L1RevokedTokenCache:
@@ -15,7 +14,7 @@ class L1RevokedTokenCache:
         self._cache: OrderedDict[str, float] = OrderedDict()
         self._lock = threading.Lock()
 
-    def add(self, key: str, expires_at_ts: Optional[float] = None):
+    def add(self, key: str, expires_at_ts: float | None = None):
         if not key:
             return
         now = time.time()

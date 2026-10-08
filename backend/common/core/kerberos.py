@@ -1,9 +1,9 @@
+import base64
+import logging
 import os
 import shutil
 import subprocess
-import logging
-import base64
-from typing import Optional, Dict, Any
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.kerberos")
 
@@ -16,12 +16,12 @@ class KerberosManager:
     3. Генерация клиентских SPNEGO токенов для аутентификации в защищенных сервисах
     """
 
-    def __init__(self, service_principal: Optional[str] = None, keytab_path: Optional[str] = None):
+    def __init__(self, service_principal: str | None = None, keytab_path: str | None = None):
         self.kinit_bin = shutil.which("kinit")
         self.service_principal = service_principal or os.environ.get("KERBEROS_SERVICE_PRINCIPAL")
         self.keytab_path = keytab_path or os.environ.get("KERBEROS_KEYTAB_PATH")
 
-    def ensure_service_ticket(self, principal: Optional[str] = None, keytab_path: Optional[str] = None) -> bool:
+    def ensure_service_ticket(self, principal: str | None = None, keytab_path: str | None = None) -> bool:
         """
         Инициализирует или обновляет Kerberos TGT билет сервиса с помощью kinit.
         """
@@ -56,9 +56,9 @@ class KerberosManager:
     def authenticate_spnego(
         self,
         negotiate_header_or_token: str,
-        service_principal: Optional[str] = None,
-        keytab_path: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        service_principal: str | None = None,
+        keytab_path: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Проверяет SPNEGO токен (или заголовок 'Negotiate <token>') и возвращает
         информацию о принципале: {'username': str, 'client_principal': str, 'out_token': Optional[str]}
@@ -124,16 +124,16 @@ class KerberosManager:
     def authenticate_spnego_username(
         self,
         negotiate_header_or_token: str,
-        service_principal: Optional[str] = None,
-        keytab_path: Optional[str] = None,
-    ) -> Optional[str]:
+        service_principal: str | None = None,
+        keytab_path: str | None = None,
+    ) -> str | None:
         """Упрощенная проверка, возвращающая только имя пользователя."""
         result = self.authenticate_spnego(
             negotiate_header_or_token, service_principal=service_principal, keytab_path=keytab_path
         )
         return result["username"] if result else None
 
-    def generate_spnego_token(self, target_host: str) -> Optional[str]:
+    def generate_spnego_token(self, target_host: str) -> str | None:
         """
         Генерирует заголовок SPNEGO Negotiate (base64) для отправки на целевой хост (HTTP/<target_host>).
         """
@@ -158,9 +158,9 @@ kerberos_manager = KerberosManager()
 
 def authenticate_spnego(
     negotiate_header_or_token: str,
-    service_principal: Optional[str] = None,
-    keytab_path: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    service_principal: str | None = None,
+    keytab_path: str | None = None,
+) -> dict[str, Any] | None:
     """Функция-обёртка для совместимости."""
     return kerberos_manager.authenticate_spnego(
         negotiate_header_or_token,

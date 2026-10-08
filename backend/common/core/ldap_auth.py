@@ -1,14 +1,13 @@
-import ssl
-import hmac
 import hashlib
+import hmac
 import logging
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field
+import ssl
+from typing import Any
 
-import ldap3
-from ldap3 import Server, Connection, ALL, SUBTREE, Tls
-from ldap3.core.exceptions import LDAPException, LDAPBindError
+from ldap3 import ALL, SUBTREE, Connection, Server, Tls
+from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
+from pydantic import BaseModel
 
 logger = logging.getLogger("hadoop_explorer.ldap")
 
@@ -22,13 +21,13 @@ class CommonLdapConfig(BaseModel):
     server_uri: str = "ldaps://localhost:636"
     use_ssl: bool = True
     verify_cert: bool = True
-    ca_cert_file: Optional[str] = None
+    ca_cert_file: str | None = None
     allow_insecure_ssl: bool = False
     bind_dn: str = ""
     bind_password: str = ""
     user_base_dn: str = "ou=users,dc=company,dc=local"
     user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))"
-    username_attr: Optional[str] = None
+    username_attr: str | None = None
     user_display_name_attr: str = "displayName"
     user_email_attr: str = "mail"
     use_user_memberof: bool = False
@@ -59,9 +58,9 @@ class CommonLdapAuthService:
     def get_tls_config(
         use_ssl: bool = False,
         verify_cert: bool = True,
-        ca_cert_file: Optional[str] = None,
+        ca_cert_file: str | None = None,
         allow_insecure_ssl: bool = False,
-    ) -> Optional[Tls]:
+    ) -> Tls | None:
         """
         Формирует объект ldap3.Tls в соответствии с настройками безопасности.
         """
@@ -81,10 +80,10 @@ class CommonLdapAuthService:
         server_uri: str,
         use_ssl: bool = False,
         verify_cert: bool = True,
-        ca_cert_file: Optional[str] = None,
+        ca_cert_file: str | None = None,
         allow_insecure_ssl: bool = False,
         connect_timeout: int = 5,
-        server_cls: Optional[Any] = None,
+        server_cls: Any | None = None,
     ) -> Server:
         """
         Создает объект ldap3.Server с заданными параметрами TLS.
@@ -103,24 +102,24 @@ class CommonLdapAuthService:
         server_uri: str,
         use_ssl: bool = False,
         verify_cert: bool = True,
-        ca_cert_file: Optional[str] = None,
+        ca_cert_file: str | None = None,
         allow_insecure_ssl: bool = False,
-        bind_dn: Optional[str] = None,
-        bind_password: Optional[str] = None,
+        bind_dn: str | None = None,
+        bind_password: str | None = None,
         user_base_dn: str = "dc=example,dc=com",
         user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))",
-        username_attr: Optional[str] = None,
-        display_name_attr: Optional[str] = "displayName",
-        email_attr: Optional[str] = "mail",
-        memberof_attr: Optional[str] = "memberOf",
+        username_attr: str | None = None,
+        display_name_attr: str | None = "displayName",
+        email_attr: str | None = "mail",
+        memberof_attr: str | None = "memberOf",
         use_user_memberof: bool = False,
-        group_base_dn: Optional[str] = None,
-        group_filter: Optional[str] = None,
+        group_base_dn: str | None = None,
+        group_filter: str | None = None,
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
-        connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None,
-    ) -> Optional[Dict[str, Any]]:
+        connection_cls: Any | None = None,
+        server_cls: Any | None = None,
+    ) -> dict[str, Any] | None:
         """
         Выполняет аутентификацию пользователя в Active Directory / OpenLDAP через LDAP/LDAPS.
         Возвращает dict с данными пользователя или None при ошибке.
@@ -239,24 +238,24 @@ class CommonLdapAuthService:
         server_uri: str,
         use_ssl: bool = False,
         verify_cert: bool = True,
-        ca_cert_file: Optional[str] = None,
+        ca_cert_file: str | None = None,
         allow_insecure_ssl: bool = False,
-        bind_dn: Optional[str] = None,
-        bind_password: Optional[str] = None,
+        bind_dn: str | None = None,
+        bind_password: str | None = None,
         user_base_dn: str = "dc=example,dc=com",
         user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))",
-        username_attr: Optional[str] = None,
-        display_name_attr: Optional[str] = "displayName",
-        email_attr: Optional[str] = "mail",
-        memberof_attr: Optional[str] = "memberOf",
+        username_attr: str | None = None,
+        display_name_attr: str | None = "displayName",
+        email_attr: str | None = "mail",
+        memberof_attr: str | None = "memberOf",
         use_user_memberof: bool = False,
-        group_base_dn: Optional[str] = None,
-        group_filter: Optional[str] = None,
+        group_base_dn: str | None = None,
+        group_filter: str | None = None,
         group_name_attr: str = "cn",
         connect_timeout: int = 5,
-        connection_cls: Optional[Any] = None,
-        server_cls: Optional[Any] = None,
-    ) -> Optional[Dict[str, Any]]:
+        connection_cls: Any | None = None,
+        server_cls: Any | None = None,
+    ) -> dict[str, Any] | None:
         """
         Извлекает информацию о пользователе и его группы без требования пароля.
         Используется для обогащения групп при Kerberos SPNEGO SSO.
@@ -364,12 +363,12 @@ class CommonLdapAuthService:
         user_dn: str,
         user_entry: Any,
         safe_username: str,
-        memberof_attr: Optional[str] = "memberOf",
-        group_base_dn: Optional[str] = None,
-        group_filter: Optional[str] = None,
+        memberof_attr: str | None = "memberOf",
+        group_base_dn: str | None = None,
+        group_filter: str | None = None,
         group_name_attr: str = "cn",
-    ) -> List[str]:
-        groups: List[str] = []
+    ) -> list[str]:
+        groups: list[str] = []
 
         # 1. Извлечение из атрибута memberOf
         if memberof_attr and hasattr(user_entry, memberof_attr):
@@ -426,7 +425,7 @@ class CommonLdapAuthService:
         return hmac.compare_digest(stored_password, input_password)
 
     @classmethod
-    def authenticate_mock_user(cls, username: str, password: str, mock_users: List[Any]) -> Optional[Dict[str, Any]]:
+    def authenticate_mock_user(cls, username: str, password: str, mock_users: list[Any]) -> dict[str, Any] | None:
         for u in mock_users:
             u_name = getattr(u, "username", None) or (u.get("username") if isinstance(u, dict) else None)
             if u_name and u_name.lower() == username.lower():
@@ -455,12 +454,12 @@ class LdapAuthService:
     Принимает конфигурацию CommonLdapConfig и инкапсулирует вызовы CommonLdapAuthService.
     """
 
-    def __init__(self, config: Optional[CommonLdapConfig] = None):
+    def __init__(self, config: CommonLdapConfig | None = None):
         self.config = config or CommonLdapConfig()
 
     def authenticate(
-        self, username: str, password: str, connection_cls: Optional[Any] = None, server_cls: Optional[Any] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, username: str, password: str, connection_cls: Any | None = None, server_cls: Any | None = None
+    ) -> dict[str, Any] | None:
         """
         Выполняет аутентификацию пользователя в LDAP/LDAPS.
         """
@@ -493,8 +492,8 @@ class LdapAuthService:
         )
 
     def get_user_info(
-        self, username: str, connection_cls: Optional[Any] = None, server_cls: Optional[Any] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, username: str, connection_cls: Any | None = None, server_cls: Any | None = None
+    ) -> dict[str, Any] | None:
         """
         Извлекает профиль и группы пользователя из LDAP без пароля (для SPNEGO/Kerberos).
         """
@@ -526,7 +525,7 @@ class LdapAuthService:
         )
 
     @staticmethod
-    def authenticate_mock(username: str, password: str, mock_users: List[Any]) -> Optional[Dict[str, Any]]:
+    def authenticate_mock(username: str, password: str, mock_users: list[Any]) -> dict[str, Any] | None:
         """
         Выполняет аутентификацию mock-пользователя.
         """

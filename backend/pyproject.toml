@@ -5,8 +5,6 @@ description = "Hadoop Explorer Platform Backend Services"
 requires-python = ">=3.12"
 dependencies = [
     "hadoop-explorer-common",
-    "hadoop-explorer-spark",
-    "hadoop-explorer-sql",
 ]
 
 [dependency-groups]
@@ -21,28 +19,18 @@ dev = [
 [tool.uv.workspace]
 members = [
     "common",
-    "spark",
-    "sql",
 ]
 
 [tool.uv.sources]
 hadoop-explorer-common = { workspace = true }
-hadoop-explorer-spark = { workspace = true }
-hadoop-explorer-sql = { workspace = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q"
-testpaths = [
-    "spark/tests",
-    "sql/tests",
-]
 pythonpath = [
     ".",
     "..",
     "common",
-    "spark",
-    "sql",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -50,14 +38,24 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "**/__pycache__",
+    "dist",
+    "build",
+    "target",
+]
 
 [tool.ruff.lint]
-select = ["E", "W", "F"]
+select = [
+    "E",
+    "F",
+    "W",
+]
 ignore = [
     "E501",
+    "B008",
     "E402",
-    "E712",
-    "F401",
-    "F841",
-    "W293",
 ]

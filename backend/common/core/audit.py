@@ -1,9 +1,9 @@
-import os
+import datetime
 import json
 import logging
-import datetime
+import os
 from collections import deque
-from typing import Optional, Dict, Any
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.audit")
 
@@ -36,14 +36,14 @@ def audit_log(
     action: str,
     username: str,
     client_ip: str,
-    details: Optional[Dict[str, Any]] = None,
+    details: dict[str, Any] | None = None,
     status: str = "SUCCESS",
-    audit_file_override: Optional[str] = None,
+    audit_file_override: str | None = None,
 ):
     """
     Записывает структурированное событие аудита безопасности в JSON.
     """
-    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
     try:
         from backend.common.api.request_id_middleware import get_request_id
 
@@ -82,6 +82,6 @@ def audit_log(
 
 
 def log_audit_event(
-    event_type: str, username: str, client_ip: str, status: str = "SUCCESS", details: Optional[Dict[str, Any]] = None
+    event_type: str, username: str, client_ip: str, status: str = "SUCCESS", details: dict[str, Any] | None = None
 ):
     audit_log(action=event_type, username=username, client_ip=client_ip, details=details, status=status)

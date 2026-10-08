@@ -1,8 +1,9 @@
-import time
 import logging
 import threading
+import time
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable, Any, Optional, Dict, Tuple, Type, List
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.circuit_breaker")
 
@@ -37,7 +38,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: float = 30.0,
         half_open_success_threshold: int = 2,
-        excluded_exceptions: Optional[Tuple[Type[BaseException], ...]] = None,
+        excluded_exceptions: tuple[type[BaseException], ...] | None = None,
     ):
         self.name = name
         self.failure_threshold = failure_threshold
@@ -149,7 +150,7 @@ class CircuitBreaker:
             self._success_count = 0
             self._last_state_change = time.time()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Возвращает текущую статистику и метрики Circuit Breaker."""
         with self._lock:
             self._evaluate_state()
@@ -175,7 +176,7 @@ class CircuitBreakerRegistry:
     """Глобальный реестр экземпляров Circuit Breaker по имени кластера/эндпоинта."""
 
     def __init__(self):
-        self._breakers: Dict[str, CircuitBreaker] = {}
+        self._breakers: dict[str, CircuitBreaker] = {}
         self._lock = threading.Lock()
 
     def get(
@@ -184,7 +185,7 @@ class CircuitBreakerRegistry:
         failure_threshold: int = 5,
         recovery_timeout: float = 30.0,
         half_open_success_threshold: int = 2,
-        excluded_exceptions: Optional[Tuple[Type[BaseException], ...]] = None,
+        excluded_exceptions: tuple[type[BaseException], ...] | None = None,
     ) -> CircuitBreaker:
         with self._lock:
             if name not in self._breakers:
@@ -202,7 +203,7 @@ class CircuitBreakerRegistry:
             for cb in self._breakers.values():
                 cb.reset()
 
-    def get_all_stats(self) -> List[Dict[str, Any]]:
+    def get_all_stats(self) -> list[dict[str, Any]]:
         with self._lock:
             return [cb.get_stats() for cb in self._breakers.values()]
 

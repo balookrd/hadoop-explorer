@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -26,8 +26,8 @@ DEFAULT_WRITER_GROUPS = {
 
 def resolve_system_role(
     username: str,
-    groups: Optional[List[str]] = None,
-    settings: Optional[object] = None,
+    groups: list[str] | None = None,
+    settings: object | None = None,
 ) -> tuple[Role, bool]:
     """
     Централизованно определяет (system_role, is_admin) по имени пользователя, его группам
@@ -85,16 +85,16 @@ class LoginRequest(BaseModel):
 class UserInfo(BaseModel):
     username: str
     display_name: str
-    email: Optional[str] = None
-    groups: List[str] = Field(default_factory=list)
+    email: str | None = None
+    groups: list[str] = Field(default_factory=list)
     is_admin: bool = False
 
 
 class UserSession(BaseModel):
     username: str
     display_name: str
-    email: Optional[str] = None
-    groups: List[str] = Field(default_factory=list)
+    email: str | None = None
+    groups: list[str] = Field(default_factory=list)
     auth_method: str = "mock"  # ldap, kerberos, mock
     is_admin: bool = False
     system_role: Role = Role.READER
@@ -121,10 +121,10 @@ AuthResponse = TokenResponse
 class TokenPayload(BaseModel):
     sub: str  # username
     display_name: str
-    email: Optional[str] = None
-    groups: List[str] = Field(default_factory=list)
+    email: str | None = None
+    groups: list[str] = Field(default_factory=list)
     exp: int
-    jti: Optional[str] = None
-    auth_method: Optional[str] = "jwt"
-    is_admin: Optional[bool] = False
-    system_role: Optional[str] = "reader"
+    jti: str | None = None
+    auth_method: str | None = "jwt"
+    is_admin: bool | None = False
+    system_role: str | None = "reader"

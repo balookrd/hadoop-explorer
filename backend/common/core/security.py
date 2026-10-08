@@ -1,13 +1,11 @@
-import os
-import uuid
 import hashlib
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Union
+import uuid
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import jwt
-from fastapi import Request, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException, Request, status
+from fastapi.security import HTTPBearer
 
 security_bearer = HTTPBearer(auto_error=False)
 
@@ -17,7 +15,7 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _is_allowed_origin(url_str: str, request: Request, allowed_cors: List[str]) -> bool:
+def _is_allowed_origin(url_str: str, request: Request, allowed_cors: list[str]) -> bool:
     if not url_str:
         return False
     try:
@@ -48,7 +46,7 @@ def _is_allowed_origin(url_str: str, request: Request, allowed_cors: List[str]) 
         return False
 
 
-def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[List[str]] = None):
+def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: list[str] | None = None):
     """
     Защита от Cross-Site Request Forgery (CWE-352).
     Если запрос аутентифицирован через Cookie и изменяет состояние (POST, PUT, DELETE, PATCH),
@@ -84,7 +82,7 @@ def verify_csrf(request: Request, is_cookie_auth: bool, allowed_cors: Optional[L
         )
 
 
-CANONICAL_COOKIE_NAMES: List[str] = [
+CANONICAL_COOKIE_NAMES: list[str] = [
     "access_token",
     "hdfs_explorer_session",
     "session_token",
@@ -92,9 +90,7 @@ CANONICAL_COOKIE_NAMES: List[str] = [
 ]
 
 
-def extract_token_from_request(
-    request: Request, cookie_names: Optional[List[str]] = None
-) -> tuple[Optional[str], bool]:
+def extract_token_from_request(request: Request, cookie_names: list[str] | None = None) -> tuple[str | None, bool]:
     """
     Извлекает токен из Authorization: Bearer либо из Cookies.
     Возвращает кортеж: (token, is_cookie_auth).
@@ -119,13 +115,13 @@ def create_jwt_token(
     secret_key: str,
     algorithm: str = "HS256",
     expires_minutes: int = 480,
-    expires_delta: Optional[timedelta] = None,
-    kid: Optional[str] = None,
+    expires_delta: timedelta | None = None,
+    kid: str | None = None,
 ) -> str:
     from backend.common.core.jwt_keys import global_jwt_key_manager
 
     to_encode = data.copy()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if expires_delta:
         expire = now + expires_delta
     else:
@@ -152,7 +148,7 @@ def create_jwt_token(
     return jwt.encode(to_encode, secret_key, algorithm=algorithm)
 
 
-def decode_jwt_token(token: str, secret_key: str, algorithms: Optional[List[str]] = None) -> Optional[dict]:
+def decode_jwt_token(token: str, secret_key: str, algorithms: list[str] | None = None) -> dict | None:
     from backend.common.core.jwt_keys import global_jwt_key_manager
 
     algs = algorithms or ["HS256", "RS256"]
@@ -179,9 +175,11 @@ def decode_jwt_token(token: str, secret_key: str, algorithms: Optional[List[str]
 # Общие абстракции для дедупликации security-логики между сервисами
 # ==============================================================================
 
-from pydantic import BaseModel
-from typing import Callable, Any, Awaitable
+from collections.abc import Callable
+from typing import Any
+
 from backend.common.models.auth import Role, resolve_system_role
+from pydantic import BaseModel
 
 
 class CommonUserSession(BaseModel):
@@ -192,8 +190,8 @@ class CommonUserSession(BaseModel):
 
     username: str
     display_name: str
-    email: Optional[str] = None
-    groups: List[str] = []
+    email: str | None = None
+    groups: list[str] = []
     is_admin: bool = False
     auth_method: str = "ldap"
     system_role: Role = Role.READER
@@ -204,7 +202,7 @@ def create_access_token(
     secret_key: str,
     algorithm: str = "HS256",
     expire_minutes: int = 480,
-    expires_delta: Optional[timedelta] = None,
+    expires_delta: timedelta | None = None,
 ) -> str:
     """Удобная обёртка над create_jwt_token для сервисов."""
     return create_jwt_token(
@@ -220,7 +218,7 @@ def decode_access_token(
     token: str,
     secret_key: str,
     algorithm: str = "HS256",
-) -> Optional[dict]:
+) -> dict | None:
     """Удобная обёртка над decode_jwt_token для сервисов."""
     return decode_jwt_token(
         token=token,
@@ -235,7 +233,7 @@ def make_token_helpers(
     default_expire_minutes: int = 480,
 ) -> tuple[
     Callable[..., str],
-    Callable[[str], Optional[dict]],
+    Callable[[str], dict | None],
 ]:
     """
     Фабрика для генерации типизированных вспомогательных функций создания и декодирования
@@ -244,10 +242,10 @@ def make_token_helpers(
     """
 
     def create_token(
-        user_data: Optional[dict] = None,
-        expires_minutes: Optional[int] = None,
-        expires_delta: Optional[timedelta] = None,
-        data: Optional[dict] = None,
+        user_data: dict | None = None,
+        expires_minutes: int | None = None,
+        expires_delta: timedelta | None = None,
+        data: dict | None = None,
     ) -> str:
         payload = user_data if user_data is not None else (data or {})
         return create_jwt_token(
@@ -258,7 +256,7 @@ def make_token_helpers(
             expires_delta=expires_delta,
         )
 
-    def decode_token(token: str) -> Optional[dict]:
+    def decode_token(token: str) -> dict | None:
         return decode_jwt_token(
             token=token,
             secret_key=get_secret_key(),
@@ -269,18 +267,18 @@ def make_token_helpers(
 
 
 # Тип для callback'а определения admin-прав
-AdminResolver = Callable[[str, List[str], Optional[dict]], bool]
+AdminResolver = Callable[[str, list[str], dict | None], bool]
 
 
 def make_get_current_user(
     get_secret_key: Callable[[], str],
     get_algorithm: Callable[[], str],
-    get_cookie_names: Callable[[], List[str]],
-    get_cors_origins: Callable[[], List[str]],
+    get_cookie_names: Callable[[], list[str]],
+    get_cors_origins: Callable[[], list[str]],
     get_storage_service: Callable[[], Any],
     admin_resolver: AdminResolver,
     user_session_class: type = CommonUserSession,
-    extra_user_fields: Optional[Callable[[dict], dict]] = None,
+    extra_user_fields: Callable[[dict], dict] | None = None,
 ):
     """
     Фабрика, создающая функции get_current_user и get_current_user_optional,
@@ -297,7 +295,7 @@ def make_get_current_user(
         extra_user_fields: опциональный callback для извлечения дополнительных полей из payload/session
     """
 
-    async def get_current_user_optional(request: Request) -> Optional[Any]:
+    async def get_current_user_optional(request: Request) -> Any | None:
         # 1. Извлекаем токен из запроса
         token, is_cookie_auth = extract_token_from_request(request, get_cookie_names())
 
@@ -501,7 +499,7 @@ def apply_security_headers(
     response: Any,
     is_secure_cookie: bool = False,
     is_code_editor: bool = False,
-    custom_csp: Optional[str] = None,
+    custom_csp: str | None = None,
 ) -> Any:
     """
     Применяет единый набор защитных HTTP-заголовков безопасности к ответу FastAPI.

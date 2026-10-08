@@ -12,13 +12,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Sequence
-
-from fastapi import APIRouter, FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from typing import Any
 
 from backend.common.api.error_handlers import setup_global_exception_handlers
 from backend.common.api.etag_middleware import ETagMiddleware
@@ -29,6 +25,10 @@ from backend.common.core.metrics import PrometheusMetricsMiddleware, metrics_reg
 from backend.common.core.security import apply_security_headers
 from backend.common.core.shutdown import shutdown_manager
 from backend.common.core.tracing import OpenTelemetryMiddleware
+from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger("app_factory")
 

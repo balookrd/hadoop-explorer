@@ -1,7 +1,8 @@
 import asyncio
-import logging
 import inspect
-from typing import Callable, List, Union, Any
+import logging
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.shutdown")
 
@@ -15,7 +16,7 @@ class GracefulShutdownManager:
 
     def __init__(self, timeout_seconds: float = 10.0):
         self.timeout_seconds = timeout_seconds
-        self._handlers: List[Callable[[], Any]] = []
+        self._handlers: list[Callable[[], Any]] = []
 
     def register(self, handler: Callable[[], Any]):
         """Регистрирует sync или async функцию очистки ресурсов."""
@@ -35,7 +36,7 @@ class GracefulShutdownManager:
                     if inspect.isawaitable(res):
                         await asyncio.wait_for(res, timeout=self.timeout_seconds)
                 logger.debug(f"Очистка '{name}' выполнена успешно")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Таймаут очистки ресурса '{name}' ({self.timeout_seconds}с)")
             except Exception as e:
                 logger.warning(f"Ошибка при освобождении ресурса '{name}': {e}")

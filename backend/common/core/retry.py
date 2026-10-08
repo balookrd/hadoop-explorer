@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import random
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, Type, Tuple, Optional, Any
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.retry")
 
@@ -15,9 +16,9 @@ async def retry_async(
     max_delay: float = 5.0,
     backoff_factor: float = 2.0,
     jitter: bool = True,
-    retry_exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-    exclude_exceptions: Tuple[Type[BaseException], ...] = (),
-    operation_name: Optional[str] = None,
+    retry_exceptions: tuple[type[BaseException], ...] = (Exception,),
+    exclude_exceptions: tuple[type[BaseException], ...] = (),
+    operation_name: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """
@@ -25,7 +26,7 @@ async def retry_async(
     """
     op_name = operation_name or getattr(func, "__name__", "operation")
     delay = initial_delay
-    last_exception: Optional[BaseException] = None
+    last_exception: BaseException | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -82,9 +83,9 @@ def with_retry(
     max_delay: float = 5.0,
     backoff_factor: float = 2.0,
     jitter: bool = True,
-    retry_exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-    exclude_exceptions: Tuple[Type[BaseException], ...] = (),
-    operation_name: Optional[str] = None,
+    retry_exceptions: tuple[type[BaseException], ...] = (Exception,),
+    exclude_exceptions: tuple[type[BaseException], ...] = (),
+    operation_name: str | None = None,
 ):
     """
     Декоратор для асинхронных функций, обеспечивающий повторные попытки с экспоненциальным backoff.

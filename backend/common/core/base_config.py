@@ -1,8 +1,7 @@
 import logging
 import secrets
-from typing import List, Optional
-from pydantic import BaseModel, Field, model_validator
 
+from pydantic import BaseModel, Field, model_validator
 
 _base_config_logger = logging.getLogger("hadoop_explorer.security")
 
@@ -11,7 +10,7 @@ class BaseServerSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = False
-    cors_origins: List[str] = Field(
+    cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
@@ -69,7 +68,7 @@ class BaseJwtSettings(BaseModel):
         return self
 
 
-from backend.common.core.ldap_auth import CommonLdapConfig, LdapConfig
+from backend.common.core.ldap_auth import CommonLdapConfig
 
 # BaseLdapSettings алиас для обратной совместимости внутри base_config
 BaseLdapSettings = CommonLdapConfig
@@ -77,11 +76,11 @@ BaseLdapSettings = CommonLdapConfig
 
 class BaseKerberosSettings(BaseModel):
     enabled: bool = False
-    service_principal: Optional[str] = None
-    keytab_path: Optional[str] = None
-    keytab_file: Optional[str] = None
+    service_principal: str | None = None
+    keytab_path: str | None = None
+    keytab_file: str | None = None
 
 
 class BaseDatabaseSettings(BaseModel):
     url: str = "sqlite:////tmp/hadoop_explorer.db"
-    redis_url: Optional[str] = None
+    redis_url: str | None = None

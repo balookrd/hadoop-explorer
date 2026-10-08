@@ -6,8 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "hadoop-explorer-common",
-    "hadoop-explorer-spark",
-    "hadoop-explorer-sql",
 ]
 
 [dependency-groups]
@@ -23,28 +21,18 @@ dev = [
 [tool.uv.workspace]
 members = [
     "backend/common",
-    "backend/spark",
-    "backend/sql",
 ]
 
 [tool.uv.sources]
 hadoop-explorer-common = { workspace = true }
-hadoop-explorer-spark = { workspace = true }
-hadoop-explorer-sql = { workspace = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q"
-testpaths = [
-    "backend/spark/tests",
-    "backend/sql/tests",
-]
 pythonpath = [
     ".",
     "backend",
     "backend/common",
-    "backend/spark",
-    "backend/sql",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -59,25 +47,17 @@ exclude = [
     "**/__pycache__",
     "dist",
     "build",
-    "node_modules",
-    "backend/replicator/generated",
+    "target",
 ]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
+    "E",
+    "F",
+    "W",
 ]
 ignore = [
-    "E501", # line too long
-    "E402", # module level import not at top of file
-    "E712", # comparison to True/False in SQLAlchemy queries
-    "F401", # unused import (common in tests/re-exports)
-    "F841", # unused variable
-    "W293", # blank line contains whitespace
+    "E501",
+    "B008",
+    "E402",
 ]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"

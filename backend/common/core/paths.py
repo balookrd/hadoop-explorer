@@ -7,7 +7,6 @@ SQLite базы данных и кэш результатов (results) в ед�
 
 import os
 from pathlib import Path
-from typing import Optional
 
 
 def get_repo_root() -> Path:
@@ -50,7 +49,7 @@ def get_data_dir() -> Path:
 def resolve_db_url(
     default_filename: str,
     async_driver: bool = False,
-    env_var: Optional[str] = None,
+    env_var: str | None = None,
 ) -> str:
     """Вычисляет строку подключения к SQLite базе данных в единой папке data/.
 

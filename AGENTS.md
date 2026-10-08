@@ -10,13 +10,13 @@ Hadoop Explorer Platform — монорепозиторий с 5 независ�
 
 ```
 hadoop-explorer/
-├── backend/                  # Python (FastAPI, uv workspaces) & Java (Spring Boot 3, Java 21)
+├── backend/                  # Java 21 LTS (Spring Boot 3) & Python (uv workspaces)
 │   ├── common/               # Ядро Python: Auth, SessionStore, Kerberos, CircuitBreaker, Audit, RateLimit
 │   ├── common-security-starter/ # Ядро Java: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
-│   ├── yarn/                 # YARN Explorer API (Capacity Scheduler, RM HA)
-│   ├── hdfs/                 # HDFS Explorer API (WebHDFS, Kerberos)
-│   ├── sql/                  # SQL Explorer API (Trino, Hive Metastore)
-│   ├── spark/                # Spark Explorer API (Livy, PySpark, Scala)
+│   ├── yarn/                 # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
+│   ├── hdfs/                 # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, File Preview)
+│   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
+│   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons (Token Bucket, gRPC, Kerberos, agent-java)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
 │   ├── common/               # Общие типы (types/generated), API клиенты, UI компоненты

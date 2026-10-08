@@ -6,10 +6,11 @@
 import base64
 import hashlib
 import time
-from typing import Any, Dict, List, Optional
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+from typing import Any
+
 import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 
 def _int_to_base64url(val: int) -> str:
@@ -30,11 +31,11 @@ class JWTKeyManager:
 
     def __init__(self, default_algorithm: str = "RS256"):
         self.default_algorithm = default_algorithm
-        self._private_keys: Dict[str, Any] = {}
-        self._public_keys: Dict[str, Any] = {}
-        self._active_kid: Optional[str] = None
+        self._private_keys: dict[str, Any] = {}
+        self._public_keys: dict[str, Any] = {}
+        self._active_kid: str | None = None
 
-    def generate_rsa_key_pair(self, key_size: int = 2048, kid: Optional[str] = None) -> str:
+    def generate_rsa_key_pair(self, key_size: int = 2048, kid: str | None = None) -> str:
         """Генерирует новую RSA-пару ключей и делает её активной для подписи."""
         private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -54,7 +55,7 @@ class JWTKeyManager:
         self._active_kid = kid
         return kid
 
-    def load_rsa_private_key_pem(self, pem_bytes: bytes, kid: Optional[str] = None) -> str:
+    def load_rsa_private_key_pem(self, pem_bytes: bytes, kid: str | None = None) -> str:
         """Загружает приватный ключ RSA из PEM-формата."""
         private_key = serialization.load_pem_private_key(pem_bytes, password=None)
         public_key = private_key.public_key()
@@ -71,18 +72,18 @@ class JWTKeyManager:
         self._active_kid = kid
         return kid
 
-    def get_active_kid(self) -> Optional[str]:
+    def get_active_kid(self) -> str | None:
         return self._active_kid
 
-    def get_active_private_key(self) -> Optional[Any]:
+    def get_active_private_key(self) -> Any | None:
         if self._active_kid and self._active_kid in self._private_keys:
             return self._private_keys[self._active_kid]
         return None
 
-    def get_public_key(self, kid: str) -> Optional[Any]:
+    def get_public_key(self, kid: str) -> Any | None:
         return self._public_keys.get(kid)
 
-    def get_jwks(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_jwks(self) -> dict[str, list[dict[str, Any]]]:
         """Формирует JSON Web Key Set (JWKS) со всеми известными публичными ключами."""
         keys = []
         for kid, pub_key in self._public_keys.items():
@@ -100,7 +101,7 @@ class JWTKeyManager:
                 )
         return {"keys": keys}
 
-    def sign_jwt(self, payload: Dict[str, Any]) -> str:
+    def sign_jwt(self, payload: dict[str, Any]) -> str:
         """Подписывает токен активным асимметричным ключом с добавлением kid в заголовок JWT."""
         if not self._active_kid or self._active_kid not in self._private_keys:
             raise ValueError("No active asymmetric private key available in KeyManager")
@@ -109,7 +110,7 @@ class JWTKeyManager:
         headers = {"kid": self._active_kid}
         return jwt.encode(payload, private_key, algorithm=self.default_algorithm, headers=headers)
 
-    def verify_jwt(self, token: str) -> Optional[Dict[str, Any]]:
+    def verify_jwt(self, token: str) -> dict[str, Any] | None:
         """Проверяет токен, сопоставляя kid из заголовка с набором известных публичных ключей."""
         try:
             unverified_headers = jwt.get_unverified_header(token)

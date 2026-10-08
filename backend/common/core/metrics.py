@@ -8,13 +8,15 @@ import math
 import re
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 # Стандартные бакеты для замера задержек HTTP-запросов (в секундах)
-DEFAULT_HTTP_BUCKETS: Tuple[float, ...] = (
+DEFAULT_HTTP_BUCKETS: tuple[float, ...] = (
     0.005,
     0.01,
     0.025,
@@ -33,7 +35,7 @@ UUID_REGEX = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-
 NUMERIC_ID_REGEX = re.compile(r"/\d+(?=/|$)")
 
 
-def _format_labels(labels: Dict[str, str]) -> str:
+def _format_labels(labels: dict[str, str]) -> str:
     """Форматирует словарь меток в синтаксис Prometheus {k1=\"v1\",k2=\"v2\"}."""
     if not labels:
         return ""
@@ -47,11 +49,11 @@ def _format_labels(labels: Dict[str, str]) -> str:
 class Counter:
     """Счетчик (монотонно возрастающая величина)."""
 
-    def __init__(self, name: str, documentation: str, label_names: Optional[Sequence[str]] = None):
+    def __init__(self, name: str, documentation: str, label_names: Sequence[str] | None = None):
         self.name = name
         self.documentation = documentation
         self.label_names = tuple(label_names or ())
-        self._values: Dict[Tuple[str, ...], float] = {}
+        self._values: dict[tuple[str, ...], float] = {}
         self._lock = threading.Lock()
 
     def inc(self, value: float = 1.0, **labels: Any) -> None:
@@ -66,7 +68,7 @@ class Counter:
         with self._lock:
             return self._values.get(key, 0.0)
 
-    def collect(self) -> List[str]:
+    def collect(self) -> list[str]:
         with self._lock:
             items = list(self._values.items())
         if not items and not self.label_names:
@@ -86,11 +88,11 @@ class Counter:
 class Gauge:
     """Датчик (величина, которая может как увеличиваться, так и уменьшаться)."""
 
-    def __init__(self, name: str, documentation: str, label_names: Optional[Sequence[str]] = None):
+    def __init__(self, name: str, documentation: str, label_names: Sequence[str] | None = None):
         self.name = name
         self.documentation = documentation
         self.label_names = tuple(label_names or ())
-        self._values: Dict[Tuple[str, ...], float] = {}
+        self._values: dict[tuple[str, ...], float] = {}
         self._lock = threading.Lock()
 
     def set(self, value: float, **labels: Any) -> None:
@@ -113,7 +115,7 @@ class Gauge:
         with self._lock:
             return self._values.get(key, 0.0)
 
-    def collect(self) -> List[str]:
+    def collect(self) -> list[str]:
         with self._lock:
             items = list(self._values.items())
         if not items and not self.label_names:
@@ -137,23 +139,23 @@ class Histogram:
         self,
         name: str,
         documentation: str,
-        label_names: Optional[Sequence[str]] = None,
+        label_names: Sequence[str] | None = None,
         buckets: Sequence[float] = DEFAULT_HTTP_BUCKETS,
     ):
         self.name = name
         self.documentation = documentation
         self.label_names = tuple(label_names or ())
         self.buckets = tuple(sorted(set(buckets)))
-        self._counts: Dict[Tuple[str, ...], Dict[float, int]] = {}
-        self._sums: Dict[Tuple[str, ...], float] = {}
-        self._totals: Dict[Tuple[str, ...], int] = {}
+        self._counts: dict[tuple[str, ...], dict[float, int]] = {}
+        self._sums: dict[tuple[str, ...], float] = {}
+        self._totals: dict[tuple[str, ...], int] = {}
         self._lock = threading.Lock()
 
     def observe(self, value: float, **labels: Any) -> None:
         key = tuple(str(labels.get(k, "")) for k in self.label_names)
         with self._lock:
             if key not in self._counts:
-                self._counts[key] = {b: 0 for b in self.buckets}
+                self._counts[key] = dict.fromkeys(self.buckets, 0)
                 self._sums[key] = 0.0
                 self._totals[key] = 0
 
@@ -163,7 +165,7 @@ class Histogram:
                 if value <= b:
                     self._counts[key][b] += 1
 
-    def collect(self) -> List[str]:
+    def collect(self) -> list[str]:
         lines = [
             f"# HELP {self.name} {self.documentation}",
             f"# TYPE {self.name} histogram",
@@ -202,7 +204,7 @@ class MetricsRegistry:
     """Центральный потокобезопасный реестр метрик приложения."""
 
     def __init__(self):
-        self._metrics: Dict[str, Any] = {}
+        self._metrics: dict[str, Any] = {}
         self._lock = threading.Lock()
 
         # Инициализация стандартных метрик платформы
@@ -296,7 +298,7 @@ class MetricsRegistry:
             ["cluster", "direction"],
         )
 
-    def counter(self, name: str, documentation: str, label_names: Optional[Sequence[str]] = None) -> Counter:
+    def counter(self, name: str, documentation: str, label_names: Sequence[str] | None = None) -> Counter:
         with self._lock:
             if name in self._metrics:
                 return self._metrics[name]
@@ -304,7 +306,7 @@ class MetricsRegistry:
             self._metrics[name] = c
             return c
 
-    def gauge(self, name: str, documentation: str, label_names: Optional[Sequence[str]] = None) -> Gauge:
+    def gauge(self, name: str, documentation: str, label_names: Sequence[str] | None = None) -> Gauge:
         with self._lock:
             if name in self._metrics:
                 return self._metrics[name]
@@ -316,7 +318,7 @@ class MetricsRegistry:
         self,
         name: str,
         documentation: str,
-        label_names: Optional[Sequence[str]] = None,
+        label_names: Sequence[str] | None = None,
         buckets: Sequence[float] = DEFAULT_HTTP_BUCKETS,
     ) -> Histogram:
         with self._lock:
@@ -328,7 +330,7 @@ class MetricsRegistry:
 
     def format_prometheus_metrics(self) -> str:
         """Форматирует все зарегистрированные метрики и метрики Circuit Breaker в формате Prometheus."""
-        output_blocks: List[str] = []
+        output_blocks: list[str] = []
         with self._lock:
             metrics_list = list(self._metrics.values())
 

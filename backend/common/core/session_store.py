@@ -1,34 +1,32 @@
-import time
 import json
 import logging
 import os
-import threading
-from collections import OrderedDict
-from datetime import datetime, timezone, timedelta
+import time
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Union
+from typing import Any
+
 import anyio
 import redis
+from backend.common.core.cache import L1RevokedTokenCache
+from backend.common.core.security import hash_token
 from sqlalchemy import (
-    create_engine,
-    MetaData,
-    Table,
     Column,
-    String,
-    Integer,
     Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
     Text,
-    select,
-    insert,
-    update,
+    create_engine,
     delete,
     func,
+    insert,
+    select,
     text,
+    update,
 )
 from sqlalchemy.pool import StaticPool
-from backend.common.core.security import hash_token
-
-from backend.common.core.cache import L1RevokedTokenCache
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +60,10 @@ class SessionStore:
 
     def __init__(
         self,
-        db_url: Optional[str] = None,
+        db_url: str | None = None,
         default_db_path: str = "/app/data/sessions.db",
-        service_name: Optional[str] = None,
-        redis_url: Optional[str] = None,
+        service_name: str | None = None,
+        redis_url: str | None = None,
         fail_closed: bool = False,
     ):
         self.fail_closed = fail_closed or os.environ.get("FAIL_CLOSED_ON_DB_ERROR", "").lower() in (
@@ -216,8 +214,8 @@ class SessionStore:
         self,
         token: str,
         user: Any,
-        expires_at: Union[datetime, int, float, str],
-        jti: Optional[str] = None,
+        expires_at: datetime | int | float | str,
+        jti: str | None = None,
     ) -> bool:
         """Сохраняет активную сессию пользователя в базу данных."""
         if not token:
@@ -315,7 +313,7 @@ class SessionStore:
             logger.error(f"Ошибка сохранения активной сессии для пользователя {username}: {e}")
             return False
 
-    def get_session(self, token: str) -> Optional[Dict[str, Any]]:
+    def get_session(self, token: str) -> dict[str, Any] | None:
         """Получает активную сессию из базы данных по токену."""
         if not token:
             return None
@@ -417,8 +415,8 @@ class SessionStore:
     def revoke_token(
         self,
         token_or_jti: str,
-        username: Optional[Union[str, int, float]] = None,
-        expires_at: Optional[Union[datetime, int, float, str]] = None,
+        username: str | int | float | None = None,
+        expires_at: datetime | int | float | str | None = None,
         **kwargs,
     ) -> bool:
         """Отзывает токен и удаляет активную сессию."""
@@ -514,7 +512,6 @@ class SessionStore:
         if self._l1_cache.contains(h) or self._l1_cache.contains(token_or_jti):
             return True
 
-        now = time.time()
         try:
             if self._is_redis:
                 is_rev = bool(
@@ -570,7 +567,7 @@ class SessionStore:
     # ==================== RATE LIMITING ====================
 
     def check_and_record_rate_limit(
-        self, key: str, max_requests: int = 10, window_seconds: int = 60, now: Optional[float] = None
+        self, key: str, max_requests: int = 10, window_seconds: int = 60, now: float | None = None
     ) -> tuple[bool, int]:
         current_time = now if now is not None else time.time()
         window_start = current_time - window_seconds
@@ -749,13 +746,13 @@ class SessionStore:
         self,
         token: str,
         user: Any,
-        expires_at: Union[datetime, int, float, str],
-        jti: Optional[str] = None,
+        expires_at: datetime | int | float | str,
+        jti: str | None = None,
     ) -> bool:
         """Асинхронное неблокирующее сохранение сессии через пул потоков."""
         return await anyio.to_thread.run_sync(self.save_session, token, user, expires_at, jti)
 
-    async def get_session_async(self, token: str) -> Optional[Dict[str, Any]]:
+    async def get_session_async(self, token: str) -> dict[str, Any] | None:
         """Асинхронное неблокирующее получение сессии по токену."""
         return await anyio.to_thread.run_sync(self.get_session, token)
 
@@ -766,8 +763,8 @@ class SessionStore:
     async def revoke_token_async(
         self,
         token_or_jti: str,
-        username: Optional[Union[str, int, float]] = None,
-        expires_at: Optional[Union[datetime, int, float, str]] = None,
+        username: str | int | float | None = None,
+        expires_at: datetime | int | float | str | None = None,
         **kwargs,
     ) -> bool:
         """Асинхронный неблокирующий отзыв токена/сессии."""
@@ -790,7 +787,7 @@ class SessionStore:
         return await anyio.to_thread.run_sync(self.is_token_revoked, token_or_jti)
 
     async def check_and_record_rate_limit_async(
-        self, key: str, max_requests: int = 10, window_seconds: int = 60, now: Optional[float] = None
+        self, key: str, max_requests: int = 10, window_seconds: int = 60, now: float | None = None
     ) -> tuple[bool, int]:
         """Асинхронная неблокирующая проверка rate limit."""
         return await anyio.to_thread.run_sync(self.check_and_record_rate_limit, key, max_requests, window_seconds, now)

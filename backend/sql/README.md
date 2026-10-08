@@ -1,97 +1,25 @@
-# Backend: SQL Web Explorer
+# SQL Explorer API (Java 21 / Spring Boot 3)
 
-Бэкенд-сервис портала аналитических запросов **SQL Web Explorer (Trino & Hive)**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис предоставляет единый веб-интерфейс к аналитическим движкам Trino и Apache Hive (HiveServer2), обеспечивает аутентификацию (LDAPS / Kerberos SPNEGO), аудит, кэширование метаданных каталога, потоковую передачу результатов через Server-Sent Events (SSE), защиту от инъекций и Graceful Shutdown.
+Native enterprise backend service for analytical queries across Trino and Apache Hive clusters, built with **Java 21 LTS** and **Spring Boot 3.3.4**.
 
----
+## Architecture & Features
 
-## 🏛 Архитектура компонентов бэкенда
+- **Single Security Core**: Built upon `common-security-starter` (Java 21), providing LDAPS, Kerberos SPNEGO, JWT HttpOnly cookies, CSRF protection, Sliding Window Rate Limiting, and RBAC/ACL.
+- **Engines**: Trino REST client, Hive engine, and MockSqlEngine with full schema catalogs (`tpch`, `analytics`).
+- **Catalog Metadata API**: Multilevel caching (catalogs, schemas, tables, columns) with on-demand refresh.
+- **Asynchronous Execution & SSE**: Streaming query lifecycle, row streaming, cancel signal propagation, and persistent query history.
+- **AI Assistant**: Built-in intelligent SQL assistant for formatting, explanation, optimization, automated bug fixing, and text-to-SQL generation.
+- **Embedded Frontend SPA**: Static production bundle from `frontend/apps/sql/dist` served directly by Spring Boot.
 
-```
-backend/sql/
-├── app/
-│   ├── api/                     # REST API контроллеры (v1)
-│   │   ├── ai.py                # ИИ-ассистент (/api/v1/ai/check, /explain, /optimize, /fix, /status)
-│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
-│   │   ├── catalog.py           # Каталог данных (/api/v1/clusters/{id}/catalogs, schemas, tables)
-│   │   ├── clusters.py          # Доступные аналитические кластеры (/api/v1/clusters)
-│   │   ├── queries.py           # Исполнение и стриминг SQL (/api/v1/queries/execute, stream, cancel)
-│   │   └── workspace.py         # Сохранение рабочих пространств (/api/v1/workspace)
-│   ├── core/                    # Ядро сервиса
-│   │   ├── acl.py               # Проверка прав (check_cluster_access, check_ui_access)
-│   │   ├── audit.py             # Журнал аудита безопасности и SQL-активности
-│   │   ├── config.py            # Pydantic Settings, конфигурация AI и загрузка config.yaml
-│   │   ├── ldap_auth.py         # Безопасная аутентификация через LDAPS
-│   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # PyJWT, HttpOnly Cookie, CSRF-защита, make_get_current_user, resolve_system_role
-│   ├── db/                      # Персистентное хранилище (SQLAlchemy / Alembic)
-│   │   ├── models.py            # Модели истории запросов, сохраненных скриптов, SqlUserWorkspace
-│   │   └── session.py           # Подключение к SQLite или PostgreSQL
-│   ├── models/                  # Pydantic-схемы
-│   │   ├── catalog.py           # Схемы каталогов, таблиц и колонок
-│   │   ├── query.py             # QueryRequest, QueryStatus, QueryResult
-│   │   └── workspace.py         # SqlUserWorkspaceCreate, SqlUserWorkspaceResponse
-│   ├── services/                # Движки выполнения запросов и сервисы
-│   │   ├── ai_service.py        # Клиент On-premise LLM и эвристический MockSQLAnalyzer
-│   │   ├── hive_engine.py       # Клиент HiveServer2 (TCLIService / Thrift / Impyla)
-│   │   ├── mock_engine.py       # Демонстрационный движок для dev-режима
-│   │   ├── query_manager.py     # Диспетчеризация, отмена и управление состоянием запросов
-│   │   ├── storage.py           # Конфигурация хранилища на базе SessionStore
-│   │   └── trino_engine.py      # Клиент Trino DB API с поддержкой impersonation
-│   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
-│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
-├── tests/                       # Автоматические тесты (pytest - 42 теста)
-│   ├── conftest.py              # Автосброс rate limits в тестах
-│   ├── test_ai_service.py       # Тесты ИИ-линтера, Mock-анализатора и AI API
-│   ├── test_backend.py          # Тесты безопасности, аутентификации, CSRF, каталога, ACL и запросов
-│   ├── test_catalog_api.py      # Тесты Catalog API (валидация идентификаторов, эндпоинты)
-│   └── test_execution_engines.py# Тесты Trino/Hive движков, отмены и TTL-кэша метаданных
-├── pyproject.toml               # Конфигурация пакета hadoop-explorer-sql
-└── requirements.txt             # Зависимости Python
-```
-
----
-
-## 🛡️ Безопасность (Security Architecture)
-
-1. **Строгая защита от CSRF**:
-   - Валидация источников через `urllib.parse.urlparse` с точным сравнением схемы, хоста и порта со списком разрешенных `server.cors_origins` и `Host` заголовком.
-   - Защита Fail-Closed: обязательное отклонение (HTTP 403) для всех мутирующих запросов (`POST`, `PUT`, `DELETE`, `PATCH`) при Cookie-сессии в случае отсутствия или несовпадения источников.
-2. **Безопасное хранение и передача токенов**:
-   - Токены принимаются исключительно через `Authorization: Bearer <token>` или `HttpOnly`, `SameSite=Lax`, `Secure` Cookie.
-   - Полный отказ от передачи токенов в URL Query-параметрах во избежание утечек в логи и заголовки Referer.
-3. **Безопасность JWT и отзыва сессий**:
-   - Библиотека `PyJWT >= 2.9.0` с защитой от алгоритмических атак.
-   - Персистентный отзыв токенов при выходе (`/api/v1/auth/logout`) через универсальный Tri-Storage (`StorageService`: Redis, PostgreSQL, SQLite) и L1 кэш.
-4. **Контроль частоты запросов (Rate Limiting)**:
-   - Встроенный скользящий Rate Limiter на базе `StorageService` с защитой от IP-спуфинга: заголовок `X-Forwarded-For` учитывается только от доверенных прокси, для прямых подключений используется реальный IP сокета.
-5. **Аутентификация Kerberos SPNEGO и LDAP**:
-   - Автоматическое обогащение ролевых групп пользователя из каталога LDAP при входе через Kerberos SSO.
-   - Строгая проверка TLS-сертификатов (`verify_cert: true`).
-   - Изоляция тестовых пользователей: `mock_users` доступны исключительно при `mode: "mock"`.
-6. **Безопасность аналитических запросов**:
-   - Проброс пользователя (`X-Trino-User` в Trino и `doAs` в Hive) для соблюдения политик доступа Ranger / Sentry.
-   - Многоуровневый анализ SQL для безопасного автодобавления `LIMIT` и таймауты сетевых сокетов движков.
-7. **Безопасность ИИ (AI Safety & Prompt Sanitization)**:
-   - Входная санитизация `sanitize_prompt_input`: нейтрализация injection-маркеров и очистка управляющих символов.
-   - Глубокая Read-Only валидация `validate_readonly_sql_ast` через `sqlglot` для гарантированного запрета выполнения деструктивных запросов.
-8. **Защитные заголовки Content-Security-Policy (CSP)**:
-   - Защита от XSS и инъекций (`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`).
-9. **Поддержка PostgreSQL и SQLite**:
-   - Асинхронное подключение через `SQLAlchemy` (`postgresql+asyncpg` / `aiosqlite`) с пулом соединений и автоматической защитой concurrency.
-10. **Отказоустойчивость, метрики и обработка ошибок (CWE-209 & Prometheus)**:
-    - Защита подключений через `CircuitBreaker` с экспортом метрик в Prometheus на `/metrics` и `/api/v1/metrics`.
-    - Централизованный перехват ошибок через `setup_global_exception_handlers` с санитизацией ответов и `incident_id`.
-11. **Graceful Shutdown**:
-    - Завершение активных сессий и пулов потоков при остановке пода в Kubernetes через `GracefulShutdownManager`.
-12. **Ролевая модель и разграничение доступа (RBAC)**:
-    - Интеграция с общей ролевой моделью `resolve_system_role`: автоматическое присвоение ролей `ADMIN` (полный доступ к кластерам), `WRITER` (выполнение DDL/DML), `READER` (только SELECT-запросы).
-
----
-
-## 🧪 Запуск тестов
+## Build and Run
 
 ```bash
-make test-sql
-# либо
-uv run pytest backend/sql/tests -v
+# Build & run tests
+mvn clean test -f backend/sql/sql-java/pom.xml
+
+# Package fat jar
+mvn clean package -DskipTests -f backend/sql/sql-java/pom.xml
+
+# Run application
+java -jar backend/sql/sql-java/target/sql-explorer-java-1.0.0.jar
 ```

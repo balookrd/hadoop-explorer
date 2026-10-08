@@ -1,7 +1,8 @@
-import os
 import ipaddress
-from typing import Optional, Callable
-from fastapi import Request, HTTPException, status
+import os
+from collections.abc import Callable
+
+from fastapi import HTTPException, Request, status
 
 
 def _get_trusted_proxies() -> set[str]:
@@ -69,7 +70,7 @@ class RateLimiter:
     Делегирует проверку и хранение в переданный storage_service (или по умолчанию в backend.common.db.storage.storage_service).
     """
 
-    def __init__(self, max_requests: int = 10, window_seconds: int = 60, storage_getter: Optional[Callable] = None):
+    def __init__(self, max_requests: int = 10, window_seconds: int = 60, storage_getter: Callable | None = None):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._storage_getter = storage_getter
@@ -84,7 +85,7 @@ class RateLimiter:
     def _get_client_ip(self, request: Request) -> str:
         return get_client_ip(request)
 
-    def is_allowed(self, key: str, now: Optional[float] = None) -> tuple[bool, int]:
+    def is_allowed(self, key: str, now: float | None = None) -> tuple[bool, int]:
         storage = self._get_storage()
         return storage.check_and_record_rate_limit(
             key=key,
@@ -93,7 +94,7 @@ class RateLimiter:
             now=now,
         )
 
-    async def is_allowed_async(self, key: str, now: Optional[float] = None) -> tuple[bool, int]:
+    async def is_allowed_async(self, key: str, now: float | None = None) -> tuple[bool, int]:
         """Неблокирующая проверка rate limit через асинхронный метод storage."""
         storage = self._get_storage()
         if hasattr(storage, "check_and_record_rate_limit_async"):

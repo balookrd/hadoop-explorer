@@ -4,7 +4,8 @@ ETag Middleware для автоматической генерации ETag и �
 """
 
 import hashlib
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response

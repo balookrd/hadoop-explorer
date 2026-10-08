@@ -3,25 +3,26 @@
 для платформы Hadoop Explorer.
 """
 
-import os
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from typing import Any, Callable, Dict, Optional, Awaitable
+from typing import Any
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-_current_trace_id: ContextVar[Optional[str]] = ContextVar("current_trace_id", default=None)
-_current_span_id: ContextVar[Optional[str]] = ContextVar("current_span_id", default=None)
+_current_trace_id: ContextVar[str | None] = ContextVar("current_trace_id", default=None)
+_current_span_id: ContextVar[str | None] = ContextVar("current_span_id", default=None)
 
 
-def get_current_trace_id() -> Optional[str]:
+def get_current_trace_id() -> str | None:
     """Возвращает текущий W3C trace_id (32 hex-символа)."""
     return _current_trace_id.get()
 
 
-def get_current_span_id() -> Optional[str]:
+def get_current_span_id() -> str | None:
     """Возвращает текущий W3C span_id (16 hex-символов)."""
     return _current_span_id.get()
 
@@ -42,7 +43,7 @@ def format_w3c_traceparent(trace_id: str, span_id: str, sampled: bool = True) ->
     return f"00-{trace_id}-{span_id}-{flags}"
 
 
-def parse_w3c_traceparent(header_value: str) -> Optional[tuple[str, str, bool]]:
+def parse_w3c_traceparent(header_value: str) -> tuple[str, str, bool] | None:
     """Парсит заголовок W3C traceparent."""
     if not header_value:
         return None
@@ -59,21 +60,21 @@ def parse_w3c_traceparent(header_value: str) -> Optional[tuple[str, str, bool]]:
 class Span:
     """Представляет локальный спан распределенной трассировки."""
 
-    def __init__(self, name: str, trace_id: str, span_id: str, parent_span_id: Optional[str] = None):
+    def __init__(self, name: str, trace_id: str, span_id: str, parent_span_id: str | None = None):
         self.name = name
         self.trace_id = trace_id
         self.span_id = span_id
         self.parent_span_id = parent_span_id
         self.start_time = time.time()
-        self.end_time: Optional[float] = None
-        self.attributes: Dict[str, Any] = {}
+        self.end_time: float | None = None
+        self.attributes: dict[str, Any] = {}
         self.status = "OK"
 
     def set_attribute(self, key: str, value: Any) -> "Span":
         self.attributes[key] = value
         return self
 
-    def set_status(self, status: str, error: Optional[Exception] = None) -> "Span":
+    def set_status(self, status: str, error: Exception | None = None) -> "Span":
         self.status = status
         if error:
             self.attributes["error.type"] = type(error).__name__
@@ -103,7 +104,7 @@ class Span:
 class OpenTelemetryTracer:
     """Легковесный трейсер OpenTelemetry с контекстным распространением W3C."""
 
-    def start_span(self, name: str, parent_span_id: Optional[str] = None) -> Span:
+    def start_span(self, name: str, parent_span_id: str | None = None) -> Span:
         trace_id = get_current_trace_id() or generate_trace_id()
         span_id = generate_span_id()
         _current_trace_id.set(trace_id)

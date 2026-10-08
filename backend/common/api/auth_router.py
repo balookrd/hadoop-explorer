@@ -1,29 +1,31 @@
 import inspect
 import logging
 import secrets
-from typing import Optional, Callable, Any, List
-import anyio.to_thread
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from collections.abc import Callable
+from typing import Any
 
+import anyio.to_thread
+from backend.common.core.audit import AuditEventType, audit_log
+from backend.common.core.kerberos import kerberos_manager as default_kerberos_manager
+from backend.common.core.rate_limiter import get_client_ip
 from backend.common.core.security import (
     create_jwt_token,
     decode_jwt_token,
     extract_token_from_request,
+)
+from backend.common.core.security import (
     verify_csrf as common_verify_csrf,
 )
-from backend.common.core.rate_limiter import auth_rate_limiter as default_rate_limiter, get_client_ip
-from backend.common.core.audit import audit_log, AuditEventType
-from backend.common.core.kerberos import kerberos_manager as default_kerberos_manager
 from backend.common.models.auth import (
     LoginRequest,
-    TokenResponse,
-    UserSession,
-    UserInfo,
     Role,
+    TokenResponse,
+    UserInfo,
+    UserSession,
     resolve_system_role,
 )
-
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger("hadoop_explorer.auth")
 security_scheme = HTTPBearer(auto_error=False)
@@ -34,17 +36,17 @@ def create_auth_router(
     settings_provider: Callable[[], Any],
     storage_service: Any,
     get_current_user_dep: Callable,
-    authenticate_mock_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
-    authenticate_ldap_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
-    get_ldap_user_info_fn: Optional[Callable[[str], Optional[Any]]] = None,
-    acl_checker_fn: Optional[Callable[[Any], bool]] = None,
-    rate_limiter: Optional[Any] = None,
-    kerberos_authenticator: Optional[Callable[[str], Optional[Any]]] = None,
+    authenticate_mock_fn: Callable[[str, str], Any | None] | None = None,
+    authenticate_ldap_fn: Callable[[str, str], Any | None] | None = None,
+    get_ldap_user_info_fn: Callable[[str], Any | None] | None = None,
+    acl_checker_fn: Callable[[Any], bool] | None = None,
+    rate_limiter: Any | None = None,
+    kerberos_authenticator: Callable[[str], Any | None] | None = None,
     cookie_name: str = "access_token",
-    additional_cookie_names: Optional[List[str]] = None,
-    on_logout_fn: Optional[Callable[[str], Any]] = None,
+    additional_cookie_names: list[str] | None = None,
+    on_logout_fn: Callable[[str], Any] | None = None,
     prefix: str = "/api/v1/auth",
-    tags: Optional[List[str]] = None,
+    tags: list[str] | None = None,
 ) -> APIRouter:
     """
     Фабрика централизованного роутера аутентификации.
@@ -87,7 +89,7 @@ def create_auth_router(
         )
         return secret_key, algorithm, expire_minutes
 
-    def _extract_mock_user(username: str, password: str) -> Optional[UserSession]:
+    def _extract_mock_user(username: str, password: str) -> UserSession | None:
         settings = _get_settings()
         if authenticate_mock_fn:
             res = authenticate_mock_fn(username, password)
@@ -476,7 +478,7 @@ def create_auth_router(
     async def logout(
         request: Request,
         response: Response,
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+        credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
     ):
         client_ip = get_client_ip(request)
         token = None

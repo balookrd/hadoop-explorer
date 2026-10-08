@@ -2,8 +2,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 
 class JSONFormatter(logging.Formatter):
@@ -26,7 +25,7 @@ class JSONFormatter(logging.Formatter):
             pass
 
         log_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "service": self.service_name,
             "level": record.levelname,
             "logger": record.name,
@@ -45,7 +44,7 @@ class JSONFormatter(logging.Formatter):
 
 def setup_logging(
     service_name: str = "hadoop-explorer",
-    env: Optional[str] = None,
+    env: str | None = None,
     debug: bool = False,
 ) -> None:
     """

@@ -1,10 +1,10 @@
+import asyncio
+import logging
+import threading
 import time
 import uuid
-import logging
-import asyncio
-import threading
 from contextlib import asynccontextmanager, contextmanager
-from typing import Optional, Any
+from typing import Any
 
 logger = logging.getLogger("hadoop_explorer.lock")
 
@@ -32,7 +32,7 @@ class DistributedLock:
     или in-memory механизм с TTL.
     """
 
-    def __init__(self, storage_service: Optional[Any] = None):
+    def __init__(self, storage_service: Any | None = None):
         self._storage = storage_service
         self._in_memory_locks: dict[str, tuple[str, float]] = {}  # key -> (owner_id, expires_at)
         self._local_lock = threading.Lock()

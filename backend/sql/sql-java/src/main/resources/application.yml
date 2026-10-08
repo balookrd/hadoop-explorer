@@ -1,0 +1,78 @@
+server:
+  port: 8003
+
+spring:
+  application:
+    name: hadoop-sql-explorer
+  datasource:
+    url: jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: mock
+      admin-groups:
+        - "hadoop-admins"
+        - "platform-admins"
+        - "superusers"
+      writer-groups:
+        - "data-engineers"
+        - "developers"
+    jwt:
+      secret-key: "sql-explorer-super-secret-jwt-token-key-32-chars-min!"
+      expiration-minutes: 480
+    cors:
+      allowed-origins:
+        - "http://localhost:3000"
+        - "http://localhost:5173"
+        - "http://localhost:8003"
+    cookie:
+      secure: false
+      same-site: "Lax"
+      names:
+        - "access_token"
+        - "sql_explorer_session"
+        - "hadoop_explorer_session"
+
+sql:
+  results-ttl-hours: 24
+  max-rows-per-query: 10000
+  default-page-size: 500
+  ai:
+    enabled: true
+    url: "http://localhost:8000/v1"
+    model: "qwen2.5-coder-32b"
+    provider: "mock-builtin"
+  clusters:
+    - id: "trino-prod"
+      name: "Trino Production Analytics"
+      type: "trino"
+      host: "trino-coordinator.prod.corp"
+      port: 8080
+      catalog: "hive"
+      schema: "default"
+      mock-storage: true
+      impersonation:
+        enabled: true
+        method: "header"
+    - id: "hive-dwh"
+      name: "Hive DWH Cluster"
+      type: "hive"
+      host: "hiveserver2.prod.corp"
+      port: 10000
+      catalog: "default"
+      schema: "default"
+      mock-storage: true
+      impersonation:
+        enabled: true
+        method: "doAs"

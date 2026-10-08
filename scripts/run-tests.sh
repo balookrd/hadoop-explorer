@@ -38,26 +38,16 @@ run_hdfs() {
 
 run_sql() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: SQL Explorer (42 теста)"
+  echo "🧪 Запуск тестов: SQL Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  local pt
-  pt="$(find_pytest sql)"
-  (cd "$ROOT_DIR/backend/sql" && \
-   CONFIG_PATH=config/config.yaml \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
+  mvn test -f "$ROOT_DIR/backend/sql/sql-java/pom.xml"
 }
 
 run_spark() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Spark Explorer (24 теста)"
+  echo "🧪 Запуск тестов: Spark Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  local pt
-  pt="$(find_pytest spark)"
-  (cd "$ROOT_DIR/backend/spark" && \
-   CONFIG_PATH=config/config.yaml \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
+  mvn test -f "$ROOT_DIR/backend/spark/spark-java/pom.xml"
 }
 
 run_replicator() {
