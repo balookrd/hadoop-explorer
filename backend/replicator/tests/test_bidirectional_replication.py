@@ -91,7 +91,7 @@ async def test_bidirectional_data_transfer(orchestrator_client, two_dc_agents):
 
     # Создаем задачу DC1 -> DC2
     res_f = await orchestrator_client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": src_forward,
             "target_path": dst_forward,
@@ -141,7 +141,7 @@ async def test_bidirectional_data_transfer(orchestrator_client, two_dc_agents):
 
     # Создаем задачу DC2 -> DC1
     res_b = await orchestrator_client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": src_backward,
             "target_path": dst_backward,

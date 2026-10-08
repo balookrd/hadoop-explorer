@@ -80,7 +80,7 @@ def test_create_job_service_account(client):
         "total_bytes": 5000000,
         "run_as_service_account": True,
     }
-    response = client.post("/jobs", json=payload)
+    response = client.post("/api/v1/jobs", json=payload)
     assert response.status_code == 201
     data = response.json()
     assert data["source_path"] == payload["source_path"]
@@ -92,7 +92,7 @@ def test_create_job_service_account(client):
 
     # Проверка получения созданной задачи по ID
     job_id = data["id"]
-    get_res = client.get(f"/jobs/{job_id}")
+    get_res = client.get(f"/api/v1/jobs/{job_id}")
     assert get_res.status_code == 200
     assert get_res.json()["id"] == job_id
 
@@ -105,7 +105,7 @@ def test_create_job_custom_user(client):
         "run_as_service_account": False,
         "execution_principal": "alice@COMPANY.CORP",
     }
-    response = client.post("/jobs", json=payload)
+    response = client.post("/api/v1/jobs", json=payload)
     assert response.status_code == 201
     data = response.json()
     assert data["run_as_service_account"] is False
@@ -118,7 +118,7 @@ def test_create_job_default_impersonation(client):
         "source_path": "/user/reports",
         "target_path": "/backup/reports",
     }
-    response = client.post("/jobs", json=payload)
+    response = client.post("/api/v1/jobs", json=payload)
     assert response.status_code == 201
     data = response.json()
     assert data["run_as_service_account"] is False
@@ -127,7 +127,7 @@ def test_create_job_default_impersonation(client):
 
 def test_get_job_not_found(client):
     """Проверка обработки 404 для несуществующей задачи."""
-    response = client.get("/jobs/non-existent-id")
+    response = client.get("/api/v1/jobs/non-existent-id")
     assert response.status_code == 404
 
 
@@ -137,7 +137,7 @@ def test_request_tokens_endpoint(client):
         "worker_id": "worker-dc1-edge-01",
         "requested_bytes": 1048576,
     }
-    response = client.post("/tokens/request", json=payload)
+    response = client.post("/api/v1/tokens/request", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["wait_seconds"] == 0.0

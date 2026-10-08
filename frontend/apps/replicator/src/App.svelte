@@ -2,6 +2,15 @@
   import { onMount, onDestroy } from 'svelte';
   import type { UserSession } from '@hadoop-explorer/common';
   import { Header, LoginModal, StatusBadge } from '@hadoop-explorer/common';
+  import { api } from './api/client';
+  import type {
+    Job,
+    JobRun,
+    ClusterInfo,
+    DatacenterInfo,
+    TopologyData,
+    AgentInfo,
+  } from './types';
   import {
     ArrowLeftRight,
     RefreshCw,
@@ -39,115 +48,9 @@
   // Табы приложения
   let activeTab = $state<'jobs' | 'topology'>('jobs');
 
-  // Интерфейс отдельного запуска задачи репликации
-  interface JobRun {
-    id: string;
-    job_id: string;
-    run_number: number;
-    trigger_type: 'MANUAL' | 'SCHEDULED';
-    status: 'SCHEDULED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-    total_bytes: number;
-    copied_bytes: number;
-    started_at?: string;
-    completed_at?: string;
-    duration_seconds?: number;
-    average_speed_mb_s?: number;
-    error_message?: string;
-    message?: string;
-    triggered_by?: string;
-    created_at?: string;
-  }
-
-  // Данные задач репликации
-  interface Job {
-    id: string;
-    source_cluster_id: string;
-    target_cluster_id: string;
-    source_path: string;
-    target_path: string;
-    status: 'SCHEDULED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-    progress_percent?: number;
-    copied_bytes: number;
-    total_bytes: number;
-    transfer_speed_mb_s?: number;
-    average_speed_mb_s?: number;
-    error_message?: string;
-    message?: string;
-    created_by?: string;
-    execution_principal?: string;
-    run_as_service_account?: boolean;
-    is_scheduled?: boolean;
-    cron_expression?: string;
-    next_run_at?: string;
-    history_retention_runs?: number;
-    active_run_id?: string;
-    runs_count?: number;
-    created_at?: string;
-    updated_at?: string;
-    started_at?: string;
-    completed_at?: string;
-    estimated_completion_at?: string;
-  }
-
   let jobs = $state<Job[]>([]);
   let jobsLoading = $state(false);
   let pollTimer: any = null;
-
-  // Данные топологии
-  interface ClusterInfo {
-    id: string;
-    name: string;
-    dc_id: string;
-    namenode_host: string;
-    port: number;
-    default_path?: string;
-  }
-
-  interface DatacenterInfo {
-    id: string;
-    name: string;
-    location: string;
-    description: string;
-  }
-
-  interface DcLimitItem {
-    source_dc: string;
-    target_dc: string;
-    limit_mb_per_sec: number;
-    limit_bytes_per_sec: number;
-  }
-
-  interface HdfsLimitItem {
-    source_cluster: string;
-    target_cluster: string;
-    limit_mb_per_sec: number;
-    limit_bytes_per_sec: number;
-  }
-
-  interface TopologyData {
-    datacenters: DatacenterInfo[];
-    clusters: ClusterInfo[];
-    global_limit_bytes_per_sec: number;
-    global_limit_mb_per_sec: number;
-    dc_limits: DcLimitItem[];
-    hdfs_limits: HdfsLimitItem[];
-  }
-
-  interface AgentInfo {
-    agent_id: string;
-    cluster_id?: string;
-    dc_id?: string;
-    mode: string;
-    grpc_address?: string;
-    hostname?: string;
-    status: 'online' | 'stale' | 'offline';
-    active_transfers: number;
-    registered_at: string;
-    last_heartbeat_at: string;
-    heartbeat_age_seconds: number;
-    version: string;
-    max_bandwidth_mb_s?: number | null;
-  }
 
   let registeredAgents = $state<AgentInfo[]>([]);
   let agentsLoading = $state(false);
@@ -266,70 +169,35 @@
     }
   }
 
-  // Единая обертка fetch с гарантированной передачей HttpOnly Cookies сессии и CSRF заголовка
-  async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    const headers = new Headers(options.headers || {});
-    headers.set('X-Requested-With', 'XMLHttpRequest');
-    if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
-      headers.set('Content-Type', 'application/json');
-    }
-    return fetch(url, {
-      ...options,
-      headers,
-      credentials: 'include',
-    });
-  }
-
   // Аутентификация
-  async function checkAuth() {
-    try {
-      const res = await apiFetch('/api/v1/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        user = data?.user || (data?.username ? data : null);
-      } else {
-        user = null;
-      }
-    } catch (e) {
-      user = null;
-    } finally {
-      authLoading = false;
-    }
-  }
-
   async function handleLogin(u: string, p: string) {
     authErrorMessage = null;
-    const res = await apiFetch('/api/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username: u, password: p }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      user = data?.user || (data?.username ? data : null);
+    try {
+      const res = await api.login(u, p);
+      user = res.user || (await api.getMe());
       isLoginModalOpen = false;
       await loadInitialData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Неверный логин или пароль');
+    } catch (err: any) {
+      throw new Error(err.message || 'Неверный логин или пароль');
     }
   }
 
   async function handleKerberosSso() {
     authErrorMessage = null;
-    const res = await apiFetch('/api/v1/auth/sso');
-    if (res.ok) {
-      const data = await res.json();
-      user = data?.user || (data?.username ? data : null);
+    try {
+      const res = await api.kerberosNegotiate();
+      user = res.user || (await api.getMe());
       isLoginModalOpen = false;
       await loadInitialData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Kerberos SPNEGO билет не предоставлен');
+    } catch (err: any) {
+      throw new Error(err.message || 'Kerberos SPNEGO билет не предоставлен');
     }
   }
 
   async function handleLogout() {
-    await apiFetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    try {
+      await api.logout();
+    } catch (_) {}
     user = null;
     isLoginModalOpen = true;
   }
@@ -338,10 +206,7 @@
   async function loadJobs() {
     if (!user) return;
     try {
-      const res = await apiFetch('/jobs');
-      if (res.ok) {
-        jobs = await res.json();
-      }
+      jobs = await api.getJobs();
     } catch (e) {
       console.error('Ошибка загрузки задач:', e);
     }
@@ -352,42 +217,39 @@
     if (!user) return;
     topologyLoading = true;
     try {
-      const res = await apiFetch('/api/v1/topology');
-      if (res.ok) {
-        const data: TopologyData = await res.json();
-        topology = data;
+      const data = await api.getTopology();
+      topology = data;
 
-        // Инициализация значений формы лимитов
-        const gMb = data.global_limit_bytes_per_sec / (1024 * 1024);
-        globalLimitMb = Math.round(gMb);
-        globalUnlimited = data.global_limit_bytes_per_sec === 0;
+      // Инициализация значений формы лимитов
+      const gMb = data.global_limit_bytes_per_sec / (1024 * 1024);
+      globalLimitMb = Math.round(gMb);
+      globalUnlimited = data.global_limit_bytes_per_sec === 0;
 
-        const nextDc: Record<string, { mb: number; unlimited: boolean }> = {};
-        for (const item of data.dc_limits || []) {
-          const key = `${item.source_dc}->${item.target_dc}`;
-          nextDc[key] = {
-            mb: Math.round(item.limit_mb_per_sec),
-            unlimited: item.limit_mb_per_sec === 0 || item.limit_bytes_per_sec === 0,
-          };
-        }
-        dcLimits = nextDc;
+      const nextDc: Record<string, { mb: number; unlimited: boolean }> = {};
+      for (const item of data.dc_limits || []) {
+        const key = `${item.source_dc}->${item.target_dc}`;
+        nextDc[key] = {
+          mb: Math.round(item.limit_mb_per_sec),
+          unlimited: item.limit_mb_per_sec === 0 || item.limit_bytes_per_sec === 0,
+        };
+      }
+      dcLimits = nextDc;
 
-        const nextHdfs: Record<string, { mb: number; unlimited: boolean }> = {};
-        for (const item of data.hdfs_limits || []) {
-          const key = `${item.source_cluster}->${item.target_cluster}`;
-          nextHdfs[key] = {
-            mb: Math.round(item.limit_mb_per_sec),
-            unlimited: item.limit_mb_per_sec === 0 || item.limit_bytes_per_sec === 0,
-          };
-        }
-        hdfsLimits = nextHdfs;
+      const nextHdfs: Record<string, { mb: number; unlimited: boolean }> = {};
+      for (const item of data.hdfs_limits || []) {
+        const key = `${item.source_cluster}->${item.target_cluster}`;
+        nextHdfs[key] = {
+          mb: Math.round(item.limit_mb_per_sec),
+          unlimited: item.limit_mb_per_sec === 0 || item.limit_bytes_per_sec === 0,
+        };
+      }
+      hdfsLimits = nextHdfs;
 
-        // Если кластеры загрузились, настроим defaults создания
-        if (data.clusters && data.clusters.length > 0) {
-          if (!newJobSourceCluster) newJobSourceCluster = data.clusters[0].id;
-          if (data.clusters.length > 1 && !newJobTargetCluster) {
-            newJobTargetCluster = data.clusters[1].id;
-          }
+      // Если кластеры загрузились, настроим defaults создания
+      if (data.clusters && data.clusters.length > 0) {
+        if (!newJobSourceCluster) newJobSourceCluster = data.clusters[0].id;
+        if (data.clusters.length > 1 && !newJobTargetCluster) {
+          newJobTargetCluster = data.clusters[1].id;
         }
       }
     } catch (e) {
@@ -402,10 +264,7 @@
     if (!user) return;
     agentsLoading = true;
     try {
-      const res = await apiFetch('/api/v1/agents');
-      if (res.ok) {
-        registeredAgents = await res.json();
-      }
+      registeredAgents = await api.getAgents(true);
     } catch (e) {
       console.error('Ошибка загрузки агентов:', e);
     } finally {
@@ -439,18 +298,9 @@
         payload.cron_expression = newJobCronPreset;
       }
 
-      const res = await apiFetch('/jobs', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        isCreateModalOpen = false;
-        await loadJobs();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        createJobError = err.detail || 'Не удалось создать задачу';
-      }
+      await api.createJob(payload);
+      isCreateModalOpen = false;
+      await loadJobs();
     } catch (e: any) {
       createJobError = e.message || 'Ошибка связи с сервером';
     } finally {
@@ -461,30 +311,20 @@
   // Управление жизненным циклом задач: Запуск / Стоп / Редактирование / Удаление
   async function handleStartJob(id: string) {
     try {
-      const res = await apiFetch(`/jobs/${id}/start`, { method: 'POST' });
-      if (res.ok) {
-        await loadJobs();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Не удалось запустить задачу');
-      }
+      await api.startJob(id);
+      await loadJobs();
     } catch (e: any) {
-      alert(`Ошибка связи с сервером: ${e.message}`);
+      alert(e.message || 'Не удалось запустить задачу');
     }
   }
 
   async function handleStopJob(id: string) {
     if (!confirm(`Остановить задачу ${id.substring(0, 8)}...?`)) return;
     try {
-      const res = await apiFetch(`/jobs/${id}/stop`, { method: 'POST' });
-      if (res.ok) {
-        await loadJobs();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Не удалось остановить задачу');
-      }
+      await api.stopJob(id);
+      await loadJobs();
     } catch (e: any) {
-      alert(`Ошибка связи с сервером: ${e.message}`);
+      alert(e.message || 'Не удалось остановить задачу');
     }
   }
 
@@ -521,18 +361,9 @@
         payload.cron_expression = editJobCronPreset;
       }
 
-      const res = await apiFetch(`/jobs/${editingJobId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        isEditModalOpen = false;
-        await loadJobs();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        editJobError = err.detail || 'Не удалось сохранить изменения';
-      }
+      await api.updateJob(editingJobId, payload);
+      isEditModalOpen = false;
+      await loadJobs();
     } catch (e: any) {
       editJobError = e.message || 'Ошибка связи с сервером';
     } finally {
@@ -543,15 +374,10 @@
   async function handleDeleteJob(id: string) {
     if (!confirm(`Вы действительно хотите удалить задачу ${id.substring(0, 8)}...? Это действие необратимо.`)) return;
     try {
-      const res = await apiFetch(`/jobs/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        await loadJobs();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Не удалось удалить задачу');
-      }
+      await api.deleteJob(id);
+      await loadJobs();
     } catch (e: any) {
-      alert(`Ошибка связи с сервером: ${e.message}`);
+      alert(e.message || 'Не удалось удалить задачу');
     }
   }
 
@@ -567,12 +393,7 @@
   async function loadJobRuns(jobId: string) {
     runsLoading = true;
     try {
-      const res = await apiFetch(`/jobs/${jobId}/runs`);
-      if (res.ok) {
-        jobRuns = await res.json();
-      } else {
-        jobRuns = [];
-      }
+      jobRuns = await api.getJobRuns(jobId);
     } catch (e) {
       console.error('Ошибка загрузки истории запусков:', e);
       jobRuns = [];
@@ -590,26 +411,18 @@
     savingRetention = true;
     retentionSaveSuccess = false;
     try {
-      const res = await apiFetch(`/jobs/${jobId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ history_retention_runs: val }),
-      });
-      if (res.ok) {
-        retentionSaveSuccess = true;
-        if (selectedJobForHistory) {
-          selectedJobForHistory.history_retention_runs = val;
-        }
-        await loadJobs();
-        await loadJobRuns(jobId);
-        setTimeout(() => {
-          retentionSaveSuccess = false;
-        }, 3000);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Не удалось сохранить глубину истории');
+      await api.updateJobRetention(jobId, val);
+      retentionSaveSuccess = true;
+      if (selectedJobForHistory) {
+        selectedJobForHistory.history_retention_runs = val;
       }
+      await loadJobs();
+      await loadJobRuns(jobId);
+      setTimeout(() => {
+        retentionSaveSuccess = false;
+      }, 3000);
     } catch (e: any) {
-      alert(`Ошибка: ${e.message}`);
+      alert(e.message || 'Не удалось сохранить глубину истории');
     } finally {
       savingRetention = false;
     }
@@ -623,25 +436,16 @@
     return `${m} мин ${s} с`;
   }
 
-
   // Сохранение лимитов
   async function saveGlobalLimit() {
     topologyStatusMsg = null;
     const limitMb = globalUnlimited ? 0 : Number(globalLimitMb) || 0;
     try {
-      const res = await apiFetch('/api/v1/limits/global', {
-        method: 'POST',
-        body: JSON.stringify({ limit_bytes_per_sec: limitMb * 1024 * 1024 }),
-      });
-      if (res.ok) {
-        topologyStatusMsg = 'Глобальный лимит WAN успешно обновлен';
-        await loadTopology();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        topologyStatusMsg = `Ошибка: ${err.detail || 'Не удалось сохранить'}`;
-      }
+      await api.saveGlobalLimit(limitMb * 1024 * 1024);
+      topologyStatusMsg = 'Глобальный лимит WAN успешно обновлен';
+      await loadTopology();
     } catch (e: any) {
-      topologyStatusMsg = `Ошибка: ${e.message}`;
+      topologyStatusMsg = `Ошибка: ${e.message || 'Не удалось сохранить'}`;
     }
   }
 
@@ -653,23 +457,11 @@
     const mb = item.unlimited ? 0 : Number(item.mb) || 0;
 
     try {
-      const res = await apiFetch('/api/v1/limits/dc-dc', {
-        method: 'POST',
-        body: JSON.stringify({
-          source_dc: parts[0],
-          target_dc: parts[1],
-          limit_mb_per_sec: mb,
-        }),
-      });
-      if (res.ok) {
-        topologyStatusMsg = `Лимит для канала ${key} успешно обновлен`;
-        await loadTopology();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        topologyStatusMsg = `Ошибка: ${err.detail || 'Не удалось сохранить'}`;
-      }
+      await api.saveDcLimit(parts[0], parts[1], mb);
+      topologyStatusMsg = `Лимит для канала ${key} успешно обновлен`;
+      await loadTopology();
     } catch (e: any) {
-      topologyStatusMsg = `Ошибка: ${e.message}`;
+      topologyStatusMsg = `Ошибка: ${e.message || 'Не удалось сохранить'}`;
     }
   }
 
@@ -681,23 +473,11 @@
     const mb = item.unlimited ? 0 : Number(item.mb) || 0;
 
     try {
-      const res = await apiFetch('/api/v1/limits/hdfs-hdfs', {
-        method: 'POST',
-        body: JSON.stringify({
-          source_cluster: parts[0],
-          target_cluster: parts[1],
-          limit_mb_per_sec: mb,
-        }),
-      });
-      if (res.ok) {
-        topologyStatusMsg = `Лимит для кластеров ${key} успешно обновлен`;
-        await loadTopology();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        topologyStatusMsg = `Ошибка: ${err.detail || 'Не удалось сохранить'}`;
-      }
+      await api.saveHdfsLimit(parts[0], parts[1], mb);
+      topologyStatusMsg = `Лимит для кластеров ${key} успешно обновлен`;
+      await loadTopology();
     } catch (e: any) {
-      topologyStatusMsg = `Ошибка: ${e.message}`;
+      topologyStatusMsg = `Ошибка: ${e.message || 'Не удалось сохранить'}`;
     }
   }
 
@@ -818,10 +598,27 @@
 
 
   onMount(async () => {
-    await checkAuth();
-    if (user) {
+    // Подписка на 401 Unauthorized / истечение сессии
+    api.onUnauthorized((msg) => {
+      user = null;
+      authErrorMessage = msg;
+    });
+
+    try {
+      user = await api.getMe();
       await loadInitialData();
+    } catch {
+      try {
+        const autoUser = await api.tryAutoLogin();
+        if (autoUser) {
+          user = autoUser;
+          await loadInitialData();
+        }
+      } catch {}
+    } finally {
+      authLoading = false;
     }
+
     pollTimer = setInterval(() => {
       if (user) {
         if (activeTab === 'jobs') {

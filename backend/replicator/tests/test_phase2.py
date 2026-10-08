@@ -132,7 +132,7 @@ def test_job_persistence_sqlalchemy(client):
         "total_bytes": 104857600,
         "run_as_service_account": True,
     }
-    response = client.post("/jobs", json=payload)
+    response = client.post("/api/v1/jobs", json=payload)
     assert response.status_code == 201
     job_data = response.json()
     job_id = job_data["id"]
@@ -143,22 +143,22 @@ def test_job_persistence_sqlalchemy(client):
     assert job_data["copied_bytes"] == 0
 
     # Проверка извлечения по GET
-    get_res = client.get(f"/jobs/{job_id}")
+    get_res = client.get(f"/api/v1/jobs/{job_id}")
     assert get_res.status_code == 200
     assert get_res.json()["id"] == job_id
     assert get_res.json()["source_path"] == payload["source_path"]
 
     # Проверка списка
-    list_res = client.get("/jobs")
+    list_res = client.get("/api/v1/jobs")
     assert list_res.status_code == 200
     assert len(list_res.json()) >= 1
 
 
 def test_update_job_progress(client):
-    """Проверка обновления статуса и переданных байтов воркером (PATCH /jobs/{id})."""
+    """Проверка обновления статуса и переданных байтов воркером (PATCH /api/v1/jobs/{id})."""
     # Создаем задачу
     create_res = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/file.parquet",
             "target_path": "/backup/file.parquet",
@@ -169,7 +169,7 @@ def test_update_job_progress(client):
 
     # Обновляем прогресс
     patch_res = client.patch(
-        f"/jobs/{job_id}",
+        f"/api/v1/jobs/{job_id}",
         json={
             "status": "RUNNING",
             "copied_bytes": 500,
@@ -186,13 +186,13 @@ def test_update_job_progress(client):
 def test_token_request_and_limit_api(client):
     """Проверка API запроса токенов и изменения лимита."""
     # Проверяем текущее состояние лимита
-    limit_res = client.get("/tokens/limit")
+    limit_res = client.get("/api/v1/tokens/limit")
     assert limit_res.status_code == 200
     assert limit_res.json()["limit_bytes_per_sec"] == 1048576.0
 
     # Запрашиваем токены
     tok_res = client.post(
-        "/tokens/request",
+        "/api/v1/tokens/request",
         json={"worker_id": "worker-1", "requested_bytes": 500000},
     )
     assert tok_res.status_code == 200
@@ -200,7 +200,7 @@ def test_token_request_and_limit_api(client):
 
     # Изменяем лимит через PUT
     put_res = client.put(
-        "/tokens/limit",
+        "/api/v1/tokens/limit",
         json={"limit_bytes_per_sec": 20971520.0},
     )
     assert put_res.status_code == 200

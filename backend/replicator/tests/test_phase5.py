@@ -84,7 +84,7 @@ async def test_snapshot_diff_api_generate_tasks(orchestrator_client):
     """Проверка API генерации подзадач TaskModel в БД из snapshot diff."""
     # 1. Создаем родительскую задачу Job
     job_res = await orchestrator_client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/warehouse",
             "target_path": "/backup/warehouse",
@@ -96,7 +96,7 @@ async def test_snapshot_diff_api_generate_tasks(orchestrator_client):
 
     # 2. Отправляем вывод snapshot diff в эндпоинт
     diff_res = await orchestrator_client.post(
-        f"/jobs/{job_id}/snapshot-diff",
+        f"/api/v1/jobs/{job_id}/snapshot-diff",
         json={
             "diff_output": SAMPLE_SNAPSHOT_DIFF_OUTPUT,
             "base_path": "/data/warehouse",
@@ -114,7 +114,7 @@ async def test_snapshot_diff_api_generate_tasks(orchestrator_client):
         assert t["target_path"].startswith("/backup/warehouse")
 
     # 3. Проверяем получение списка задач через GET /jobs/{job_id}/tasks
-    tasks_res = await orchestrator_client.get(f"/jobs/{job_id}/tasks")
+    tasks_res = await orchestrator_client.get(f"/api/v1/jobs/{job_id}/tasks")
     assert tasks_res.status_code == 200
     assert len(tasks_res.json()) == len(tasks)
 
@@ -152,7 +152,7 @@ async def test_receiver_atomic_rename_commit(orchestrator_client):
         )
 
         create_res = await orchestrator_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             json={
                 "source_path": src_path,
                 "target_path": final_target_file,

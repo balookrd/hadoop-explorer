@@ -399,7 +399,7 @@ class ReplicationWorkerClient:
 
         try:
             resp = await client.post(
-                f"{self.orchestrator_url}/tokens/request", json=payload, headers=self._get_auth_headers()
+                f"{self.orchestrator_url}/api/v1/tokens/request", json=payload, headers=self._get_auth_headers()
             )
             resp.raise_for_status()
             data = resp.json()
@@ -447,7 +447,7 @@ class ReplicationWorkerClient:
         should_close = self._custom_http_client is None
         try:
             resp = await client.patch(
-                f"{self.orchestrator_url}/jobs/{job_id}", json=payload, headers=self._get_auth_headers()
+                f"{self.orchestrator_url}/api/v1/jobs/{job_id}", json=payload, headers=self._get_auth_headers()
             )
             resp.raise_for_status()
         except Exception as e:
@@ -881,7 +881,7 @@ class ReplicatorAgent:
             while not self._stop_event.is_set():
                 try:
                     # Получение задач из очереди
-                    resp = await http_client.get(f"{self.orchestrator_url}/jobs")
+                    resp = await http_client.get(f"{self.orchestrator_url}/api/v1/jobs")
                     if resp.status_code == 200:
                         jobs = resp.json()
                         queued_jobs = [j for j in jobs if j.get("status") == "QUEUED"]

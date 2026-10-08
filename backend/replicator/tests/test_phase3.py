@@ -70,7 +70,7 @@ async def test_worker_receiver_full_transfer(orchestrator_client, grpc_receiver_
     try:
         # 2. Создание задачи в Оркестраторе
         create_resp = await orchestrator_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             json={
                 "source_path": src_path,
                 "target_path": target_dest_file,
@@ -105,7 +105,7 @@ async def test_worker_receiver_full_transfer(orchestrator_client, grpc_receiver_
         assert response.checksum == expected_sha256
 
         # 6. Проверка статуса задачи в Оркестраторе (должен стать COMPLETED)
-        job_resp = await orchestrator_client.get(f"/jobs/{job_id}")
+        job_resp = await orchestrator_client.get(f"/api/v1/jobs/{job_id}")
         assert job_resp.status_code == 200
         job_data = job_resp.json()
         assert job_data["status"] == "COMPLETED"

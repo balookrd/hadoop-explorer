@@ -129,7 +129,7 @@ public class OrchestratorClient {
     public double requestNetworkTokens(TokenRequest request) {
         try {
             String jsonBody = objectMapper.writeValueAsString(request);
-            HttpRequest httpRequest = newRequestBuilder("/tokens/request")
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/tokens/request")
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 
@@ -151,7 +151,7 @@ public class OrchestratorClient {
      */
     public List<JobDto> getJobs() {
         try {
-            HttpRequest httpRequest = newRequestBuilder("/jobs")
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs")
                     .GET()
                     .build();
 
@@ -166,12 +166,12 @@ public class OrchestratorClient {
     }
 
     /**
-     * Обновление статуса и прогресса выполнения задачи (PATCH /jobs/{jobId}).
+     * Обновление статуса и прогресса выполнения задачи (PATCH /api/v1/jobs/{jobId}).
      */
     public void updateJobProgress(String jobId, UpdateJobRequest request) {
         try {
             String jsonBody = objectMapper.writeValueAsString(request);
-            HttpRequest httpRequest = newRequestBuilder("/jobs/" + URLEncoder.encode(jobId, StandardCharsets.UTF_8))
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs/" + URLEncoder.encode(jobId, StandardCharsets.UTF_8))
                     .method("PATCH", HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 

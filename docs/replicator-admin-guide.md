@@ -108,7 +108,7 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 
 1. **Аутентификация агентов через Agent Secret (PSK / Token)**:
    - На Оркестраторе и всех доверенных агентах задается общий секретный ключ `REPLICATOR_AGENT_SECRET` (минимум 32 символа).
-   - Агент автоматически передает этот токен в HTTP-заголовке `X-Agent-Secret` (или `Authorization: Bearer <token>`) при вызовах `/api/v1/agents/register`, `/api/v1/agents/heartbeat`, `/api/v1/agents/unregister` и запросах сетевых квот `/tokens/request`.
+   - Агент автоматически передает этот токен в HTTP-заголовке `X-Agent-Secret` (или `Authorization: Bearer <token>`) при вызовах `/api/v1/agents/register`, `/api/v1/agents/heartbeat`, `/api/v1/agents/unregister` и запросах сетевых квот `/api/v1/tokens/request`.
    - Запросы без валидного токена отбрасываются с кодом `401 Unauthorized`. В боевом режиме (`ENVIRONMENT=production`) отсутствие переменной блокирует старт сервиса.
 2. **Белый список кластеров (Cluster Whitelisting)**:
    - Переменная `REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (по умолчанию активна в боевом режиме).

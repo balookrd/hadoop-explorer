@@ -90,7 +90,7 @@ def test_rbac_admin_sees_all_jobs_user_sees_only_own(client):
 
     # 3. Создаем задачу от admin_user
     job_admin = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/admin_source",
             "target_path": "/backup/admin_target",
@@ -102,7 +102,7 @@ def test_rbac_admin_sees_all_jobs_user_sees_only_own(client):
 
     # 4. Создаем задачу от analyst_user
     job_user = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/user_source",
             "target_path": "/backup/user_target",
@@ -112,15 +112,15 @@ def test_rbac_admin_sees_all_jobs_user_sees_only_own(client):
     ).json()
     assert job_user["created_by"] == "analyst_user"
 
-    # 5. Проверяем /jobs как admin_user: ДОЛЖЕН видеть обе задачи!
-    admin_list = client.get("/jobs", headers=admin_headers).json()
+    # 5. Проверяем /api/v1/jobs как admin_user: ДОЛЖЕН видеть обе задачи!
+    admin_list = client.get("/api/v1/jobs", headers=admin_headers).json()
     job_ids_admin_sees = [j["id"] for j in admin_list]
     assert job_admin["id"] in job_ids_admin_sees
     assert job_user["id"] in job_ids_admin_sees
     assert len(admin_list) >= 2
 
-    # 6. Проверяем /jobs как analyst_user: ДОЛЖЕН видеть ТОЛЬКО свою задачу!
-    user_list = client.get("/jobs", headers=user_headers).json()
+    # 6. Проверяем /api/v1/jobs как analyst_user: ДОЛЖЕН видеть ТОЛЬКО свою задачу!
+    user_list = client.get("/api/v1/jobs", headers=user_headers).json()
     job_ids_user_sees = [j["id"] for j in user_list]
     assert job_user["id"] in job_ids_user_sees
     assert job_admin["id"] not in job_ids_user_sees
@@ -138,42 +138,42 @@ def test_list_jobs_status_and_author_filters(client):
 
     # Создаем задачу от admin_user
     job_admin = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={"source_path": "/data/filter_adm", "target_path": "/backup/filter_adm"},
         headers=admin_headers,
     ).json()
 
     # Создаем задачу от analyst_user
     job_user = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={"source_path": "/data/filter_usr", "target_path": "/backup/filter_usr"},
         headers=user_headers,
     ).json()
 
     # 1. Фильтр по автору: author=analyst_user
-    res = client.get("/jobs?author=analyst_user", headers=admin_headers).json()
+    res = client.get("/api/v1/jobs?author=analyst_user", headers=admin_headers).json()
     assert all(j["created_by"] == "analyst_user" for j in res)
     assert any(j["id"] == job_user["id"] for j in res)
     assert all(j["id"] != job_admin["id"] for j in res)
 
     # 2. Фильтр по автору: author=admin_user
-    res = client.get("/jobs?author=admin_user", headers=admin_headers).json()
+    res = client.get("/api/v1/jobs?author=admin_user", headers=admin_headers).json()
     assert all(j["created_by"] == "admin_user" for j in res)
     assert any(j["id"] == job_admin["id"] for j in res)
     assert all(j["id"] != job_user["id"] for j in res)
 
     # 3. Фильтр по статусу: status=QUEUED
-    res = client.get("/jobs?status=QUEUED", headers=admin_headers).json()
+    res = client.get("/api/v1/jobs?status=QUEUED", headers=admin_headers).json()
     assert all(j["status"] == "QUEUED" for j in res)
     assert any(j["id"] == job_admin["id"] for j in res)
     assert any(j["id"] == job_user["id"] for j in res)
 
     # 4. Фильтр по несуществующему статусу/комбинации
-    res = client.get("/jobs?status=CANCELLED&author=analyst_user", headers=admin_headers).json()
+    res = client.get("/api/v1/jobs?status=CANCELLED&author=analyst_user", headers=admin_headers).json()
     assert len(res) == 0
 
     # 5. Обычный пользователь не может увидеть чужие задачи даже с author=admin_user
-    res = client.get("/jobs?author=admin_user", headers=user_headers).json()
+    res = client.get("/api/v1/jobs?author=admin_user", headers=user_headers).json()
     assert len(res) == 0
 
 
@@ -183,7 +183,7 @@ def test_scheduler_job_creation(client):
     token = admin_resp.json()["access_token"]
 
     resp = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/events",
             "target_path": "/backup/events",
@@ -209,7 +209,7 @@ def test_runs_history_retention_and_scheduled_status(client):
 
     # 1. Создаем ручную задачу с глубиной истории = 3
     create_resp = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/history_test",
             "target_path": "/backup/history_test",
@@ -226,7 +226,7 @@ def test_runs_history_retention_and_scheduled_status(client):
     assert job["history_retention_runs"] == 3
 
     # 2. Проверяем наличие первого запуска
-    runs_resp = client.get(f"/jobs/{job_id}/runs", headers=headers)
+    runs_resp = client.get(f"/api/v1/jobs/{job_id}/runs", headers=headers)
     assert runs_resp.status_code == 200
     runs = runs_resp.json()
     assert len(runs) == 1
@@ -235,43 +235,43 @@ def test_runs_history_retention_and_scheduled_status(client):
     assert runs[0]["status"] == "QUEUED"
 
     # 3. Воркер переводит в RUNNING, затем в COMPLETED
-    client.patch(f"/jobs/{job_id}", json={"status": "RUNNING", "copied_bytes": 1048576})
-    client.patch(f"/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
+    client.patch(f"/api/v1/jobs/{job_id}", json={"status": "RUNNING", "copied_bytes": 1048576})
+    client.patch(f"/api/v1/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
 
     # Проверяем, что запуск #1 завершен со статистикой
-    runs = client.get(f"/jobs/{job_id}/runs", headers=headers).json()
+    runs = client.get(f"/api/v1/jobs/{job_id}/runs", headers=headers).json()
     assert len(runs) == 1
     assert runs[0]["run_number"] == 1
     assert runs[0]["status"] == "COMPLETED"
     assert runs[0]["copied_bytes"] == 10485760
 
     # 4. Перезапускаем задачу вручную -> запуск #2
-    start_resp = client.post(f"/jobs/{job_id}/start", headers=headers)
+    start_resp = client.post(f"/api/v1/jobs/{job_id}/start", headers=headers)
     assert start_resp.status_code == 200
-    runs = client.get(f"/jobs/{job_id}/runs", headers=headers).json()
+    runs = client.get(f"/api/v1/jobs/{job_id}/runs", headers=headers).json()
     assert len(runs) == 2
     assert runs[0]["run_number"] == 2
     assert runs[0]["status"] == "QUEUED"
 
     # Завершаем запуск #2
-    client.patch(f"/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
+    client.patch(f"/api/v1/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
 
     # 5. Запускаем #3
-    client.post(f"/jobs/{job_id}/start", headers=headers)
-    client.patch(f"/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
-    runs = client.get(f"/jobs/{job_id}/runs", headers=headers).json()
+    client.post(f"/api/v1/jobs/{job_id}/start", headers=headers)
+    client.patch(f"/api/v1/jobs/{job_id}", json={"status": "COMPLETED", "copied_bytes": 10485760})
+    runs = client.get(f"/api/v1/jobs/{job_id}/runs", headers=headers).json()
     assert len(runs) == 3
 
     # 6. Запускаем #4 -> с учетом retention=3, старейший запуск #1 должен быть удален, остаются [#4, #3, #2]
-    client.post(f"/jobs/{job_id}/start", headers=headers)
-    runs = client.get(f"/jobs/{job_id}/runs", headers=headers).json()
+    client.post(f"/api/v1/jobs/{job_id}/start", headers=headers)
+    runs = client.get(f"/api/v1/jobs/{job_id}/runs", headers=headers).json()
     assert len(runs) == 3
     run_numbers = [r["run_number"] for r in runs]
     assert run_numbers == [4, 3, 2]
 
     # 7. Проверка периодической задачи (scheduled)
     sched_resp = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/sched_cycle",
             "target_path": "/backup/sched_cycle",
@@ -287,21 +287,21 @@ def test_runs_history_retention_and_scheduled_status(client):
     assert sched_job["status"] == "SCHEDULED"
 
     # Запускаем шедулед задачу через start
-    client.post(f"/jobs/{sched_id}/start", headers=headers)
-    job_running = client.get(f"/jobs/{sched_id}", headers=headers).json()
+    client.post(f"/api/v1/jobs/{sched_id}/start", headers=headers)
+    job_running = client.get(f"/api/v1/jobs/{sched_id}", headers=headers).json()
     assert job_running["status"] == "QUEUED"
 
     # Воркер выполняет её и рапортует COMPLETED
-    client.patch(f"/jobs/{sched_id}", json={"status": "RUNNING", "copied_bytes": 1000})
-    client.patch(f"/jobs/{sched_id}", json={"status": "COMPLETED", "copied_bytes": 5000000})
+    client.patch(f"/api/v1/jobs/{sched_id}", json={"status": "RUNNING", "copied_bytes": 1000})
+    client.patch(f"/api/v1/jobs/{sched_id}", json={"status": "COMPLETED", "copied_bytes": 5000000})
 
     # Периодическая задача после завершения итерации возвращается в SCHEDULED!
-    job_after = client.get(f"/jobs/{sched_id}", headers=headers).json()
+    job_after = client.get(f"/api/v1/jobs/{sched_id}", headers=headers).json()
     assert job_after["status"] == "SCHEDULED"
     assert "завершен" in job_after["message"].lower()
 
     # А в истории запусков зафиксирован выполненный запуск COMPLETED!
-    sched_runs = client.get(f"/jobs/{sched_id}/runs", headers=headers).json()
+    sched_runs = client.get(f"/api/v1/jobs/{sched_id}/runs", headers=headers).json()
     assert len(sched_runs) == 1
     assert sched_runs[0]["status"] == "COMPLETED"
 
@@ -376,9 +376,9 @@ def test_topology_limits_rbac_forbidden_for_non_admin(client):
     )
     assert resp_hdfs.status_code == 403
 
-    # 5. Попытка изменить лимит через PUT /tokens/limit -> 403
+    # 5. Попытка изменить лимит через PUT /api/v1/tokens/limit -> 403
     resp_tokens = client.put(
-        "/tokens/limit",
+        "/api/v1/tokens/limit",
         json={"limit_bytes_per_sec": 20 * 1024 * 1024},
         headers=user_headers,
     )
@@ -434,7 +434,7 @@ def test_job_lifecycle_actions_start_stop_edit_delete(client):
 
     # 2. Создаем задачу
     created = client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/test_src",
             "target_path": "/data/test_dst",
@@ -448,27 +448,27 @@ def test_job_lifecycle_actions_start_stop_edit_delete(client):
     assert created["status"] == "QUEUED"
 
     # 3. Активную задачу (QUEUED) нельзя повторно запускать, редактировать или удалять
-    resp_re_start = client.post(f"/jobs/{job_id}/start", headers=admin_headers)
+    resp_re_start = client.post(f"/api/v1/jobs/{job_id}/start", headers=admin_headers)
     assert resp_re_start.status_code == 400
 
     resp_edit_active = client.put(
-        f"/jobs/{job_id}",
+        f"/api/v1/jobs/{job_id}",
         json={"source_path": "/data/test_src_edited"},
         headers=admin_headers,
     )
     assert resp_edit_active.status_code == 400
 
-    resp_del_active = client.delete(f"/jobs/{job_id}", headers=admin_headers)
+    resp_del_active = client.delete(f"/api/v1/jobs/{job_id}", headers=admin_headers)
     assert resp_del_active.status_code == 400
 
-    # 4. Остановка задачи (POST /jobs/{id}/stop)
-    stop_resp = client.post(f"/jobs/{job_id}/stop", headers=admin_headers)
+    # 4. Остановка задачи (POST /api/v1/jobs/{id}/stop)
+    stop_resp = client.post(f"/api/v1/jobs/{job_id}/stop", headers=admin_headers)
     assert stop_resp.status_code == 200
     assert stop_resp.json()["status"] == "CANCELLED"
 
-    # 5. Редактирование остановленной задачи (PUT /jobs/{id}) -> успешно
+    # 5. Редактирование остановленной задачи (PUT /api/v1/jobs/{id}) -> успешно
     edit_resp = client.put(
-        f"/jobs/{job_id}",
+        f"/api/v1/jobs/{job_id}",
         json={
             "source_path": "/data/test_src_edited",
             "target_path": "/data/test_dst_edited",
@@ -484,19 +484,19 @@ def test_job_lifecycle_actions_start_stop_edit_delete(client):
     assert updated_job["is_scheduled"] is True
     assert updated_job["next_run_at"] is not None
 
-    # 6. Запуск остановленной задачи (POST /jobs/{id}/start) -> успешно
-    start_resp = client.post(f"/jobs/{job_id}/start", headers=admin_headers)
+    # 6. Запуск остановленной задачи (POST /api/v1/jobs/{id}/start) -> успешно
+    start_resp = client.post(f"/api/v1/jobs/{job_id}/start", headers=admin_headers)
     assert start_resp.status_code == 200
     restarted_job = start_resp.json()
     assert restarted_job["status"] == "QUEUED"
     assert restarted_job["copied_bytes"] == 0
 
     # 7. Останавливаем перед удалением и удаляем
-    client.post(f"/jobs/{job_id}/stop", headers=admin_headers)
-    del_resp = client.delete(f"/jobs/{job_id}", headers=admin_headers)
+    client.post(f"/api/v1/jobs/{job_id}/stop", headers=admin_headers)
+    del_resp = client.delete(f"/api/v1/jobs/{job_id}", headers=admin_headers)
     assert del_resp.status_code == 200
     assert del_resp.json()["status"] == "deleted"
 
     # 8. Проверяем, что задача удалена
-    get_resp = client.get(f"/jobs/{job_id}", headers=admin_headers)
+    get_resp = client.get(f"/api/v1/jobs/{job_id}", headers=admin_headers)
     assert get_resp.status_code == 404

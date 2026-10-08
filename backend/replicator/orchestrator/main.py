@@ -570,9 +570,9 @@ class WorkerHeartbeatRequest(BaseModel):
     active_transfers: int = 1
 
 
-@app.post("/workers/heartbeat", tags=["Monitoring"])
+@app.post("/api/v1/workers/heartbeat", tags=["Monitoring"])
 async def worker_heartbeat(request: WorkerHeartbeatRequest):
-    """Регистрация активности воркеров для метрики active_workers (обратная совместимость)."""
+    """Регистрация активности воркеров для метрики active_workers."""
     agent_registry.heartbeat(
         AgentHeartbeatRequest(
             agent_id=request.worker_id,
@@ -580,13 +580,12 @@ async def worker_heartbeat(request: WorkerHeartbeatRequest):
             active_transfers=request.active_transfers,
         )
     )
-    # В legacy эндпоинте сохраняем совместимость с тестами, передающими явный active_transfers
     count = request.active_transfers if request.active_transfers > 0 else agent_registry.get_active_agents_count()
     metrics.active_workers.set(count)
     return {"status": "ok"}
 
 
-@app.post("/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
+@app.post("/api/v1/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 async def create_job(
     request: CreateJobRequest,
     current_user: UserSession = Depends(get_current_user),
@@ -684,7 +683,7 @@ async def create_job(
     return job_db
 
 
-@app.get("/jobs", response_model=List[JobResponse], tags=["Jobs"])
+@app.get("/api/v1/jobs", response_model=List[JobResponse], tags=["Jobs"])
 async def list_jobs(
     status_filter: Optional[str] = Query(default=None, alias="status", description="Фильтр по статусу задачи"),
     author: Optional[str] = Query(default=None, description="Фильтр по автору задачи"),
@@ -713,7 +712,7 @@ async def list_jobs(
     return query.order_by(JobModel.created_at.desc()).all()
 
 
-@app.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@app.get("/api/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 async def get_job(job_id: str, db: Session = Depends(get_db)):
     """Получение детальной информации о задаче репликации по ID из БД."""
     job = db.query(JobModel).filter(JobModel.id == job_id).first()
@@ -725,7 +724,7 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
     return job
 
 
-@app.patch("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@app.patch("/api/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 async def update_job(job_id: str, request: UpdateJobRequest, db: Session = Depends(get_db)):
     """Обновление статуса и прогресса выполнения задачи (используется воркерами)."""
     job = db.query(JobModel).filter(JobModel.id == job_id).first()
@@ -820,7 +819,7 @@ def check_job_access(job: JobModel, user: UserSession):
     )
 
 
-@app.get("/jobs/{job_id}/runs", response_model=List[JobRunResponse], tags=["Jobs"])
+@app.get("/api/v1/jobs/{job_id}/runs", response_model=List[JobRunResponse], tags=["Jobs"])
 async def list_job_runs(
     job_id: str,
     current_user: UserSession = Depends(get_current_user),
@@ -837,7 +836,7 @@ async def list_job_runs(
     return db.query(JobRunModel).filter(JobRunModel.job_id == job_id).order_by(JobRunModel.run_number.desc()).all()
 
 
-@app.post("/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
+@app.post("/api/v1/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
 async def start_job(
     job_id: str,
     current_user: UserSession = Depends(get_current_user),
@@ -906,7 +905,7 @@ async def start_job(
     return job
 
 
-@app.post("/jobs/{job_id}/stop", response_model=JobResponse, tags=["Jobs"])
+@app.post("/api/v1/jobs/{job_id}/stop", response_model=JobResponse, tags=["Jobs"])
 async def stop_job(
     job_id: str,
     current_user: UserSession = Depends(get_current_user),
@@ -942,7 +941,7 @@ async def stop_job(
     return job
 
 
-@app.post("/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
+@app.post("/api/v1/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
 async def cancel_job(
     job_id: str,
     current_user: UserSession = Depends(get_current_user),
@@ -952,7 +951,7 @@ async def cancel_job(
     return await stop_job(job_id=job_id, current_user=current_user, db=db)
 
 
-@app.put("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@app.put("/api/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 async def edit_job(
     job_id: str,
     request: EditJobRequest,
@@ -1018,7 +1017,7 @@ async def edit_job(
     return job
 
 
-@app.delete("/jobs/{job_id}", tags=["Jobs"])
+@app.delete("/api/v1/jobs/{job_id}", tags=["Jobs"])
 async def delete_job(
     job_id: str,
     current_user: UserSession = Depends(get_current_user),
@@ -1045,7 +1044,7 @@ async def delete_job(
     return {"status": "deleted", "id": job_id, "message": "Задача успешно удалена"}
 
 
-@app.post("/tokens/request", response_model=TokenResponse, tags=["Throttling"])
+@app.post("/api/v1/tokens/request", response_model=TokenResponse, tags=["Throttling"])
 async def request_tokens(
     request: TokenRequest,
     tb_throttler: TokenBucketThrottler = Depends(get_throttler),
@@ -1066,13 +1065,13 @@ async def request_tokens(
     )
 
 
-@app.get("/tokens/limit", tags=["Throttling"])
+@app.get("/api/v1/tokens/limit", tags=["Throttling"])
 async def get_throttle_limit(tb_throttler: TokenBucketThrottler = Depends(get_throttler)):
     """Получение текущего состояния троттлера (Global, DC-DC, HDFS-HDFS)."""
     return await tb_throttler.get_state()
 
 
-@app.put("/tokens/limit", tags=["Throttling"])
+@app.put("/api/v1/tokens/limit", tags=["Throttling"])
 async def set_throttle_limit(
     request: ThrottlerLimitRequest,
     admin_user: UserSession = Depends(require_admin),
@@ -1084,7 +1083,7 @@ async def set_throttle_limit(
 
 
 @app.post(
-    "/jobs/{job_id}/snapshot-diff",
+    "/api/v1/jobs/{job_id}/snapshot-diff",
     response_model=List[TaskResponse],
     status_code=status.HTTP_201_CREATED,
     tags=["Snapshot Diff"],
@@ -1116,7 +1115,7 @@ async def process_snapshot_diff(
 
 
 @app.get(
-    "/jobs/{job_id}/tasks",
+    "/api/v1/jobs/{job_id}/tasks",
     response_model=List[TaskResponse],
     tags=["Snapshot Diff"],
 )

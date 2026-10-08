@@ -28,7 +28,7 @@ echo "   Создан /tmp/data/analytics_report_dc2.parquet (3 MB) в DC2 (back
 
 echo ""
 echo "==> 2. Создание задачи №1: Python Agent (DC1) ➔ Java 17 Agent (DC2)..."
-JOB1_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/jobs" \
+JOB1_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/tmp/data/prod_sales_dc1.csv",
@@ -46,7 +46,7 @@ echo "      Маршрут: demo-cluster (Python) -> backup-cluster (Java 17)"
 
 echo ""
 echo "==> 3. Создание задачи №2: Java 17 Agent (DC2) ➔ Python Agent (DC1) [Failback / DR]..."
-JOB2_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/jobs" \
+JOB2_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/tmp/data/analytics_report_dc2.parquet",

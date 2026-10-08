@@ -40,7 +40,7 @@ async def test_prometheus_metrics_endpoint(client):
     """Проверка эндпоинта /metrics для сбора Prometheus."""
     # 1. Создаем задачу для генерации метрик
     create_resp = await client.post(
-        "/jobs",
+        "/api/v1/jobs",
         json={
             "source_path": "/data/test.parquet",
             "target_path": "/backup/test.parquet",
@@ -51,7 +51,7 @@ async def test_prometheus_metrics_endpoint(client):
 
     # 2. Регистрируем heartbeat воркера
     hb_resp = await client.post(
-        "/workers/heartbeat",
+        "/api/v1/workers/heartbeat",
         json={"worker_id": "worker-test-1", "active_transfers": 2},
     )
     assert hb_resp.status_code == 200
