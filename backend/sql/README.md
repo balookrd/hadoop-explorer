@@ -1,25 +1,25 @@
 # SQL Explorer API (Java 21 / Spring Boot 3)
 
-Native enterprise backend service for analytical queries across Trino and Apache Hive clusters, built with **Java 21 LTS** and **Spring Boot 3.3.4**.
+Нативный корпоративный бэкенд-сервис для аналитических запросов к кластерам Trino и Apache Hive, реализованный на **Java 21 LTS** и **Spring Boot 3.3.4**.
 
-## Architecture & Features
+## Архитектура и возможности
 
-- **Single Security Core**: Built upon `common-security-starter` (Java 21), providing LDAPS, Kerberos SPNEGO, JWT HttpOnly cookies, CSRF protection, Sliding Window Rate Limiting, and RBAC/ACL.
-- **Engines**: Trino REST client, Hive engine, and MockSqlEngine with full schema catalogs (`tpch`, `analytics`).
-- **Catalog Metadata API**: Multilevel caching (catalogs, schemas, tables, columns) with on-demand refresh.
-- **Asynchronous Execution & SSE**: Streaming query lifecycle, row streaming, cancel signal propagation, and persistent query history.
-- **AI Assistant**: Built-in intelligent SQL assistant for formatting, explanation, optimization, automated bug fixing, and text-to-SQL generation.
-- **Embedded Frontend SPA**: Static production bundle from `frontend/apps/sql/dist` served directly by Spring Boot.
+- **Единое ядро безопасности**: Интеграция со стартером `common-security-starter` (Java 21), обеспечивающим поддержку LDAPS, Kerberos SPNEGO, JWT в защищенных HttpOnly Cookie, защиту от CSRF, Rate Limiting и разграничение доступа по ACL/RBAC.
+- **Движки исполнения**: Trino REST клиент, Hive движок и MockSqlEngine с полнофункциональными каталогами данных (`tpch`, `analytics`).
+- **API метаданных каталогов**: Многоуровневое кэширование (каталоги, схемы, таблицы, колонки) с поддержкой принудительного обновления.
+- **Асинхронное исполнение и SSE**: Потоковая передача жизненного цикла запросов, стриминг строк, поддержка сигналов отмены и сохранение истории.
+- **AI-ассистент**: Встроенный интеллектуальный помощник для форматирования, пошагового объяснения планов выполнения, оптимизации запросов, исправления ошибок и генерации Text-to-SQL.
+- **Встроенный SPA-фронтенд**: Продакшн-бандл из `frontend/apps/sql/dist` раздается напрямую через Spring Boot.
 
-## Build and Run
+## Сборка и запуск
 
 ```bash
-# Build & run tests
+# Запуск модульных и интеграционных тестов
 mvn clean test -f backend/sql/sql-java/pom.xml
 
-# Package fat jar
+# Сборка fat jar
 mvn clean package -DskipTests -f backend/sql/sql-java/pom.xml
 
-# Run application
+# Запуск сервиса
 java -jar backend/sql/sql-java/target/sql-explorer-java-1.0.0.jar
 ```
