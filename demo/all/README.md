@@ -25,8 +25,8 @@
 | **`grafana`** | Grafana Dashboard (Дашборды мониторинга) | `3000` | `3000` |
 | **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8001`** |
 | **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8002`** |
-| **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8000` | **`8003`** |
-| **`spark-explorer`** | **Spark Web Explorer UI & Backend** | `8000` | **`8004`** |
+| **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8003` | **`8003`** |
+| **`spark-explorer`** | **Spark Web Explorer UI & Backend** | `8004` | **`8004`** |
 
 ---
 

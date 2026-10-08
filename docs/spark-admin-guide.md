@@ -34,7 +34,7 @@
 
 ### 1.3 Системные требования
 - **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12).
-- **Среда выполнения**: Python `3.11` – `3.14`, Node.js `20+` / `22 LTS`.
+- **Среда выполнения**: Java `21 LTS` (Eclipse Temurin / OpenJDK), Maven `3.9+`, Node.js `20+` / `22 LTS`.
 - **Ресурсы (на 1 реплику)**:
   - CPU: `1 ядро` (рек. `2 ядра`)
   - RAM: `1.5 ГБ` (рек. `2 ГБ`)
@@ -49,14 +49,14 @@
 **Ubuntu / Debian**:
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    build-essential python3 python3-venv python3-dev \
-    libkrb5-dev libsasl2-dev krb5-user ldap-utils curl git
+    openjdk-21-jdk maven \
+    krb5-user ldap-utils curl git
 ```
 
 **RHEL / Rocky Linux**:
 ```bash
-sudo dnf install -y gcc python3 python3-devel \
-    krb5-devel cyrus-sasl-devel krb5-workstation openldap-clients curl git
+sudo dnf install -y java-21-openjdk-devel maven \
+    krb5-workstation openldap-clients curl git
 ```
 
 ### Шаг 2: Создание пользователя и структуры каталогов
@@ -79,16 +79,14 @@ sudo -u appuser -i
 cd /opt/hadoop-explorer/spark
 git clone https://github.com/company/hadoop-explorer.git .
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -e backend/common -e backend/spark
-
 # Сборка фронтенда Spark Explorer
 cd frontend
 npm ci --workspace=apps/spark --include-workspace-root
 npm run build --workspace=apps/spark
 cd ..
+
+# Сборка Java 21 бэкенда (Spring Boot Fat JAR)
+mvn clean package -pl backend/common-security-starter,backend/spark/spark-java -am -DskipTests
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -181,18 +179,12 @@ Type=simple
 User=appuser
 Group=appuser
 WorkingDirectory=/opt/hadoop-explorer/spark
-Environment="PYTHONPATH=/opt/hadoop-explorer/spark:/opt/hadoop-explorer/spark/backend/common:/opt/hadoop-explorer/spark/backend/spark"
-Environment="CONFIG_PATH=/etc/hadoop-explorer/spark/config.yaml"
-Environment="FRONTEND_DIST=/opt/hadoop-explorer/spark/frontend/apps/spark/dist"
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/spark/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
-Environment="WEB_CONCURRENCY=2"
 
-ExecStart=/opt/hadoop-explorer/spark/.venv/bin/uvicorn app.main:app \
-    --app-dir backend/spark \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --workers 2 \
-    --log-level info
+ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
+    -jar /opt/hadoop-explorer/spark/backend/spark/spark-java/target/spark-explorer.jar \
+    --server.port=8004
 
 Restart=always
 RestartSec=5s

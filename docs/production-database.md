@@ -36,8 +36,8 @@ replicaCount: 2
 
 config:
   database:
-    # URL для асинхронного драйвера SQLAlchemy (PostgreSQL asyncpg)
-    url: "postgresql+asyncpg://hadoop_explorer@postgres-cluster.database.svc.cluster.local:5432/sql_explorer"
+    # URL для JDBC драйвера (PostgreSQL HikariCP)
+    url: "jdbc:postgresql://postgres-cluster.database.svc.cluster.local:5432/sql_explorer?user=hadoop_explorer"
 
 secrets:
   # Пароль базы данных, автоматически инжектируемый в Deployment
@@ -57,7 +57,7 @@ autoscaling:
 ```
 
 > [!NOTE]
-> При указании строки подключения `postgresql://...` или `postgresql+asyncpg://...` Helm автоматически снимает ограничение на `replicaCount = 1`.
+> При указании строки подключения `jdbc:postgresql://...` Helm автоматически снимает ограничение на `replicaCount = 1`.
 
 ---
 
@@ -67,15 +67,18 @@ autoscaling:
 
 | Переменная | Пример значения | Описание |
 |---|---|---|
-| `DATABASE_URL` (или `${APP}_DATABASE_URL`) | `postgresql+asyncpg://user:pass@host:5432/db` | Строка подключения SQLAlchemy |
-| `DATABASE_PASSWORD` | `your_strong_password` | Пароль пользователя БД |
+| `SPRING_DATASOURCE_URL` (или `DATABASE_URL`) | `jdbc:postgresql://host:5432/db` | Строка подключения JDBC (HikariCP) |
+| `SPRING_DATASOURCE_USERNAME` | `hadoop_explorer` | Пользователь БД |
+| `SPRING_DATASOURCE_PASSWORD` | `your_strong_password` | Пароль пользователя БД |
 
 Пример запуска контейнера:
 ```bash
 docker run -d \
-  -e SQL_DATABASE_URL="postgresql+asyncpg://hadoop_explorer:secret@postgres:5432/sql_explorer" \
+  -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/sql_explorer" \
+  -e SPRING_DATASOURCE_USERNAME="hadoop_explorer" \
+  -e SPRING_DATASOURCE_PASSWORD="secret" \
   -e JWT_SECRET_KEY="your-production-secret-key" \
-  -p 8000:8000 \
+  -p 8003:8003 \
   balookrd/sql-explorer:latest
 ```
 
@@ -83,7 +86,7 @@ docker run -d \
 
 ## 4. Чек-лист проверки готовности к Production
 
-- [ ] В `values.yaml` задан URL базы данных `postgresql+asyncpg://...`.
+- [ ] В `values.yaml` задан URL базы данных `jdbc:postgresql://...`.
 - [ ] Пароль базы данных вынесен в Kubernetes Secret (`secrets.databasePassword` или SealedSecrets / HashiCorp Vault).
 - [ ] Параметр `replicaCount >= 2`.
 - [ ] Включен `PodDisruptionBudget` (`maxUnavailable: 1`).

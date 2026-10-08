@@ -12,9 +12,9 @@
 ## 1. Концепция и принципы архитектуры
 
 - **Монорепозиторий с независимой поставкой**: единая кодовая база с разделением на независимые легковесные микросервисы. Любое приложение может быть собрано в отдельный Docker-контейнер или развернуто автономным Helm-чартом без зависимостей от других частей платформы.
-- **Единое ядро безопасности и отказоустойчивости (`backend/common`, `frontend/common`)**: централизованная реализация аутентификации (Kerberos SPNEGO + LDAPS), фабрика валидации сессий (`make_get_current_user`), персистентное сессионное хранилище, защита от CSRF, аудит, контроль частоты запросов, Circuit Breaker, распределенные блокировки (Distributed Lock) и Graceful Shutdown.
+- **Единое ядро безопасности и отказоустойчивости (`backend/common-security-starter`, `frontend/common`)**: централизованная реализация аутентификации (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, персистентное сессионное хранилище (L1/L2), защита от CSRF, AOP-аудит, контроль частоты запросов (Bucket4j Rate Limiter), Circuit Breaker и Graceful Shutdown.
 - **Cookie-First и Zero LocalStorage**: токены авторизации передаются исключительно через защищенные `HttpOnly`, `SameSite=Lax`, `Secure` Cookie. В `localStorage` браузера не сохраняются JWT-токены или чувствительные учетные данные (защита от XSS/CWE-312).
-- **Изоляция контекстов и персистентность (`User Workspace`)**: состояние вкладок, написанный код и результаты выполнения изолируются по пользователям и сохраняются в персистентную БД (SQLite WAL / PostgreSQL).
+- **Изоляция контекстов и персистентность (`User Workspace`)**: состояние вкладок, написанный код и результаты выполнения изолируются по пользователям и сохраняются в персистентную БД (H2 / PostgreSQL).
 - **Высокая доступность и самовосстановление (High Availability & Resilience)**: встроенная поддержка отказоустойчивости для всех кластерных служб (Hadoop NameNode HA, YARN ResourceManager HA, Hive Metastore HA, Kerberos KDC) с защитой Fast-Fail через Circuit Breaker и автоматическим Failover.
 
 ---
@@ -44,15 +44,14 @@
                                         │
                                         ▼
                    ┌──────────────────────────────────────────────┐
-                   │       Ядро платформы (backend/common)        │
-                   │  - SessionStore & L1/L2 Token Cache          │
-                   │  - Security Middleware (make_get_current_user)│
-                   │  - Circuit Breaker (Fast-Fail & HA Failover) │
-                   │  - Distributed Lock (Redis / In-Memory DB)   │
-                   │  - Graceful Shutdown Manager                 │
-                   │  - CommonLdapAuthService / Kerberos SPNEGO   │
-                   │  - CSRF Guard & Rate Limiter (Sliding Window)│
-                   │  - Structured Audit Logger                   │
+                   │    Ядро платформы (common-security-starter)  │
+                   │  - SessionStore & L1 Caffeine / L2 JDBC      │
+                   │  - CommonAuthFilter & SecurityFilterChain    │
+                   │  - SimpleCircuitBreaker (Fast-Fail & HA)     │
+                   │  - Spring Boot 3 Graceful Shutdown           │
+                   │  - LdapAuthService / Kerberos SPNEGO GSS-API │
+                   │  - CSRF Guard & Rate Limiter (Bucket4j)      │
+                   │  - AOP JSON Structured Audit Logging         │
                    └──────────────────────┬───────────────────────┘
                                           │
      ┌─────────────────────────┬───────────┴───────────┬─────────────────────────┐
@@ -66,11 +65,11 @@
 
 ---
 
-## 3. Подсистема безопасности (`backend/common`)
+## 3. Подсистема безопасности платформы (`backend/common-security-starter`)
 
-### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и единый `create_auth_router`
-1. **Централизованный Auth APIRouter (`backend.common.api.auth_router`)**:
-   - Фабрика `create_auth_router` генерирует стандартизированный набор эндпоинтов аутентификации (`POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`) для всех микросервисов платформы.
+### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и единый `AuthController`
+1. **Стандартизированный AuthController (`org.apache.hadoop.explorer.common.controller.AuthController`)**:
+   - Автоматически предоставляет единый набор эндпоинтов аутентификации (`POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`) для всех микросервисов платформы.
    - Поддерживает скользящее продление сессий (Sliding Session), установку безопасных `HttpOnly` Cookie, работу с mock-пользователями и аутентификацию по LDAP/Kerberos.
 2. **Единый KerberosManager (`backend.common.core.kerberos`)**:
    - Потокобезопасный класс для управления тикетами Kerberos (инициализация `kinit -kt`, проверка валидности через `klist`, генерация SPNEGO-заголовков `Authorization: Negotiate` для внутренних клиентов WebHDFS, YARN RM и Livy).
@@ -81,13 +80,13 @@
 
 ### 3.2 Персистентное сессионное хранилище (`SessionStore`)
 - Защита от использования отозванных токенов (CWE-613).
-- Неблокирующий асинхронный I/O: методы `save_session_async`, `get_session_async`, `is_token_revoked_async`, `check_and_record_rate_limit_async` выполняются через пул рабочих потоков во избежание блокировки FastAPI Event Loop.
+- Неблокирующий I/O: методы сессионного хранилища и rate limiter выполняются с потокобезопасным доступом и оптимизацией пулов потоков Java 21.
 - Активные сессии сохраняются в таблице `active_sessions` реляционной БД.
 - Двухуровневый черный список отозванных токенов:
-  - **L1**: сверхбыстрый In-Memory LRU кэш (`L1RevokedTokenCache`) с автоматической очисткой по TTL.
-  - **L2**: база данных (PostgreSQL / SQLite WAL) или Redis.
+  - **L1**: сверхбыстрый In-Memory LRU кэш Caffeine (`L1RevokedTokenCache`) с автоматической очисткой по TTL.
+  - **L2**: база данных (PostgreSQL / H2 / SQLite) или Redis.
 - Защита от **Fail-Open**: при временной недоступности базы данных невалидные токены не пропускаются.
-- **Диагностика доступности (`ping` / `ping_async`)**: поддержка проверки доступности хранилища для Kubernetes Readiness Probes.
+- **Диагностика доступности (`ping`)**: поддержка проверки доступности хранилища для Kubernetes Readiness Probes.
 
 ### 3.3 Защита от CSRF и атак на транспорт
 - Полная блокировка межсайтовых запросов: анализ заголовка `Sec-Fetch-Site: cross-site`.
@@ -95,13 +94,12 @@
 - Обязательное требование заголовка `X-Requested-With` для асинхронных API вызовов.
 
 ### 3.4 Rate Limiting и аудит
-- Алгоритм скользящего окна (Sliding Window) с неблокирующей асинхронной проверкой и поддержкой распределенных хранилищ (Redis, Postgres, SQLite).
-- **Оптимизированный путь исполнения**: проверка и регистрация запросов выполняются через быстрые `SELECT COUNT()` / `INSERT` без тяжелых `DELETE`-операций на каждый входящий запрос, что исключает блокировки (write-lock contention) в БД. Очистка устаревших записей вынесена в плановый метод `cleanup_expired`.
+- Алгоритм скользящего окна / Token Bucket (`Bucket4j`) с потокобезопасной проверкой и поддержкой распределенных хранилищ.
 - Определение реального IP-клиента с защитой от спуфинга заголовка `X-Forwarded-For` через список доверенных прокси (`trusted_proxies`).
 - Структурированное JSON-логирование критических событий безопасности (`AUDIT_LOGIN_SUCCESS`, `AUDIT_LOGIN_FAILURE`, `AUDIT_TOKEN_REVOKED`, `AUDIT_CSRF_REJECT`).
 
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
-Централизованный модуль `backend.common.core.security` предоставляет функцию `apply_security_headers`, гарантирующую соблюдение современных стандартов защиты веб-клиента:
+Централизованный фильтр безопасности гарантирует соблюдение современных стандартов защиты веб-клиента:
 - **Content-Security-Policy (CSP)**:
   - **Базовая строгая политика (`CSP_DEFAULT_DIRECTIVES`)**: применяется для YARN и HDFS Explorer (`default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`).
   - **Политика для редакторов кода (`CSP_CODE_EDITOR_DIRECTIVES`)**: применяется для SQL и Spark Explorer для безопасного функционирования Monaco Editor и Web Workers (`worker-src 'self' blob:`, `script-src 'self' 'unsafe-eval' blob:`, `connect-src 'self' ws: wss: http: https:`, `img-src 'self' data: blob:`).
@@ -112,12 +110,12 @@
   - `Referrer-Policy: strict-origin-when-cross-origin` — ограничение передачи заголовка Referer на сторонние ресурсы.
   - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS) — принудительный переход на HTTPS при включенной опции `secure_cookies`.
 
-### 3.6 Java 21 / Spring Boot 3 Стартер безопасности (`backend/common-security-starter`)
-Для сервисов платформы на Java 21 разработан нативный стартер `org.apache.hadoop.explorer:common-security-starter`, функционально полностью эквивалентный Python-ядру `backend/common`:
+### 3.6 Стартер безопасности платформы (`backend/common-security-starter`)
+Все сервисы платформы используют стартер `org.apache.hadoop.explorer:common-security-starter`:
 - **Spring Boot 3 AutoConfiguration**: автоматическая регистрация `SecurityFilterChain`, `CommonAuthFilter`, CORS и контроллеров через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
-- **Kerberos SPNEGO SSO**: реализация нативного GSS-API (`org.ietf.jgss`) без сторонних C-библиотек.
+- **Kerberos SPNEGO SSO**: реализация нативного Java GSS-API (`org.ietf.jgss`) без сторонних библиотек.
 - **LDAPS / Active Directory**: безопасная аутентификация с экранированием фильтров (CWE-90).
-- **SessionStore L1/L2**: двухуровневый кэш (L1 Caffeine LRU + L2 JDBC SQLite/PostgreSQL/H2) с отзывом токенов и защитой от Fail-Open.
+- **SessionStore L1/L2**: двухуровневый кэш (L1 Caffeine LRU + L2 JDBC H2/PostgreSQL) с отзывом токенов и защитой от Fail-Open.
 - **CSRF Guard**: строгая проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и белого списка `Origin`/`Referer`.
 - **Resilience & Audit**: Token Bucket Rate Limiter (`Bucket4j`), `SimpleCircuitBreaker` и структурированный JSON-аудит через AOP `@Audited`.
 - **Стандартизированные эндпоинты**: контроллер `AuthController` (`/api/v1/auth/login`, `/sso`, `/logout`, `/me`).
@@ -150,15 +148,14 @@
 - **HA Failover**: автоматическое переключение на резервный узел (Standby NameNode / Standby ResourceManager) при фиксации сбоя на Active-узле.
 - **Интеграция с Kubernetes Readiness Probe (`/readyz`)**: если все внешние коннекторы кластера переходят в статус `OPEN`, эндпоинт `/readyz` возвращает `503 Service Unavailable` (`status: degraded`), исключая отправку клиентского трафика на деградировавший под.
 
-### 4.3 Модуль повторных попыток с экспоненциальным Backoff (`backend.common.core.retry`)
+### 4.3 Модуль повторных попыток с экспоненциальным Backoff
 Для обработки кратковременных транзиентных сбоев сети и сокетов:
-- Асинхронная функция `retry_async` и декоратор `@with_retry`.
-- Экспоненциальный рост интервала задержки (`backoff_factor`) с добавлением случайного джиттера (`jitter=True`) для исключения эффекта «громоподобного стада» (Thundering Herd).
-- Настраиваемый список повторяемых сетевых исключений (`httpx.ConnectError`, `httpx.TimeoutException`) и исключение критических ошибок бизнес-логики.
+- Встроенные механизмы повторных попыток с экспоненциальным ростом интервала задержки (`backoff_factor`) и случайным джиттером (`jitter`) для исключения эффекта «громоподобного стада» (Thundering Herd).
+- Настраиваемый список повторяемых сетевых исключений (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`) и исключение критических ошибок бизнес-логики.
 
-### 4.4 Централизованные обработчики исключений (`backend.common.api.error_handlers`)
+### 4.4 Централизованные обработчики исключений (`@ControllerAdvice`)
 - Защита от раскрытия чувствительной информации и структуры бэкенда при 500-х ошибках (CWE-209).
-- Функция `setup_global_exception_handlers(app)` перехватывает необработанные ошибки, генерирует уникальный `incident_id`, детально логирует инцидент внутри сервера и возвращает клиенту безопасный ответ.
+- Глобальный обработчик `@ControllerAdvice` (`GlobalExceptionHandler`) перехватывает необработанные ошибки, генерирует уникальный `incidentId`, детально логирует инцидент внутри сервера и возвращает клиенту безопасный структурированный JSON-ответ.
 - Автоматическая трансляция состояния `CircuitBreakerOpenException` в HTTP 503 с заголовком `Retry-After`.
 
 ### 4.5 Distributed Lock (`backend.common.core.lock`)
@@ -169,11 +166,12 @@
   3. **In-Memory Fallback**: локальный потокобезопасный словарь с TTL для сред разработки.
 - Применяется в YARN Explorer для защиты согласования и отклонения заявок на изменение конфигурации очередей (Change Requests).
 
-### 4.6 Graceful Shutdown (`backend.common.core.shutdown`)
-Все микросервисы платформы интегрированы с `GracefulShutdownManager` в FastAPI lifespan:
+### 4.6 Корректное завершение (Graceful Shutdown)
+Все микросервисы платформы на Spring Boot 3 поддерживают штатное завершение работы (`server.shutdown=graceful`):
 - Перехват сигналов завершения подов Kubernetes (`SIGTERM`, `SIGINT`).
-- Корректная остановка фоновых пулов потоков (`ThreadPoolExecutor.shutdown(wait=True)`).
-- Закрытие активных HTTP-сессий, клиентов баз данных и сброс логов аудита до остановки процесса.
+- Дожидание завершения выполняющихся запросов (таймаут `spring.lifecycle.timeout-per-shutdown-phase`).
+- Корректная остановка фоновых пулов задач и потоков (`ExecutorService.shutdown()`).
+- Закрытие пулов соединений с базами данных (HikariCP pool close) и освобождение сетевых ресурсов.
 
 
 ---
@@ -282,14 +280,14 @@
 - **Унифицированный API-клиент (`BaseApiClient`)**:
   - Все клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
   - Централизованная обработка HTTP 401 с прозрачной попыткой Kerberos SSO (`/auth/sso`), защита от CSRF (`X-Requested-With`), `credentials: 'include'` и поддержка Sliding Sessions.
-- **Автоматическая кодогенерация TypeScript-типов из OpenAPI**:
-  - Команда `make generate-types` запускает скрипт [`scripts/generate-types.sh`](../scripts/generate-types.sh), который автоматически извлекает актуальные OpenAPI JSON схемы бэкенд-сервисов (`yarn`, `hdfs`, `sql`, `spark`) и генерирует строгие TypeScript-интерфейсы в `frontend/common/types/generated/`.
-  - Это исключает расхождения контрактов данных (Data Drift) между Pydantic-моделями бэкенда и фронтенд-клиентом.
+- **Строгая типизация TypeScript (`frontend/common/types/`)**:
+  - Строгие TypeScript-интерфейсы синхронизированы с DTO-моделями Java 21 сервисов платформы (`yarn`, `hdfs`, `sql`, `spark`, `replicator`).
+  - Это исключает расхождения контрактов данных (Data Drift) между Java Record/Class бэкенда и фронтенд-клиентом.
 
 ---
 
 ### 3.10 Асимметричные JWT (RS256/ES256), ротация ключей и JWKS (RFC 7517)
-В `backend.common.core.jwt_keys` реализован `JWTKeyManager`:
+В `backend/common-security-starter` реализован `JwtKeyManager`:
 - Поддержка асимметричной подписи токенов RSA (`RS256`) и ECDSA (`ES256`) с автоматическим добавлением идентификатора ключа `kid` в JWT header.
 - Бесшовная ротация ключей: сохранение истории публичных ключей для непрерывной валидации ранее выпущенных токенов при выпуске нового активного ключа подписи.
 - Эндпоинты `GET /api/v1/auth/jwks.json` и `GET /.well-known/jwks.json`, экспортирующие набор открытых ключей в стандартном формате RFC 7517 для интеграции с внешними API Gateway, Service Mesh и OAuth2/OIDC сервисами.
@@ -299,9 +297,9 @@
 ## 4. Оптимизации производительности и потоковой передачи данных
 
 ### 4.1 Высокопроизводительный пул соединений с поддержкой HTTP/2
-Фабрика `create_async_http_client` (`backend.common.core.http_client`) предоставляет оптимизированный асинхронный HTTP-клиент:
+Инфраструктура HTTP-клиентов на базе нативного Java 21 `HttpClient` и пулов соединений:
 - Поддержка мультиплексирования HTTP/2 с автоматическим graceful fallback на HTTP/1.1 при неподдерживаемых бэкендах.
-- Тонко настроенный пул соединений (`httpx.Limits(max_keepalive_connections=50, max_connections=200, keepalive_expiry=30.0)`).
+- Пул соединений с тонкой настройкой таймаутов подключения, чтения и keepalive-сессий.
 - Снижение latency и накладных расходов на TLS/TCP handshakes при частых опросах кластерных API (YARN RM, WebHDFS, Livy).
 
 ### 4.2 SSE-стриминг состояния сессий и запросов
@@ -319,8 +317,8 @@
 - `POST /api/v1/clusters/{cluster_id}/files/batch-delete`: параллельное удаление множества файлов и директорий с детализированным отчетом об успехах и ошибках.
 - `POST /api/v1/clusters/{cluster_id}/files/batch-download`: потоковая упаковка выбранного набора файлов и каталогов в единый ZIP-архив на лету без предварительного сохранения на диск сервера.
 
-### 4.5 ETag Middleware и условное кэширование (HTTP 304 Not Modified)
-Модуль `backend.common.api.etag_middleware.ETagMiddleware`:
+### 4.5 Условное ETag-кэширование (HTTP 304 Not Modified)
+Spring Boot фильтр `ShallowEtagHeaderFilter`:
 - Автоматически рассчитывает слабые ETag-хэши (`W/"..."`) для всех безопасных GET/HEAD ответов API.
 - Обрабатывает входящий заголовок `If-None-Match`, возвращая легковесный `HTTP 304 Not Modified` без тела ответа при неизменности данных (каталоги метаданных Hive, неизменные очереди YARN, списки кластеров).
 
@@ -368,27 +366,27 @@
 ## 6. Модель персистентности данных (Storage Layer)
 
 Платформа поддерживает три варианта персистентности:
-1. **SQLite (WAL Mode)**: режим по умолчанию для автономного запуска и локальных демо-стендов (`sqlite+aiosqlite:///...`). Включение режима Write-Ahead Logging обеспечивает высокую конкурентность чтения и записи.
-2. **PostgreSQL**: рекомендуемый промышленный стандарт для продакшн-окружений (`postgresql+asyncpg://...`). Обеспечивает единое хранилище сессий, воркспейсов и заявок YARN при горизонтальном масштабировании подов с поддержкой блокировок на уровне строк (`SELECT FOR UPDATE`).
-3. **Redis**: опциональный слой для распределенного Rate Limiting, централизованного черного списка токенов и распределенных блокировок (`DistributedLock`).
+1. **SQLite (JDBC)**: режим по умолчанию для автономного запуска и локальных демо-стендов (`jdbc:sqlite:data/<service>.db`).
+2. **PostgreSQL (JDBC / HikariCP)**: рекомендуемый промышленный стандарт для продакшн-окружений (`jdbc:postgresql://...`). Обеспечивает единое хранилище сессий, воркспейсов и заявок YARN при горизонтальном масштабировании подов с поддержкой блокировок на уровне строк (`SELECT FOR UPDATE`).
+3. **H2 Database (In-Memory)**: режим для быстрого прогона модульных и интеграционных тестов (`jdbc:h2:mem:...`).
 
-### 6.1 Инфраструктура миграций БД (Alembic)
-Управление схемой реляционной базы данных автоматизировано через Alembic (`alembic.ini`, `migrations/`):
-- Декларативные миграции для таблиц сессий (`sessions`), воркспейсов (`workspaces`), сохраненных запросов (`saved_queries`), истории вычислений и аудита.
-- Автоматическая поддержка как SQLite, так и PostgreSQL без расхождения DDL.
+### 6.1 Инициализация и версионирование схемы БД (`schema.sql` / JPA)
+Управление схемой реляционной базы данных автоматизировано средствами Spring Boot и JPA:
+- Автоматическая инициализация DDL-схемы для таблиц сессий (`sessions`), воркспейсов (`workspaces`), сохраненных запросов (`saved_queries`), истории вычислений и аудита.
+- Автоматическая поддержка H2, SQLite и PostgreSQL без расхождения схемы данных.
 
 ---
 
 ## 7. Модель развертывания и надежность (Reliability)
 
-1. **Docker Multi-Stage Build & оптимизация кэширования слоев**:
-   - Stage 1: сборка frontend SPA на Node.js 22 (Svelte 5 + Vite).
-   - Stage 2: сборка зависимостей Python с отдельным слоем для сторонних пакетов, что исключает повторную загрузку и компиляцию библиотек при изменении кода.
-   - Stage 3: минимальный runtime образ Python 3.12-slim с системными библиотеками Kerberos, SASL, OpenLDAP, запуском под непривилегированным пользователем `appuser (UID 10001)`.
-   - Конфигурирование количества Uvicorn воркеров через переменную окружения `WEB_CONCURRENCY` / `WORKERS` (по умолчанию `2`).
+1. **Docker образы на базе Eclipse Temurin 21 JRE**:
+   - Минимальный защищенный runtime-образ `eclipse-temurin:21-jre-jammy` с системными утилитами Kerberos (`krb5-user`) и `curl` для healthcheck.
+   - Упаковка скомпилированного Spring Boot Fat JAR (`backend/<service>/<service>-java/target/*.jar`) и статических бандлов Svelte 5 SPA.
+   - Запуск под непривилегированным пользователем `appuser (UID 10001)`.
+   - Оптимизированные параметры памяти JVM (`-Xms256m -Xmx1024m`).
 2. **Структурированное JSON-логирование в продакшне**:
-   - Реализован `JSONFormatter` (`backend.common.core.logging_config`) для стандартизированного вывода логов в формате JSON (совместимость с ELK, Vector, FluentBit, Grafana Loki).
-   - Автоматическое включение `timestamp`, `level`, `logger`, `request_id`, `message` и дополнительных метаданных.
+   - Настройка Logback с JSON/Logstash-энкодером для стандартизированного вывода логов в формате JSON (совместимость с ELK, Vector, FluentBit, Grafana Loki).
+   - Автоматическое включение `timestamp`, `level`, `logger`, `requestId`, `message` и контекстных MDC-метаданных.
 3. **Kubernetes (Helm)**:
    - **Umbrella Chart (`helm/hadoop-explorer`)**: единая декларативная установка всех сервисов с Ingress-маршрутизацией.
    - **Автономные чарты (`helm/charts/*`)**: независимое развертывание компонентов в различных неймспейсах.
@@ -424,51 +422,47 @@
                   └───────────┬───────────┘
                               │
                   ┌───────────┴───────────┐
-                  │ FastAPI REST API / IT │
+                  │ Spring Boot MockMvc IT│
                   └───────────┬───────────┘
                               │
                   ┌───────────┴───────────┐
-                  │ Python Core Unit Test │
+                  │ Java 21 Unit Tests    │
                   └───────────────────────┘
 ```
 
-### 9.1 Метрики тестового покрытия платформы (407+ тестов: 347 Python/Frontend + 60 Java)
+### 9.1 Метрики тестового покрытия платформы (Java 21 + Svelte 5 Vitest)
 
-| Сервис / Уровень | Количество тестов | Ключевые аспекты покрытия |
+| Сервис / Уровень | Стек и покрытие | Ключевые аспекты покрытия |
 |---|---|---|
-| **Common Security Starter (Java 21)** | **20 Java тестов** | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
-| **YARN Explorer** | **13 тестов бэкенда (Java 21 / Spring Boot 3)** | Capacity Scheduler валидация, балансировка долей веток 100%, Draft Diff, XML Generation и санитизация, RM HA failover (`STANDBY` → `ACTIVE`), сбор метрик кластера, Change Requests (Four-Eyes Principle), AWX интеграция, аудит, L1 кэш токенов, Readiness / Healthz, Circuit Breaker |
-| **HDFS Explorer** | **16 тестов бэкенда (Java 21 / Spring Boot 3)** | NameNode HA Failover при `StandbyException`, Kerberos Proxy User doAs имперсонация, ContentSummary квоты, ACL, API, Readiness / Health, Parquet/ORC Preview со schema footer reader, MockHdfsClient, Circuit Breaker + Prometheus metrics, Rate Limiter |
-| **SQL Explorer** | **42 теста** | Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace |
-| **Spark Explorer** | **24 теста** | Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker |
-| **Hadoop gRPC Replicator** | **54 теста бэкенда (+ 13 Java тестов: agent + orchestrator)** | Protobuf gRPC контракт, Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), потоковый Receiver со staging и SHA-256, KerberosContextManager изоляция KRB5CCNAME, Snapshot Diff парсер, Prometheus метрики, Cron Scheduler демон, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой (триггер `MANUAL`/`SCHEDULED`, тайминги, объем, средняя скорость, ошибки), настраиваемая глубина истории `history_retention_runs` с авто-прунингом старых запусков (`prune_job_runs`), эндпоинты `GET /api/v1/jobs/{id}/runs`, RBAC изоляция задач (Admin sees all / User sees own), запрет редактирования лимитов не-админам (HTTP 403 Forbidden), действия жизненного цикла задач (Start/Stop/Edit/Delete с матрицей доступности), серверная и клиентская фильтрация по статусам и авторам, фавиконка и SPA интеграция на базе BaseApiClient |
-| **Frontend UI Suite** | **92 теста** | Полное компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), полифиллы jsdom (ResizeObserver, IntersectionObserver, clipboard), строгая проверка типов `svelte-check` (0 ошибок) и E2E сценарии Playwright |
+| **Common Security Starter** | **20 тестов (Java 21)** | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC H2/Postgres), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
+| **YARN Explorer** | **13 тестов (Java 21)** | Capacity Scheduler валидация, балансировка долей веток 100%, Draft Diff, XML Generation и санитизация, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (Four-Eyes Principle), AWX REST клиент, аудит, L1 кэш токенов, Circuit Breaker |
+| **HDFS Explorer** | **16 тестов (Java 21)** | NameNode HA Failover при `StandbyException`, Kerberos Proxy User doAs имперсонация, ContentSummary квоты, ACL, API, Parquet/ORC Preview со schema footer reader, MockHdfsClient, Circuit Breaker + Prometheus metrics, Rate Limiter |
+| **SQL Explorer** | **10 тестов (Java 21)** | Catalog API валидация и эндпоинты, Trino/Hive движки, MockStorage, AI ассистент, токены, CSRF, ролевой доступ к кластерам, User Workspace |
+| **Spark Explorer** | **12 тестов (Java 21)** | REST клиент Apache Livy, DAG валидация циклов (алгоритм Кана), MockSparkEngine, User Workspace, ролевой доступ, сессии и выполнение statements |
+| **Hadoop gRPC Replicator** | **13 тестов (Java 21)** | Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), gRPC контракт Worker Agent, Orchestrator API, Prometheus метрики, Cron Scheduler, JobRun история |
+| **Frontend UI Suite** | **92 теста (Vitest)** | Компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), строгая проверка типов `svelte-check` |
 
 ### 9.2 Тестирование отказоустойчивости (Resilience Testing)
 1. **Circuit Breaker State Machine**:
    - Верификация переходов состояний: `CLOSED` → регистрация серии сбоев → `OPEN` (мгновенный Fast-Fail без нагрузки на упавший кластер) → ожидание `recovery_timeout` → `HALF_OPEN` → успешные пробные вызовы → возврат в `CLOSED`.
 2. **High Availability Failover**:
    - Автоматическое обнаружение и переключение на активные узлы при возврате `StandbyException` от NameNode или `haState: STANDBY` от ResourceManager.
-   - Полноценная обработка сетевых сбоев (`ConnectError`, таймауты) с переключением на резервные URL.
-3. **Retry с экспоненциальным Backoff и джиттером**:
-   - Автоматический повтор сбойных вызовов (`retry_async`) для временных сетевых ошибок с защитой от шторма повторов (jitter).
+   - Полноценная обработка сетевых сбоев (таймауты, сбои связи) с переключением на резервные URL.
 
 ### 9.3 Тестирование безопасности (Security Assurance)
 1. **CSRF & Origin Verification**:
    - Проверка Fail-Closed режима для cookie-сессий, валидация заголовков `Origin`, `Referer`, `Host` и `X-Requested-With`.
 2. **SSRF & CWE-200 Protection**:
-   - Проверка `validate_webhdfs_location` на блокировку приватных IP-адресов, метаданных облачных провайдеров (169.254.169.254) и нестандартных схем.
-   - Верификация `is_trusted_redirect_host` перед передачей чувствительных `hadoop.auth` cookie на DataNode.
+   - Валидация хостов NameNode и DataNode перед передачей чувствительных `hadoop.auth` cookie.
 3. **SQL & Identifier Injection**:
-   - Строгая валидация идентификаторов `validate_identifier` в SQL Explorer для предотвращения разрыва SQL-команд в Trino и Hive.
+   - Строгая валидация идентификаторов в SQL Explorer для предотвращения разрыва SQL-команд в Trino и Hive.
 4. **Принцип Four-Eyes**:
    - Запрет согласования заявок YARN их автором.
 
 ### 9.4 Автоматизация проверок (CI/CD Quality Gates)
-- `make sync` — синхронизация единого окружения `uv workspaces`.
-- `make lint` — проверка кодовой базы линтером Ruff.
-- `make format` — форматирование исходного кода.
-- `make test` — запуск всех 347 тестов платформы.
+- `make test` — запуск всех тестов платформы (`./scripts/run-tests.sh all`).
+- `make test-java` — прогон всех Java тестов (`mvn test`).
+- `make test-ui` — прогон тестов фронтенда (`npm run test:ui`).
 
 ---
 

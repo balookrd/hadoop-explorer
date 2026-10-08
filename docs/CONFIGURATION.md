@@ -1,12 +1,12 @@
 # ⚙️ Руководство по конфигурации Hadoop Explorer Platform
 
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
-- **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища, Circuit Breaker, Distributed Lock, Graceful Shutdown).
+- **Общий стартер безопасности** (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
 - **YARN Explorer** (`backend/yarn/yarn-java` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - **HDFS Explorer** (`backend/hdfs/hdfs-java` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
-- **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
-- **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
-- **Hadoop gRPC Replicator** (`backend/replicator` — межкластерная репликация HDFS, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
+- **SQL Explorer** (`backend/sql/sql-java` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
+- **Spark Explorer** (`backend/spark/spark-java` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
+- **Hadoop gRPC Replicator** (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 - **Развертывание в Kubernetes (Helm)**.
 
 ---
@@ -177,19 +177,19 @@ auth:
 ```yaml
 database:
   # SQLite (по умолчанию в контейнере):
-  url: "sqlite:////app/data/service_sessions.db"
+  url: "jdbc:sqlite:/app/data/service_sessions.db"
   # Либо PostgreSQL (для HA в production):
-  # url: "postgresql://user:password@pg-host:5432/hadoop_explorer"
+  # url: "jdbc:postgresql://user:password@pg-host:5432/hadoop_explorer"
   redis_url: "redis://redis-host:6379/0" # Опционально
 ```
 
 ### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 
-- **Circuit Breaker & Prometheus Metrics**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются. Метрики экспортируются через `GET /metrics` и `GET /api/v1/metrics`.
-- **Retry с экспоненциальным Backoff (`retry_async`, `@with_retry`)**: автоматический повтор при возникновении транзиентных ошибок соединения и таймаутов (`httpx.ConnectError`, `httpx.TimeoutException`) со случайным джиттером.
-- **Global Exception Handlers (`setup_global_exception_handlers`)**: перехват всех необработанных исключений 500 сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incident_id` и возвратом стандартизированного ответа.
+- **Circuit Breaker & Prometheus Metrics**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются. Метрики экспортируются через Actuator `/actuator/prometheus` (или `/metrics`).
+- **Retry с экспоненциальным Backoff**: автоматический повтор при возникновении транзиентных ошибок соединения и сокетов (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`) со случайным джиттером.
+- **Global Exception Handlers (`@ControllerAdvice`)**: перехват всех необработанных исключений 500 сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incidentId` и возвратом стандартизированного ответа.
 - **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
-- **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolExecutor`, отменой асинхронных задач и закрытием соединений с базами данных и сетевыми клиентами.
+- **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolTaskExecutor`, отменой фоновых задач и закрытием соединений с базами данных и сетевыми клиентами.
 
 ---
 
@@ -874,7 +874,7 @@ topology:
 | `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |
 | `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |
 | `LDAP_BIND_PASSWORD` / `HDFS_LDAP_PASSWORD` | Пароль сервисной учетной записи LDAP | — |
-| `DATABASE_URL` / `HDFS_DATABASE_URL` | Строка подключения к базе данных | `sqlite+aiosqlite:///...` |
+| `DATABASE_URL` / `HDFS_DATABASE_URL` | Строка подключения к базе данных | `jdbc:sqlite:data/...` |
 | `STORAGE_URL` / `REDIS_URL` | URL подключения к Redis (кэш токенов, Rate Limiter, Distributed Lock) | — |
 | `LIVY_URL` | Адрес сервера Apache Livy для Spark Explorer | `http://localhost:8998` |
 | `HIVE_METASTORE_URI` | Thrift URI каталога Hive Metastore | `thrift://localhost:9083` |
@@ -967,7 +967,7 @@ replicator:
 ```
 
 ### 9.1 Рекомендации по High-Availability в продакшне
-1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: postgresql+asyncpg://...`). Локальная SQLite поддерживает только 1 реплику. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
+1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: jdbc:postgresql://...`). Локальная SQLite поддерживает только 1 реплику. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
 2. **PodDisruptionBudget (PDB)**: Шаблоны чартов автоматически активируют `PodDisruptionBudget` при запуске более 1 реплики (`replicaCount > 1`), предотвращая одновременный drain всех реплик узлами k8s.
 3. **NetworkPolicy**: Включена по умолчанию (`networkPolicy.enabled: true`) для изоляции сетевого взаимодействия и разрешения ingress-трафика только от Ingress-контроллера.
 4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000 / 8005) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.

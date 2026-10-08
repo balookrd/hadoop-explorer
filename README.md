@@ -4,12 +4,10 @@
 
 <p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
 
-[![Tests](https://img.shields.io/badge/tests-347%20passed-brightgreen.svg)](#-тестирование-платформы)
-
-
-[![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue.svg)](https://www.python.org/)
-[![uv](https://img.shields.io/badge/uv-workspaces-purple.svg)](https://github.com/astral-sh/uv)
-[![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#-тестирование-платформы)
+[![Java](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://adoptium.net/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Maven](https://img.shields.io/badge/Maven-3.9-red.svg)](https://maven.apache.org/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20Charts-326CE5.svg)](helm/)
@@ -41,7 +39,6 @@
   - [Руководство пользователя Hadoop gRPC Replicator (docs/replicator-user-guide.md)](docs/replicator-user-guide.md)
   - [Работа Hive и Spark без кластера YARN (docs/hive-spark-without-yarn.md)](docs/hive-spark-without-yarn.md)
 - [Выделенные общие модули](#-выделенные-общие-модули)
-- [Менеджер зависимостей Python (uv workspaces)](#-менеджер-зависимостей-python-uv-workspaces)
 - [Компоненты платформы](#-компоненты-платформы)
 - [Мониторинг, Prometheus и Grafana Dashboards](#-мониторинг-prometheus-и-grafana-dashboards)
 - [Быстрый старт: Раздельные демо-стенды](#-быстрый-старт-раздельные-демо-стенды)
@@ -61,10 +58,10 @@
 1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой Four-Eyes, а также автоматизированной доставкой и горячим применением (`yarn rmadmin -refreshQueues`) через **Ansible AWX** с автоматическим откатом (Rollback).
 2. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
-4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, загрузку JARs/библиотек, изолированные буферы результатов по языкам, TTL-кэширование метаданных каталога и сохранение пользовательского контекста в БД.
-5. **Hadoop gRPC Replicator** — высокоскоростная межкластерная репликация HDFS (DC1 → DC2) с глобальным ограничением полосы пропускания (Token Bucket Throttler), бинарным gRPC-стримингом, атомарным staging/rename, инкрементальным Snapshot Diff, Kerberos-изоляцией (включая выполнение от системной техучетки) и метриками Prometheus.
+4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, визуальный DAG ETL конструктор с топологической валидацией циклов.
+5. **Hadoop gRPC Replicator** — высокоскоростная межкластерная репликация HDFS (DC1 → DC2) с глобальным ограничением полосы пропускания (Hierarchical Token Bucket Throttler), бинарным gRPC-стримингом, атомарным staging/rename, инкрементальным Snapshot Diff, Kerberos-изоляцией (включая выполнение от системной техучетки) и метриками Prometheus.
 
-Каждое приложение может собираться в **независимый легковесный Docker-контейнер**, развертываться автономно или в составе единого **Umbrella Helm Chart**, а также запускаться в собственном **раздельном демо-стенде**.
+Каждое приложение реализовано на базе **Java 21 LTS** и **Spring Boot 3.3.4**, собирается в **независимый легковесный Docker-контейнер**, развертывается автономно или в составе единого **Umbrella Helm Chart**, а также запускается в собственном **раздельном демо-стенде**.
 
 ---
 
@@ -72,119 +69,82 @@
 
 ```
 hadoop-explorer/
-├── backend/
-│   ├── common/             # ─── Общие переиспользуемые модули ядра ───
-│   │   ├── api/            # auth_router (/login, /sso, /logout, /me), error_handlers (CWE-209 защита, incident_id)
-│   │   ├── core/           # Безопасность (CSP, HSTS, JWT, CSRF), Kerberos, SessionStore, Circuit Breaker, Metrics (Prometheus), Retry (Backoff), Lock, Shutdown, LDAP, Rate Limiter, Audit
-│   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
-│   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
-│   ├── yarn/               # Сервис YARN Explorer (Java 21 / Spring Boot 3, нативный RM HA, 13 тестов)
-│   ├── hdfs/               # Сервис HDFS Explorer (Java 21 / Spring Boot 3, HA NameNode, Parquet/ORC, 16 тестов)
-│   ├── sql/                # Сервис SQL Explorer (42 теста)
-│   ├── spark/              # Сервис Spark Explorer (24 теста)
-│   └── replicator/         # Сервис Hadoop gRPC Replicator (33 теста)
+├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
+│   ├── common-security-starter/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
+│   ├── yarn/yarn-java/       # Сервис YARN Explorer (Capacity Scheduler, RM HA Failover)
+│   ├── hdfs/hdfs-java/       # Сервис HDFS Explorer (HA NameNode, Parquet/ORC Preview)
+│   ├── sql/sql-java/         # Сервис SQL Explorer (Trino, Hive, AI Assistant)
+│   ├── spark/spark-java/     # Сервис Spark Explorer (Livy, PySpark, Scala, DAG Pipelines)
+│   └── replicator/           # Сервис Hadoop gRPC Replicator
+│       ├── orchestrator-java/# Replicator Orchestrator API (Java 21 / Spring Boot 3)
+│       └── agent-java/       # Нативный Replicator gRPC Worker Daemon (Java 21)
 │
-├── ansible/                # ─── Автоматизация деплоя и применения (AWX) ───
-│   ├── playbooks/          # deploy_capacity_scheduler.yml (Job Template)
-│   ├── roles/              # yarn_capacity_scheduler (Backup, Deploy, refreshQueues, Rollback)
+├── ansible/                  # ─── Автоматизация деплоя и применения (AWX) ───
+│   ├── playbooks/            # deploy_capacity_scheduler.yml (Job Template)
+│   ├── roles/                # yarn_capacity_scheduler (Backup, Deploy, refreshQueues, Rollback)
 │   └── inventory.example.ini
 │
-│   │   ├── utils/          # sqlSplitter (SQL parser/statement at cursor), useResizable (DnD splitter)
-│   │   └── types/          # Общие TypeScript интерфейсы и сгенерированные OpenAPI типы (generated/)
+├── frontend/                 # ─── Клиентские SPA приложения (Svelte 5) ───
+│   ├── common/               # Общие UI-компоненты, API-клиенты, типы (types/generated/)
 │   ├── apps/
-│   │   ├── yarn/           # Frontend YARN Explorer (Svelte 5 + Tailwind 4 + Lazy Modals & Drawers)
-│   │   ├── hdfs/           # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация + Lazy Modals)
-│   │   ├── sql/            # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
-│   │   └── spark/          # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + Lazy Modals)
-│   └── package.json        # NPM Workspaces монорепозитория
+│   │   ├── yarn/             # Frontend YARN Explorer (Svelte 5 + Tailwind 4)
+│   │   ├── hdfs/             # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация)
+│   │   ├── sql/              # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco Editor)
+│   │   ├── spark/            # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + DAG)
+│   │   └── replicator/       # Frontend Replicator (Svelte 5 + Tailwind 4)
+│   └── package.json          # NPM Workspaces монорепозитория
 │
-├── monitoring/             # ─── Мониторинг и наблюдаемость (Observability) ───
+├── monitoring/               # ─── Мониторинг и наблюдаемость (Observability) ───
 │   └── grafana/
-│       ├── dashboards/     # Готовый JSON-дашборд (HTTP Golden Signals, Circuit Breakers, Retries, Auth, Errors)
-│       └── provisioning/   # Автопровижининг дашбордов для Docker Compose и Kubernetes
+│       ├── dashboards/       # Готовые JSON-дашборды (HTTP Signals, Circuit Breakers, Auth)
+│       └── provisioning/     # Автопровижининг дашбордов для Docker Compose и Kubernetes
 │
-├── docker/
-│   ├── Dockerfile.yarn-java # Сборка образа hadoop-explorer/yarn (Java 21 / Spring Boot 3)
-│   ├── Dockerfile.hdfs-java # Сборка образа hadoop-explorer/hdfs (Java 21 / Spring Boot 3)
-│   ├── Dockerfile.sql      # Multi-stage сборка образа hadoop-explorer/sql
-│   ├── Dockerfile.spark    # Multi-stage сборка образа hadoop-explorer/spark
-│   └── .dockerignore
+├── docker/                   # ─── Производственные Dockerfile на Java 21 ───
+│   ├── Dockerfile.yarn-java
+│   ├── Dockerfile.hdfs-java
+│   ├── Dockerfile.sql-java
+│   ├── Dockerfile.spark-java
+│   ├── Dockerfile.replicator-orchestrator-java
+│   └── Dockerfile.replicator-agent-java
 │
-├── helm/
-│   ├── hadoop-explorer/    # Umbrella Chart для комплексного деплоя платформы
-│   └── charts/
-│       ├── yarn-explorer/  # Автономный чарт YARN
-│       ├── hdfs-explorer/  # Автономный чарт HDFS
-│       ├── sql-explorer/   # Автономный чарт SQL
-│       └── spark-explorer/ # Автономный чарт Spark
+├── helm/                     # Helm Charts для оркестрации в Kubernetes
+│   ├── hadoop-explorer/      # Umbrella Chart
+│   └── charts/               # yarn-explorer, hdfs-explorer, sql-explorer, spark-explorer
 │
-├── demo/                   # ─── Изолированные демонстрационные стенды ───
-│   ├── infra/              # Единый инфраструктурный стек (MIT KDC + OpenLDAP)
-│   ├── yarn/               # Стенд YARN (2 кластера YARN RM) -> :8001
-│   ├── hdfs/               # Стенд HDFS (2 кластера WebHDFS) -> :8002
-│   ├── sql/                # Стенд SQL (Postgres, Hive, Trino) -> :8003
-│   ├── spark/              # Стенд Spark (Livy + Hive Metastore + YARN + HDFS) -> :8004
-│   └── all/                # Единый запуск всех 4 стендов с общим KDC/LDAP
+├── demo/                     # ─── Изолированные демонстрационные стенды ───
+│   ├── infra/                # MIT Kerberos KDC + OpenLDAP
+│   ├── yarn/                 # Стенд YARN (2 кластера YARN RM) -> :8001
+│   ├── hdfs/                 # Стенд HDFS (2 кластера WebHDFS) -> :8002
+│   ├── sql/                  # Стенд SQL (Postgres, Hive, Trino) -> :8003
+│   ├── spark/                # Стенд Spark (Livy + Hive Metastore + YARN + HDFS) -> :8004
+│   ├── replicator/           # Стенд Replicator (DC1 + DC2 + Orchestrator) -> :8005
+│   └── all/                  # Единый запуск всех стендов платформы
 │
-├── scripts/
-│   ├── run-tests.sh        # Скрипт прогона всех 158 тестов
-│   ├── build-containers.sh # Скрипт сборки контейнеров
-│   └── generate-types.sh   # Генерация TypeScript типов из OpenAPI схем FastAPI
-│
-├── Makefile                # Единый CLI для автоматизации всех операций
+├── scripts/                  # Скрипты сборки, тестов и AST-индексации
+├── Makefile                  # Единый CLI для сборки, тестирования и запуска стендов
 └── README.md
+```
 ```
 
 ---
 
 ## 📦 Выделенные общие модули
 
-### 1. `backend/common` (Пакет `hadoop-explorer-common`)
-- **`backend.common.core.security`**:
-  - Единая фабрика `make_get_current_user` для стандартизированной валидации JWT, ролей и сессий.
-  - Централизованная генерация и валидация JWT токенов с поддержкой `jti` и алгоритмов шифрования.
-  - Строгая CSRF-защита (блокировка межсайтовых запросов `Sec-Fetch-Site: cross-site`, валидация заголовков `Origin`, `Referer` по белому списку, требование заголовка `X-Requested-With`).
-  - Проверка отзыва токенов (CWE-613) с двухуровневым кэшированием (L1 In-Memory LRU + L2 Database/Redis) и защитой от Fail-Open.
-  - Защитные HTTP-заголовки и Content-Security-Policy (CSP): централизованная функция `apply_security_headers` с поддержкой строгих политик для SPA и редакторов Monaco (`worker-src`, `blob:`, `unsafe-eval`), защита от Clickjacking (`X-Frame-Options: DENY`), MIME-sniffing (`X-Content-Type-Options: nosniff`), `Referrer-Policy: strict-origin-when-cross-origin` и автоматический HSTS (`Strict-Transport-Security`) при HTTPS.
-  - Безопасная валидация секретов (строгий fail-fast в продакшне, автогенерация временных ключей в dev).
-- **`backend.common.api.error_handlers`**:
-  - Централизованная фабрика `setup_global_exception_handlers` для безопасной обработки непредвиденных исключений (CWE-209).
-  - Скрытие внутреннего stack trace, генерация уникального `incident_id` и структурированное логирование инцидентов.
-  - Автоматическая трансляция `CircuitBreakerOpenException` в HTTP 503 с заголовком `Retry-After`.
-- **`backend.common.core.retry`**:
-  - Асинхронный модуль повторных попыток `retry_async` и декоратор `@with_retry`.
-  - Поддержка экспоненциального backoff, джиттера, настройки максимального числа попыток и фильтрации исключений.
-- **`backend.common.core.circuit_breaker`**:
-  - Автомат состояний `CircuitBreaker` (`CLOSED`, `OPEN`, `HALF_OPEN`) для Fast-Fail сетевых сбоев и предотвращения каскадной деградации сервисов при недоступности NameNode, YARN RM или Livy.
-  - Исключение 4xx клиентских ошибок и поддержка мгновенного Failover на standby-узлы.
-  - Сбор статистики и экспорт метрик в Prometheus text format (`GET /metrics` и `GET /api/v1/metrics`).
-- **`backend.common.core.lock`**:
-
-  - Распределенная блокировка `DistributedLock` на базе Redis (`SET NX PX` + Lua) с автоматическим fallback на In-Memory/DB для защиты критических секций.
-- **`backend.common.core.shutdown`**:
-  - Менеджер `GracefulShutdownManager` для корректного освобождения ресурсов при завершении процессов (SIGTERM/SIGINT): закрытие пулов `ThreadPoolExecutor`, HTTP-клиентов и БД соединений.
-- **`backend.common.core.cache`**:
-  - Потокобезопасный `L1RevokedTokenCache` для ультрабыстрой проверки отозванных токенов в памяти.
-- **`backend.common.core.session_store`**:
-  - Сохранение активных сессий пользователей в реляционной БД (`SQLite WAL`, `PostgreSQL`) для устойчивости при перезапуске бэкенд-сервисов.
-  - Таблица `active_sessions` с автоматической конвертацией и проверкой абсолютного Unix Timestamp `expires_at`.
-- **`backend.common.core.ldap_auth`**:
-  - Универсальный `CommonLdapAuthService` для LDAPS / Active Directory / OpenLDAP.
-  - Поиск пользователей с экранированием фильтров (защита от LDAP Injection / CWE-90), извлечение групп (поддержка `memberOf` и фильтров `group_search_filter`), поддержка кастомных TLS CA-сертификатов.
-  - Асинхронное исполнение через пул рабочих потоков во избежание блокировки Event Loop.
-  - Провайдер mock-пользователей с верификацией хэшей `pbkdf2:sha256` и защитой от timing-атак (`hmac.compare_digest`).
-- **`backend.common.core.kerberos`**:
-  - Аутентификация Kerberos SPNEGO SSO через HTTP-заголовок `Authorization: Negotiate <ticket>`.
-  - Валидация Kerberos-билетов, извлечение принципалов и интеграция с LDAP для получения групп.
-- **`backend.common.core.rate_limiter`**:
-  - Скользящее окно (Sliding Window) с возможностью сохранения состояния в SQLite (WAL), PostgreSQL и Redis.
-  - Безопасное определение клиентского IP-адреса с проверкой доверенных прокси (`is_trusted_proxy`, защита от IP Spoofing).
-- **`backend.common.core.audit`**:
-  - Структурированное JSON-логирование событий безопасности (`AuditEventType`) в кольцевой буфер и файл.
-- **`backend.common.db.storage`**:
-  - Базовый `BaseStorageService` для централизованного отзыва токенов и трекинга лимитов запросов с поддержкой любых диалектов (`sqlite`, `postgresql`, `redis`).
-- **`backend.common.models.auth`**:
-  - Базовые модели Pydantic: `Role` (`READER`, `WRITER`, `ADMIN`), `UserSession`, `CommonUserSession`, `UserInfo`, `TokenPayload`, `LoginRequest`, `TokenResponse`.
+### 1. `backend/common-security-starter` (Java 21 / Spring Boot 3 Стартер Безопасности)
+- **Аутентификация и SSO**:
+  - Kerberos SPNEGO SSO через HTTP-заголовок `Authorization: Negotiate <ticket>` с нативным Java GSS-API.
+  - Полнофункциональный клиент LDAPS / OpenLDAP / Active Directory с пулом соединений, валидацией групп и защитой от LDAP Injection (CWE-90).
+  - Поддержка тестовых и локальных Mock-пользователей для автономной разработки.
+- **Сессии и управление токенами**:
+  - Единая архитектура Cookie-First (Zero LocalStorage): токены сессий передаются исключительно в `HttpOnly`, `SameSite=Lax`, `Secure` cookies.
+  - Двухуровневое хранилище сессий: L1 In-Memory кэш Caffeine + L2 персистентная БД (H2 / PostgreSQL) с проверкой отзыва токенов (CWE-613).
+  - Строгая CSRF-защита (SameSite, Origin/Referer whitelist, заголовок `X-Requested-With`).
+- **Отказоустойчивость и безопасность**:
+  - `SimpleCircuitBreaker` (CLOSED, OPEN, HALF_OPEN) для защиты кластерных вызовов Hadoop и мгновенного HA Failover.
+  - Контроль частоты запросов (Rate Limiting) для защиты от перегрузок и DoS.
+  - AOP JSON-аудит ключевых событий авторизации и мутирующих операций.
+  - Централизованный `GlobalExceptionHandler` (CWE-209 защита со структурированным ответом и кодами ошибок).
+  - Автоматическая раздача собранных SPA Svelte 5 через Spring Boot Web MVC (`SpaController`).
 
 ### 2. `frontend/common` и архитектура SPA
 - **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), поддержкой Sliding Sessions, автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
@@ -195,31 +155,6 @@ hadoop-explorer/
   - **Унифицированное закрытие модальных окон** по клику вне диалога (Backdrop Overlay) и по нажатию клавиши `Escape`.
 - **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
 - **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и всплывающих уведомлений (`NotificationToast`).
-
----
-
-## ⚡ Менеджер зависимостей Python (uv workspaces)
-
-Монорепозиторий использует современный инструмент **`uv`** с поддержкой **PEP 517 / PEP 621 Workspaces**:
-
-- **Корневой `pyproject.toml`** определяет единый воркспейс с Python-сервисами:
-  - `backend/common` (`hadoop-explorer-common`)
-  - `backend/sql` (`hadoop-explorer-sql`)
-  - `backend/spark` (`hadoop-explorer-spark`)
-- **Единое виртуальное окружение** `.venv` для мгновенной синхронизации всех зависимостей.
-- **Быстрый линтинг и форматирование** через **Ruff**.
-
-### Основные команды:
-```bash
-# Синхронизация единого окружения и всех пакетов воркспейса
-make venv       # или uv sync --all-packages
-
-# Проверка линтером Ruff
-make lint       # или uv run ruff check backend
-
-# Автоформатирование кода
-make format     # или uv run ruff format backend
-```
 
 ---
 
@@ -427,12 +362,14 @@ make frontend-check # проверка типов svelte-check
 make frontend-test  # юнит и компонентные тесты Vitest (92 теста)
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
-# Либо по бэкенд сервисам:
-make test-yarn        # 65 тестов (включая AWX интеграцию и HA failover)
-make test-hdfs        # 86 тестов (включая NameNode HA и квоты)
-make test-sql         # 42 теста (включая Catalog API и Trino/Hive движки)
-make test-spark       # 24 теста (включая полный LivyClient lifecycle)
-make test-replicator  # 38 тестов (Hierarchical Token Bucket, gRPC, Kerberos, Scheduler, JobRun, RBAC)
+# Тестирование бэкенда (Java 21 / Spring Boot 3):
+make test-java        # Все Java тесты платформы
+make test-security-starter # Тесты стартера безопасности (common-security-starter)
+make test-yarn        # Тесты сервиса YARN Explorer (Java 21)
+make test-hdfs        # Тесты сервиса HDFS Explorer (Java 21)
+make test-sql         # Тесты сервиса SQL Explorer (Java 21)
+make test-spark       # Тесты сервиса Spark Explorer (Java 21)
+make test-replicator  # Тесты сервиса Replicator (Java 21)
 ```
 
 ---
@@ -441,32 +378,26 @@ make test-replicator  # 38 тестов (Hierarchical Token Bucket, gRPC, Kerber
 
 | Команда | Описание |
 |---|---|
-| `make venv` / `make sync` | Синхронизация единого uv-окружения (`.venv`) и всех пакетов воркспейса |
-| `make install-dev` | Установка зависимостей и инструментов разработки |
-| `make lint` | Проверка кодовой базы линтером Ruff |
-| `make format` | Автоматическое форматирование кода с помощью Ruff |
-| `make test` | Запуск всех 344 модульных, компонентных и интеграционных тестов |
-| `make test-ui` | Запуск статической проверки типов (`svelte-check`) и 92 UI-тестов Vitest |
-| `make test-yarn` | Запуск 65 тестов сервиса YARN Explorer (включая интеграцию с AWX и HA) |
-| `make test-hdfs` | Запуск 86 тестов сервиса HDFS Explorer |
-| `make test-sql` | Запуск 42 тестов сервиса SQL Explorer |
-| `make test-spark` | Запуск 24 тестов сервиса Spark Explorer |
-| `make test-replicator` | Запуск 35 тестов сервиса Hadoop gRPC Replicator |
+| `make test` | Запуск всех модульных, компонентных и интеграционных тестов (Java + UI) |
+| `make test-java` | Запуск всех тестов Java 21 сервисов бэкенда |
+| `make test-security-starter` | Запуск тестов стартера безопасности `common-security-starter` |
+| `make test-yarn` | Запуск тестов сервиса YARN Explorer (Java 21) |
+| `make test-hdfs` | Запуск тестов сервиса HDFS Explorer (Java 21) |
+| `make test-sql` | Запуск тестов сервиса SQL Explorer (Java 21) |
+| `make test-spark` | Запуск тестов сервиса Spark Explorer (Java 21) |
+| `make test-replicator` | Запуск тестов сервиса Hadoop gRPC Replicator (Java 21) |
+| `make test-ui` | Запуск тестов фронтенда Vitest в Svelte 5 приложениях |
 | `make frontend-install` | Установка NPM зависимостей фронтенда |
 | `make frontend-check` | Статическая проверка типов Svelte 5 во всех 5 SPA (`svelte-check`) |
 | `make frontend-test` | Запуск компонентных и юнит-тестов фронтенда |
 | `make frontend-e2e` | Запуск браузерных E2E тестов Playwright |
 | `make frontend-build` | Компиляция всех 5 SPA фронтендов через Vite |
-
-| `make build` | Сборка Docker-образов всех приложений |
-| `make build-yarn` | Сборка Docker-образа YARN Explorer |
-| `make build-hdfs` | Сборка Docker-образа HDFS Explorer |
-| `make build-sql` | Сборка Docker-образа SQL Explorer |
-| `make build-spark` | Сборка Docker-образа Spark Explorer |
-| `make build-replicator` | Сборка Docker-образа Hadoop gRPC Replicator |
-| `make frontend-install` | Установка NPM зависимостей фронтенда |
-| `make frontend-build` | Компиляция SPA фронтендов через Vite |
-| `make generate-types` | Генерация TypeScript-типов из OpenAPI схем FastAPI бэкенда |
+| `make build` | Сборка Docker-образов всех приложений платформы |
+| `make build-yarn` | Сборка Docker-образа YARN Explorer (Java 21) |
+| `make build-hdfs` | Сборка Docker-образа HDFS Explorer (Java 21) |
+| `make build-sql` | Сборка Docker-образа SQL Explorer (Java 21) |
+| `make build-spark` | Сборка Docker-образа Spark Explorer (Java 21) |
+| `make build-replicator` | Сборка Docker-образа Hadoop gRPC Replicator (Java 21) |
 | `make demo-yarn` | Запуск демо-стенда YARN Explorer (`:8001`) |
 | `make demo-yarn-stop` | Остановка демо-стенда YARN Explorer |
 | `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8002`) |
@@ -475,10 +406,12 @@ make test-replicator  # 38 тестов (Hierarchical Token Bucket, gRPC, Kerber
 | `make demo-sql-stop` | Остановка демо-стенда SQL Explorer |
 | `make demo-spark` | Запуск демо-стенда Spark Explorer (`:8004`) |
 | `make demo-spark-stop` | Остановка демо-стенда Spark Explorer |
-| `make demo-all` | Запуск объединенного демо-стенда |
+| `make demo-all` | Запуск объединенного демо-стенда платформы |
 | `make demo-all-stop` | Остановка объединенного демо-стенда |
 | `make helm-lint` | Валидация синтаксиса всех Helm-чартов |
 | `make helm-package` | Упаковка чартов платформы в `.tgz` архивы |
+| `make java-index` | Построение автономного AST-индекса Java для поиска символов |
+| `make java-query Q="..."` | Структурный поиск по Java AST-индексу (класс, метод, вызовы, тесты) |
 
 
 ---

@@ -1,0 +1,131 @@
+server:
+  port: 8004
+
+spring:
+  application:
+    name: spark-explorer-demo
+  datasource:
+    url: jdbc:h2:file:/app/data/spark_explorer;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: hybrid
+      admin-groups:
+        - "hadoop-admins"
+        - "platform-admins"
+        - "superusers"
+      writer-groups:
+        - "data-engineers"
+        - "developers"
+    jwt:
+      secret-key: "spark-explorer-demo-secret-jwt-key-32chars-min-safe!"
+      expiration-minutes: 480
+    mock-users:
+      - username: "admin_user"
+        password: "password123"
+        displayName: "Александр Админов"
+        email: "admin@company.local"
+        groups: ["hadoop-admins", "platform-admins"]
+      - username: "de_user"
+        password: "password123"
+        displayName: "Иван Датаинженеров"
+        email: "de@company.local"
+        groups: ["data-engineers", "bi-analysts"]
+      - username: "analyst_user"
+        password: "password123"
+        displayName: "Анна Аналитикова"
+        email: "analyst@company.local"
+        groups: ["bi-analysts"]
+    ldap:
+      enabled: true
+      server-uri: "ldap://ldap:389"
+      bind-dn: "cn=admin,dc=company,dc=local"
+      bind-password: "adminpassword"
+      user-base-dn: "ou=users,dc=company,dc=local"
+      user-filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+      group-base-dn: "ou=groups,dc=company,dc=local"
+      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    cors:
+      allowed-origins:
+        - "http://localhost:3000"
+        - "http://localhost:5173"
+        - "http://localhost:8004"
+    cookie:
+      secure: false
+
+spark:
+  session-ttl-minutes: 120
+  results-ttl-hours: 24
+  clusters:
+    - id: "spark-cluster-1"
+      name: "Primary Spark & Livy Cluster (Production)"
+      description: "Основной кластер для расчетов PySpark, Spark SQL и Scala Spark"
+      type: "livy"
+      livy-url: "http://spark-livy:8998"
+      yarn-cluster-id: "yarn-cluster-1"
+      mock-storage: false
+      yarn-queues:
+        - "root.default"
+        - "root.analytics"
+        - "root.engineering"
+      default-queue: "root.analytics"
+      spark-versions:
+        - id: "spark-3.5.1"
+          name: "Apache Spark 3.5.1"
+          default-version: true
+      metastores:
+        - id: "hive-metastore-1"
+          name: "Production Hive Metastore"
+          default-metastore: true
+      resource-profiles:
+        - id: "small"
+          name: "Small (1 executor, 1G)"
+          driver-memory: "1g"
+          driver-cores: 1
+          executor-memory: "1g"
+          executor-cores: 1
+          num-executors: 1
+        - id: "medium"
+          name: "Medium (2 executors, 2G)"
+          driver-memory: "1g"
+          driver-cores: 1
+          executor-memory: "2g"
+          executor-cores: 2
+          num-executors: 2
+    - id: "spark-cluster-2"
+      name: "Secondary Spark & Livy Cluster (Archive)"
+      description: "Резервный аналитический кластер Livy"
+      type: "livy"
+      livy-url: "http://spark-livy-2:8999"
+      yarn-cluster-id: "yarn-cluster-2"
+      mock-storage: false
+      yarn-queues:
+        - "root.default"
+        - "root.archive"
+      default-queue: "root.default"
+      spark-versions:
+        - id: "spark-3.5.1"
+          name: "Apache Spark 3.5.1"
+          default-version: true
+      metastores:
+        - id: "hive-metastore-2"
+          name: "Archive Hive Metastore"
+          default-metastore: true
+      resource-profiles:
+        - id: "small"
+          name: "Small (1 executor, 1G)"
+          driver-memory: "1g"
+          driver-cores: 1
+          executor-memory: "1g"
+          executor-cores: 1
+          num-executors: 1

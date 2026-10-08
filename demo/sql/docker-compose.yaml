@@ -102,25 +102,24 @@ services:
           - trino-coordinator
 
   # ==========================================
-  # 3. Сервис SQL Explorer (Web UI + Backend)
+  # 3. Сервис SQL Explorer (Java 21 / Spring Boot 3 + Web UI)
   # ==========================================
   sql-explorer:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.sql
+      dockerfile: docker/Dockerfile.sql-java
     container_name: sql-explorer
     hostname: sql-explorer
     restart: unless-stopped
     ports:
-      - "8003:8000"
+      - "8003:8003"
     environment:
-      CONFIG_PATH: /app/demo-config/config.demo.yaml
-      KRB5_KEYTAB: /etc/security/keytabs/sql-explorer.keytab
-      KRB5_PRINCIPAL: svc_sql_explorer@COMPANY.LOCAL
-      KRB5_CONFIG: /etc/security/keytabs/krb5.conf
-      PYTHONUNBUFFERED: "1"
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+      - KRB5_CONFIG=/etc/security/keytabs/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf
     volumes:
-      - ./config.demo.yaml:/app/demo-config/config.demo.yaml:ro
+      - ./application-demo.yml:/app/config/application.yml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - sql-explorer-data:/app/data
     depends_on:

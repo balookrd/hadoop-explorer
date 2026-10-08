@@ -51,7 +51,7 @@ flowchart TD
     end
 
     subgraph DC_MGMT["Контур управления"]
-        Orchestrator["Replicator Orchestrator\n(FastAPI :8005)"]
+        Orchestrator["Replicator Orchestrator\n(Java 21 / Spring Boot 3 :8005)"]
         TB["Hierarchical Token Bucket\n(Global + DC-DC + HDFS-HDFS)"]
         DB[("Реляционная БД\n(SQLite / PostgreSQL)")]
         Sched["Cron Scheduler Daemon"]

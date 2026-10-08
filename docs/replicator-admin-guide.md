@@ -189,11 +189,11 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 ```bash
 # Ubuntu / Debian:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    build-essential python3 python3-venv python3-dev \
+    openjdk-21-jdk maven \
     libkrb5-dev libkrb5-3 krb5-user curl git
 
 # RHEL / Rocky Linux:
-sudo dnf install -y gcc python3 python3-devel krb5-devel krb5-workstation curl git
+sudo dnf install -y java-21-openjdk-devel maven krb5-devel krb5-workstation curl git
 ```
 
 ### Шаг 2: Пользователь и каталоги
@@ -300,15 +300,11 @@ Type=simple
 User=appuser
 Group=appuser
 WorkingDirectory=/opt/hadoop-explorer/replicator
-Environment="PYTHONPATH=/opt/hadoop-explorer/replicator:/opt/hadoop-explorer/replicator/backend:/opt/hadoop-explorer/replicator/backend/replicator"
-Environment="CONFIG_PATH=/etc/hadoop-explorer/replicator/config.yaml"
-Environment="WEB_CONCURRENCY=2"
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/replicator/application.yml"
 
-ExecStart=/opt/hadoop-explorer/replicator/.venv/bin/uvicorn backend.replicator.orchestrator.main:app \
-    --host 0.0.0.0 \
-    --port 8005 \
-    --workers 2 \
-    --log-level info
+ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
+    -jar /opt/hadoop-explorer/replicator/backend/replicator/orchestrator-java/target/orchestrator-java-0.1.0-exec.jar \
+    --server.port=8005
 
 Restart=always
 RestartSec=5s
@@ -330,7 +326,6 @@ Type=simple
 User=appuser
 Group=appuser
 WorkingDirectory=/opt/hadoop-explorer/replicator
-Environment="PYTHONPATH=/opt/hadoop-explorer/replicator:/opt/hadoop-explorer/replicator/backend:/opt/hadoop-explorer/replicator/backend/replicator"
 Environment="AGENT_ID=agent-dc1-node-01"
 Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="AGENT_MODE=all"
@@ -340,7 +335,8 @@ Environment="RECEIVER_PORT=50051"
 Environment="REPLICATOR_STAGING_DIR=/var/lib/hadoop-explorer/replicator/staging"
 Environment="POLL_INTERVAL_SEC=2.0"
 
-ExecStart=/opt/hadoop-explorer/replicator/.venv/bin/python -m backend.replicator.agent
+ExecStart=/usr/bin/java -Xms256m -Xmx1024m \
+    -jar /opt/hadoop-explorer/replicator/backend/replicator/agent-java/target/agent-java-0.1.0-exec.jar
 
 Restart=always
 RestartSec=5s
@@ -383,13 +379,12 @@ After=network.target
 Type=simple
 User=appuser
 WorkingDirectory=/opt/hadoop-explorer/replicator
-Environment="PYTHONPATH=/opt/hadoop-explorer/replicator"
 Environment="AGENT_ID=agent-dc1-%i"
 Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="RECEIVER_PORT=5005%i"
 Environment="AGENT_ADVERTISED_ADDRESS=node1.dc1.company.local:5005%i"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
-ExecStart=/opt/hadoop-explorer/replicator/.venv/bin/python -m backend.replicator.agent
+ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/backend/replicator/agent-java/target/agent-java-0.1.0-exec.jar
 Restart=always
 
 [Install]
@@ -546,10 +541,10 @@ services:
     image: hadoop-explorer/replicator:latest
     container_name: replicator-orchestrator
     restart: unless-stopped
-    command: ["uvicorn", "backend.replicator.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "2"]
+    command: ["java", "-jar", "/app/orchestrator.jar"]
     environment:
       - REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC=104857600 # 100 МБ/с
-      - REPLICATOR_DATABASE_URL=sqlite:////app/data/replicator.db
+      - REPLICATOR_DATABASE_URL=jdbc:sqlite:/app/data/replicator.db
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     volumes:
       - replicator-data:/app/data
@@ -571,7 +566,7 @@ services:
     container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
-    command: ["python", "-m", "backend.replicator.agent"]
+    command: ["java", "-jar", "/app/agent.jar"]
     environment:
       - AGENT_ID=agent-dc1
       - AGENT_CLUSTER_ID=demo-cluster
@@ -598,7 +593,7 @@ services:
     container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
-    command: ["python", "-m", "backend.replicator.agent"]
+    command: ["java", "-jar", "/app/agent.jar"]
     environment:
       - AGENT_ID=agent-dc2
       - AGENT_CLUSTER_ID=backup-cluster
@@ -690,7 +685,7 @@ spec:
       containers:
         - name: orchestrator
           image: registry.company.local/hadoop-explorer/replicator:latest
-          command: ["uvicorn", "backend.replicator.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8005"]
+          command: ["java", "-jar", "/app/orchestrator.jar"]
           envFrom:
             - configMapRef:
                 name: replicator-config
@@ -756,7 +751,7 @@ spec:
       containers:
         - name: agent
           image: registry.company.local/hadoop-explorer/replicator:latest
-          command: ["python", "-m", "backend.replicator.agent"]
+          command: ["java", "-jar", "/app/agent.jar"]
           envFrom:
             - configMapRef:
                 name: replicator-config

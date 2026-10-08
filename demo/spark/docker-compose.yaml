@@ -77,24 +77,24 @@ services:
         condition: service_started
 
   # ==========================================
-  # 2. Spark Explorer (Web UI + Backend)
+  # 2. Spark Explorer (Java 21 / Spring Boot 3 + Web UI)
   # ==========================================
   spark-explorer:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.spark
+      dockerfile: docker/Dockerfile.spark-java
     container_name: spark-explorer
     hostname: spark-explorer
     restart: unless-stopped
     ports:
-      - "8004:8000"
+      - "8004:8004"
     environment:
-      CONFIG_PATH: "/app/config/config.yaml"
-      DATABASE_URL: "sqlite+aiosqlite:////app/data/spark_explorer.db"
-      SERVER_DEBUG: "true"
-      PYTHONUNBUFFERED: "1"
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+      - KRB5_CONFIG=/etc/krb5_shared/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/krb5_shared/krb5.conf
     volumes:
-      - ./config.demo.yaml:/app/config/config.yaml:ro
+      - ./application-demo.yml:/app/config/application.yml:ro
       - spark-demo-data:/app/data
       - demo-shared-krb5:/etc/krb5_shared:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro

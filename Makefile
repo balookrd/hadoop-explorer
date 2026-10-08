@@ -1,7 +1,7 @@
-.PHONY: help venv sync install-dev lint format test test-yarn test-hdfs test-sql test-spark test-replicator \
+.PHONY: help test test-yarn test-hdfs test-sql test-spark test-replicator \
         test-security-starter test-replicator-agent-java test-java test-ui \
-        build build-yarn build-hdfs build-sql build-spark \
-        frontend-build frontend-install generate-types demo-yarn demo-hdfs demo-sql demo-spark demo-all \
+        build build-yarn build-hdfs build-sql build-spark build-replicator \
+        frontend-build frontend-install demo-yarn demo-hdfs demo-sql demo-spark demo-all \
         demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
         skeleton skeleton-all skeleton-backend java-index java-query
 
@@ -12,33 +12,28 @@ help:
 	@echo "========================================================================"
 	@echo "                   HADOOP EXPLORER PLATFORM CLI                         "
 	@echo "========================================================================"
-	@echo "  Окружение Python (uv workspaces):"
-	@echo "    make venv / make sync - Синхронизация единого uv-окружения (.venv)"
-	@echo "    make install-dev      - Установка всех пакетов и dev-зависимостей"
-	@echo "    make lint             - Проверка линтером Ruff"
-	@echo "    make format           - Автоформатирование кода с помощью Ruff"
-	@echo ""
-	@echo "  Тестирование:"
-	@echo "    make test             - Запуск всех модульных тестов платформы (Python + UI)"
-	@echo "    make test-yarn        - Тесты сервиса YARN Explorer"
-	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer"
-	@echo "    make test-sql         - Тесты сервиса SQL Explorer"
-	@echo "    make test-spark       - Тесты сервиса Spark Explorer"
-	@echo "    make test-replicator  - Тесты сервиса Replicator"
-	@echo "    make test-security-starter - Тесты Java 21 / Spring Boot 3 common-security-starter"
+	@echo "  Тестирование (Java 21 / Spring Boot 3 + UI):"
+	@echo "    make test             - Запуск всех модульных тестов платформы (Java + UI)"
+	@echo "    make test-yarn        - Тесты сервиса YARN Explorer (Java 21)"
+	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer (Java 21)"
+	@echo "    make test-sql         - Тесты сервиса SQL Explorer (Java 21)"
+	@echo "    make test-spark       - Тесты сервиса Spark Explorer (Java 21)"
+	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
+	@echo "    make test-security-starter - Тесты Java 21 common-security-starter"
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
+	@echo "    make test-ui          - Запуск тестов фронтенда (Vitest / Svelte 5)"
 	@echo ""
 	@echo "  Сборка Docker-контейнеров:"
-	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark)"
+	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark, replicator)"
 	@echo "    make build-yarn       - Сборка образа YARN Explorer"
 	@echo "    make build-hdfs       - Сборка образа HDFS Explorer"
 	@echo "    make build-sql        - Сборка образа SQL Explorer"
 	@echo "    make build-spark      - Сборка образа Spark Explorer"
+	@echo "    make build-replicator - Сборка образа Replicator Orchestrator"
 	@echo ""
 	@echo "  Фронтенд:"
 	@echo "    make frontend-install - Установка зависимостей frontend apps"
 	@echo "    make frontend-build   - Сборка всех SPA приложений"
-	@echo "    make generate-types   - Генерация TypeScript типов из OpenAPI схем FastAPI бэкенда"
 	@echo ""
 	@echo "  Раздельные демо стенды (Docker Compose):"
 	@echo "    make demo-yarn        - Запуск стенда YARN (2 RM кластера, Kerberos, LDAP) -> :8001"
@@ -59,27 +54,9 @@ help:
 	@echo "    make helm-package     - Упаковка чартов для деплоя"
 	@echo ""
 	@echo "  AST-скелетизация, индексация и контекст для LLM:"
-	@echo "    make skeleton         - Генерация легковесного AST-скелета API и контрактов Python/TS"
-	@echo "    make skeleton-backend - Генерация AST-скелета только для бэкенда"
-	@echo "    make skeleton-all     - Генерация полного AST-каркаса платформы"
 	@echo "    make java-index       - Генерация AST-индекса Java (target/java-ast-index/)"
 	@echo "    make java-query Q=\"...\" - Быстрый поиск по Java коду (например: make java-query Q=\"class Auth\")"
 	@echo "========================================================================"
-
-venv:
-	uv sync --all-packages
-
-sync:
-	uv sync --all-packages
-
-install-dev:
-	uv sync --all-packages
-
-lint:
-	uv run ruff check backend
-
-format:
-	uv run ruff format backend
 
 test:
 	./scripts/run-tests.sh all
@@ -172,9 +149,6 @@ frontend-e2e:
 frontend-build:
 	cd frontend && npm run build:all
 
-generate-types:
-	./scripts/generate-types.sh
-
 generate-proto:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn compile -DskipTests -f backend/replicator/agent-java/pom.xml
 
@@ -244,15 +218,11 @@ helm-package: helm-lint
 
 skeleton:
 	mkdir -p .context
-	python3 scripts/generate_skeleton.py backend/common backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
+	python3 scripts/generate_skeleton.py frontend/common/types frontend/common/api --output .context/skeleton.md
 
-skeleton-backend:
+skeleton-all: java-index
 	mkdir -p .context
-	python3 scripts/generate_skeleton.py backend --output .context/backend_skeleton.md
-
-skeleton-all:
-	mkdir -p .context
-	python3 scripts/generate_skeleton.py backend frontend/common frontend/apps --output .context/all_skeleton.md
+	python3 scripts/generate_skeleton.py frontend/common frontend/apps --output .context/all_skeleton.md
 
 java-index:
 	./scripts/build-java-ast-index.sh

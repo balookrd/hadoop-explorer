@@ -4,22 +4,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-find_pytest() {
-  if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/pytest" ]; then
-    echo "$VIRTUAL_ENV/bin/pytest"
-  elif [ -x "$ROOT_DIR/.venv/bin/pytest" ]; then
-    echo "$ROOT_DIR/.venv/bin/pytest"
-  elif [ -x "$ROOT_DIR/backend/.venv/bin/pytest" ]; then
-    echo "$ROOT_DIR/backend/.venv/bin/pytest"
-  elif [ -x "$ROOT_DIR/backend/venv/bin/pytest" ]; then
-    echo "$ROOT_DIR/backend/venv/bin/pytest"
-  elif command -v uv >/dev/null 2>&1; then
-    echo "uv run --project $ROOT_DIR pytest"
-  else
-    which pytest 2>/dev/null || echo "pytest"
-  fi
-}
-
 APP="${1:-all}"
 
 run_yarn() {

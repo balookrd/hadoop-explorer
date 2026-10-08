@@ -46,7 +46,7 @@
 ```mermaid
 graph TD
     User([Дата-инженер / ML-исследователь]) -->|HTTPS / Kerberos SSO| UI[Spark Web Explorer Studio\nSvelte 5 + Tailwind v4 + Monaco]
-    UI -->|REST API + SSE Logs| Gateway[FastAPI Spark Gateway]
+    UI -->|REST API + SSE Logs| Gateway[Spark Explorer API\nJava 21 / Spring Boot 3]
     Gateway -->|Livy REST + Impersonation doAs| Livy[Apache Livy Server]
     Livy -->|YARN Client / Cluster Mode| RM[YARN ResourceManager]
     RM -->|Containers: Driver & Executors| SparkApp[Spark Application\nDriver & Executors]
@@ -69,14 +69,14 @@ graph TD
 
 ## 2. Архитектура и интеграция компонентов
 
-В основе архитектуры Spark Web Explorer лежит событийно-ориентированный шлюз на FastAPI, взаимодействующий с кластером Apache Livy через отказоустойчивые каналы с паттерном Circuit Breaker.
+В основе архитектуры Spark Web Explorer лежит высокопроизводительный сервис Spark Explorer API (Java 21 / Spring Boot 3), взаимодействующий с кластером Apache Livy через отказоустойчивые каналы с паттерном Circuit Breaker.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Dev as Дата-инженер
     participant UI as Spark Studio (Monaco)
-    participant GW as FastAPI Spark Gateway
+    participant GW as Spark Explorer API (Java 21)
     participant DB as SQLite / PostgreSQL
     participant Livy as Apache Livy Service
     participant YARN as YARN RM / Spark Driver

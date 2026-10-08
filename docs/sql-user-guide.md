@@ -46,7 +46,7 @@
 ```mermaid
 graph TD
     User([Аналитик / Дата-инженер]) -->|HTTPS / SSO| UI[SQL Web Explorer UI\nSvelte 5 + Monaco Editor]
-    UI -->|REST + SSE Streams| Gateway[FastAPI SQL Gateway]
+    UI -->|REST + SSE Streams| Gateway[SQL Explorer API\nJava 21 + Spring Boot 3]
     Gateway -->|Impersonation X-Trino-User| Trino[Trino Coordinator Cluster]
     Gateway -->|Impersonation doAs / Kerberos| Hive[Apache HiveServer2]
     Gateway -->|Local LLM / OpenAI API| AI[LLM AI Assistant\nOllama / vLLM / LiteLLM]
@@ -72,7 +72,7 @@ sequenceDiagram
     autonumber
     actor U as Аналитик
     participant UI as Monaco Studio UI
-    participant BE as FastAPI SQL Gateway
+    participant BE as SQL Explorer API (Spring Boot 3)
     participant DB as Session & History DB
     participant ENG as Trino / Hive Cluster
 
