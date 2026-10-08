@@ -26,6 +26,13 @@ public class ReplicatorAgentConfig {
     private String keytabPath;
     private String principal;
     private int chunkSize;
+    private boolean grpcTlsEnabled;
+    private String grpcCertChainPath;
+    private String grpcPrivateKeyPath;
+    private String grpcTrustCertCollectionPath;
+    private String grpcClientAuth = "none";
+    private boolean grpcInsecureSkipVerify;
+    private boolean orchestratorInsecureSkipVerify;
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -76,6 +83,14 @@ public class ReplicatorAgentConfig {
         config.keytabPath = getEnv("KRB5_KEYTAB", getEnv("REPLICATOR_KEYTAB_PATH", null));
         config.principal = getEnv("KRB5_PRINCIPAL", getEnv("REPLICATOR_EXECUTION_PRINCIPAL", null));
         config.chunkSize = Integer.parseInt(getEnv("CHUNK_SIZE_BYTES", String.valueOf(64 * 1024)));
+
+        config.grpcTlsEnabled = Boolean.parseBoolean(getEnv("REPLICATOR_GRPC_TLS_ENABLED", getEnv("GRPC_TLS_ENABLED", "false")));
+        config.grpcCertChainPath = getEnv("REPLICATOR_GRPC_CERT_CHAIN_PATH", getEnv("GRPC_CERT_PATH", null));
+        config.grpcPrivateKeyPath = getEnv("REPLICATOR_GRPC_PRIVATE_KEY_PATH", getEnv("GRPC_KEY_PATH", null));
+        config.grpcTrustCertCollectionPath = getEnv("REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH", getEnv("GRPC_CA_PATH", null));
+        config.grpcClientAuth = getEnv("REPLICATOR_GRPC_CLIENT_AUTH", "none");
+        config.grpcInsecureSkipVerify = Boolean.parseBoolean(getEnv("REPLICATOR_GRPC_INSECURE_SKIP_VERIFY", getEnv("GRPC_INSECURE_SKIP_VERIFY", "false")));
+        config.orchestratorInsecureSkipVerify = Boolean.parseBoolean(getEnv("ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY", getEnv("REPLICATOR_TLS_INSECURE", "false")));
 
         return config;
     }
@@ -135,4 +150,25 @@ public class ReplicatorAgentConfig {
 
     public int getChunkSize() { return chunkSize; }
     public void setChunkSize(int chunkSize) { this.chunkSize = chunkSize; }
+
+    public boolean isGrpcTlsEnabled() { return grpcTlsEnabled; }
+    public void setGrpcTlsEnabled(boolean grpcTlsEnabled) { this.grpcTlsEnabled = grpcTlsEnabled; }
+
+    public String getGrpcCertChainPath() { return grpcCertChainPath; }
+    public void setGrpcCertChainPath(String grpcCertChainPath) { this.grpcCertChainPath = grpcCertChainPath; }
+
+    public String getGrpcPrivateKeyPath() { return grpcPrivateKeyPath; }
+    public void setGrpcPrivateKeyPath(String grpcPrivateKeyPath) { this.grpcPrivateKeyPath = grpcPrivateKeyPath; }
+
+    public String getGrpcTrustCertCollectionPath() { return grpcTrustCertCollectionPath; }
+    public void setGrpcTrustCertCollectionPath(String grpcTrustCertCollectionPath) { this.grpcTrustCertCollectionPath = grpcTrustCertCollectionPath; }
+
+    public String getGrpcClientAuth() { return grpcClientAuth; }
+    public void setGrpcClientAuth(String grpcClientAuth) { this.grpcClientAuth = grpcClientAuth; }
+
+    public boolean isGrpcInsecureSkipVerify() { return grpcInsecureSkipVerify; }
+    public void setGrpcInsecureSkipVerify(boolean grpcInsecureSkipVerify) { this.grpcInsecureSkipVerify = grpcInsecureSkipVerify; }
+
+    public boolean isOrchestratorInsecureSkipVerify() { return orchestratorInsecureSkipVerify; }
+    public void setOrchestratorInsecureSkipVerify(boolean orchestratorInsecureSkipVerify) { this.orchestratorInsecureSkipVerify = orchestratorInsecureSkipVerify; }
 }

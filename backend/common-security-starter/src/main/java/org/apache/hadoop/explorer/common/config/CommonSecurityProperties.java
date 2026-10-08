@@ -22,6 +22,7 @@ public class CommonSecurityProperties {
     private KerberosProperties kerberos = new KerberosProperties();
     private SessionStoreProperties sessionStore = new SessionStoreProperties();
     private RateLimiterProperties rateLimiter = new RateLimiterProperties();
+    private TlsProperties tls = new TlsProperties();
     private List<MockUser> mockUsers = new ArrayList<>();
 
     public List<MockUser> getMockUsers() {
@@ -102,6 +103,14 @@ public class CommonSecurityProperties {
 
     public void setRateLimiter(RateLimiterProperties rateLimiter) {
         this.rateLimiter = rateLimiter;
+    }
+
+    public TlsProperties getTls() {
+        return tls;
+    }
+
+    public void setTls(TlsProperties tls) {
+        this.tls = tls;
     }
 
     // ==========================================
@@ -478,5 +487,60 @@ public class CommonSecurityProperties {
         public void setEmail(String email) { this.email = email; }
         public List<String> getGroups() { return groups; }
         public void setGroups(List<String> groups) { this.groups = groups; }
+    }
+
+    public static class TlsProperties {
+        private boolean enabled = false;
+        private String keyStorePath;
+        private String keyStorePassword = "changeit";
+        private String keyStoreType = "PKCS12";
+        private String keyAlias;
+        private String trustStorePath;
+        private String trustStorePassword;
+        private String trustStoreType = "PKCS12";
+        private String clientAuth = "none"; // none, want, need
+        private boolean insecureSkipVerify = false;
+        private boolean autoGenerateSelfSigned = true;
+        private List<String> enabledProtocols = new ArrayList<>(List.of("TLSv1.3", "TLSv1.2"));
+        private List<String> ciphers = new ArrayList<>();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getKeyStorePath() { return keyStorePath; }
+        public void setKeyStorePath(String keyStorePath) { this.keyStorePath = keyStorePath; }
+
+        public String getKeyStorePassword() { return keyStorePassword; }
+        public void setKeyStorePassword(String keyStorePassword) { this.keyStorePassword = keyStorePassword; }
+
+        public String getKeyStoreType() { return keyStoreType; }
+        public void setKeyStoreType(String keyStoreType) { this.keyStoreType = keyStoreType; }
+
+        public String getKeyAlias() { return keyAlias; }
+        public void setKeyAlias(String keyAlias) { this.keyAlias = keyAlias; }
+
+        public String getTrustStorePath() { return trustStorePath; }
+        public void setTrustStorePath(String trustStorePath) { this.trustStorePath = trustStorePath; }
+
+        public String getTrustStorePassword() { return trustStorePassword; }
+        public void setTrustStorePassword(String trustStorePassword) { this.trustStorePassword = trustStorePassword; }
+
+        public String getTrustStoreType() { return trustStoreType; }
+        public void setTrustStoreType(String trustStoreType) { this.trustStoreType = trustStoreType; }
+
+        public String getClientAuth() { return clientAuth; }
+        public void setClientAuth(String clientAuth) { this.clientAuth = clientAuth; }
+
+        public boolean isInsecureSkipVerify() { return insecureSkipVerify; }
+        public void setInsecureSkipVerify(boolean insecureSkipVerify) { this.insecureSkipVerify = insecureSkipVerify; }
+
+        public boolean isAutoGenerateSelfSigned() { return autoGenerateSelfSigned; }
+        public void setAutoGenerateSelfSigned(boolean autoGenerateSelfSigned) { this.autoGenerateSelfSigned = autoGenerateSelfSigned; }
+
+        public List<String> getEnabledProtocols() { return enabledProtocols; }
+        public void setEnabledProtocols(List<String> enabledProtocols) { this.enabledProtocols = enabledProtocols; }
+
+        public List<String> getCiphers() { return ciphers; }
+        public void setCiphers(List<String> ciphers) { this.ciphers = ciphers; }
     }
 }

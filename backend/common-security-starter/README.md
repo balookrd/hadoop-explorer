@@ -35,6 +35,12 @@
    - `GET /api/v1/auth/sso` — автоматический Kerberos SPNEGO вход.
    - `POST /api/v1/auth/logout` — отзыв токена и удаление Cookie.
    - `GET /api/v1/auth/me` — получение профиля текущей сессии.
+7. **Сквозная защита TLS / HTTPS и mTLS**:
+   - Автоматическая конфигурация HTTPS для REST API через `TlsWebServerCustomizer`.
+   - Поддержка защищенных хранилищ PKCS12 / JKS Keystore и Truststore.
+   - Двусторонняя взаимная аутентификация сертификатами (**mTLS** `client-auth: REQUIRE / OPTIONAL`).
+   - Фабрика `TlsContextFactory` для настройки исходящих REST-клиентов (`HttpClient`).
+   - Автогенерация временных PKCS12 сертификатов (`auto-generate-self-signed`) и режим тестирования (`insecure-skip-verify`).
 
 ---
 
@@ -113,6 +119,21 @@ hadoop:
       enabled: true
       requests-per-minute: 600
       burst-capacity: 100
+
+    tls:
+      enabled: true
+      key-store-path: "/etc/security/tls/keystore.p12"
+      key-store-password: "${TLS_KEYSTORE_PASSWORD}"
+      key-store-type: "PKCS12"
+      trust-store-path: "/etc/security/tls/truststore.p12"
+      trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
+      trust-store-type: "PKCS12"
+      client-auth: "NONE" # NONE | OPTIONAL | REQUIRE (mTLS)
+      insecure-skip-verify: false # true для локальных демо-стендов
+      auto-generate-self-signed: true # автогенерация при отсутствии файла keystore
+      enabled-protocols:
+        - "TLSv1.3"
+        - "TLSv1.2"
 ```
 
 ---

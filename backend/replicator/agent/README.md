@@ -89,6 +89,13 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 | `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов перед атомарным коммитом |
 | `HDFS_DEFAULT_FS` | `core-site.xml` | URI HDFS NameNode (например, `hdfs://namenode:8020`) |
 | `REPLICATOR_AGENT_SECRET` | `null` | Секретный токен авторизации (`X-Agent-Secret`) |
+| `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение защищенного TLS канала для gRPC |
+| `REPLICATOR_GRPC_CERT_CHAIN_PATH` | `null` | Путь к сертификату сервера/клиента gRPC (X.509 PEM) |
+| `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | `null` | Путь к приватному ключу gRPC (PKCS8 PEM) |
+| `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | `null` | Путь к доверенным CA сертификатам для проверки пиров |
+| `REPLICATOR_GRPC_CLIENT_AUTH` | `NONE` | Режим взаимной аутентификации (mTLS): `NONE`, `OPTIONAL`, `REQUIRE` |
+| `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки TLS сертификатов для gRPC (тестовые стенды) |
+| `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки HTTPS сертификатов Оркестратора |
 | `KRB5_KEYTAB` | `null` | Путь к Kerberos Keytab файлу |
 | `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs-replicator@REALM`) |
 

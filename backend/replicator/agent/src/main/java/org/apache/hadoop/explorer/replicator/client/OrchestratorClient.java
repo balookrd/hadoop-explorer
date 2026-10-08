@@ -33,12 +33,37 @@ public class OrchestratorClient {
     private final ObjectMapper objectMapper;
 
     public OrchestratorClient(String orchestratorUrl, String agentSecret) {
+        this(orchestratorUrl, agentSecret, false);
+    }
+
+    public OrchestratorClient(String orchestratorUrl, String agentSecret, boolean insecureSkipVerify) {
         this.baseUrl = (orchestratorUrl != null ? orchestratorUrl : "http://localhost:8005").replaceAll("/+$", "");
         this.agentSecret = agentSecret;
-        this.httpClient = HttpClient.newBuilder()
+
+        HttpClient.Builder clientBuilder = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(5))
-                .build();
+                .connectTimeout(Duration.ofSeconds(5));
+
+        if (baseUrl.startsWith("https://") || insecureSkipVerify) {
+            try {
+                if (insecureSkipVerify) {
+                    javax.net.ssl.SSLContext sslContext = javax.net.ssl.SSLContext.getInstance("TLS");
+                    sslContext.init(null, new javax.net.ssl.TrustManager[]{
+                            new javax.net.ssl.X509TrustManager() {
+                                public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                                public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                                public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
+                            }
+                    }, new java.security.SecureRandom());
+                    clientBuilder.sslContext(sslContext);
+                    logger.warn("OrchestratorClient настроен с insecureSkipVerify=true для HTTPS");
+                }
+            } catch (Exception e) {
+                logger.error("Не удалось настроить TLS для OrchestratorClient: {}", e.getMessage());
+            }
+        }
+
+        this.httpClient = clientBuilder.build();
         this.objectMapper = new ObjectMapper();
     }
 

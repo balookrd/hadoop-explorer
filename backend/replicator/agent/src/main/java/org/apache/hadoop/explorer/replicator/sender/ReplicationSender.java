@@ -3,6 +3,10 @@ package org.apache.hadoop.explorer.replicator.sender;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.grpc.stub.StreamObserver;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
@@ -31,14 +35,32 @@ public class ReplicationSender {
     private final HadoopFsManager fsManager;
     private final LocalBandwidthLimiter bandwidthLimiter;
     private final int chunkSize;
+    private final boolean tlsEnabled;
+    private final String trustCertCollectionPath;
+    private final String clientCertChainPath;
+    private final String clientPrivateKeyPath;
+    private final boolean insecureSkipVerify;
 
     public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
+        this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, false, null, null, null, false);
+    }
+
+    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+                             LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
+                             boolean tlsEnabled, String trustCertCollectionPath,
+                             String clientCertChainPath, String clientPrivateKeyPath,
+                             boolean insecureSkipVerify) {
         this.workerId = workerId;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
         this.bandwidthLimiter = bandwidthLimiter;
         this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
+        this.tlsEnabled = tlsEnabled;
+        this.trustCertCollectionPath = trustCertCollectionPath;
+        this.clientCertChainPath = clientCertChainPath;
+        this.clientPrivateKeyPath = clientPrivateKeyPath;
+        this.insecureSkipVerify = insecureSkipVerify;
     }
 
     /**
@@ -95,10 +117,15 @@ public class ReplicationSender {
         // Обновляем статус RUNNING
         orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("RUNNING", 0L, totalBytes, "Начало передачи данных (Java Agent)"));
 
-        ManagedChannel channel = ManagedChannelBuilder.forTarget(targetAddress)
-                .usePlaintext()
-                .maxInboundMessageSize(64 * 1024 * 1024)
-                .build();
+        ManagedChannel channel;
+        try {
+            channel = createManagedChannel(targetAddress);
+        } catch (Exception e) {
+            String err = "Не удалось создать gRPC соединение к " + targetAddress + ": " + e.getMessage();
+            logger.error(err, e);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, totalBytes, err));
+            return false;
+        }
 
         CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
 
@@ -205,10 +232,52 @@ public class ReplicationSender {
                     "Ошибка gRPC передачи: " + e.getMessage()));
             return false;
         } finally {
-            channel.shutdown();
-            try {
-                channel.awaitTermination(5, TimeUnit.SECONDS);
-            } catch (InterruptedException ignored) {}
+            if (channel != null) {
+                channel.shutdown();
+                try {
+                    channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * Создает gRPC ManagedChannel с учетом параметров TLS / plaintext.
+     */
+    private ManagedChannel createManagedChannel(String targetAddress) throws javax.net.ssl.SSLException {
+        String cleanAddress = targetAddress;
+        boolean useTls = this.tlsEnabled;
+
+        if (cleanAddress.startsWith("grpcs://")) {
+            cleanAddress = cleanAddress.substring("grpcs://".length());
+            useTls = true;
+        } else if (cleanAddress.startsWith("grpc://")) {
+            cleanAddress = cleanAddress.substring("grpc://".length());
+        }
+
+        if (useTls) {
+            SslContextBuilder sslBuilder = GrpcSslContexts.forClient();
+            if (insecureSkipVerify) {
+                sslBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
+            } else if (trustCertCollectionPath != null && !trustCertCollectionPath.isBlank()) {
+                sslBuilder.trustManager(new File(trustCertCollectionPath));
+            }
+
+            if (clientCertChainPath != null && !clientCertChainPath.isBlank()
+                    && clientPrivateKeyPath != null && !clientPrivateKeyPath.isBlank()) {
+                sslBuilder.keyManager(new File(clientCertChainPath), new File(clientPrivateKeyPath));
+            }
+
+            logger.info("Создание защищенного gRPC TLS канала к '{}' (insecureSkipVerify={})", cleanAddress, insecureSkipVerify);
+            return NettyChannelBuilder.forTarget(cleanAddress)
+                    .sslContext(sslBuilder.build())
+                    .maxInboundMessageSize(64 * 1024 * 1024)
+                    .build();
+        } else {
+            return NettyChannelBuilder.forTarget(cleanAddress)
+                    .usePlaintext()
+                    .maxInboundMessageSize(64 * 1024 * 1024)
+                    .build();
         }
     }
 }

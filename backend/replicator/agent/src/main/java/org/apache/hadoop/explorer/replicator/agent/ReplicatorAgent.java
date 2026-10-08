@@ -1,7 +1,11 @@
 package org.apache.hadoop.explorer.replicator.agent;
 
 import io.grpc.Server;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
@@ -14,6 +18,7 @@ import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -58,13 +63,22 @@ public class ReplicatorAgent {
         this.config = config;
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
         this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal());
-        this.orchestratorClient = new OrchestratorClient(config.getOrchestratorUrl(), config.getAgentSecret());
+        this.orchestratorClient = new OrchestratorClient(
+                config.getOrchestratorUrl(),
+                config.getAgentSecret(),
+                config.isOrchestratorInsecureSkipVerify()
+        );
         this.sender = new ReplicationSender(
                 config.getAgentId(),
                 orchestratorClient,
                 fsManager,
                 bandwidthLimiter,
-                config.getChunkSize()
+                config.getChunkSize(),
+                config.isGrpcTlsEnabled(),
+                config.getGrpcTrustCertCollectionPath(),
+                config.getGrpcCertChainPath(),
+                config.getGrpcPrivateKeyPath(),
+                config.isGrpcInsecureSkipVerify()
         );
     }
 
@@ -112,14 +126,51 @@ public class ReplicatorAgent {
                 config.getKeytabPath()
         );
 
-        this.grpcServer = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
+        NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
                 .addService(service)
-                .maxInboundMessageSize(64 * 1024 * 1024)
-                .build()
-                .start();
+                .maxInboundMessageSize(64 * 1024 * 1024);
 
-        logger.info("gRPC Receiver сервер успешно запущен и слушает {}:{}",
-                config.getReceiverHost(), config.getReceiverPort());
+        if (config.isGrpcTlsEnabled()) {
+            SslContextBuilder sslBuilder;
+            if (config.getGrpcCertChainPath() != null && config.getGrpcPrivateKeyPath() != null) {
+                sslBuilder = SslContextBuilder.forServer(
+                        new File(config.getGrpcCertChainPath()),
+                        new File(config.getGrpcPrivateKeyPath())
+                );
+            } else {
+                logger.info("gRPC TLS включен без сертификатов: генерация SelfSignedCertificate для {}:{}",
+                        config.getReceiverHost(), config.getReceiverPort());
+                String certHost = ("0.0.0.0".equals(config.getReceiverHost()) || "*".equals(config.getReceiverHost()))
+                        ? "localhost" : config.getReceiverHost();
+                try {
+                    SelfSignedCertificate ssc = new SelfSignedCertificate(certHost);
+                    sslBuilder = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey());
+                } catch (Exception e) {
+                    throw new IOException("Не удалось сгенерировать временный сертификат для gRPC TLS: " + e.getMessage(), e);
+                }
+            }
+
+            if (config.getGrpcTrustCertCollectionPath() != null && !config.getGrpcTrustCertCollectionPath().isBlank()) {
+                sslBuilder.trustManager(new File(config.getGrpcTrustCertCollectionPath()));
+            }
+
+            String clientAuth = config.getGrpcClientAuth();
+            if ("REQUIRE".equalsIgnoreCase(clientAuth) || "REQUIRED".equalsIgnoreCase(clientAuth) || "NEED".equalsIgnoreCase(clientAuth)) {
+                sslBuilder.clientAuth(ClientAuth.REQUIRE);
+            } else if ("OPTIONAL".equalsIgnoreCase(clientAuth) || "WANT".equalsIgnoreCase(clientAuth)) {
+                sslBuilder.clientAuth(ClientAuth.OPTIONAL);
+            } else {
+                sslBuilder.clientAuth(ClientAuth.NONE);
+            }
+
+            serverBuilder.sslContext(GrpcSslContexts.configure(sslBuilder).build());
+            logger.info("gRPC TLS активирован на Receiver сервере (mTLS auth: {})", clientAuth != null ? clientAuth : "NONE");
+        }
+
+        this.grpcServer = serverBuilder.build().start();
+
+        logger.info("gRPC Receiver сервер успешно запущен и слушает {}:{} (TLS={})",
+                config.getReceiverHost(), config.getReceiverPort(), config.isGrpcTlsEnabled());
     }
 
     private void startHeartbeat() {

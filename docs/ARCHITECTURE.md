@@ -112,13 +112,25 @@
 
 ### 3.6 Стартер безопасности платформы (`backend/common-security-starter`)
 Все сервисы платформы используют стартер `org.apache.hadoop.explorer:common-security-starter`:
-- **Spring Boot 3 AutoConfiguration**: автоматическая регистрация `SecurityFilterChain`, `CommonAuthFilter`, CORS и контроллеров через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+- **Spring Boot 3 AutoConfiguration**: автоматическая регистрация `SecurityFilterChain`, `CommonAuthFilter`, CORS, TLS Customizer и контроллеров через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
 - **Kerberos SPNEGO SSO**: реализация нативного Java GSS-API (`org.ietf.jgss`) без сторонних библиотек.
 - **LDAPS / Active Directory**: безопасная аутентификация с экранированием фильтров (CWE-90).
 - **SessionStore L1/L2**: двухуровневый кэш (L1 Caffeine LRU + L2 JDBC H2/PostgreSQL) с отзывом токенов и защитой от Fail-Open.
 - **CSRF Guard**: строгая проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и белого списка `Origin`/`Referer`.
 - **Resilience & Audit**: Token Bucket Rate Limiter (`Bucket4j`), `SimpleCircuitBreaker` и структурированный JSON-аудит через AOP `@Audited`.
+- **Сквозной TLS/HTTPS и mTLS**: кастомизация встроенного веб-сервера Tomcat через `TlsWebServerCustomizer`, поддержка PKCS12 / JKS хранилищ, взаимная проверка клиентских сертификатов и фабрика `TlsContextFactory` для исходящих клиентов.
 - **Стандартизированные эндпоинты**: контроллер `AuthController` (`/api/v1/auth/login`, `/sso`, `/logout`, `/me`).
+
+### 3.7 Сквозная криптографическая защита каналов (TLS / mTLS для REST и gRPC)
+В платформе реализована единая криптографическая защита всех сетевых каналов передачи данных:
+1. **REST / HTTP каналы платформы**:
+   - Веб-серверы Spring Boot (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) активируют HTTPS через `hadoop.security.tls.enabled=true`.
+   - Поддерживаются протоколы TLSv1.3 и TLSv1.2, настраиваемые списки шифров, а также режим взаимной аутентификации (**mTLS** via `client-auth: REQUIRE`).
+   - Исходящие HTTP-клиенты (`HttpClient` в `NativeYarnClient`, `AwxClientService`, `OrchestratorClient`) используют фабрику `TlsContextFactory` с поддержкой доверенных CA и флага `insecureSkipVerify` для тестовых стендов.
+2. **gRPC каналы репликации данных**:
+   - Сервер-приемник `DataTransferServiceImpl` в `backend/replicator/agent` конфигурируется через `NettyServerBuilder` с `SslContextBuilder`, поддерживая X.509 сертификаты, приватные ключи, связки CA и режим `clientAuth: REQUIRE` (mTLS).
+   - Клиент-отправитель `ReplicationSender` устанавливает защищенные TLS-сессии через `NettyChannelBuilder.forTarget(...)` со схемой `grpcs://` или флагом `REPLICATOR_GRPC_TLS_ENABLED=true`.
+   - В dev/демо окружениях поддерживается автоматическая генерация сертификатов через `SelfSignedCertificate` и `BouncyCastle`.
 
 ---
 

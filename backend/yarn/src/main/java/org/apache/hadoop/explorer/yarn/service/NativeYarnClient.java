@@ -2,6 +2,8 @@ package org.apache.hadoop.explorer.yarn.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hadoop.explorer.common.config.CommonSecurityProperties;
+import org.apache.hadoop.explorer.common.security.TlsContextFactory;
 import org.apache.hadoop.explorer.yarn.model.*;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
@@ -27,13 +29,20 @@ public class NativeYarnClient implements YarnClient {
     private volatile String cachedActiveRmUrl;
 
     public NativeYarnClient(ClusterConfig cluster, ObjectMapper objectMapper) {
+        this(cluster, objectMapper, null);
+    }
+
+    public NativeYarnClient(ClusterConfig cluster, ObjectMapper objectMapper, CommonSecurityProperties.TlsProperties tlsProps) {
         this.cluster = cluster;
         this.objectMapper = objectMapper;
         this.fallbackMockClient = new MockYarnClient(cluster);
-        this.httpClient = HttpClient.newBuilder()
+        HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        if (tlsProps != null && tlsProps.isEnabled()) {
+            TlsContextFactory.configureHttpClient(builder, tlsProps);
+        }
+        this.httpClient = builder.build();
     }
 
     @Override

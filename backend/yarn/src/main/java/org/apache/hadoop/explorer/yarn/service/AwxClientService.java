@@ -2,11 +2,14 @@ package org.apache.hadoop.explorer.yarn.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hadoop.explorer.common.config.CommonSecurityProperties;
+import org.apache.hadoop.explorer.common.security.TlsContextFactory;
 import org.apache.hadoop.explorer.yarn.config.YarnProperties;
 import org.apache.hadoop.explorer.yarn.model.ClusterConfig;
 import org.apache.hadoop.explorer.yarn.model.DeployResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -27,15 +30,25 @@ public class AwxClientService {
 
     private final YarnProperties yarnProperties;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
 
     public AwxClientService(YarnProperties yarnProperties, ObjectMapper objectMapper) {
-        this.yarnProperties = yarnProperties;
-        this.objectMapper = objectMapper;
+        this(yarnProperties, objectMapper, null);
     }
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
+    @Autowired
+    public AwxClientService(YarnProperties yarnProperties, ObjectMapper objectMapper,
+                            @Autowired(required = false) CommonSecurityProperties securityProperties) {
+        this.yarnProperties = yarnProperties;
+        this.objectMapper = objectMapper;
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        if (securityProperties != null && securityProperties.getTls() != null && securityProperties.getTls().isEnabled()) {
+            TlsContextFactory.configureHttpClient(builder, securityProperties.getTls());
+        }
+        this.httpClient = builder.build();
+    }
 
     /**
      * Выполняет деплой сгенерированного XML в кластер через AWX Ansible или эмулирует выполнение при mock/недоступности.

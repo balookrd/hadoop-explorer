@@ -57,6 +57,13 @@
             <version>1.3.2</version>
         </dependency>
 
+        <!-- BouncyCastle for Netty SelfSignedCertificate on Java 21 -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.78.1</version>
+        </dependency>
+
         <!-- Apache Hadoop Client Libraries -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>

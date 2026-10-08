@@ -187,6 +187,12 @@ public class CommonSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public TlsWebServerCustomizer tlsWebServerCustomizer(CommonSecurityProperties properties) {
+        return new TlsWebServerCustomizer(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         CommonAuthFilter authFilter,

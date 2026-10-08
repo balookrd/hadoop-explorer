@@ -26,6 +26,10 @@ public class YarnClientFactory {
             return new MockYarnClient(cluster);
         }
 
-        return clientCache.computeIfAbsent(cluster.getId(), id -> new NativeYarnClient(cluster, objectMapper));
+        return clientCache.computeIfAbsent(cluster.getId(), id -> new NativeYarnClient(
+                cluster,
+                objectMapper,
+                securityProperties != null ? securityProperties.getTls() : null
+        ));
     }
 }

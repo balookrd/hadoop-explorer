@@ -118,6 +118,20 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
    - Оркестратор валидирует структуру анонсируемого gRPC-адреса `host:port` и диапазон порта (1–65535).
    - Автоматически блокируются попытки передать эндпоинты облачных метаданных (`169.254.169.254`, `metadata.google.internal`, `instance-data`) и адреса link-local (`169.254.0.0/16`, `fe80::/10`).
 
+### 1.3.2 Шифрование gRPC трафика и взаимная аутентификация (TLS / mTLS)
+
+Каналы потоковой передачи файлов по gRPC поддерживают криптографическую защиту:
+1. **Шифрование данных в канале (TLS)**:
+   - Включается установкой `REPLICATOR_GRPC_TLS_ENABLED=true` либо указанием префикса `grpcs://` в целевом адресе.
+   - Сервер-приемник использует сертификат и приватный ключ (`REPLICATOR_GRPC_CERT_CHAIN_PATH` и `REPLICATOR_GRPC_PRIVATE_KEY_PATH`).
+   - При отсутствии явных сертификатов в dev/тест средах генерируется временный самоподписанный сертификат на лету (`SelfSignedCertificate`).
+2. **Взаимная аутентификация узлов (mTLS)**:
+   - При `REPLICATOR_GRPC_CLIENT_AUTH=REQUIRE` сервер запрашивает и валидирует сертификат подключающегося передающего агента.
+   - Доверенные корневые центры сертификации задаются через `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH`.
+   - Клиент-отправитель (`ReplicationSender`) автоматически передает клиентский сертификат и ключ при наличии конфигурации.
+3. **Безопасность REST-вызовов Оркестратора**:
+   - `OrchestratorClient` поддерживает вызовы по `https://` с валидацией доверенных сертификатов или безопасным fallback флагом `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=true` для тестовых сред.
+
 ---
 
 ### 1.4 Справочник переменных окружения (Environment Variables Reference)
@@ -150,8 +164,14 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач и keepalive-пингов (секунды) | `3.0` | Опционально |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит пропускной способности агента (МБ/с, Token Bucket). Предотвращает перегрузку сетевой карты и дисков при установке непосредственно на ноду Hadoop (DataNode / Edge Gateway). `0` или пусто — без ограничений | `0.0` (без ограничений) | Опционально |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для целевого кластера (для NAT/DMZ) | Динамический реестр Оркестратора | Опционально |
-| `RECEIVER_ADDRESS` / `FALLBACK_TARGET_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии агентов) | `localhost:50051` | Опционально |
 | `REPLICATOR_KEYTAB_PATH` | Путь к Keytab-файлу системной техучетки для Kerberos аутентификации | `/etc/security/keytabs/replicator.keytab` | Рекомендуется |
+| `REPLICATOR_GRPC_TLS_ENABLED` | Включение защищенного шифрования TLS для входящего и исходящего gRPC трафика | `false` | Опционально |
+| `REPLICATOR_GRPC_CERT_CHAIN_PATH` | Путь к сертификату узла (X.509 PEM) | `null` | Опционально |
+| `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | Путь к приватному ключу узла (PKCS8 PEM) | `null` | Опционально |
+| `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | Путь к цепочке доверенных сертификатов CA для проверки пиров | `null` | Опционально |
+| `REPLICATOR_GRPC_CLIENT_AUTH` | Режим взаимной проверки сертификатов mTLS (`NONE`, `OPTIONAL`, `REQUIRE`) | `NONE` | Опционально |
+| `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | Отключение строгой проверки TLS сертификатов для gRPC (только dev) | `false` | Опционально |
+| `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | Отключение проверки HTTPS сертификатов при запросах к Оркестратору | `false` | Опционально |
 
 ### 1.5 Настройка Hadoop Impersonation (Proxy User) для Apache Ranger
 

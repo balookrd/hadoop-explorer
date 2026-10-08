@@ -191,6 +191,38 @@ database:
 - **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
 - **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolTaskExecutor`, отменой фоновых задач и закрытием соединений с базами данных и сетевыми клиентами.
 
+### 2.7 Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов
+
+Все микросервисы платформы (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) поддерживают централизованную конфигурацию HTTPS/TLS веб-серверов и исходящих REST-клиентов через `common-security-starter`:
+
+```yaml
+hadoop:
+  security:
+    tls:
+      enabled: true                     # Активация TLS для встроенного Tomcat веб-сервера
+      key-store-path: "/etc/security/tls/keystore.p12" # Путь к PKCS12 / JKS Keystore
+      key-store-password: "${TLS_KEYSTORE_PASSWORD}"
+      key-store-type: "PKCS12"
+      trust-store-path: "/etc/security/tls/truststore.p12" # Хранилище доверенных CA
+      trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
+      trust-store-type: "PKCS12"
+      client-auth: "NONE"               # Режим mTLS: NONE | OPTIONAL | REQUIRE
+      auto-generate-self-signed: true   # Автогенерация временного Keystore при отсутствии файла
+      insecure-skip-verify: false       # Отключение проверки сертификатов для dev-стендов
+      enabled-protocols:
+        - "TLSv1.3"
+        - "TLSv1.2"
+      ciphers: []                       # Список допустимых шифронаборов (по умолчанию все безопасные)
+```
+
+**Переменные окружения для Spring Boot сервисов**:
+- `HADOOP_SECURITY_TLS_ENABLED=true`
+- `HADOOP_SECURITY_TLS_KEY_STORE_PATH=/etc/security/tls/keystore.p12`
+- `HADOOP_SECURITY_TLS_KEY_STORE_PASSWORD=secret`
+- `HADOOP_SECURITY_TLS_TRUST_STORE_PATH=/etc/security/tls/truststore.p12`
+- `HADOOP_SECURITY_TLS_CLIENT_AUTH=REQUIRE` (для включения двустороннего mTLS)
+- `HADOOP_SECURITY_TLS_INSECURE_SKIP_VERIFY=true` (только для тестирования)
+
 ---
 
 
@@ -708,6 +740,15 @@ REPLICATOR_STAGING_DIR=/tmp/staging
 
 # Интервал опроса очереди задач в Оркестраторе (в секундах)
 POLL_INTERVAL_SEC=2.0
+
+# Настройки защищенного TLS / mTLS канала для gRPC
+REPLICATOR_GRPC_TLS_ENABLED=true
+REPLICATOR_GRPC_CERT_CHAIN_PATH=/etc/security/tls/agent-cert.pem
+REPLICATOR_GRPC_PRIVATE_KEY_PATH=/etc/security/tls/agent-key.pem
+REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH=/etc/security/tls/ca-chain.pem
+REPLICATOR_GRPC_CLIENT_AUTH=REQUIRE # NONE | OPTIONAL | REQUIRE (mTLS)
+REPLICATOR_GRPC_INSECURE_SKIP_VERIFY=false # true для тестовых сред
+ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 ```
 
 **Жизненный цикл динамической регистрации и Keepalive**:
