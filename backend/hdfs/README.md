@@ -85,13 +85,24 @@ backend/hdfs/
     - Интеграция с `GracefulShutdownManager` для корректного освобождения сетевых сессий и закрытия пулов потоков при остановке пода в Kubernetes.
 11. **Ролевая модель и разграничение доступа (RBAC)**:
     - Интеграция с централизованной функцией `resolve_system_role`: автоматическое назначение системных ролей `ADMIN` (полный доступ к операциям и квотам), `WRITER` (запись/модификация в разрешенных директориях), `READER` (только чтение/листинг).
+12. **Нативный Java 21 / Spring Boot 3 сервис (`hdfs-java`)**:
+    - Высокопроизводительная реализация бэкенда на Java 21 с использованием официального клиента Apache Hadoop (`org.apache.hadoop:hadoop-hdfs-client`).
+    - Поддержка High Availability (HA) NameNode failover, Kerberos Proxy User doAs-имперсонации и общей безопасности `common-security-starter`.
+    - Подробная документация: [`hdfs-java/README.md`](hdfs-java/README.md).
 
 ---
 
 ## 🧪 Запуск тестов
 
 ```bash
+# Тесты Python бэкенда (86 тестов)
 make test-hdfs
 # либо
 uv run pytest backend/hdfs/tests -v
+
+# Тесты нативного Java бэкенда (14 тестов)
+make test-hdfs-java
+
+# Сборка JAR Java сервиса
+make build-hdfs-java
 ```

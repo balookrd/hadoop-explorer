@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.apache.hadoop.explorer</groupId>
+    <artifactId>replicator-parent</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+
+    <name>Hadoop gRPC Replicator :: Parent</name>
+    <description>Единый стек Hadoop gRPC Replicator на Java: Агент и Оркестратор</description>
+
+    <modules>
+        <module>agent-java</module>
+        <module>orchestrator-java</module>
+    </modules>
+</project>

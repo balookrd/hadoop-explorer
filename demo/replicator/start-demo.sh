@@ -6,19 +6,20 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "========================================================================"
-echo "🚀 Запуск демо-стенда: Hadoop gRPC Replicator (Python + Java 17)"
+echo "🚀 Запуск демо-стенда: Hadoop gRPC Replicator (Java 21 LTS / Spring Boot 3)"
 echo "========================================================================"
 
-JAR_FILE="${REPO_ROOT}/backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar"
-if [[ ! -f "$JAR_FILE" ]]; then
-    echo "==> Сборка JAR-пакета Java Replicator Agent..."
-    (cd "$REPO_ROOT" && make build-replicator-agent-java)
+AGENT_JAR="${REPO_ROOT}/backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar"
+ORCH_JAR="${REPO_ROOT}/backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar"
+if [[ ! -f "$AGENT_JAR" || ! -f "$ORCH_JAR" ]]; then
+    echo "==> Сборка Java Replicator компонентов (Agent + Orchestrator)..."
+    (cd "$REPO_ROOT" && make build-replicator-java)
 fi
 
-echo "  - Оркестратор (Web UI):  http://localhost:8005"
-echo "  - Python Agent (DC1):     localhost:50051 (gRPC)"
-echo "  - Java 17 Agent (DC2):    localhost:50052 (gRPC)"
-echo "  - Метрики Prometheus:     http://localhost:8005/metrics"
+echo "  - Java Orchestrator (Web UI): http://localhost:8005"
+echo "  - Java 21 Agent (DC1):        localhost:50051 (gRPC)"
+echo "  - Java 21 Agent (DC2):        localhost:50052 (gRPC)"
+echo "  - Healthcheck:                http://localhost:8005/health"
 echo "========================================================================"
 
 docker compose up -d --build

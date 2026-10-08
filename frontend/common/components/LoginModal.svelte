@@ -10,28 +10,156 @@
     badgeColor?: string;
   }
 
-  export const DEFAULT_MOCK_USERS: MockUserOption[] = [
-    {
-      username: 'admin_user',
-      password: 'password123',
-      displayName: 'Александр Админов',
-      description: 'Администратор платформы, полный доступ',
-      badgeColor: 'text-purple-600',
-    },
-    {
-      username: 'de_user',
-      password: 'password123',
-      displayName: 'Иван Датаинженеров',
-      description: 'Data Engineer, запуск вычислений / R/W',
-      badgeColor: 'text-sky-600',
-    },
-    {
-      username: 'analyst_user',
-      password: 'password123',
-      displayName: 'Анна Аналитикова',
-      description: 'Data Analyst, интерактивные запросы (Read-Only)',
-      badgeColor: 'text-emerald-600',
-    },
+  export const APP_MOCK_USERS: Record<string, MockUserOption[]> = {
+    universal: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор платформы, полный доступ (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'writer_user',
+        password: 'password123',
+        displayName: 'Владимир Инженеров',
+        description: 'Инженер платформы, запись и запуск (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'reader_user',
+        password: 'password123',
+        displayName: 'Екатерина Наблюдателева',
+        description: 'Наблюдатель платформы, только чтение (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+    hdfs: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор HDFS, полный доступ к неймспейсу (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'writer_user',
+        password: 'password123',
+        displayName: 'Владимир Инженеров',
+        description: 'Инженер данных, запись и загрузка файлов (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'reader_user',
+        password: 'password123',
+        displayName: 'Екатерина Наблюдателева',
+        description: 'Аналитик данных, чтение и скачивание (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+    yarn: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор YARN, управление очередями и Capacity Scheduler (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'writer_user',
+        password: 'password123',
+        displayName: 'Владимир Инженеров',
+        description: 'Оператор YARN, запуск и завершение приложений (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'reader_user',
+        password: 'password123',
+        displayName: 'Екатерина Наблюдателева',
+        description: 'Наблюдатель очередей и метрик кластера (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+    replicator: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор репликации, полный доступ (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'writer_user',
+        password: 'password123',
+        displayName: 'Владимир Инженеров',
+        description: 'Оператор репликации, создание и запуск задач WAN (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'reader_user',
+        password: 'password123',
+        displayName: 'Екатерина Наблюдателева',
+        description: 'Наблюдатель статуса и журнала репликации (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+    sql: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор хранилища данных, управление каталогами (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'de_user',
+        password: 'password123',
+        displayName: 'Иван Датаинженеров',
+        description: 'Data Engineer, создание таблиц и DDL/DML (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'analyst_user',
+        password: 'password123',
+        displayName: 'Анна Аналитикова',
+        description: 'Data Analyst, интерактивные SELECT запросы (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+    spark: [
+      {
+        username: 'admin_user',
+        password: 'password123',
+        displayName: 'Александр Админов',
+        description: 'Администратор Spark платформы, управление ресурсами (ADM)',
+        badgeColor: 'text-purple-600',
+      },
+      {
+        username: 'de_user',
+        password: 'password123',
+        displayName: 'Иван Датаинженеров',
+        description: 'Data Engineer, запуск интерактивных Spark сессий (RW)',
+        badgeColor: 'text-amber-600',
+      },
+      {
+        username: 'analyst_user',
+        password: 'password123',
+        displayName: 'Анна Аналитикова',
+        description: 'Data Analyst, интерактивные вычисления и анализ (RO)',
+        badgeColor: 'text-slate-500',
+      },
+    ],
+  };
+
+  export const DEFAULT_MOCK_USERS: MockUserOption[] = APP_MOCK_USERS.universal;
+
+  export const APP_TABS = [
+    { id: 'universal', label: 'Универсальные' },
+    { id: 'hdfs', label: 'HDFS' },
+    { id: 'yarn', label: 'YARN' },
+    { id: 'replicator', label: 'Replicator' },
+    { id: 'sql', label: 'SQL' },
+    { id: 'spark', label: 'Spark' },
   ];
 
   interface Props {
@@ -39,6 +167,7 @@
     subtitle?: string;
     icon?: any;
     isModal?: boolean;
+    app?: 'hdfs' | 'yarn' | 'replicator' | 'sql' | 'spark' | 'universal' | string;
     mockUsers?: MockUserOption[];
     initialError?: string | null;
     onClose?: () => void;
@@ -51,12 +180,37 @@
     subtitle = 'Аутентификация LDAP & Kerberos SSO',
     icon: IconComponent = Server,
     isModal = true,
-    mockUsers = DEFAULT_MOCK_USERS,
+    app = undefined,
+    mockUsers = undefined,
     initialError = null,
     onClose,
     onLogin,
     onKerberosSso,
   }: Props = $props();
+
+  function detectApp(explicitApp?: string, titleStr?: string): string {
+    if (explicitApp && APP_MOCK_USERS[explicitApp.toLowerCase()]) {
+      return explicitApp.toLowerCase();
+    }
+    const t = (titleStr || '').toLowerCase();
+    if (t.includes('spark')) return 'spark';
+    if (t.includes('sql')) return 'sql';
+    if (t.includes('yarn')) return 'yarn';
+    if (t.includes('hdfs')) return 'hdfs';
+    if (t.includes('replicat')) return 'replicator';
+    return 'universal';
+  }
+  let currentApp = $state('universal');
+
+  $effect(() => {
+    currentApp = detectApp(app, title);
+  });
+
+  let activeUsers = $derived(
+    mockUsers && mockUsers.length > 0
+      ? mockUsers
+      : (APP_MOCK_USERS[currentApp] || DEFAULT_MOCK_USERS)
+  );
 
   let username = $state('');
   let password = $state('password123');
@@ -68,12 +222,12 @@
     errorMessage = initialError ?? null;
   });
 
-  // Инициализируем первым тестовым пользователем, если список не пуст
+  // Инициализируем первым тестовым пользователем выбранного набора
   $effect(() => {
-    if (mockUsers && mockUsers.length > 0 && !username) {
-      username = mockUsers[0].username;
-      if (mockUsers[0].password) {
-        password = mockUsers[0].password;
+    if (activeUsers && activeUsers.length > 0 && !username) {
+      username = activeUsers[0].username;
+      if (activeUsers[0].password) {
+        password = activeUsers[0].password;
       }
     }
   });
@@ -210,11 +364,29 @@
     </form>
 
     <!-- Mock Quick-Select Accounts -->
-    {#if mockUsers && mockUsers.length > 0}
+    {#if activeUsers && activeUsers.length > 0}
       <div class="pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-        <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Быстрый выбор тестового аккаунта (подставить):</div>
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Быстрый выбор тестового аккаунта:</div>
+        </div>
+
+        <!-- Табы фильтрации по приложениям платформы -->
+        {#if !mockUsers}
+          <div class="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+            {#each APP_TABS as tab}
+              <button
+                type="button"
+                onclick={() => { currentApp = tab.id; }}
+                class="text-[10px] px-2 py-0.5 rounded-lg font-medium transition cursor-pointer shrink-0 {currentApp === tab.id ? 'bg-sky-600 text-white shadow-2xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}"
+              >
+                {tab.label}
+              </button>
+            {/each}
+          </div>
+        {/if}
+
         <div class="flex flex-col gap-1.5">
-          {#each mockUsers as mockUser}
+          {#each activeUsers as mockUser}
             <button
               type="button"
               onclick={() => pickUser(mockUser)}

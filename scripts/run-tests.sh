@@ -72,13 +72,9 @@ run_spark() {
 
 run_replicator() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Replicator (5 тестов)"
+  echo "🧪 Запуск тестов: Replicator (Java 21 / Spring Boot 3 & Agent)"
   echo "=========================================="
-  local pt
-  pt="$(find_pytest replicator)"
-  (cd "$ROOT_DIR/backend/replicator" && \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
+  mvn test -f "$ROOT_DIR/backend/replicator/pom.xml"
 }
 
 run_frontend() {

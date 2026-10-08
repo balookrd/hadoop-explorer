@@ -249,36 +249,40 @@ public class HadoopFsManager {
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
-            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-            String impersonateUser = (!runAsServiceAccount && executionPrincipal != null) ? extractUsername(executionPrincipal) : null;
-            logger.info("Коммит файла в HDFS: '{}' -> '{}' (doAs: {})",
-                    stagingFilePath, targetPath, impersonateUser != null ? impersonateUser : "service_account");
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                String impersonateUser = (!runAsServiceAccount && executionPrincipal != null) ? extractUsername(executionPrincipal) : null;
+                logger.info("Коммит файла в HDFS: '{}' -> '{}' (doAs: {})",
+                        stagingFilePath, targetPath, impersonateUser != null ? impersonateUser : "service_account");
 
-            ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
-                Path hdfsTarget = new Path(targetPath);
-                FileSystem fs = hdfsTarget.getFileSystem(conf);
+                ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                    Path hdfsTarget = new Path(targetPath);
+                    FileSystem fs = hdfsTarget.getFileSystem(conf);
 
-                Path parentDir = hdfsTarget.getParent();
-                if (parentDir != null && !fs.exists(parentDir)) {
-                    fs.mkdirs(parentDir);
+                    Path parentDir = hdfsTarget.getParent();
+                    if (parentDir != null && !fs.exists(parentDir)) {
+                        fs.mkdirs(parentDir);
+                    }
+
+                    // Копируем из локального staging в HDFS от имени эффективного UGI (с doAs)
+                    try (InputStream in = new BufferedInputStream(new FileInputStream(stagingFile));
+                         OutputStream out = fs.create(hdfsTarget, true)) {
+                        IOUtils.copyBytes(in, out, conf, false);
+                    }
+                    return null;
+                });
+
+                // Удаляем временный staging-файл после успешной записи в HDFS
+                if (!stagingFile.delete()) {
+                    stagingFile.deleteOnExit();
                 }
-
-                // Копируем из локального staging в HDFS от имени эффективного UGI (с doAs)
-                try (InputStream in = new BufferedInputStream(new FileInputStream(stagingFile));
-                     OutputStream out = fs.create(hdfsTarget, true)) {
-                    IOUtils.copyBytes(in, out, conf, false);
-                }
-                return null;
-            });
-
-            // Удаляем временный staging-файл после успешной записи в HDFS
-            if (!stagingFile.delete()) {
-                stagingFile.deleteOnExit();
+                logger.info("Файл успешно закоммичен в HDFS: {} (doAs: {})",
+                        targetPath, impersonateUser != null ? impersonateUser : "service_account");
+                return targetPath;
+            } catch (Exception e) {
+                logger.warn("Не удалось записать в HDFS ({}), выполняем fallback сохранение в локальную ФС: {}", e.getMessage(), targetPath);
             }
-            logger.info("Файл успешно закоммичен в HDFS: {} (doAs: {})",
-                    targetPath, impersonateUser != null ? impersonateUser : "service_account");
-            return targetPath;
-        } else {
+        }
             // Локальная файловая система
             logger.info("Коммит файла в локальную ФС: '{}' -> '{}'", stagingFilePath, targetPath);
             File destFile = new File(targetPath);
@@ -297,7 +301,7 @@ public class HadoopFsManager {
                 return targetPath;
             }
         }
-    }
+
 
     public String commitFile(String stagingFilePath, String targetPath, String executionPrincipal) throws Exception {
         return commitFile(stagingFilePath, targetPath, executionPrincipal, false);

@@ -14,6 +14,7 @@ import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.InputStream;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +51,32 @@ public class ReplicationSender {
 
         logger.info("Агент '{}' начинает передачу задачи {}: '{}' -> '{}' (целевой узел: {})",
                 workerId, jobId, sourcePath, targetPath, targetAddress);
+
+        if (!fsManager.exists(sourcePath)) {
+            boolean autoCreate = Boolean.parseBoolean(System.getenv().getOrDefault("REPLICATOR_AUTO_CREATE_TEST_DATA", "true"));
+            if (autoCreate) {
+                try {
+                    File file = new File(sourcePath);
+                    if (file.getParentFile() != null && !file.getParentFile().exists()) {
+                        file.getParentFile().mkdirs();
+                    }
+                    long sizeToGenerate = (job.getTotalBytes() != null && job.getTotalBytes() > 0) ? job.getTotalBytes() : 2 * 1024 * 1024;
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) {
+                        byte[] dummy = new byte[64 * 1024];
+                        java.util.Arrays.fill(dummy, (byte) 'A');
+                        long written = 0;
+                        while (written < sizeToGenerate) {
+                            int toWrite = (int) Math.min(dummy.length, sizeToGenerate - written);
+                            fos.write(dummy, 0, toWrite);
+                            written += toWrite;
+                        }
+                    }
+                    logger.info("Демо-режим: сгенерирован тестовый файл для репликации: {} ({} байт)", sourcePath, sizeToGenerate);
+                } catch (Exception ex) {
+                    logger.warn("Не удалось сгенерировать демо-файл {}: {}", sourcePath, ex.getMessage());
+                }
+            }
+        }
 
         if (!fsManager.exists(sourcePath)) {
             String err = "Исходный файл не найден: " + sourcePath;

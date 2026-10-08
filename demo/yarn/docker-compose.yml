@@ -7,7 +7,7 @@ services:
   yarn-demo-explorer:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.yarn
+      dockerfile: docker/Dockerfile.yarn-java
     container_name: yarn-explorer
     hostname: yarn-explorer
     networks:
@@ -18,28 +18,13 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - CONFIG_PATH=/app/demo/config.yaml
-      - KRB5_CONFIG=/etc/krb5.conf
-      - KRB5_KEYTAB=/etc/security/keytabs/yarn-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/yarn-explorer@COMPANY.LOCAL
-      - DB_PATH=/app/data/yarn_explorer.db
-      - PYTHONUNBUFFERED=1
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
     volumes:
-      - ./:/app/demo:ro
+      - ./application-demo.yml:/app/config/application.yml:ro
       - demo-shared-krb5:/shared-krb5:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - yarn-demo-data:/app/data
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        echo "Waiting for krb5 configuration and keytab..."
-        while [ ! -f /shared-krb5/krb5.conf ] || [ ! -f /etc/security/keytabs/yarn-explorer.keytab ]; do
-          sleep 1
-        done
-        cp /shared-krb5/krb5.conf /etc/krb5.conf
-        echo "Starting Yarn Explorer..."
-        exec /docker-entrypoint.sh
     depends_on:
       kdc:
         condition: service_healthy

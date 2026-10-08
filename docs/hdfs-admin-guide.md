@@ -427,9 +427,42 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ### 5.2 Решение инцидентов (FAQ)
 
-| Ошибка | Причина | Решение |
-|---|---|---|
-| `StandbyException: Operation category READ is not supported in state standby` | NameNode переключилась в Standby | HDFS Explorer автоматически опрашивает второй URL из `standby_namenode_url`. Убедитесь, что оба URL корректно заданы в `config.yaml`. |
-| `SecurityException: User appuser is not allowed to impersonate alice` | Не настроен `hadoop.proxyuser` в `core-site.xml` кластера | Добавьте в `core-site.xml` NameNode: `hadoop.proxyuser.<principal>.hosts=*` и `hadoop.proxyuser.<principal>.groups=*`. |
-| `ConnectError: Failed to connect to DataNode port 9864` | Поды или сервер не имеют прямого сетевого доступа к DataNode | При использовании WebHDFS клиент выполняет redirect на DataNode. Проверьте сетевую связность до DataNode или используйте HttpFS. |
 | `Payload Too Large (HTTP 413)` | Ограничение Ingress на размер загрузки | Увеличьте аннотацию `nginx.ingress.kubernetes.io/proxy-body-size: "1024m"`. |
+
+---
+
+## 6. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
+
+Наряду с микросервисом на Python, в состав платформы входит нативный бэкенд **HDFS Explorer на стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs/hdfs-java`), использующий официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
+
+### 6.1 Преимущества Java 21 реализации
+1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.
+2. **Встроенный High Availability Failover**: поддержка автоматического переключения между Active/Standby NameNode через `ConfiguredFailoverProxyProvider`.
+3. **Нативный Kerberos GSS-API**: строгая изоляция контекстов и прозрачная doAs-имперсонация пользователя (`UserGroupInformation.createProxyUser`), гарантирующая полное соответствие политикам Apache Ranger.
+4. **Общее ядро безопасности `common-security-starter`**: единая сессионная модель (L1 Caffeine + L2 JDBC), CSRF Guard, Bucket4j Rate Limiting и AOP-аудит `@Audited`.
+
+### 6.2 Сборка и тестирование
+
+```bash
+# Модульное и интеграционное тестирование
+make test-hdfs-java
+
+# Сборка исполняемого fat JAR
+make build-hdfs-java
+# Результат: backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar
+
+# Полная валидация всех Java компонентов платформы
+make test-java
+```
+
+### 6.3 Промышленный запуск
+
+```bash
+java -jar -Dspring.profiles.active=prod \
+  -Dserver.port=8001 \
+  -Dhadoop.security.auth.mode=kerberos \
+  -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
+  -Dhadoop.hdfs.clusters-config-path=/etc/hadoop-explorer/clusters.yaml \
+  backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar
+```
+

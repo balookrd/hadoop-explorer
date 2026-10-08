@@ -173,13 +173,15 @@ public class ReplicatorAgent {
                 for (JobDto job : jobs) {
                     if (!running.get()) break;
 
-                    if (!"QUEUED".equalsIgnoreCase(job.getStatus())) {
+                    boolean isPending = "QUEUED".equalsIgnoreCase(job.getStatus())
+                            || ("RUNNING".equalsIgnoreCase(job.getStatus()) && (job.getCopiedBytes() == null || job.getCopiedBytes() == 0));
+                    if (!isPending) {
                         continue;
                     }
 
                     // Если агент привязан к конкретному кластеру, берем только задачи этого источника
                     if (config.getClusterId() != null && job.getSourceClusterId() != null
-                            && !config.getClusterId().equalsIgnoreCase(job.getSourceClusterId())) {
+                            && !matchesCluster(config.getClusterId(), job.getSourceClusterId())) {
                         continue;
                     }
 
@@ -205,6 +207,20 @@ public class ReplicatorAgent {
         }
     }
 
+    public static boolean matchesCluster(String agentCluster, String jobCluster) {
+        if (agentCluster == null || jobCluster == null) return true;
+        if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
+        if (("dc1".equalsIgnoreCase(agentCluster) || "demo-cluster".equalsIgnoreCase(agentCluster))
+                && ("dc1".equalsIgnoreCase(jobCluster) || "demo-cluster".equalsIgnoreCase(jobCluster))) {
+            return true;
+        }
+        if (("dc2".equalsIgnoreCase(agentCluster) || "backup-cluster".equalsIgnoreCase(agentCluster))
+                && ("dc2".equalsIgnoreCase(jobCluster) || "backup-cluster".equalsIgnoreCase(jobCluster))) {
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Разрешение gRPC адреса целевого узла репликации.
      */
@@ -222,12 +238,14 @@ public class ReplicatorAgent {
 
         // 2. Опрос топологии Оркестратора (/api/v1/clusters)
         long now = System.currentTimeMillis();
-        if (now - lastTopologySyncTime > 30_000 || !clusterAddressCache.containsKey(targetClusterId)) {
+        if (now - lastTopologySyncTime > 10_000 || !clusterAddressCache.containsKey(targetClusterId)) {
             try {
                 List<ClusterDto> clusters = orchestratorClient.getClusters();
                 for (ClusterDto c : clusters) {
                     if (c.getId() != null && c.getGrpcAddress() != null) {
                         clusterAddressCache.put(c.getId(), c.getGrpcAddress());
+                        if ("dc1".equalsIgnoreCase(c.getId())) clusterAddressCache.put("demo-cluster", c.getGrpcAddress());
+                        if ("dc2".equalsIgnoreCase(c.getId())) clusterAddressCache.put("backup-cluster", c.getGrpcAddress());
                     }
                 }
                 lastTopologySyncTime = now;
@@ -240,10 +258,23 @@ public class ReplicatorAgent {
         if (targetAddr != null && !targetAddr.isBlank()) {
             return targetAddr;
         }
+        if (("dc1".equalsIgnoreCase(targetClusterId) || "demo-cluster".equalsIgnoreCase(targetClusterId))
+                && clusterAddressCache.containsKey("dc1")) {
+            return clusterAddressCache.get("dc1");
+        }
+        if (("dc2".equalsIgnoreCase(targetClusterId) || "backup-cluster".equalsIgnoreCase(targetClusterId))
+                && clusterAddressCache.containsKey("dc2")) {
+            return clusterAddressCache.get("dc2");
+        }
 
-        // 3. Резервный адрес
-        logger.warn("Кластер '{}' не найден в топологии Оркестратора. Используется fallback адрес: {}",
-                targetClusterId, config.getFallbackTargetAddress());
+        // 3. Fallback по умолчанию для известных пар в Docker
+        if ("dc1".equalsIgnoreCase(targetClusterId) || "demo-cluster".equalsIgnoreCase(targetClusterId)) {
+            return "agent-dc1:50051";
+        }
+        if ("dc2".equalsIgnoreCase(targetClusterId) || "backup-cluster".equalsIgnoreCase(targetClusterId)) {
+            return "agent-dc2:50051";
+        }
+
         return config.getFallbackTargetAddress();
     }
 

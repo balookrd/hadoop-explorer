@@ -27,16 +27,16 @@
 
 5. **Kerberos Proxy User и doAs имперсонация (Apache Ranger Audit & Policy Enforcement)**:
    - Аутентификация в KDC по системному keytab техучетки (`hdfs-replicator@REALM.LOCAL`).
-   - Автоматическая doAs-имперсонация конечного пользователя (`impersonate_user`) при доступе к HDFS через PyArrow (`pyarrow.fs.HadoopFileSystem(..., user=impersonate_user, kerb_ticket=cache_file)`).
+   - Нативная Hadoop doAs-имперсонация конечного пользователя (`impersonate_user`) через `org.apache.hadoop.security.UserGroupInformation`.
    - Гарантирует применение политик Apache Ranger на уровне инициатора задачи и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
-   - Изоляция тикетов Kerberos через уникальные переменные `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}` с автоочисткой через `kdestroy`.
 
 6. **UI Консоль в стиле HDFS Explorer**:
    - Единая палитра `bg-slate-950` / `bg-slate-900` / `border-slate-800` / `text-slate-100`.
    - Модальное окно авторизации точно как `LoginModal.svelte`.
    - Селектор HDFS кластеров в хедере и форме создания задач с отображением ЦОД.
-7. **Универсальный полнодуплексный агент (Replicator Agent)**:
-   - Единый сервис `backend.replicator.agent` объединяет функции Sender и Receiver.
+
+7. **Универсальный полнодуплексный агент (Replicator Agent Java 21)**:
+   - Нативный сервис на Java 21 LTS (`agent-java`) объединяет функции Sender и Receiver.
    - Поддерживает двунаправленную репликацию (`DC1 ⇄ DC2`), катастрофоустойчивый failback и multi-DC топологии.
    - Режимы работы (`AGENT_MODE`):
      - `all` (по умолчанию) — полный дуплекс: параллельный прием входящих файлов по gRPC (:50051) и отправка исходящих задач из очереди оркестратора;
@@ -45,19 +45,27 @@
    - Динамический выбор целевого gRPC узла (`target_address`) на основе топологии кластеров Оркестратора.
 
 8. **Хранилище состояния и метаданных**:
-   - SQLite база данных размещается по стандарту платформы в единой директории `data/replicator.db` (аналогично `yarn_explorer.db`, `spark_explorer.db`, `sql_explorer.db`).
-   - Переопределение через переменную окружения `REPLICATOR_DATABASE_URL` (например, для PostgreSQL в production или `:memory:` в тестах).
+   - Реляционная база данных (H2/PostgreSQL) оркестратора со встроенным Spring Data JPA.
+   - Персистентное хранение задач, топологии и истории всех запусков (`JobRun`).
 
 9. **Локальный шейпинг полосы агента (`AGENT_MAX_BANDWIDTH_MB_S`)**:
    - Позволяет безопасно устанавливать агенты непосредственно на DataNode и Edge Nodes без риска вытеснения трафика боевых задач Spark/YARN.
    - Асинхронный Token Bucket троттлинг на отправку (Sender) и TCP Flow Control Backpressure на прием (Receiver).
    - Отображение фактического лимита узлов в UI консоли Оркестратора.
 
-10. **Нативный Java 17 Replicator Agent (`agent-java`)**:
-    - Специальная версия агента репликации на Java 17 для запуска непосредственно на нодах Hadoop (DataNode, Edge Node) и в контейнерах Apache Hadoop YARN.
+10. **Нативный Java 21 Replicator Agent (`agent-java`)**:
+    - Запуск непосредственно на нодах Hadoop (DataNode, Edge Node) и в контейнерах Apache Hadoop YARN.
     - Прямая работа с HDFS через нативный `org.apache.hadoop.fs.FileSystem` и Kerberos UGI / YARN Delegation Tokens.
     - Встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster` для развертывания пула агентов в кластере YARN (`yarn jar replicator-agent-java-1.0.0-all.jar ...`).
     - Подробная документация: [`agent-java/README.md`](agent-java/README.md).
+
+11. **Высокопроизводительный Java 21 / Spring Boot 3 Оркестратор (`orchestrator-java`)**:
+    - Полная реализация оркестратора репликации на Java 21 LTS и Spring Boot 3.3.4.
+    - Единое мультимодульное Maven-дерево (`pom.xml`) объединяет агент (`agent-java`) и оркестратор (`orchestrator-java`).
+    - Бесшовная интеграция с общим ядром безопасности `common-security-starter` (SPNEGO SSO, LDAP, JWT, CSRF, Rate Limiting, Audit).
+    - Иерархический Token Bucket шейпинг, динамический реестр агентов с SSRF-защитой и планировщик периодических репликаций.
+    - Встроенная раздача собранного Svelte 5 SPA фронтенда.
+    - Подробная документация: [`orchestrator-java/README.md`](orchestrator-java/README.md).
 
 ---
 
@@ -70,10 +78,11 @@ make demo-replicator
 # Открыть веб-интерфейс
 open http://localhost:8005
 
-# Запуск тестов Python
+# Сборка и тесты Java Replicator (Agent + Orchestrator)
+make build-replicator
 make test-replicator
 
-# Сборка и тесты Java Replicator Agent (Java 17)
-make build-replicator-agent-java
+# Тестирование отдельных модулей Java
 make test-replicator-agent-java
+make test-replicator-orchestrator-java
 ```

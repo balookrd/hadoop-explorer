@@ -1,0 +1,94 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: hdfs-explorer-demo
+  datasource:
+    url: jdbc:h2:file:/app/data/hdfs_explorer;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: mock
+      writer-groups:
+        - "data-engineers"
+        - "dev-leads"
+        - "spark-users"
+    jwt:
+      secret-key: "hdfs-explorer-demo-stand-super-secret-key-2026"
+      expiration-minutes: 480
+    mock-users:
+      - username: "admin_user"
+        password: "password123"
+        displayName: "Александр Админов"
+        email: "admin@company.local"
+        groups: ["hadoop-admins", "platform-team"]
+      - username: "writer_user"
+        password: "password123"
+        displayName: "Владимир Инженеров"
+        email: "writer@company.local"
+        groups: ["data-engineers", "dev-leads"]
+      - username: "de_user"
+        password: "password123"
+        displayName: "Иван Датаинженеров"
+        email: "de@company.local"
+        groups: ["data-engineers", "spark-users"]
+      - username: "reader_user"
+        password: "password123"
+        displayName: "Екатерина Наблюдателева"
+        email: "reader@company.local"
+        groups: ["bi-analysts", "junior-devs"]
+      - username: "analyst_user"
+        password: "password123"
+        displayName: "Анна Аналитикова"
+        email: "analyst@company.local"
+        groups: ["bi-analysts", "analytics"]
+    ldap:
+      enabled: true
+      server-uri: "ldap://ldap:389"
+      bind-dn: "cn=admin,dc=company,dc=local"
+      bind-password: "adminpassword"
+      user-base-dn: "ou=users,dc=company,dc=local"
+      user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
+      group-base-dn: "ou=groups,dc=company,dc=local"
+      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    kerberos:
+      enabled: false
+    rate-limit:
+      enabled: false
+    audit:
+      enabled: true
+
+  hdfs:
+    clusters:
+      - id: "hdfs-cluster-1"
+        name: "Production DataLake"
+        description: "Основной аналитический кластер HDFS"
+        webhdfs-urls:
+          - "http://hdfs-cluster-1:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://hdfs-cluster-1:9000"
+        auth-type: "kerberos"
+        service-principal: "hdfs-explorer/hdfs-explorer@COMPANY.LOCAL"
+        keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+
+      - id: "hdfs-cluster-2"
+        name: "Archive & Analytics DataLake"
+        description: "Резервный архивный кластер HDFS"
+        webhdfs-urls:
+          - "http://hdfs-cluster-2:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://hdfs-cluster-2:9000"
+        auth-type: "kerberos"
+        service-principal: "hdfs-explorer/hdfs-explorer@COMPANY.LOCAL"
+        keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"

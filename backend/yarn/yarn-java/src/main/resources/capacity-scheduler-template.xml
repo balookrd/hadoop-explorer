@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  Capacity Scheduler Configuration
+-->
+<configuration>
+  <property>
+    <name>yarn.scheduler.capacity.maximum-applications</name>
+    <value>10000</value>
+    <description>Maximum number of applications that can be pending and running.</description>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+    <value>0.2</value>
+    <description>Maximum percent of resources allocated to application masters.</description>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.resource-calculator</name>
+    <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+    <description>The ResourceCalculator implementation to use for comparing Resources.</description>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.queues</name>
+    <value>default,prod,dev</value>
+    <description>The queues at the this level (root is the root queue).</description>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.capacity</name>
+    <value>100.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.default.capacity</name>
+    <value>15.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.default.user-limit-factor</name>
+    <value>1.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.default.maximum-capacity</name>
+    <value>100.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.default.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.capacity</name>
+    <value>60.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.maximum-capacity</name>
+    <value>100.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.queues</name>
+    <value>spark,flink,hive</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.spark.capacity</name>
+    <value>40.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.spark.maximum-capacity</name>
+    <value>80.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.spark.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.flink.capacity</name>
+    <value>35.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.flink.maximum-capacity</name>
+    <value>50.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.flink.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.hive.capacity</name>
+    <value>25.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.hive.maximum-capacity</name>
+    <value>50.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.prod.hive.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.dev.capacity</name>
+    <value>25.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.dev.maximum-capacity</name>
+    <value>50.0</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.root.dev.state</name>
+    <value>RUNNING</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.queue-mappings</name>
+    <value>u:%user:%user,g:hadoop-admins:root.prod</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.capacity.queue-mappings-override.enable</name>
+    <value>false</value>
+  </property>
+</configuration>

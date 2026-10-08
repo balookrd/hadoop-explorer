@@ -1,8 +1,9 @@
-.PHONY: help venv sync install-dev lint format test test-yarn test-hdfs test-sql test-spark \
+.PHONY: help venv sync install-dev lint format test test-yarn test-hdfs test-sql test-spark test-replicator \
+        test-security-starter test-replicator-agent-java test-java test-ui \
         build build-yarn build-hdfs build-sql build-spark \
         frontend-build frontend-install generate-types demo-yarn demo-hdfs demo-sql demo-spark demo-all \
         demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
-        skeleton skeleton-all skeleton-backend
+        skeleton skeleton-all skeleton-backend java-index java-query
 
 TAG ?= latest
 REGISTRY ?= hadoop-explorer
@@ -18,11 +19,14 @@ help:
 	@echo "    make format           - Автоформатирование кода с помощью Ruff"
 	@echo ""
 	@echo "  Тестирование:"
-	@echo "    make test             - Запуск всех модульных тестов платформы"
+	@echo "    make test             - Запуск всех модульных тестов платформы (Python + UI)"
 	@echo "    make test-yarn        - Тесты сервиса YARN Explorer"
 	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer"
 	@echo "    make test-sql         - Тесты сервиса SQL Explorer"
 	@echo "    make test-spark       - Тесты сервиса Spark Explorer"
+	@echo "    make test-replicator  - Тесты сервиса Replicator"
+	@echo "    make test-security-starter - Тесты Java 21 / Spring Boot 3 common-security-starter"
+	@echo "    make test-java        - Запуск всех Java тестов платформы"
 	@echo ""
 	@echo "  Сборка Docker-контейнеров:"
 	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark)"
@@ -54,10 +58,12 @@ help:
 	@echo "    make helm-lint        - Проверка синтаксиса всех Helm-чартов"
 	@echo "    make helm-package     - Упаковка чартов для деплоя"
 	@echo ""
-	@echo "  AST-скелетизация и контекст для LLM:"
-	@echo "    make skeleton         - Генерация легковесного AST-скелета API и контрактов"
+	@echo "  AST-скелетизация, индексация и контекст для LLM:"
+	@echo "    make skeleton         - Генерация легковесного AST-скелета API и контрактов Python/TS"
 	@echo "    make skeleton-backend - Генерация AST-скелета только для бэкенда"
 	@echo "    make skeleton-all     - Генерация полного AST-каркаса платформы"
+	@echo "    make java-index       - Генерация AST-индекса Java (target/java-ast-index/)"
+	@echo "    make java-query Q=\"...\" - Быстрый поиск по Java коду (например: make java-query Q=\"class Auth\")"
 	@echo "========================================================================"
 
 venv:
@@ -90,11 +96,27 @@ test-sql:
 test-spark:
 	./scripts/run-tests.sh spark
 
-test-replicator:
-	./scripts/run-tests.sh replicator
+test-replicator: test-replicator-java
 
 test-replicator-agent-java:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/agent-java/pom.xml
+
+test-replicator-orchestrator-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/orchestrator-java/pom.xml
+
+test-replicator-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml
+
+test-security-starter:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/common-security-starter/pom.xml
+
+test-hdfs-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/hdfs/hdfs-java/pom.xml
+
+test-yarn-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/yarn/yarn-java/pom.xml
+
+test-java: test-security-starter test-replicator-java test-hdfs-java test-yarn-java
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -114,11 +136,22 @@ build-sql:
 build-spark:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh spark
 
-build-replicator:
-	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh replicator
+build-replicator: build-replicator-java
 
 build-replicator-agent-java:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/agent-java/pom.xml
+
+build-replicator-orchestrator-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/orchestrator-java/pom.xml
+
+build-replicator-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml
+
+build-hdfs-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/hdfs/hdfs-java/pom.xml
+
+build-yarn-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/yarn/yarn-java/pom.xml
 
 frontend-install:
 	cd frontend && npm install
@@ -139,7 +172,7 @@ generate-types:
 	./scripts/generate-types.sh
 
 generate-proto:
-	./backend/replicator/scripts/generate_proto.sh
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn compile -DskipTests -f backend/replicator/agent-java/pom.xml
 
 proto: generate-proto
 
@@ -216,4 +249,10 @@ skeleton-backend:
 skeleton-all:
 	mkdir -p .context
 	python3 scripts/generate_skeleton.py backend frontend/common frontend/apps --output .context/all_skeleton.md
+
+java-index:
+	./scripts/build-java-ast-index.sh
+
+java-query:
+	./scripts/java-index-query.sh $(Q)
 

@@ -131,3 +131,24 @@ make test-yarn
 # либо
 uv run pytest backend/yarn/tests -v
 ```
+
+---
+
+## ☕ Высокопроизводительная реализация на Java 21 (Spring Boot 3)
+
+В рамках перехода платформы на нативный стек доступна реализация на **Java 21 LTS** и **Spring Boot 3.3.4**:
+директория [`yarn-java/`](./yarn-java/).
+
+- **Стек**: Java 21, Spring Boot 3.3.4, Apache Hadoop YARN Client 3.3.6, Spring Data JPA, `common-security-starter`.
+- **Возможности**:
+  - Полная поддержка Capacity Scheduler: валидация баланса 100%, расчет diff изменений, генерация `capacity-scheduler.xml`.
+  - Автоматический failover активного ResourceManager (RM HA Failover) с определением `haState == "ACTIVE"`.
+  - Управление жизненным циклом Change Requests (`SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED`).
+  - Принцип **Four-Eyes**: запрет самосогласования заявок их авторами.
+  - Интеграция с Ansible AWX для горячего обновления очередей (`yarn rmadmin -refreshQueues`).
+- **Тесты и сборка**:
+  ```bash
+  make test-yarn-java   # запуск 13 тестов Java
+  make build-yarn-java  # сборка Spring Boot executable JAR
+  ```
+

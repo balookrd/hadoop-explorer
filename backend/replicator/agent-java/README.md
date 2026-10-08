@@ -1,6 +1,6 @@
-# 🚀 Hadoop gRPC Replicator Agent (Java 17)
+# 🚀 Hadoop gRPC Replicator Agent (Java 21)
 
-Высокопроизводительный нативный Java 17 агент репликации данных для экосистемы Hadoop, разработанный для запуска:
+Высокопроизводительный нативный Java 21 агент репликации данных для экосистемы Hadoop, разработанный для запуска:
 1. **Непосредственно на нодах Hadoop (DataNode, Edge Nodes, Master Nodes)** как автономный фоновый демон (Standalone Daemon / systemd).
 2. **В кластере Apache Hadoop YARN** в виде распределенного приложения (YARN Client + ApplicationMaster + YARN Containers).
 
@@ -8,7 +8,7 @@
 
 ## 1. Преимущества Java-версии агента
 
-| Характеристика | Python Replicator Agent | Java Replicator Agent (LTS 17) |
+| Характеристика | Python Replicator Agent | Java Replicator Agent (LTS 21) |
 |---|---|---|
 | **Интеграция с HDFS** | PyArrow / WebHDFS (требует C++ бинарники и glibc) | Нативный `org.apache.hadoop.fs.FileSystem` и `HdfsDataInputStream` |
 | **Kerberos & Delegation Tokens** | Ограниченная изоляция окружения `KRB5CCNAME` | Полная поддержка `UserGroupInformation` и YARN Delegation Tokens |
@@ -31,7 +31,7 @@
 ## 3. Сборка проекта
 
 Требования:
-- Java Development Kit (JDK 17 LTS или новее)
+- Java Development Kit (JDK 21 LTS или новее)
 - Apache Maven 3.8+
 
 ```bash

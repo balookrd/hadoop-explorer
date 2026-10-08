@@ -1,0 +1,135 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: yarn-explorer-demo
+  datasource:
+    url: jdbc:h2:file:/app/data/yarn_explorer;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: mock
+      writer-groups:
+        - "yarn-operators"
+        - "data-engineers"
+        - "dev-leads"
+        - "spark-users"
+    jwt:
+      secret-key: "yarn-explorer-demo-stand-super-secret-key-2026"
+      expiration-minutes: 480
+    mock-users:
+      - username: "admin_user"
+        password: "password123"
+        displayName: "Александр Админов"
+        email: "admin@company.local"
+        groups: ["hadoop-admins", "platform-team"]
+      - username: "writer_user"
+        password: "password123"
+        displayName: "Владимир Инженеров"
+        email: "writer@company.local"
+        groups: ["yarn-operators", "dev-leads"]
+      - username: "de_user"
+        password: "password123"
+        displayName: "Иван Датаинженеров"
+        email: "de@company.local"
+        groups: ["data-engineers", "yarn-operators"]
+      - username: "reader_user"
+        password: "password123"
+        displayName: "Екатерина Наблюдателева"
+        email: "reader@company.local"
+        groups: ["bi-analysts", "junior-devs"]
+      - username: "analyst_user"
+        password: "password123"
+        displayName: "Анна Аналитикова"
+        email: "analyst@company.local"
+        groups: ["bi-analysts", "analytics"]
+    ldap:
+      enabled: true
+      server-uri: "ldap://ldap:389"
+      bind-dn: "cn=admin,dc=company,dc=local"
+      bind-password: "adminpassword"
+      user-base-dn: "ou=users,dc=company,dc=local"
+      user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
+      group-base-dn: "ou=groups,dc=company,dc=local"
+      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+    kerberos:
+      enabled: false
+    rate-limit:
+      enabled: false
+    audit:
+      enabled: true
+
+yarn:
+  acl:
+    enforce-four-eyes: true
+  awx:
+    enabled: true
+    base-url: "http://mock-awx"
+    token: "mock-token"
+    verify-ssl: false
+    default-job-template-id: 101
+  clusters:
+    - id: "prod-yarn"
+      name: "Production Hadoop Cluster"
+      description: "Основной производственный YARN кластер (Capacity Scheduler)"
+      resource-manager-urls:
+        - "http://yarn-rm-1:8088"
+      kerberos-enabled: false
+      impersonation-enabled: true
+      default-partition: "DEFAULT"
+      partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
+      resource-mode: "percentage"
+      total-resources:
+        memory-mb: 2097152
+        vcores: 1024
+      acl:
+        allowed-users: ["*"]
+        allowed-groups: ["*"]
+        roles:
+          admin:
+            users: ["admin_user"]
+            groups: ["hadoop-admins"]
+          writer:
+            users: ["writer_user"]
+            groups: ["yarn-operators"]
+          reader:
+            users: ["reader_user", "*"]
+            groups: ["*"]
+
+    - id: "analytics-yarn"
+      name: "Analytics & ML Cluster"
+      description: "Кластер для Spark, Trino и аналитических расчетов"
+      resource-manager-urls:
+        - "http://yarn-rm-2:8088"
+      kerberos-enabled: false
+      impersonation-enabled: true
+      default-partition: "DEFAULT"
+      partitions: ["DEFAULT", "GPU"]
+      resource-mode: "percentage"
+      total-resources:
+        memory-mb: 1048576
+        vcores: 512
+      acl:
+        allowed-users: ["*"]
+        allowed-groups: ["*"]
+        roles:
+          admin:
+            users: ["admin_user"]
+            groups: ["hadoop-admins"]
+          writer:
+            users: ["writer_user"]
+            groups: ["yarn-operators"]
+          reader:
+            users: ["reader_user", "*"]
+            groups: ["*"]

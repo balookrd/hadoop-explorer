@@ -112,6 +112,16 @@
   - `Referrer-Policy: strict-origin-when-cross-origin` — ограничение передачи заголовка Referer на сторонние ресурсы.
   - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS) — принудительный переход на HTTPS при включенной опции `secure_cookies`.
 
+### 3.6 Java 21 / Spring Boot 3 Стартер безопасности (`backend/common-security-starter`)
+Для сервисов платформы на Java 21 разработан нативный стартер `org.apache.hadoop.explorer:common-security-starter`, функционально полностью эквивалентный Python-ядру `backend/common`:
+- **Spring Boot 3 AutoConfiguration**: автоматическая регистрация `SecurityFilterChain`, `CommonAuthFilter`, CORS и контроллеров через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+- **Kerberos SPNEGO SSO**: реализация нативного GSS-API (`org.ietf.jgss`) без сторонних C-библиотек.
+- **LDAPS / Active Directory**: безопасная аутентификация с экранированием фильтров (CWE-90).
+- **SessionStore L1/L2**: двухуровневый кэш (L1 Caffeine LRU + L2 JDBC SQLite/PostgreSQL/H2) с отзывом токенов и защитой от Fail-Open.
+- **CSRF Guard**: строгая проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и белого списка `Origin`/`Referer`.
+- **Resilience & Audit**: Token Bucket Rate Limiter (`Bucket4j`), `SimpleCircuitBreaker` и структурированный JSON-аудит через AOP `@Audited`.
+- **Стандартизированные эндпоинты**: контроллер `AuthController` (`/api/v1/auth/login`, `/sso`, `/logout`, `/me`).
+
 ---
 
 ## 4. Отказоустойчивость и надежность (Resilience Core)
@@ -171,6 +181,9 @@
 ## 5. Архитектура сервисов платформы
 
 ### 5.1 YARN Explorer
+- **Двуязычная архитектура бэкенда**:
+  - **Python FastAPI (`backend/yarn/`)**: REST API, WebSockets, Capacity Scheduler валидатор, генерация XML, распределенные блокировки `DistributedLock`, интеграция с AWX.
+  - **Java 21 LTS / Spring Boot 3 (`backend/yarn/yarn-java/`)**: высокопроизводительный нативный бэкенд на базе официальных библиотек Apache Hadoop YARN Client (`hadoop-yarn-client:3.3.6`, `hadoop-yarn-common:3.3.6`), RM HA failover (`haState == "ACTIVE"`), парсинг и валидация дерева очередей (правило 100% емкости веток), расчет diff изменений для ресурсов RAM/vCPU и node labels, генерация и XXE-защищенная санитизация `capacity-scheduler.xml`, полный жизненный цикл Change Requests (Four-Eyes Principle, Spring Data JPA / H2), интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`), интеграция с общим ядром безопасности `common-security-starter` и автономный `MockYarnClient` для изолированного тестирования.
 - **Мониторинг очередей**: визуализация дерева иерархии Capacity Scheduler, метрик загрузки памяти и ядер в реальном времени с поддержкой RM HA и Circuit Breaker.
 - **Моделирование и валидация**: проверка корректности весов очередей (правило 100% емкости, минимальные/максимальные лимиты пользователя).
 - **Change Requests (Four-Eyes Principle)**: процесс внесения изменений через создание заявок инженерами данных (`WRITER`) и их обязательное согласование администраторами (`ADMIN`) под защитой `DistributedLock`.
@@ -185,11 +198,13 @@
   - *Детальная спецификация и sequence-диаграмма: [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).*
 
 ### 5.2 HDFS Explorer
-- **Интеграция**: подключение к WebHDFS / HttpFS с поддержкой NameNode High Availability, защитой через Circuit Breaker и повторными попытками с экспоненциальным backoff (`retry_async`).
+- **Двуязычная архитектура бэкенда**:
+  - **Python FastAPI (`backend/hdfs/`)**: WebHDFS / HttpFS подключение, Circuit Breaker, `retry_async`, потоковый предпросмотр Parquet/ORC (`_SeekableFooterStream`), асинхронная неблокирующая архивация ZIP (`asyncio.to_thread`).
+  - **Java 21 LTS / Spring Boot 3 (`backend/hdfs/hdfs-java/`)**: высокопроизводительный нативный бэкенд на базе официальных библиотек Apache Hadoop (`org.apache.hadoop:hadoop-hdfs-client:3.3.6`), полная поддержка High Availability NameNode (автоконфигурация `dfs.nameservices` и `ConfiguredFailoverProxyProvider`), Kerberos Proxy User `doAs` имперсонации с прозрачностью для Ranger Audit, интеграция с общим ядром безопасности `common-security-starter` и in-memory эмулятор `MockHdfsClient` для автономного тестирования.
 - **Имперсонация (`doAs`)**: выполнение файловых операций от имени аутентифицированного пользователя при наличии привилегий у сервисного аккаунта.
-- **Неблокирующая архивация (Non-blocking ZIP)**: упаковка и распаковка директорий в ZIP-архивы с выносом ресурсоемких операций сжатия и чтения в пул рабочих потоков (`asyncio.to_thread`), защита Event Loop от DoS/OOM и ликвидация N+1 задержек.
-- **Предпросмотр данных**: потоковое чтение и конвертация форматов Apache Parquet и Apache ORC в структурированный JSON прямо в памяти сервера без выгрузки на диск хоста. Для крупномасштабных Parquet и ORC файлов, превышающих лимит полного чтения, реализовано извлечение схемы колонок, типов и метаданных через чтение футера файла по диапазону (Range Reading с использованием адаптера `_SeekableFooterStream`).
-- **Кросс-кластерное копирование**: асинхронная передача файлов между независимыми кластерами HDFS.
+- **Неблокирующая архивация (Non-blocking ZIP)**: упаковка и распаковка директорий в ZIP-архивы с выносом ресурсоемких операций сжатия и чтения в пул рабочих потоков, защита от DoS/OOM и ликвидация N+1 задержек.
+- **Предпросмотр данных**: потоковое чтение и конвертация форматов CSV/TSV, JSON, текстовых файлов и бинарных колоночных форматов Apache Parquet / Apache ORC.
+- **Кросс-кластерное копирование**: прямая потоковая передача файлов и каталогов между независимыми кластерами HDFS.
 
 
 ### 5.3 SQL Explorer
@@ -224,7 +239,7 @@
     2. **HDFS-HDFS Limits**: выделенные квоты между парами кластеров (`demo ➔ backup`: 60 МБ/с, `analytics ➔ backup`: 40 МБ/с, внутри DC1: 80 МБ/с).
     3. **Global WAN Cap**: общий пул пропускной способности всей инфраструктуры (120 МБ/с).
 - **Многоуровневый Token Bucket Throttling (Hierarchical Token Bucket)**:
-  - Асинхронный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator/throttler.py`).
+  - Потокобезопасный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator-java/src/main/java/.../TokenBucketThrottler.java`).
   - При запросе передачи чанка проверяются все применимые бакеты, а задержка воркера вычисляется по узкому горлышку: `max(wait_global, wait_dc_dc, wait_hdfs_hdfs)`.
   - Возможность динамического изменения любых лимитов в реальном времени через REST API и веб-консоль.
 - **gRPC Транспорт (DC1 Worker → DC2 Receiver)**:
@@ -236,19 +251,22 @@
   - **Администратор (`admin_user`)**: видит и управляет всеми задачами репликации всех пользователей организации.
   - **Пользователь (`USER`)**: видит только свои персональные задачи (`created_by == current_user.username`) и системные фоновые процессы.
 - **Шедулер задач (Cron Scheduler)**:
-  - Фоновый планировщик (`run_scheduler_daemon`) для периодической синхронизации по расписанию (`@every_5m`, `@hourly`, `@daily`, custom cron).
+  - Встроенный планировщик Spring Scheduling (`ReplicationScheduler.java`) для периодической синхронизации по расписанию (`@every_5m`, `@hourly`, `@daily`, custom cron).
   - Автоматический расчет времени следующего запуска `next_run_at`.
 - **Инкрементальная синхронизация (HDFS Snapshot Diff)**:
-  - Встроенный парсер вывода команды `hdfs dfs -snapshotDiff <path> <snap1> <snap2>` (`orchestrator/snapshot.py`).
+  - Интеграция с дифференциальной синхронизацией снэпшотов HDFS.
   - Автоматическая генерация гранулярных подзадач (`ADD`, `MODIFY`, `DELETE`, `RENAME`) для изменившихся файлов.
 - **Безопасность, Kerberos-изоляция и имперсонация (Apache Ranger)**:
-  - Менеджер контекста `KerberosContextManager`: динамическая генерация уникального пути кэша тикетов `/tmp/krb5cc_repl_{uuid}`, вызов `kinit -kt` системной техучетки и изоляция переменной окружения `KRB5CCNAME`.
-  - **Hadoop Proxy User & doAs имперсонация**: агент подключается от доверенной техучетки (`hdfs-replicator@REALM.LOCAL`), передавая имя инициатора задачи в `pyarrow.fs.HadoopFileSystem(..., user=impersonate_user, kerb_ticket=cache_file)`. Это гарантирует строгую проверку политик доступа в Apache Ranger и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
-  - **Автоматическая очистка**: вызов `kdestroy` и удаление файла тикетов с диска при завершении задачи.
+  - Менеджер файловой системы `HadoopFsManager`: аутентификация системной техучетки по keytab (`hdfs-replicator@REALM.LOCAL`).
+  - **Hadoop Proxy User & doAs имперсонация**: агент подключается от доверенной техучетки, выполняя операции с HDFS под UGI пользователя (`UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)`). Это гарантирует строгую проверку политик доступа в Apache Ranger и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
 - **Мониторинг, Web UI и Управление задачами**:
-  - Экспорт метрик Prometheus (`replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`) на `/metrics`.
-  - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer (`index.html`) с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
+  - Экспорт метрик Prometheus (`/actuator/prometheus`) на `:8005`.
+  - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
   - Полнофункциональное управление задачами (REST API и Web UI): запуск/перезапуск (`POST /api/v1/jobs/{id}/start`), остановка/отмена (`POST /api/v1/jobs/{id}/stop`), редактирование параметров на лету (`PUT /api/v1/jobs/{id}`) и удаление (`DELETE /api/v1/jobs/{id}`) с каскадной очисткой подзадач.
+- **Нативная Java 21 экосистема исполнения**:
+  - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator-java`)**: высокопроизводительный нативный оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
+  - **Нативный Java 21 Agent (`backend/replicator/agent-java`)**: высокоскоростной полнодуплексный воркер для DataNode и контейнеров Apache Hadoop YARN.
+  - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent-java` и `orchestrator-java` с общим циклом компиляции и тестирования (`make test-replicator`).
 
 ### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)
 Клиентская часть всех приложений построена на базе Svelte 5 с использованием системы реактивности Runes (`$state`, `$derived`, `$effect`):
@@ -418,15 +436,16 @@
                   └───────────────────────┘
 ```
 
-### 9.1 Метрики тестового покрытия платформы (347 тестов)
+### 9.1 Метрики тестового покрытия платформы (407+ тестов: 347 Python/Frontend + 60 Java)
 
 | Сервис / Уровень | Количество тестов | Ключевые аспекты покрытия |
 |---|---|---|
-| **YARN Explorer** | **65 тестов** | Capacity Scheduler валидация, балансировка долей, Draft Diff, XML Generation, RM HA failover (`STANDBY` → `ACTIVE`), сбор метрик кластера, Change Requests, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker |
-| **HDFS Explorer** | **86 тестов** | NameNode HA Failover при `StandbyException`, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security (CWE-200, CSP, CSRF), Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter |
+| **Common Security Starter (Java 21)** | **20 Java тестов** | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
+| **YARN Explorer** | **67 тестов бэкенда (+ 13 Java тестов)** | Capacity Scheduler валидация, балансировка долей веток 100%, Draft Diff, XML Generation и санитизация, RM HA failover (`STANDBY` → `ACTIVE`), сбор метрик кластера, Change Requests (Four-Eyes Principle), AWX интеграция, аудит, L1 кэш токенов, Readiness / Healthz, Distributed Lock, Circuit Breaker |
+| **HDFS Explorer** | **86 тестов бэкенда (+ 14 Java тестов)** | NameNode HA Failover при `StandbyException`, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security (CWE-200, CSP, CSRF), Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter |
 | **SQL Explorer** | **42 теста** | Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace |
 | **Spark Explorer** | **24 теста** | Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker |
-| **Hadoop gRPC Replicator** | **54 теста бэкенда (+ 6 Java тестов)** | Protobuf gRPC контракт, Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), потоковый Receiver со staging и SHA-256, KerberosContextManager изоляция KRB5CCNAME, Snapshot Diff парсер, Prometheus метрики, Cron Scheduler демон, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой (триггер `MANUAL`/`SCHEDULED`, тайминги, объем, средняя скорость, ошибки), настраиваемая глубина истории `history_retention_runs` с авто-прунингом старых запусков (`prune_job_runs`), эндпоинты `GET /api/v1/jobs/{id}/runs`, RBAC изоляция задач (Admin sees all / User sees own), запрет редактирования лимитов не-админам (HTTP 403 Forbidden), действия жизненного цикла задач (Start/Stop/Edit/Delete с матрицей доступности), серверная и клиентская фильтрация по статусам и авторам, фавиконка и SPA интеграция на базе BaseApiClient |
+| **Hadoop gRPC Replicator** | **54 теста бэкенда (+ 13 Java тестов: agent + orchestrator)** | Protobuf gRPC контракт, Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), потоковый Receiver со staging и SHA-256, KerberosContextManager изоляция KRB5CCNAME, Snapshot Diff парсер, Prometheus метрики, Cron Scheduler демон, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой (триггер `MANUAL`/`SCHEDULED`, тайминги, объем, средняя скорость, ошибки), настраиваемая глубина истории `history_retention_runs` с авто-прунингом старых запусков (`prune_job_runs`), эндпоинты `GET /api/v1/jobs/{id}/runs`, RBAC изоляция задач (Admin sees all / User sees own), запрет редактирования лимитов не-админам (HTTP 403 Forbidden), действия жизненного цикла задач (Start/Stop/Edit/Delete с матрицей доступности), серверная и клиентская фильтрация по статусам и авторам, фавиконка и SPA интеграция на базе BaseApiClient |
 | **Frontend UI Suite** | **92 теста** | Полное компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), полифиллы jsdom (ResizeObserver, IntersectionObserver, clipboard), строгая проверка типов `svelte-check` (0 ошибок) и E2E сценарии Playwright |
 
 ### 9.2 Тестирование отказоустойчивости (Resilience Testing)

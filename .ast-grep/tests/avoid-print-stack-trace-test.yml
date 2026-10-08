@@ -1,0 +1,5 @@
+id: avoid-print-stack-trace
+valid:
+  - "log.error(\"Failed\", e);"
+invalid:
+  - "e.printStackTrace();"

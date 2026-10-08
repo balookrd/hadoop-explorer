@@ -1,19 +1,19 @@
 name: hadoop-replicator-demo
 
 services:
-  # 1. Оркестратор задач и Token Bucket Throttler (FastAPI + Web UI + Prometheus)
+  # 1. Оркестратор задач и Token Bucket Throttler (Java 21 / Spring Boot 3 + Web UI + Prometheus)
   orchestrator:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator
+      dockerfile: docker/Dockerfile.replicator-orchestrator-java
     container_name: replicator-orchestrator
     hostname: orchestrator
     restart: unless-stopped
-    command: ["uvicorn", "backend.replicator.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8005"]
     environment:
-      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "52428800" # 50 MB/s
-      REPLICATOR_DATABASE_URL: "sqlite:////app/data/replicator.db"
-      REPLICATOR_SERVICE_PRINCIPAL: "hdfs-replicator@REALM.LOCAL"
+      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600" # 100 MB/s
+      HADOOP_REPLICATOR_AGENT_SECRET: ""
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
+      SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.H2Dialect"
     volumes:
       - replicator-db-data:/app/data
     ports:
@@ -21,20 +21,19 @@ services:
     networks:
       - replicator-net
 
-  # 2. Python Агент DC1 (Primary ЦОД: Москва, demo-cluster) — Полный дуплекс
-  agent-python-dc1:
+  # 2. Java 21 Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
+  agent-java-dc1:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator
-    container_name: replicator-agent-python-dc1
+      dockerfile: docker/Dockerfile.replicator-agent-java
+    container_name: replicator-agent-java-dc1
     hostname: agent-dc1
     restart: unless-stopped
-    command: ["python", "-m", "backend.replicator.agent"]
     environment:
-      AGENT_ID: "agent-python-dc1"
-      AGENT_CLUSTER_ID: "demo-cluster"
+      AGENT_ID: "agent-java-dc1"
+      AGENT_CLUSTER_ID: "dc1"
       AGENT_MODE: "all"
-      AGENT_MAX_BANDWIDTH_MB_S: "40.0"
+      AGENT_MAX_BANDWIDTH_MB_S: "80.0"
       ORCHESTRATOR_URL: "http://orchestrator:8005"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
@@ -42,8 +41,10 @@ services:
       FALLBACK_TARGET_ADDRESS: "agent-dc2:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
+      REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
+      REPLICATOR_AGENT_SECRET: ""
     volumes:
-      - agent-python-staging:/tmp/staging
+      - agent-java-staging-dc1:/tmp/staging
       - shared-demo-data:/tmp/data
     ports:
       - "50051:50051"
@@ -52,7 +53,7 @@ services:
     networks:
       - replicator-net
 
-  # 3. Java 17 Агент DC2 (DR ЦОД: Санкт-Петербург, backup-cluster) — Полный дуплекс
+  # 3. Java 21 Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-java-dc2:
     build:
       context: ../..
@@ -62,7 +63,7 @@ services:
     restart: unless-stopped
     environment:
       AGENT_ID: "agent-java-dc2"
-      AGENT_CLUSTER_ID: "backup-cluster"
+      AGENT_CLUSTER_ID: "dc2"
       AGENT_MODE: "all"
       AGENT_MAX_BANDWIDTH_MB_S: "60.0"
       ORCHESTRATOR_URL: "http://orchestrator:8005"
@@ -72,8 +73,10 @@ services:
       FALLBACK_TARGET_ADDRESS: "agent-dc1:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
+      REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
+      REPLICATOR_AGENT_SECRET: ""
     volumes:
-      - agent-java-staging:/tmp/staging
+      - agent-java-staging-dc2:/tmp/staging
       - shared-demo-data:/tmp/data
     ports:
       - "50052:50051"
@@ -84,8 +87,8 @@ services:
 
 volumes:
   replicator-db-data:
-  agent-python-staging:
-  agent-java-staging:
+  agent-java-staging-dc1:
+  agent-java-staging-dc2:
   shared-demo-data:
 
 networks:

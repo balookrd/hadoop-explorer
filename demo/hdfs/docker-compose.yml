@@ -7,17 +7,17 @@ services:
   hdfs-explorer:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.hdfs
+      dockerfile: docker/Dockerfile.hdfs-java
     container_name: hdfs-explorer
     hostname: hdfs-explorer
     restart: unless-stopped
     environment:
-      HDFS_CONFIG_PATH: "/app/config/config.yaml"
-      HDFS_CLUSTERS_PATH: "/app/config/clusters.yaml"
-      HDFS_DATABASE_URL: "sqlite:////app/data/hdfs_explorer.db"
-      KRB5_CONFIG: "/etc/krb5_shared/krb5.conf"
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+      - KRB5_CONFIG=/etc/krb5_shared/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/krb5_shared/krb5.conf
     volumes:
-      - ./config:/app/config:ro
+      - ./application-demo.yml:/app/config/application.yml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/etc/krb5_shared:ro
       - hdfs-demo-data:/app/data

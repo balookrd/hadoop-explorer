@@ -10,7 +10,6 @@ dependencies = [
     "hadoop-explorer-spark",
     "hadoop-explorer-sql",
     "hadoop-explorer-yarn",
-    "hadoop-explorer-replicator",
 ]
 
 [dependency-groups]
@@ -30,7 +29,6 @@ members = [
     "backend/spark",
     "backend/sql",
     "backend/yarn",
-    "backend/replicator",
 ]
 
 [tool.uv.sources]
@@ -39,7 +37,6 @@ hadoop-explorer-hdfs = { workspace = true }
 hadoop-explorer-spark = { workspace = true }
 hadoop-explorer-sql = { workspace = true }
 hadoop-explorer-yarn = { workspace = true }
-hadoop-explorer-replicator = { workspace = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"

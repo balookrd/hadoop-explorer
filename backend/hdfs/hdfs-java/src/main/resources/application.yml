@@ -1,0 +1,93 @@
+server:
+  port: 8001
+
+spring:
+  application:
+    name: hadoop-hdfs-explorer
+  datasource:
+    url: jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 550MB
+
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: mock
+      admin-groups:
+        - "hadoop-admins"
+        - "platform-admins"
+        - "superusers"
+      writer-groups:
+        - "data-engineers"
+        - "developers"
+    jwt:
+      secret-key: "hdfs-explorer-super-secret-jwt-token-key-32-chars-min!"
+      expiration-minutes: 480
+    cors:
+      allowed-origins:
+        - "http://localhost:3000"
+        - "http://localhost:5173"
+        - "http://localhost:8001"
+    cookie:
+      secure: false
+      same-site: "Lax"
+      names:
+        - "access_token"
+        - "hdfs_explorer_session"
+        - "hadoop_explorer_session"
+
+  hdfs:
+    clusters:
+      - id: "prod-datalake"
+        name: "Production DataLake"
+        description: "Основной аналитический кластер HDFS"
+        webhdfs-urls:
+          - "http://nn01.prod.example.com:9870/webhdfs/v1"
+          - "http://nn02.prod.example.com:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://nn01.prod.example.com:8020"
+          - "hdfs://nn02.prod.example.com:8020"
+        auth-type: "kerberos"
+        service-principal: "hdfs-explorer/hdfs-explorer.prod.example.com@EXAMPLE.COM"
+        keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+        timeout-seconds: 30
+        preview-max-bytes: 1048576
+        default-path: "/user/{username}"
+        mock-storage: true
+        acl:
+          allowed-groups:
+            - "data-engineers"
+            - "analytics"
+            - "hadoop-admins"
+          read-only-groups:
+            - "analytics"
+          admin-groups:
+            - "hadoop-admins"
+
+      - id: "dev-cluster"
+        name: "Development Cluster"
+        description: "Кластер для разработки и тестирования пайплайнов"
+        webhdfs-urls:
+          - "http://nn01.dev.example.com:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://nn01.dev.example.com:8020"
+        auth-type: "simple"
+        timeout-seconds: 20
+        preview-max-bytes: 2097152
+        default-path: "/tmp"
+        mock-storage: true
+        acl:
+          allowed-groups:
+            - "domain users"
+            - "developers"
+            - "hadoop-admins"
+          admin-groups:
+            - "hadoop-admins"

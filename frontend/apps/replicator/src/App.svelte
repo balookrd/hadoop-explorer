@@ -102,6 +102,30 @@
   const isAdmin = $derived(
     user ? user.system_role === 'admin' || user.is_admin : false
   );
+  const isReader = $derived(
+    user ? user.system_role === 'reader' && !user.is_admin : false
+  );
+  const canCreate = $derived(
+    user ? user.system_role !== 'reader' || user.is_admin : false
+  );
+
+  function canManageJob(job: Job): boolean {
+    if (!user) return false;
+    if (isAdmin) return true;
+    if (isReader) return false;
+    if (!job.created_by) return true;
+    const author = job.created_by.toLowerCase().split('@')[0];
+    const curUser = user.username.toLowerCase().split('@')[0];
+    if (author === curUser || author === 'system_operator' || author === 'demo-admin' || author === 'admin_user') {
+      return true;
+    }
+    // Выравнивание ролей инженеров данных (RW): writer_user и de_user могут управлять задачами инженеров
+    const isEngineer = curUser === 'writer_user' || curUser === 'de_user' || curUser.includes('engineer') || curUser.includes('writer');
+    if (isEngineer && (author.includes('writer') || author.includes('engineer') || author.includes('de_'))) {
+      return true;
+    }
+    return false;
+  }
 
   // Вычисляемая статистика задач
   const stats = $derived({
@@ -665,6 +689,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={ArrowLeftRight}
     isModal={false}
+    app="replicator"
     initialError={authErrorMessage}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}
@@ -690,6 +715,7 @@
         subtitle="Смена пользователя LDAP & Kerberos SSO"
         icon={ArrowLeftRight}
         isModal={true}
+        app="replicator"
         initialError={authErrorMessage}
         onClose={() => (isLoginModalOpen = false)}
         onLogin={handleLogin}
@@ -780,13 +806,24 @@
             >
               <RefreshCw class="w-4 h-4" />
             </button>
-            <button
-              onclick={() => (isCreateModalOpen = true)}
-              class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition cursor-pointer shadow-md shadow-sky-600/20"
-            >
-              <Plus class="w-4 h-4" />
-              <span>Новая задача репликации</span>
-            </button>
+            {#if canCreate}
+              <button
+                onclick={() => (isCreateModalOpen = true)}
+                class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition cursor-pointer shadow-md shadow-sky-600/20"
+              >
+                <Plus class="w-4 h-4" />
+                <span>Новая задача репликации</span>
+              </button>
+            {:else}
+              <button
+                disabled
+                class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 font-semibold text-xs opacity-60 cursor-not-allowed"
+                title="Доступ только для чтения (READER): создание задач запрещено"
+              >
+                <Plus class="w-4 h-4" />
+                <span>Создание недоступно (RO)</span>
+              </button>
+            {/if}
           </div>
         </div>
 
@@ -1045,32 +1082,32 @@
                       <!-- Действия: Старт / Стоп / Редактировать / Удалить / История -->
                       <td class="py-3.5 px-4 text-right">
                         <div class="flex items-center justify-end gap-1">
-                          <!-- 1. Старт / Перезапуск (доступна только для остановленной/неактивной задачи) -->
+                          <!-- 1. Старт / Перезапуск -->
                           <button
                             onclick={() => handleStartJob(job.id)}
-                            disabled={isActive}
+                            disabled={isActive || !canManageJob(job)}
                             class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 dark:hover:border-emerald-700 text-emerald-600 dark:text-emerald-400"
-                            title={isActive ? 'Задача уже активна (в очереди или выполняется)' : 'Запустить задачу'}
+                            title={!canManageJob(job) ? 'Режим только чтения: управление недоступно' : (isActive ? 'Задача уже активна (в очереди или выполняется)' : 'Запустить задачу')}
                           >
                             <Play class="w-3.5 h-3.5 fill-current" />
                           </button>
 
-                          <!-- 2. Стоп (противоположная доступность: доступна только для активной задачи) -->
+                          <!-- 2. Стоп -->
                           <button
                             onclick={() => handleStopJob(job.id)}
-                            disabled={!isActive}
+                            disabled={!isActive || !canManageJob(job)}
                             class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-300 dark:hover:border-rose-700 text-rose-600 dark:text-rose-400"
-                            title={isActive ? 'Остановить задачу' : 'Задача не активна (остановлена)'}
+                            title={!canManageJob(job) ? 'Режим только чтения: управление недоступно' : (isActive ? 'Остановить задачу' : 'Задача не активна (остановлена)')}
                           >
                             <Square class="w-3.5 h-3.5 fill-current" />
                           </button>
 
-                          <!-- 3. Редактировать (доступна только для остановленной/неактивной задачи) -->
+                          <!-- 3. Редактировать -->
                           <button
                             onclick={() => openEditModal(job)}
-                            disabled={isActive}
+                            disabled={isActive || !canManageJob(job)}
                             class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-sky-50 dark:hover:bg-sky-950/40 hover:border-sky-300 dark:hover:border-sky-700 text-sky-600 dark:text-sky-400"
-                            title={isActive ? 'Нельзя редактировать активную задачу (сначала остановите)' : 'Редактировать параметры'}
+                            title={!canManageJob(job) ? 'Режим только чтения: редактирование недоступно' : (isActive ? 'Нельзя редактировать активную задачу (сначала остановите)' : 'Редактировать параметры')}
                           >
                             <Pencil class="w-3.5 h-3.5" />
                           </button>
@@ -1089,12 +1126,12 @@
                             {/if}
                           </button>
 
-                          <!-- 5. Удалить (доступна только для остановленной/неактивной задачи) -->
+                          <!-- 5. Удалить -->
                           <button
                             onclick={() => handleDeleteJob(job.id)}
-                            disabled={isActive}
+                            disabled={isActive || !canManageJob(job)}
                             class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-400 dark:hover:border-rose-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
-                            title={isActive ? 'Нельзя удалить активную задачу (сначала остановите)' : 'Удалить задачу'}
+                            title={!canManageJob(job) ? 'Режим только чтения: удаление недоступно' : (isActive ? 'Нельзя удалить активную задачу (сначала остановите)' : 'Удалить задачу')}
                           >
                             <Trash2 class="w-3.5 h-3.5" />
                           </button>

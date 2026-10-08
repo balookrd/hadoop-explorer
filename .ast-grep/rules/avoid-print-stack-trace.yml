@@ -1,0 +1,6 @@
+id: avoid-print-stack-trace
+message: "Избегайте e.printStackTrace(). Используйте логгер (log.error(...) / log.warn(...))."
+severity: warning
+language: java
+rule:
+  pattern: $E.printStackTrace()

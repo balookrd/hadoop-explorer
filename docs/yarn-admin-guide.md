@@ -501,3 +501,44 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
   ```bash
   sqlite3 /var/lib/hadoop-explorer/yarn/data/yarn_explorer.db ".backup '/backup/yarn_explorer_$(date +%F).db'"
   ```
+
+---
+
+## 7. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
+
+Наряду с микросервисом на Python, в состав платформы входит нативный бэкенд **YARN Explorer на стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn/yarn-java`), использующий официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
+
+### 7.1 Преимущества Java 21 реализации
+1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API / RPC активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
+2. **Capacity Scheduler Engine**: встроенная валидация веток и правила 100% емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
+3. **Change Requests & Four-Eyes Principle**: встроенный жизненный цикл согласования изменений с запретом самосогласования заявок автором (HTTP 403 Forbidden).
+4. **Интеграция с Ansible AWX**: автоматический триггер Job Template через REST API для Zero-Downtime обновления очередей (`yarn rmadmin -refreshQueues`).
+5. **Общее ядро безопасности `common-security-starter`**: единая модель аутентификации (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter и AOP-аудит `@Audited`.
+
+### 7.2 Сборка и тестирование
+
+```bash
+# Модульное и интеграционное тестирование
+make test-yarn-java
+
+# Сборка исполняемого Spring Boot fat JAR
+make build-yarn-java
+# Результат: backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar
+
+# Полная валидация всех Java компонентов платформы
+make test-java
+```
+
+### 7.3 Промышленный запуск
+
+```bash
+java -jar -Dspring.profiles.active=prod \
+  -Dserver.port=8000 \
+  -Dhadoop.security.auth.mode=kerberos \
+  -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
+  -Dawx.base-url="https://awx.company.local" \
+  -Dawx.token="secret-awx-token" \
+  -Dawx.job-template-id=42 \
+  backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar
+```
+

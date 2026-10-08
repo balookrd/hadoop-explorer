@@ -10,10 +10,10 @@
     <packaging>jar</packaging>
 
     <name>Hadoop gRPC Replicator Agent (Java)</name>
-    <description>Высокопроизводительный Replicator Agent на Java 17 для запуска на нодах Hadoop (Standalone) и в YARN (ApplicationMaster/Containers)</description>
+    <description>Высокопроизводительный Replicator Agent на Java 21 для запуска на нодах Hadoop (Standalone) и в YARN (ApplicationMaster/Containers)</description>
 
     <properties>
-        <maven.compiler.release>17</maven.compiler.release>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
@@ -198,13 +198,13 @@
                 </executions>
             </plugin>
 
-            <!-- Compiler Plugin (Java 17) -->
+            <!-- Compiler Plugin (Java 21) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <release>17</release>
+                    <release>21</release>
                 </configuration>
             </plugin>
 

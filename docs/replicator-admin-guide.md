@@ -217,25 +217,10 @@ sudo -u appuser -i
 cd /opt/hadoop-explorer/replicator
 git clone https://github.com/company/hadoop-explorer.git .
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
+# Сборка нативного мультимодульного Java-проекта Replicator (Agent + Orchestrator)
+mvn clean package -DskipTests -f backend/replicator/pom.xml
 
-# Установка зависимостей
-pip install -e backend/common -e backend/replicator
-pip install grpcio>=1.62.0 grpcio-tools>=1.62.0 protobuf>=4.25.0
-
-# Компиляция Protobuf контрактов
-python -m grpc_tools.protoc \
-    -I backend/replicator/proto \
-    --python_out=backend/replicator/generated \
-    --grpc_python_out=backend/replicator/generated \
-    backend/replicator/proto/replicator.proto
-
-sed -i -e 's/^import replicator_pb2 as/from . import replicator_pb2 as/g' \
-    backend/replicator/generated/replicator_pb2_grpc.py
-
-# Сборка фронтенда Replicator SPA
+# Сборка фронтенда Replicator SPA (автоматически упаковывается в Orchestrator)
 cd frontend
 npm ci --workspace=apps/replicator --include-workspace-root
 npm run build:replicator
@@ -842,3 +827,57 @@ spec:
 | Периодическая задача зависла в статусе `SCHEDULED` | Время следующего запуска `next_run_at` еще не наступило | Статус `SCHEDULED` является штатным режимом ожидания между циклами расписания. Чтобы запустить задачу немедленно, нажмите кнопку `▶` (Старт) в строке таблицы. |
 | Переполнение каталога Staging (`No space left on device`) | Большой поток файлов при медленной финализации в HDFS | Увеличьте размер буфера Staging или смонтируйте быстрый NVMe диск в `/var/lib/hadoop-explorer/replicator/staging`. |
 | Рост базы данных SQLite при частых cron-запусках | Настроена слишком большая глубина истории | Уменьшите лимит `history_retention_runs` (например, до 10–20 запусков). Старые записи автоматически удаляются функцией прунинга. |
+
+---
+
+## 6. Промышленная эксплуатация на стеке Java 21 / Spring Boot 3
+
+Сервис **Hadoop gRPC Replicator** построен на базе нативного мультимодульного проекта Java 21 (`backend/replicator/pom.xml`), объединяющего:
+- **`agent-java`** (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
+- **`orchestrator-java`** (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `common-security-starter`).
+
+### 6.1 Мультимодульная архитектура Maven
+
+```
+backend/replicator/
+├── pom.xml                 # Родительский POM (org.apache.hadoop.explorer:replicator-parent)
+├── agent-java/             # Агент репликации (DataNode/Edge Node/YARN)
+│   └── pom.xml             # org.apache.hadoop.explorer:replicator-agent-java:1.0.0
+└── orchestrator-java/      # Высокопроизводительный оркестратор
+    ├── pom.xml             # org.apache.hadoop.explorer:replicator-orchestrator-java:1.0.0
+    └── src/
+        ├── main/
+        │   ├── java/       # Контроллеры, Сервисы, Реестры, Токен-бакет
+        │   └── resources/  # application.yml
+        └── test/           # Интеграционные и юнит-тесты MockMvc / H2
+```
+
+### 6.2 Команды сборки и тестирования
+
+```bash
+# Сборка всех Java модулей Replicator (Agent + Orchestrator)
+make build-replicator-java
+
+# Запуск тестов всего Replicator на Java
+make test-replicator-java
+
+# Тестирование отдельно Orchestrator
+make test-replicator-orchestrator-java
+
+# Сборка исполняемого Spring Boot fat JAR оркестратора
+mvn clean package -DskipTests -f backend/replicator/orchestrator-java/pom.xml
+# Результат: backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar
+```
+
+### 6.3 Запуск Java Orchestrator в production
+
+```bash
+java -jar -Dspring.profiles.active=prod \
+  -Dserver.port=8005 \
+  -Dspring.datasource.url=jdbc:postgresql://postgres.hadoop.local:5432/replicator \
+  -Dspring.datasource.username=replicator_user \
+  -Dspring.datasource.password=secret_password \
+  -Dhadoop.security.auth.mode=kerberos \
+  backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar
+```
+
