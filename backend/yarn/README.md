@@ -1,6 +1,6 @@
-# Backend: YARN Queue Explorer
+# Backend: YARN Queue Explorer (Java 21 / Spring Boot 3)
 
-Бэкенд-сервис приложения **YARN Queue Explorer**, реализованный на базе **FastAPI (Python 3.12/3.14)**. Сервис обеспечивает взаимодействие с кластерами Apache Hadoop YARN через Kerberos SPNEGO с защитой **Circuit Breaker** и автоматическим **HA Failover**, корпоративную аутентификацию пользователей через OpenLDAP / Active Directory или Mock/Local провайдеры, персистентное хранение заявок на согласование в SQLite/PostgreSQL с защитой от гонок через **Distributed Lock**, безопасную генерацию конфигурации `capacity-scheduler.xml` и Graceful Shutdown.
+Бэкенд-сервис приложения **YARN Queue Explorer**, реализованный на базе **Java 21 LTS** и **Spring Boot 3.3.4**. Сервис обеспечивает взаимодействие с кластерами Apache Hadoop YARN через Kerberos SPNEGO, автоматический **HA Failover** между ResourceManagers, корпоративную аутентификацию пользователей через OpenLDAP / Active Directory или Mock/Local провайдеры (`common-security-starter`), персистентное хранение заявок на согласование очередей в H2/PostgreSQL с принципом четырех глаз (**Four-Eyes Principle**), безопасную генерацию конфигурации `capacity-scheduler.xml` и интеграцию с Ansible AWX для автоматического деплоя.
 
 ---
 
@@ -8,42 +8,15 @@
 
 ```
 backend/yarn/
-├── app/
-│   ├── api/                     # REST API контроллеры (v1)
-│   │   ├── auth.py              # Аутентификация (фабрика create_auth_router из backend.common)
-│   │   ├── clusters.py          # Список кластеров (/api/v1/clusters)
-│   │   ├── queues.py            # Очереди, валидация, diff, XML (/api/v1/clusters/{cluster_id}/...)
-│   │   └── change_requests.py   # Управление заявками (/api/v1/change-requests) с DistributedLock
-│   ├── core/                    # Ядро сервиса
-│   │   ├── acl.py               # Проверка ACL (check_ui_access, resolve_cluster_role, check_cluster_permission)
-│   │   ├── audit.py             # Структурированный аудит безопасности и изменений очередей
-│   │   ├── config.py            # Pydantic Settings, загрузка config.yaml
-│   │   ├── ldap_auth.py         # LdapService с защитой от LDAP-инъекций и валидацией TLS
-│   │   ├── rate_limiter.py      # Rate Limiting (Sliding Window через StorageService)
-│   │   └── security.py          # JWT-токены, make_get_current_user с валидацией UI ACL и resolve_system_role
-│   ├── models/                  # Pydantic-модели и схемы данных
-│   │   ├── cluster.py           # ClusterConfig, ClusterAcl, ClusterResources
-│   │   ├── yarn.py              # QueueNode, QueueDraftItem (с regex-валидацией), PartitionResourceConfig
-│   │   └── change_requests.py   # ChangeRequestCreate, ChangeRequestReview, ChangeRequestResponse
-│   ├── services/                # Бизнес-логика
-│   │   ├── capacity_scheduler.py# Алгоритмы проверки баланса очередей
-│   │   ├── mock_yarn.py         # Mock данные для dev режима
-│   │   ├── storage.py           # Конфигурация хранилища на базе SessionStore
-│   │   ├── xml_generator.py     # Точечная модификация capacity-scheduler.xml с санитизацией
-│   │   └── yarn_client.py       # REST API клиент YARN RM с KerberosManager, HA и Circuit Breaker
-│   ├── docker-entrypoint.sh     # Инициализация Kerberos (kinit) и запуск uvicorn
-│   └── main.py                  # Входная точка FastAPI, CORS, Security Headers, Graceful Shutdown, /healthz
-├── tests/                       # Автоматические тесты (pytest - 65 тестов)
-│   ├── conftest.py              # Автосброс rate limits в тестах
-│   ├── test_awx_client.py       # Тесты интеграции с AWX/Ansible API
-│   ├── test_capacity_scheduler.py # Тесты балансировки и генерации XML
-│   ├── test_change_requests.py   # Тесты CRUD хранилища заявок и DistributedLock
-│   ├── test_new_enhancements.py # Тесты JWKS, ETag, OpenTelemetry трассировки
-│   ├── test_queues_api.py       # Тесты API очередей, валидации, diff и XML
-│   ├── test_security.py          # Тесты безопасности (инъекции, BOLA, ACL, валидация)
-│   └── test_yarn_client_ha.py   # Тесты ResourceManager HA Failover и метрик кластера
-├── pyproject.toml               # Конфигурация пакета hadoop-explorer-yarn
-└── requirements.txt             # Зависимости Python
+├── yarn-java/                    # Нативный сервис на Java 21 / Spring Boot 3
+│   ├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:yarn-explorer-java:1.0.0)
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/             # Контроллеры, Сервисы, Клиенты, Сущности, Модели
+│   │   │   └── resources/        # application.yml, capacity-scheduler-template.xml, статика SPA
+│   │   └── test/                 # Юнит- и интеграционные тесты (Spring Boot Test, MockMvc)
+│   └── README.md                 # Подробная документация сервиса
+└── README.md                     # Документация модуля
 ```
 
 ---

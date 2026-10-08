@@ -9,7 +9,6 @@ dependencies = [
     "hadoop-explorer-hdfs",
     "hadoop-explorer-spark",
     "hadoop-explorer-sql",
-    "hadoop-explorer-yarn",
 ]
 
 [dependency-groups]
@@ -28,7 +27,6 @@ members = [
     "backend/hdfs",
     "backend/spark",
     "backend/sql",
-    "backend/yarn",
 ]
 
 [tool.uv.sources]
@@ -36,7 +34,6 @@ hadoop-explorer-common = { workspace = true }
 hadoop-explorer-hdfs = { workspace = true }
 hadoop-explorer-spark = { workspace = true }
 hadoop-explorer-sql = { workspace = true }
-hadoop-explorer-yarn = { workspace = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -45,7 +42,6 @@ testpaths = [
     "backend/hdfs/tests",
     "backend/spark/tests",
     "backend/sql/tests",
-    "backend/yarn/tests",
 ]
 pythonpath = [
     ".",
@@ -54,8 +50,6 @@ pythonpath = [
     "backend/hdfs",
     "backend/spark",
     "backend/sql",
-    "backend/yarn",
-    "backend/replicator",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

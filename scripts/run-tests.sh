@@ -24,14 +24,9 @@ APP="${1:-all}"
 
 run_yarn() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: YARN Explorer (65 тестов)"
+  echo "🧪 Запуск тестов: YARN Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  local pt
-  pt="$(find_pytest yarn)"
-  (cd "$ROOT_DIR/backend/yarn" && \
-   CONFIG_PATH=config/config.yaml \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
+  mvn test -f "$ROOT_DIR/backend/yarn/yarn-java/pom.xml"
 }
 
 run_hdfs() {

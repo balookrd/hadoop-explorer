@@ -84,8 +84,7 @@ format:
 test:
 	./scripts/run-tests.sh all
 
-test-yarn:
-	./scripts/run-tests.sh yarn
+test-yarn: test-yarn-java
 
 test-hdfs:
 	./scripts/run-tests.sh hdfs
@@ -124,8 +123,7 @@ test-ui:
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
 
-build-yarn:
-	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh yarn
+build-yarn: build-yarn-java
 
 build-hdfs:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh hdfs
@@ -240,7 +238,7 @@ helm-package: helm-lint
 
 skeleton:
 	mkdir -p .context
-	python3 scripts/generate_skeleton.py backend/common backend/yarn backend/hdfs backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
+	python3 scripts/generate_skeleton.py backend/common backend/hdfs backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
 
 skeleton-backend:
 	mkdir -p .context

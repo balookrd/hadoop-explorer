@@ -2,7 +2,7 @@
 
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
 - **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища, Circuit Breaker, Distributed Lock, Graceful Shutdown).
-- **YARN Explorer** (`backend/yarn` — YARN RM HA, Capacity Scheduler, партиции, Change Requests, Distributed Lock, генерация XML).
+- **YARN Explorer** (`backend/yarn/yarn-java` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов, Circuit Breaker).
 - **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
@@ -196,52 +196,56 @@ database:
 
 ## 3. Настройка YARN Explorer
 
-Файл конфигурации: `backend/yarn/config/config.yaml`.
+Файл конфигурации: `backend/yarn/yarn-java/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
 ### 3.1 YARN кластеры и партиции
 
 ```yaml
-clusters:
-  - id: "prod-yarn"
-    name: "Production Hadoop Cluster"
-    description: "Основной YARN кластер (120 узлов)"
-    resource_manager_urls:
-      - "http://rm1.prod.company.local:8088"
-      - "http://rm2.prod.company.local:8088" # High Availability failover
-    kerberos_enabled: true
-    kerberos_principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
-    impersonation_enabled: true
-    default_partition: "DEFAULT"
-    partitions:
-      - "DEFAULT"
-      - "GPU"
-      - "HIGH_MEM"
-    resource_mode: "percentage" # percentage (Capacity Scheduler %) | absolute (MB / Cores)
-    total_resources:
-      memory_mb: 2097152        # 2 TB
-      vcores: 1024
+yarn:
+  clusters:
+    - id: "prod-yarn"
+      name: "Production Hadoop Cluster"
+      description: "Основной YARN кластер (120 узлов)"
+      resource-manager-urls:
+        - "http://rm1.prod.company.local:8088"
+        - "http://rm2.prod.company.local:8088" # High Availability failover
+      kerberos-enabled: true
+      kerberos-principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
+      impersonation-enabled: true
+      default-partition: "DEFAULT"
+      partitions:
+        - "DEFAULT"
+        - "GPU"
+        - "HIGH_MEM"
+      resource-mode: "percentage" # percentage (Capacity Scheduler %) | absolute (MB / Cores)
+      total-resources:
+        memory-mb: 2097152        # 2 TB
+        vcores: 1024
 ```
 
 ### 3.2 Ролевая модель и Change Requests
 
-YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle) и защитой от состояний гонки через `DistributedLock` при согласовании заявок:
+YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle, запрет самосогласования заявок их создателем):
 
 ```yaml
-acl:
-  ui_access:
-    allowed_users: ["*"]
-    allowed_groups: ["*"]
-
-  roles:
-    admin:
-      groups: ["hadoop-admins", "platform-admins"]
-      users: ["admin_user"]
-    writer:
-      groups: ["yarn-operators", "data-engineers"]
-      users: []
-    reader:
-      groups: ["*"]
-      users: ["*"]
+yarn:
+  acl:
+    enforce-four-eyes: true
+  clusters:
+    - id: "prod-yarn"
+      acl:
+        allowed-users: ["*"]
+        allowed-groups: ["*"]
+        roles:
+          admin:
+            groups: ["hadoop-admins", "platform-admins"]
+            users: ["admin_user"]
+          writer:
+            groups: ["yarn-operators", "data-engineers"]
+            users: ["writer_user"]
+          reader:
+            groups: ["*"]
+            users: ["*"]
 ```
 
 ### 3.3 Интеграция с Ansible AWX (доставка и применение конфигурации)
@@ -249,15 +253,16 @@ acl:
 YARN Explorer поддерживает автоматизированную доставку и горячее применение сгенерированной XML-конфигурации через запуск Job Template в **Ansible AWX / Red Hat Ansible Automation Platform**:
 
 ```yaml
-awx:
-  # Глобальные параметры подключения к AWX
-  enabled: true                          # Включение интеграции с AWX
-  base_url: "https://awx.company.local"  # Базовый URL сервера AWX
-  token: "SampleAwxApplicationTokenHere" # Токен приложения AWX (PAT / OAuth2)
-  verify_ssl: true                       # Проверка TLS/SSL сертификата сервера
-  default_job_template_id: 101           # ID Job Template по умолчанию
-  poll_interval_seconds: 2               # Интервал опроса статуса задачи (сек)
-  timeout_seconds: 180                   # Таймаут ожидания завершения задачи (сек)
+yarn:
+  awx:
+    # Глобальные параметры подключения к AWX
+    enabled: true                          # Включение интеграции с AWX
+    base-url: "https://awx.company.local"  # Базовый URL сервера AWX
+    token: "SampleAwxApplicationTokenHere" # Токен приложения AWX (PAT / OAuth2)
+    verify-ssl: true                       # Проверка TLS/SSL сертификата сервера
+    default-job-template-id: 101           # ID Job Template по умолчанию
+    poll-interval-seconds: 2               # Интервал опроса статуса задачи (сек)
+    timeout-seconds: 180                   # Таймаут ожидания завершения задачи (сек)
 
 clusters:
   - id: "prod-yarn"

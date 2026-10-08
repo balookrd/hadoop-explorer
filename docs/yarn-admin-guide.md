@@ -31,15 +31,16 @@
 - **Метрики Prometheus**: `GET /metrics` (экспорт золотых сигналов HTTP, Circuit Breaker и счетчиков).
 
 ### 1.3 Системные требования
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12).
+- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
 - **Среда выполнения**:
-  - Python: `3.11` – `3.14` (для Standalone)
-  - Node.js: `20+` / `22 LTS` (только для локальной сборки фронтенда из исходников)
-- **Системные библиотеки**: `libkrb5-dev` (`krb5-devel`), `libsasl2-dev` (`cyrus-sasl-devel`), `krb5-user` (`krb5-workstation`), `curl`.
+  - Java: `21 LTS` (Eclipse Temurin / OpenJDK 21)
+  - Maven: `3.9+` (для сборки из исходников)
+  - Node.js: `20+` / `22 LTS` (для сборки фронтенда из исходников)
+- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`.
 - **Ресурсы (минимальные / рекомендуемые на реплику)**:
   - CPU: `1 ядро` (рек. `2 ядра`)
   - RAM: `1 ГБ` (рек. `2 ГБ`)
-  - Диск: `10 ГБ` для логов и локальной БД SQLite (при PostgreSQL диск минимален).
+  - Диск: `10 ГБ` для логов и встроенной БД H2/SQLite (при PostgreSQL диск минимален).
 
 ---
 
@@ -52,14 +53,13 @@
 **Ubuntu / Debian**:
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    build-essential python3 python3-venv python3-dev \
-    libkrb5-dev libsasl2-dev krb5-user ldap-utils curl git
+    openjdk-21-jdk maven krb5-user ldap-utils curl git
 ```
 
 **RHEL / Rocky Linux / AlmaLinux**:
 ```bash
-sudo dnf install -y gcc python3 python3-devel \
-    krb5-devel cyrus-sasl-devel krb5-workstation openldap-clients curl git
+sudo dnf install -y \
+    java-21-openjdk-devel maven krb5-workstation openldap-clients curl git
 ```
 
 ### Шаг 2: Создание пользователя и структуры каталогов
@@ -78,7 +78,7 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/yarn
 ```
 
-### Шаг 3: Размещение кода и виртуального окружения
+### Шаг 3: Сборка и размещение артефакта
 ```bash
 # Переключение на пользователя сервиса
 sudo -u appuser -i
@@ -87,96 +87,112 @@ cd /opt/hadoop-explorer/yarn
 # Клонирование репозитория либо копирование дистрибутива
 git clone https://github.com/company/hadoop-explorer.git .
 
-# Создание виртуального окружения Python
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Установка зависимостей через uv или pip
-pip install --upgrade pip
-pip install -e backend/common -e backend/yarn
-
-# Сборка фронтенда (если не используется готовый dist)
+# Сборка фронтенда (Svelte 5)
 cd frontend
 npm ci --workspace=apps/yarn --include-workspace-root
 npm run build --workspace=apps/yarn
 cd ..
+
+# Копирование статики фронтенда в ресурсы Spring Boot
+cp -r frontend/apps/yarn/dist/* backend/yarn/yarn-java/src/main/resources/static/
+
+# Сборка исполняемого Spring Boot fat JAR
+mvn clean package -DskipTests -f backend/yarn/yarn-java/pom.xml
+
+# Копирование собранного JAR в рабочий каталог
+cp backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/yarn/config.yaml`:
+Создайте файл `/etc/hadoop-explorer/yarn/application.yml`:
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8000
-  debug: false
-  secure_cookies: true
-  cors_origins:
-    - "https://yarn.company.local"
 
-security:
-  secret_key: "GENERATE_SECURE_KEY_AT_LEAST_32_CHARACTERS_LONG"
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "yarn_explorer_session"
+spring:
+  application:
+    name: yarn-explorer-java
+  datasource:
+    # Для автономной работы используется embedded H2:
+    url: jdbc:h2:file:/var/lib/hadoop-explorer/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
+    driverClassName: org.h2.Driver
+    # Для промышленного кластера рекомендуется PostgreSQL:
+    # url: jdbc:postgresql://pg-cluster.company.local:5432/yarn_explorer
+    # username: yarn_user
+    # password: StrongPass123
+  jpa:
+    hibernate:
+      ddl-auto: update
 
-# База данных сессий, заявок и аудита
-# Для 1 реплики допустим SQLite, для продакшна рекомендуется PostgreSQL:
-# url: "postgresql://yarn_user:StrongPass123@pg-cluster.company.local:5432/yarn_explorer"
-database:
-  url: "sqlite:////var/lib/hadoop-explorer/yarn/data/yarn_explorer.db"
+# Общие параметры безопасности платформы
+hadoop:
+  security:
+    auth-mode: ldap # mock | ldap | kerberos
+    jwt:
+      secret: "GENERATE_SECURE_KEY_AT_LEAST_32_CHARACTERS_LONG"
+      expiration-minutes: 480
+    ldap:
+      enabled: true
+      server-uri: "ldaps://ldap.company.local:636"
+      bind-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
+      bind-password: "SecureServicePassword"
+      user-search-base: "ou=users,dc=company,dc=local"
+      user-search-filter: "(sAMAccountName={0})"
+      group-search-base: "ou=groups,dc=company,dc=local"
+      group-search-filter: "(member={0})"
+    kerberos:
+      enabled: true
+      keytab-path: "/etc/security/keytabs/yarn-explorer.keytab"
+      principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
 
-# Аутентификация LDAP / Active Directory
-auth:
-  ldap:
-    enabled: true
-    server_uri: "ldaps://ldap.company.local:636"
-    bind_dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
-    bind_password: "SecureServicePassword"
-    user_search_base: "ou=users,dc=company,dc=local"
-    user_search_filter: "(sAMAccountName={username})"
-    group_search_base: "ou=groups,dc=company,dc=local"
-    group_search_filter: "(member={user_dn})"
-    admin_group: "cn=hadoop-admins,ou=groups,dc=company,dc=local"
-
-  # Kerberos SPNEGO SSO для браузерного входа
-  kerberos:
-    enabled: true
-    keytab_path: "/etc/security/keytabs/yarn-explorer.keytab"
-    service_principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
-
-# Подключение к кластерам YARN ResourceManager (HA)
+# Модуль управления очередями YARN
 yarn:
+  acl:
+    enforce-four-eyes: true
+  awx:
+    enabled: true
+    base-url: "https://awx.company.local"
+    token: "AWX_OAUTH2_APPLICATION_TOKEN"
+    job-template-id: 42
+    verify-ssl: true
   clusters:
     - id: "prod-cluster"
       name: "Production DataLake"
-      active_rm_url: "http://rm01.prod.company.local:8088"
-      standby_rm_url: "http://rm02.prod.company.local:8088"
-      kerberos_enabled: true
-      keytab_path: "/etc/security/keytabs/yarn-client.keytab"
-      principal: "yarn-client@COMPANY.LOCAL"
-      timeout_seconds: 5
-
-# Интеграция с Ansible AWX для раскатки capacity-scheduler.xml
-awx:
-  enabled: true
-  url: "https://awx.company.local"
-  token: "AWX_OAUTH2_APPLICATION_TOKEN"
-  job_template_id: 42
-  verify_ssl: true
-  inventory_id: 5
+      resource-manager-urls:
+        - "http://rm01.prod.company.local:8088"
+        - "http://rm02.prod.company.local:8088"
+      kerberos-enabled: true
+      kerberos-principal: "yarn/rm01.prod.company.local@COMPANY.LOCAL"
+      impersonation-enabled: true
+      default-partition: "DEFAULT"
+      partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
+      resource-mode: "percentage"
+      total-resources:
+        memory-mb: 2097152
+        vcores: 1024
+      acl:
+        allowed-users: ["*"]
+        allowed-groups: ["*"]
+        roles:
+          admin:
+            groups: ["hadoop-admins"]
+          writer:
+            groups: ["yarn-operators"]
+          reader:
+            groups: ["*"]
 ```
 
 Установите строгие права доступа к файлу:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/yarn/config.yaml
-sudo chown appuser:appuser /etc/hadoop-explorer/yarn/config.yaml
+sudo chmod 600 /etc/hadoop-explorer/yarn/application.yml
+sudo chown appuser:appuser /etc/hadoop-explorer/yarn/application.yml
 ```
 
 ### Шаг 5: Создание systemd сервиса
 Создайте файл `/etc/systemd/system/yarn-explorer.service`:
 ```ini
 [Unit]
-Description=Hadoop YARN Explorer Web Service
+Description=Hadoop YARN Explorer Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -185,18 +201,14 @@ Type=simple
 User=appuser
 Group=appuser
 WorkingDirectory=/opt/hadoop-explorer/yarn
-Environment="PYTHONPATH=/opt/hadoop-explorer/yarn:/opt/hadoop-explorer/yarn/backend/common:/opt/hadoop-explorer/yarn/backend/yarn"
-Environment="CONFIG_PATH=/etc/hadoop-explorer/yarn/config.yaml"
-Environment="FRONTEND_DIST=/opt/hadoop-explorer/yarn/frontend/apps/yarn/dist"
+Environment="SPRING_CONFIG_LOCATION=/etc/hadoop-explorer/yarn/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
-Environment="WEB_CONCURRENCY=2"
 
-ExecStart=/opt/hadoop-explorer/yarn/.venv/bin/uvicorn app.main:app \
-    --app-dir backend/yarn \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --workers 2 \
-    --log-level info
+ExecStart=/usr/bin/java \
+    -Xms512m \
+    -Xmx2048m \
+    -Dspring.config.location=/etc/hadoop-explorer/yarn/application.yml \
+    -jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
 
 Restart=always
 RestartSec=5s
@@ -232,7 +244,7 @@ journalctl -u yarn-explorer -f
 ### 3.1 Сборка Docker-образа
 Сборка выполняется из корня монорепозитория:
 ```bash
-docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn .
+docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
 ```
 
 ### 3.2 Автономный запуск одного контейнера (`docker run`)
@@ -240,11 +252,10 @@ docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn .
 docker run -d \
   --name yarn-explorer \
   --restart unless-stopped \
-  -p 8001:8000 \
-  -e CONFIG_PATH=/app/config/config.yaml \
-  -e JWT_SECRET_KEY="VerySecretKeyForTokensAtLeast32Chars" \
+  -p 8000:8000 \
+  -e SPRING_CONFIG_LOCATION=/app/config/application.yml \
   -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/yarn-explorer/config.yaml:/app/config/config.yaml:ro \
+  -v /opt/yarn-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v yarn-data:/app/data \
@@ -506,7 +517,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ## 7. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
 
-Наряду с микросервисом на Python, в состав платформы входит нативный бэкенд **YARN Explorer на стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn/yarn-java`), использующий официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
+Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn/yarn-java`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
 
 ### 7.1 Преимущества Java 21 реализации
 1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API / RPC активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).

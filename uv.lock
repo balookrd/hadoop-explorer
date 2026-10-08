@@ -9,7 +9,6 @@ members = [
     "hadoop-explorer-hdfs",
     "hadoop-explorer-spark",
     "hadoop-explorer-sql",
-    "hadoop-explorer-yarn",
 ]
 
 [[package]]
@@ -643,15 +642,6 @@ wheels = [
 ]
 
 [[package]]
-name = "defusedxml"
-version = "0.7.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
-]
-
-[[package]]
 name = "fakeredis"
 version = "2.37.1"
 source = { registry = "https://pypi.org/simple" }
@@ -782,7 +772,6 @@ dependencies = [
     { name = "hadoop-explorer-hdfs" },
     { name = "hadoop-explorer-spark" },
     { name = "hadoop-explorer-sql" },
-    { name = "hadoop-explorer-yarn" },
 ]
 
 [package.dev-dependencies]
@@ -801,7 +790,6 @@ requires-dist = [
     { name = "hadoop-explorer-hdfs", editable = "backend/hdfs" },
     { name = "hadoop-explorer-spark", editable = "backend/spark" },
     { name = "hadoop-explorer-sql", editable = "backend/sql" },
-    { name = "hadoop-explorer-yarn", editable = "backend/yarn" },
 ]
 
 [package.metadata.requires-dev]
@@ -986,52 +974,6 @@ requires-dist = [
     { name = "thrift", specifier = ">=0.16.0" },
     { name = "thrift-sasl", specifier = ">=0.4.3" },
     { name = "trino", specifier = ">=0.329.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "hadoop-explorer-yarn"
-version = "1.0.0"
-source = { editable = "backend/yarn" }
-dependencies = [
-    { name = "defusedxml" },
-    { name = "gssapi", marker = "sys_platform != 'win32'" },
-    { name = "hadoop-explorer-common" },
-    { name = "httpx" },
-    { name = "kerberos" },
-    { name = "krb5" },
-    { name = "passlib", extra = ["bcrypt"] },
-    { name = "psycopg2-binary" },
-    { name = "python-dateutil" },
-    { name = "python-multipart" },
-    { name = "requests" },
-    { name = "requests-kerberos" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "fakeredis" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "defusedxml", specifier = ">=0.7.1" },
-    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
-    { name = "gssapi", marker = "sys_platform != 'win32'", specifier = ">=1.8.3" },
-    { name = "hadoop-explorer-common", editable = "backend/common" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "kerberos", specifier = ">=1.3.0" },
-    { name = "krb5", specifier = ">=0.6.0" },
-    { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
-    { name = "psycopg2-binary", specifier = ">=2.9.9" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
-    { name = "python-dateutil", specifier = ">=2.9.0" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "requests", specifier = ">=2.31.0" },
-    { name = "requests-kerberos", specifier = ">=0.14.0" },
 ]
 provides-extras = ["dev"]
 

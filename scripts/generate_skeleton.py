@@ -253,8 +253,8 @@ def main() -> None:
     parser.add_argument(
         "paths",
         nargs="*",
-        default=["backend/yarn"],
-        help="Пути к файлам или директориям для анализа (по умолчанию: backend/yarn)",
+        default=["backend/common"],
+        help="Пути к файлам или директориям для анализа (по умолчанию: backend/common)",
     )
     parser.add_argument(
         "--output",

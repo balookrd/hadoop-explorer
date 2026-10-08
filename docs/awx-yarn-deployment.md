@@ -178,42 +178,43 @@ deployer ALL=(yarn) NOPASSWD: ALL
 
 ---
 
-## 5. Конфигурация в Hadoop Explorer (`config.yaml`)
+## 5. Конфигурация в Hadoop Explorer (`application.yml`)
 
-В файле конфигурации бэкенда YARN Explorer (`backend/yarn/config/config.yaml`):
+В файле конфигурации бэкенда YARN Explorer (`backend/yarn/yarn-java/src/main/resources/application.yml`):
 
 ```yaml
-awx:
-  # Включение интеграции с AWX
-  enabled: true
-  # URL инстанса AWX
-  base_url: "https://awx.company.local"
-  # Токен доступа (рекомендуется передавать через переменную окружения AWX_TOKEN)
-  token: "Ваш_Секретный_AWX_Токен"
-  verify_ssl: true
-  # Дефолтный ID шаблона запуска в AWX
-  default_job_template_id: 101
-  # Интервал опроса статуса выполнения задачи в секундах
-  poll_interval_seconds: 2
-  # Максимальное время ожидания завершения деплоя в секундах
-  timeout_seconds: 180
+yarn:
+  awx:
+    # Включение интеграции с AWX
+    enabled: true
+    # URL инстанса AWX
+    base-url: "https://awx.company.local"
+    # Токен доступа (рекомендуется передавать через переменную окружения AWX_TOKEN)
+    token: "Ваш_Секретный_AWX_Токен"
+    verify-ssl: true
+    # Дефолтный ID шаблона запуска в AWX
+    default-job-template-id: 101
+    # Интервал опроса статуса выполнения задачи в секундах
+    poll-interval-seconds: 2
+    # Максимальное время ожидания завершения деплоя в секундах
+    timeout-seconds: 180
 
-clusters:
-  - id: "prod-yarn"
-    name: "Production Hadoop Cluster"
-    resource_manager_urls:
-      - "http://rm1.prod.company.local:8088"
-      - "http://rm2.prod.company.local:8088"
-    kerberos_enabled: true
-    # Индивидуальные параметры AWX для конкретного кластера:
-    awx:
-      enabled: true
-      job_template_id: 101 # Переопределяет default_job_template_id
-    acl:
-      roles:
-        admin:
-          users: ["admin_user"]
-          groups: ["hadoop-admins"]
+  clusters:
+    - id: "prod-yarn"
+      name: "Production Hadoop Cluster"
+      resource-manager-urls:
+        - "http://rm1.prod.company.local:8088"
+        - "http://rm2.prod.company.local:8088"
+      kerberos-enabled: true
+      # Индивидуальные параметры AWX для конкретного кластера:
+      awx:
+        enabled: true
+        job-template-id: 101 # Переопределяет default_job_template_id
+      acl:
+        roles:
+          admin:
+            users: ["admin_user"]
+            groups: ["hadoop-admins"]
 ```
 
 ### Переменные окружения для производственного запуска:
