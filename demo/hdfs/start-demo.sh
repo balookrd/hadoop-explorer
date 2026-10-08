@@ -14,10 +14,10 @@ echo "  4. HDFS Кластер 2 (Archive & Analytics) -> WebHDFS порт 9872"
 echo "  5. Сервис hdfs-explorer (Java 21 Web UI + Backend) -> http://localhost:8002"
 echo ""
 
-HDFS_JAR="${REPO_ROOT}/backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar"
+HDFS_JAR="${REPO_ROOT}/backend/hdfs/target/hdfs-explorer-java-1.0.0.jar"
 if [[ ! -f "$HDFS_JAR" ]]; then
     echo "==> Сборка JAR-пакета HDFS Explorer Java..."
-    (cd "$REPO_ROOT" && make build-hdfs-java)
+    (cd "$REPO_ROOT" && make build-hdfs)
 fi
 
 if [[ ! -d "${REPO_ROOT}/frontend/apps/hdfs/dist" ]]; then

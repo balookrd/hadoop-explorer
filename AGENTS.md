@@ -12,10 +12,10 @@ Hadoop Explorer Platform — монорепозиторий на **Java 21 LTS (
 hadoop-explorer/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── common-security-starter/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
-│   ├── yarn/yarn-java/       # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
-│   ├── hdfs/hdfs-java/       # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
-│   ├── sql/sql-java/         # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
-│   ├── spark/spark-java/     # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
+│   ├── yarn/                 # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
+│   ├── hdfs/                 # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
+│   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
+│   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons
 │       ├── orchestrator-java/# Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
 │       └── agent-java/       # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
@@ -68,10 +68,10 @@ hadoop-explorer/
   * Единый запуск всех тестов: `./scripts/run-tests.sh all` (или `make test`)
   * Все тесты Java: `make test-java`
   * Стартер безопасности: `make test-security-starter`
-  * Сервис YARN: `mvn test -f backend/yarn/yarn-java/pom.xml`
-  * Сервис HDFS: `mvn test -f backend/hdfs/hdfs-java/pom.xml`
-  * Сервис SQL: `mvn test -f backend/sql/sql-java/pom.xml`
-  * Сервис Spark: `mvn test -f backend/spark/spark-java/pom.xml`
+  * Сервис YARN: `mvn test -f backend/yarn/pom.xml` (или `make test-yarn`)
+  * Сервис HDFS: `mvn test -f backend/hdfs/pom.xml` (или `make test-hdfs`)
+  * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)
+  * Сервис Spark: `mvn test -f backend/spark/pom.xml` (или `make test-spark`)
   * Сервис Replicator: `mvn test -f backend/replicator/pom.xml`
 * **Фронтенд тесты (Svelte 5 / Vitest)**:
   * `make test-ui`

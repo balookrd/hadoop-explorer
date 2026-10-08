@@ -2,7 +2,20 @@
 
 Корпоративный бэкенд-сервис для интерактивной аналитики, сессий PySpark, Scala и Spark SQL на гетерогенных Hadoop-кластерах, реализованный на **Java 21 LTS** и **Spring Boot 3.3.4**.
 
-## Архитектура и возможности
+---
+
+## Архитектура и структура проекта
+
+```
+backend/spark/
+├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:spark-explorer-java:1.0.0)
+├── src/
+│   ├── main/
+│   │   ├── java/             # Контроллеры, Сервисы, LivyClient, DAG Engine, DTO
+│   │   └── resources/        # application.yml, schema.sql, статика SPA
+│   └── test/                 # Интеграционные тесты MockMvc, MockSparkEngine
+└── README.md                 # Документация модуля
+```
 
 - **Единое ядро безопасности**: Интеграция со стартером `common-security-starter` (Java 21), обеспечивающим поддержку LDAPS, Kerberos SPNEGO, защищенных JWT Cookie, CSRF-защиту и проверку прав доступа к очередям YARN.
 - **Движки исполнения**: Клиент REST API Apache Livy и полнофункциональный MockSparkEngine, эмулирующий запуск YARN-приложений и мультиязычные сессии.
@@ -10,15 +23,21 @@
 - **Воркспейс и история**: Персистентное хранение состояния сессий, блокнотов и результатов вычислений в H2 через JPA.
 - **Встроенный SPA-фронтенд**: Продакшн-бандл из `frontend/apps/spark/dist` раздается напрямую через Spring Boot.
 
+---
+
 ## Сборка и запуск
 
 ```bash
 # Запуск модульных и интеграционных тестов
-mvn clean test -f backend/spark/spark-java/pom.xml
+make test-spark
+# или
+mvn clean test -f backend/spark/pom.xml
 
 # Сборка fat jar
-mvn clean package -DskipTests -f backend/spark/spark-java/pom.xml
+make build-spark
+# или
+mvn clean package -DskipTests -f backend/spark/pom.xml
 
 # Запуск сервиса
-java -jar backend/spark/spark-java/target/spark-explorer-java-1.0.0.jar
+java -jar backend/spark/target/spark-explorer-java-1.0.0.jar
 ```

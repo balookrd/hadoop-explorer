@@ -61,13 +61,17 @@ help:
 test:
 	./scripts/run-tests.sh all
 
-test-yarn: test-yarn-java
+test-yarn:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/yarn/pom.xml
 
-test-hdfs: test-hdfs-java
+test-hdfs:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/hdfs/pom.xml
 
-test-sql: test-sql-java
+test-sql:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/sql/pom.xml
 
-test-spark: test-spark-java
+test-spark:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/spark/pom.xml
 
 test-replicator: test-replicator-java
 
@@ -83,19 +87,12 @@ test-replicator-java:
 test-security-starter:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/common-security-starter/pom.xml
 
-test-hdfs-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/hdfs/hdfs-java/pom.xml
+test-hdfs-java: test-hdfs
+test-yarn-java: test-yarn
+test-sql-java: test-sql
+test-spark-java: test-spark
 
-test-yarn-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/yarn/yarn-java/pom.xml
-
-test-sql-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/sql/sql-java/pom.xml
-
-test-spark-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/spark/spark-java/pom.xml
-
-test-java: test-security-starter test-replicator-java test-hdfs-java test-yarn-java test-sql-java test-spark-java
+test-java: test-security-starter test-replicator-java test-hdfs test-yarn test-sql test-spark
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -103,13 +100,17 @@ test-ui:
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
 
-build-yarn: build-yarn-java
+build-yarn:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/yarn/pom.xml
 
-build-hdfs: build-hdfs-java
+build-hdfs:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
-build-sql: build-sql-java
+build-sql:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/sql/pom.xml
 
-build-spark: build-spark-java
+build-spark:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/spark/pom.xml
 
 build-replicator: build-replicator-java
 
@@ -122,17 +123,10 @@ build-replicator-orchestrator-java:
 build-replicator-java:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml
 
-build-hdfs-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/hdfs/hdfs-java/pom.xml
-
-build-yarn-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/yarn/yarn-java/pom.xml
-
-build-sql-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/sql/sql-java/pom.xml
-
-build-spark-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/spark/spark-java/pom.xml
+build-hdfs-java: build-hdfs
+build-yarn-java: build-yarn
+build-sql-java: build-sql
+build-spark-java: build-spark
 
 frontend-install:
 	cd frontend && npm install

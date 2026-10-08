@@ -1,127 +1,97 @@
-# Backend: YARN Queue Explorer (Java 21 / Spring Boot 3)
+# YARN Queue Explorer API (Java 21 / Spring Boot 3)
 
-Бэкенд-сервис приложения **YARN Queue Explorer**, реализованный на базе **Java 21 LTS** и **Spring Boot 3.3.4**. Сервис обеспечивает взаимодействие с кластерами Apache Hadoop YARN через Kerberos SPNEGO, автоматический **HA Failover** между ResourceManagers, корпоративную аутентификацию пользователей через OpenLDAP / Active Directory или Mock/Local провайдеры (`common-security-starter`), персистентное хранение заявок на согласование очередей в H2/PostgreSQL с принципом четырех глаз (**Four-Eyes Principle**), безопасную генерацию конфигурации `capacity-scheduler.xml` и интеграцию с Ansible AWX для автоматического деплоя.
+Высокопроизводительный сервис **YARN Queue Explorer API**, реализованный на **Java 21 LTS** и **Spring Boot 3.3.4**, предназначенный для управления очередями Capacity Scheduler, мониторинга метрик YARN ResourceManager, поддержки высокой доступности (RM HA failover) и безопасного согласования и развертывания конфигураций очередей через Ansible AWX.
 
 ---
 
-## 🏛 Архитектура компонентов бэкенда
+## 🏛 Архитектура компонентов
 
 ```
 backend/yarn/
-├── yarn-java/                    # Нативный сервис на Java 21 / Spring Boot 3
-│   ├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:yarn-explorer-java:1.0.0)
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/             # Контроллеры, Сервисы, Клиенты, Сущности, Модели
-│   │   │   └── resources/        # application.yml, capacity-scheduler-template.xml, статика SPA
-│   │   └── test/                 # Юнит- и интеграционные тесты (Spring Boot Test, MockMvc)
-│   └── README.md                 # Подробная документация сервиса
-└── README.md                     # Документация модуля
+├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:yarn-explorer-java:1.0.0)
+├── src/
+│   ├── main/
+│   │   ├── java/             # Контроллеры, Сервисы, Клиенты, Сущности, Модели
+│   │   └── resources/        # application.yml, capacity-scheduler-template.xml, статика SPA
+│   └── test/                 # Юнит- и интеграционные тесты (Spring Boot Test, MockMvc)
+└── README.md                 # Документация модуля
 ```
 
 ---
 
-## 🛡️ Безопасность и отказоустойчивость (Security & Resilience)
+## 🌟 Ключевые возможности
 
-В сервисе реализован комплекс защитных мер для соответствия лучшим практикам информационной безопасности (OWASP Top 10) и высокой доступности:
+1. **Capacity Scheduler Engine**:
+   - Валидация правил Capacity Scheduler: гарантированное соблюдение 100% суммы мощностей дочерних очередей на каждом уровне иерархии (с поддержкой разделов/партиций и Node Labels).
+   - Расчет детального diff между live конфигурацией и черновиком изменений (`created`, `modified`, `deleted`, `unchanged`, дельты capacity, max-capacity, RAM и vCores).
+   - Генерация и форматирование XML (`capacity-scheduler.xml`) с сохранением всех неуправляемых настроек, комментариев и аудит-метаданных.
 
-1. **Строгая защита от CSRF**:
-   - Валидация источников через `urllib.parse.urlparse` со строгим сопоставлением с `server.cors_origins` и `Host` заголовком. Режим Fail-Closed отклоняет мутирующие cookie-запросы без валидных источников.
-2. **Отказоустойчивость вызовов YARN RM (Circuit Breaker & HA Failover)**:
-   - Встроенный `CircuitBreaker` в `YARNClient`: мгновенный отказ (Fast-Fail) при недоступности RM без блокировки пулов потоков.
-   - Автоматический failover на Standby ResourceManager при падении Active RM. 4xx клиентские ошибки игнорируются автоматом.
-   - Экспорт метрик состояний автоматов защиты в Prometheus формате на эндпоинтах `/metrics` и `/api/v1/metrics`.
-3. **Защита от состояний гонки при согласовании (Distributed Lock)**:
-   - Согласование и отклонение заявок (`/approve`, `/reject`) защищено `DistributedLock` (Redis с fallback на In-Memory), гарантируя атомарность и исключая двойное одобрение.
-4. **Защита от инъекций и XXE**:
-   - **XXE & DoS Protection**: Парсинг XML через `defusedxml.ElementTree` с блокировкой entity expansion, DTD и billion laughs атак.
-   - **LDAP Filter Injection**: Входные данные экранируются через `ldap3.utils.conv.escape_filter_chars` перед передачей в фильтры поиска каталогов.
-   - **XML Comment / Configuration Injection**: Поля `comment` и `generated_by` экранируются функцией `_sanitize_xml_comment`, исключающей разрыв XML-комментариев (`-->`) и внедрение недопустимых свойств в `capacity-scheduler.xml`.
-5. **Защита от BOLA / IDOR и принцип Four-Eyes**:
-   - Доступ к деталям заявки (`GET /api/v1/change-requests/{id}`) строго ограничен правами пользователя в соответствующем кластере.
-   - Запрещено самостоятельное одобрение автором своей собственной заявки (`Four-Eyes Principle`).
-6. **Двухуровневый контроль доступа (RBAC & UI ACL)**:
-   - `check_ui_access`: проверка права доступа пользователя к интерфейсу и API на основе глобальных политик `acl.ui_access`.
-   - `resolve_cluster_role` & `check_cluster_permission`: гранулярное разделение прав по каждому кластеру (ADMIN, WRITER, READER).
-   - Обогащение LDAP-группами при Kerberos SPNEGO SSO (`/api/v1/auth/sso`) для корректного назначения ролей.
-7. **Потокобезопасность сессий и пулов**:
-   - Изоляция сетевых клиентов на асинхронные вызовы к YARN RM, исключающая гонки данных и утечки сессий.
-8. **Серверная инвалидация токенов и персистентность (SQLAlchemy Core)**:
-   - Хранилище заявок (Change Requests) и черного списка токенов на базе `SQLAlchemy Core` с поддержкой как `SQLite` (WAL), так и `PostgreSQL`.
-9. **Защита от брутфорса и IP-спуфинга (Rate Limiting)**:
-   - Эндпоинты аутентификации защищены ограничителем частоты запросов с защитой от IP-спуфинга (доверяет `X-Forwarded-For` только от доверенных прокси).
-10. **Безопасные сессии (HttpOnly Cookies) и CSP**:
-    - Токены принимаются через `Authorization: Bearer` или `HttpOnly`, `SameSite=Lax`, `Path=/` (и `Secure` в продакшне) Cookie. Токены в query-параметрах заблокированы.
-    - Защитные заголовки Content-Security-Policy: `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
-11. **Централизованная обработка исключений (CWE-209)**:
-    - Интеграция `setup_global_exception_handlers` с генерацией `incident_id` и скрытием внутренних трассировок при 500 ошибках.
-12. **Graceful Shutdown**:
-    - Интеграция с `GracefulShutdownManager` в lifespan приложения.
+2. **ResourceManager HA Failover & Клиенты**:
+   - Поддержка активного/резервного RM (`GET /ws/v1/cluster/info` с определением `haState == "ACTIVE"`).
+   - SPNEGO Kerberos аутентификация и безопасная имперсонация (`doAs`).
+   - Mock-режим (`MockYarnClient`) для автономного тестирования и локальной разработки без подключения к живому кластеру Hadoop.
+
+3. **Жизненный цикл Change Requests & Four-Eyes Principle**:
+   - Полный цикл управления заявками на изменение конфигурации очередей (`SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED`).
+   - Принцип разделения обязанностей (**Four-Eyes Principle**): создатель заявки не может самостоятельно согласовать свой собственный запрос, требуя ревью независимым администратором кластера.
+   - Предпросмотр сгенерированного XML перед развертыванием.
+
+4. **Интеграция с Ansible AWX**:
+   - Запуск шаблонов Job Template в AWX для раскатки `capacity-scheduler.xml` на узлы ResourceManager и вызова `yarn rmadmin -refreshQueues`.
+   - Поддержка ожидания завершения задачи (polling) и логирование результатов выполнения в аудит.
+
+5. **Безопасность платформы**:
+   - Интеграция со стартером `common-security-starter`: JWT токены, Cookie-аутентификация, RBAC (READER, WRITER, ADMIN), ролевой маппинг пользователей и групп по кластерам, аудит-логирование ключевых операций (`@Audited`).
+   - Защита от CSRF, Bucket4j Rate Limiting, защита вызовов RM через `SimpleCircuitBreaker`.
 
 ---
 
-## 🌐 Спецификация REST API
+## 🚀 Сборка и запуск
 
-### Аутентификация (`/api/v1/auth`)
-- `POST /api/v1/auth/login` — аутентификация по логину и паролю (LDAP / Mock / Hybrid). Выставляет `HttpOnly` cookie `access_token` и возвращает JWT токен. Защищено Rate Limiter (10 запросов в минуту).
-- `POST /api/v1/auth/sso` — аутентификация Kerberos SPNEGO SSO через заголовок `Authorization: Negotiate <token>`. Защищено Rate Limiter.
-- `GET /api/v1/auth/me` — получение профиля текущего пользователя и его роли.
-- `POST /api/v1/auth/logout` — завершение сессии, серверный отзыв токена (blacklist) и удаление сессионной cookie.
+### Требования
+- JDK 21 LTS (`JAVA_HOME=/opt/homebrew/opt/openjdk` или системный JDK 21)
+- Apache Maven 3.9+
+- Установленный модуль `common-security-starter` в локальном Maven-репозитории
 
-### Кластеры (`/api/v1/clusters`)
-- `GET /api/v1/clusters` — список доступных пользователю YARN-кластеров с ролями и метаданными.
-
-### Очереди и моделирование (`/api/v1/clusters/{cluster_id}`)
-- `GET /api/v1/clusters/{cluster_id}/queues` — получение дерева очередей и метрик утилизации кластера. Доступно: `READER`, `WRITER`, `ADMIN`.
-- `POST /api/v1/clusters/{cluster_id}/validate` — валидация баланса ресурсов веток очередей (RAM / vCPU). Доступно: `WRITER`, `ADMIN`.
-- `POST /api/v1/clusters/{cluster_id}/diff` — расчет дельты изменений между live и draft состоянием с полной поддержкой разделов узлов (partitions) и меток очередей (`accessible-node-labels`, `default-node-label-expression`). Доступно: `WRITER`, `ADMIN`.
-- `POST /api/v1/clusters/{cluster_id}/generate-xml` — генерация `capacity-scheduler.xml`. Доступно: только `ADMIN`.
-- `POST /api/v1/clusters/{cluster_id}/deploy-xml` — прямое горячее развертывание и применение `capacity-scheduler.xml` на кластере через Ansible AWX. Доступно: только `ADMIN`.
-
-### Заявки на согласование (`/api/v1/change-requests`)
-- `GET /api/v1/change-requests` — список заявок с фильтрацией по кластеру и статусу (только для разрешенных кластеров).
-- `GET /api/v1/change-requests/pending-count` — количество заявок в статусе `SUBMITTED`, доступных пользователю.
-- `GET /api/v1/change-requests/{cr_id}` — детальная информация о заявке (требуются права `READER` в кластере заявки).
-- `POST /api/v1/change-requests` — создание заявки на изменение очередей. Доступно: `WRITER`, `ADMIN`.
-- `POST /api/v1/change-requests/{cr_id}/approve` — согласование заявки и генерация XML (защищено `DistributedLock`). Доступно: только `ADMIN`.
-- `POST /api/v1/change-requests/{cr_id}/deploy` — запуск задачи автоматизированной доставки и применения конфигурации через **Ansible AWX**. Доступно: только `ADMIN`.
-- `GET /api/v1/change-requests/{cr_id}/deploy-status` — получение актуального статуса исполнения задачи деплоя в AWX и консольного вывода (stdout).
-- `POST /api/v1/change-requests/{cr_id}/reject` — отклонение заявки (защищено `DistributedLock`). Доступно: только `ADMIN`.
-- `POST /api/v1/change-requests/{cr_id}/cancel` — отзыв заявки (доступно автору заявки или `ADMIN`).
-
-Подробное руководство по архитектуре, настройке и запуску AWX деплоя описано в [docs/awx-yarn-deployment.md](../../docs/awx-yarn-deployment.md).
-
-### Системные эндпоинты
-- `GET /healthz` — проверка жизнеспособности сервиса (`{"status": "ok"}`) для Kubernetes Liveness/Readiness probes (без авторизации).
-- `GET /metrics` и `GET /api/v1/metrics` — экспорт метрик Circuit Breaker и состояния очередей в формате Prometheus для мониторинга.
-
----
-
-## 🧪 Запуск тестов
-
+### Команды
 ```bash
+# Запуск модульных и интеграционных тестов
 make test-yarn
-# либо
-uv run pytest backend/yarn/tests -v
+# или
+mvn test -f backend/yarn/pom.xml
+
+# Сборка исполняемого Spring Boot JAR
+make build-yarn
+# или
+mvn clean package -DskipTests -f backend/yarn/pom.xml
+
+# Запуск сервиса
+java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar
 ```
+
+Сервис запустится на порту `8000` (стандартный порт YARN Explorer API).
 
 ---
 
-## ☕ Высокопроизводительная реализация на Java 21 (Spring Boot 3)
+## 📡 REST API Контракты
 
-В рамках перехода платформы на нативный стек доступна реализация на **Java 21 LTS** и **Spring Boot 3.3.4**:
-директория [`yarn-java/`](./yarn-java/).
-
-- **Стек**: Java 21, Spring Boot 3.3.4, Apache Hadoop YARN Client 3.3.6, Spring Data JPA, `common-security-starter`.
-- **Возможности**:
-  - Полная поддержка Capacity Scheduler: валидация баланса 100%, расчет diff изменений, генерация `capacity-scheduler.xml`.
-  - Автоматический failover активного ResourceManager (RM HA Failover) с определением `haState == "ACTIVE"`.
-  - Управление жизненным циклом Change Requests (`SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED`).
-  - Принцип **Four-Eyes**: запрет самосогласования заявок их авторами.
-  - Интеграция с Ansible AWX для горячего обновления очередей (`yarn rmadmin -refreshQueues`).
-- **Тесты и сборка**:
-  ```bash
-  make test-yarn-java   # запуск 13 тестов Java
-  make build-yarn-java  # сборка Spring Boot executable JAR
-  ```
-
+| Метод | URI | Описание | Доступ |
+|---|---|---|---|
+| `GET` | `/health` / `/actuator/health` | Liveness / Readiness health-check | Публичный |
+| `GET` | `/metrics` / `/actuator/prometheus` | Экспорт Prometheus метрик и Circuit Breaker | Публичный |
+| `POST`| `/api/v1/auth/login` | Вход пользователя (генерация JWT Cookie) | Публичный |
+| `POST`| `/api/v1/auth/sso` | Kerberos SPNEGO SSO аутентификация | Публичный |
+| `GET` | `/api/v1/auth/me` | Данные текущего пользователя и роли по кластерам | Аутентифицирован |
+| `POST`| `/api/v1/auth/logout` | Отзыв токена и завершение сессии | Аутентифицирован |
+| `GET` | `/api/v1/clusters` | Список кластеров YARN и роли пользователя | Аутентифицирован |
+| `GET` | `/api/v1/clusters/{id}/queues` | Актуальное дерево очередей Capacity Scheduler | Аутентифицирован |
+| `GET` | `/api/v1/clusters/{id}/metrics` | Метрики кластера (vCores, RAM, Applications) | Аутентифицирован |
+| `POST`| `/api/v1/clusters/{id}/queues/validate` | Валидация черновика дерева очередей (правило 100%) | WRITER / ADMIN |
+| `POST`| `/api/v1/clusters/{id}/queues/diff` | Расчет diff изменений между live и draft | WRITER / ADMIN |
+| `GET` | `/api/v1/change-requests` | Список заявок на изменение (фильтр по кластеру) | Аутентифицирован |
+| `POST`| `/api/v1/change-requests` | Создание новой заявки на согласование очередей | WRITER / ADMIN |
+| `GET` | `/api/v1/change-requests/{id}` | Детали заявки с предпросмотром XML и diff | Аутентифицирован |
+| `POST`| `/api/v1/change-requests/{id}/approve` | Согласование заявки (Four-Eyes Principle) | ADMIN кластера |
+| `POST`| `/api/v1/change-requests/{id}/reject` | Отклонение заявки с указанием причины | ADMIN кластера |
+| `POST`| `/api/v1/change-requests/{id}/cancel` | Отзыв заявки автором | Автор заявки |
+| `POST`| `/api/v1/change-requests/{id}/deploy` | Деплой согласованной заявки через Ansible AWX | ADMIN кластера |

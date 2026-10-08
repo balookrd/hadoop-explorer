@@ -179,7 +179,7 @@
 ## 5. Архитектура сервисов платформы
 
 ### 5.1 YARN Explorer
-- **Нативный Java 21 LTS / Spring Boot 3 бэкенд (`backend/yarn/yarn-java/`)**: высокопроизводительный сервис на базе официальных библиотек Apache Hadoop YARN Client (`hadoop-yarn-client:3.3.6`, `hadoop-yarn-common:3.3.6`), RM HA failover (`haState == "ACTIVE"`), парсинг и валидация дерева очередей (правило 100% емкости веток), расчет diff изменений для ресурсов RAM/vCPU и node labels, генерация и XXE-защищенная санитизация `capacity-scheduler.xml`, полный жизненный цикл Change Requests (Four-Eyes Principle, Spring Data JPA / H2), интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`), интеграция с общим ядром безопасности `common-security-starter` и автономный `MockYarnClient` для изолированного тестирования.
+- **Нативный Java 21 LTS / Spring Boot 3 бэкенд (`backend/yarn/`)**: высокопроизводительный сервис на базе официальных библиотек Apache Hadoop YARN Client (`hadoop-yarn-client:3.3.6`, `hadoop-yarn-common:3.3.6`), RM HA failover (`haState == "ACTIVE"`), парсинг и валидация дерева очередей (правило 100% емкости веток), расчет diff изменений для ресурсов RAM/vCPU и node labels, генерация и XXE-защищенная санитизация `capacity-scheduler.xml`, полный жизненный цикл Change Requests (Four-Eyes Principle, Spring Data JPA / H2), интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`), интеграция с общим ядром безопасности `common-security-starter` и автономный `MockYarnClient` для изолированного тестирования.
 - **Мониторинг очередей**: визуализация дерева иерархии Capacity Scheduler, метрик загрузки памяти и ядер в реальном времени с поддержкой RM HA и Circuit Breaker.
 - **Моделирование и валидация**: проверка корректности весов очередей (правило 100% емкости, минимальные/максимальные лимиты пользователя).
 - **Change Requests (Four-Eyes Principle)**: процесс внесения изменений через создание заявок инженерами данных (`WRITER`) и их обязательное согласование администраторами (`ADMIN`) под защитой `DistributedLock`.
@@ -194,7 +194,7 @@
   - *Детальная спецификация и sequence-диаграмма: [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).*
 
 ### 5.2 HDFS Explorer
-- **Нативный Java 21 LTS / Spring Boot 3 бэкенд (`backend/hdfs/hdfs-java/`)**: высокопроизводительный сервис на базе официальных библиотек Apache Hadoop (`org.apache.hadoop:hadoop-hdfs-client:3.3.6`), полная поддержка High Availability NameNode (автоконфигурация `dfs.nameservices` и `ConfiguredFailoverProxyProvider`), Kerberos Proxy User `doAs` имперсонации с прозрачностью для Ranger Audit, потоковый предпросмотр Parquet и ORC без выгрузки файлов целиком в память (`parquet-hadoop`, `orc-core`), интеграция с общим ядром безопасности `common-security-starter` и in-memory эмулятор `MockHdfsClient` для автономного тестирования.
+- **Нативный Java 21 LTS / Spring Boot 3 бэкенд (`backend/hdfs/`)**: высокопроизводительный сервис на базе официальных библиотек Apache Hadoop (`org.apache.hadoop:hadoop-hdfs-client:3.3.6`), полная поддержка High Availability NameNode (автоконфигурация `dfs.nameservices` и `ConfiguredFailoverProxyProvider`), Kerberos Proxy User `doAs` имперсонации с прозрачностью для Ranger Audit, потоковый предпросмотр Parquet и ORC без выгрузки файлов целиком в память (`parquet-hadoop`, `orc-core`), интеграция с общим ядром безопасности `common-security-starter` и in-memory эмулятор `MockHdfsClient` для автономного тестирования.
 - **Имперсонация (`doAs`)**: выполнение файловых операций от имени аутентифицированного пользователя при наличии привилегий у сервисного аккаунта.
 - **Неблокирующая архивация (Non-blocking ZIP)**: упаковка и распаковка директорий в ZIP-архивы с выносом ресурсоемких операций сжатия и чтения в пул рабочих потоков, защита от DoS/OOM и ликвидация N+1 задержек.
 - **Предпросмотр данных**: потоковое чтение и конвертация форматов CSV/TSV, JSON, текстовых файлов и бинарных колоночных форматов Apache Parquet / Apache ORC.
@@ -381,7 +381,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 
 1. **Docker образы на базе Eclipse Temurin 21 JRE**:
    - Минимальный защищенный runtime-образ `eclipse-temurin:21-jre-jammy` с системными утилитами Kerberos (`krb5-user`) и `curl` для healthcheck.
-   - Упаковка скомпилированного Spring Boot Fat JAR (`backend/<service>/<service>-java/target/*.jar`) и статических бандлов Svelte 5 SPA.
+   - Упаковка скомпилированного Spring Boot Fat JAR (`backend/<service>/target/*.jar` или `backend/replicator/*/target/*.jar`) и статических бандлов Svelte 5 SPA.
    - Запуск под непривилегированным пользователем `appuser (UID 10001)`.
    - Оптимизированные параметры памяти JVM (`-Xms256m -Xmx1024m`).
 2. **Структурированное JSON-логирование в продакшне**:

@@ -86,7 +86,7 @@ npm run build --workspace=apps/sql
 cd ..
 
 # Сборка Java 21 бэкенда (Spring Boot Fat JAR)
-mvn clean package -pl backend/common-security-starter,backend/sql/sql-java -am -DskipTests
+mvn clean package -pl backend/common-security-starter,backend/sql -am -DskipTests
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -186,7 +186,7 @@ Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/sql/app
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/sql/backend/sql/sql-java/target/sql-explorer.jar \
+    -jar /opt/hadoop-explorer/sql/backend/sql/target/sql-explorer.jar \
     --server.port=8003
 
 Restart=always

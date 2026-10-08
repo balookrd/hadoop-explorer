@@ -86,7 +86,7 @@ npm run build --workspace=apps/spark
 cd ..
 
 # Сборка Java 21 бэкенда (Spring Boot Fat JAR)
-mvn clean package -pl backend/common-security-starter,backend/spark/spark-java -am -DskipTests
+mvn clean package -pl backend/common-security-starter,backend/spark -am -DskipTests
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -183,7 +183,7 @@ Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/spark/a
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/spark/backend/spark/spark-java/target/spark-explorer.jar \
+    -jar /opt/hadoop-explorer/spark/backend/spark/target/spark-explorer.jar \
     --server.port=8004
 
 Restart=always

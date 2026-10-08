@@ -2,10 +2,10 @@
 
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
 - **Общий стартер безопасности** (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
-- **YARN Explorer** (`backend/yarn/yarn-java` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
-- **HDFS Explorer** (`backend/hdfs/hdfs-java` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
-- **SQL Explorer** (`backend/sql/sql-java` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
-- **Spark Explorer** (`backend/spark/spark-java` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
+- **YARN Explorer** (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
+- **HDFS Explorer** (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
+- **SQL Explorer** (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
+- **Spark Explorer** (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
 - **Hadoop gRPC Replicator** (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 - **Развертывание в Kubernetes (Helm)**.
 
@@ -196,7 +196,7 @@ database:
 
 ## 3. Настройка YARN Explorer
 
-Файл конфигурации: `backend/yarn/yarn-java/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
+Файл конфигурации: `backend/yarn/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
 ### 3.1 YARN кластеры и партиции
 
@@ -290,7 +290,7 @@ clusters:
 
 ## 4. Настройка HDFS Explorer
 
-Файл конфигурации: `backend/hdfs/hdfs-java/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
+Файл конфигурации: `backend/hdfs/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
 ### Пример секции `hadoop.hdfs.clusters`:
 

@@ -94,13 +94,13 @@ npm run build --workspace=apps/yarn
 cd ..
 
 # Копирование статики фронтенда в ресурсы Spring Boot
-cp -r frontend/apps/yarn/dist/* backend/yarn/yarn-java/src/main/resources/static/
+cp -r frontend/apps/yarn/dist/* backend/yarn/src/main/resources/static/
 
 # Сборка исполняемого Spring Boot fat JAR
-mvn clean package -DskipTests -f backend/yarn/yarn-java/pom.xml
+mvn clean package -DskipTests -f backend/yarn/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
+cp backend/yarn/target/yarn-explorer-java-1.0.0.jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -517,7 +517,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ## 7. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
 
-Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn/yarn-java`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
+Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
 
 ### 7.1 Преимущества Java 21 реализации
 1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API / RPC активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
@@ -530,11 +530,13 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ```bash
 # Модульное и интеграционное тестирование
-make test-yarn-java
+make test-yarn
+# или
+mvn test -f backend/yarn/pom.xml
 
 # Сборка исполняемого Spring Boot fat JAR
-make build-yarn-java
-# Результат: backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar
+make build-yarn
+# Результат: backend/yarn/target/yarn-explorer-java-1.0.0.jar
 
 # Полная валидация всех Java компонентов платформы
 make test-java
@@ -550,6 +552,6 @@ java -jar -Dspring.profiles.active=prod \
   -Dawx.base-url="https://awx.company.local" \
   -Dawx.token="secret-awx-token" \
   -Dawx.job-template-id=42 \
-  backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar
+  backend/yarn/target/yarn-explorer-java-1.0.0.jar
 ```
 

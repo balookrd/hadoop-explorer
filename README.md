@@ -71,10 +71,10 @@
 hadoop-explorer/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── common-security-starter/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
-│   ├── yarn/yarn-java/       # Сервис YARN Explorer (Capacity Scheduler, RM HA Failover)
-│   ├── hdfs/hdfs-java/       # Сервис HDFS Explorer (HA NameNode, Parquet/ORC Preview)
-│   ├── sql/sql-java/         # Сервис SQL Explorer (Trino, Hive, AI Assistant)
-│   ├── spark/spark-java/     # Сервис Spark Explorer (Livy, PySpark, Scala, DAG Pipelines)
+│   ├── yarn/                 # Сервис YARN Explorer (Capacity Scheduler, RM HA Failover)
+│   ├── hdfs/                 # Сервис HDFS Explorer (HA NameNode, Parquet/ORC Preview)
+│   ├── sql/                  # Сервис SQL Explorer (Trino, Hive, AI Assistant)
+│   ├── spark/                # Сервис Spark Explorer (Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Сервис Hadoop gRPC Replicator
 │       ├── orchestrator-java/# Replicator Orchestrator API (Java 21 / Spring Boot 3)
 │       └── agent-java/       # Нативный Replicator gRPC Worker Daemon (Java 21)

@@ -8,10 +8,10 @@ cd "$SCRIPT_DIR"
 echo "=== Запуск демонстрационного стенда YARN Explorer (Java 21 / Spring Boot 3) ==="
 echo "Компоненты: KDC (Kerberos), OpenLDAP, 2x Kerberized YARN RM, Yarn-Explorer (Java 21)"
 
-YARN_JAR="${REPO_ROOT}/backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar"
+YARN_JAR="${REPO_ROOT}/backend/yarn/target/yarn-explorer-java-1.0.0.jar"
 if [[ ! -f "$YARN_JAR" ]]; then
     echo "==> Сборка JAR-пакета YARN Explorer Java..."
-    (cd "$REPO_ROOT" && make build-yarn-java)
+    (cd "$REPO_ROOT" && make build-yarn)
 fi
 
 if [[ ! -d "${REPO_ROOT}/frontend/apps/yarn/dist" ]]; then

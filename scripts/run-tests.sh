@@ -10,28 +10,28 @@ run_yarn() {
   echo "=========================================="
   echo "🧪 Запуск тестов: YARN Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/yarn/yarn-java/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/yarn/pom.xml"
 }
 
 run_hdfs() {
   echo "=========================================="
   echo "🧪 Запуск тестов: HDFS Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/hdfs/hdfs-java/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/hdfs/pom.xml"
 }
 
 run_sql() {
   echo "=========================================="
   echo "🧪 Запуск тестов: SQL Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/sql/sql-java/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/sql/pom.xml"
 }
 
 run_spark() {
   echo "=========================================="
   echo "🧪 Запуск тестов: Spark Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/spark/spark-java/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/spark/pom.xml"
 }
 
 run_replicator() {

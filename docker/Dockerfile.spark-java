@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Копирование собранного Spring Boot Fat JAR
-COPY backend/spark/spark-java/target/spark-explorer-java-1.0.0.jar /app/spark-explorer.jar
+COPY backend/spark/target/spark-explorer-java-1.0.0.jar /app/spark-explorer.jar
 
 # Копирование собранного Frontend SPA (Svelte 5)
-COPY backend/spark/spark-java/src/main/resources/static /app/frontend/dist
+COPY backend/spark/src/main/resources/static /app/frontend/dist
 
 # Создание непривилегированного пользователя appuser (UID 10001)
 RUN groupadd -g 10001 appuser && \

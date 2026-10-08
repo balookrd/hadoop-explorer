@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Копирование собранного Spring Boot Fat JAR
-COPY backend/yarn/yarn-java/target/yarn-explorer-java-1.0.0.jar /app/yarn-explorer.jar
+COPY backend/yarn/target/yarn-explorer-java-1.0.0.jar /app/yarn-explorer.jar
 
 # Копирование собранного Frontend SPA (Svelte 5)
-COPY backend/yarn/yarn-java/src/main/resources/static /app/frontend/dist
+COPY backend/yarn/src/main/resources/static /app/frontend/dist
 
 # Создание непривилегированного пользователя appuser (UID 10001)
 RUN groupadd -g 10001 appuser && \

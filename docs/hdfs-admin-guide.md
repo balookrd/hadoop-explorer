@@ -90,13 +90,13 @@ npm run build --workspace=apps/hdfs
 cd ..
 
 # Копирование статики фронтенда в ресурсы Spring Boot
-cp -r frontend/apps/hdfs/dist/* backend/hdfs/hdfs-java/src/main/resources/static/
+cp -r frontend/apps/hdfs/dist/* backend/hdfs/src/main/resources/static/
 
 # Сборка исполняемого Spring Boot fat JAR
-mvn clean package -DskipTests -f backend/hdfs/hdfs-java/pom.xml
+mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar /opt/hadoop-explorer/hdfs/hdfs-explorer.jar
+cp backend/hdfs/target/hdfs-explorer-java-1.0.0.jar /opt/hadoop-explorer/hdfs/hdfs-explorer.jar
 ### Шаг 4: Настройка конфигурационного файла
 Создайте файл `/etc/hadoop-explorer/hdfs/application.yml`:
 ```yaml
@@ -440,7 +440,7 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ## 6. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
 
-Бэкенд **HDFS Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs/hdfs-java`), используя официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
+Бэкенд **HDFS Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs`), используя официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
 ### 6.1 Преимущества Java 21 реализации
 1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.
@@ -452,11 +452,13 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ```bash
 # Модульное и интеграционное тестирование
-make test-hdfs-java
+make test-hdfs
+# или
+mvn test -f backend/hdfs/pom.xml
 
 # Сборка исполняемого fat JAR
-make build-hdfs-java
-# Результат: backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar
+make build-hdfs
+# Результат: backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
 
 # Полная валидация всех Java компонентов платформы
 make test-java
@@ -470,6 +472,6 @@ java -jar -Dspring.profiles.active=prod \
   -Dhadoop.security.auth.mode=kerberos \
   -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
   -Dhadoop.hdfs.clusters-config-path=/etc/hadoop-explorer/clusters.yaml \
-  backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar
+  backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
 ```
 

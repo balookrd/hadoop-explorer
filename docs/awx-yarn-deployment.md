@@ -180,7 +180,7 @@ deployer ALL=(yarn) NOPASSWD: ALL
 
 ## 5. Конфигурация в Hadoop Explorer (`application.yml`)
 
-В файле конфигурации бэкенда YARN Explorer (`backend/yarn/yarn-java/src/main/resources/application.yml`):
+В файле конфигурации бэкенда YARN Explorer (`backend/yarn/src/main/resources/application.yml`):
 
 ```yaml
 yarn:
