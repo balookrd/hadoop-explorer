@@ -17,8 +17,8 @@ hadoop-explorer/
 │   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons
-│       ├── orchestrator-java/# Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
-│       └── agent-java/       # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
+│       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
+│       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
 │   ├── common/               # Общие типы (types/generated), API клиенты, UI компоненты
 │   └── apps/                 # SPA приложения: yarn, hdfs, sql, spark, replicator

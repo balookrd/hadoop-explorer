@@ -36,14 +36,14 @@
 
 ```bash
 # Из корня репозитория:
-make build-replicator-agent-java
+make build-replicator-agent
 
 # Либо напрямую через Maven:
-mvn clean package -DskipTests -f backend/replicator/agent-java/pom.xml
+mvn clean package -DskipTests -f backend/replicator/agent/pom.xml
 ```
 
 В результате сборки формируется единый исполняемый Fat JAR:
-`target/replicator-agent-java-1.0.0-all.jar` (~72 МБ, включает все зависимости Netty, gRPC, Hadoop Client, YARN Client, Jackson).
+`target/replicator-agent-1.0.0-all.jar` (~72 МБ, включает все зависимости Netty, gRPC, Hadoop Client, YARN Client, Jackson).
 
 ---
 
@@ -52,7 +52,7 @@ mvn clean package -DskipTests -f backend/replicator/agent-java/pom.xml
 ### 4.1. Быстрый запуск через скрипт
 
 ```bash
-./backend/replicator/agent-java/bin/replicator-agent.sh \
+./backend/replicator/agent/bin/replicator-agent.sh \
     --agent-id agent-dn-01 \
     --cluster-id demo-cluster \
     --orchestrator http://orchestrator-host:8005 \
@@ -66,7 +66,7 @@ mvn clean package -DskipTests -f backend/replicator/agent-java/pom.xml
 ```bash
 # С использованием системного hadoop classpath:
 export HADOOP_CLASSPATH=$(hadoop classpath)
-java -Xms1g -Xmx4g -cp "target/replicator-agent-java-1.0.0-all.jar:${HADOOP_CLASSPATH}" \
+java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH}" \
     org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-node-01 \
     --cluster-id demo-cluster \
@@ -79,7 +79,7 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-java-1.0.0-all.jar:${HADOOP_CLAS
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `AGENT_ID` | `agent-java-<uuid>` | Уникальный ID агента в системе |
+| `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в системе |
 | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера |
 | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс), `sender`, `receiver` |
 | `ORCHESTRATOR_URL` | `http://localhost:8005` | URL REST API Оркестратора |
@@ -101,7 +101,7 @@ Replicator Agent предоставляет встроенный YARN Client и 
 ### 5.1. Запуск через вспомогательный скрипт
 
 ```bash
-./backend/replicator/agent-java/bin/submit-yarn.sh \
+./backend/replicator/agent/bin/submit-yarn.sh \
     --cluster_id demo-cluster \
     --orchestrator http://orchestrator-host:8005 \
     --num_containers 2 \
@@ -113,9 +113,9 @@ Replicator Agent предоставляет встроенный YARN Client и 
 ### 5.2. Запуск через стандартную команду `hadoop jar`
 
 ```bash
-hadoop jar target/replicator-agent-java-1.0.0-all.jar \
+hadoop jar target/replicator-agent-1.0.0-all.jar \
     org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
-    --jar target/replicator-agent-java-1.0.0-all.jar \
+    --jar target/replicator-agent-1.0.0-all.jar \
     --cluster_id demo-cluster \
     --orchestrator http://orchestrator-host:8005 \
     --num_containers 2 \
@@ -137,8 +137,5 @@ hadoop jar target/replicator-agent-java-1.0.0-all.jar \
 
 ```bash
 # Запуск JUnit 5 тестов (LocalBandwidthLimiter, InProcess gRPC, ReplicatorAgent):
-make test-replicator-agent-java
-
-# Сквозной тест интероперабельности Python Client ➔ Java Agent:
-uv run pytest backend/replicator/tests/test_java_agent_interop.py
+make test-replicator-agent
 ```

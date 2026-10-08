@@ -14,7 +14,7 @@
     <description>Единый стек Hadoop gRPC Replicator на Java: Агент и Оркестратор</description>
 
     <modules>
-        <module>agent-java</module>
-        <module>orchestrator-java</module>
+        <module>agent</module>
+        <module>orchestrator</module>
     </modules>
 </project>

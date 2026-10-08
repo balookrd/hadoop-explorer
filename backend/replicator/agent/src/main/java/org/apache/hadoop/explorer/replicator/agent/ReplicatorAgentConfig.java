@@ -31,7 +31,7 @@ public class ReplicatorAgentConfig {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
 
         String envId = getEnv("AGENT_ID", getEnv("WORKER_ID", null));
-        config.agentId = (envId != null && !envId.isBlank()) ? envId : "agent-java-" + UUID.randomUUID().toString().substring(0, 8);
+        config.agentId = (envId != null && !envId.isBlank()) ? envId : "agent-" + UUID.randomUUID().toString().substring(0, 8);
 
         config.clusterId = getEnv("AGENT_CLUSTER_ID", getEnv("CLUSTER_ID", null));
         config.mode = getEnv("AGENT_MODE", "all").toLowerCase();

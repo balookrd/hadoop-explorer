@@ -174,7 +174,7 @@ public class ReplicatorApplicationMaster implements AMRMClientAsync.CallbackHand
                 ctx.setCommands(Collections.singletonList(command.toString()));
 
                 Map<String, String> env = new HashMap<>();
-                env.put("CLASSPATH", "./replicator-agent-java.jar:" + System.getenv("CLASSPATH"));
+                env.put("CLASSPATH", "./replicator-agent.jar:" + System.getenv("CLASSPATH"));
                 env.put("ORCHESTRATOR_URL", orchestratorUrl);
                 env.put("AGENT_CLUSTER_ID", clusterId);
                 ctx.setEnvironment(env);

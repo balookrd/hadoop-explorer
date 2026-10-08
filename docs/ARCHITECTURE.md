@@ -233,7 +233,7 @@
     2. **HDFS-HDFS Limits**: выделенные квоты между парами кластеров (`demo ➔ backup`: 60 МБ/с, `analytics ➔ backup`: 40 МБ/с, внутри DC1: 80 МБ/с).
     3. **Global WAN Cap**: общий пул пропускной способности всей инфраструктуры (120 МБ/с).
 - **Многоуровневый Token Bucket Throttling (Hierarchical Token Bucket)**:
-  - Потокобезопасный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator-java/src/main/java/.../TokenBucketThrottler.java`).
+  - Потокобезопасный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator/src/main/java/.../TokenBucketThrottler.java`).
   - При запросе передачи чанка проверяются все применимые бакеты, а задержка воркера вычисляется по узкому горлышку: `max(wait_global, wait_dc_dc, wait_hdfs_hdfs)`.
   - Возможность динамического изменения любых лимитов в реальном времени через REST API и веб-консоль.
 - **gRPC Транспорт (DC1 Worker → DC2 Receiver)**:
@@ -258,9 +258,9 @@
   - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
   - Полнофункциональное управление задачами (REST API и Web UI): запуск/перезапуск (`POST /api/v1/jobs/{id}/start`), остановка/отмена (`POST /api/v1/jobs/{id}/stop`), редактирование параметров на лету (`PUT /api/v1/jobs/{id}`) и удаление (`DELETE /api/v1/jobs/{id}`) с каскадной очисткой подзадач.
 - **Нативная Java 21 экосистема исполнения**:
-  - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator-java`)**: высокопроизводительный нативный оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
-  - **Нативный Java 21 Agent (`backend/replicator/agent-java`)**: высокоскоростной полнодуплексный воркер для DataNode и контейнеров Apache Hadoop YARN.
-  - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent-java` и `orchestrator-java` с общим циклом компиляции и тестирования (`make test-replicator`).
+  - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: высокопроизводительный нативный оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
+  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной полнодуплексный воркер для DataNode и контейнеров Apache Hadoop YARN.
+  - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent` и `orchestrator` с общим циклом компиляции и тестирования (`make test-replicator`).
 
 ### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)
 Клиентская часть всех приложений построена на базе Svelte 5 с использованием системы реактивности Runes (`$state`, `$derived`, `$effect`):

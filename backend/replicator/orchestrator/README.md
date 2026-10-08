@@ -6,7 +6,7 @@
 
 ## 1. Архитектура и функциональные возможности
 
-Оркестратор репликации управляет топологией дата-центров, пулом агентов передачи данных (`agent-java`), распределением сетевых квот (Hierarchical Token Bucket) и жизненным циклом задач репликации.
+Оркестратор репликации управляет топологией дата-центров, пулом агентов передачи данных (`agent`), распределением сетевых квот (Hierarchical Token Bucket) и жизненным циклом задач репликации.
 
 ### Основные компоненты
 
@@ -89,19 +89,19 @@ hadoop:
 ### Сборка и тесты модуля
 ```bash
 # Тестирование модуля оркестратора
-mvn test -f backend/replicator/orchestrator-java/pom.xml
+mvn test -f backend/replicator/orchestrator/pom.xml
 
 # Сборка исполняемого Spring Boot JAR
-mvn clean package -DskipTests -f backend/replicator/orchestrator-java/pom.xml
+mvn clean package -DskipTests -f backend/replicator/orchestrator/pom.xml
 ```
 
 ### Использование Makefile
 ```bash
 # Тесты только оркестратора
-make test-replicator-orchestrator-java
+make test-replicator-orchestrator
 
 # Тесты всего Replicator (Agent + Orchestrator)
-make test-replicator-java
+make test-replicator
 
 # Полный прогон всех Java тестов платформы
 make test-java

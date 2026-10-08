@@ -303,7 +303,7 @@ WorkingDirectory=/opt/hadoop-explorer/replicator
 Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/replicator/application.yml"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/replicator/backend/replicator/orchestrator-java/target/orchestrator-java-0.1.0-exec.jar \
+    -jar /opt/hadoop-explorer/replicator/backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar \
     --server.port=8005
 
 Restart=always
@@ -336,7 +336,7 @@ Environment="REPLICATOR_STAGING_DIR=/var/lib/hadoop-explorer/replicator/staging"
 Environment="POLL_INTERVAL_SEC=2.0"
 
 ExecStart=/usr/bin/java -Xms256m -Xmx1024m \
-    -jar /opt/hadoop-explorer/replicator/backend/replicator/agent-java/target/agent-java-0.1.0-exec.jar
+    -jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
 
 Restart=always
 RestartSec=5s
@@ -384,7 +384,7 @@ Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="RECEIVER_PORT=5005%i"
 Environment="AGENT_ADVERTISED_ADDRESS=node1.dc1.company.local:5005%i"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
-ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/backend/replicator/agent-java/target/agent-java-0.1.0-exec.jar
+ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
 Restart=always
 
 [Install]
@@ -443,31 +443,31 @@ Environment="AGENT_MAX_BANDWIDTH_MB_S=40.0"
 2. **Входящий трафик (Receiver Backpressure Throttling)**: При приеме чанков на стороне сервера Receiver агент сдерживает чтение блоков через `LocalBandwidthLimiter`. Благодаря протоколу HTTP/2 и окнам приема TCP (TCP Window Flow Control), задержка в чтении буфера автоматически передается удаленному передающему узлу через WAN, плавно снижая скорость отправки без переполнения оперативной памяти и без потерь пакетов.
 3. **Мониторинг и наблюдаемость**: Заданное значение `max_bandwidth_mb_s` автоматически передается при динамической регистрации на Оркестраторе и отображается в карточке агента в веб-консоли (бейдж с точным ограничением либо статус «без ограничений»).
 
-### 2.3 Развертывание нативного Java 17 Replicator Agent (`agent-java`)
+### 2.3 Развертывание нативного Java Replicator Agent (`agent`)
 
-Для кластеров Hadoop, где требуется максимальная производительность, нативная работа с `org.apache.hadoop.fs.FileSystem`, использование Hadoop Delegation Tokens и запуск внутри **Apache Hadoop YARN**, разработан нативный **Java 17 Replicator Agent**.
+Для кластеров Hadoop, где требуется максимальная производительность, нативная работа с `org.apache.hadoop.fs.FileSystem`, использование Hadoop Delegation Tokens и запуск внутри **Apache Hadoop YARN**, разработан нативный **Java Replicator Agent**.
 
 #### 2.3.1 Сборка JAR-пакета
 ```bash
 # Из корня репозитория
-make build-replicator-agent-java
+make build-replicator-agent
 # Формируется автономный Shaded JAR:
-# backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar
+# backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
 ```
 
 #### 2.3.2 Запуск на нодах Hadoop (DataNode / Edge Nodes) через systemd
-Создайте файл `/etc/systemd/system/replicator-agent-java.service`:
+Создайте файл `/etc/systemd/system/replicator-agent.service`:
 ```ini
 [Unit]
-Description=Hadoop gRPC Replicator Java Agent
+Description=Hadoop gRPC Replicator Agent
 After=network.target hadoop-hdfs-datanode.service
 
 [Service]
 Type=simple
 User=hdfs
 Group=hadoop
-WorkingDirectory=/opt/hadoop-explorer/replicator-java
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+WorkingDirectory=/opt/hadoop-explorer/replicator
+Environment="JAVA_HOME=/usr/lib/jvm/java-21-openjdk"
 Environment="HADOOP_CONF_DIR=/etc/hadoop/conf"
 Environment="AGENT_ID=agent-dn-01"
 Environment="AGENT_CLUSTER_ID=demo-cluster"
@@ -478,7 +478,7 @@ Environment="AGENT_MAX_BANDWIDTH_MB_S=60.0"
 Environment="KRB5_KEYTAB=/etc/security/keytabs/hdfs.keytab"
 Environment="KRB5_PRINCIPAL=hdfs/_HOST@REALM.LOCAL"
 
-ExecStart=/opt/hadoop-explorer/replicator-java/bin/replicator-agent.sh
+ExecStart=/opt/hadoop-explorer/replicator/bin/replicator-agent.sh
 
 Restart=always
 RestartSec=5s
@@ -493,7 +493,7 @@ Replicator Agent включает встроенные `ReplicatorYarnClient` и
 
 ```bash
 # Отправка приложения в YARN:
-./backend/replicator/agent-java/bin/submit-yarn.sh \
+./backend/replicator/agent/bin/submit-yarn.sh \
     --cluster_id demo-cluster \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 4 \
@@ -502,9 +502,9 @@ Replicator Agent включает встроенные `ReplicatorYarnClient` и
     --queue default
 
 # Либо стандартным вызовом hadoop jar:
-hadoop jar backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar \
+hadoop jar backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
     org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
-    --jar backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar \
+    --jar backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
     --cluster_id demo-cluster \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 4 \
@@ -828,18 +828,18 @@ spec:
 ## 6. Промышленная эксплуатация на стеке Java 21 / Spring Boot 3
 
 Сервис **Hadoop gRPC Replicator** построен на базе нативного мультимодульного проекта Java 21 (`backend/replicator/pom.xml`), объединяющего:
-- **`agent-java`** (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
-- **`orchestrator-java`** (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `common-security-starter`).
+- **`agent`** (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
+- **`orchestrator`** (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `common-security-starter`).
 
 ### 6.1 Мультимодульная архитектура Maven
 
 ```
 backend/replicator/
 ├── pom.xml                 # Родительский POM (org.apache.hadoop.explorer:replicator-parent)
-├── agent-java/             # Агент репликации (DataNode/Edge Node/YARN)
-│   └── pom.xml             # org.apache.hadoop.explorer:replicator-agent-java:1.0.0
-└── orchestrator-java/      # Высокопроизводительный оркестратор
-    ├── pom.xml             # org.apache.hadoop.explorer:replicator-orchestrator-java:1.0.0
+├── agent/                  # Агент репликации (DataNode/Edge Node/YARN)
+│   └── pom.xml             # org.apache.hadoop.explorer:replicator-agent:1.0.0
+└── orchestrator/           # Высокопроизводительный оркестратор
+    ├── pom.xml             # org.apache.hadoop.explorer:replicator-orchestrator:1.0.0
     └── src/
         ├── main/
         │   ├── java/       # Контроллеры, Сервисы, Реестры, Токен-бакет
@@ -850,21 +850,21 @@ backend/replicator/
 ### 6.2 Команды сборки и тестирования
 
 ```bash
-# Сборка всех Java модулей Replicator (Agent + Orchestrator)
-make build-replicator-java
+# Сборка всех модулей Replicator (Agent + Orchestrator)
+make build-replicator
 
-# Запуск тестов всего Replicator на Java
-make test-replicator-java
+# Запуск тестов всего Replicator
+make test-replicator
 
 # Тестирование отдельно Orchestrator
-make test-replicator-orchestrator-java
+make test-replicator-orchestrator
 
 # Сборка исполняемого Spring Boot fat JAR оркестратора
-mvn clean package -DskipTests -f backend/replicator/orchestrator-java/pom.xml
-# Результат: backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar
+mvn clean package -DskipTests -f backend/replicator/orchestrator/pom.xml
+# Результат: backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
 ```
 
-### 6.3 Запуск Java Orchestrator в production
+### 6.3 Запуск Orchestrator в production
 
 ```bash
 java -jar -Dspring.profiles.active=prod \
@@ -873,6 +873,6 @@ java -jar -Dspring.profiles.active=prod \
   -Dspring.datasource.username=replicator_user \
   -Dspring.datasource.password=secret_password \
   -Dhadoop.security.auth.mode=kerberos \
-  backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar
+  backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
 ```
 

@@ -76,8 +76,8 @@ hadoop-explorer/
 │   ├── sql/                  # Сервис SQL Explorer (Trino, Hive, AI Assistant)
 │   ├── spark/                # Сервис Spark Explorer (Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Сервис Hadoop gRPC Replicator
-│       ├── orchestrator-java/# Replicator Orchestrator API (Java 21 / Spring Boot 3)
-│       └── agent-java/       # Нативный Replicator gRPC Worker Daemon (Java 21)
+│       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3)
+│       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21)
 │
 ├── ansible/                  # ─── Автоматизация деплоя и применения (AWX) ───
 │   ├── playbooks/            # deploy_capacity_scheduler.yml (Job Template)
@@ -104,8 +104,8 @@ hadoop-explorer/
 │   ├── Dockerfile.hdfs-java
 │   ├── Dockerfile.sql-java
 │   ├── Dockerfile.spark-java
-│   ├── Dockerfile.replicator-orchestrator-java
-│   └── Dockerfile.replicator-agent-java
+│   ├── Dockerfile.replicator-orchestrator
+│   └── Dockerfile.replicator-agent
 │
 ├── helm/                     # Helm Charts для оркестрации в Kubernetes
 │   ├── hadoop-explorer/      # Umbrella Chart

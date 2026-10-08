@@ -19,15 +19,15 @@ fi
 
 echo "==> 1. Генерация тестовых файлов данных в общем томе..."
 # Генерируем 5 МБ файл для DC1 -> DC2
-docker exec replicator-agent-java-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv"
+docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv"
 echo "   Создан /tmp/data/prod_sales_dc1.csv (5 MB) в DC1"
 
 # Генерируем 3 МБ файл для DC2 -> DC1
-docker exec replicator-agent-java-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet"
+docker exec replicator-agent-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet"
 echo "   Создан /tmp/data/analytics_report_dc2.parquet (3 MB) в DC2"
 
 # Генерируем 2 МБ файл для отчетов
-docker exec replicator-agent-java-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json"
+docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json"
 echo "   Создан /tmp/data/events_stream_dc1.json (2 MB) в DC1"
 
 echo ""

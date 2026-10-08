@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /tmp/staging /tmp/data /app/data
 
 # Копирование собранного Shaded Fat JAR Java Replicator Agent
-COPY backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar /app/replicator-agent-java.jar
+COPY backend/replicator/agent/target/replicator-agent-1.0.0-all.jar /app/replicator-agent.jar
 
 EXPOSE 50051
 
-ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent-java.jar"]
+ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent.jar"]

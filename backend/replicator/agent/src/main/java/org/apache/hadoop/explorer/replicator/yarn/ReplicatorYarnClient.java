@@ -54,7 +54,7 @@ public class ReplicatorYarnClient {
             CommandLine cmd = parser.parse(options, args);
             if (cmd.hasOption("help") || !cmd.hasOption("jar")) {
                 HelpFormatter formatter = new HelpFormatter();
-                formatter.printHelp("yarn jar replicator-agent-java.jar " + ReplicatorYarnClient.class.getName() + " [options]", options);
+                formatter.printHelp("yarn jar replicator-agent.jar " + ReplicatorYarnClient.class.getName() + " [options]", options);
                 System.exit(0);
             }
 
@@ -96,7 +96,7 @@ public class ReplicatorYarnClient {
         fs.mkdirs(stagingDir);
 
         Path srcJar = new Path(appJarPath);
-        Path destJar = new Path(stagingDir, "replicator-agent-java.jar");
+        Path destJar = new Path(stagingDir, "replicator-agent.jar");
         logger.info("Копирование JAR в HDFS staging: {} -> {}", srcJar, destJar);
         fs.copyFromLocalFile(false, true, srcJar, destJar);
         FileStatus jarStatus = fs.getFileStatus(destJar);
@@ -109,7 +109,7 @@ public class ReplicatorYarnClient {
         appJarResource.setSize(jarStatus.getLen());
 
         Map<String, LocalResource> localResources = new HashMap<>();
-        localResources.put("replicator-agent-java.jar", appJarResource);
+        localResources.put("replicator-agent.jar", appJarResource);
 
         // 2. Настройка окружения
         Map<String, String> env = new HashMap<>();

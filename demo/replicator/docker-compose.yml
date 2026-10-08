@@ -5,7 +5,7 @@ services:
   orchestrator:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator-orchestrator-java
+      dockerfile: docker/Dockerfile.replicator-orchestrator
     container_name: replicator-orchestrator
     hostname: orchestrator
     restart: unless-stopped
@@ -21,16 +21,16 @@ services:
     networks:
       - replicator-net
 
-  # 2. Java 21 Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
-  agent-java-dc1:
+  # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
+  agent-dc1:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator-agent-java
-    container_name: replicator-agent-java-dc1
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
     environment:
-      AGENT_ID: "agent-java-dc1"
+      AGENT_ID: "agent-dc1"
       AGENT_CLUSTER_ID: "dc1"
       AGENT_MODE: "all"
       AGENT_MAX_BANDWIDTH_MB_S: "80.0"
@@ -44,7 +44,7 @@ services:
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
     volumes:
-      - agent-java-staging-dc1:/tmp/staging
+      - agent-staging-dc1:/tmp/staging
       - shared-demo-data:/tmp/data
     ports:
       - "50051:50051"
@@ -53,16 +53,16 @@ services:
     networks:
       - replicator-net
 
-  # 3. Java 21 Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
-  agent-java-dc2:
+  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
+  agent-dc2:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator-agent-java
-    container_name: replicator-agent-java-dc2
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
     environment:
-      AGENT_ID: "agent-java-dc2"
+      AGENT_ID: "agent-dc2"
       AGENT_CLUSTER_ID: "dc2"
       AGENT_MODE: "all"
       AGENT_MAX_BANDWIDTH_MB_S: "60.0"
@@ -76,7 +76,7 @@ services:
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
     volumes:
-      - agent-java-staging-dc2:/tmp/staging
+      - agent-staging-dc2:/tmp/staging
       - shared-demo-data:/tmp/data
     ports:
       - "50052:50051"
@@ -87,8 +87,8 @@ services:
 
 volumes:
   replicator-db-data:
-  agent-java-staging-dc1:
-  agent-java-staging-dc2:
+  agent-staging-dc1:
+  agent-staging-dc2:
   shared-demo-data:
 
 networks:

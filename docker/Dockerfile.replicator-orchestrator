@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Копирование собранного Spring Boot Fat JAR
-COPY backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar /app/replicator-orchestrator.jar
+COPY backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar /app/replicator-orchestrator.jar
 
 # Копирование собранного Frontend SPA (Svelte 5)
-COPY backend/replicator/orchestrator-java/src/main/resources/static /app/frontend/dist
+COPY backend/replicator/orchestrator/src/main/resources/static /app/frontend/dist
 
 # Создание непривилегированного пользователя appuser (UID 10001)
 RUN groupadd -g 10001 appuser && \

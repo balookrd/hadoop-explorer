@@ -13,11 +13,11 @@
     </parent>
 
     <groupId>org.apache.hadoop.explorer</groupId>
-    <artifactId>replicator-orchestrator-java</artifactId>
+    <artifactId>replicator-orchestrator</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Hadoop gRPC Replicator :: Orchestrator (Java 21 / Spring Boot 3)</name>
+    <name>Hadoop gRPC Replicator :: Orchestrator</name>
     <description>Оркестратор Hadoop gRPC Replicator: управление задачами репликации, топологией ЦОД и Token Bucket троттлером</description>
 
     <properties>
@@ -35,10 +35,10 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- Replicator Agent Java (Protobuf models, gRPC, FS manager, Local Bandwidth Limiter) -->
+        <!-- Replicator Agent (Protobuf models, gRPC, FS manager, Local Bandwidth Limiter) -->
         <dependency>
             <groupId>org.apache.hadoop.explorer</groupId>
-            <artifactId>replicator-agent-java</artifactId>
+            <artifactId>replicator-agent</artifactId>
             <version>1.0.0</version>
         </dependency>
 

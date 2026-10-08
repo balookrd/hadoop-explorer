@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.apache.hadoop.explorer</groupId>
-    <artifactId>replicator-agent-java</artifactId>
+    <artifactId>replicator-agent</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Hadoop gRPC Replicator Agent (Java)</name>
+    <name>Hadoop gRPC Replicator Agent</name>
     <description>Высокопроизводительный Replicator Agent на Java 21 для запуска на нодах Hadoop (Standalone) и в YARN (ApplicationMaster/Containers)</description>
 
     <properties>

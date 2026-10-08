@@ -8,9 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Поиск jar файла
-JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "replicator-agent-java-*-all.jar" 2>/dev/null | head -n 1 || true)}"
+JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "replicator-agent-*-all.jar" 2>/dev/null | head -n 1 || true)}"
 if [[ -z "${JAR_FILE}" ]]; then
-    JAR_FILE="${BASE_DIR}/target/replicator-agent-java-1.0.0-all.jar"
+    JAR_FILE="${BASE_DIR}/target/replicator-agent-1.0.0-all.jar"
 fi
 
 if [[ ! -f "${JAR_FILE}" ]]; then

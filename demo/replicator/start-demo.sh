@@ -9,11 +9,11 @@ echo "========================================================================"
 echo "🚀 Запуск демо-стенда: Hadoop gRPC Replicator (Java 21 LTS / Spring Boot 3)"
 echo "========================================================================"
 
-AGENT_JAR="${REPO_ROOT}/backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar"
-ORCH_JAR="${REPO_ROOT}/backend/replicator/orchestrator-java/target/replicator-orchestrator-java-1.0.0.jar"
+AGENT_JAR="${REPO_ROOT}/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar"
+ORCH_JAR="${REPO_ROOT}/backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar"
 if [[ ! -f "$AGENT_JAR" || ! -f "$ORCH_JAR" ]]; then
-    echo "==> Сборка Java Replicator компонентов (Agent + Orchestrator)..."
-    (cd "$REPO_ROOT" && make build-replicator-java)
+    echo "==> Сборка Replicator компонентов (Agent + Orchestrator)..."
+    (cd "$REPO_ROOT" && make build-replicator)
 fi
 
 echo "  - Java Orchestrator (Web UI): http://localhost:8005"

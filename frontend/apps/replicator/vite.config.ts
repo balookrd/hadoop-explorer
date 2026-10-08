@@ -22,7 +22,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../../../backend/replicator/orchestrator-java/src/main/resources/static',
+    outDir: '../../../backend/replicator/orchestrator/src/main/resources/static',
     emptyOutDir: false,
   },
 });

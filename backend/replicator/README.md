@@ -36,7 +36,7 @@
    - Селектор HDFS кластеров в хедере и форме создания задач с отображением ЦОД.
 
 7. **Универсальный полнодуплексный агент (Replicator Agent Java 21)**:
-   - Нативный сервис на Java 21 LTS (`agent-java`) объединяет функции Sender и Receiver.
+   - Нативный сервис на Java 21 LTS (`agent`) объединяет функции Sender и Receiver.
    - Поддерживает двунаправленную репликацию (`DC1 ⇄ DC2`), катастрофоустойчивый failback и multi-DC топологии.
    - Режимы работы (`AGENT_MODE`):
      - `all` (по умолчанию) — полный дуплекс: параллельный прием входящих файлов по gRPC (:50051) и отправка исходящих задач из очереди оркестратора;
@@ -53,19 +53,19 @@
    - Асинхронный Token Bucket троттлинг на отправку (Sender) и TCP Flow Control Backpressure на прием (Receiver).
    - Отображение фактического лимита узлов в UI консоли Оркестратора.
 
-10. **Нативный Java 21 Replicator Agent (`agent-java`)**:
+10. **Нативный Java 21 Replicator Agent (`agent`)**:
     - Запуск непосредственно на нодах Hadoop (DataNode, Edge Node) и в контейнерах Apache Hadoop YARN.
     - Прямая работа с HDFS через нативный `org.apache.hadoop.fs.FileSystem` и Kerberos UGI / YARN Delegation Tokens.
-    - Встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster` для развертывания пула агентов в кластере YARN (`yarn jar replicator-agent-java-1.0.0-all.jar ...`).
-    - Подробная документация: [`agent-java/README.md`](agent-java/README.md).
+    - Встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster` для развертывания пула агентов в кластере YARN (`yarn jar replicator-agent-1.0.0-all.jar ...`).
+    - Подробная документация: [`agent/README.md`](agent/README.md).
 
-11. **Высокопроизводительный Java 21 / Spring Boot 3 Оркестратор (`orchestrator-java`)**:
+11. **Высокопроизводительный Java 21 / Spring Boot 3 Оркестратор (`orchestrator`)**:
     - Полная реализация оркестратора репликации на Java 21 LTS и Spring Boot 3.3.4.
-    - Единое мультимодульное Maven-дерево (`pom.xml`) объединяет агент (`agent-java`) и оркестратор (`orchestrator-java`).
+    - Единое мультимодульное Maven-дерево (`pom.xml`) объединяет агент (`agent`) и оркестратор (`orchestrator`).
     - Бесшовная интеграция с общим ядром безопасности `common-security-starter` (SPNEGO SSO, LDAP, JWT, CSRF, Rate Limiting, Audit).
     - Иерархический Token Bucket шейпинг, динамический реестр агентов с SSRF-защитой и планировщик периодических репликаций.
     - Встроенная раздача собранного Svelte 5 SPA фронтенда.
-    - Подробная документация: [`orchestrator-java/README.md`](orchestrator-java/README.md).
+    - Подробная документация: [`orchestrator/README.md`](orchestrator/README.md).
 
 ---
 
@@ -82,7 +82,7 @@ open http://localhost:8005
 make build-replicator
 make test-replicator
 
-# Тестирование отдельных модулей Java
-make test-replicator-agent-java
-make test-replicator-orchestrator-java
+# Тестирование отдельных модулей
+make test-replicator-agent
+make test-replicator-orchestrator
 ```
