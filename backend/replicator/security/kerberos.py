@@ -29,8 +29,8 @@ class KerberosContextManager:
     Контекстный менеджер для безопасной изоляции Kerberos-контекста (KRB5CCNAME).
 
     Поддерживает:
-    - Запуск от системной техучетки (run_as_service_account=True)
-    - Запуск под учетной записью конкретного пользователя
+    - Аутентификацию системной техучетки по keytab (Proxy User)
+    - Имперсонацию конкретного пользователя (doAs) для Apache Ranger аудита и применения политик
     - Изолированный файл кэша тикетов для предотвращения интерференции между задачами
     - Автоматическую очистку через kdestroy при выходе из контекста
     """
@@ -40,18 +40,28 @@ class KerberosContextManager:
         keytab: Optional[str] = None,
         principal: Optional[str] = None,
         run_as_service_account: bool = False,
+        impersonate_user: Optional[str] = None,
         cache_dir: str = "/tmp",
         mock: Optional[bool] = None,
     ):
         self.run_as_service_account = run_as_service_account
+        self.service_principal = os.environ.get("REPLICATOR_SERVICE_PRINCIPAL", DEFAULT_SERVICE_PRINCIPAL)
+        self.service_keytab = keytab or DEFAULT_SERVICE_KEYTAB
+        self.keytab = self.service_keytab
 
-        # Если запрошен запуск от техучетки или параметры не заданы - берем системную техучетку
-        if self.run_as_service_account or not principal:
-            self.keytab = keytab or DEFAULT_SERVICE_KEYTAB
-            self.principal = principal or DEFAULT_SERVICE_PRINCIPAL
+        # Вычисление пользователя для Hadoop doAs имперсонации
+        if impersonate_user:
+            self.impersonate_user: Optional[str] = impersonate_user
+        elif principal and not run_as_service_account and principal != self.service_principal:
+            # Извлекаем логин пользователя (например, 'alice@REALM.LOCAL' -> 'alice')
+            self.impersonate_user = principal.split("@")[0].split("/")[0]
         else:
-            self.keytab = keytab or DEFAULT_SERVICE_KEYTAB
-            self.principal = principal
+            self.impersonate_user = None
+
+        # Идентификатор принципала для логирования и отслеживания контекста
+        self.principal = principal or self.service_principal
+        # Принципал, от имени которого выпускается Kerberos-тикет (техучетка Proxy User)
+        self.auth_principal = self.service_principal
 
         self.cache_dir = cache_dir
         self.cache_file: Optional[str] = None
@@ -73,20 +83,23 @@ class KerberosContextManager:
         self.cache_file = os.path.join(self.cache_dir, f"krb5cc_repl_{unique_id}")
 
         logger.info(
-            f"Инициализация Kerberos-контекста: principal='{self.principal}', "
-            f"keytab='{self.keytab}', кэш='{self.cache_file}', mock={self.mock}"
+            f"Инициализация Kerberos-контекста: техучетка='{self.auth_principal}', "
+            f"doAs='{self.impersonate_user or 'нет'}', keytab='{self.keytab}', "
+            f"кэш='{self.cache_file}', mock={self.mock}"
         )
 
         if self.mock:
             # Создаем маркерный файл кэша в mock-режиме
             os.makedirs(self.cache_dir, exist_ok=True)
             with open(self.cache_file, "w") as f:
-                f.write(f"MOCK_TICKET_CACHE:{self.principal}")
+                f.write(f"MOCK_TICKET_CACHE:{self.auth_principal}:doAs={self.impersonate_user or 'none'}")
         else:
             if not os.path.isfile(self.keytab):
                 raise KerberosAuthenticationError(f"Keytab-файл не найден по пути: '{self.keytab}'")
 
-            cmd = ["kinit", "-kt", self.keytab, self.principal, "-c", self.cache_file]
+            # В Kerberos аутентификацию по keytab проходит системная техучетка,
+            # настроенная как доверенный hadoop.proxyuser в core-site.xml
+            cmd = ["kinit", "-kt", self.keytab, self.auth_principal, "-c", self.cache_file]
             try:
                 res = subprocess.run(
                     cmd,
@@ -135,7 +148,10 @@ class KerberosContextManager:
                 except OSError as e:
                     logger.warning(f"Не удалось удалить файл кэша тикетов '{self.cache_file}': {e}")
         finally:
-            logger.info(f"Kerberos-контекст для principal='{self.principal}' успешно очищен")
+            logger.info(
+                f"Kerberos-контекст для principal='{self.principal}' "
+                f"(doAs='{self.impersonate_user or 'нет'}') успешно очищен"
+            )
 
     async def __aenter__(self) -> "KerberosContextManager":
         loop = asyncio.get_running_loop()
@@ -152,27 +168,34 @@ def open_hdfs_stream_with_kerberos(
     hdfs_path: str,
     keytab: Optional[str] = None,
     principal: Optional[str] = None,
-    run_as_service_account: bool = True,
+    run_as_service_account: bool = False,
+    impersonate_user: Optional[str] = None,
     mock: Optional[bool] = None,
 ):
     """
-    Пример безопасного открытия файла в HDFS через PyArrow с изоляцией Kerberos.
+    Безопасное открытие файла в HDFS через PyArrow с изоляцией Kerberos и doAs-имперсонацией.
 
-    PyArrow нативно читает учетные данные Kerberos из переменной окружения KRB5CCNAME,
-    поэтому вызов HadoopFileSystem внутри KerberosContextManager гарантирует строгую изоляцию
-    сессионных прав конкретной задачи/техучетки.
+    - Системная техучетка получает TGT через KerberosContextManager.
+    - В HadoopFileSystem передается doAs-пользователь (user) для проверки политик в Apache Ranger
+      и фиксации в audit log.
     """
     with KerberosContextManager(
         keytab=keytab,
         principal=principal,
         run_as_service_account=run_as_service_account,
+        impersonate_user=impersonate_user,
         mock=mock,
-    ):
+    ) as krb_ctx:
         try:
             import pyarrow.fs as pafs
 
-            # PyArrow Hadoop C++ клиент подхватывает активный KRB5CCNAME
-            hdfs = pafs.HadoopFileSystem(hdfs_host, port=hdfs_port)
+            # Передаем имперсонированного пользователя и явный путь к билету кэша
+            hdfs = pafs.HadoopFileSystem(
+                hdfs_host,
+                port=hdfs_port,
+                user=krb_ctx.impersonate_user,
+                kerb_ticket=krb_ctx.cache_file,
+            )
             return hdfs.open_input_stream(hdfs_path)
         except Exception as e:
             logger.warning(f"PyArrow HDFS недоступен в текущем окружении: {e}")

@@ -112,6 +112,19 @@ def test_create_job_custom_user(client):
     assert data["execution_principal"] == "alice@COMPANY.CORP"
 
 
+def test_create_job_default_impersonation(client):
+    """Проверка создания задачи без указания флагов техучетки (по умолчанию doAs имперсонация)."""
+    payload = {
+        "source_path": "/user/reports",
+        "target_path": "/backup/reports",
+    }
+    response = client.post("/jobs", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["run_as_service_account"] is False
+    assert "@REALM.LOCAL" in data["execution_principal"]
+
+
 def test_get_job_not_found(client):
     """Проверка обработки 404 для несуществующей задачи."""
     response = client.get("/jobs/non-existent-id")

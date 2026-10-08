@@ -151,6 +151,32 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит пропускной способности агента (МБ/с, Token Bucket). Предотвращает перегрузку сетевой карты и дисков при установке непосредственно на ноду Hadoop (DataNode / Edge Gateway). `0` или пусто — без ограничений | `0.0` (без ограничений) | Опционально |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для целевого кластера (для NAT/DMZ) | Динамический реестр Оркестратора | Опционально |
 | `RECEIVER_ADDRESS` / `FALLBACK_TARGET_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии агентов) | `localhost:50051` | Опционально |
+| `REPLICATOR_KEYTAB_PATH` | Путь к Keytab-файлу системной техучетки для Kerberos аутентификации | `/etc/security/keytabs/replicator.keytab` | Рекомендуется |
+
+### 1.5 Настройка Hadoop Impersonation (Proxy User) для Apache Ranger
+
+Для обеспечения прозрачного аудита безопасности и применения политик доступа в **Apache Ranger** платформа использует протокол **Hadoop Proxy User (doAs имперсонация)**:
+1. Replicator Agent аутентифицируется в Kerberos KDC по системному keytab техучетки (`hdfs-replicator@REALM.LOCAL`).
+2. При вызове HDFS (`pyarrow.fs.HadoopFileSystem`) агент передает имя конечного пользователя (`user=alice`, извлеченное из `execution_principal` или сессии).
+3. NameNode и Apache Ranger проверяют политики доступа непосредственно для `alice`, а в Ranger Audit Log регистрируется запись вида:
+   ```
+   UGI: alice (auth:PROXY via hdfs-replicator@REALM.LOCAL)
+   Resource: /data/production/events/...
+   Action: WRITE / READ
+   Access Result: ALLOWED / DENIED
+   ```
+
+Для работы данного механизма в файле конфигурации `core-site.xml` на NameNode должна быть разрешена имперсонация для сервисной техучетки:
+```xml
+<property>
+    <name>hadoop.proxyuser.hdfs-replicator.hosts</name>
+    <value>*</value>
+</property>
+<property>
+    <name>hadoop.proxyuser.hdfs-replicator.groups</name>
+    <value>*</value>
+</property>
+```
 
 ---
 
@@ -436,6 +462,82 @@ Environment="AGENT_MAX_BANDWIDTH_MB_S=40.0"
 1. **Исходящий трафик (Sender Throttling)**: Перед передачей каждого потокового чанка данных воркер запрашивает токены у встроенного `LocalBandwidthLimiter`. Если лимит исчерпан, передача приостанавливается на рассчитанный интервал времени. Затем воркер дополнительно согласовывает квоту с Оркестратором (глобальные ограничения DC-DC и HDFS-HDFS).
 2. **Входящий трафик (Receiver Backpressure Throttling)**: При приеме чанков на стороне сервера Receiver агент сдерживает чтение блоков через `LocalBandwidthLimiter`. Благодаря протоколу HTTP/2 и окнам приема TCP (TCP Window Flow Control), задержка в чтении буфера автоматически передается удаленному передающему узлу через WAN, плавно снижая скорость отправки без переполнения оперативной памяти и без потерь пакетов.
 3. **Мониторинг и наблюдаемость**: Заданное значение `max_bandwidth_mb_s` автоматически передается при динамической регистрации на Оркестраторе и отображается в карточке агента в веб-консоли (бейдж с точным ограничением либо статус «без ограничений»).
+
+### 2.3 Развертывание нативного Java 17 Replicator Agent (`agent-java`)
+
+Для кластеров Hadoop, где требуется максимальная производительность, нативная работа с `org.apache.hadoop.fs.FileSystem`, использование Hadoop Delegation Tokens и запуск внутри **Apache Hadoop YARN**, разработан нативный **Java 17 Replicator Agent**.
+
+#### 2.3.1 Сборка JAR-пакета
+```bash
+# Из корня репозитория
+make build-replicator-agent-java
+# Формируется автономный Shaded JAR:
+# backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar
+```
+
+#### 2.3.2 Запуск на нодах Hadoop (DataNode / Edge Nodes) через systemd
+Создайте файл `/etc/systemd/system/replicator-agent-java.service`:
+```ini
+[Unit]
+Description=Hadoop gRPC Replicator Java Agent
+After=network.target hadoop-hdfs-datanode.service
+
+[Service]
+Type=simple
+User=hdfs
+Group=hadoop
+WorkingDirectory=/opt/hadoop-explorer/replicator-java
+Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="HADOOP_CONF_DIR=/etc/hadoop/conf"
+Environment="AGENT_ID=agent-dn-01"
+Environment="AGENT_CLUSTER_ID=demo-cluster"
+Environment="AGENT_MODE=all"
+Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
+Environment="RECEIVER_PORT=50051"
+Environment="AGENT_MAX_BANDWIDTH_MB_S=60.0"
+Environment="KRB5_KEYTAB=/etc/security/keytabs/hdfs.keytab"
+Environment="KRB5_PRINCIPAL=hdfs/_HOST@REALM.LOCAL"
+
+ExecStart=/opt/hadoop-explorer/replicator-java/bin/replicator-agent.sh
+
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 2.3.3 Запуск агентов в кластере Apache Hadoop YARN
+Replicator Agent включает встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster`. При подаче заявки в YARN ApplicationMaster запрашивает у ResourceManager нужное количество контейнеров и запускает репликационные воркеры на узлах NodeManager:
+
+```bash
+# Отправка приложения в YARN:
+./backend/replicator/agent-java/bin/submit-yarn.sh \
+    --cluster_id demo-cluster \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --num_containers 4 \
+    --memory 2048 \
+    --vcores 1 \
+    --queue default
+
+# Либо стандартным вызовом hadoop jar:
+hadoop jar backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar \
+    org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
+    --jar backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar \
+    --cluster_id demo-cluster \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --num_containers 4 \
+    --memory 2048 \
+    --vcores 1 \
+    --queue default
+```
+
+**Особенности работы в YARN**:
+- Автоматическое распределение контейнеров по разным NodeManager в кластере.
+- Автоматическое наследование Hadoop Delegation Tokens для безопасной авторизации в Kerberos HDFS.
+- Автоматическая динамическая саморегистрация каждого YARN-контейнера в Оркестраторе (`agent-id: yarn-<container_id>`).
+- При падении контейнера ApplicationMaster автоматически запрашивает новый у ResourceManager.
 
 ---
 

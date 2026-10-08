@@ -241,9 +241,10 @@
 - **Инкрементальная синхронизация (HDFS Snapshot Diff)**:
   - Встроенный парсер вывода команды `hdfs dfs -snapshotDiff <path> <snap1> <snap2>` (`orchestrator/snapshot.py`).
   - Автоматическая генерация гранулярных подзадач (`ADD`, `MODIFY`, `DELETE`, `RENAME`) для изменившихся файлов.
-- **Безопасность и Kerberos-изоляция**:
-  - Менеджер контекста `KerberosContextManager`: динамическая генерация уникального пути кэша тикетов `/tmp/krb5cc_repl_{uuid}`, вызов `kinit` и изоляция переменной окружения `KRB5CCNAME`.
-  - **Поддержка техучетки**: опциональный или дефолтный запуск долгих фоновых репликаций от системной техучетки (`hdfs-replicator@REALM.LOCAL`), независимый от срока жизни тикета залогиненного пользователя.
+- **Безопасность, Kerberos-изоляция и имперсонация (Apache Ranger)**:
+  - Менеджер контекста `KerberosContextManager`: динамическая генерация уникального пути кэша тикетов `/tmp/krb5cc_repl_{uuid}`, вызов `kinit -kt` системной техучетки и изоляция переменной окружения `KRB5CCNAME`.
+  - **Hadoop Proxy User & doAs имперсонация**: агент подключается от доверенной техучетки (`hdfs-replicator@REALM.LOCAL`), передавая имя инициатора задачи в `pyarrow.fs.HadoopFileSystem(..., user=impersonate_user, kerb_ticket=cache_file)`. Это гарантирует строгую проверку политик доступа в Apache Ranger и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
+  - **Автоматическая очистка**: вызов `kdestroy` и удаление файла тикетов с диска при завершении задачи.
 - **Мониторинг, Web UI и Управление задачами**:
   - Экспорт метрик Prometheus (`replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`) на `/metrics`.
   - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer (`index.html`) с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.

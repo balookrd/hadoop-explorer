@@ -158,14 +158,14 @@ class CreateJobRequest(BaseModel):
     target_cluster_id: str = Field(default="backup-cluster", description="Идентификатор целевого кластера")
     total_bytes: int = Field(default=0, ge=0, description="Ожидаемый размер данных (если известен)")
 
-    # Запуск от системной техучетки
+    # Режим исполнения: по умолчанию False (doAs имперсонация конечного пользователя для аудита Apache Ranger)
     run_as_service_account: bool = Field(
-        default=True,
-        description="Запускать задачу от системной техучетки (рекомендуется для долгих фоновых процессов)",
+        default=False,
+        description="Запускать напрямую от системной техучетки (без doAs имперсонации пользователя)",
     )
     execution_principal: Optional[str] = Field(
         default=None,
-        description="Принципал Kerberos для выполнения (если None и run_as_service_account=True, берется системная техучетка)",
+        description="Принципал Kerberos / пользователь для doAs имперсонации (по умолчанию текущий пользователь)",
     )
 
     # Запуск по расписанию (Шедулер)

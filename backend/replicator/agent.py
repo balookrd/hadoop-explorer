@@ -104,11 +104,13 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
         hdfs_namenode: Optional[str] = None,
         hdfs_port: int = 8020,
         bandwidth_limiter: Optional[LocalBandwidthLimiter] = None,
+        keytab_path: Optional[str] = None,
     ):
         self.staging_dir = staging_dir or os.environ.get("REPLICATOR_STAGING_DIR", "/tmp/staging")
         self.hdfs_namenode = hdfs_namenode or os.environ.get("REPLICATOR_HDFS_NAMENODE")
         self.hdfs_port = hdfs_port
         self.bandwidth_limiter = bandwidth_limiter
+        self.keytab_path = keytab_path or os.environ.get("REPLICATOR_KEYTAB_PATH")
         os.makedirs(self.staging_dir, exist_ok=True)
         lim_str = (
             f", локальный лимит: {bandwidth_limiter.limit_mb_s} МБ/с"
@@ -127,7 +129,7 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
         Атомарное перемещение (rename) принятого файла из staging в финальный target_path.
         Поддерживает:
         - Локальную файловую систему (shutil.move / os.replace)
-        - HDFS через PyArrow (fs.move) в изолированном Kerberos-контексте
+        - HDFS через PyArrow с Kerberos Proxy User и doAs имперсонацией для Apache Ranger аудита
         """
         logger.info(f"Атомарный commit файла job_id={metadata.job_id}: '{staging_path}' -> '{target_path}'")
 
@@ -137,14 +139,25 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
             clean_target = "/" + clean_target.lstrip("/")
 
             with KerberosContextManager(
+                keytab=self.keytab_path,
                 principal=metadata.execution_principal,
                 run_as_service_account=metadata.run_as_service_account,
-            ):
+            ) as krb_ctx:
                 try:
                     import pyarrow.fs as pafs
 
                     host = self.hdfs_namenode or "localhost"
-                    hdfs_fs = pafs.HadoopFileSystem(host, port=self.hdfs_port)
+                    impersonate_user = krb_ctx.impersonate_user
+                    logger.info(
+                        f"Подключение к HDFS NameNode ({host}:{self.hdfs_port}) с билетом техучетки "
+                        f"'{krb_ctx.service_principal}' и имперсонацией doAs='{impersonate_user or 'нет'}'"
+                    )
+                    hdfs_fs = pafs.HadoopFileSystem(
+                        host,
+                        port=self.hdfs_port,
+                        user=impersonate_user,
+                        kerb_ticket=krb_ctx.cache_file,
+                    )
 
                     # Создаем родительские директории в HDFS
                     target_dir = os.path.dirname(clean_target)
@@ -160,7 +173,10 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
                     if os.path.exists(staging_path):
                         os.remove(staging_path)
 
-                    logger.info(f"Файл успешно закоммичен в HDFS: {clean_target}")
+                    logger.info(
+                        f"Файл успешно закоммичен в HDFS: {clean_target} "
+                        f"(doAs: {impersonate_user or 'service_account'})"
+                    )
                     return clean_target
                 except Exception as e:
                     logger.warning(f"Не удалось закоммитить в HDFS через PyArrow ({e}), fallback на локальный rename")
@@ -300,6 +316,7 @@ async def create_receiver_server(
     hdfs_namenode: Optional[str] = None,
     hdfs_port: int = 8020,
     bandwidth_limiter: Optional[LocalBandwidthLimiter] = None,
+    keytab_path: Optional[str] = None,
 ) -> grpc.aio.Server:
     """Создает асинхронный gRPC сервер Receiver для приема файлов."""
     server = grpc.aio.server(
@@ -313,6 +330,7 @@ async def create_receiver_server(
         hdfs_namenode=hdfs_namenode,
         hdfs_port=hdfs_port,
         bandwidth_limiter=bandwidth_limiter,
+        keytab_path=keytab_path,
     )
     replicator_pb2_grpc.add_DataTransferServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")
@@ -616,6 +634,7 @@ class ReplicatorAgent:
         enable_dynamic_registration: Optional[bool] = None,
         agent_secret: Optional[str] = None,
         max_bandwidth_mb_s: Optional[float] = None,
+        keytab_path: Optional[str] = None,
     ):
         self.agent_id = agent_id or os.environ.get("AGENT_ID") or os.environ.get("WORKER_ID", "agent-01")
         self.cluster_id = cluster_id or os.environ.get("AGENT_CLUSTER_ID") or os.environ.get("CLUSTER_ID")
@@ -626,6 +645,7 @@ class ReplicatorAgent:
         self.staging_dir = staging_dir or os.environ.get("REPLICATOR_STAGING_DIR", "/tmp/staging")
         self.hdfs_namenode = hdfs_namenode or os.environ.get("REPLICATOR_HDFS_NAMENODE")
         self.hdfs_port = hdfs_port
+        self.keytab_path = keytab_path or os.environ.get("REPLICATOR_KEYTAB_PATH")
         self.poll_interval_sec = poll_interval_sec
         self.fallback_target_address = (
             fallback_target_address
@@ -742,6 +762,7 @@ class ReplicatorAgent:
             hdfs_namenode=self.hdfs_namenode,
             hdfs_port=self.hdfs_port,
             bandwidth_limiter=self.bandwidth_limiter,
+            keytab_path=self.keytab_path,
         )
         await self.server.start()
         logger.info(f"gRPC Receiver компонент агента {self.agent_id} готов принимать файлы")
@@ -853,6 +874,7 @@ class ReplicatorAgent:
             worker_id=self.agent_id,
             agent_secret=self.agent_secret,
             bandwidth_limiter=self.bandwidth_limiter,
+            keytab_path=self.keytab_path,
         )
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:

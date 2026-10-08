@@ -168,8 +168,6 @@
   let newJobTargetCluster = $state('backup-cluster');
   let newJobSourcePath = $state('/data/production/events/2026-10');
   let newJobTargetPath = $state('/backup/mirror/events/2026-10');
-  let newJobRunAsService = $state(true);
-  let newJobPrincipal = $state('');
   let newJobIsScheduled = $state(false);
   let newJobCronPreset = $state('@every_5m');
   let newJobHistoryRetention = $state<number>(20);
@@ -183,8 +181,6 @@
   let editJobTargetCluster = $state('backup-cluster');
   let editJobSourcePath = $state('');
   let editJobTargetPath = $state('');
-  let editJobRunAsService = $state(true);
-  let editJobPrincipal = $state('');
   let editJobIsScheduled = $state(false);
   let editJobCronPreset = $state('@every_5m');
   let editJobHistoryRetention = $state<number>(20);
@@ -420,8 +416,8 @@
         target_cluster_id: newJobTargetCluster,
         source_path: newJobSourcePath.trim(),
         target_path: newJobTargetPath.trim(),
-        run_as_service_account: newJobRunAsService,
-        execution_principal: newJobPrincipal.trim() || undefined,
+        run_as_service_account: false,
+        execution_principal: user?.username ? `${user.username}@REALM.LOCAL` : undefined,
         is_scheduled: newJobIsScheduled,
         history_retention_runs: Number(newJobHistoryRetention) || 20,
       };
@@ -486,8 +482,6 @@
     editJobTargetCluster = job.target_cluster_id;
     editJobSourcePath = job.source_path;
     editJobTargetPath = job.target_path;
-    editJobRunAsService = job.run_as_service_account ?? true;
-    editJobPrincipal = job.execution_principal || '';
     editJobIsScheduled = job.is_scheduled ?? false;
     editJobCronPreset = job.cron_expression || '@every_5m';
     editJobHistoryRetention = job.history_retention_runs ?? 20;
@@ -507,8 +501,6 @@
         target_cluster_id: editJobTargetCluster,
         source_path: editJobSourcePath.trim(),
         target_path: editJobTargetPath.trim(),
-        run_as_service_account: editJobRunAsService,
-        execution_principal: editJobPrincipal.trim() || undefined,
         is_scheduled: editJobIsScheduled,
         history_retention_runs: Number(editJobHistoryRetention) || 20,
       };
@@ -1173,8 +1165,15 @@
                       <!-- Владелец -->
                       <td class="py-3.5 px-4 truncate">
                         <div class="font-medium text-slate-800 dark:text-slate-200 truncate">{job.created_by || 'system'}</div>
-                        <div class="text-[10px] font-mono text-slate-400 truncate" title={job.execution_principal || ''}>
-                          {job.run_as_service_account ? '🤖 ' + (job.execution_principal || 'tech-service') : '👤 пользователь'}
+                        <div class="text-[10px] font-mono truncate" title={job.execution_principal || ''}>
+                          {#if job.run_as_service_account}
+                            <span class="text-slate-400">🤖 {job.execution_principal || 'tech-service'}</span>
+                          {:else}
+                            <span class="text-sky-600 dark:text-sky-400 inline-flex items-center gap-1">
+                              <span>👤 {job.execution_principal || job.created_by}</span>
+                              <span class="text-[9px] px-1 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 font-semibold text-sky-700 dark:text-sky-300">doAs</span>
+                            </span>
+                          {/if}
                         </div>
                       </td>
 
@@ -1738,27 +1737,18 @@
             />
           </div>
 
-          <!-- Настройки учетной записи исполнения -->
-          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2">
-            <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                bind:checked={newJobRunAsService}
-                class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-              />
-              <span>Запускать от системной техучетки (рекомендуется)</span>
-            </label>
-            <div class="text-[11px] text-slate-500">
-              Позволяет задаче продолжать работу независимо от истечения тикета пользователя.
+          <!-- Авторизация и аудит Ranger (Hadoop Proxy User / Impersonation) -->
+          <div class="p-3 bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/50 rounded-xl flex items-start gap-2.5">
+            <Shield class="w-4 h-4 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
+            <div class="text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
+              <div class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                Имперсонация и аудит Apache Ranger
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">doAs</span>
+              </div>
+              <div class="text-slate-500 dark:text-slate-400 leading-relaxed">
+                Доступ к HDFS выполняется от вашего имени <strong class="font-mono text-slate-700 dark:text-slate-300">({user?.username || 'текущий пользователь'})</strong> через Kerberos Proxy User. Все операции проверяются политиками Ranger и фиксируются в audit log.
+              </div>
             </div>
-            {#if newJobRunAsService}
-              <input
-                type="text"
-                bind:value={newJobPrincipal}
-                placeholder="tech_replicator@COMPANY.LOCAL (опционально)"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-lg text-xs font-mono"
-              />
-            {/if}
           </div>
 
           <!-- Планировщик периодических задач (Cron Scheduler) -->
@@ -1944,27 +1934,13 @@
             />
           </div>
 
-          <!-- Настройки учетной записи исполнения -->
-          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2">
-            <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                bind:checked={editJobRunAsService}
-                class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-              />
-              <span>Запускать от системной техучетки (рекомендуется)</span>
-            </label>
-            <div class="text-[11px] text-slate-500">
-              Позволяет задаче продолжать работу независимо от истечения тикета пользователя.
-            </div>
-            {#if editJobRunAsService}
-              <input
-                type="text"
-                bind:value={editJobPrincipal}
-                placeholder="tech_replicator@COMPANY.LOCAL (опционально)"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-lg text-xs font-mono"
-              />
-            {/if}
+          <!-- Информация об имперсонации -->
+          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl flex items-center justify-between text-xs">
+            <span class="text-slate-500 flex items-center gap-1.5">
+              <Shield class="w-3.5 h-3.5 text-sky-500" />
+              Имперсонация доступа HDFS
+            </span>
+            <span class="font-mono text-[11px] text-sky-600 dark:text-sky-400 font-medium">doAs (Ranger Audit)</span>
           </div>
 
           <!-- Планировщик периодических задач (Cron Scheduler) -->

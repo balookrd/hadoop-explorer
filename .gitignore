@@ -19,6 +19,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+target/
+*.jar
+dependency-reduced-pom.xml
 
 # Virtual Environments
 venv/

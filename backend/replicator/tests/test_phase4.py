@@ -122,3 +122,52 @@ def test_open_hdfs_stream_with_kerberos_mock():
     # PyArrow не сможет подключиться к фиктивному localhost:8020, поэтому вернет None или бросит ожидаемое исключение
     # Главное - отсутствие необработанных сбоев изоляции
     assert res is None or hasattr(res, "read")
+
+
+def test_kerberos_impersonation_user_extraction():
+    """Проверка извлечения doAs пользователя для Apache Ranger аудита."""
+    # 1. Обычный пользовательский принципал
+    km1 = KerberosContextManager(principal="alice@COMPANY.CORP", run_as_service_account=False, mock=True)
+    assert km1.impersonate_user == "alice"
+    assert km1.principal == "alice@COMPANY.CORP"
+
+    # 2. Принципал с инстансом (например, admin)
+    km2 = KerberosContextManager(principal="bob/admin@REALM.LOCAL", run_as_service_account=False, mock=True)
+    assert km2.impersonate_user == "bob"
+
+    # 3. Системная техучетка (без имперсонации)
+    km3 = KerberosContextManager(run_as_service_account=True, mock=True)
+    assert km3.impersonate_user is None
+
+    # 4. Явно переданный impersonate_user
+    km4 = KerberosContextManager(impersonate_user="charlie_custom", mock=True)
+    assert km4.impersonate_user == "charlie_custom"
+
+
+def test_pyarrow_hdfs_impersonation_call(monkeypatch):
+    """Проверка передачи doAs user и kerb_ticket в pyarrow.fs.HadoopFileSystem."""
+    from unittest.mock import MagicMock
+    import pyarrow.fs
+
+    mock_fs_instance = MagicMock()
+    mock_hadoop_fs_class = MagicMock(return_value=mock_fs_instance)
+
+    monkeypatch.setattr(pyarrow.fs, "HadoopFileSystem", mock_hadoop_fs_class)
+
+    res = open_hdfs_stream_with_kerberos(
+        hdfs_host="nn01.hadoop.local",
+        hdfs_port=8020,
+        hdfs_path="/lake/events/data.parquet",
+        principal="analyst_daria@CORP.LOCAL",
+        run_as_service_account=False,
+        mock=True,
+    )
+
+    mock_hadoop_fs_class.assert_called_once()
+    args, kwargs = mock_hadoop_fs_class.call_args
+    assert args[0] == "nn01.hadoop.local"
+    assert kwargs.get("port") == 8020
+    assert kwargs.get("user") == "analyst_daria"
+    assert "krb5cc_repl_" in kwargs.get("kerb_ticket")
+    mock_fs_instance.open_input_stream.assert_called_once_with("/lake/events/data.parquet")
+    assert res == mock_fs_instance.open_input_stream.return_value

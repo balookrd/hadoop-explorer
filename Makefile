@@ -93,6 +93,9 @@ test-spark:
 test-replicator:
 	./scripts/run-tests.sh replicator
 
+test-replicator-agent-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/agent-java/pom.xml
+
 test-ui:
 	./scripts/run-tests.sh frontend
 
@@ -113,6 +116,9 @@ build-spark:
 
 build-replicator:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh replicator
+
+build-replicator-agent-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/agent-java/pom.xml
 
 frontend-install:
 	cd frontend && npm install

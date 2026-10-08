@@ -25,9 +25,11 @@
    - Запуск периодической синхронизации по расписанию (`@every_5m`, `@hourly`, `@daily`, custom cron).
    - Автоматический расчет `next_run_at` и постановка в очередь фоновым демоном.
 
-5. **Выполнение от системной техучетки**:
-   - Флаг `run_as_service_account` (по умолчанию `hdfs-replicator@REALM.LOCAL`).
-   - Изоляция тикетов Kerberos через уникальные переменные `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}`.
+5. **Kerberos Proxy User и doAs имперсонация (Apache Ranger Audit & Policy Enforcement)**:
+   - Аутентификация в KDC по системному keytab техучетки (`hdfs-replicator@REALM.LOCAL`).
+   - Автоматическая doAs-имперсонация конечного пользователя (`impersonate_user`) при доступе к HDFS через PyArrow (`pyarrow.fs.HadoopFileSystem(..., user=impersonate_user, kerb_ticket=cache_file)`).
+   - Гарантирует применение политик Apache Ranger на уровне инициатора задачи и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
+   - Изоляция тикетов Kerberos через уникальные переменные `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}` с автоочисткой через `kdestroy`.
 
 6. **UI Консоль в стиле HDFS Explorer**:
    - Единая палитра `bg-slate-950` / `bg-slate-900` / `border-slate-800` / `text-slate-100`.
@@ -51,6 +53,12 @@
    - Асинхронный Token Bucket троттлинг на отправку (Sender) и TCP Flow Control Backpressure на прием (Receiver).
    - Отображение фактического лимита узлов в UI консоли Оркестратора.
 
+10. **Нативный Java 17 Replicator Agent (`agent-java`)**:
+    - Специальная версия агента репликации на Java 17 для запуска непосредственно на нодах Hadoop (DataNode, Edge Node) и в контейнерах Apache Hadoop YARN.
+    - Прямая работа с HDFS через нативный `org.apache.hadoop.fs.FileSystem` и Kerberos UGI / YARN Delegation Tokens.
+    - Встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster` для развертывания пула агентов в кластере YARN (`yarn jar replicator-agent-java-1.0.0-all.jar ...`).
+    - Подробная документация: [`agent-java/README.md`](agent-java/README.md).
+
 ---
 
 ## 2. Быстрый запуск
@@ -62,6 +70,10 @@ make demo-replicator
 # Открыть веб-интерфейс
 open http://localhost:8005
 
-# Запуск тестов
+# Запуск тестов Python
 make test-replicator
+
+# Сборка и тесты Java Replicator Agent (Java 17)
+make build-replicator-agent-java
+make test-replicator-agent-java
 ```
