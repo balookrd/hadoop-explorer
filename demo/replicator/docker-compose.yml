@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "backend.replicator.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8005"]
     environment:
-      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "52428800" # 50 MB/s по умолчанию
+      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "52428800" # 50 MB/s
       REPLICATOR_DATABASE_URL: "sqlite:////app/data/replicator.db"
       REPLICATOR_SERVICE_PRINCIPAL: "hdfs-replicator@REALM.LOCAL"
     volumes:
@@ -20,77 +20,74 @@ services:
       - "8005:8005"
     networks:
       - replicator-net
-      - demo-platform-net
 
-  # 2. Агент DC1 (Primary ЦОД: Москва) — Полный дуплекс (Sender + Receiver)
-  agent-dc1:
+  # 2. Python Агент DC1 (Primary ЦОД: Москва, demo-cluster) — Полный дуплекс
+  agent-python-dc1:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.replicator
-    container_name: replicator-agent-dc1
+    container_name: replicator-agent-python-dc1
     hostname: agent-dc1
     restart: unless-stopped
     command: ["python", "-m", "backend.replicator.agent"]
     environment:
-      AGENT_ID: "agent-dc1"
+      AGENT_ID: "agent-python-dc1"
       AGENT_CLUSTER_ID: "demo-cluster"
       AGENT_MODE: "all"
-      AGENT_MAX_BANDWIDTH_MB_S: "0.0" # 0.0 — без ограничений (или лимит, напр. 30.0 МБ/с для DataNode)
+      AGENT_MAX_BANDWIDTH_MB_S: "40.0"
       ORCHESTRATOR_URL: "http://orchestrator:8005"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
+      AGENT_ADVERTISED_ADDRESS: "agent-dc1:50051"
+      FALLBACK_TARGET_ADDRESS: "agent-dc2:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
     volumes:
-      - agent-dc1-staging:/tmp/staging
-      - agent-dc1-data:/tmp/data
+      - agent-python-staging:/tmp/staging
+      - shared-demo-data:/tmp/data
     ports:
       - "50051:50051"
     depends_on:
       - orchestrator
     networks:
       - replicator-net
-      - demo-platform-net
 
-  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург) — Полный дуплекс (Sender + Receiver)
-  agent-dc2:
+  # 3. Java 17 Агент DC2 (DR ЦОД: Санкт-Петербург, backup-cluster) — Полный дуплекс
+  agent-java-dc2:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.replicator
-    container_name: replicator-agent-dc2
+      dockerfile: docker/Dockerfile.replicator-agent-java
+    container_name: replicator-agent-java-dc2
     hostname: agent-dc2
     restart: unless-stopped
-    command: ["python", "-m", "backend.replicator.agent"]
     environment:
-      AGENT_ID: "agent-dc2"
+      AGENT_ID: "agent-java-dc2"
       AGENT_CLUSTER_ID: "backup-cluster"
       AGENT_MODE: "all"
-      AGENT_MAX_BANDWIDTH_MB_S: "0.0" # 0.0 — без ограничений (или лимит, напр. 30.0 МБ/с для DataNode)
+      AGENT_MAX_BANDWIDTH_MB_S: "60.0"
       ORCHESTRATOR_URL: "http://orchestrator:8005"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
+      AGENT_ADVERTISED_ADDRESS: "agent-dc2:50051"
+      FALLBACK_TARGET_ADDRESS: "agent-dc1:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
     volumes:
-      - agent-dc2-staging:/tmp/staging
-      - agent-dc2-data:/tmp/data
+      - agent-java-staging:/tmp/staging
+      - shared-demo-data:/tmp/data
     ports:
       - "50052:50051"
     depends_on:
       - orchestrator
     networks:
       - replicator-net
-      - demo-platform-net
 
 volumes:
   replicator-db-data:
-  agent-dc1-staging:
-  agent-dc1-data:
-  agent-dc2-staging:
-  agent-dc2-data:
+  agent-python-staging:
+  agent-java-staging:
+  shared-demo-data:
 
 networks:
   replicator-net:
     driver: bridge
-  demo-platform-net:
-    name: demo-platform-net

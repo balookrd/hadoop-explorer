@@ -14,7 +14,8 @@ from typing import List, Optional
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
@@ -106,6 +107,12 @@ app = FastAPI(
 assets_dir = os.path.join(STATIC_DIR, "assets")
 if os.path.isdir(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error for {request.method} {request.url.path}: {exc.errors()} body: {exc.body}")
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 # ============================================================================

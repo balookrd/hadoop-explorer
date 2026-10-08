@@ -36,6 +36,7 @@ public class OrchestratorClient {
         this.baseUrl = (orchestratorUrl != null ? orchestratorUrl : "http://localhost:8005").replaceAll("/+$", "");
         this.agentSecret = agentSecret;
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
         this.objectMapper = new ObjectMapper();
@@ -43,6 +44,7 @@ public class OrchestratorClient {
 
     private HttpRequest.Builder newRequestBuilder(String path) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .uri(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")

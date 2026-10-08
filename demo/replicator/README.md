@@ -28,12 +28,32 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 
 ## 🌐 Сетевые интерфейсы и порты
 
-| Сервис | Порт | Описание | URL |
-|---|---|---|---|
-| **Replicator Orchestrator** | `8005` | Веб-интерфейс и REST API управления | [http://localhost:8005](http://localhost:8005) |
-| **Prometheus Metrics** | `8005` | Экспорт системных и сетевых метрик | [http://localhost:8005/metrics](http://localhost:8005/metrics) |
-| **Agent DC1 (Primary ЦОД)** | `50051` | Универсальный дуплексный gRPC агент (Москва) | `localhost:50051` |
-| **Agent DC2 (DR ЦОД)** | `50052` | Универсальный дуплексный gRPC агент (СПб) | `localhost:50052` |
+| Сервис | Порт | Технология | Описание | URL |
+|---|---|---|---|---|
+| **Replicator Orchestrator** | `8005` | Python (FastAPI + Svelte 5) | Веб-интерфейс, REST API, Token Bucket и шедулер | [http://localhost:8005](http://localhost:8005) |
+| **Prometheus Metrics** | `8005` | Prometheus Client | Экспорт системных и сетевых метрик | [http://localhost:8005/metrics](http://localhost:8005/metrics) |
+| **Agent DC1 (Primary ЦОД)** | `50051` | Python 3.12 (gRPC) | Дуплексный агент кластера `demo-cluster` | `localhost:50051` |
+| **Agent DC2 (DR ЦОД)** | `50052` | Java 17 LTS (gRPC) | Дуплексный нативный Hadoop агент `backup-cluster` | `localhost:50052` |
+
+---
+
+## 🧪 Запуск демонстрационных задач интероперабельности (Python ⇄ Java)
+
+Стенд демонстрирует полную сквозную совместимость между Python и Java 17 агентами в обоих направлениях:
+
+```bash
+# 1. Запуск стенда
+./start-demo.sh
+
+# 2. Создание демо-задач (Python DC1 ➔ Java DC2 и Java DC2 ➔ Python DC1)
+./create-test-jobs.sh
+```
+
+Скрипт автоматически:
+1. Генерирует файлы в общем томе данных (`prod_sales_dc1.csv` 5 МБ и `analytics_report_dc2.parquet` 3 МБ).
+2. Ставит задачу репликации **Python Agent ➔ Java 17 Agent** от принципала `data_engineer@REALM.LOCAL`.
+3. Ставит задачу репликации **Java 17 Agent ➔ Python Agent** от принципала `lead_analyst@REALM.LOCAL`.
+4. В обоих направлениях проверяется совпадение контрольных сумм SHA-256 после передачи.
 
 ---
 

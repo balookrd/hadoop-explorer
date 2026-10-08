@@ -1,19 +1,5 @@
 # ==========================================
-# Этап 1: Сборка Frontend (Svelte 5 + Vite)
-# ==========================================
-FROM node:22-alpine AS frontend-builder
-WORKDIR /app/frontend
-
-COPY frontend/package*.json ./
-COPY frontend/common ./common
-COPY frontend/apps/replicator/package*.json ./apps/replicator/
-RUN npm ci --workspace=apps/replicator --include-workspace-root
-
-COPY frontend/apps/replicator ./apps/replicator
-RUN npm run build --workspace=apps/replicator
-
-# ==========================================
-# Этап 2: Hadoop gRPC Replicator Backend
+# Hadoop gRPC Replicator Backend & Orchestrator
 # ==========================================
 FROM python:3.12-slim
 
@@ -34,13 +20,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Установка зависимостей
 COPY backend/common /app/backend/common
 COPY backend/replicator /app/backend/replicator
-COPY --from=frontend-builder /app/backend/replicator/orchestrator/static /app/backend/replicator/orchestrator/static
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         fastapi>=0.115.0 \
         uvicorn[standard]>=0.30.0 \
         pydantic>=2.8.0 \
+        pydantic-settings>=2.4.0 \
         sqlalchemy>=2.0.32 \
         grpcio>=1.62.0 \
         grpcio-tools>=1.62.0 \
@@ -49,7 +35,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
         httpx>=0.27.0 \
         pyarrow>=17.0.0 \
         pyjwt>=2.8.0 \
-        pyyaml>=6.0.0
+        pyyaml>=6.0.0 \
+        ldap3>=2.9.1 \
+        pyspnego>=0.11.1 \
+        cryptography>=43.0.0 \
+        redis>=5.0.0
 
 # Компиляция proto-файлов внутри контейнера
 RUN python -m grpc_tools.protoc \

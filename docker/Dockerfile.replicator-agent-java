@@ -1,0 +1,19 @@
+FROM eclipse-temurin:17-jre-jammy
+
+WORKDIR /app
+
+# Установка базовых утилит
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создание директорий для данных и staging
+RUN mkdir -p /tmp/staging /tmp/data /app/data
+
+# Копирование собранного Shaded Fat JAR Java Replicator Agent
+COPY backend/replicator/agent-java/target/replicator-agent-java-1.0.0-all.jar /app/replicator-agent-java.jar
+
+EXPOSE 50051
+
+ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent-java.jar"]
