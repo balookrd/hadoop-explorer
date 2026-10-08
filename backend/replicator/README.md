@@ -46,6 +46,11 @@
    - SQLite база данных размещается по стандарту платформы в единой директории `data/replicator.db` (аналогично `yarn_explorer.db`, `spark_explorer.db`, `sql_explorer.db`).
    - Переопределение через переменную окружения `REPLICATOR_DATABASE_URL` (например, для PostgreSQL в production или `:memory:` в тестах).
 
+9. **Локальный шейпинг полосы агента (`AGENT_MAX_BANDWIDTH_MB_S`)**:
+   - Позволяет безопасно устанавливать агенты непосредственно на DataNode и Edge Nodes без риска вытеснения трафика боевых задач Spark/YARN.
+   - Асинхронный Token Bucket троттлинг на отправку (Sender) и TCP Flow Control Backpressure на прием (Receiver).
+   - Отображение фактического лимита узлов в UI консоли Оркестратора.
+
 ---
 
 ## 2. Быстрый запуск

@@ -324,3 +324,68 @@ async def test_ssrf_and_invalid_address_rejection(orchestrator_client):
     )
     assert bad_port_resp.status_code == 400
     assert "Недопустимый номер порта" in bad_port_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_local_bandwidth_limiter_throttling():
+    """Тестирование локального Token Bucket шейпера LocalBandwidthLimiter."""
+    from backend.replicator.agent import LocalBandwidthLimiter
+
+    # 1. Лимит отключен (0.0 МБ/с)
+    limiter_disabled = LocalBandwidthLimiter(0.0)
+    assert not limiter_disabled.is_enabled
+    wait = await limiter_disabled.throttle(1024 * 1024)
+    assert wait == 0.0
+
+    # 2. Лимит включен: 1 МБ/с, burst 0.1s (100 КБ емкость)
+    limiter = LocalBandwidthLimiter(limit_mb_per_sec=1.0, burst_seconds=0.1)
+    assert limiter.is_enabled
+    assert limiter.limit_mb_s == 1.0
+
+    # Сначала токены есть (100 КБ), потребляем 50 КБ без задержки
+    wait_fast = await limiter.throttle(50 * 1024)
+    assert wait_fast == 0.0
+
+    # Потребляем еще 200 КБ (превышает оставшиеся 50 КБ) - должна возникнуть задержка
+    wait_throttled = await limiter.throttle(200 * 1024)
+    assert wait_throttled > 0.0
+
+    # 3. Динамическое изменение лимита
+    limiter.set_limit(5.0)
+    assert limiter.limit_mb_s == 5.0
+    limiter.set_limit(0.0)
+    assert not limiter.is_enabled
+    assert await limiter.throttle(10 * 1024 * 1024) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_agent_registration_with_bandwidth_limit(orchestrator_client, monkeypatch):
+    """Тестирование передачи max_bandwidth_mb_s при регистрации агента и в реестре."""
+    # 1. Регистрация агента с лимитом полосы
+    reg_resp = await orchestrator_client.post(
+        "/api/v1/agents/register",
+        json={
+            "agent_id": "agent-datanode-01",
+            "cluster_id": "demo-cluster",
+            "grpc_address": "datanode-1.local:50051",
+            "max_bandwidth_mb_s": 50.0,
+        },
+    )
+    assert reg_resp.status_code == 200
+    reg_data = reg_resp.json()
+    assert reg_data["max_bandwidth_mb_s"] == 50.0
+
+    # 2. Проверка в списке агентов
+    list_resp = await orchestrator_client.get("/api/v1/agents")
+    assert list_resp.status_code == 200
+    agents = list_resp.json()
+    agent_entry = next((a for a in agents if a["agent_id"] == "agent-datanode-01"), None)
+    assert agent_entry is not None
+    assert agent_entry["max_bandwidth_mb_s"] == 50.0
+
+    # 3. Проверка ReplicatorAgent с переменной окружения AGENT_MAX_BANDWIDTH_MB_S
+    monkeypatch.setenv("AGENT_MAX_BANDWIDTH_MB_S", "25.5")
+    agent = ReplicatorAgent(agent_id="test-co-located-agent", cluster_id="demo-cluster")
+    assert agent.max_bandwidth_mb_s == 25.5
+    assert agent.bandwidth_limiter.is_enabled
+    assert agent.bandwidth_limiter.limit_mb_s == 25.5

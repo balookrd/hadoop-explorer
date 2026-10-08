@@ -755,7 +755,19 @@ POLL_INTERVAL_SEC=2.0
 
 ---
 
-### 7.8 Эталонный конфигурационный файл config.yaml
+### 7.8 Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)
+
+При установке Replicator Agent непосредственно на узлы Hadoop (DataNode Co-location) или общие Edge Nodes для защиты от деградации сетевых карт и дисковых массивов настраивается локальный шейпинг:
+- **Переменная `AGENT_MAX_BANDWIDTH_MB_S`**: задает предел полосы пропускания конкретного экземпляра агента в МБ/с (по умолчанию `0` — без ограничений).
+- **Алгоритм**: асинхронный Token Bucket (`LocalBandwidthLimiter`) с поддержкой burst-буфера 0.5с.
+- **Двусторонний троттлинг**:
+  1. *Sender*: задержка при вызове `request_network_tokens()` перед отправкой каждого блока в сокет gRPC;
+  2. *Receiver*: пауза при чтении чанков в `TransferFile()`, активирующая штатное TCP Window Backpressure по HTTP/2 и притормаживающая удаленного отправителя.
+- **Видимость в UI**: лимит передается Оркестратору в теле регистрации и отображается в карточке узла.
+
+---
+
+### 7.9 Эталонный конфигурационный файл config.yaml
 
 ```yaml
 # backend/replicator/config/config.yaml
@@ -844,6 +856,7 @@ topology:
 | `AGENT_ADVERTISED_ADDRESS` | Сетевой gRPC адрес, анонсируемый агентом удаленным узлам | `$HOSTNAME:$RECEIVER_PORT` |
 | `AGENT_HEARTBEAT_INTERVAL_SEC` | Период отправки keepalive heartbeat-сигнала Оркестратору (секунды) | `5.0` |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе (секунды) | `3.0` |
+| `AGENT_MAX_BANDWIDTH_MB_S` | Локальный Token Bucket лимит скорости агента (МБ/с) для защиты DataNode/сети | `0.0` (без ограничений) |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
 | `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |

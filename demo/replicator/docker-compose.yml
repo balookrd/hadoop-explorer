@@ -35,6 +35,7 @@ services:
       AGENT_ID: "agent-dc1"
       AGENT_CLUSTER_ID: "demo-cluster"
       AGENT_MODE: "all"
+      AGENT_MAX_BANDWIDTH_MB_S: "0.0" # 0.0 — без ограничений (или лимит, напр. 30.0 МБ/с для DataNode)
       ORCHESTRATOR_URL: "http://orchestrator:8005"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
@@ -64,6 +65,7 @@ services:
       AGENT_ID: "agent-dc2"
       AGENT_CLUSTER_ID: "backup-cluster"
       AGENT_MODE: "all"
+      AGENT_MAX_BANDWIDTH_MB_S: "0.0" # 0.0 — без ограничений (или лимит, напр. 30.0 МБ/с для DataNode)
       ORCHESTRATOR_URL: "http://orchestrator:8005"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"

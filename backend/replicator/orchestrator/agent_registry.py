@@ -148,6 +148,7 @@ class AgentRegisterRequest(BaseModel):
     )
     hostname: Optional[str] = Field(default=None, description="Имя сетевого хоста или контейнера")
     version: str = Field(default="1.0.0", description="Версия ПО агента")
+    max_bandwidth_mb_s: Optional[float] = Field(default=None, description="Локальный лимит скорости агента в МБ/с")
 
 
 class AgentHeartbeatRequest(BaseModel):
@@ -175,6 +176,7 @@ class AgentInfoResponse(BaseModel):
     last_heartbeat_at: datetime
     heartbeat_age_seconds: float = 0.0
     version: str = "1.0.0"
+    max_bandwidth_mb_s: Optional[float] = None
 
 
 class AgentEntry:
@@ -189,6 +191,7 @@ class AgentEntry:
         grpc_address: Optional[str] = None,
         hostname: Optional[str] = None,
         version: str = "1.0.0",
+        max_bandwidth_mb_s: Optional[float] = None,
     ):
         now = datetime.now(timezone.utc)
         self.agent_id = agent_id
@@ -198,6 +201,7 @@ class AgentEntry:
         self.grpc_address = grpc_address
         self.hostname = hostname
         self.version = version
+        self.max_bandwidth_mb_s = max_bandwidth_mb_s
         self.status = AgentStatus.ONLINE
         self.active_transfers = 0
         self.registered_at = now
@@ -227,6 +231,7 @@ class AgentEntry:
             last_heartbeat_at=self.last_heartbeat_at,
             heartbeat_age_seconds=round(age, 1),
             version=self.version,
+            max_bandwidth_mb_s=self.max_bandwidth_mb_s,
         )
 
 
@@ -248,10 +253,12 @@ class AgentRegistry:
             entry.grpc_address = req.grpc_address or entry.grpc_address
             entry.hostname = req.hostname or entry.hostname
             entry.version = req.version or entry.version
+            if req.max_bandwidth_mb_s is not None:
+                entry.max_bandwidth_mb_s = req.max_bandwidth_mb_s
             entry.status = AgentStatus.ONLINE
             entry.last_heartbeat_at = now
             logger.info(
-                f"Обновлена регистрация агента {req.agent_id} (кластер: {entry.cluster_id}, gRPC: {entry.grpc_address})"
+                f"Обновлена регистрация агента {req.agent_id} (кластер: {entry.cluster_id}, gRPC: {entry.grpc_address}, лимит: {entry.max_bandwidth_mb_s} МБ/с)"
             )
         else:
             entry = AgentEntry(
@@ -262,10 +269,11 @@ class AgentRegistry:
                 grpc_address=req.grpc_address,
                 hostname=req.hostname,
                 version=req.version,
+                max_bandwidth_mb_s=req.max_bandwidth_mb_s,
             )
             self._agents[req.agent_id] = entry
             logger.info(
-                f"Зарегистрирован новый агент {req.agent_id} (кластер: {entry.cluster_id}, gRPC: {entry.grpc_address})"
+                f"Зарегистрирован новый агент {req.agent_id} (кластер: {entry.cluster_id}, gRPC: {entry.grpc_address}, лимит: {entry.max_bandwidth_mb_s} МБ/с)"
             )
 
         # Синхронизация динамического кластера в топологии

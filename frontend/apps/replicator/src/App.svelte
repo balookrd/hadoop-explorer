@@ -146,6 +146,7 @@
     last_heartbeat_at: string;
     heartbeat_age_seconds: number;
     version: string;
+    max_bandwidth_mb_s?: number | null;
   }
 
   let registeredAgents = $state<AgentInfo[]>([]);
@@ -1611,6 +1612,12 @@
                       <span class="text-slate-400">Режим / Нагрузка:</span>
                       <span class="font-mono">
                         {agent.mode} (активно: {agent.active_transfers})
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                      <span class="text-slate-400">Лимит полосы:</span>
+                      <span class="font-mono {agent.max_bandwidth_mb_s ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-400'}">
+                        {agent.max_bandwidth_mb_s ? `${agent.max_bandwidth_mb_s} МБ/с` : 'без ограничений'}
                       </span>
                     </div>
                     <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">

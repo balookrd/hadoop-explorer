@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 import signal
+import time
 from typing import AsyncIterator, Dict, Optional
 import uuid
 
@@ -22,6 +23,71 @@ from backend.replicator.generated import replicator_pb2, replicator_pb2_grpc
 from backend.replicator.security.kerberos import KerberosContextManager
 
 logger = logging.getLogger("replicator.agent")
+
+
+# ============================================================================
+# 0. Локальный шейпер пропускной способности агента (Local Bandwidth Limiter)
+# ============================================================================
+
+
+class LocalBandwidthLimiter:
+    """Локальный Token Bucket шейпер для ограничения пропускной способности агента.
+
+    Защищает сетевые карты и дисковую подсистему ноды Hadoop (Co-located Deployment)
+    от перегрузки фоновым трафиком репликации.
+    """
+
+    def __init__(self, limit_mb_per_sec: float = 0.0, burst_seconds: float = 0.5):
+        self.limit_bytes_per_sec = max(0.0, float(limit_mb_per_sec)) * 1024 * 1024
+        self.burst_seconds = max(0.1, float(burst_seconds))
+        self.capacity = self.limit_bytes_per_sec * self.burst_seconds if self.limit_bytes_per_sec > 0 else 0.0
+        self.tokens = self.capacity
+        self.last_update = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    @property
+    def is_enabled(self) -> bool:
+        return self.limit_bytes_per_sec > 0
+
+    @property
+    def limit_mb_s(self) -> float:
+        return round(self.limit_bytes_per_sec / (1024 * 1024), 2)
+
+    def set_limit(self, limit_mb_per_sec: float) -> None:
+        """Динамическое изменение лимита пропускной способности."""
+        self.limit_bytes_per_sec = max(0.0, float(limit_mb_per_sec)) * 1024 * 1024
+        if self.limit_bytes_per_sec > 0:
+            self.capacity = self.limit_bytes_per_sec * self.burst_seconds
+            self.tokens = min(self.tokens, self.capacity)
+        else:
+            self.capacity = 0.0
+            self.tokens = 0.0
+        self.last_update = time.monotonic()
+
+    async def throttle(self, bytes_count: int) -> float:
+        """Сдерживает скорость при передаче/приеме блока данных, если лимит превышен."""
+        if not self.is_enabled or bytes_count <= 0:
+            return 0.0
+
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self.last_update
+            if elapsed > 0:
+                self.tokens = min(self.capacity, self.tokens + elapsed * self.limit_bytes_per_sec)
+                self.last_update = now
+
+            if self.tokens >= bytes_count:
+                self.tokens -= bytes_count
+                return 0.0
+
+            deficit = bytes_count - self.tokens
+            wait_seconds = deficit / self.limit_bytes_per_sec
+            self.tokens -= bytes_count
+
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+
+        return wait_seconds
 
 
 # ============================================================================
@@ -37,12 +103,19 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
         staging_dir: Optional[str] = None,
         hdfs_namenode: Optional[str] = None,
         hdfs_port: int = 8020,
+        bandwidth_limiter: Optional[LocalBandwidthLimiter] = None,
     ):
         self.staging_dir = staging_dir or os.environ.get("REPLICATOR_STAGING_DIR", "/tmp/staging")
         self.hdfs_namenode = hdfs_namenode or os.environ.get("REPLICATOR_HDFS_NAMENODE")
         self.hdfs_port = hdfs_port
+        self.bandwidth_limiter = bandwidth_limiter
         os.makedirs(self.staging_dir, exist_ok=True)
-        logger.info(f"gRPC Receiver инициализирован со staging-директорией: {self.staging_dir}")
+        lim_str = (
+            f", локальный лимит: {bandwidth_limiter.limit_mb_s} МБ/с"
+            if bandwidth_limiter and bandwidth_limiter.is_enabled
+            else ""
+        )
+        logger.info(f"gRPC Receiver инициализирован со staging-директорией: {self.staging_dir}{lim_str}")
 
     def _commit_file(
         self,
@@ -157,6 +230,8 @@ class DataTransferServicer(replicator_pb2_grpc.DataTransferServiceServicer):
 
                     chunk_bytes = chunk.data
                     if chunk_bytes:
+                        if self.bandwidth_limiter:
+                            await self.bandwidth_limiter.throttle(len(chunk_bytes))
                         file_handle.write(chunk_bytes)
                         hasher.update(chunk_bytes)
                         bytes_written += len(chunk_bytes)
@@ -224,6 +299,7 @@ async def create_receiver_server(
     staging_dir: Optional[str] = None,
     hdfs_namenode: Optional[str] = None,
     hdfs_port: int = 8020,
+    bandwidth_limiter: Optional[LocalBandwidthLimiter] = None,
 ) -> grpc.aio.Server:
     """Создает асинхронный gRPC сервер Receiver для приема файлов."""
     server = grpc.aio.server(
@@ -236,6 +312,7 @@ async def create_receiver_server(
         staging_dir=staging_dir,
         hdfs_namenode=hdfs_namenode,
         hdfs_port=hdfs_port,
+        bandwidth_limiter=bandwidth_limiter,
     )
     replicator_pb2_grpc.add_DataTransferServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")
@@ -260,6 +337,7 @@ class ReplicationWorkerClient:
         keytab_path: Optional[str] = None,
         http_client: Optional[httpx.AsyncClient] = None,
         agent_secret: Optional[str] = None,
+        bandwidth_limiter: Optional[LocalBandwidthLimiter] = None,
     ):
         self.orchestrator_url = orchestrator_url.rstrip("/")
         self.receiver_address = receiver_address
@@ -268,6 +346,7 @@ class ReplicationWorkerClient:
         self.keytab_path = keytab_path
         self._custom_http_client = http_client
         self.agent_secret = agent_secret or os.environ.get("REPLICATOR_AGENT_SECRET") or os.environ.get("AGENT_SECRET")
+        self.bandwidth_limiter = bandwidth_limiter
 
     def _get_auth_headers(self) -> Dict[str, str]:
         headers = {}
@@ -282,11 +361,15 @@ class ReplicationWorkerClient:
 
     async def request_network_tokens(self, requested_bytes: int) -> float:
         """
-        Запрашивает сетевую квоту у Оркестратора.
-        Если вернулся wait_seconds > 0, выполняет asyncio.sleep().
+        Запрашивает локальные токены пропускной способности агента (если задан лимит),
+        а затем сетевую квоту у Оркестратора.
         """
         if requested_bytes <= 0:
             return 0.0
+
+        local_wait = 0.0
+        if self.bandwidth_limiter:
+            local_wait = await self.bandwidth_limiter.throttle(requested_bytes)
 
         payload = {
             "worker_id": self.worker_id,
@@ -302,18 +385,20 @@ class ReplicationWorkerClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            wait_seconds = float(data.get("wait_seconds", 0.0))
+            orchestrator_wait = float(data.get("wait_seconds", 0.0))
 
-            if wait_seconds > 0:
+            if orchestrator_wait > 0:
                 logger.debug(
-                    f"Агент {self.worker_id}: троттлинг активен, пауза {wait_seconds:.4f}c для {requested_bytes} байт"
+                    f"Агент {self.worker_id}: глобальный троттлинг оркестратора, пауза {orchestrator_wait:.4f}c для {requested_bytes} байт"
                 )
-                await asyncio.sleep(wait_seconds)
+                await asyncio.sleep(orchestrator_wait)
 
-            return wait_seconds
+            return local_wait + orchestrator_wait
         except Exception as e:
-            logger.warning(f"Не удалось запросить сетевую квоту у Оркестратора ({e}), передача без троттлинга")
-            return 0.0
+            logger.warning(
+                f"Не удалось запросить сетевую квоту у Оркестратора ({e}), передача без глобального троттлинга"
+            )
+            return local_wait
         finally:
             if should_close:
                 await client.aclose()
@@ -530,6 +615,7 @@ class ReplicatorAgent:
         advertised_grpc_address: Optional[str] = None,
         enable_dynamic_registration: Optional[bool] = None,
         agent_secret: Optional[str] = None,
+        max_bandwidth_mb_s: Optional[float] = None,
     ):
         self.agent_id = agent_id or os.environ.get("AGENT_ID") or os.environ.get("WORKER_ID", "agent-01")
         self.cluster_id = cluster_id or os.environ.get("AGENT_CLUSTER_ID") or os.environ.get("CLUSTER_ID")
@@ -548,6 +634,13 @@ class ReplicatorAgent:
         )
         self.target_clusters_map: Dict[str, str] = target_clusters_map or {}
         self.agent_secret = agent_secret or os.environ.get("REPLICATOR_AGENT_SECRET") or os.environ.get("AGENT_SECRET")
+
+        # Лимит пропускной способности агента в МБ/с (для Co-located Deployment с DataNode)
+        env_bw = os.environ.get("AGENT_MAX_BANDWIDTH_MB_S")
+        self.max_bandwidth_mb_s = (
+            max_bandwidth_mb_s if max_bandwidth_mb_s is not None else (float(env_bw) if env_bw else None)
+        )
+        self.bandwidth_limiter = LocalBandwidthLimiter(self.max_bandwidth_mb_s or 0.0)
 
         # Автоматическое определение внешнего (advertised) gRPC адреса для саморегистрации
         self.advertised_grpc_address = (
@@ -648,6 +741,7 @@ class ReplicatorAgent:
             staging_dir=self.staging_dir,
             hdfs_namenode=self.hdfs_namenode,
             hdfs_port=self.hdfs_port,
+            bandwidth_limiter=self.bandwidth_limiter,
         )
         await self.server.start()
         logger.info(f"gRPC Receiver компонент агента {self.agent_id} готов принимать файлы")
@@ -662,6 +756,7 @@ class ReplicatorAgent:
             "grpc_address": self.advertised_grpc_address if self.mode in ("all", "receiver") else None,
             "hostname": os.environ.get("HOSTNAME") or "localhost",
             "version": "1.0.0",
+            "max_bandwidth_mb_s": self.max_bandwidth_mb_s,
         }
         client = http_client or httpx.AsyncClient(timeout=5.0)
         should_close = http_client is None
@@ -757,6 +852,7 @@ class ReplicatorAgent:
             receiver_address=self.fallback_target_address,
             worker_id=self.agent_id,
             agent_secret=self.agent_secret,
+            bandwidth_limiter=self.bandwidth_limiter,
         )
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
