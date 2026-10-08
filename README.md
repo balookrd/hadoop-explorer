@@ -79,7 +79,7 @@ hadoop-explorer/
 │   │   ├── db/             # Базовый StorageService (SQLite WAL, Postgres, Redis, L1 LRU Cache)
 │   │   └── models/         # Общие модели пользователей, ролей и сессий (CommonUserSession, TokenResponse)
 │   ├── yarn/               # Сервис YARN Explorer (Java 21 / Spring Boot 3, нативный RM HA, 13 тестов)
-│   ├── hdfs/               # Сервис HDFS Explorer (86 тестов)
+│   ├── hdfs/               # Сервис HDFS Explorer (Java 21 / Spring Boot 3, HA NameNode, Parquet/ORC, 16 тестов)
 │   ├── sql/                # Сервис SQL Explorer (42 теста)
 │   ├── spark/              # Сервис Spark Explorer (24 теста)
 │   └── replicator/         # Сервис Hadoop gRPC Replicator (33 теста)
@@ -105,7 +105,7 @@ hadoop-explorer/
 │
 ├── docker/
 │   ├── Dockerfile.yarn-java # Сборка образа hadoop-explorer/yarn (Java 21 / Spring Boot 3)
-│   ├── Dockerfile.hdfs     # Multi-stage сборка образа hadoop-explorer/hdfs
+│   ├── Dockerfile.hdfs-java # Сборка образа hadoop-explorer/hdfs (Java 21 / Spring Boot 3)
 │   ├── Dockerfile.sql      # Multi-stage сборка образа hadoop-explorer/sql
 │   ├── Dockerfile.spark    # Multi-stage сборка образа hadoop-explorer/spark
 │   └── .dockerignore
@@ -204,7 +204,6 @@ hadoop-explorer/
 
 - **Корневой `pyproject.toml`** определяет единый воркспейс с Python-сервисами:
   - `backend/common` (`hadoop-explorer-common`)
-  - `backend/hdfs` (`hadoop-explorer-hdfs`)
   - `backend/sql` (`hadoop-explorer-sql`)
   - `backend/spark` (`hadoop-explorer-spark`)
 - **Единое виртуальное окружение** `.venv` для мгновенной синхронизации всех зависимостей.
@@ -344,7 +343,7 @@ make build-spark    # hadoop-explorer/spark:latest
 Прямой запуск через Docker CLI:
 ```bash
 docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
-docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
+docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
 docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql .
 docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
 ```

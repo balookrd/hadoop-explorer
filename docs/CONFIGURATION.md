@@ -3,7 +3,7 @@
 В данном документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
 - **Общие модули** (`backend/common` — безопасность, сессии, LDAP/Active Directory, Kerberos SPNEGO, хранилища, Circuit Breaker, Distributed Lock, Graceful Shutdown).
 - **YARN Explorer** (`backend/yarn/yarn-java` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
-- **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов, Circuit Breaker).
+- **HDFS Explorer** (`backend/hdfs/hdfs-java` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
 - **Hadoop gRPC Replicator** (`backend/replicator` — межкластерная репликация HDFS, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
@@ -290,40 +290,49 @@ clusters:
 
 ## 4. Настройка HDFS Explorer
 
-Файл конфигурации: `backend/hdfs/config/config.yaml`.
+Файл конфигурации: `backend/hdfs/hdfs-java/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
-### Пример секции `clusters` для HDFS:
+### Пример секции `hadoop.hdfs.clusters`:
 
 ```yaml
-clusters:
-  - id: "datalake-prod"
-    name: "Production DataLake"
-    webhdfs_url: "http://nn1.prod.company.local:9870/webhdfs/v1"
-    standby_webhdfs_url: "http://nn2.prod.company.local:9870/webhdfs/v1"
-    auth_type: "kerberos"       # kerberos | simple
-    kerberos_principal: "hdfs/nn1.prod.company.local@COMPANY.LOCAL"
-    enable_impersonation: true  # Передача doAs={username} при запросах к WebHDFS
-    default_root_path: "/user"
-    preview_max_bytes: 10485760 # Лимит чтения файлов для превью (10 MB)
-    acl:
-      allow_all_authenticated: false
-      allowed_groups:
-        - "hadoop-users"
-        - "data-engineers"
-        - "analytics"
-      allowed_users: []
-      admin_groups:
-        - "hadoop-admins"
-        - "domain admins"
+hadoop:
+  hdfs:
+    clusters:
+      - id: "datalake-prod"
+        name: "Production DataLake"
+        description: "Основной аналитический кластер HDFS"
+        webhdfs-urls:
+          - "http://nn1.prod.company.local:9870/webhdfs/v1"
+          - "http://nn2.prod.company.local:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://nn1.prod.company.local:8020"
+          - "hdfs://nn2.prod.company.local:8020"
+        auth-type: "kerberos"       # kerberos | simple
+        service-principal: "hdfs/nn1.prod.company.local@COMPANY.LOCAL"
+        keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+        timeout-seconds: 30
+        preview-max-bytes: 10485760 # Лимит чтения файлов для превью (10 MB)
+        default-path: "/user/{username}"
+        mock-storage: false
+        acl:
+          allowed-groups:
+            - "hadoop-users"
+            - "data-engineers"
+            - "analytics"
+          admin-groups:
+            - "hadoop-admins"
+            - "domain admins"
 
-  - id: "datalake-archive"
-    name: "Cold Storage Archive"
-    webhdfs_url: "http://archive-httpfs.company.local:14000/webhdfs/v1"
-    auth_type: "simple"
-    enable_impersonation: true
-    default_root_path: "/archive"
-    acl:
-      allow_all_authenticated: true
+      - id: "datalake-archive"
+        name: "Cold Storage Archive"
+        webhdfs-urls:
+          - "http://archive-httpfs.company.local:14000/webhdfs/v1"
+        auth-type: "simple"
+        default-path: "/archive"
+        mock-storage: false
+        acl:
+          allowed-groups:
+            - "domain users"
 ```
 
 ---

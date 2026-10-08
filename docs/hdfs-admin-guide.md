@@ -34,13 +34,16 @@
 - **Метрики Prometheus**: `GET /metrics`
 
 ### 1.3 Системные требования
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12).
-- **Среда выполнения**: Python `3.11` – `3.14`, Node.js `20+` / `22 LTS` (для локальной сборки).
-- **Системные библиотеки**: `libkrb5-dev`, `libsasl2-dev`, `krb5-user`, `curl`.
+- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
+- **Среда выполнения**:
+  - Java: `21 LTS` (Eclipse Temurin / OpenJDK 21)
+  - Maven: `3.9+` (для сборки из исходников)
+  - Node.js: `20+` / `22 LTS` (для сборки фронтенда из исходников)
+- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`.
 - **Ресурсы (на 1 реплику)**:
   - CPU: `1 ядро` (рек. `2 ядра` при частом чтении Parquet/ORC)
   - RAM: `1 ГБ` (рек. `2 ГБ`)
-  - Диск: `10 ГБ` для кэша и локальной БД SQLite.
+  - Диск: `10 ГБ` для логов и кэша.
 
 ---
 
@@ -51,14 +54,13 @@
 **Ubuntu / Debian**:
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    build-essential python3 python3-venv python3-dev \
-    libkrb5-dev libsasl2-dev krb5-user ldap-utils curl git
+    openjdk-21-jdk maven krb5-user ldap-utils curl git
 ```
 
 **RHEL / Rocky Linux**:
 ```bash
-sudo dnf install -y gcc python3 python3-devel \
-    krb5-devel cyrus-sasl-devel krb5-workstation openldap-clients curl git
+sudo dnf install -y \
+    java-21-openjdk-devel maven krb5-workstation openldap-clients curl git
 ```
 
 ### Шаг 2: Создание пользователя и структуры каталогов
@@ -75,100 +77,110 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/hdfs
 ```
 
-### Шаг 3: Размещение кода и виртуального окружения
+### Шаг 3: Сборка и размещение артефакта
 ```bash
 sudo -u appuser -i
 cd /opt/hadoop-explorer/hdfs
 git clone https://github.com/company/hadoop-explorer.git .
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -e backend/common -e backend/hdfs
-
-# Сборка фронтенда HDFS
+# Сборка фронтенда HDFS (Svelte 5)
 cd frontend
 npm ci --workspace=apps/hdfs --include-workspace-root
 npm run build --workspace=apps/hdfs
 cd ..
-```
 
+# Копирование статики фронтенда в ресурсы Spring Boot
+cp -r frontend/apps/hdfs/dist/* backend/hdfs/hdfs-java/src/main/resources/static/
+
+# Сборка исполняемого Spring Boot fat JAR
+mvn clean package -DskipTests -f backend/hdfs/hdfs-java/pom.xml
+
+# Копирование собранного JAR в рабочий каталог
+cp backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar /opt/hadoop-explorer/hdfs/hdfs-explorer.jar
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/hdfs/config.yaml`:
+Создайте файл `/etc/hadoop-explorer/hdfs/application.yml`:
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8000
-  debug: false
-  secure_cookies: true
-  cors_origins:
-    - "https://hdfs.company.local"
 
-security:
-  secret_key: "CHANGE_TO_SUPER_SECURE_RANDOM_KEY_MIN_32_CHARS"
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "hdfs_explorer_session"
+spring:
+  application:
+    name: hadoop-hdfs-explorer
+  datasource:
+    url: jdbc:h2:file:/var/lib/hadoop-explorer/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    # Для PostgreSQL кластера:
+    # url: jdbc:postgresql://pg.company.local:5432/hdfs_explorer
+    # username: hdfs_user
+    # password: DbPassword123
 
-database:
-  url: "sqlite:////var/lib/hadoop-explorer/hdfs/data/hdfs_explorer.db"
-  # Для HA кластера:
-  # url: "postgresql://hdfs_user:DbPass123@pg.company.local:5432/hdfs_explorer"
+# Общие параметры безопасности платформы
+hadoop:
+  security:
+    auth:
+      mode: ldap # mock | ldap | kerberos
+      admin-groups:
+        - "hadoop-admins"
+        - "platform-admins"
+      writer-groups:
+        - "data-engineers"
+        - "developers"
+    jwt:
+      secret-key: "CHANGE_TO_SUPER_SECURE_RANDOM_KEY_MIN_32_CHARS"
+      expiration-minutes: 480
+    ldap:
+      enabled: true
+      server-uri: "ldaps://ldap.company.local:636"
+      bind-dn: "cn=svc_hdfs,ou=services,dc=company,dc=local"
+      bind-password: "ServiceLdapPassword"
+      user-search-base: "ou=users,dc=company,dc=local"
+      user-search-filter: "(sAMAccountName={0})"
+      group-search-base: "ou=groups,dc=company,dc=local"
+      group-search-filter: "(member={0})"
+    kerberos:
+      enabled: true
+      keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+      principal: "HTTP/hdfs.company.local@COMPANY.LOCAL"
 
-auth:
-  ldap:
-    enabled: true
-    server_uri: "ldaps://ldap.company.local:636"
-    bind_dn: "cn=svc_hdfs,ou=services,dc=company,dc=local"
-    bind_password: "ServiceLdapPassword"
-    user_search_base: "ou=users,dc=company,dc=local"
-    user_search_filter: "(sAMAccountName={username})"
-    group_search_base: "ou=groups,dc=company,dc=local"
-    group_search_filter: "(member={user_dn})"
-    admin_group: "cn=hadoop-admins,ou=groups,dc=company,dc=local"
-
-  kerberos:
-    enabled: true
-    keytab_path: "/etc/security/keytabs/hdfs-explorer.keytab"
-    service_principal: "HTTP/hdfs.company.local@COMPANY.LOCAL"
-
-# Настройка подключения к кластерам HDFS
-hdfs:
-  clusters:
-    - id: "prod-datalake"
-      name: "Production DataLake"
-      active_namenode_url: "http://nn01.prod.company.local:9870"
-      standby_namenode_url: "http://nn02.prod.company.local:9870"
-      auth_type: "kerberos" # kerberos | simple
-      keytab_path: "/etc/security/keytabs/hdfs-client.keytab"
-      principal: "hdfs-client@COMPANY.LOCAL"
-      impersonation_enabled: true # doAs={username}
-      timeout_seconds: 10
-      preview:
-        max_rows: 100
-        max_file_size_mb: 200
-
-    - id: "archive-datalake"
-      name: "Cold Archive DataLake"
-      active_namenode_url: "http://nn01.archive.company.local:9870"
-      standby_namenode_url: "http://nn02.archive.company.local:9870"
-      auth_type: "kerberos"
-      keytab_path: "/etc/security/keytabs/hdfs-client.keytab"
-      principal: "hdfs-client@COMPANY.LOCAL"
-      impersonation_enabled: true
+  # Настройка подключения к кластерам HDFS
+  hdfs:
+    clusters:
+      - id: "prod-datalake"
+        name: "Production DataLake"
+        description: "Основной аналитический кластер HDFS"
+        webhdfs-urls:
+          - "http://nn01.prod.company.local:9870/webhdfs/v1"
+          - "http://nn02.prod.company.local:9870/webhdfs/v1"
+        hdfs-rpc-urls:
+          - "hdfs://nn01.prod.company.local:8020"
+          - "hdfs://nn02.prod.company.local:8020"
+        auth-type: "kerberos"
+        service-principal: "hdfs-client@COMPANY.LOCAL"
+        keytab-path: "/etc/security/keytabs/hdfs-client.keytab"
+        timeout-seconds: 15
+        preview-max-bytes: 10485760
+        default-path: "/user/{username}"
+        mock-storage: false
+        acl:
+          allowed-groups:
+            - "data-engineers"
+            - "analytics"
+            - "hadoop-admins"
+          admin-groups:
+            - "hadoop-admins"
 ```
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/hdfs/config.yaml
-sudo chown appuser:appuser /etc/hadoop-explorer/hdfs/config.yaml
+sudo chmod 600 /etc/hadoop-explorer/hdfs/application.yml
+sudo chown appuser:appuser /etc/hadoop-explorer/hdfs/application.yml
 ```
 
 ### Шаг 5: Создание systemd сервиса
 Создайте файл `/etc/systemd/system/hdfs-explorer.service`:
 ```ini
 [Unit]
-Description=Hadoop HDFS Explorer Web Service
+Description=Hadoop HDFS Explorer Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -177,18 +189,14 @@ Type=simple
 User=appuser
 Group=appuser
 WorkingDirectory=/opt/hadoop-explorer/hdfs
-Environment="PYTHONPATH=/opt/hadoop-explorer/hdfs:/opt/hadoop-explorer/hdfs/backend/common:/opt/hadoop-explorer/hdfs/backend/hdfs"
-Environment="CONFIG_PATH=/etc/hadoop-explorer/hdfs/config.yaml"
-Environment="FRONTEND_DIST=/opt/hadoop-explorer/hdfs/frontend/apps/hdfs/dist"
+Environment="SPRING_CONFIG_LOCATION=/etc/hadoop-explorer/hdfs/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
-Environment="WEB_CONCURRENCY=2"
 
-ExecStart=/opt/hadoop-explorer/hdfs/.venv/bin/uvicorn app.main:app \
-    --app-dir backend/hdfs \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --workers 2 \
-    --log-level info
+ExecStart=/usr/bin/java \
+    -Xms512m \
+    -Xmx2048m \
+    -Dspring.config.location=/etc/hadoop-explorer/hdfs/application.yml \
+    -jar /opt/hadoop-explorer/hdfs/hdfs-explorer.jar
 
 Restart=always
 RestartSec=5s
@@ -218,7 +226,7 @@ curl -I http://127.0.0.1:8000/healthz
 
 ### 3.1 Сборка Docker-образа
 ```bash
-docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
+docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
 ```
 
 ### 3.2 Автономный запуск одного контейнера (`docker run`)
@@ -226,11 +234,10 @@ docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs .
 docker run -d \
   --name hdfs-explorer \
   --restart unless-stopped \
-  -p 8002:8000 \
-  -e CONFIG_PATH=/app/config/config.yaml \
-  -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
+  -p 8000:8000 \
+  -e SPRING_CONFIG_LOCATION=/app/config/application.yml \
   -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/hdfs-explorer/config.yaml:/app/config/config.yaml:ro \
+  -v /opt/hdfs-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v hdfs-data:/app/data \
@@ -433,7 +440,7 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ## 6. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
 
-Наряду с микросервисом на Python, в состав платформы входит нативный бэкенд **HDFS Explorer на стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs/hdfs-java`), использующий официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
+Бэкенд **HDFS Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs/hdfs-java`), используя официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
 ### 6.1 Преимущества Java 21 реализации
 1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.

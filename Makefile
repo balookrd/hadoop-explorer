@@ -86,8 +86,7 @@ test:
 
 test-yarn: test-yarn-java
 
-test-hdfs:
-	./scripts/run-tests.sh hdfs
+test-hdfs: test-hdfs-java
 
 test-sql:
 	./scripts/run-tests.sh sql
@@ -125,8 +124,7 @@ build:
 
 build-yarn: build-yarn-java
 
-build-hdfs:
-	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh hdfs
+build-hdfs: build-hdfs-java
 
 build-sql:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh sql
@@ -238,7 +236,7 @@ helm-package: helm-lint
 
 skeleton:
 	mkdir -p .context
-	python3 scripts/generate_skeleton.py backend/common backend/hdfs backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
+	python3 scripts/generate_skeleton.py backend/common backend/sql backend/spark frontend/common/types frontend/common/api --output .context/skeleton.md
 
 skeleton-backend:
 	mkdir -p .context

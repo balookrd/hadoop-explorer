@@ -15,7 +15,7 @@ WORKDIR /app
 COPY backend/hdfs/hdfs-java/target/hdfs-explorer-java-1.0.0.jar /app/hdfs-explorer.jar
 
 # Копирование собранного Frontend SPA (Svelte 5)
-COPY frontend/apps/hdfs/dist /app/frontend/dist
+COPY backend/hdfs/hdfs-java/src/main/resources/static /app/frontend/dist
 
 # Создание непривилегированного пользователя appuser (UID 10001)
 RUN groupadd -g 10001 appuser && \

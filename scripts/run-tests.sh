@@ -31,14 +31,9 @@ run_yarn() {
 
 run_hdfs() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: HDFS Explorer (86 тестов)"
+  echo "🧪 Запуск тестов: HDFS Explorer (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  local pt
-  pt="$(find_pytest hdfs)"
-  (cd "$ROOT_DIR/backend/hdfs" && \
-   HDFS_CONFIG_PATH=config/config.yaml \
-   PYTHONPATH=".:$ROOT_DIR" \
-   $pt tests)
+  mvn test -f "$ROOT_DIR/backend/hdfs/hdfs-java/pom.xml"
 }
 
 run_sql() {
