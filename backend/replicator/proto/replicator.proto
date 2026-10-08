@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package replicator;
+
+// Сервис передачи данных между кластерами HDFS (DC1 -> DC2)
+service DataTransferService {
+  // Потоковая передача файла: первый элемент потока — метаданные, последующие — чанки байтов
+  rpc TransferFile (stream TransferFileRequest) returns (TransferFileResponse);
+}
+
+// Запрос на передачу: либо метаданные файла, либо порция данных
+message TransferFileRequest {
+  oneof payload {
+    FileMetadata metadata = 1;
+    FileChunk chunk = 2;
+  }
+}
+
+// Метаданные реплицируемого файла
+message FileMetadata {
+  string job_id = 1;                     // Идентификатор задачи
+  string source_path = 2;                // Путь к файлу в HDFS DC1
+  string target_path = 3;                // Целевой путь в HDFS DC2
+  int64 total_bytes = 4;                 // Общий размер файла в байтах
+  uint32 file_mode = 5;                  // Права доступа (POSIX permissions)
+  bool run_as_service_account = 6;       // Выполнять от системной техучетки
+  string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
+  string checksum = 8;                   // Контрольная сумма (опционально, например MD5/SHA256)
+}
+
+// Чанк бинарных данных
+message FileChunk {
+  string job_id = 1;                     // Идентификатор задачи
+  int64 offset = 2;                      // Смещение чанка от начала файла
+  bytes data = 3;                        // Бинарные данные
+  bool is_last_chunk = 4;                // Флаг последнего чанка файла
+}
+
+// Ответ приемника (Receiver) по результатам передачи
+message TransferFileResponse {
+  string job_id = 1;                     // Идентификатор задачи
+  bool success = 2;                      // Флаг успешности передачи и атомарного перемещения
+  int64 bytes_written = 3;               // Фактически записано байт
+  string message = 4;                    // Диагностическое сообщение или описание ошибки
+  string target_path = 5;                // Итоговый путь в HDFS приемника
+  string checksum = 6;                   // Вычисленная контрольная сумма записанного файла
+}

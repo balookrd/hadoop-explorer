@@ -18,19 +18,34 @@ from app.api.pipelines import router as pipelines_router
 from app.api.history import router as history_router
 from app.api.workspace import router as workspace_router
 
+import os
+import time
+
 logger = logging.getLogger("main")
 gc_task: Optional[asyncio.Task] = None
+RESULTS_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("RESULTS_CLEANUP_INTERVAL_SECONDS", "3600"))
 
 
 async def _gc_worker():
+    last_results_cleanup = time.time()
     while True:
         try:
             await asyncio.sleep(60)
             await session_manager.cleanup_idle_sessions()
+
+            now = time.time()
+            if now - last_results_cleanup >= RESULTS_CLEANUP_INTERVAL_SECONDS:
+                try:
+                    deleted = session_manager.cleanup_expired_results()
+                    if deleted > 0:
+                        logger.info(f"Фоновая периодическая очистка кэша Spark: удалено {deleted} файлов")
+                except Exception as e:
+                    logger.warning(f"Ошибка фоновой очистки кэша результатов Spark: {e}")
+                last_results_cleanup = now
         except asyncio.CancelledError:
             break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Ошибка в фоновом воркере Spark GC: {e}")
 
 
 async def on_startup():
@@ -44,6 +59,15 @@ async def on_startup():
         await session_manager.update_active_sessions_gauge()
     except Exception as e:
         logger.warning(f"Ошибка инициализации метрик Spark: {e}")
+
+    # Очистка устаревших файлов результатов при старте
+    try:
+        deleted = session_manager.cleanup_expired_results()
+        if deleted > 0:
+            logger.info(f"Очищено {deleted} устаревших файлов кэша результатов Spark при старте")
+    except Exception as e:
+        logger.warning(f"Ошибка очистки кэша результатов Spark при старте: {e}")
+
     gc_task = asyncio.create_task(_gc_worker())
 
 

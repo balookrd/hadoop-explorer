@@ -36,7 +36,9 @@ from backend.common.core.lock import distributed_lock
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = os.environ.get("DB_PATH", "data/yarn_explorer.db")
+from backend.common.core.paths import get_data_dir
+
+DEFAULT_DB_PATH = os.environ.get("DB_PATH") or str(get_data_dir() / "yarn_explorer.db")
 
 
 class StorageService(SessionStore):

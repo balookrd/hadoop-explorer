@@ -1,0 +1,94 @@
+name: hadoop-replicator-demo
+
+services:
+  # 1. Оркестратор задач и Token Bucket Throttler (FastAPI + Web UI + Prometheus)
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator
+    container_name: replicator-orchestrator
+    hostname: orchestrator
+    restart: unless-stopped
+    command: ["uvicorn", "backend.replicator.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8005"]
+    environment:
+      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "52428800" # 50 MB/s по умолчанию
+      REPLICATOR_DATABASE_URL: "sqlite:////app/data/replicator.db"
+      REPLICATOR_SERVICE_PRINCIPAL: "hdfs-replicator@REALM.LOCAL"
+    volumes:
+      - replicator-db-data:/app/data
+    ports:
+      - "8005:8005"
+    networks:
+      - replicator-net
+      - demo-platform-net
+
+  # 2. Агент DC1 (Primary ЦОД: Москва) — Полный дуплекс (Sender + Receiver)
+  agent-dc1:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator
+    container_name: replicator-agent-dc1
+    hostname: agent-dc1
+    restart: unless-stopped
+    command: ["python", "-m", "backend.replicator.agent"]
+    environment:
+      AGENT_ID: "agent-dc1"
+      AGENT_CLUSTER_ID: "demo-cluster"
+      AGENT_MODE: "all"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      RECEIVER_HOST: "0.0.0.0"
+      RECEIVER_PORT: "50051"
+      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      POLL_INTERVAL_SEC: "2.0"
+    volumes:
+      - agent-dc1-staging:/tmp/staging
+      - agent-dc1-data:/tmp/data
+    ports:
+      - "50051:50051"
+    depends_on:
+      - orchestrator
+    networks:
+      - replicator-net
+      - demo-platform-net
+
+  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург) — Полный дуплекс (Sender + Receiver)
+  agent-dc2:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator
+    container_name: replicator-agent-dc2
+    hostname: agent-dc2
+    restart: unless-stopped
+    command: ["python", "-m", "backend.replicator.agent"]
+    environment:
+      AGENT_ID: "agent-dc2"
+      AGENT_CLUSTER_ID: "backup-cluster"
+      AGENT_MODE: "all"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      RECEIVER_HOST: "0.0.0.0"
+      RECEIVER_PORT: "50051"
+      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      POLL_INTERVAL_SEC: "2.0"
+    volumes:
+      - agent-dc2-staging:/tmp/staging
+      - agent-dc2-data:/tmp/data
+    ports:
+      - "50052:50051"
+    depends_on:
+      - orchestrator
+    networks:
+      - replicator-net
+      - demo-platform-net
+
+volumes:
+  replicator-db-data:
+  agent-dc1-staging:
+  agent-dc1-data:
+  agent-dc2-staging:
+  agent-dc2-data:
+
+networks:
+  replicator-net:
+    driver: bridge
+  demo-platform-net:
+    name: demo-platform-net

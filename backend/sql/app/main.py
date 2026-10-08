@@ -7,10 +7,32 @@ from app.services.query_manager import query_manager
 from app.services.storage import storage_service
 from backend.common.api.app_factory import create_explorer_app
 
+import asyncio
+import os
+from typing import Optional
+
 logger = logging.getLogger("main")
+results_reaper_task: Optional[asyncio.Task] = None
+RESULTS_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("RESULTS_CLEANUP_INTERVAL_SECONDS", "3600"))
+
+
+async def _results_cache_reaper():
+    """Фоновый периодический процесс очистки устаревших файлов кэша результатов SQL по TTL."""
+    while True:
+        try:
+            await asyncio.sleep(RESULTS_CLEANUP_INTERVAL_SECONDS)
+            deleted = query_manager.cleanup_expired_results()
+            if deleted > 0:
+                logger.info(f"Фоновая периодическая очистка кэша результатов SQL: удалено {deleted} файлов")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Ошибка в фоновом процессе очистки кэша результатов SQL: {e}")
 
 
 async def startup_tasks() -> None:
+    global results_reaper_task
+
     # Инициализация БД
     await init_db()
 
@@ -20,7 +42,7 @@ async def startup_tasks() -> None:
     except Exception as e:
         logger.warning(f"Ошибка Crash Recovery при старте SQL Explorer: {e}")
 
-    # Очистка устаревших файлов результатов SQL-запросов (TTL rotation)
+    # Очистка устаревших файлов результатов SQL-запросов (TTL rotation) при старте
     try:
         deleted = query_manager.cleanup_expired_results()
         if deleted > 0:
@@ -28,8 +50,17 @@ async def startup_tasks() -> None:
     except Exception as e:
         logger.warning(f"Ошибка при очистке кэша результатов: {e}")
 
+    # Запуск периодического фонового сборщика устаревших файлов
+    results_reaper_task = asyncio.create_task(_results_cache_reaper())
 
-on_shutdown_hooks = []
+
+async def shutdown_tasks() -> None:
+    global results_reaper_task
+    if results_reaper_task:
+        results_reaper_task.cancel()
+
+
+on_shutdown_hooks = [shutdown_tasks]
 if hasattr(query_manager, "aclose"):
     on_shutdown_hooks.append(query_manager.aclose)
 if hasattr(storage_service, "close"):

@@ -212,13 +212,13 @@
     <!-- Mock Quick-Select Accounts -->
     {#if mockUsers && mockUsers.length > 0}
       <div class="pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-        <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Быстрый вход для демо/тестирования:</div>
+        <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Быстрый выбор тестового аккаунта (подставить):</div>
         <div class="flex flex-col gap-1.5">
           {#each mockUsers as mockUser}
             <button
               type="button"
               onclick={() => pickUser(mockUser)}
-              class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 hover:bg-sky-50/70 dark:hover:bg-sky-950/40 border border-slate-200/80 dark:border-slate-800 text-left transition cursor-pointer shadow-2xs group"
+              class="flex items-center justify-between p-2.5 rounded-xl border text-left transition cursor-pointer shadow-2xs group {username === mockUser.username ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-300 dark:border-sky-700 ring-1 ring-sky-400/40' : 'bg-slate-50 dark:bg-slate-950/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-800'}"
             >
               <div>
                 <div class="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-700 dark:group-hover:text-sky-400 transition-colors">

@@ -90,6 +90,9 @@ test-sql:
 test-spark:
 	./scripts/run-tests.sh spark
 
+test-replicator:
+	./scripts/run-tests.sh replicator
+
 test-ui:
 	./scripts/run-tests.sh frontend
 
@@ -108,6 +111,9 @@ build-sql:
 build-spark:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh spark
 
+build-replicator:
+	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh replicator
+
 frontend-install:
 	cd frontend && npm install
 
@@ -125,6 +131,11 @@ frontend-build:
 
 generate-types:
 	./scripts/generate-types.sh
+
+generate-proto:
+	./backend/replicator/scripts/generate_proto.sh
+
+proto: generate-proto
 
 demo-platform:
 	cd demo/platform && ./start-platform.sh
@@ -155,6 +166,12 @@ demo-spark:
 
 demo-spark-stop:
 	cd demo/spark && ./stop-demo.sh
+
+demo-replicator:
+	cd demo/replicator && ./start-demo.sh
+
+demo-replicator-stop:
+	cd demo/replicator && ./stop-demo.sh
 
 demo-monitoring:
 	cd demo/monitoring && ./start-monitoring.sh

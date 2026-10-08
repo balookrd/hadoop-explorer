@@ -20,7 +20,9 @@ from app.services.mock_engine import MockExecutionEngine
 
 logger = logging.getLogger("query_manager")
 
-RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/results"))
+from backend.common.core.paths import get_data_dir
+
+RESULTS_DIR = str(get_data_dir() / "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 

@@ -6,7 +6,7 @@
 
 ## 1. Карта репозитория (Architecture Map)
 
-Hadoop Explorer Platform — монорепозиторий с 4 независимыми сервисами и общим ядром безопасности.
+Hadoop Explorer Platform — монорепозиторий с 5 независимыми сервисами и общим ядром безопасности.
 
 ```
 hadoop-explorer/
@@ -15,13 +15,14 @@ hadoop-explorer/
 │   ├── yarn/                 # YARN Explorer API (Capacity Scheduler, RM HA)
 │   ├── hdfs/                 # HDFS Explorer API (WebHDFS, Kerberos)
 │   ├── sql/                  # SQL Explorer API (Trino, Hive Metastore)
-│   └── spark/                # Spark Explorer API (Livy, PySpark, Scala)
+│   ├── spark/                # Spark Explorer API (Livy, PySpark, Scala)
+│   └── replicator/           # Hadoop gRPC Replicator API & Daemons (Token Bucket, gRPC, Kerberos)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
 │   ├── common/               # Общие типы (types/generated), API клиенты, UI компоненты
-│   └── apps/                 # SPA приложения: yarn, hdfs, sql, spark
-├── data/                     # ⚠️ ВНИМАНИЕ: Локальные SQLite БД (spark_explorer.db, sql_explorer.db, yarn_explorer.db)
+│   └── apps/                 # SPA приложения: yarn, hdfs, sql, spark, replicator
+├── data/                     # ⚠️ ВНИМАНИЕ: Локальные SQLite БД (spark_explorer.db, sql_explorer.db, yarn_explorer.db, replicator.db)
 ├── scripts/                  # Утилиты автоматизации (build, tests, types, AST skeletonizer)
-├── demo/                     # Docker Compose демо-стенды (all, yarn, hdfs, sql, spark, monitoring)
+├── demo/                     # Docker Compose демо-стенды (all, yarn, hdfs, sql, spark, replicator, monitoring)
 └── docs/                     # Архитектурная документация на русском языке (ARCHITECTURE.md)
 ```
 

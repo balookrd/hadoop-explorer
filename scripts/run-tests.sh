@@ -70,6 +70,17 @@ run_spark() {
    $pt tests)
 }
 
+run_replicator() {
+  echo "=========================================="
+  echo "🧪 Запуск тестов: Replicator (5 тестов)"
+  echo "=========================================="
+  local pt
+  pt="$(find_pytest replicator)"
+  (cd "$ROOT_DIR/backend/replicator" && \
+   PYTHONPATH=".:$ROOT_DIR" \
+   $pt tests)
+}
+
 run_frontend() {
   echo "=========================================="
   echo "🧪 Запуск тестов: Frontend Static Check & UI Suite (23 теста)"
@@ -93,19 +104,23 @@ case "$APP" in
   spark)
     run_spark
     ;;
+  replicator)
+    run_replicator
+    ;;
   all)
     run_frontend
     run_yarn
     run_hdfs
     run_sql
     run_spark
+    run_replicator
     echo ""
     echo "========================================================"
     echo "🎉 ВСЕ ТЕСТЫ ПЛАТФОРМЫ HADOOP EXPLORER ПРОЙДЕНЫ УСПЕШНО!"
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|hdfs|spark|sql|yarn]"
+    echo "Использование: $0 [all|frontend|hdfs|spark|sql|yarn|replicator]"
     exit 1
     ;;
 esac

@@ -1,0 +1,503 @@
+# 🛠️ Руководство администратора: YARN Explorer
+
+Данный документ содержит полное руководство для инженеров **DevOps / SRE / системных администраторов** по установке, настройке, промышленному развертыванию и эксплуатации сервиса **YARN Explorer** в трех режимах:
+1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
+2. **Docker & Docker Compose** (Контейнеризированный запуск)
+3. **Kubernetes** (Промышленное развертывание через Helm-чарт и сырые манифесты)
+
+---
+
+## 1. Архитектура и требования
+
+### 1.1 Назначение сервиса
+**YARN Explorer** — компонент платформы Hadoop Explorer, обеспечивающий:
+- Интерактивное визуальное управление очередями **Capacity Scheduler** (балансировка долей гарантированных и максимальных ресурсов, дочерние очереди).
+- Многокластерный мониторинг приложений YARN в режиме реального времени.
+- Автоматический **Failover при High Availability (RM HA)** между активным и резервным ResourceManager.
+- Процесс согласования изменений **Change Requests (принцип Four-Eyes)** с аудитом.
+- Автоматизированную доставку и применение `capacity-scheduler.xml` на кластер через **Ansible AWX / Tower API**.
+- Корпоративную аутентификацию по протоколам **LDAP / Active Directory** и **Kerberos SPNEGO SSO**.
+
+### 1.2 Сетевые порты и эндпоинты
+| Порт | Протокол | Направление | Назначение |
+|---|---|---|---|
+| `8000` (или `8001`) | HTTP/HTTPS | Inbound | Веб-интерфейс SPA (Svelte 5) и REST API |
+| `8088` / `8090` | HTTP/HTTPS | Outbound | YARN ResourceManager REST API (Active/Standby) |
+| `80` / `443` | HTTP/HTTPS | Outbound | Ansible AWX / Tower REST API |
+| `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Сервер каталогов корпоративной аутентификации |
+| `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
+
+- **Диагностика доступности (Healthcheck)**: `GET /healthz` (возвращает статус базы данных и компонентов).
+- **Метрики Prometheus**: `GET /metrics` (экспорт золотых сигналов HTTP, Circuit Breaker и счетчиков).
+
+### 1.3 Системные требования
+- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12).
+- **Среда выполнения**:
+  - Python: `3.11` – `3.14` (для Standalone)
+  - Node.js: `20+` / `22 LTS` (только для локальной сборки фронтенда из исходников)
+- **Системные библиотеки**: `libkrb5-dev` (`krb5-devel`), `libsasl2-dev` (`cyrus-sasl-devel`), `krb5-user` (`krb5-workstation`), `curl`.
+- **Ресурсы (минимальные / рекомендуемые на реплику)**:
+  - CPU: `1 ядро` (рек. `2 ядра`)
+  - RAM: `1 ГБ` (рек. `2 ГБ`)
+  - Диск: `10 ГБ` для логов и локальной БД SQLite (при PostgreSQL диск минимален).
+
+---
+
+## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
+
+Развертывание на выделенном сервере или ВМ без использования Docker.
+
+### Шаг 1: Установка системных зависимостей
+
+**Ubuntu / Debian**:
+```bash
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+    build-essential python3 python3-venv python3-dev \
+    libkrb5-dev libsasl2-dev krb5-user ldap-utils curl git
+```
+
+**RHEL / Rocky Linux / AlmaLinux**:
+```bash
+sudo dnf install -y gcc python3 python3-devel \
+    krb5-devel cyrus-sasl-devel krb5-workstation openldap-clients curl git
+```
+
+### Шаг 2: Создание пользователя и структуры каталогов
+```bash
+# Создание непривилегированного пользователя appuser
+sudo groupadd -g 10001 appuser
+sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
+
+# Создание каталогов сервиса
+sudo mkdir -p /opt/hadoop-explorer/yarn
+sudo mkdir -p /etc/hadoop-explorer/yarn
+sudo mkdir -p /var/log/hadoop-explorer
+sudo mkdir -p /var/lib/hadoop-explorer/yarn/data
+sudo mkdir -p /etc/security/keytabs
+
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/yarn
+```
+
+### Шаг 3: Размещение кода и виртуального окружения
+```bash
+# Переключение на пользователя сервиса
+sudo -u appuser -i
+
+cd /opt/hadoop-explorer/yarn
+# Клонирование репозитория либо копирование дистрибутива
+git clone https://github.com/company/hadoop-explorer.git .
+
+# Создание виртуального окружения Python
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Установка зависимостей через uv или pip
+pip install --upgrade pip
+pip install -e backend/common -e backend/yarn
+
+# Сборка фронтенда (если не используется готовый dist)
+cd frontend
+npm ci --workspace=apps/yarn --include-workspace-root
+npm run build --workspace=apps/yarn
+cd ..
+```
+
+### Шаг 4: Настройка конфигурационного файла
+Создайте файл `/etc/hadoop-explorer/yarn/config.yaml`:
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  secure_cookies: true
+  cors_origins:
+    - "https://yarn.company.local"
+
+security:
+  secret_key: "GENERATE_SECURE_KEY_AT_LEAST_32_CHARACTERS_LONG"
+  algorithm: "HS256"
+  access_token_expire_minutes: 480
+  cookie_name: "yarn_explorer_session"
+
+# База данных сессий, заявок и аудита
+# Для 1 реплики допустим SQLite, для продакшна рекомендуется PostgreSQL:
+# url: "postgresql://yarn_user:StrongPass123@pg-cluster.company.local:5432/yarn_explorer"
+database:
+  url: "sqlite:////var/lib/hadoop-explorer/yarn/data/yarn_explorer.db"
+
+# Аутентификация LDAP / Active Directory
+auth:
+  ldap:
+    enabled: true
+    server_uri: "ldaps://ldap.company.local:636"
+    bind_dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
+    bind_password: "SecureServicePassword"
+    user_search_base: "ou=users,dc=company,dc=local"
+    user_search_filter: "(sAMAccountName={username})"
+    group_search_base: "ou=groups,dc=company,dc=local"
+    group_search_filter: "(member={user_dn})"
+    admin_group: "cn=hadoop-admins,ou=groups,dc=company,dc=local"
+
+  # Kerberos SPNEGO SSO для браузерного входа
+  kerberos:
+    enabled: true
+    keytab_path: "/etc/security/keytabs/yarn-explorer.keytab"
+    service_principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
+
+# Подключение к кластерам YARN ResourceManager (HA)
+yarn:
+  clusters:
+    - id: "prod-cluster"
+      name: "Production DataLake"
+      active_rm_url: "http://rm01.prod.company.local:8088"
+      standby_rm_url: "http://rm02.prod.company.local:8088"
+      kerberos_enabled: true
+      keytab_path: "/etc/security/keytabs/yarn-client.keytab"
+      principal: "yarn-client@COMPANY.LOCAL"
+      timeout_seconds: 5
+
+# Интеграция с Ansible AWX для раскатки capacity-scheduler.xml
+awx:
+  enabled: true
+  url: "https://awx.company.local"
+  token: "AWX_OAUTH2_APPLICATION_TOKEN"
+  job_template_id: 42
+  verify_ssl: true
+  inventory_id: 5
+```
+
+Установите строгие права доступа к файлу:
+```bash
+sudo chmod 600 /etc/hadoop-explorer/yarn/config.yaml
+sudo chown appuser:appuser /etc/hadoop-explorer/yarn/config.yaml
+```
+
+### Шаг 5: Создание systemd сервиса
+Создайте файл `/etc/systemd/system/yarn-explorer.service`:
+```ini
+[Unit]
+Description=Hadoop YARN Explorer Web Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=appuser
+Group=appuser
+WorkingDirectory=/opt/hadoop-explorer/yarn
+Environment="PYTHONPATH=/opt/hadoop-explorer/yarn:/opt/hadoop-explorer/yarn/backend/common:/opt/hadoop-explorer/yarn/backend/yarn"
+Environment="CONFIG_PATH=/etc/hadoop-explorer/yarn/config.yaml"
+Environment="FRONTEND_DIST=/opt/hadoop-explorer/yarn/frontend/apps/yarn/dist"
+Environment="KRB5_CONFIG=/etc/krb5.conf"
+Environment="WEB_CONCURRENCY=2"
+
+ExecStart=/opt/hadoop-explorer/yarn/.venv/bin/uvicorn app.main:app \
+    --app-dir backend/yarn \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info
+
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Шаг 6: Запуск и проверка
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable yarn-explorer
+sudo systemctl start yarn-explorer
+
+# Проверка статуса
+sudo systemctl status yarn-explorer
+
+# Проверка healthcheck эндпоинта
+curl -I http://127.0.0.1:8000/healthz
+# HTTP/1.1 200 OK
+
+# Просмотр логов в реальном времени
+journalctl -u yarn-explorer -f
+```
+
+---
+
+## 3. Режим 2: Docker & Docker Compose
+
+### 3.1 Сборка Docker-образа
+Сборка выполняется из корня монорепозитория:
+```bash
+docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn .
+```
+
+### 3.2 Автономный запуск одного контейнера (`docker run`)
+```bash
+docker run -d \
+  --name yarn-explorer \
+  --restart unless-stopped \
+  -p 8001:8000 \
+  -e CONFIG_PATH=/app/config/config.yaml \
+  -e JWT_SECRET_KEY="VerySecretKeyForTokensAtLeast32Chars" \
+  -e KRB5_CONFIG=/etc/krb5.conf \
+  -v /opt/yarn-explorer/config.yaml:/app/config/config.yaml:ro \
+  -v /etc/krb5.conf:/etc/krb5.conf:ro \
+  -v /etc/security/keytabs:/etc/security/keytabs:ro \
+  -v yarn-data:/app/data \
+  hadoop-explorer/yarn:latest
+```
+
+### 3.3 Промышленный запуск через `docker-compose.yml`
+Создайте директорию `/opt/yarn-docker/` со следующим `docker-compose.yml`:
+```yaml
+version: "3.8"
+
+services:
+  yarn-explorer:
+    image: hadoop-explorer/yarn:latest
+    container_name: yarn-explorer
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - APP_NAME=yarn
+      - WEB_CONCURRENCY=2
+      - CONFIG_PATH=/app/config/config.yaml
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
+      - AWX_TOKEN=${AWX_TOKEN}
+      - KRB5_KEYTAB=/etc/security/keytabs/yarn-explorer.keytab
+      - KRB5_PRINCIPAL=HTTP/yarn.company.local@COMPANY.LOCAL
+    volumes:
+      - ./config.yaml:/app/config/config.yaml:ro
+      - /etc/krb5.conf:/etc/krb5.conf:ro
+      - /etc/security/keytabs/yarn-explorer.keytab:/etc/security/keytabs/yarn-explorer.keytab:ro
+      - yarn-storage:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - hadoop-net
+
+volumes:
+  yarn-storage:
+    driver: local
+
+networks:
+  hadoop-net:
+    driver: bridge
+```
+
+Файл окружения `.env`:
+```bash
+JWT_SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+LDAP_BIND_PASSWORD=SuperSecretLdapPass
+AWX_TOKEN=VeryLongSecretAwxOAuthToken
+```
+
+Запуск и мониторинг:
+```bash
+docker compose up -d
+docker compose ps
+docker compose logs -f yarn-explorer
+```
+
+---
+
+## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
+
+### 4.1 Развертывание через официальный Helm-чарт
+В репозитории подготовлен чарт [`helm/charts/yarn-explorer`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/helm/charts/yarn-explorer).
+
+#### Шаг 1: Подготовка секретов Kubernetes
+```bash
+kubectl create namespace hadoop-explorer
+
+# Создание секрета с паролями и токенами
+kubectl create secret generic yarn-explorer-secrets \
+  --namespace hadoop-explorer \
+  --from-literal=jwt-secret-key="Min32CharSecretKeyForJWTTokens12345" \
+  --from-literal=ldap-bind-password="SecretLdapPassword" \
+  --from-literal=awx-token="SecretAwxOAuthToken"
+
+# Создание секрета с Kerberos Keytab
+kubectl create secret generic yarn-kerberos-keytab \
+  --namespace hadoop-explorer \
+  --from-file=yarn-explorer.keytab=/etc/security/keytabs/yarn-explorer.keytab
+
+# Создание ConfigMap с krb5.conf
+kubectl create configmap krb5-config \
+  --namespace hadoop-explorer \
+  --from-file=krb5.conf=/etc/krb5.conf
+```
+
+#### Шаг 2: Файл параметров `custom-values.yaml`
+```yaml
+# Количество реплик. При внешней PostgreSQL БД можно масштабировать до 2-5 реплик.
+replicaCount: 2
+
+image:
+  repository: registry.company.local/hadoop-explorer/yarn
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+extraEnv:
+  - name: JWT_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: yarn-explorer-secrets
+        key: jwt-secret-key
+  - name: LDAP_BIND_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: yarn-explorer-secrets
+        key: ldap-bind-password
+  - name: AWX_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: yarn-explorer-secrets
+        key: awx-token
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-corp"
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+  hosts:
+    - host: yarn.company.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: yarn-tls-cert
+      hosts:
+        - yarn.company.local
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Монтирование Kerberos Keytab и krb5.conf
+extraVolumes:
+  - name: keytab-vol
+    secret:
+      secretName: yarn-kerberos-keytab
+      defaultMode: 0400
+  - name: krb5-vol
+    configMap:
+      name: krb5-config
+
+extraVolumeMounts:
+  - name: keytab-vol
+    mountPath: /etc/security/keytabs
+    readOnly: true
+  - name: krb5-vol
+    mountPath: /etc/krb5.conf
+    subPath: krb5.conf
+    readOnly: true
+
+# Внешняя БД PostgreSQL для сессий и заявок в режиме High Availability
+config:
+  database:
+    url: "postgresql://yarn_user:DbPass123@postgres-ha.database.svc.cluster.local:5432/yarn_explorer"
+
+  yarn:
+    clusters:
+      - id: "prod-yarn"
+        name: "Hadoop Production"
+        active_rm_url: "http://rm01.hadoop.company.local:8088"
+        standby_rm_url: "http://rm02.hadoop.company.local:8088"
+        kerberos_enabled: true
+        principal: "yarn/yarn.company.local@COMPANY.LOCAL"
+
+podDisruptionBudget:
+  minAvailable: 1
+```
+
+#### Шаг 3: Установка и обновление через Helm
+```bash
+# Установка чарта
+helm upgrade --install yarn-explorer ./helm/charts/yarn-explorer \
+  --namespace hadoop-explorer \
+  -f custom-values.yaml
+
+# Проверка статуса подов
+kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer
+
+# Просмотр логов
+kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
+```
+
+---
+
+## 5. Мониторинг, Аудит и Troubleshooting
+
+### 5.1 Метрики Prometheus
+Эндпоинт `/metrics` экспортирует следующие метрики:
+- `http_requests_total{app="yarn", method="GET", status="200"}`
+- `http_request_duration_seconds{app="yarn", ...}`
+- `hadoop_circuit_breaker_state{name="yarn_rm"}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
+- `hadoop_circuit_breaker_calls_total{name="yarn_rm", status="success|failed"}`
+- `yarn_change_requests_total{status="pending|approved|rejected|applied"}`
+
+**Пример Prometheus Scrape Config**:
+```yaml
+- job_name: 'yarn-explorer'
+  metrics_path: '/metrics'
+  static_configs:
+    - targets: ['yarn.company.local:8000']
+```
+
+### 5.2 Решение типичных инцидентов (FAQ)
+
+| Симптом / Ошибка | Возможная причина | Решение |
+|---|---|---|
+| `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверить состояние RM HA: сервис автоматически переключится на standby. Проверьте `active_rm_url` и `standby_rm_url` в конфиге. |
+| `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверить права доступа (`chmod 400`), соответствие principal и наличие файла `kinit -kt /path/to.keytab principal@REALM`. |
+| `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверить пароль сервисной учетной записи через `ldapsearch -H ldaps://... -D "..." -W`. |
+| `Database is locked (sqlite3.OperationalError)` | Несколько воркеров/подов пишут в один SQLite | При масштабировании на 2+ реплики обязательно переключите `database.url` на **PostgreSQL**. |
+| `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `AWX_TOKEN` в секретах. |
+
+---
+
+## 6. Резервное копирование и восстановление (Disaster Recovery)
+
+- **Конфигурация**: Рекомендуется хранить все `values.yaml` и `config.yaml` в Git-репозитории инфраструктуры (GitOps / ArgoCD / Flux).
+- **База данных PostgreSQL**:
+  ```bash
+  # Создание резервной копии
+  pg_dump -h pg-host -U yarn_user yarn_explorer > yarn_explorer_backup_$(date +%F).sql
+
+  # Восстановление
+  psql -h pg-host -U yarn_user yarn_explorer < yarn_explorer_backup_2026-10-08.sql
+  ```
+- **Локальная SQLite (Standalone)**:
+  ```bash
+  sqlite3 /var/lib/hadoop-explorer/yarn/data/yarn_explorer.db ".backup '/backup/yarn_explorer_$(date +%F).db'"
+  ```

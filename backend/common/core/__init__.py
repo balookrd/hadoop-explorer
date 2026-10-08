@@ -47,8 +47,16 @@ from backend.common.core.tracing import (
     get_current_span_id,
     Span,
 )
+from backend.common.core.paths import (
+    get_repo_root,
+    get_data_dir,
+    resolve_db_url,
+)
 
 __all__ = [
+    "get_repo_root",
+    "get_data_dir",
+    "resolve_db_url",
     "hash_token",
     "verify_csrf",
     "extract_token_from_request",

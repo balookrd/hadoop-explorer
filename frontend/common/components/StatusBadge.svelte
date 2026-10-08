@@ -15,6 +15,8 @@
     info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     running: 'bg-sky-500/10 text-sky-400 border-sky-500/20 animate-pulse',
     queued: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    scheduled: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+    cancelled: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
   };
 
   const badgeClass = $derived(

@@ -18,3 +18,15 @@ scrape_configs:
           - 'spark-explorer:8000'
         labels:
           env: 'demo'
+
+  - job_name: 'hadoop-replicator'
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'replicator-orchestrator:8005'
+          - 'host.docker.internal:8005'
+        labels:
+          app: 'replicator'
+          env: 'demo'

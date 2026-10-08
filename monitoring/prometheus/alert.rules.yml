@@ -54,3 +54,31 @@ groups:
         annotations:
           summary: "Высокая доля ошибок операций HDFS на кластере {{ $labels.cluster }}"
           description: "Более 10% операций с файлами HDFS на кластере {{ $labels.cluster }} завершаются ошибками."
+
+      - alert: ReplicationHighThrottlingDelay
+        expr: rate(throttling_delay_seconds_total[2m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая задержка шейпера полосы в Hadoop gRPC Replicator"
+          description: "Воркеры ожидают квоты более 5 секунд в секунду из-за достижения лимита полосы WAN или ЦОД."
+
+      - alert: ReplicationJobsHighFailureRate
+        expr: (sum(rate(replication_jobs_total{status="FAILED"}[5m])) / sum(rate(replication_jobs_total[5m]))) > 0.10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Высокая доля сбоев задач репликации"
+          description: "Более 10% задач репликации завершаются со статусом FAILED."
+
+      - alert: ReplicationWorkerStarvation
+        expr: active_workers == 0 and sum(replication_jobs_total{status=~"RUNNING|QUEUED"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Отсутствуют активные воркеры при наличии задач репликации"
+          description: "В очереди находятся задачи репликации, но ни один воркер gRPC не выполняет передачу."
+

@@ -2,7 +2,9 @@ from __future__ import annotations
 import os
 import yaml
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from backend.common.core.paths import resolve_db_url
 
 
 class MockUser(BaseModel):
@@ -104,7 +106,26 @@ class ServerConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    url: str = "sqlite+aiosqlite:///./data/sql_explorer.db"
+    url: str = Field(
+        default_factory=lambda: resolve_db_url("sql_explorer.db", async_driver=True, env_var="SQL_DATABASE_URL")
+    )
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def normalize_db_url(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.startswith("sqlite"):
+            if ":memory:" in v:
+                return v
+            for marker in (
+                "sqlite+aiosqlite:///./data/",
+                "sqlite+aiosqlite:///data/",
+                "sqlite:///./data/",
+                "sqlite:///data/",
+            ):
+                if v.startswith(marker):
+                    db_name = v[len(marker) :]
+                    return resolve_db_url(db_name, async_driver=True, env_var="SQL_DATABASE_URL")
+        return v
 
 
 class AppConfig(BaseModel):

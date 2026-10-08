@@ -21,7 +21,9 @@ from app.services.mock_spark import mock_spark_engine
 
 logger = logging.getLogger("spark_session_manager")
 
-RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/results"))
+from backend.common.core.paths import get_data_dir
+
+RESULTS_DIR = str(get_data_dir() / "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
@@ -896,6 +898,40 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Ошибка Crash Recovery задач Spark: {e}")
             return 0
+
+    def cleanup_expired_results(self, ttl_seconds: Optional[int] = None) -> int:
+        """
+        Удаляет устаревшие файлы кэша результатов ({execution_id}.json.gz) из RESULTS_DIR по TTL.
+        По умолчанию использует переменную RESULTS_TTL_SECONDS или 7 дней (7 * 86400).
+        Возвращает количество удаленных файлов.
+        """
+        if ttl_seconds is None:
+            ttl_seconds = int(os.environ.get("RESULTS_TTL_SECONDS", str(7 * 86400)))
+
+        if not os.path.exists(RESULTS_DIR):
+            return 0
+
+        now = time.time()
+        deleted_count = 0
+        try:
+            for fname in os.listdir(RESULTS_DIR):
+                if fname.endswith(".json.gz"):
+                    fpath = os.path.join(RESULTS_DIR, fname)
+                    if os.path.isfile(fpath):
+                        try:
+                            mtime = os.path.getmtime(fpath)
+                            if (now - mtime) > ttl_seconds:
+                                os.remove(fpath)
+                                deleted_count += 1
+                                logger.info(
+                                    f"Удален устаревший файл результатов Spark: {fname} (возраст: {int(now - mtime)}с, TTL: {ttl_seconds}с)"
+                                )
+                        except OSError as e:
+                            logger.warning(f"Не удалось удалить файл результатов {fname}: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при очистке устаревших результатов Spark: {e}")
+
+        return deleted_count
 
 
 session_manager = SessionManager()

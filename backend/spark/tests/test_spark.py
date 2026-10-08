@@ -382,3 +382,40 @@ async def test_session_with_custom_python_venv(client: AsyncClient):
     assert sess_rec2 is not None
     assert sess_rec2.spark_conf["spark.pyspark.python"] == "./environment/bin/python"
     assert sess_rec2.spark_conf["spark.pyspark.driver.python"] == "./environment/bin/python"
+
+
+@pytest.mark.asyncio
+async def test_spark_results_ttl_cleanup(tmp_path, monkeypatch):
+    """Проверка очистки устаревших файлов кэша результатов Spark statements по TTL."""
+    import os
+    import time
+    from app.services.session_manager import SessionManager
+    import app.services.session_manager as sm_module
+
+    test_results_dir = str(tmp_path / "results")
+    os.makedirs(test_results_dir, exist_ok=True)
+    monkeypatch.setattr(sm_module, "RESULTS_DIR", test_results_dir)
+
+    sm = SessionManager()
+
+    # Сохраняем два результата: свежий и устаревший
+    await sm._save_result_to_disk("stmt-fresh", [{"name": "col1", "type": "string"}], [["val1"]])
+    await sm._save_result_to_disk("stmt-old", [{"name": "col1", "type": "string"}], [["val2"]])
+
+    fresh_file = os.path.join(test_results_dir, "stmt-fresh.json.gz")
+    old_file = os.path.join(test_results_dir, "stmt-old.json.gz")
+
+    assert os.path.exists(fresh_file)
+    assert os.path.exists(old_file)
+
+    # Искусственно состариваем stmt-old на 10 дней
+    ten_days_ago = time.time() - (10 * 86400)
+    os.utime(old_file, (ten_days_ago, ten_days_ago))
+
+    # Запускаем очистку с TTL 7 дней (604800 сек)
+    deleted = sm.cleanup_expired_results(ttl_seconds=7 * 86400)
+    assert deleted == 1
+
+    # Проверяем: старый файл удален, свежий остался
+    assert not os.path.exists(old_file)
+    assert os.path.exists(fresh_file)

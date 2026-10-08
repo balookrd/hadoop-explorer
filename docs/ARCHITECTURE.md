@@ -1,10 +1,11 @@
 # 🏛️ Архитектура платформы Hadoop Explorer Platform
 
-**Hadoop Explorer Platform** — это масштабируемая корпоративная веб-платформа для интерактивной работы, мониторинга и администрирования экосистемы Apache Hadoop, объединяющая в рамках согласованного монорепозитория четыре ключевых инструмента:
+**Hadoop Explorer Platform** — это масштабируемая корпоративная веб-платформа для интерактивной работы, мониторинга и администрирования экосистемы Apache Hadoop, объединяющая в рамках согласованного монорепозитория пять ключевых инструментов:
 1. **YARN Explorer** — консоль администрирования очередей и планирования ресурсов Capacity Scheduler.
 2. **HDFS Explorer** — распределенный файловый менеджер.
 3. **SQL Explorer** — редактор распределенных аналитических запросов к Trino и Hive с поддержкой ИИ.
 4. **Spark Explorer** — веб-студия аналитики и интерактивных вычислений (PySpark, Scala Spark, Spark SQL).
+5. **Hadoop gRPC Replicator** — высокопроизводительная система межкластерной репликации HDFS (DC1 → DC2) с глобальным контролем полосы пропускания (Token Bucket), атомарным rename, Snapshot Diff и Kerberos-изоляцией.
 
 ---
 
@@ -24,22 +25,22 @@
                       ┌──────────────────────────────────────────────┐
                       │             Веб-браузер клиента              │
                       │  (YARN :8001 / HDFS :8002 / SQL :8003 /      │
-                      │               Spark :8004)                   │
+                      │        Spark :8004 / Replicator :8005)       │
                       └──────────────────────┬───────────────────────┘
                                              │ HTTP / SPNEGO / Cookies
                                              ▼
                       ┌──────────────────────────────────────────────┐
                       │    Reverse Proxy / Ingress / API Gateway     │
                       └──────┬──────────┬──────────┬──────────┬──────┘
-                             │          │          │          │
-         ┌───────────────────┘          │          │          └───────────────────┐
-         ▼                              ▼          ▼                              ▼
-┌──────────────────┐           ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│  YARN Explorer   │           │  HDFS Explorer   │  │   SQL Explorer   │  │  Spark Explorer  │
-│ (FastAPI: 8000)  │           │ (FastAPI: 8000)  │  │ (FastAPI: 8000)  │  │ (FastAPI: 8000)  │
-└────────┬─────────┘           └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
-         │                              │                     │                     │
-         └──────────────────────────────┼─────────────────────┼─────────────────────┘
+                             │          │          │          │          │
+         ┌───────────────────┘          │          │          │          └───────────────────┐
+         ▼                              ▼          ▼          ▼                              ▼
+┌──────────────────┐           ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────────┐
+│  YARN Explorer   │           │  HDFS Explorer   │  │   SQL Explorer   │  │  Spark Explorer  │  │  gRPC Replicator      │
+│ (FastAPI: 8000)  │           │ (FastAPI: 8000)  │  │ (FastAPI: 8000)  │  │ (FastAPI: 8000)  │  │ (Orchestrator: 8005)  │
+└────────┬─────────┘           └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  └───────────┬───────────┘
+         │                              │                     │                     │                        │
+         └──────────────────────────────┼─────────────────────┼─────────────────────┼────────────────────────┘
                                         │
                                         ▼
                    ┌──────────────────────────────────────────────┐
@@ -214,7 +215,41 @@
 - **Изоляция буферов результатов**: в рамках каждой вкладки раздельно сохраняются буферы кода (`codeBuffers`) и буферы результатов (`resultBuffers`). При переключении языков результаты вычислений не теряются и не перемешиваются.
 - **Синхронизация воркспейса**: сохранение вкладок и состояния в БД (`SparkUserWorkspace`).
 
-### 5.5 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)
+### 5.5 Hadoop gRPC Replicator
+- **Назначение**: высокоскоростная межкластерная репликация данных между географически распределенными HDFS-кластерами (DC1 → DC2 → DC3) с защитой сетевого периметра и многоуровневым контролем полосы пропускания.
+- **Топология дата-центров (DC) и кластеров HDFS**:
+  - Декларативная карта площадок (на стенде: 2 ЦОД — Москва и Санкт-Петербург) и привязка каждого HDFS-кластера к конкретному ЦОД (в DC1 два кластера, в DC2 один кластер). Подробнее см. [Руководство по конфигурации](CONFIGURATION.md#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling).
+  - Сетевые лимиты на трех уровнях:
+    1. **DC-DC WAN Limits**: ограничение межЦОДных магистральных каналов (`DC1 ➔ DC2`: 100 МБ/с).
+    2. **HDFS-HDFS Limits**: выделенные квоты между парами кластеров (`demo ➔ backup`: 60 МБ/с, `analytics ➔ backup`: 40 МБ/с, внутри DC1: 80 МБ/с).
+    3. **Global WAN Cap**: общий пул пропускной способности всей инфраструктуры (120 МБ/с).
+- **Многоуровневый Token Bucket Throttling (Hierarchical Token Bucket)**:
+  - Асинхронный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator/throttler.py`).
+  - При запросе передачи чанка проверяются все применимые бакеты, а задержка воркера вычисляется по узкому горлышку: `max(wait_global, wait_dc_dc, wait_hdfs_hdfs)`.
+  - Возможность динамического изменения любых лимитов в реальном времени через REST API и веб-консоль.
+- **gRPC Транспорт (DC1 Worker → DC2 Receiver)**:
+  - Бинарный потоковый контракт Protobuf (`replicator.proto` -> `DataTransferService.TransferFile`).
+  - Потоковая передача чанками фиксированного размера (по умолчанию 4 МБ) со сквозным вычислением контрольной суммы SHA-256.
+  - Атомарность фиксации (Commit/Rename): Receiver принимает данные во временную staging-директорию и атомарно перемещает в целевой путь только после завершения потока и совпадения контрольной суммы.
+- **Аутентификация и ролевая модель (RBAC)**:
+  - Поддержка Kerberos SPNEGO SSO, LDAP и тестовых профилей (`admin_user`, `de_user`, `analyst_user`).
+  - **Администратор (`admin_user`)**: видит и управляет всеми задачами репликации всех пользователей организации.
+  - **Пользователь (`USER`)**: видит только свои персональные задачи (`created_by == current_user.username`) и системные фоновые процессы.
+- **Шедулер задач (Cron Scheduler)**:
+  - Фоновый планировщик (`run_scheduler_daemon`) для периодической синхронизации по расписанию (`@every_5m`, `@hourly`, `@daily`, custom cron).
+  - Автоматический расчет времени следующего запуска `next_run_at`.
+- **Инкрементальная синхронизация (HDFS Snapshot Diff)**:
+  - Встроенный парсер вывода команды `hdfs dfs -snapshotDiff <path> <snap1> <snap2>` (`orchestrator/snapshot.py`).
+  - Автоматическая генерация гранулярных подзадач (`ADD`, `MODIFY`, `DELETE`, `RENAME`) для изменившихся файлов.
+- **Безопасность и Kerberos-изоляция**:
+  - Менеджер контекста `KerberosContextManager`: динамическая генерация уникального пути кэша тикетов `/tmp/krb5cc_repl_{uuid}`, вызов `kinit` и изоляция переменной окружения `KRB5CCNAME`.
+  - **Поддержка техучетки**: опциональный или дефолтный запуск долгих фоновых репликаций от системной техучетки (`hdfs-replicator@REALM.LOCAL`), независимый от срока жизни тикета залогиненного пользователя.
+- **Мониторинг, Web UI и Управление задачами**:
+  - Экспорт метрик Prometheus (`replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`) на `/metrics`.
+  - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer (`index.html`) с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
+  - Полнофункциональное управление задачами (REST API и Web UI): запуск/перезапуск (`POST /jobs/{id}/start`), остановка/отмена (`POST /jobs/{id}/stop`), редактирование параметров на лету (`PUT /jobs/{id}`) и удаление (`DELETE /jobs/{id}`) с каскадной очисткой подзадач.
+
+### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)
 Клиентская часть всех приложений построена на базе Svelte 5 с использованием системы реактивности Runes (`$state`, `$derived`, `$effect`):
 - **Виртуализация списков (Virtual Windowing)**:
   - Компонент `FileList.svelte` в HDFS Explorer реализует легковесную виртуализацию с высотой строки `ROW_HEIGHT = 37px` и запасом рендеринга `OVERSCAN = 12`.
@@ -280,6 +315,15 @@
 - Строгая топологическая валидация DAG по алгоритму Кана (Kahn's Algorithm) для гарантированного исключения циклических зависимостей (ошибка `422 Unprocessable Content`).
 - Асинхронное исполнение узлов и пошаговый мониторинг статусов выполнения в реальном времени.
 
+### 4.7 Дисковый кэш аналитических результатов и автоматическая ротация по TTL (`data/results/`)
+Для снижения нагрузки на кластерные движки (Trino, Hive, Livy) результаты выполнения запросов сохраняются в сжатом виде (gzip JSON: `{id}.json.gz`) в единой корневой директории `data/results/`:
+- **SQL Explorer**: кэширует выборки строк и схемы колонок для мгновенной пагинации, переключения вкладок редактора и экспорта в CSV/JSON.
+- **Spark Explorer**: кэширует спарсенные табличные результаты вычислений statements в сессиях Livy.
+- **Автоматическая ротация (TTL Cleanup)**:
+  - Оба сервиса реализуют метод `cleanup_expired_results()`, анализирующий время последней модификации файлов (`mtime`).
+  - Файлы старше `RESULTS_TTL_SECONDS` (по умолчанию 7 дней / `604800` с) автоматически удаляются.
+  - Очистка выполняется как при старте сервисов, так и в периодических фоновых воркерах с настраиваемым интервалом `RESULTS_CLEANUP_INTERVAL_SECONDS` (по умолчанию 1 час / `3600` с).
+
 ---
 
 ## 5. Наблюдаемость и мониторинг (Observability)
@@ -296,8 +340,11 @@
 - **Spark**: `spark_sessions_active_gauge`, `spark_statements_total`, `spark_statement_duration_seconds`.
 - **SQL**: `sql_queries_total`, `sql_query_duration_seconds`.
 - **HDFS**: `hdfs_operations_total`, `hdfs_bytes_transferred_total`.
+- **Replicator**: `replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`, `replication_file_size_bytes`.
 - Готовые provisioning-дашборды Grafana в `monitoring/grafana/dashboards/`:
-  - `hadoop_explorer_overview.json` — обзорный дашборд здоровья платформы.
+  - `hadoop_explorer_overview.json` — сводный дашборд здоровья и Golden Signals всех 5 сервисов платформы.
+  - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархический шейпинг Token Bucket Throttler и статусы задач.
+  - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и мониторинг отказов.
   - `yarn_explorer_queues.json` — планировщик Capacity Scheduler, утилизация очередей и статус Circuit Breaker.
   - `spark_sql_explorer_analytics.json` — интерактивная аналитика Livy Spark и запросов Trino/Hive.
 
@@ -370,7 +417,7 @@
                   └───────────────────────┘
 ```
 
-### 9.1 Метрики тестового покрытия платформы (308 тестов)
+### 9.1 Метрики тестового покрытия платформы (347 тестов)
 
 | Сервис / Уровень | Количество тестов | Ключевые аспекты покрытия |
 |---|---|---|
@@ -378,7 +425,8 @@
 | **HDFS Explorer** | **86 тестов** | NameNode HA Failover при `StandbyException`, WebHDFS exception mapping, ContentSummary квоты, ACL, API, Readiness / Healthz, Security (CWE-200, CSP, CSRF), Common Modules, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, Circuit Breaker + Prometheus metrics, Retry с backoff, Global Exception Handlers, Distributed Lock на БД, Rate Limiter |
 | **SQL Explorer** | **42 теста** | Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace |
 | **Spark Explorer** | **24 теста** | Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker |
-| **Frontend UI Suite** | **91 тест** | Полное компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 4 SPA и общем ядре: HDFS (хлебные крошки, тулбар действий, мультивыбор, список файлов с сортировкой, модалки создания/переименования/удаления), YARN (метрики ресурсов кластера, селектор партиций, балансировка квот, дифф конфигураций, модалки очередей и XML), SQL (тулбар запуска, таблица результатов, очередь фоновых задач, ИИ-ассистент), Spark (тулбар сессий и языков, результаты и логи, модалка конфигурации), Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), полифиллы jsdom (ResizeObserver, IntersectionObserver, clipboard), строгая проверка типов `svelte-check` (0 ошибок) и E2E сценарии Playwright |
+| **Hadoop gRPC Replicator** | **38 тестов** | Protobuf gRPC контракт, Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), потоковый Receiver со staging и SHA-256, KerberosContextManager изоляция KRB5CCNAME, Snapshot Diff парсер, Prometheus метрики, Cron Scheduler демон, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой (триггер `MANUAL`/`SCHEDULED`, тайминги, объем, средняя скорость, ошибки), настраиваемая глубина истории `history_retention_runs` с авто-прунингом старых запусков (`prune_job_runs`), эндпоинт `GET /jobs/{id}/runs`, RBAC изоляция задач (Admin sees all / User sees own), запрет редактирования лимитов не-админам (HTTP 403 Forbidden), действия жизненного цикла задач (Start/Stop/Edit/Delete с матрицей доступности), серверная и клиентская фильтрация по статусам и авторам, фавиконка и SPA интеграция |
+| **Frontend UI Suite** | **92 теста** | Полное компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), полифиллы jsdom (ResizeObserver, IntersectionObserver, clipboard), строгая проверка типов `svelte-check` (0 ошибок) и E2E сценарии Playwright |
 
 ### 9.2 Тестирование отказоустойчивости (Resilience Testing)
 1. **Circuit Breaker State Machine**:
@@ -404,6 +452,19 @@
 - `make sync` — синхронизация единого окружения `uv workspaces`.
 - `make lint` — проверка кодовой базы линтером Ruff.
 - `make format` — форматирование исходного кода.
-- `make test` — запуск всех 240 тестов платформы.
+- `make test` — запуск всех 347 тестов платформы.
+
+---
+
+## 10. Документация по промышленному развертыванию (DevOps Runbooks)
+
+Для каждого микросервиса платформы разработано детальное руководство администратора по установке в режимах **Standalone (systemd)**, **Docker & Docker Compose** и **Kubernetes (Helm)**:
+
+- 🚀 [Единый DevOps Hub платформы (admin-guide.md)](admin-guide.md)
+- ⚙️ [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
+- 📁 [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
+- 🔍 [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
+- ⚡ [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
+- 🔄 [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
 
 

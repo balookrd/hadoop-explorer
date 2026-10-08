@@ -6,6 +6,7 @@
 - **HDFS Explorer** (`backend/hdfs` — подключение к WebHDFS/HttpFS, HA, Kerberos, impersonation, квоты, превью файлов, Circuit Breaker).
 - **SQL Explorer** (`backend/sql` — Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - **Spark Explorer** (`backend/spark` — Apache Livy, PySpark, Scala, Metastore, Circuit Breaker).
+- **Hadoop gRPC Replicator** (`backend/replicator` — межкластерная репликация HDFS, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 - **Развертывание в Kubernetes (Helm)**.
 
 ---
@@ -34,8 +35,19 @@
    - [Интеграция с YARN и разграничение очередей](#63-интеграция-с-yarn-и-разграничение-очередей)
    - [Hive Metastore, Iceberg и профили ресурсов](#64-hive-metastore-iceberg-и-профили-ресурсов)
    - [Персистентность рабочих пространств пользователя](#65-персистентность-рабочих-пространств-пользователя)
-7. [Переменные окружения](#7-переменные-окружения)
-8. [Конфигурация в Kubernetes (Helm)](#8-конфигурация-в-kubernetes-helm)
+7. [Настройка Hadoop gRPC Replicator (DC-DC WAN Sync & Throttling)](#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling)
+   - [Архитектура и компоненты (Orchestrator, Receiver, Worker)](#71-архитектура-и-компоненты-orchestrator-receiver-worker)
+   - [Топология дата-центров и кластеров](#72-топология-дата-центров-и-кластеров)
+   - [Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)](#73-многоуровневые-лимиты-полосы-dc-dc-и-hdfs-hdfs)
+   - [Безопасность, RBAC и системная техучетка Kerberos](#74-безопасность-rbac-и-системная-техучетка-kerberos)
+   - [Настройка gRPC Receiver и буфера Staging](#75-настройка-grpc-receiver-и-буфера-staging)
+   - [Настройка gRPC Worker и параметров передачи](#76-настройка-grpc-worker-и-параметров-передачи)
+   - [Планировщик периодических задач (Cron Scheduler)](#77-планировщик-периодических-задач-cron-scheduler)
+   - [Эталонный конфигурационный файл config.yaml](#78-эталонный-конфигурационный-файл-configyaml)
+8. [Переменные окружения](#8-переменные-окружения)
+9. [Конфигурация в Kubernetes (Helm)](#9-конфигурация-в-kubernetes-helm)
+10. [Мониторинг Prometheus и дашборды Grafana](#10-мониторинг-prometheus-и-дашборды-grafana)
+11. [Руководства администратора по развертыванию (DevOps Hub)](#11-руководства-администратора-по-развертыванию-devops-hub)
 
 ---
 
@@ -367,6 +379,11 @@ query_defaults:
   results_ttl_seconds: 604800   # Время жизни кэшированных результатов в секундах (7 дней)
 ```
 
+#### Кэш результатов запросов и ротация по TTL (`data/results/`)
+Результаты выполнения запросов сохраняются в сжатом виде (`{id}.json.gz`) в единую директорию платформы `data/results/` (как для SQL Explorer, так и для Spark Explorer).
+- **TTL хранения**: `results_ttl_seconds` или переменная окружения `RESULTS_TTL_SECONDS` (по умолчанию `604800` с / 7 дней).
+- **Периодическая очистка**: фоновый процесс проверяет директорию с интервалом `RESULTS_CLEANUP_INTERVAL_SECONDS` (по умолчанию `3600` с / 1 час) и при старте сервиса, удаляя устаревшие файлы.
+
 #### Персистентность рабочих пространств (User Workspace)
 SQL Explorer сохраняет открытые вкладки редактора, введённый SQL-код, привязанные кластеры и каталоги, а также последние результаты выполнения в БД (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`).
 - Для каждого аутентифицированного пользователя создается изолированное рабочее пространство.
@@ -512,13 +529,326 @@ Spark Explorer сохраняет состояние сессий, активн�
 
 ---
 
-## 7. Переменные окружения
+## 7. Настройка Hadoop gRPC Replicator (DC-DC WAN Sync & Throttling)
+
+Сервис межкластерной репликации `backend/replicator` предназначен для высокоскоростной и управляемой синхронизации больших массивов данных HDFS между распределенными ЦОД через WAN-соединения. Конфигурация сервиса задается через декларативный YAML-файл (по умолчанию `backend/replicator/config/config.yaml` или через переменную `REPLICATOR_CONFIG_PATH`).
+
+### 7.1 Архитектура и компоненты (Orchestrator, Receiver, Worker)
+
+Сервис состоит из трех независимых компонентов:
+1. **Replicator Orchestrator** (FastAPI `:8005`):
+   - Управляет жизненным циклом задач репликации (`Job` / `Task`) в реляционной БД (SQLite / PostgreSQL).
+   - Предоставляет REST API и встроенный Web UI в единой дизайн-системе платформы.
+   - Реализует централизованный многоуровневый Token Bucket Throttler (выдача сетевых квот воркерам).
+   - Запускает фоновый демон планировщика периодических задач (Cron Scheduler).
+   - Экспортирует метрики для Prometheus (`/metrics`).
+2. **Replicator Receiver** (gRPC сервис `:50051`):
+   - Развертывается на принимающей стороне (целевой дата-центр, например DC2).
+   - Принимает непрерывный поток чанков фиксированного размера по протоколу HTTP/2 (gRPC streaming).
+   - Сохраняет промежуточные данные в локальный буфер Staging (`/tmp/staging`).
+   - Вычисляет сквозную контрольную сумму SHA-256 и выполняет атомарный перенос (`rename`) в целевой каталог HDFS.
+3. **Replicator Worker** (фоновый демон передачи данных):
+   - Развертывается на исходной стороне (например, DC1).
+   - Опрашивает Orchestrator на наличие задач в статусе `QUEUED`.
+   - Запрашивает сетевые токены перед отправкой каждого чанка (`POST /tokens/request`).
+   - Читает данные из исходного кластера HDFS под Kerberos-принципалом и передает их в Receiver.
+
+---
+
+### 7.2 Топология дата-центров и кластеров
+
+Топология описывает физическое размещение оборудования и привязку кластеров HDFS к конкретным дата-центрам (`dc_id`).
+
+На демонстрационном стенде настроена топология из **2 ЦОД**:
+- **ЦОД 1 (Москва / Primary)**: содержит **2 кластера HDFS** (`demo-cluster` — Prod DataLake и `analytics-cluster` — Secondary DataLake).
+- **ЦОД 2 (Санкт-Петербург / Disaster Recovery)**: содержит **1 кластер HDFS** (`backup-cluster` — DR Mirror DataLake).
+
+```yaml
+topology:
+  # 1. Дата-центры (Data Centers / DC)
+  datacenters:
+    - id: "dc1"
+      name: "ЦОД 1 (Москва / DataCenter Primary)"
+      location: "Moscow, Russia (DC-1)"
+      description: "Основной производственный дата-центр компании"
+
+    - id: "dc2"
+      name: "ЦОД 2 (Санкт-Петербург / Disaster Recovery)"
+      location: "Saint-Petersburg, Russia (DC-2)"
+      description: "Катастрофоустойчивая резервная площадка (DR Site)"
+
+  # 2. HDFS кластеры с явной привязкой к конкретному ЦОД
+  clusters:
+    # Кластеры в DC1:
+    - id: "demo-cluster"
+      name: "HDFS Primary (Prod DataLake)"
+      dc_id: "dc1"
+      webhdfs_url: "http://localhost:9870/webhdfs/v1"
+      default_path: "/data/production"
+      is_read_only: false
+      description: "Основной HDFS кластер оперативных данных в DC1"
+
+    - id: "analytics-cluster"
+      name: "HDFS Analytics (Secondary DataLake)"
+      dc_id: "dc1"
+      webhdfs_url: "http://localhost:9872/webhdfs/v1"
+      default_path: "/data/analytics"
+      is_read_only: false
+      description: "Аналитический HDFS кластер в DC1"
+
+    # Кластеры в DC2:
+    - id: "backup-cluster"
+      name: "HDFS DR (Backup DataLake)"
+      dc_id: "dc2"
+      webhdfs_url: "http://dr-namenode:9870/webhdfs/v1"
+      default_path: "/backup/mirror"
+      is_read_only: false
+      description: "Катастрофоустойчивое зеркало в DC2"
+```
+
+---
+
+### 7.3 Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)
+
+Для защиты корпоративных каналов WAN от перегрузки используется иерархический Token Bucket шейпер:
+1. **Глобальный лимит (Global WAN Cap)**: верхняя граница совокупной скорости передачи по всей платформе.
+2. **Лимиты между ЦОД (DC-DC WAN Limits)**: емкость магистрального физического канала связи между площадками.
+3. **Лимиты между парами HDFS кластеров (HDFS-HDFS Limits)**: логическая квота полосы под конкретное направление синхронизации.
+
+Значение `0.0` означает работу без ограничений («Без лимита / Unlimited»).
+
+```yaml
+topology:
+  # 3. Лимиты полосы между ЦОД в МБ/с
+  dc_limits:
+    - source_dc: "dc1"
+      target_dc: "dc2"
+      limit_mb_per_sec: 100.0   # Магистраль Москва <-> СПб: 100 МБ/с
+      description: "Магистральный канал между DC1 и DC2"
+
+  # 4. Лимиты полосы между конкретными парами HDFS кластеров в МБ/с
+  hdfs_limits:
+    - source_cluster: "demo-cluster"
+      target_cluster: "backup-cluster"
+      limit_mb_per_sec: 60.0    # Репликация Prod (DC1) -> Backup (DC2)
+      description: "Квота между Prod Lake (DC1) и Backup Lake (DC2)"
+
+    - source_cluster: "analytics-cluster"
+      target_cluster: "backup-cluster"
+      limit_mb_per_sec: 40.0    # Репликация Analytics (DC1) -> Backup (DC2)
+      description: "Квота между аналитическим кластером (DC1) и Backup Lake (DC2)"
+
+    - source_cluster: "demo-cluster"
+      target_cluster: "analytics-cluster"
+      limit_mb_per_sec: 80.0    # ВнутриЦОДный обмен
+      description: "Локальный обмен между Prod и Analytics внутри DC1"
+
+  # 5. Глобальный лимит оркестратора (Global WAN Pool)
+  global_limit_mb_per_sec: 120.0
+```
+
+Администраторы платформы (`ADMIN`) могут изменять любой из лимитов в рантайме через Web UI или эндпоинты API (`POST /api/v1/limits/global`, `POST /api/v1/limits/dc-dc`, `POST /api/v1/limits/hdfs-hdfs`). Изменения применяются для всех воркеров в течение 1 секунды без перезапуска сервисов.
+
+---
+
+### 7.4 Безопасность, RBAC и системная техучетка Kerberos
+
+- **Ролевая модель (RBAC)**:
+  - `ADMIN` (`admin_user`): сквозной просмотр и управление задачами всех пользователей, изменение лимитов полосы пропускания, отмена любых задач.
+  - `WRITER` / `READER` (`de_user`, `analyst_user`): видят только собственные созданные задачи и общие системные задачи техучетки. Попытка редактирования лимитов возвращает `HTTP 403 Forbidden`.
+- **Системная техучетка**:
+  - Флаг `run_as_service_account: true` указывает запускать задачу от привилегированного системного принципала (`hdfs-replicator@REALM.LOCAL`). Это необходимо для периодических фоновых репликаций по расписанию.
+- **Изоляция Kerberos (KRB5CCNAME)**:
+  - Воркер выполняет каждую операцию с динамической генерацией пути к credential cache:
+    `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}`.
+  - По завершении передачи временный кэш билетов безопасно удаляется, исключая утечку билетов между задачами.
+
+---
+
+### 7.5 Настройка Replicator Agent (Full-Duplex) и буфера Staging
+
+Универсальный агент репликации `backend.replicator.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи данных (`Sender`), обеспечивая полноценную двунаправленную репликацию (`DC1 ⇄ DC2`).
+
+Агент поддерживает **автоматическую динамическую регистрацию** на Оркестраторе с отправкой периодических Keepalive-сигналов (heartbeat). При старте агент объявляет свой gRPC-адрес (`advertised_grpc_address`) и привязывается к обслуживаемому кластеру. Это устраняет необходимость жестко прописывать сетевые адреса всех агентов в статическом `config.yaml`.
+
+Агент настраивается следующими переменными окружения:
+
+```bash
+# Идентификатор агента и обслуживаемый HDFS-кластер
+AGENT_ID=agent-dc1
+AGENT_CLUSTER_ID=demo-cluster
+
+# Режим работы: 'all' (полный дуплекс), 'sender' (только передача), 'receiver' (только прием)
+AGENT_MODE=all
+
+# URL Оркестратора для опроса очередей, получения сетевых токенов и регистрации
+ORCHESTRATOR_URL=http://orchestrator:8005
+
+# Адрес и порт входящего gRPC сервера (прием файлов от удаленных ЦОД)
+RECEIVER_HOST=0.0.0.0
+RECEIVER_PORT=50051
+
+# Объявляемый сетевой адрес для вызовов от удаленных агентов (по умолчанию $HOSTNAME:$RECEIVER_PORT)
+# AGENT_ADVERTISED_ADDRESS=agent-dc1:50051
+
+# Включение динамической регистрации и интервал keepalive (секунды)
+AGENT_ENABLE_REGISTRATION=true
+AGENT_HEARTBEAT_INTERVAL_SEC=5.0
+
+# Локальная буферная директория для временного приема чанков перед коммитом
+REPLICATOR_STAGING_DIR=/tmp/staging
+
+# Интервал опроса очереди задач в Оркестраторе (в секундах)
+POLL_INTERVAL_SEC=2.0
+```
+
+**Жизненный цикл динамической регистрации и Keepalive**:
+1. **Регистрация при старте (`POST /api/v1/agents/register`)**: Агент отправляет свой `agent_id`, `cluster_id`, вычисленный `advertised_grpc_address` и версию. Оркестратор фиксирует статус агента `ONLINE` и связывает его с кластером.
+2. **Фоновый Keepalive (`POST /api/v1/agents/heartbeat`)**: Каждые 5 секунд агент отправляет сигнал жизнеспособности с количеством текущих активных задач (`active_transfers`).
+3. **Обнаружение сбоев**: Если сигнал heartbeat не поступает более 15 секунд, статус агента автоматически переводится в `STALE`, и трафик перестает на него направляться.
+4. **Graceful Shutdown (`POST /api/v1/agents/unregister`)**: При плановом завершении процесса агент уведомляет Оркестратор, переводя статус в `OFFLINE`.
+5. **Балансировка нагрузки**: Если в одном кластере зарегистрировано несколько агентов, Оркестратор динамически распределяет входящие потоки репликации на наименее загруженный агент (`min(active_transfers)`).
+
+**Безопасность динамической регистрации (Zero-Trust Security)**:
+- **Аутентификация агентов (PSK / Token)**: Задается переменная `REPLICATOR_AGENT_SECRET` (мин. 32 симв.). Агент передает заголовок `X-Agent-Secret`. Неавторизованные запросы блокируются (`401 Unauthorized`). В production-режиме секрет обязателен.
+- **Белый список кластеров (Cluster Whitelist)**: При `REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (по умолчанию в prod) разрешена регистрация только для кластеров из `config.yaml`. Попытка объявить чужой кластер блокируется (`403 Forbidden`).
+- **Защита от SSRF**: Оркестратор санитизирует `advertised_grpc_address`, блокируя диапазоны link-local (`169.254.0.0/16`, `fe80::/10`) и облачные метаданные (`169.254.169.254`, `metadata.google.internal`).
+
+**Принцип атомарности коммита (Atomic Commit)**:
+1. Передающий агент нарезает файлы на потоковые чанки размером 4 МБ с хешами блоков.
+2. Принимающий агент сохраняет входящие чанки во временный файл в каталоге `staging_dir`.
+3. После завершения стриминга вычисляется и сверяется совокупная контрольная сумма SHA-256 файла.
+4. При совпадении хэша файл атомарно перемещается (`os.replace` или `pyarrow.fs HadoopFileSystem.move`) в целевой путь HDFS/FS.
+5. При ошибке сети или расхождении хэша временный staging-файл автоматически удаляется.
+
+---
+
+### 7.6 Разрешение целевых адресов (Service Discovery, AGENT_TARGET_* и Fallback)
+
+При отправке данных в удаленный дата-центр агент определяет сетевой gRPC-адрес целевого узла в соответствии со следующим приоритетом:
+
+1. **Динамический реестр активных агентов Оркестратора (`AgentRegistry`) — рекомендуемый штатный режим**:
+   - Оркестратор отслеживает зарегистрированные агенты в реальном времени.
+   - Метод `get_grpc_address_for_cluster(cluster_id)` возвращает адрес активного онлайн-агента с наименьшим числом текущих передач (`active_transfers`).
+   - Если кластер не был предварительно описан в `config.yaml`, он регистрируется динамически по данным первого подключившегося агента.
+2. **Централизованный статический реестр топологии (`GET /api/v1/clusters`)**:
+   - В `backend/replicator/config/config.yaml` у кластера может быть статически задан параметр `grpc_address` (например, `backup-cluster: agent-dc2:50051`).
+   - Используется как надежный fallback, если динамическая регистрация отключена (`AGENT_ENABLE_REGISTRATION=false`) или агент временно не на связи.
+3. **Локальный оверрайд `AGENT_TARGET_<CLUSTER_ID>`**:
+   - Применяется в нестандартных сетевых окружениях (NAT, ingress/mesh-маршрутизация, различные порты в DMZ).
+   - Например: `AGENT_TARGET_BACKUP_CLUSTER=agent-dc2:50051` переопределит адрес только для кластера `backup-cluster`.
+4. **Резервный адрес `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS`**:
+   - Используется как крайний fallback (по умолчанию `localhost:50051`), если целевой кластер не указан в задаче или отсутствует во всех реестрах Оркестратора.
+
+---
+
+### 7.7 Планировщик периодических задач (Cron Scheduler)
+
+Оркестратор оснащен встроенным планировщиком задач `CronScheduler`:
+- Поддерживает стандартный синтаксис cron (`*/5 * * * *`), а также пресеты (`@every_5m`, `@hourly`, `@daily`, `@weekly`).
+- Фоновый процесс проверяет БД каждые 5 секунд.
+- При наступлении времени `now >= next_run_at`:
+  1. Создается или переводится в очередь задача репликации (`status = QUEUED`).
+  2. Фиксируется `last_run_at = now`.
+  3. Рассчитывается новое значение `next_run_at` на следующий интервал.
+  4. Задача автоматически исполняется под системной техучеткой.
+
+---
+
+### 7.8 Эталонный конфигурационный файл config.yaml
+
+```yaml
+# backend/replicator/config/config.yaml
+
+topology:
+  datacenters:
+    - id: "dc1"
+      name: "ЦОД 1 (Москва / DataCenter Primary)"
+      location: "Moscow, Russia (DC-1)"
+      description: "Основной производственный дата-центр компании"
+
+    - id: "dc2"
+      name: "ЦОД 2 (Санкт-Петербург / Disaster Recovery)"
+      location: "Saint-Petersburg, Russia (DC-2)"
+      description: "Катастрофоустойчивая резервная площадка (DR Site)"
+
+  clusters:
+    - id: "demo-cluster"
+      name: "HDFS Primary (Prod DataLake)"
+      dc_id: "dc1"
+      webhdfs_url: "http://localhost:9870/webhdfs/v1"
+      default_path: "/data/production"
+      is_read_only: false
+      description: "Основной HDFS кластер оперативных данных в DC1"
+
+    - id: "analytics-cluster"
+      name: "HDFS Analytics (Secondary DataLake)"
+      dc_id: "dc1"
+      webhdfs_url: "http://localhost:9872/webhdfs/v1"
+      default_path: "/data/analytics"
+      is_read_only: false
+      description: "Аналитический HDFS кластер в DC1"
+
+    - id: "backup-cluster"
+      name: "HDFS DR (Backup DataLake)"
+      dc_id: "dc2"
+      webhdfs_url: "http://dr-namenode:9870/webhdfs/v1"
+      default_path: "/backup/mirror"
+      is_read_only: false
+      description: "Катастрофоустойчивое зеркало в DC2"
+
+  dc_limits:
+    - source_dc: "dc1"
+      target_dc: "dc2"
+      limit_mb_per_sec: 100.0
+      description: "Магистральный канал между DC1 и DC2"
+
+  hdfs_limits:
+    - source_cluster: "demo-cluster"
+      target_cluster: "backup-cluster"
+      limit_mb_per_sec: 60.0
+      description: "Выделенная квота между Prod Lake (DC1) и Backup Lake (DC2)"
+
+    - source_cluster: "analytics-cluster"
+      target_cluster: "backup-cluster"
+      limit_mb_per_sec: 40.0
+      description: "Квота между аналитическим кластером (DC1) и Backup Lake (DC2)"
+
+    - source_cluster: "demo-cluster"
+      target_cluster: "analytics-cluster"
+      limit_mb_per_sec: 80.0
+      description: "Локальный обмен между Prod и Analytics внутри DC1"
+
+  global_limit_mb_per_sec: 120.0
+```
+
+---
+
+## 8. Переменные окружения
 
 Все ключевые параметры могут быть заданы через переменные среды операционной системы или контейнера:
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
 | `CONFIG_PATH` / `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
+| `REPLICATOR_CONFIG_PATH` | Путь к конфигурации топологии репликатора | `backend/replicator/config/config.yaml` |
+| `REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `52428800` (50 МБ/с) |
+| `REPLICATOR_SERVICE_PRINCIPAL` | Системный принципал Kerberos для репликации | `hdfs-replicator@REALM.LOCAL` |
+| `REPLICATOR_DATABASE_URL` | Строка подключения к БД репликатора | `sqlite:///data/replicator.db` |
+| `REPLICATOR_AGENT_SECRET` | Общий секретный токен аутентификации агентов репликации (`X-Agent-Secret`) | — (в prod обязателен) |
+| `REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Принудительная блокировка регистрации неизвестных кластеров (Cluster Whitelist) | `false` (в prod автоматически `true`) |
+| `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-01` (или `$WORKER_ID`) |
+| `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `demo-cluster` |
+| `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`) | `all` |
+| `AGENT_ENABLE_REGISTRATION` | Включение динамической авторегистрации агента на Оркестраторе | `true` |
+| `AGENT_ADVERTISED_ADDRESS` | Сетевой gRPC адрес, анонсируемый агентом удаленным узлам | `$HOSTNAME:$RECEIVER_PORT` |
+| `AGENT_HEARTBEAT_INTERVAL_SEC` | Период отправки keepalive heartbeat-сигнала Оркестратору (секунды) | `5.0` |
+| `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе (секунды) | `3.0` |
+| `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
+| `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
+| `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |
+| `REPLICATOR_STAGING_DIR` | Буферная директория Staging для атомарного коммита | `/tmp/staging` |
+| `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
 | `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
 | `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |
 | `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |
@@ -530,10 +860,12 @@ Spark Explorer сохраняет состояние сессий, активн�
 | `CORS_ORIGINS` | Доверенные адреса через запятую | `http://localhost:8000` |
 | `KRB5_CONFIG` | Путь к файлу конфигурации Kerberos | `/etc/krb5.conf` |
 | `KRB5_KTNAME` | Путь к Keytab-файлу сервиса | `/etc/security/keytabs/...` |
+| `RESULTS_TTL_SECONDS` | TTL хранения кэша результатов SQL и Spark (`data/results/`) | `604800` (7 дней) |
+| `RESULTS_CLEANUP_INTERVAL_SECONDS` | Интервал периодической фоновой очистки дискового кэша результатов | `3600` (1 час) |
 
 ---
 
-## 8. Конфигурация в Kubernetes (Helm)
+## 9. Конфигурация в Kubernetes (Helm)
 
 При развертывании через Umbrella Chart `helm/hadoop-explorer` конфигурация каждого компонента передается в секции `values.yaml`:
 
@@ -594,21 +926,38 @@ spark-explorer:
     clusters:
       - id: "prod-hadoop"
         livy_url: "http://livy.hadoop.svc:8998"
+
+replicator:
+  enabled: true
+  orchestrator:
+    replicaCount: 1
+    port: 8005
+    config:
+      globalLimitBytesPerSec: 125829120  # 120 МБ/с
+      databaseUrl: "sqlite:////app/data/replicator.db"
+      servicePrincipal: "hdfs-replicator@REALM.LOCAL"
+  agent:
+    replicaCount: 2  # Горизонтальное масштабирование дуплексных агентов (Sender + Receiver)
+    port: 50051
+    clusterId: "demo-cluster"
+    mode: "all"
+    stagingDir: "/tmp/staging"
+    pollIntervalSec: 2.0
 ```
 
-### 8.1 Рекомендации по High-Availability в продакшне
+### 9.1 Рекомендации по High-Availability в продакшне
 1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: postgresql+asyncpg://...`). Локальная SQLite поддерживает только 1 реплику. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
 2. **PodDisruptionBudget (PDB)**: Шаблоны чартов автоматически активируют `PodDisruptionBudget` при запуске более 1 реплики (`replicaCount > 1`), предотвращая одновременный drain всех реплик узлами k8s.
 3. **NetworkPolicy**: Включена по умолчанию (`networkPolicy.enabled: true`) для изоляции сетевого взаимодействия и разрешения ingress-трафика только от Ingress-контроллера.
-4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
+4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000 / 8005) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
 
 ---
 
-## 9. Мониторинг Prometheus и дашборды Grafana
+## 10. Мониторинг Prometheus и дашборды Grafana
 
 Все сервисы платформы предоставляют единый интерфейс метрик в формате OpenMetrics / Prometheus.
 
-### 9.1 Экспортируемые метрики
+### 10.1 Экспортируемые метрики
 
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
@@ -621,8 +970,12 @@ spark-explorer:
 | `hadoop_auth_attempts_total` | Counter | `app`, `provider`, `status` | Попытки аутентификации (`ldap`, `kerberos`, `mock`) и результат |
 | `hadoop_rate_limit_blocks_total` | Counter | `app` | Блокировки по Rate Limiter (HTTP 429) |
 | `hadoop_exceptions_total` | Counter | `app`, `exception_type` | Непредвиденные исключения 500 с `incident_id` (CWE-209) |
+| `replicator_bytes_transferred_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`) |
+| `replicator_jobs_total` | Counter | `status`, `mode` | Количество задач репликации по статусам и типу запуска |
+| `replicator_active_workers` | Gauge | — | Число активных фоновых воркеров передачи данных |
+| `replicator_throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
 
-### 9.2 Настройка сбора метрик в Prometheus (Scrape Config)
+### 10.2 Настройка сбора метрик в Prometheus (Scrape Config)
 
 ```yaml
 scrape_configs:
@@ -635,6 +988,7 @@ scrape_configs:
           - 'hdfs-explorer:8000'
           - 'sql-explorer:8000'
           - 'spark-explorer:8000'
+          - 'replicator-orchestrator:8005'
 ```
 
 Пример Kubernetes `ServiceMonitor` (Prometheus Operator):
@@ -654,15 +1008,24 @@ spec:
       interval: 15s
 ```
 
-### 9.3 Импорт дашборда в Grafana
+### 10.3 Готовые дашборды Grafana
 
+В директории [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) доступны 5 специализированных дашбордов для промышленного мониторинга:
+
+1. **Сводный обзор платформы**: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — Golden Signals (RPS, Latency p95/p99, 5xx rate), Circuit Breaker, Retries, безопасность (Auth, Rate Limiting) и общая активность репликации.
+2. **Межкластерная репликация**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
+3. **Файловые операции HDFS**: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, скорость загрузки/скачивания (Upload vs Download), отказы операций.
+4. **Очереди YARN**: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, запросы на изменение квот, состояние HA ResourceManager.
+5. **Аналитика Spark & SQL**: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.
+
+#### Импорт дашбордов в Grafana
 1. В веб-интерфейсе Grafana перейдите в **Dashboards** $\rightarrow$ **New** $\rightarrow$ **Import**.
-2. Загрузите файл [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json).
+2. Загрузите желаемый JSON-файл из каталога `monitoring/grafana/dashboards/`.
 3. Выберите ваш источник данных Prometheus и нажмите **Import**.
 
 Для автоматического развертывания через Grafana Provisioning скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
 
-### 9.4 Примеры полезных PromQL запросов
+### 10.4 Примеры полезных PromQL запросов
 
 - **Текущий RPS всей платформы**:
   ```promql
@@ -680,4 +1043,17 @@ spec:
   ```promql
   hadoop_circuit_breaker_state == 2
   ```
+
+---
+
+## 11. Руководства администратора по развертыванию (DevOps Hub)
+
+Пошаговые runbook/руководства по развертыванию каждого компонента платформы в режимах **Standalone (systemd)**, **Docker / Docker Compose** и **Kubernetes (Helm)**:
+
+- 🚀 [Единый DevOps Hub платформы (admin-guide.md)](admin-guide.md)
+- ⚙️ [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
+- 📁 [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
+- 🔍 [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
+- ⚡ [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
+- 🔄 [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
 
