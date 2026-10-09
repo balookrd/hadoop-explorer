@@ -287,7 +287,7 @@ networks:
 ## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
 
 ### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/spark-explorer`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/helm/charts/spark-explorer).
+В репозитории подготовлен чарт [`helm/charts/spark-explorer`](../helm/charts/spark-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash

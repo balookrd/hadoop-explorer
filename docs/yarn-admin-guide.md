@@ -333,7 +333,7 @@ docker compose logs -f yarn-explorer
 ## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
 
 ### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/yarn-explorer`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/helm/charts/yarn-explorer).
+В репозитории подготовлен чарт [`helm/charts/yarn-explorer`](../helm/charts/yarn-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash

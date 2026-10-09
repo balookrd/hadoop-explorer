@@ -97,6 +97,8 @@ mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
 cp backend/hdfs/target/hdfs-explorer-java-1.0.0.jar /opt/hadoop-explorer/hdfs/hdfs-explorer.jar
+```
+
 ### Шаг 4: Настройка конфигурационного файла
 Создайте файл `/etc/hadoop-explorer/hdfs/application.yml`:
 ```yaml
@@ -305,7 +307,7 @@ docker compose logs -f hdfs-explorer
 ## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
 
 ### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/hdfs-explorer`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/helm/charts/hdfs-explorer).
+В репозитории подготовлен чарт [`helm/charts/hdfs-explorer`](../helm/charts/hdfs-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash

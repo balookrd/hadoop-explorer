@@ -290,7 +290,7 @@ networks:
 ## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
 
 ### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/sql-explorer`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/helm/charts/sql-explorer).
+В репозитории подготовлен чарт [`helm/charts/sql-explorer`](../helm/charts/sql-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash

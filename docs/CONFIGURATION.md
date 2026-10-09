@@ -1081,7 +1081,7 @@ spec:
 5. **Аналитика Spark & SQL**: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.
 
 #### Импорт дашбордов в Grafana
-1. В веб-интерфейсе Grafana перейдите в **Dashboards** $\rightarrow$ **New** $\rightarrow$ **Import**.
+1. В веб-интерфейсе Grafana перейдите в **Dashboards** → **New** → **Import**.
 2. Загрузите желаемый JSON-файл из каталога `monitoring/grafana/dashboards/`.
 3. Выберите ваш источник данных Prometheus и нажмите **Import**.
 
