@@ -176,7 +176,7 @@ public class OrchestratorClient {
      */
     public List<JobDto> getJobs() {
         try {
-            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs")
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs?include_subjobs=true")
                     .GET()
                     .build();
 

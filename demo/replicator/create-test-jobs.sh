@@ -123,13 +123,43 @@ echo "   ✅ Задача №5 создана: ID=${JOB5_ID}"
 echo "      Маршрут: dc1 (Java 21) -> dc2 (Java 21), автор: system_operator, cron: @every_5m"
 
 echo ""
-echo "========================================================================"
-echo "🎉 Все 5 демонстрационных задач выровнены и поставлены в очередь!"
+echo "==> 7. Создание задачи №6: Репликация Hive Metastore (HMS, dc1 HDP 3.1 ➔ dc2 Apache Hive 3.1.3)..."
+ADMIN_TOKEN=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin_user","password":"password123"}' | grep -o '"access_token":"[^"]*' | cut -d'"' -f4 || true)
+
+AUTH_HEADER=()
+if [[ -n "$ADMIN_TOKEN" ]]; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
+fi
+
+HMS_JOB_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/hms/jobs" \
+  "${AUTH_HEADER[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_cluster_id": "dc1",
+    "target_cluster_id": "dc2",
+    "source_db": "analytics",
+    "target_db": "analytics",
+    "table_pattern": ".*"
+  }')
+
+HMS_JOB_ID=$(echo "$HMS_JOB_RESP" | grep -o '"id":"[^"]*' | cut -d'"' -f4 || echo "unknown")
+echo "   ✅ Задача HMS репликации создана: ID=${HMS_JOB_ID}"
+echo "      База: analytics (DC1 -> DC2)"
+echo "      Статус: ACTIVE (первичный Bootstrap выполнен, External & Managed таблицы реплицированы, ACID пропущен)"
+echo "      Связанные задачи HDFS помечены как HMS_SUBJOB и изолированы от обычного списка задач"
+
 echo ""
-echo "👉 Откройте веб-консоль для проверки видимости под разными пользователями:"
+echo "========================================================================"
+echo "🎉 Демонстрационные задачи успешно созданы и готовы к проверке!"
+echo ""
+echo "👉 Откройте веб-консоль:"
 echo "   URL: http://localhost:8005"
-echo "   - admin_user  -> видит ВСЕ 5 задач (полный доступ ADM)"
-echo "   - writer_user -> видит задачи инженеров (writer_user, de_user) и системные (RW)"
-echo "   - de_user     -> видит задачи инженеров (de_user, writer_user) и системные (RW)"
-echo "   - reader_user -> видит задачи платформы в режиме мониторинга (RO)"
+echo ""
+echo "   Разделы веб-консоли:"
+echo "   1. «HDFS Replication» — стандартные регламентные задачи копирования данных"
+echo "   2. «HMS Replication»  — репликация метаданных Hive, статус CDC, аудит событий"
+echo "      и дочерние скрытые задачи передачи партиций (HMS_SUBJOB)"
+echo "   3. «Топология ЦОД и Полоса» — лимиты полосы и статус агентов DC1 / DC2"
 echo "========================================================================"

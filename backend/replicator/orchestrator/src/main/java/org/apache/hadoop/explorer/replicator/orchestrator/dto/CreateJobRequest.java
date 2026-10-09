@@ -34,7 +34,13 @@ public record CreateJobRequest(
     String cronExpression,
 
     @JsonProperty("history_retention_runs")
-    Integer historyRetentionRuns
+    Integer historyRetentionRuns,
+
+    @JsonProperty("job_type")
+    String jobType,
+
+    @JsonProperty("parent_job_id")
+    String parentJobId
 ) {
     public CreateJobRequest {
         if (sourceClusterId == null) sourceClusterId = "dc1";
@@ -44,6 +50,7 @@ public record CreateJobRequest(
         if (runAsServiceAccount == null) runAsServiceAccount = true;
         if (isScheduled == null) isScheduled = false;
         if (historyRetentionRuns == null) historyRetentionRuns = 20;
+        if (jobType == null) jobType = "STANDARD";
     }
 
     public CreateJobRequest(
@@ -57,6 +64,6 @@ public record CreateJobRequest(
         Boolean isScheduled,
         String cronExpression
     ) {
-        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, 20);
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, 20, "STANDARD", null);
     }
 }

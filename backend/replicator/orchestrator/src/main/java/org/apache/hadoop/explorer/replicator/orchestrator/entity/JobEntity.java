@@ -19,6 +19,12 @@ public class JobEntity {
     @Column(name = "target_path", nullable = false)
     private String targetPath;
 
+    @Column(name = "job_type", nullable = false, length = 32)
+    private String jobType = "STANDARD";
+
+    @Column(name = "parent_job_id", length = 64)
+    private String parentJobId;
+
     @Column(name = "source_cluster_id", nullable = false, length = 64)
     private String sourceClusterId = "dc1";
 
@@ -184,4 +190,8 @@ public class JobEntity {
     public void setSkippedObjects(int skippedObjects) { this.skippedObjects = skippedObjects; }
     public int getFailedObjects() { return failedObjects; }
     public void setFailedObjects(int failedObjects) { this.failedObjects = failedObjects; }
+    public String getJobType() { return jobType; }
+    public void setJobType(String jobType) { this.jobType = jobType != null ? jobType : "STANDARD"; }
+    public String getParentJobId() { return parentJobId; }
+    public void setParentJobId(String parentJobId) { this.parentJobId = parentJobId; }
 }

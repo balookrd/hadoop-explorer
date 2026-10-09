@@ -279,6 +279,8 @@ public class JobService {
         entity.setCreatedBy(username != null ? username : "system_operator");
         entity.setScheduled(req.isScheduled());
         entity.setCronExpression(req.cronExpression());
+        entity.setJobType(req.jobType() != null ? req.jobType() : "STANDARD");
+        entity.setParentJobId(req.parentJobId());
         if (req.historyRetentionRuns() != null) {
             entity.setHistoryRetentionRuns(req.historyRetentionRuns());
         }
@@ -309,11 +311,16 @@ public class JobService {
             jobRepository.save(entity);
         }
 
-        log.info("Created replication job: id={}, src={}, dst={}, author={}", id, req.sourcePath(), req.targetPath(), entity.getCreatedBy());
+        log.info("Created replication job: id={}, type={}, parent={}, src={}, dst={}, author={}",
+            id, entity.getJobType(), entity.getParentJobId(), req.sourcePath(), req.targetPath(), entity.getCreatedBy());
         return JobResponse.fromEntity(entity, jobRunRepository.countByJobId(id));
     }
 
     public List<JobResponse> listJobs(String status, String username, boolean isAdmin, boolean isReader) {
+        return listJobs(status, username, isAdmin, isReader, false);
+    }
+
+    public List<JobResponse> listJobs(String status, String username, boolean isAdmin, boolean isReader, boolean includeSubjobs) {
         List<JobEntity> list = (status != null && !status.isBlank())
             ? jobRepository.findByStatus(status.toUpperCase())
             : jobRepository.findAll();
@@ -322,9 +329,34 @@ public class JobService {
             ? list.stream()
             : list.stream().filter(j -> matchesJobOwner(j, username));
 
+        // Исключаем автоматические саб-джобы метастора из регламентного раздела HDFS (если не запрошено явно агентом)
+        if (!includeSubjobs) {
+            stream = stream.filter(j -> !"HMS_SUBJOB".equalsIgnoreCase(j.getJobType()));
+        }
+
         return stream
             .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())))
             .toList();
+    }
+
+    public List<JobResponse> listSubjobsByParentId(String parentJobId) {
+        if (parentJobId == null || parentJobId.isBlank()) {
+            return List.of();
+        }
+        return jobRepository.findByParentJobId(parentJobId).stream()
+            .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())))
+            .toList();
+    }
+
+    @Transactional
+    public void deleteSubjobsByParentId(String parentJobId) {
+        if (parentJobId == null || parentJobId.isBlank()) {
+            return;
+        }
+        List<JobEntity> subjobs = jobRepository.findByParentJobId(parentJobId);
+        for (JobEntity sub : subjobs) {
+            deleteJob(sub.getId());
+        }
     }
 
     public List<JobResponse> listJobs(String status, String username, boolean isAdmin) {

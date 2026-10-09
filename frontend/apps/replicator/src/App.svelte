@@ -39,6 +39,7 @@
     History,
     Files,
   } from 'lucide-svelte';
+  import HmsReplicationView from './components/HmsReplicationView.svelte';
 
   // Состояние аутентификации
   let authLoading = $state(true);
@@ -47,7 +48,7 @@
   let isLoginModalOpen = $state(false);
 
   // Табы приложения
-  let activeTab = $state<'jobs' | 'topology'>('jobs');
+  let activeTab = $state<'jobs' | 'hms' | 'topology'>('jobs');
 
   let jobs = $state<Job[]>([]);
   let jobsLoading = $state(false);
@@ -272,9 +273,13 @@
 
       // Если кластеры загрузились, настроим defaults создания
       if (data.clusters && data.clusters.length > 0) {
-        if (!newJobSourceCluster) newJobSourceCluster = data.clusters[0].id;
-        if (data.clusters.length > 1 && !newJobTargetCluster) {
-          newJobTargetCluster = data.clusters[1].id;
+        if (!newJobSourceCluster || newJobSourceCluster === 'demo-cluster') {
+          const dc1 = data.clusters.find((c) => c.dc_id === 'dc1' || c.id === 'dc1');
+          newJobSourceCluster = dc1 ? dc1.id : data.clusters[0].id;
+        }
+        if (!newJobTargetCluster || newJobTargetCluster === 'backup-cluster') {
+          const dc2 = data.clusters.find((c) => c.dc_id === 'dc2' || c.id === 'dc2');
+          newJobTargetCluster = dc2 ? dc2.id : (data.clusters.length > 1 ? data.clusters[1].id : data.clusters[0].id);
         }
       }
     } catch (e) {
@@ -667,7 +672,13 @@
       onclick={() => (activeTab = 'jobs')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'jobs' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
-      Задачи репликации
+      HDFS Replication
+    </button>
+    <button
+      onclick={() => (activeTab = 'hms')}
+      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'hms' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
+    >
+      HMS Replication
     </button>
     <button
       onclick={() => (activeTab = 'topology')}
@@ -1169,7 +1180,13 @@
         </div>
       </main>
 
-    <!-- КОНТЕНТ ВКЛАДКИ 2: ТОПОЛОГИЯ ЦОД И ПОЛОСА ПРОПУСКАНИЯ -->
+    <!-- КОНТЕНТ ВКЛАДКИ: РЕПЛИКАЦИЯ HIVE METASTORE (HMS REPLICATION) -->
+    {:else if activeTab === 'hms'}
+      <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
+        <HmsReplicationView {topology} />
+      </main>
+
+    <!-- КОНТЕНТ ВКЛАДКИ: ТОПОЛОГИЯ ЦОД И ПОЛОСА ПРОПУСКАНИЯ -->
     {:else if activeTab === 'topology'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
         <!-- Заголовок и статус -->

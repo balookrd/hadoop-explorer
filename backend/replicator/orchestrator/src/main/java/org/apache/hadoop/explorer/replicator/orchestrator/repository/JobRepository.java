@@ -10,5 +10,8 @@ import java.util.List;
 @Repository
 public interface JobRepository extends JpaRepository<JobEntity, String> {
     List<JobEntity> findByStatus(String status);
+    List<JobEntity> findByJobType(String jobType);
+    List<JobEntity> findByJobTypeAndStatus(String jobType, String status);
+    List<JobEntity> findByParentJobId(String parentJobId);
     List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(Instant now);
 }

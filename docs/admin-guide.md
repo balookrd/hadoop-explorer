@@ -31,9 +31,10 @@
 │     1. STANDALONE (systemd)     │ │   2. DOCKER & DOCKER COMPOSE    │ │      3. KUBERNETES & HELM       │
 │                                 │ │                                 │ │                                 │
 │ - Bare-Metal / Виртуальные маш. │ │ - Контейнеры Java 21 (Temurin)   │ │ - Зонтичный чарт (Umbrella)     │
-│ - Сборка Maven / Fat JAR        │ │ - Multi-stage сборка (Node.js)  │ │ - Автономные чарты под каждый   │
-│ - Управление через systemctl    │ │ - Оркестрация в docker-compose  │ │ - HPA, Ingress, Cert-Manager    │
-│ - Локальный kinit / k5start     │ │ - Автоматический kinit в entry  │ │ - Secrets & ConfigMap для krb5  │
+│ - Готовые Fat JAR (No-Build)    │ │ - Готовые образы GHCR (ghcr.io) │ │ - Автономные чарты под каждый   │
+│ - Релизы GitHub Releases / sha  │ │ - Оркестрация в docker-compose  │ │ - HPA, Ingress, Cert-Manager    │
+│ - Управление через systemctl    │ │ - Автоматический kinit в entry  │ │ - Secrets & ConfigMap для krb5  │
+│ - Локальный kinit / k5start     │ │ - Multi-stage сборка (по желан.)│ │ - ImagePullSecrets для GHCR     │
 └─────────────────────────────────┘ └─────────────────────────────────┘ └─────────────────────────────────┘
 ```
 

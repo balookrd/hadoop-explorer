@@ -289,12 +289,13 @@ public class ReplicatorAgent {
     public static boolean matchesCluster(String agentCluster, String jobCluster) {
         if (agentCluster == null || jobCluster == null) return true;
         if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
+        if (jobCluster.toLowerCase().startsWith(agentCluster.toLowerCase() + "-")) return true;
         if (("dc1".equalsIgnoreCase(agentCluster) || "demo-cluster".equalsIgnoreCase(agentCluster))
-                && ("dc1".equalsIgnoreCase(jobCluster) || "demo-cluster".equalsIgnoreCase(jobCluster))) {
+                && (jobCluster.toLowerCase().contains("dc1") || jobCluster.toLowerCase().contains("demo-cluster"))) {
             return true;
         }
         if (("dc2".equalsIgnoreCase(agentCluster) || "backup-cluster".equalsIgnoreCase(agentCluster))
-                && ("dc2".equalsIgnoreCase(jobCluster) || "backup-cluster".equalsIgnoreCase(jobCluster))) {
+                && (jobCluster.toLowerCase().contains("dc2") || jobCluster.toLowerCase().contains("backup-cluster"))) {
             return true;
         }
         return false;

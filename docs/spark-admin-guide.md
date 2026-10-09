@@ -33,38 +33,63 @@
 - **Метрики Prometheus**: `GET /metrics`
 
 ### 1.3 Системные требования
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12).
-- **Среда выполнения**: Java `21 LTS` (Eclipse Temurin / OpenJDK), Maven `3.9+`, Node.js `20+` / `22 LTS`.
-- **Ресурсы (на 1 реплику)**:
-  - CPU: `1 ядро` (рек. `2 ядра`)
-  - RAM: `1.5 ГБ` (рек. `2 ГБ`)
-  - Диск: `10 ГБ` для SQLite и кэша сессий.
+
+#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
+- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
+- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
+- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
+- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1.5 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
+- > [!IMPORTANT]
+  > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
+
+#### Только для сборки из исходников (Build Environment):
+- JDK: `21 LTS`
+- Maven: `3.9+`
+- Node.js: `20+` / `22 LTS` и npm `10+`
+
+### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
+- **GitHub Releases (`v${VERSION}`)**:
+  - `spark-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA, клиентом Livy/YARN, DAG-пайплайнами и драйверами БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
+- **GitHub Container Registry (GHCR)**:
+  - `ghcr.io/company/hadoop-explorer/spark:${VERSION}`
 
 ---
 
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
 
+Развертывание на выделенном сервере или ВМ под управлением `systemd`.
+
 ### Шаг 1: Установка системных зависимостей
 
-**Ubuntu / Debian**:
+#### Вариант для Production (Запуск из готового релиза — только JRE):
 ```bash
+# Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    openjdk-21-jdk maven \
-    krb5-user ldap-utils curl git
+    openjdk-21-jre-headless krb5-user ldap-utils curl ca-certificates
+
+# RHEL 8/9, Rocky Linux 8/9, AlmaLinux:
+sudo dnf install -y --setopt=install_weak_deps=False \
+    java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-**RHEL / Rocky Linux**:
+#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
 ```bash
-sudo dnf install -y java-21-openjdk-devel maven \
-    krb5-workstation openldap-clients curl git
+# Ubuntu / Debian:
+sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
+# RHEL / Rocky Linux:
+sudo dnf install -y java-21-openjdk-devel maven nodejs npm git
 ```
 
 ### Шаг 2: Создание пользователя и структуры каталогов
 ```bash
+# Создание непривилегированного пользователя appuser
 sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
-sudo mkdir -p /opt/hadoop-explorer/spark
+# Создание каталогов сервиса
+sudo mkdir -p /opt/hadoop-explorer/spark/releases
+sudo mkdir -p /opt/hadoop-explorer/spark/bin
 sudo mkdir -p /etc/hadoop-explorer/spark
 sudo mkdir -p /var/log/hadoop-explorer
 sudo mkdir -p /var/lib/hadoop-explorer/spark/data
@@ -73,11 +98,39 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/spark
 ```
 
-### Шаг 3: Размещение кода и сборка
+### Шаг 3: Получение артефакта (Два варианта)
+
+#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+
+В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+
 ```bash
 sudo -u appuser -i
-cd /opt/hadoop-explorer/spark
-git clone https://github.com/company/hadoop-explorer.git .
+
+VERSION="1.0.0"
+GITHUB_REPO="company/hadoop-explorer"
+RELEASE_DIR="/opt/hadoop-explorer/spark/releases/v${VERSION}"
+BIN_DIR="/opt/hadoop-explorer/spark/bin"
+
+mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
+
+# 1. Загрузка через curl по прямой ссылке (или через `gh release download`):
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/spark-explorer-java-${VERSION}.jar"
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/SHA256SUMS.txt"
+
+# 2. Проверка контрольной суммы:
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 3. Создание стабильной символической ссылки:
+ln -sfn "${RELEASE_DIR}/spark-explorer-java-${VERSION}.jar" "${BIN_DIR}/spark-explorer.jar"
+```
+
+#### Способ Б: Сборка из исходных кодов (для разработчиков)
+```bash
+sudo -u appuser -i
+cd /tmp
+git clone https://github.com/company/hadoop-explorer.git
+cd hadoop-explorer
 
 # Сборка фронтенда Spark Explorer
 cd frontend
@@ -87,6 +140,9 @@ cd ..
 
 # Сборка Java 21 бэкенда (Spring Boot Fat JAR)
 mvn clean package -pl backend/common-security-starter,backend/spark -am -DskipTests
+
+# Копирование собранного JAR в рабочий каталог
+cp backend/spark/target/spark-explorer-java-*.jar /opt/hadoop-explorer/spark/bin/spark-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -183,7 +239,7 @@ Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/spark/a
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/spark/backend/spark/target/spark-explorer.jar \
+    -jar /opt/hadoop-explorer/spark/bin/spark-explorer.jar \
     --server.port=8004
 
 Restart=always
@@ -207,16 +263,47 @@ curl -I http://127.0.0.1:8000/healthz
 # HTTP/1.1 200 OK
 ```
 
+### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+
+При выходе новой версии на GitHub Releases:
+```bash
+sudo -u appuser -i
+NEW_VER="1.0.1"
+RELEASE_DIR="/opt/hadoop-explorer/spark/releases/v${NEW_VER}"
+mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
+
+curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/spark-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# Атомарное переключение симлинка:
+ln -sfn "${RELEASE_DIR}/spark-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/spark/bin/spark-explorer.jar
+
+# Перезапуск сервиса (занимает 2–3 сек):
+sudo systemctl restart spark-explorer
+```
+
 ---
 
 ## 3. Режим 2: Docker & Docker Compose
 
-### 3.1 Сборка Docker-образа
+### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
+Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
 ```bash
-docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
+# Авторизация (при необходимости):
+echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
+
+# Загрузка готового образа:
+VERSION="1.0.0"
+docker pull ghcr.io/company/hadoop-explorer/spark:${VERSION}
 ```
 
-### 3.2 Автономный запуск одного контейнера (`docker run`)
+### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+```bash
+docker build -t ghcr.io/company/hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
+```
+
+### 3.3 Автономный запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name spark-explorer \
@@ -229,16 +316,16 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v spark-data:/app/data \
-  hadoop-explorer/spark:latest
+  ghcr.io/company/hadoop-explorer/spark:1.0.0
 ```
 
-### 3.3 Промышленный запуск через `docker-compose.yml`
+### 3.4 Промышленный запуск через `docker-compose.yml`
 ```yaml
 version: "3.8"
 
 services:
   spark-explorer:
-    image: hadoop-explorer/spark:latest
+    image: ghcr.io/company/hadoop-explorer/spark:1.0.0
     container_name: spark-explorer
     restart: unless-stopped
     ports:
@@ -298,6 +385,13 @@ kubectl create secret generic spark-explorer-secrets \
   --from-literal=jwt-secret-key="Min32CharSecretKeyForSparkExplorerJwt" \
   --from-literal=ldap-bind-password="SecretLdapPassword"
 
+# Создание секрета для скачивания образов из GHCR
+kubectl create secret docker-registry ghcr-secret \
+  --namespace hadoop-explorer \
+  --docker-server=ghcr.io \
+  --docker-username="<github-username>" \
+  --docker-password="<github-token-with-read:packages>"
+
 kubectl create secret generic spark-kerberos-keytab \
   --namespace hadoop-explorer \
   --from-file=spark-explorer.keytab=/etc/security/keytabs/spark-explorer.keytab
@@ -312,9 +406,12 @@ kubectl create configmap krb5-config \
 replicaCount: 2
 
 image:
-  repository: registry.company.local/hadoop-explorer/spark
+  repository: ghcr.io/company/hadoop-explorer/spark
   tag: "1.0.0"
   pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: ghcr-secret
 
 extraEnv:
   - name: JWT_SECRET_KEY

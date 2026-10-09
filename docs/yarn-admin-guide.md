@@ -31,35 +31,52 @@
 - **Метрики Prometheus**: `GET /metrics` (экспорт золотых сигналов HTTP, Circuit Breaker и счетчиков).
 
 ### 1.3 Системные требования
+
+#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
 - **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
-- **Среда выполнения**:
-  - Java: `21 LTS` (Eclipse Temurin / OpenJDK 21)
-  - Maven: `3.9+` (для сборки из исходников)
-  - Node.js: `20+` / `22 LTS` (для сборки фронтенда из исходников)
-- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`.
-- **Ресурсы (минимальные / рекомендуемые на реплику)**:
-  - CPU: `1 ядро` (рек. `2 ядра`)
-  - RAM: `1 ГБ` (рек. `2 ГБ`)
-  - Диск: `10 ГБ` для логов и встроенной БД H2/SQLite (при PostgreSQL диск минимален).
+- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
+- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
+- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
+- > [!IMPORTANT]
+  > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
+
+#### Только для сборки из исходников (Build Environment):
+- JDK: `21 LTS`
+- Maven: `3.9+`
+- Node.js: `20+` / `22 LTS` и npm `10+`
+
+### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
+- **GitHub Releases (`v${VERSION}`)**:
+  - `yarn-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA, REST API, интеграцией с AWX и драйверами БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
+- **GitHub Container Registry (GHCR)**:
+  - `ghcr.io/company/hadoop-explorer/yarn:${VERSION}`
 
 ---
 
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
 
-Развертывание на выделенном сервере или ВМ без использования Docker.
+Развертывание на выделенном сервере или ВМ под управлением `systemd`.
 
 ### Шаг 1: Установка системных зависимостей
 
-**Ubuntu / Debian**:
+#### Вариант для Production (Запуск из готового релиза — только JRE):
 ```bash
+# Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    openjdk-21-jdk maven krb5-user ldap-utils curl git
+    openjdk-21-jre-headless krb5-user ldap-utils curl ca-certificates
+
+# RHEL 8/9, Rocky Linux 8/9, AlmaLinux:
+sudo dnf install -y --setopt=install_weak_deps=False \
+    java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-**RHEL / Rocky Linux / AlmaLinux**:
+#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
 ```bash
-sudo dnf install -y \
-    java-21-openjdk-devel maven krb5-workstation openldap-clients curl git
+# Ubuntu / Debian:
+sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
+# RHEL / Rocky Linux:
+sudo dnf install -y java-21-openjdk-devel maven nodejs npm git
 ```
 
 ### Шаг 2: Создание пользователя и структуры каталогов
@@ -69,7 +86,8 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/hadoop-explorer/yarn
+sudo mkdir -p /opt/hadoop-explorer/yarn/releases
+sudo mkdir -p /opt/hadoop-explorer/yarn/bin
 sudo mkdir -p /etc/hadoop-explorer/yarn
 sudo mkdir -p /var/log/hadoop-explorer
 sudo mkdir -p /var/lib/hadoop-explorer/yarn/data
@@ -78,14 +96,39 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/yarn
 ```
 
-### Шаг 3: Сборка и размещение артефакта
+### Шаг 3: Получение артефакта (Два варианта)
+
+#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+
+В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+
 ```bash
-# Переключение на пользователя сервиса
 sudo -u appuser -i
 
-cd /opt/hadoop-explorer/yarn
-# Клонирование репозитория либо копирование дистрибутива
-git clone https://github.com/company/hadoop-explorer.git .
+VERSION="1.0.0"
+GITHUB_REPO="company/hadoop-explorer"
+RELEASE_DIR="/opt/hadoop-explorer/yarn/releases/v${VERSION}"
+BIN_DIR="/opt/hadoop-explorer/yarn/bin"
+
+mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
+
+# 1. Загрузка через curl по прямой ссылке (или через `gh release download`):
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/yarn-explorer-java-${VERSION}.jar"
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/SHA256SUMS.txt"
+
+# 2. Проверка контрольной суммы:
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 3. Создание стабильной символической ссылки:
+ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${VERSION}.jar" "${BIN_DIR}/yarn-explorer.jar"
+```
+
+#### Способ Б: Сборка из исходных кодов (для разработчиков)
+```bash
+sudo -u appuser -i
+cd /tmp
+git clone https://github.com/company/hadoop-explorer.git
+cd hadoop-explorer
 
 # Сборка фронтенда (Svelte 5)
 cd frontend
@@ -100,7 +143,7 @@ cp -r frontend/apps/yarn/dist/* backend/yarn/src/main/resources/static/
 mvn clean package -DskipTests -f backend/yarn/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/yarn/target/yarn-explorer-java-1.0.0.jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
+cp backend/yarn/target/yarn-explorer-java-*.jar /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -208,7 +251,7 @@ ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
     -Dspring.config.location=/etc/hadoop-explorer/yarn/application.yml \
-    -jar /opt/hadoop-explorer/yarn/yarn-explorer.jar
+    -jar /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
 
 Restart=always
 RestartSec=5s
@@ -237,17 +280,47 @@ curl -I http://127.0.0.1:8000/healthz
 journalctl -u yarn-explorer -f
 ```
 
+### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+
+При выходе новой версии на GitHub Releases:
+```bash
+sudo -u appuser -i
+NEW_VER="1.0.1"
+RELEASE_DIR="/opt/hadoop-explorer/yarn/releases/v${NEW_VER}"
+mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
+
+curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/yarn-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# Атомарное переключение симлинка:
+ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
+
+# Перезапуск сервиса (занимает 2–3 сек):
+sudo systemctl restart yarn-explorer
+```
+
 ---
 
 ## 3. Режим 2: Docker & Docker Compose
 
-### 3.1 Сборка Docker-образа
-Сборка выполняется из корня монорепозитория:
+### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
+Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
 ```bash
-docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
+# Авторизация (при необходимости):
+echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
+
+# Загрузка готового образа:
+VERSION="1.0.0"
+docker pull ghcr.io/company/hadoop-explorer/yarn:${VERSION}
 ```
 
-### 3.2 Автономный запуск одного контейнера (`docker run`)
+### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+```bash
+docker build -t ghcr.io/company/hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
+```
+
+### 3.3 Автономный запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name yarn-explorer \
@@ -259,17 +332,17 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v yarn-data:/app/data \
-  hadoop-explorer/yarn:latest
+  ghcr.io/company/hadoop-explorer/yarn:1.0.0
 ```
 
-### 3.3 Промышленный запуск через `docker-compose.yml`
+### 3.4 Промышленный запуск через `docker-compose.yml`
 Создайте директорию `/opt/yarn-docker/` со следующим `docker-compose.yml`:
 ```yaml
 version: "3.8"
 
 services:
   yarn-explorer:
-    image: hadoop-explorer/yarn:latest
+    image: ghcr.io/company/hadoop-explorer/yarn:1.0.0
     container_name: yarn-explorer
     restart: unless-stopped
     ports:
@@ -346,6 +419,13 @@ kubectl create secret generic yarn-explorer-secrets \
   --from-literal=ldap-bind-password="SecretLdapPassword" \
   --from-literal=awx-token="SecretAwxOAuthToken"
 
+# Создание секрета для скачивания образов из GHCR
+kubectl create secret docker-registry ghcr-secret \
+  --namespace hadoop-explorer \
+  --docker-server=ghcr.io \
+  --docker-username="<github-username>" \
+  --docker-password="<github-token-with-read:packages>"
+
 # Создание секрета с Kerberos Keytab
 kubectl create secret generic yarn-kerberos-keytab \
   --namespace hadoop-explorer \
@@ -363,9 +443,12 @@ kubectl create configmap krb5-config \
 replicaCount: 2
 
 image:
-  repository: registry.company.local/hadoop-explorer/yarn
+  repository: ghcr.io/company/hadoop-explorer/yarn
   tag: "1.0.0"
   pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: ghcr-secret
 
 extraEnv:
   - name: JWT_SECRET_KEY

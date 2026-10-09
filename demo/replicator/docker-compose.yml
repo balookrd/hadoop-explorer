@@ -17,6 +17,7 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
     volumes:
       - replicator-db-data:/app/data
+      - shared-demo-data:/tmp/data
     ports:
       - "8005:8005"
     networks:
@@ -85,6 +86,25 @@ services:
       - orchestrator
     networks:
       - replicator-net
+
+  # 4. Smoke Test Runner (эмуляция 2x DC: Hive/HMS/HDFS -> Bootstrap -> New Table CDC)
+  smoke-test:
+    image: curlimages/curl:latest
+    container_name: replicator-smoke-test
+    depends_on:
+      - orchestrator
+      - agent-dc1
+      - agent-dc2
+    entrypoint: ["/bin/sh", "/tests/run-smoke-tests.sh"]
+    volumes:
+      - ./run-smoke-tests.sh:/tests/run-smoke-tests.sh:ro
+      - shared-demo-data:/tmp/data
+    environment:
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+    networks:
+      - replicator-net
+    profiles:
+      - test
 
 volumes:
   replicator-db-data:

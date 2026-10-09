@@ -34,7 +34,9 @@ public record JobResponse(
     @JsonProperty("completed_at") Instant completedAt,
     @JsonProperty("active_run_id") String activeRunId,
     @JsonProperty("history_retention_runs") int historyRetentionRuns,
-    @JsonProperty("runs_count") int runsCount
+    @JsonProperty("runs_count") int runsCount,
+    @JsonProperty("job_type") String jobType,
+    @JsonProperty("parent_job_id") String parentJobId
 ) {
     public static JobResponse fromEntity(JobEntity entity) {
         return fromEntity(entity, 0);
@@ -70,7 +72,9 @@ public record JobResponse(
             entity.getCompletedAt(),
             entity.getActiveRunId(),
             entity.getHistoryRetentionRuns(),
-            runsCount
+            runsCount,
+            entity.getJobType(),
+            entity.getParentJobId()
         );
     }
 }

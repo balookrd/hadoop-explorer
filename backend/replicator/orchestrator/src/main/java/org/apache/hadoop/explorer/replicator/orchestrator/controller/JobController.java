@@ -83,12 +83,18 @@ public class JobController {
     }
 
     @GetMapping
-    public ResponseEntity<List<JobResponse>> listJobs(@RequestParam(required = false) String status, Authentication auth) {
+    public ResponseEntity<List<JobResponse>> listJobs(
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false, name = "include_subjobs", defaultValue = "false") boolean includeSubjobs,
+        @RequestHeader(required = false, name = "X-Agent-Secret") String agentSecret,
+        Authentication auth
+    ) {
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : null;
         boolean isAdmin = session == null || session.isAdmin();
         boolean isReader = session != null && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER;
-        return ResponseEntity.ok(jobService.listJobs(status, username, isAdmin, isReader));
+        boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
+        return ResponseEntity.ok(jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs));
     }
 
     @GetMapping("/{jobId}")

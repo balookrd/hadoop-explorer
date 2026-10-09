@@ -134,3 +134,49 @@ export interface AgentInfo {
   version: string;
   max_bandwidth_mb_s?: number | null;
 }
+
+export interface HmsReplicationJob {
+  id: string;
+  source_cluster_id: string;
+  target_cluster_id: string;
+  source_db_name: string;
+  target_db_name: string;
+  table_include_pattern?: string;
+  table_exclude_pattern?: string;
+  status: 'BOOTSTRAPPING' | 'ACTIVE' | 'PAUSED' | 'ERROR';
+  bootstrap_event_id?: number;
+  last_processed_event_id?: number;
+  event_lag?: number;
+  total_tables: number;
+  replicated_tables: number;
+  total_partitions: number;
+  replicated_partitions: number;
+  message?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  last_sync_at?: string;
+}
+
+export interface HmsEventLog {
+  id: string;
+  hms_job_id: string;
+  event_id?: number;
+  event_type: string;
+  table_name: string;
+  partition_name?: string;
+  source_uri?: string;
+  target_uri?: string;
+  subjob_id?: string;
+  status: 'PENDING_DATA' | 'DATA_COPIED' | 'APPLIED' | 'SKIPPED_ACID' | 'FAILED';
+  error_message?: string;
+  created_at: string;
+}
+
+export interface CreateHmsJobPayload {
+  source_cluster_id: string;
+  target_cluster_id: string;
+  source_db: string;
+  target_db?: string;
+  table_pattern?: string;
+}

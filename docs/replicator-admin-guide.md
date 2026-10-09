@@ -183,52 +183,213 @@ flowchart TD
 
 ---
 
+### 1.6 Модель поставки и готовые дистрибутивы (Distribution & No-Build Deployment)
+
+Платформа **Hadoop Explorer** поставляется в виде полностью скомпилированных, готовых к промышленной эксплуатации релизных артефактов и Docker-образов.
+
+> [!IMPORTANT]
+> **Для развертывания сервиса в production-средах НЕ требуется компиляция исходного кода руками.**
+> На целевых серверах и шлюзах **не нужно** устанавливать Git, Apache Maven, Node.js, npm или компиляторы. Достаточно только среды исполнения **Java 21 JRE** и стандартных системных библиотек Kerberos.
+
+#### Официальные артефакты релиза (GitHub Releases)
+Для каждого релиза `v${VERSION}` (например, `v1.0.0`) в репозитории автоматически формируются и публикуются следующие файлы:
+
+| Файл артефакта | Тип | Размер | Содержимое и назначение |
+|---|---|---|---|
+| **`replicator-orchestrator-${VERSION}.jar`** | Spring Boot 3 Fat JAR | ~50 МБ | **Оркестратор репликации**: включает в себя веб-сервер, REST API, встроенный веб-интерфейс (Svelte 5 SPA предварительно упакован в `/static`), иерархический Token Bucket шейпер, драйверы БД (H2, PostgreSQL) и метрики Actuator. |
+| **`replicator-agent-${VERSION}-all.jar`** | Shaded Executable Fat JAR | ~81.5 МБ | **Нативный агент репликации**: самодостаточный исполняемый JAR со всеми упакованными зависимостями (Netty HTTP/2, gRPC runtime, Apache Hadoop Client, YARN ApplicationMaster, Jackson). Готов к прямому запуску через `java -jar` или `hadoop jar`. |
+| **`replicator-agent-${VERSION}.jar`** | Lean JAR (тонкий) | ~211 КБ | Скомпилированные классы агента без внешних библиотек. Предназначен для запуска на нодах Hadoop с системным `HADOOP_CLASSPATH` (`$(hadoop classpath)`), экономя дисковое пространство. |
+| **`SHA256SUMS.txt`** | Текстовый файл контрольных сумм | <1 КБ | Криптографические контрольные суммы SHA-256 для верификации целостности всех JAR-артефактов релиза. |
+
+#### Готовые контейнеры (GitHub Container Registry — GHCR)
+Для сред Docker и Kubernetes в реестре контейнеров GitHub (`ghcr.io`) публикуются предсобранные многослойные образы на базе легковесного дистрибутива `eclipse-temurin:21-jre-jammy`:
+- `ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}`
+- `ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}`
+
+---
+
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
 
-Развертывание компонентов платформы (Orchestrator и нативных Replicator Agent) на Linux-серверах под управлением `systemd`.
+Развертывание компонентов платформы (Orchestrator и нативных Replicator Agent) на Linux-серверах и шлюзах под управлением `systemd`.
 
 ### Шаг 1: Системные пакеты ОС
-Выполняется на серверах Orchestrator и Agent:
-```bash
-# Ubuntu / Debian:
-sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    openjdk-21-jdk maven \
-    libkrb5-dev libkrb5-3 krb5-user curl git
 
-# RHEL / Rocky Linux:
-sudo dnf install -y java-21-openjdk-devel maven krb5-devel krb5-workstation curl git
+#### Вариант для Production (Запуск из готовых артефактов — только Runtime JRE):
+На целевых серверах требуется только Java 21 JRE, curl и библиотеки Kerberos:
+
+```bash
+# Ubuntu 22.04 / 24.04 LTS, Debian 12:
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+    openjdk-21-jre-headless \
+    libkrb5-3 krb5-user curl ca-certificates
+
+# RHEL 8/9, Rocky Linux 8/9, AlmaLinux:
+sudo dnf install -y --setopt=install_weak_deps=False \
+    java-21-openjdk-headless \
+    krb5-workstation curl ca-certificates
 ```
 
-### Шаг 2: Пользователь и каталоги
+> [!TIP]
+> Установка легковесного пакета `headless JRE` уменьшает вектор атак и объем дискового пространства сервера на сотни мегабайт по сравнению с полным JDK и Maven.
+
+#### Альтернативный вариант (Только если требуется сборка из исходников):
 ```bash
+# Ubuntu / Debian:
+sudo apt-get install -y openjdk-21-jdk maven git nodejs npm
+# RHEL / Rocky Linux:
+sudo dnf install -y java-21-openjdk-devel maven git nodejs npm
+```
+
+---
+
+### Шаг 2: Пользователь и структура каталогов
+Выполняется на серверах Orchestrator и Agent:
+
+```bash
+# Создание выделенного системного пользователя
 sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
-sudo mkdir -p /opt/hadoop-explorer/replicator
+# Создание иерархии рабочих каталогов
+sudo mkdir -p /opt/hadoop-explorer/replicator/releases
+sudo mkdir -p /opt/hadoop-explorer/replicator/bin
 sudo mkdir -p /etc/hadoop-explorer/replicator
 sudo mkdir -p /var/log/hadoop-explorer/replicator
 sudo mkdir -p /var/lib/hadoop-explorer/replicator/data
 sudo mkdir -p /var/lib/hadoop-explorer/replicator/staging
 sudo mkdir -p /etc/security/keytabs
 
+# Назначение прав доступа
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/replicator
+sudo chmod 750 /var/lib/hadoop-explorer/replicator/data /var/lib/hadoop-explorer/replicator/staging
 ```
 
-### Шаг 3: Получение исходного кода и сборка артефактов
+---
+
+### Шаг 3: Получение бинарных артефактов (Два варианта)
+
+#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+
+Готовые бинарные Fat JAR скачиваются напрямую из раздела релизов GitHub. Все веб-ресурсы фронтенда (Svelte 5) уже встроены внутри `replicator-orchestrator.jar`, а все gRPC и Hadoop библиотеки — внутри `replicator-agent-*-all.jar`.
+
+##### 1. Загрузка через GitHub CLI (`gh`):
+Если на сервере или шлюзе установлен `gh`:
 ```bash
 sudo -u appuser -i
-cd /opt/hadoop-explorer/replicator
-git clone https://github.com/company/hadoop-explorer.git .
 
-# Сборка мультимодульного Java-проекта Replicator (Agent + Orchestrator)
-mvn clean package -DskipTests -f backend/replicator/pom.xml
+VERSION="1.0.0"
+RELEASE_DIR="/opt/hadoop-explorer/replicator/releases/v${VERSION}"
+mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-# Сборка фронтенда Replicator SPA (автоматически упаковывается в Orchestrator JAR)
+gh release download "v${VERSION}" --repo company/hadoop-explorer \
+    --pattern "replicator-orchestrator-*.jar" \
+    --pattern "replicator-agent-*-all.jar" \
+    --pattern "SHA256SUMS.txt"
+```
+
+##### 2. Загрузка через `curl` или `wget` (по прямым ссылкам):
+Если GitHub CLI отсутствует, используйте стандартный `curl`:
+```bash
+sudo -u appuser -i
+
+VERSION="1.0.0"
+GITHUB_REPO="company/hadoop-explorer"
+BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
+RELEASE_DIR="/opt/hadoop-explorer/replicator/releases/v${VERSION}"
+
+mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
+
+# Скачивание артефактов
+curl -fsSL -O "${BASE_URL}/replicator-orchestrator-${VERSION}.jar"
+curl -fsSL -O "${BASE_URL}/replicator-agent-${VERSION}-all.jar"
+curl -fsSL -O "${BASE_URL}/SHA256SUMS.txt"
+```
+
+> [!NOTE]
+> Для изолированных закрытых контуров (Air-Gapped) файлы скачиваются во внешней сети и загружаются в корпоративный Nexus, Artifactory либо копируются на целевые серверы по `scp`/`rsync`.
+
+##### 3. Проверка контрольных сумм SHA-256:
+Обязательно проверяйте целостность файлов перед запуском в промышленной эксплуатации:
+```bash
+cd "${RELEASE_DIR}"
+sha256sum -c SHA256SUMS.txt --ignore-missing
+# Ожидаемый вывод:
+# replicator-orchestrator-1.0.0.jar: УСПЕШНО (OK)
+# replicator-agent-1.0.0-all.jar: УСПЕШНО (OK)
+```
+
+##### 4. Создание постоянных символических ссылок:
+Для того чтобы systemd-юниты и скрипты автоматизации ссылались на стабильные пути без указания версии в имени файла, создаются симлинки:
+```bash
+BIN_DIR="/opt/hadoop-explorer/replicator/bin"
+
+# Для сервера Оркестратора:
+ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/replicator-orchestrator.jar"
+
+# Для серверов Агентов:
+ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/replicator-agent.jar"
+```
+
+##### 5. Автоматизированный скрипт развертывания (`install-from-release.sh`):
+Вы можете сохранить следующий скрипт в `/opt/hadoop-explorer/replicator/bin/install-from-release.sh` для быстрого обновления сервиса одной командой:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="${1:-1.0.0}"
+GITHUB_REPO="${GITHUB_REPO:-company/hadoop-explorer}"
+BASE_DIR="/opt/hadoop-explorer/replicator"
+RELEASE_DIR="${BASE_DIR}/releases/v${VERSION}"
+BIN_DIR="${BASE_DIR}/bin"
+BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
+
+echo "==> Установка Hadoop gRPC Replicator v${VERSION} из GitHub Releases..."
+mkdir -p "${RELEASE_DIR}" "${BIN_DIR}"
+cd "${RELEASE_DIR}"
+
+echo "--> Загрузка артефактов..."
+curl -fsSL -O "${BASE_URL}/replicator-orchestrator-${VERSION}.jar"
+curl -fsSL -O "${BASE_URL}/replicator-agent-${VERSION}-all.jar"
+curl -fsSL -O "${BASE_URL}/SHA256SUMS.txt"
+
+echo "--> Проверка контрольных сумм..."
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+echo "--> Обновление символических ссылок..."
+ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/replicator-orchestrator.jar"
+ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/replicator-agent.jar"
+
+echo "✅ Версия v${VERSION} успешно установлена в ${BIN_DIR}!"
+```
+
+---
+
+#### Способ Б: Сборка из исходных кодов (для разработчиков и тестирования)
+
+Если вам необходимо внести изменения в код или протестировать snapshot-сборку:
+```bash
+sudo -u appuser -i
+cd /tmp
+git clone https://github.com/company/hadoop-explorer.git
+cd hadoop-explorer
+
+# 1. Сборка фронтенда (Svelte 5 SPA)
 cd frontend
 npm ci --workspace=apps/replicator --include-workspace-root
 npm run build:replicator
 cd ..
+
+# 2. Сборка Java-модулей (Spring Boot Orchestrator + Shaded Agent)
+mvn clean package -DskipTests -f backend/replicator/pom.xml
+
+# 3. Копирование артефактов в рабочий каталог bin
+cp backend/replicator/orchestrator/target/replicator-orchestrator-*.jar \
+   /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar
+cp backend/replicator/agent/target/replicator-agent-*-all.jar \
+   /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
 ```
+
+---
 
 ### Шаг 4: Конфигурация Оркестратора (`/etc/hadoop-explorer/replicator/application.yml`)
 ```yaml
@@ -288,6 +449,17 @@ hadoop:
         hdfs-rpc-address: "hdfs://namenode-dc2:8020"
         grpc-host: "node1.dc2.company.local"
         grpc-port: 50051
+
+    # Маппинг федерации HDFS для репликации Hive Metastore (HMS Replication)
+    federation-mappings:
+      - source-nameservice: "ns-cold"
+        source-cluster-id: "dc1-ns-cold"
+        target-nameservice: "hdfs://ns-cold-dc2:8020"
+        target-cluster-id: "dc2-ns-cold"
+      - source-nameservice: "ns-hot"
+        source-cluster-id: "dc1-ns-hot"
+        target-nameservice: "hdfs://ns-hot-dc2:8020"
+        target-cluster-id: "dc2-ns-hot"
 ```
 
 > [!NOTE]
@@ -310,7 +482,7 @@ WorkingDirectory=/opt/hadoop-explorer/replicator
 Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/replicator/application.yml"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/replicator/backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar \
+    -jar /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar \
     --server.port=8005
 
 Restart=always
@@ -343,7 +515,7 @@ Environment="REPLICATOR_STAGING_DIR=/var/lib/hadoop-explorer/replicator/staging"
 Environment="POLL_INTERVAL_SEC=2.0"
 
 ExecStart=/usr/bin/java -Xms256m -Xmx1024m \
-    -jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
+    -jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
 
 Restart=always
 RestartSec=5s
@@ -365,6 +537,41 @@ curl -s http://127.0.0.1:8005/health
 # На серверах Агентов (DC1 и DC2):
 sudo systemctl enable --now replicator-agent
 ```
+
+### Шаг 7: Бесшовное обновление версий (Zero-Downtime / Rolling Upgrade)
+
+При выходе новой версии в GitHub Releases обновление выполняется без остановки кластера и без компиляции:
+
+1. **Скачивание новой версии релиза** (например, `v1.0.1`):
+   ```bash
+   sudo -u appuser -i
+   NEW_VER="1.0.1"
+   NEW_DIR="/opt/hadoop-explorer/replicator/releases/v${NEW_VER}"
+   mkdir -p "${NEW_DIR}" && cd "${NEW_DIR}"
+
+   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/replicator-orchestrator-${NEW_VER}.jar"
+   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/replicator-agent-${NEW_VER}-all.jar"
+   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+   sha256sum -c SHA256SUMS.txt --ignore-missing
+   ```
+
+2. **Атомарное переключение символических ссылок**:
+   ```bash
+   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar
+   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+   ```
+
+3. **Перезапуск сервисов**:
+   - **Оркестратор**: перезапуск занимает 2–3 секунды. Воркеры временно сохраняют состояние и автоматически переподключаются.
+     ```bash
+     sudo systemctl restart replicator-orchestrator
+     ```
+   - **Агенты репликации**: перезапускаются поочередно (Rolling restart). При остановке одного воркера Оркестратор моментально переводит активные задачи на соседние воркеры благодаря встроенному механизму Self-Healing & Orphaned Task Failover:
+     ```bash
+     sudo systemctl restart replicator-agent
+     ```
+
+---
 
 ### 2.1 Запуск нескольких агентов для одного кластера (Горизонтальное масштабирование и HA)
 
@@ -396,7 +603,7 @@ Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="RECEIVER_PORT=5005%i"
 Environment="AGENT_ADVERTISED_ADDRESS=node1.dc1.company.local:5005%i"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
-ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
+ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
 Restart=always
 
 [Install]
@@ -493,8 +700,8 @@ mvn clean package -pl backend/replicator/agent -am -DskipTests
 Запуск через стандартную утилиту `hadoop jar` является предпочтительным для ad-hoc задач, ручного тестирования или интеграции с корпоративными планировщиками (Airflow, Control-M, Autosys). Утилита `hadoop` автоматически подгружает конфигурационные файлы (`core-site.xml`, `hdfs-site.xml`, `yarn-site.xml`) из каталога `$HADOOP_CONF_DIR`.
 
 ```bash
-# 1. Запуск Shaded Fat JAR через hadoop jar:
-hadoop jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+# 1. Запуск Shaded Fat JAR (установленного из GitHub Release в /opt/hadoop-explorer/replicator/bin):
+hadoop jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
     org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
@@ -512,7 +719,7 @@ hadoop jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/repli
 export HADOOP_CLASSPATH=$(hadoop classpath)
 
 java -Xms1g -Xmx4g \
-    -cp "/opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
+    -cp "/opt/hadoop-explorer/replicator/releases/v1.0.0/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
     org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
@@ -523,10 +730,11 @@ java -Xms1g -Xmx4g \
 ```
 
 #### 2.4.2 Способ Б: Запуск через скрипт `replicator-agent.sh`
-Скрипт `bin/replicator-agent.sh` инкапсулирует автоопределение путей к JAR, проверку наличия `hadoop classpath`, выбор оптимальных флагов JVM G1GC и запуск процесса:
+Скрипт `replicator-agent.sh` инкапсулирует автоопределение путей к JAR, проверку наличия `hadoop classpath`, выбор оптимальных флагов JVM G1GC и запуск процесса:
 
 ```bash
-./backend/replicator/agent/bin/replicator-agent.sh \
+JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+/opt/hadoop-explorer/replicator/bin/replicator-agent.sh \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -670,10 +878,10 @@ sequenceDiagram
 
 ##### Способ 1: Прямой вызов через CLI `yarn jar` или `hadoop jar`
 ```bash
-# Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication
-yarn jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+# Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication (из установленного релиза):
+yarn jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
     org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
-    --jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+    --jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 4 \
@@ -683,9 +891,10 @@ yarn jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replica
 ```
 
 ##### Способ 2: Запуск через скрипт `submit-yarn.sh`
-Скрипт `backend/replicator/agent/bin/submit-yarn.sh` упрощает запуск и проверяет переменные окружения:
+Скрипт `submit-yarn.sh` упрощает запуск и проверяет переменные окружения:
 ```bash
-./backend/replicator/agent/bin/submit-yarn.sh \
+JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+/opt/hadoop-explorer/replicator/bin/submit-yarn.sh \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 8 \
@@ -812,13 +1021,47 @@ yarn application -kill application_1728460000000_0042
 
 ## 3. Режим 2: Docker & Docker Compose
 
-### 3.1 Сборка единого Docker-образа
-Образ собирается из корня репозитория:
+Развертывание сервиса в контейнерах Docker без необходимости компиляции Java и сборки фронтенда на хосте.
+
+### 3.1 Запуск из предсобранных образов GitHub Container Registry (GHCR — Рекомендуется)
+
+Готовые оптимизированные Docker-образы публикуются в реестре контейнеров GitHub (`ghcr.io`) для каждого релиза:
+- **Оркестратор**: `ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}`
+- **Агент**: `ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}`
+
+#### 1. Авторизация в GHCR (при использовании приватного репозитория):
 ```bash
-docker build -t hadoop-explorer/replicator:latest -f docker/Dockerfile.replicator .
+echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
 ```
 
-### 3.2 Полный `docker-compose.yml` (Двунаправленная репликация DC1 ⇄ DC2)
+#### 2. Загрузка образов:
+```bash
+VERSION="1.0.0"
+docker pull ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}
+docker pull ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}
+```
+
+---
+
+### 3.2 Альтернатива: Локальная сборка образов из исходного кода (для разработки)
+
+Если в исходный код вносились локальные модификации, образы можно собрать вручную:
+```bash
+# Сборка Оркестратора:
+docker build -t ghcr.io/company/hadoop-explorer/replicator-orchestrator:latest \
+    -f docker/Dockerfile.replicator-orchestrator .
+
+# Сборка Агента:
+docker build -t ghcr.io/company/hadoop-explorer/replicator-agent:latest \
+    -f docker/Dockerfile.replicator-agent .
+
+# Либо через общий скрипт платформы:
+./scripts/build-containers.sh replicator
+```
+
+---
+
+### 3.3 Полный `docker-compose.yml` (Двунаправленная репликация DC1 ⇄ DC2)
 Готовый compose-файл находится в `demo/replicator/docker-compose.yml`:
 ```yaml
 name: hadoop-replicator-demo
@@ -826,7 +1069,7 @@ name: hadoop-replicator-demo
 services:
   # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Prometheus)
   orchestrator:
-    image: hadoop-explorer/replicator-orchestrator:latest
+    image: ghcr.io/company/hadoop-explorer/replicator-orchestrator:1.0.0
     container_name: replicator-orchestrator
     hostname: orchestrator
     restart: unless-stopped
@@ -851,7 +1094,7 @@ services:
 
   # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
   agent-dc1:
-    image: hadoop-explorer/replicator-agent:latest
+    image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
     container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
@@ -881,7 +1124,7 @@ services:
 
   # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-dc2:
-    image: hadoop-explorer/replicator-agent:latest
+    image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
     container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
@@ -930,6 +1173,20 @@ docker compose logs -f orchestrator
 
 ## 4. Режим 3: Kubernetes (K8s Manifests & Helm)
 
+Развертывание в Kubernetes с использованием готовых образов из GitHub Container Registry (GHCR).
+
+### 4.0 Настройка доступа к GHCR (ImagePullSecret)
+Если репозиторий контейнеров приватный, создайте секрет для вытягивания образов:
+```bash
+kubectl create namespace hadoop-replicator --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret docker-registry ghcr-secret \
+    --namespace=hadoop-replicator \
+    --docker-server=ghcr.io \
+    --docker-username="<github-username>" \
+    --docker-password="<github-token-with-read:packages>"
+```
+
 ### 4.1 Манифесты Kubernetes (Raw Manifests)
 
 #### 1. Namespace, Secret и ConfigMap
@@ -977,10 +1234,12 @@ spec:
       labels:
         app: replicator-orchestrator
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: orchestrator
-          image: registry.company.local/hadoop-explorer/replicator:latest
-          command: ["java", "-jar", "/app/orchestrator.jar"]
+          image: ghcr.io/company/hadoop-explorer/replicator-orchestrator:1.0.0
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: replicator-config
@@ -1043,10 +1302,12 @@ spec:
       labels:
         app: replicator-agent
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: agent
-          image: registry.company.local/hadoop-explorer/replicator:latest
-          command: ["java", "-jar", "/app/agent.jar"]
+          image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: replicator-config
@@ -1171,3 +1432,31 @@ java -jar -Dspring.profiles.active=prod \
   backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
 ```
 
+### 6.4 Автоматические Smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
+
+Для проверки работоспособности платформы в CI/CD и демонстрационных контурах реализован end-to-end smoke-тест полного цикла репликации между двумя изолированными дата-центрами (`dc1` и `dc2`):
+
+```bash
+# Прямой запуск скрипта smoke-тестирования:
+./demo/replicator/run-smoke-tests.sh
+
+# Запуск в изолированном контейнере Docker Compose:
+docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smoke-test
+```
+
+#### REST API управления кластерами для тестов и интеграций (`/api/v1/hms/clusters`):
+- `POST /api/v1/hms/clusters/{clusterId}/databases` — создание базы данных в метасторе кластера.
+- `POST /api/v1/hms/clusters/{clusterId}/tables` — создание таблицы с генерацией схемы, опциональных файлов данных и CDC-события `CREATE_TABLE`.
+- `GET /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}` — получение метаданных таблицы из метастора указанного кластера.
+- `GET /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}/data` — валидация физического наличия файлов данных на HDFS/томе кластера.
+- `POST /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}/partitions` — добавление партиции и фиксация события `ADD_PARTITION` в `NOTIFICATION_LOG`.
+
+#### REST API оркестратора репликации схем Hive (`/api/v1/hms/jobs`):
+- `GET /api/v1/hms/jobs` — получение списка всех настроенных задач репликации схем.
+- `POST /api/v1/hms/jobs` — регистрация новой задачи репликации схемы с запуском полного Bootstrap.
+- `GET /api/v1/hms/jobs/{id}` — получение статуса задачи и прогресса репликации.
+- `POST /api/v1/hms/jobs/{id}/pause` — приостановка задачи (сохранение чекпоинта `last_processed_event_id`).
+- `POST /api/v1/hms/jobs/{id}/resume` — возобновление задачи (догоняющее вычитывание накопившихся CDC-событий).
+- `POST /api/v1/hms/jobs/{id}/rebootstrap` — принудительный запуск повторной полной синхронизации без потери данных (`deleteData = false`).
+- `DELETE /api/v1/hms/jobs/{id}` — каскадное удаление задачи, дочерних HDFS саб-джоб и логов аудита.
+- `GET /api/v1/hms/jobs/{id}/events` — аудит обработанных DDL событий Hive с детализацией.

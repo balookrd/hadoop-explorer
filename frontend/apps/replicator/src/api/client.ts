@@ -8,6 +8,9 @@ import type {
   ClusterInfo,
   DatacenterInfo,
   AgentInfo,
+  HmsReplicationJob,
+  HmsEventLog,
+  CreateHmsJobPayload,
 } from '../types';
 
 export class ReplicatorApiClient extends BaseApiClient {
@@ -136,6 +139,61 @@ export class ReplicatorApiClient extends BaseApiClient {
         target_cluster: targetCluster,
         limit_mb_per_sec: limitMbPerSec,
       }),
+    });
+  }
+
+  // --- Репликация Hive Metastore (HMS Replication) ---
+
+  async getHmsJobs(): Promise<HmsReplicationJob[]> {
+    return this.request<HmsReplicationJob[]>('/hms/jobs');
+  }
+
+  async getHmsJob(id: string): Promise<HmsReplicationJob> {
+    return this.request<HmsReplicationJob>(`/hms/jobs/${encodeURIComponent(id)}`);
+  }
+
+  async createHmsJob(payload: CreateHmsJobPayload): Promise<HmsReplicationJob> {
+    return this.request<HmsReplicationJob>('/hms/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async triggerHmsSync(id: string): Promise<{ success: boolean; events_processed: number }> {
+    return this.request(`/hms/jobs/${encodeURIComponent(id)}/sync`, {
+      method: 'POST',
+    });
+  }
+
+  async getHmsEvents(id: string, limit = 100): Promise<HmsEventLog[]> {
+    return this.request<HmsEventLog[]>(`/hms/jobs/${encodeURIComponent(id)}/events?limit=${limit}`);
+  }
+
+  async getHmsSubtasks(id: string): Promise<Job[]> {
+    return this.request<Job[]>(`/hms/jobs/${encodeURIComponent(id)}/subtasks`);
+  }
+
+  async pauseHmsJob(id: string): Promise<HmsReplicationJob> {
+    return this.request<HmsReplicationJob>(`/hms/jobs/${encodeURIComponent(id)}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeHmsJob(id: string): Promise<HmsReplicationJob> {
+    return this.request<HmsReplicationJob>(`/hms/jobs/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+    });
+  }
+
+  async rebootstrapHmsJob(id: string): Promise<HmsReplicationJob> {
+    return this.request<HmsReplicationJob>(`/hms/jobs/${encodeURIComponent(id)}/rebootstrap`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteHmsJob(id: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(`/hms/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     });
   }
 }

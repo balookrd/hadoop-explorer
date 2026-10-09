@@ -96,4 +96,37 @@ public class ReplicatorProperties {
         public int getGrpcPort() { return grpcPort; }
         public void setGrpcPort(int grpcPort) { this.grpcPort = grpcPort; }
     }
+
+    private List<FederationMappingConfig> federationMappings = new ArrayList<>(List.of(
+        new FederationMappingConfig("ns-cold", "dc1-ns-cold", "hdfs://ns-cold-dc2:8020", "dc2-ns-cold"),
+        new FederationMappingConfig("ns-hot", "dc1-ns-hot", "hdfs://ns-hot-dc2:8020", "dc2-ns-hot"),
+        new FederationMappingConfig("namenode-dc1:8020", "dc1", "hdfs://namenode-dc2:8020", "dc2")
+    ));
+
+    public List<FederationMappingConfig> getFederationMappings() { return federationMappings; }
+    public void setFederationMappings(List<FederationMappingConfig> federationMappings) { this.federationMappings = federationMappings; }
+
+    public static class FederationMappingConfig {
+        private String sourceNameservice;
+        private String sourceClusterId;
+        private String targetNameservice;
+        private String targetClusterId;
+
+        public FederationMappingConfig() {}
+        public FederationMappingConfig(String sourceNameservice, String sourceClusterId, String targetNameservice, String targetClusterId) {
+            this.sourceNameservice = sourceNameservice;
+            this.sourceClusterId = sourceClusterId;
+            this.targetNameservice = targetNameservice;
+            this.targetClusterId = targetClusterId;
+        }
+
+        public String getSourceNameservice() { return sourceNameservice; }
+        public void setSourceNameservice(String sourceNameservice) { this.sourceNameservice = sourceNameservice; }
+        public String getSourceClusterId() { return sourceClusterId; }
+        public void setSourceClusterId(String sourceClusterId) { this.sourceClusterId = sourceClusterId; }
+        public String getTargetNameservice() { return targetNameservice; }
+        public void setTargetNameservice(String targetNameservice) { this.targetNameservice = targetNameservice; }
+        public String getTargetClusterId() { return targetClusterId; }
+        public void setTargetClusterId(String targetClusterId) { this.targetClusterId = targetClusterId; }
+    }
 }

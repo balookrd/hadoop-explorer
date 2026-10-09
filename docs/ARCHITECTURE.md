@@ -279,6 +279,13 @@
   - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
   - Полнофункциональное управление задачами (REST API и Web UI): запуск/перезапуск (`POST /api/v1/jobs/{id}/start`), остановка/отмена (`POST /api/v1/jobs/{id}/stop`), редактирование параметров на лету (`PUT /api/v1/jobs/{id}`) и удаление (`DELETE /api/v1/jobs/{id}`) с каскадной очисткой подзадач.
   - Двухфазная распределенная репликация (Distributed Task Pool): фаза анализа с регистрацией пула сабтасок (`/api/v1/jobs/{id}/tasks/batch`) и параллельная фаза воркеров (`claimTasks`). Подзадачи полностью инкапсулированы внутри родительской задачи `Job`; родительское задание переходит в терминальный статус (`COMPLETED`/`FAILED`) строго после закрытия всех сабтасок с накоплением счетчиков объектов (`total_objects`, `transferred_objects`, `skipped_objects`, `failed_objects`), объемов и средней скорости.
+- **Репликация Hive Metastore (HMS Replication)**:
+  - Выделенный **Раздел «HMS Replication»** для межкластерной синхронизации метаданных баз и таблиц (HDP 3.1 ➔ Apache Hive 3.1.3).
+  - **Изоляция подзадач**: задачи переноса HDFS для партиций создаются со статусом `job_type = 'HMS_SUBJOB'` и полностью скрыты из регламентного раздела «HDFS Replication».
+  - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
+  - **HDFS Federation**: динамический парсинг NameService в `sd.location` партиций и маршрутизация по таблице соответствия `federation-mappings` с сохранением кластерных квот Token Bucket.
+  - **Полный Bootstrap и потоковый CDC**: первичный экспорт структуры таблиц/партиций с автоматическим переходом в режим потокового чтения `NOTIFICATION_LOG`.
+  - **Безопасное удаление**: операции `DROP` выполняются в целевом HMS строго с параметром `deleteData = false`, сохраняя файлы в HDFS.
 - **Нативная Java 21 экосистема исполнения**:
   - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: высокопроизводительный нативный оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
   - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной полнодуплексный воркер для DataNode и контейнеров Apache Hadoop YARN.

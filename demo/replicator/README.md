@@ -59,6 +59,26 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 
 ---
 
+## 🔬 Автоматические Smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
+
+В стенд включен автоматический end-to-end smoke-тест полного жизненного цикла репликации схемы и данных:
+1. Создание таблицы Hive и запись данных в **DC1** (Primary ЦОД).
+2. Запуск репликации схемы базы данных, ожидание завершения первичного **Bootstrap sync** (статус `ACTIVE`).
+3. Создание **НОВОЙ таблицы** в синхронизированной схеме в **DC1** + запись данных (генерация CDC-события `CREATE_TABLE` в `NOTIFICATION_LOG`).
+4. Запуск **CDC sync** и перенос метаданных и файлов партиций на **DC2**.
+5. Финальная верификация: подтверждение появления схемы в HMS DC2, физического коммита файлов данных на HDFS DC2 и изоляции подзадач `HMS_SUBJOB`.
+
+### Запуск smoke-тестов:
+```bash
+# Вариант 1: Запуск скрипта напрямую
+./demo/replicator/run-smoke-tests.sh
+
+# Вариант 2: Запуск изолированного тест-раннера внутри Docker сети
+docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smoke-test
+```
+
+---
+
 ## 🗺️ Топология стенда
 - **ЦОД 1 (Москва / Primary)**: содержит 2 кластера HDFS (`demo-cluster` — Prod DataLake и `analytics-cluster` — Secondary DataLake).
 - **ЦОД 2 (Санкт-Петербург / Disaster Recovery)**: содержит 1 кластер HDFS (`backup-cluster` — DR Mirror DataLake).
