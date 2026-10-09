@@ -14,6 +14,7 @@ services:
       HADOOP_REPLICATOR_AGENT_SECRET: ""
       SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
       SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.H2Dialect"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
     volumes:
       - replicator-db-data:/app/data
     ports:

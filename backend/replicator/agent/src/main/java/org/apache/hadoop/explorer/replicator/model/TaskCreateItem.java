@@ -24,14 +24,22 @@ public class TaskCreateItem {
     @JsonProperty("skipped")
     private boolean skipped;
 
+    @JsonProperty("max_retries")
+    private Integer maxRetries;
+
     public TaskCreateItem() {}
 
     public TaskCreateItem(String id, String sourcePath, String targetPath, long fileSize, boolean skipped) {
+        this(id, sourcePath, targetPath, fileSize, skipped, null);
+    }
+
+    public TaskCreateItem(String id, String sourcePath, String targetPath, long fileSize, boolean skipped, Integer maxRetries) {
         this.id = id;
         this.sourcePath = sourcePath;
         this.targetPath = targetPath;
         this.fileSize = fileSize;
         this.skipped = skipped;
+        this.maxRetries = maxRetries;
     }
 
     public String getId() { return id; }
@@ -48,4 +56,7 @@ public class TaskCreateItem {
 
     public boolean isSkipped() { return skipped; }
     public void setSkipped(boolean skipped) { this.skipped = skipped; }
+
+    public Integer getMaxRetries() { return maxRetries; }
+    public void setMaxRetries(Integer maxRetries) { this.maxRetries = maxRetries; }
 }

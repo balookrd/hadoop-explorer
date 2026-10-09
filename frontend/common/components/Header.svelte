@@ -24,6 +24,7 @@
     onLogout?: () => void;
     onLoginClick?: () => void;
     extraActions?: Snippet;
+    centerContent?: Snippet;
   }
 
   let {
@@ -37,6 +38,7 @@
     onLogout,
     onLoginClick,
     extraActions,
+    centerContent,
   }: Props = $props();
 
   let showUserMenu = $state(false);
@@ -90,6 +92,8 @@
   const effectiveRole = $derived(
     user ? getShortRole(user.system_role, user.is_admin) : null
   );
+
+  const hasCenter = $derived(!!centerContent);
 </script>
 
 <svelte:window
@@ -110,7 +114,7 @@
   style="position: sticky; top: 0; z-index: 50;"
 >
   <!-- Логотип и Бренд -->
-  <div class="flex items-center gap-2.5 shrink-0">
+  <div class="flex items-center gap-2.5 shrink-0 {hasCenter ? 'sm:flex-1 sm:justify-start' : ''}">
     <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20 shrink-0">
       <IconComponent class="w-4 h-4" />
     </div>
@@ -126,8 +130,12 @@
     </div>
   </div>
 
-  <!-- Селектор кластеров и doAs -->
-  {#if clusters && clusters.length > 0}
+  <!-- Селектор кластеров и центральный контент -->
+  {#if centerContent}
+    <div class="flex items-center justify-center shrink-0 sm:flex-none">
+      {@render centerContent()}
+    </div>
+  {:else if clusters && clusters.length > 0}
     <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 shadow-2xs">
       <Server class="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
       <span class="text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:inline shrink-0">Кластер:</span>
@@ -154,7 +162,7 @@
   {/if}
 
   <!-- Правая часть: Действия и Профиль пользователя -->
-  <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+  <div class="flex items-center gap-1.5 sm:gap-2 shrink-0 {hasCenter ? 'sm:flex-1 sm:justify-end' : ''}">
     {#if extraActions}
       {@render extraActions()}
     {/if}

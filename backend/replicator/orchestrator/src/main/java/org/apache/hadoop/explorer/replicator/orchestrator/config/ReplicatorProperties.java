@@ -13,6 +13,8 @@ public class ReplicatorProperties {
     private boolean enforceClusterWhitelist = false;
     private int agentHeartbeatTimeoutSeconds = 15;
     private int agentOfflineTimeoutSeconds = 45;
+    private int maxTaskRetries = 3;
+    private int taskTimeoutSeconds = 60;
 
     private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
         new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
@@ -34,6 +36,10 @@ public class ReplicatorProperties {
     public void setAgentHeartbeatTimeoutSeconds(int agentHeartbeatTimeoutSeconds) { this.agentHeartbeatTimeoutSeconds = agentHeartbeatTimeoutSeconds; }
     public int getAgentOfflineTimeoutSeconds() { return agentOfflineTimeoutSeconds; }
     public void setAgentOfflineTimeoutSeconds(int agentOfflineTimeoutSeconds) { this.agentOfflineTimeoutSeconds = agentOfflineTimeoutSeconds; }
+    public int getMaxTaskRetries() { return maxTaskRetries; }
+    public void setMaxTaskRetries(int maxTaskRetries) { this.maxTaskRetries = maxTaskRetries; }
+    public int getTaskTimeoutSeconds() { return taskTimeoutSeconds; }
+    public void setTaskTimeoutSeconds(int taskTimeoutSeconds) { this.taskTimeoutSeconds = taskTimeoutSeconds; }
     public List<DatacenterConfig> getDatacenters() { return datacenters; }
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }

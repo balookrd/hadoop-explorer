@@ -45,11 +45,28 @@ public class TaskItemDto {
     @JsonProperty("run_as_service_account")
     private Boolean runAsServiceAccount;
 
+    @JsonProperty("retry_count")
+    private int retryCount;
+
+    @JsonProperty("max_retries")
+    private int maxRetries;
+
+    @JsonProperty("last_failed_agent_id")
+    private String lastFailedAgentId;
+
     public TaskItemDto() {}
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
                        long fileSize, String status, String assignedAgentId, String checksum,
                        String targetAddress, String executionPrincipal, Boolean runAsServiceAccount) {
+        this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
+                targetAddress, executionPrincipal, runAsServiceAccount, 0, 3, null);
+    }
+
+    public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
+                       long fileSize, String status, String assignedAgentId, String checksum,
+                       String targetAddress, String executionPrincipal, Boolean runAsServiceAccount,
+                       int retryCount, int maxRetries, String lastFailedAgentId) {
         this.id = id;
         this.jobId = jobId;
         this.runId = runId;
@@ -62,6 +79,9 @@ public class TaskItemDto {
         this.targetAddress = targetAddress;
         this.executionPrincipal = executionPrincipal;
         this.runAsServiceAccount = runAsServiceAccount;
+        this.retryCount = retryCount;
+        this.maxRetries = maxRetries;
+        this.lastFailedAgentId = lastFailedAgentId;
     }
 
     public String getId() { return id; }
@@ -99,4 +119,13 @@ public class TaskItemDto {
 
     public Boolean getRunAsServiceAccount() { return runAsServiceAccount; }
     public void setRunAsServiceAccount(Boolean runAsServiceAccount) { this.runAsServiceAccount = runAsServiceAccount; }
+
+    public int getRetryCount() { return retryCount; }
+    public void setRetryCount(int retryCount) { this.retryCount = retryCount; }
+
+    public int getMaxRetries() { return maxRetries; }
+    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+
+    public String getLastFailedAgentId() { return lastFailedAgentId; }
+    public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
 }

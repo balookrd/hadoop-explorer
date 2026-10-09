@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.service;
 
 import org.apache.hadoop.explorer.replicator.model.*;
+import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity;
@@ -11,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskReposit
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +21,8 @@ import java.util.*;
 
 /**
  * Сервис управления распределенным пулом пофайловых задач (Distributed Task Queue).
- * Координирует параллельную репликацию файлов между всеми доступными агентами кластера.
+ * Координирует параллельную репликацию файлов между всеми доступными агентами кластера
+ * и обеспечивает автоматический failover при сбое или падении агентов.
  */
 @Service
 public class TaskService {
@@ -31,17 +34,20 @@ public class TaskService {
     private final JobRunRepository jobRunRepository;
     private final AgentRegistry agentRegistry;
     private final TopologyRegistry topologyRegistry;
+    private final ReplicatorProperties properties;
 
     public TaskService(TaskRepository taskRepository,
                        JobRepository jobRepository,
                        JobRunRepository jobRunRepository,
                        AgentRegistry agentRegistry,
-                       TopologyRegistry topologyRegistry) {
+                       TopologyRegistry topologyRegistry,
+                       ReplicatorProperties properties) {
         this.taskRepository = taskRepository;
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.agentRegistry = agentRegistry;
         this.topologyRegistry = topologyRegistry;
+        this.properties = properties;
     }
 
     /**
@@ -87,6 +93,11 @@ public class TaskService {
             task.setSourcePath(item.getSourcePath());
             task.setTargetPath(item.getTargetPath());
             task.setFileSize(item.getFileSize());
+
+            int maxRetries = (item.getMaxRetries() != null) ? item.getMaxRetries() : properties.getMaxTaskRetries();
+            task.setMaxRetries(maxRetries);
+            task.setRetryCount(0);
+            task.setUpdatedAt(Instant.now());
 
             if (item.isSkipped()) {
                 task.setStatus("SKIPPED");
@@ -166,9 +177,18 @@ public class TaskService {
                 continue;
             }
 
+            // Если задача уже сбоила на этом агенте и в кластере есть другие активные агенты,
+            // отдаем предпочтение другому агенту для распределения нагрузки и изоляции сбойного узла
+            if (task.getLastFailedAgentId() != null
+                    && task.getLastFailedAgentId().equalsIgnoreCase(agentId)
+                    && agentRegistry.hasOtherOnlineAgentsForCluster(clusterId, agentId)) {
+                continue;
+            }
+
             // Назначаем задачу данному агенту
             task.setStatus("RUNNING");
             task.setAssignedAgentId(agentId);
+            task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
 
             // Разрешаем оптимальный gRPC адрес приемника с балансировкой нагрузки (Least Loaded)
@@ -186,7 +206,10 @@ public class TaskService {
                     task.getChecksum(),
                     targetAddress,
                     job.getExecutionPrincipal(),
-                    job.isRunAsServiceAccount()
+                    job.isRunAsServiceAccount(),
+                    task.getRetryCount(),
+                    task.getMaxRetries(),
+                    task.getLastFailedAgentId()
             ));
         }
 
@@ -214,6 +237,7 @@ public class TaskService {
 
         task.setStatus("COMPLETED");
         task.setChecksum(req.getChecksum());
+        task.setUpdatedAt(Instant.now());
         if (req.getAgentId() != null) {
             task.setAssignedAgentId(req.getAgentId());
         }
@@ -255,7 +279,7 @@ public class TaskService {
     }
 
     /**
-     * Фиксация сбоя при передаче файла воркером.
+     * Фиксация сбоя при передаче файла воркером с автоматическим failover на другой агент.
      */
     @Transactional
     public boolean failTask(FailTaskRequest req) {
@@ -265,11 +289,53 @@ public class TaskService {
         }
 
         TaskEntity task = taskOpt.get();
-        if ("FAILED".equalsIgnoreCase(task.getStatus())) {
+        if ("FAILED".equalsIgnoreCase(task.getStatus()) || "COMPLETED".equalsIgnoreCase(task.getStatus())) {
             return true;
         }
+
+        String failedAgent = req.getAgentId() != null ? req.getAgentId() : task.getAssignedAgentId();
+        return failoverTask(task, failedAgent, req.getErrorMessage());
+    }
+
+    /**
+     * Единый механизм автоматического failover для сбойных или брошенных подзадач.
+     */
+    @Transactional
+    public boolean failoverTask(TaskEntity task, String failedAgentId, String reason) {
+        int currentRetries = task.getRetryCount();
+        int maxRetries = task.getMaxRetries() > 0 ? task.getMaxRetries() : properties.getMaxTaskRetries();
+
+        if (currentRetries < maxRetries) {
+            // Автоматический failover: повтор задачи на другом агенте
+            task.setRetryCount(currentRetries + 1);
+            task.setStatus("QUEUED");
+            task.setLastFailedAgentId(failedAgentId);
+            task.setAssignedAgentId(null);
+            task.setErrorMessage(String.format("Сбой на агенте '%s' (попытка %d/%d): %s. Задача возвращена в очередь.",
+                    failedAgentId != null ? failedAgentId : "неизвестен", task.getRetryCount(), maxRetries, reason));
+            task.setUpdatedAt(Instant.now());
+            taskRepository.save(task);
+
+            log.warn("Failover подзадачи '{}' задания '{}': сбой на агенте '{}' (попытка {}/{}). Задача возвращена в очередь для другого агента: {}",
+                    task.getId(), task.getJobId(), failedAgentId, task.getRetryCount(), maxRetries, reason);
+
+            jobRepository.findById(task.getJobId()).ifPresent(job -> {
+                long activeRemaining = taskRepository.countByJobIdAndStatusIn(job.getId(), List.of("QUEUED", "RUNNING"));
+                job.setMessage(String.format("Авто-failover: сбой передачи '%s' на агенте '%s' (%s), перезапуск (%d/%d), активных задач: %d",
+                        task.getSourcePath(), failedAgentId != null ? failedAgentId : "неизвестен", reason,
+                        task.getRetryCount(), maxRetries, activeRemaining));
+                updateActiveRun(job);
+                jobRepository.save(job);
+            });
+
+            return true;
+        }
+
+        // Превышен лимит попыток: окончательный перевод в FAILED
         task.setStatus("FAILED");
-        task.setErrorMessage(req.getErrorMessage());
+        task.setErrorMessage(String.format("Превышен лимит попыток (%d/%d). Последняя ошибка: %s",
+                task.getRetryCount(), maxRetries, reason));
+        task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
 
         jobRepository.findById(task.getJobId()).ifPresent(job -> {
@@ -281,15 +347,14 @@ public class TaskService {
                 job.setStatus("FAILED");
                 job.setCompletedAt(Instant.now());
                 job.setMessage(String.format("Репликация завершена с ошибками: передано %d/%d объектов, ошибок: %d: последняя ошибка: %s",
-                        job.getTransferredObjects(), job.getTotalObjects(), job.getFailedObjects(), req.getErrorMessage()));
+                        job.getTransferredObjects(), job.getTotalObjects(), job.getFailedObjects(), reason));
                 log.error("Задание '{}' завершено с ошибками (все подзадачи обработаны, ошибок: {})",
                         job.getId(), job.getFailedObjects());
             } else {
-                // Задание остается RUNNING, чтобы пул агентов мог продолжить параллельную обработку остальных файлов
-                job.setMessage(String.format("В процессе с ошибками: сбой передачи '%s' (%s), осталось активных задач: %d",
-                        task.getSourcePath(), req.getErrorMessage(), activeRemaining));
+                job.setMessage(String.format("В процессе с ошибками: исчерпаны попытки failover для '%s' (%s), осталось активных задач: %d",
+                        task.getSourcePath(), reason, activeRemaining));
                 log.warn("Сбой подзадачи '{}' задания '{}': {}. Осталось активных задач: {}",
-                        task.getId(), job.getId(), req.getErrorMessage(), activeRemaining);
+                        task.getId(), job.getId(), reason, activeRemaining);
             }
 
             updateActiveRun(job);
@@ -297,6 +362,72 @@ public class TaskService {
         });
 
         return true;
+    }
+
+    /**
+     * Эвакуация задач при явном отключении/дерегистрации агента.
+     */
+    @Transactional
+    public int failoverTasksForAgent(String agentId, String reason) {
+        if (agentId == null) return 0;
+        List<TaskEntity> running = taskRepository.findByAssignedAgentIdAndStatus(agentId, "RUNNING");
+        int count = 0;
+        for (TaskEntity task : running) {
+            failoverTask(task, agentId, reason);
+            count++;
+        }
+        if (count > 0) {
+            log.info("Выполнен failover {} активных задач для агента '{}' ({})", count, agentId, reason);
+        }
+        return count;
+    }
+
+    /**
+     * Периодический мониторинг зависших задач и автоматический failover при падении агентов.
+     */
+    @Scheduled(fixedDelay = 3000)
+    @Transactional
+    public void checkAndFailoverOrphanedTasks() {
+        List<TaskEntity> runningTasks = taskRepository.findByStatus("RUNNING");
+        if (runningTasks.isEmpty()) {
+            return;
+        }
+
+        for (TaskEntity task : runningTasks) {
+            String assignedAgent = task.getAssignedAgentId();
+            boolean shouldFailover = false;
+            String reason = null;
+
+            if (assignedAgent == null || assignedAgent.isBlank()) {
+                shouldFailover = true;
+                reason = "Задача в RUNNING без назначенного агента";
+            } else {
+                Optional<AgentRegistry.AgentEntry> agentOpt = agentRegistry.getAgent(assignedAgent);
+                if (agentOpt.isEmpty()) {
+                    shouldFailover = true;
+                    reason = "Агент '" + assignedAgent + "' не зарегистрирован в реестре";
+                } else {
+                    AgentRegistry.AgentEntry agent = agentOpt.get();
+                    if (agent.getStatus() == AgentRegistry.AgentStatus.OFFLINE) {
+                        shouldFailover = true;
+                        reason = "Агент '" + assignedAgent + "' перешел в статус OFFLINE";
+                    } else if (agent.getStatus() == AgentRegistry.AgentStatus.SUSPECT) {
+                        Instant cutoff = Instant.now().minusSeconds(properties.getAgentHeartbeatTimeoutSeconds());
+                        if (task.getUpdatedAt() != null && task.getUpdatedAt().isBefore(cutoff)) {
+                            shouldFailover = true;
+                            reason = "Агент '" + assignedAgent + "' потерял связь (STALE) более "
+                                    + properties.getAgentHeartbeatTimeoutSeconds() + "с";
+                        }
+                    }
+                }
+            }
+
+            if (shouldFailover) {
+                log.warn("Обнаружена зависшая подзадача '{}' на упавшем агенте '{}' ({}). Запуск авто-failover...",
+                        task.getId(), assignedAgent, reason);
+                failoverTask(task, assignedAgent, reason);
+            }
+        }
     }
 
     /**
@@ -316,7 +447,10 @@ public class TaskService {
                         t.getChecksum(),
                         null,
                         null,
-                        null
+                        null,
+                        t.getRetryCount(),
+                        t.getMaxRetries(),
+                        t.getLastFailedAgentId()
                 ))
                 .toList();
     }

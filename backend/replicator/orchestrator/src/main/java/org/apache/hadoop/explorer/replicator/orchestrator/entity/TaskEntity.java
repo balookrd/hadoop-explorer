@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import jakarta.persistence.*;
 
+import java.time.Instant;
+
 @Entity
 @Table(
     name = "replication_tasks",
@@ -53,6 +55,18 @@ public class TaskEntity {
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount = 0;
+
+    @Column(name = "max_retries", nullable = false)
+    private int maxRetries = 3;
+
+    @Column(name = "last_failed_agent_id", length = 64)
+    private String lastFailedAgentId;
+
+    @Column(name = "updated_at")
+    private Instant updatedAt = Instant.now();
+
     public TaskEntity() {}
 
     public String getId() { return id; }
@@ -77,4 +91,12 @@ public class TaskEntity {
     public void setChecksum(String checksum) { this.checksum = checksum; }
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public int getRetryCount() { return retryCount; }
+    public void setRetryCount(int retryCount) { this.retryCount = retryCount; }
+    public int getMaxRetries() { return maxRetries; }
+    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+    public String getLastFailedAgentId() { return lastFailedAgentId; }
+    public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }

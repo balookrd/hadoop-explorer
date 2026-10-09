@@ -4,6 +4,7 @@ import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.orchestrator.ReplicatorOrchestratorApplication;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +30,9 @@ class DistributedTaskQueueIntegrationTest {
 
     @Autowired
     private TaskRepository taskRepository;
+
+    @Autowired
+    private AgentRegistry agentRegistry;
 
     @Test
     @DisplayName("Оркестратор: полный жизненный цикл распределенного пула пофайловых задач (Batch -> Claim -> Complete -> Finish)")

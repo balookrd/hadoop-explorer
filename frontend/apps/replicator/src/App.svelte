@@ -660,7 +660,7 @@
   });
 </script>
 
-{#snippet extraHeaderActions()}
+{#snippet headerCenterNav()}
   <!-- Навигационные вкладки -->
   <nav class="flex items-center gap-1 bg-slate-100 dark:bg-slate-950/80 p-1 rounded-lg border border-slate-200 dark:border-slate-800">
     <button
@@ -704,7 +704,7 @@
       subtitle="WAN Replication"
       icon={ArrowLeftRight}
       {user}
-      extraActions={extraHeaderActions}
+      centerContent={headerCenterNav}
       onLogout={handleLogout}
       onLoginClick={() => (isLoginModalOpen = true)}
     />

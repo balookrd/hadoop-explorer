@@ -227,6 +227,28 @@ public class AgentRegistry {
             .min(Comparator.comparingInt(AgentEntry::getActiveTransfers));
     }
 
+    public Optional<AgentEntry> getAgent(String agentId) {
+        if (agentId == null) return Optional.empty();
+        refreshHealth();
+        return Optional.ofNullable(agents.get(agentId));
+    }
+
+    public boolean hasOtherOnlineAgentsForCluster(String clusterId, String excludeAgentId) {
+        refreshHealth();
+        return agents.values().stream()
+                .anyMatch(a -> matchesCluster(a.getClusterId(), clusterId)
+                        && a.getStatus() == AgentStatus.ONLINE
+                        && !a.getAgentId().equalsIgnoreCase(excludeAgentId));
+    }
+
+    private boolean matchesCluster(String agentCluster, String targetCluster) {
+        if (agentCluster == null || targetCluster == null) return false;
+        if (agentCluster.equalsIgnoreCase(targetCluster)) return true;
+        String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
+        String tNorm = targetCluster.toLowerCase().replace("-", "").replace("_", "");
+        return aNorm.equals(tNorm) || aNorm.contains(tNorm) || tNorm.contains(aNorm);
+    }
+
     public void verifySecret(String secretHeader) {
         String expected = properties.getAgentSecret();
         if (expected == null || expected.isBlank()) return;

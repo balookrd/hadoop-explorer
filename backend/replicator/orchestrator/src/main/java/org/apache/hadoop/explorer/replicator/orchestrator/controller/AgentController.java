@@ -3,6 +3,7 @@ package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.service.TaskService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,9 +14,11 @@ import java.util.Map;
 public class AgentController {
 
     private final AgentRegistry agentRegistry;
+    private final TaskService taskService;
 
-    public AgentController(AgentRegistry agentRegistry) {
+    public AgentController(AgentRegistry agentRegistry, TaskService taskService) {
         this.agentRegistry = agentRegistry;
+        this.taskService = taskService;
     }
 
     @PostMapping("/api/v1/agents/register")
@@ -42,6 +45,9 @@ public class AgentController {
         @RequestHeader(value = "X-Agent-Secret", required = false) String secret
     ) {
         boolean ok = agentRegistry.unregister(agentId, secret);
+        if (ok) {
+            taskService.failoverTasksForAgent(agentId, "Агент дерегистрирован (Graceful stop)");
+        }
         return ResponseEntity.ok(Map.of("status", ok ? "unregistered" : "not_found"));
     }
 
