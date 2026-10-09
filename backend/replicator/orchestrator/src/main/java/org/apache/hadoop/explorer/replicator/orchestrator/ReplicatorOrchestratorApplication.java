@@ -69,6 +69,8 @@ public class ReplicatorOrchestratorApplication {
                     "/api/v1/tokens/request",
                     "/api/v1/jobs/**",
                     "/jobs/**",
+                    "/api/v1/tasks/**",
+                    "/tasks/**",
                     "/api/v1/topology/**",
                     "/topology/**",
                     "/v3/api-docs/**",
