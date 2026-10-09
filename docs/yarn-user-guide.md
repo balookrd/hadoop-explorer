@@ -48,19 +48,19 @@ Apache YARN Capacity Scheduler распределяет вычислительн
 
 ```mermaid
 graph TD
-    A[YARN Resource Manager / XML] -->|Live State & Metrics| B[YARN Queue Explorer]
-    B -->|Визуальное редактирование| C[Локальный черновик / Draft]
-    C -->|Автоматическая валидация| D{Баланс 100% соблюден?}
-    D -->|Да| E[Просмотр Unified Diff]
-    D -->|Нет| F[Подсветка ошибки в ResourceBalanceCard]
-    E -->|WRITER / Обычный пользователь| G[Создание Change Request]
-    E -->|ADMIN| H[Генерация capacity-scheduler.xml]
-    G -->|Согласование по принципу Four-Eyes| I[Одобренная заявка / APPROVED]
-    I -->|Автоматическая доставка| J[Ansible AWX Job Template]
-    H -->|Прямой запуск доставки| J
-    J -->|Backup + Deploy + refreshQueues| A
-    J -.->|Автооткат при ошибке| A
-    H -.->|Резервный ручной экспорт/SCP| A
+    A["YARN Resource Manager / XML"] -->|"Live State & Metrics"| B["YARN Queue Explorer"]
+    B -->|"Визуальное редактирование"| C["Локальный черновик / Draft"]
+    C -->|"Автоматическая валидация"| D{"Баланс 100% соблюден?"}
+    D -->|"Да"| E["Просмотр Unified Diff"]
+    D -->|"Нет"| F["Подсветка ошибки в ResourceBalanceCard"]
+    E -->|"WRITER / Обычный пользователь"| G["Создание Change Request"]
+    E -->|"ADMIN"| H["Генерация capacity-scheduler.xml"]
+    G -->|"Согласование по принципу Four-Eyes"| I["Одобренная заявка / APPROVED"]
+    I -->|"Автоматическая доставка"| J["Ansible AWX Job Template"]
+    H -->|"Прямой запуск доставки"| J
+    J -->|"Backup + Deploy + refreshQueues"| A
+    J -.->|"Автооткат при ошибке"| A
+    H -.->|"Резервный ручной экспорт / SCP"| A
 ```
 
 ### Основные возможности платформы:

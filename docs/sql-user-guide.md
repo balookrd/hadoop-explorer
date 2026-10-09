@@ -45,12 +45,12 @@
 
 ```mermaid
 graph TD
-    User([Аналитик / Дата-инженер]) -->|HTTPS / SSO| UI[SQL Web Explorer UI\nSvelte 5 + Monaco Editor]
-    UI -->|REST + SSE Streams| Gateway[SQL Explorer API\nJava 21 + Spring Boot 3]
-    Gateway -->|Impersonation X-Trino-User| Trino[Trino Coordinator Cluster]
-    Gateway -->|Impersonation doAs / Kerberos| Hive[Apache HiveServer2]
-    Gateway -->|Local LLM / OpenAI API| AI[LLM AI Assistant\nOllama / vLLM / LiteLLM]
-    Gateway -->|Session & Query Storage| DB[(SQLite WAL / PostgreSQL)]
+    User(["Аналитик / Дата-инженер"]) -->|"HTTPS / SSO"| UI["SQL Web Explorer UI\nSvelte 5 + Monaco Editor"]
+    UI -->|"REST + SSE Streams"| Gateway["SQL Explorer API\nJava 21 + Spring Boot 3"]
+    Gateway -->|"Impersonation X-Trino-User"| Trino["Trino Coordinator Cluster"]
+    Gateway -->|"Impersonation doAs / Kerberos"| Hive["Apache HiveServer2"]
+    Gateway -->|"Local LLM / OpenAI API"| AI["LLM AI Assistant\nOllama / vLLM / LiteLLM"]
+    Gateway -->|"Session & Query Storage"| DB[("SQLite WAL / PostgreSQL")]
 ```
 
 ### Ключевые возможности:
@@ -70,26 +70,26 @@ graph TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Аналитик
-    participant UI as Monaco Studio UI
-    participant BE as SQL Explorer API (Spring Boot 3)
-    participant DB as Session & History DB
-    participant ENG as Trino / Hive Cluster
+    actor U as "Аналитик"
+    participant UI as "Monaco Studio UI"
+    participant BE as "SQL Explorer API (Spring Boot 3)"
+    participant DB as "Session & History DB"
+    participant ENG as "Trino / Hive Cluster"
 
     U->>UI: Ввод запроса и нажатие Cmd+Enter
     UI->>BE: POST /api/v1/queries/execute {cluster_id, query}
     BE->>BE: Проверка прав ACL и AST-валидация DDL/DML
     BE->>DB: Сохранение записи в query_history (QUEUED)
-    BE-->>UI: 200 OK {query_id, status: "QUEUED"}
+    BE-->>UI: "200 OK {query_id, status: QUEUED}"
 
     UI->>BE: GET /api/v1/queries/{query_id}/stream (SSE)
     BE->>ENG: Асинхронный запуск под учетной записью пользователя
     ENG-->>BE: Чанки метаданных и строк
-    BE-->>UI: data: {"type": "columns", "columns": [...]}
-    BE-->>UI: data: {"type": "rows", "rows": [...]}
+    BE-->>UI: "data: type=columns, columns=[...]"
+    BE-->>UI: "data: type=rows, rows=[...]"
     ENG-->>BE: Исполнение завершено
     BE->>DB: Сохранение результатов на диск (GZIP) и обновление query_history (FINISHED)
-    BE-->>UI: data: {"type": "finished", "total_rows": N}
+    BE-->>UI: "data: type=finished, total_rows=N"
     UI-->>U: Отображение таблицы результатов и времени исполнения
 ```
 

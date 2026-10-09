@@ -45,14 +45,14 @@
 
 ```mermaid
 graph TD
-    User([Дата-инженер / ML-исследователь]) -->|HTTPS / Kerberos SSO| UI[Spark Web Explorer Studio\nSvelte 5 + Tailwind v4 + Monaco]
-    UI -->|REST API + SSE Logs| Gateway[Spark Explorer API\nJava 21 / Spring Boot 3]
-    Gateway -->|Livy REST + Impersonation doAs| Livy[Apache Livy Server]
-    Livy -->|YARN Client / Cluster Mode| RM[YARN ResourceManager]
-    RM -->|Containers: Driver & Executors| SparkApp[Spark Application\nDriver & Executors]
-    SparkApp -->|Catalog Queries| HMS[Hive Metastore / Iceberg Catalog]
-    SparkApp -->|Data Processing| HDFS[HDFS / Ozone Data Lake]
-    Gateway -->|Session Persistence| DB[(SQLite WAL / PostgreSQL)]
+    User(["Дата-инженер / ML-исследователь"]) -->|"HTTPS / Kerberos SSO"| UI["Spark Web Explorer Studio\nSvelte 5 + Tailwind v4 + Monaco"]
+    UI -->|"REST API + SSE Logs"| Gateway["Spark Explorer API\nJava 21 / Spring Boot 3"]
+    Gateway -->|"Livy REST + Impersonation doAs"| Livy["Apache Livy Server"]
+    Livy -->|"YARN Client / Cluster Mode"| RM["YARN ResourceManager"]
+    RM -->|"Containers: Driver & Executors"| SparkApp["Spark Application\nDriver & Executors"]
+    SparkApp -->|"Catalog Queries"| HMS["Hive Metastore / Iceberg Catalog"]
+    SparkApp -->|"Data Processing"| HDFS["HDFS / Ozone Data Lake"]
+    Gateway -->|"Session Persistence"| DB[("SQLite WAL / PostgreSQL")]
 ```
 
 ### Ключевые возможности:
@@ -74,12 +74,12 @@ graph TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Dev as Дата-инженер
-    participant UI as Spark Studio (Monaco)
-    participant GW as Spark Explorer API (Java 21)
-    participant DB as SQLite / PostgreSQL
-    participant Livy as Apache Livy Service
-    participant YARN as YARN RM / Spark Driver
+    actor Dev as "Дата-инженер"
+    participant UI as "Spark Studio (Monaco)"
+    participant GW as "Spark Explorer API (Java 21)"
+    participant DB as "SQLite / PostgreSQL"
+    participant Livy as "Apache Livy Service"
+    participant YARN as "YARN RM / Spark Driver"
 
     Dev->>UI: Ввод кода PySpark/Scala и нажатие Cmd+Enter
     UI->>GW: POST /api/v1/statements/execute {session_id, code, language}

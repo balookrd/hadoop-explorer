@@ -107,21 +107,21 @@ flowchart TD
         HDFS["HDFS NameNode + DataNode\n(Hadoop RPC :9000 / WebHDFS :9870)"]
     end
 
-    UI_SQL -->|JDBC / HTTP| TRINO
-    UI_SQL -->|Thrift / JDBC| HS2
-    UI_SPARK -->|REST API| LIVY
-    Beeline -->|Thrift / Kerberos| HS2
+    UI_SQL -->|"JDBC / HTTP"| TRINO
+    UI_SQL -->|"Thrift / JDBC"| HS2
+    UI_SPARK -->|"REST API"| LIVY
+    Beeline -->|"Thrift / Kerberos"| HS2
 
-    TRINO -->|1. Запрос метаданных (Thrift)| HMS
-    TRINO -->|2. Прямое чтение файлов| HDFS
+    TRINO -->|"1. Запрос метаданных (Thrift)"| HMS
+    TRINO -->|"2. Прямое чтение файлов"| HDFS
     
-    HS2 -->|1. Запрос метаданных (Thrift)| HMS
-    HS2 -->|2. Локальное чтение данных| HDFS
+    HS2 -->|"1. Запрос метаданных (Thrift)"| HMS
+    HS2 -->|"2. Локальное чтение данных"| HDFS
     
-    LIVY -->|1. Каталог таблиц (Thrift)| HMS
-    LIVY -->|2. Чтение/Запись DataFrame| HDFS
+    LIVY -->|"1. Каталог таблиц (Thrift)"| HMS
+    LIVY -->|"2. Чтение/Запись DataFrame"| HDFS
     
-    HMS -->|SQL запросы к схемам| RDBMS
+    HMS -->|"SQL запросы к схемам"| RDBMS
 ```
 
 ---

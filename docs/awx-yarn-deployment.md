@@ -11,51 +11,51 @@
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Admin as Администратор YARN
-    participant UI as YARN Explorer UI / API
-    participant AWX as Ansible AWX (API)
-    participant Runner as AWX Execution Node
-    participant ActiveRM as Active ResourceManager
-    participant StandbyRM as Standby ResourceManager
+    actor Admin as "Администратор YARN"
+    participant UI as "YARN Explorer UI / API"
+    participant AWX as "Ansible AWX (API)"
+    participant Runner as "AWX Execution Node"
+    participant ActiveRM as "Active ResourceManager"
+    participant StandbyRM as "Standby ResourceManager"
 
     Admin->>UI: POST /api/v1/change-requests/{id}/deploy
     UI->>UI: Проверка роли ADMIN и статуса APPROVED
-    UI->>AWX: POST /api/v2/job_templates/{id}/launch/ (extra_vars: Base64 XML)
-    AWX-->>UI: 201 Created (job_id: 1042)
-    AWX->>Runner: Запуск Job Template (deploy_capacity_scheduler.yml)
+    UI->>AWX: "POST /api/v2/job_templates/{id}/launch/ (extra_vars: Base64 XML)"
+    AWX-->>UI: "201 Created (job_id: 1042)"
+    AWX->>Runner: "Запуск Job Template (deploy_capacity_scheduler.yml)"
     
     rect rgb(240, 248, 255)
     Note over Runner: Pre-flight валидация
-    Runner->>Runner: Декодирование Base64 и синтаксическая проверка XML (xmllint/python)
+    Runner->>Runner: "Декодирование Base64 и синтаксическая проверка XML (xmllint/python)"
     end
 
     rect rgb(255, 250, 240)
     Note over Runner, StandbyRM: Резервное копирование и доставка
-    Runner->>ActiveRM: Создание timestamped бэкапа capacity-scheduler.xml
-    Runner->>StandbyRM: Создание timestamped бэкапа capacity-scheduler.xml
-    Runner->>ActiveRM: Запись нового capacity-scheduler.xml (0644 yarn:hadoop)
-    Runner->>StandbyRM: Запись нового capacity-scheduler.xml (0644 yarn:hadoop)
+    Runner->>ActiveRM: "Создание timestamped бэкапа capacity-scheduler.xml"
+    Runner->>StandbyRM: "Создание timestamped бэкапа capacity-scheduler.xml"
+    Runner->>ActiveRM: "Запись нового capacity-scheduler.xml (0644 yarn:hadoop)"
+    Runner->>StandbyRM: "Запись нового capacity-scheduler.xml (0644 yarn:hadoop)"
     end
 
     rect rgb(240, 255, 240)
     Note over Runner, ActiveRM: Горячее применение (Hot Reload)
-    Runner->>ActiveRM: yarn rmadmin -getServiceState (Определение Active RM)
-    Runner->>ActiveRM: kinit (если Kerberos) & yarn rmadmin -refreshQueues
+    Runner->>ActiveRM: "yarn rmadmin -getServiceState (Определение Active RM)"
+    Runner->>ActiveRM: "kinit (если Kerberos) & yarn rmadmin -refreshQueues"
     end
 
     alt Сбой refreshQueues (Rollback)
-        ActiveRM-->>Runner: Non-zero exit code (Ошибка весов / удаление занятой очереди)
+        ActiveRM-->>Runner: "Non-zero exit code (Ошибка весов / удаление занятой очереди)"
         Runner->>ActiveRM: Восстановление старого XML из бэкапа
         Runner->>StandbyRM: Восстановление старого XML из бэкапа
-        Runner->>ActiveRM: yarn rmadmin -refreshQueues (Откат состояния)
+        Runner->>ActiveRM: "yarn rmadmin -refreshQueues (Откат состояния)"
         Runner-->>AWX: Job Failed
     else Успех
         ActiveRM-->>Runner: Exit code 0
         Runner-->>AWX: Job Successful
     end
 
-    UI->>AWX: Polling статуса (GET /api/v2/jobs/1042/)
-    AWX-->>UI: Status: successful + stdout
+    UI->>AWX: "Polling статуса (GET /api/v2/jobs/1042/)"
+    AWX-->>UI: "Status: successful + stdout"
     UI->>UI: Фиксация статуса SUCCESS и времени деплоя в БД
     UI-->>Admin: Отчет об успешном применении
 ```

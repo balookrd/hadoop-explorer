@@ -63,15 +63,15 @@ flowchart TD
         HDFS2[("HDFS DR\n(backup-cluster)")]
     end
 
-    Worker -->|1. Запрос задач и квот| Orchestrator
-    Orchestrator -->|Проверка лимитов| TB
-    Orchestrator -->|Сохранение статуса| DB
-    Sched -->|Активация cron-задач| DB
+    Worker -->|"1. Запрос задач и квот"| Orchestrator
+    Orchestrator -->|"Проверка лимитов"| TB
+    Orchestrator -->|"Сохранение статуса"| DB
+    Sched -->|"Активация cron-задач"| DB
 
-    Worker -->|2. Чтение данных под doAs/Keytab| HDFS1
-    Worker -->|3. gRPC Streaming (Чанки 4MB + SHA-256)| Receiver
-    Receiver -->|4. Потоковая запись| Staging
-    Receiver -->|5. Атомарный Commit / Move| HDFS2
+    Worker -->|"2. Чтение данных под doAs/Keytab"| HDFS1
+    Worker -->|"3. gRPC Streaming (Чанки 4MB + SHA-256)"| Receiver
+    Receiver -->|"4. Потоковая запись"| Staging
+    Receiver -->|"5. Атомарный Commit / Move"| HDFS2
 ```
 
 ### Ключевые принципы передачи данных:

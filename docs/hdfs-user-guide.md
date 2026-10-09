@@ -47,11 +47,11 @@
 
 ```mermaid
 graph LR
-    User([Пользователь / Аналитик]) -->|HTTPS / SSO| Frontend[HDFS Explorer UI\nSvelte 5 + TailwindCSS]
-    Frontend -->|REST API + JWT / Kerberos| Gateway[HDFS Backend Gateway\nJava 21 / Spring Boot 3]
-    Gateway -->|WebHDFS + doAs impersonation| NameNodeActive[NameNode Active]
-    Gateway -.->|Failover Switch| NameNodeStandby[NameNode Standby]
-    Gateway -->|Streaming Read/Write| DataNodes[(DataNodes Cluster)]
+    User(["Пользователь / Аналитик"]) -->|"HTTPS / SSO"| Frontend["HDFS Explorer UI\nSvelte 5 + TailwindCSS"]
+    Frontend -->|"REST API + JWT / Kerberos"| Gateway["HDFS Backend Gateway\nJava 21 / Spring Boot 3"]
+    Gateway -->|"WebHDFS + doAs impersonation"| NameNodeActive["NameNode Active"]
+    Gateway -.->|"Failover Switch"| NameNodeStandby["NameNode Standby"]
+    Gateway -->|"Streaming Read/Write"| DataNodes[("DataNodes Cluster")]
 ```
 
 ### Основные функциональные возможности:
@@ -73,11 +73,11 @@ graph LR
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Пользователь
-    participant UI as HDFS Explorer UI
-    participant BE as HDFS Backend Gateway (Java 21)
-    participant NN as HDFS NameNode (WebHDFS)
-    participant DN as HDFS DataNodes
+    actor U as "Пользователь"
+    participant UI as "HDFS Explorer UI"
+    participant BE as "HDFS Backend Gateway (Java 21)"
+    participant NN as "HDFS NameNode (WebHDFS)"
+    participant DN as "HDFS DataNodes"
 
     U->>UI: Переход в каталог /data
     UI->>BE: GET /api/v1/clusters/{cluster_id}/files?path=/data
