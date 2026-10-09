@@ -14,7 +14,7 @@
 | **HDFS Explorer** | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | 📖 [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
 | **SQL Explorer** | `8003` (или `8000`) | Аналитическая веб-консоль Trino & Apache Hive, стриминг выборок, отмена запросов, ИИ-ассистент SQL | 📖 [docs/sql-admin-guide.md](sql-admin-guide.md) |
 | **Spark Explorer** | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | 📖 [docs/spark-admin-guide.md](spark-admin-guide.md) |
-| **Hadoop gRPC Replicator** | `8005` (API/UI)<br>`50051` (gRPC) | Распределенная межкластерная репликация HDFS (Orchestrator, Receiver, Worker), шейпинг WAN, Cron шедулер | 📖 [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
+| **Hadoop gRPC Replicator** | `8005` (API/UI)<br>`50051` (gRPC) | Распределенная межкластерная репликация HDFS (Orchestrator и Full-Duplex Агенты), шейпинг WAN, Cron шедулер | 📖 [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
 
 ---
 
@@ -36,6 +36,12 @@
 │ - Локальный kinit / k5start     │ │ - Автоматический kinit в entry  │ │ - Secrets & ConfigMap для krb5  │
 └─────────────────────────────────┘ └─────────────────────────────────┘ └─────────────────────────────────┘
 ```
+
+> [!TIP]
+> **Нативное развертывание в Hadoop & YARN**:
+> Для передачи данных в защищенных кластерах компонент **Replicator Agent** дополнительно поддерживает специализированные сценарии:
+> - **Hadoop DataNode / Edge Node CLI** (`hadoop jar`): запуск Shaded Fat JAR или тонкого JAR с системным `HADOOP_CLASSPATH` и локальным шейпингом полосы пропускания (`AGENT_MAX_BANDWIDTH_MB_S`).
+> - **Apache Hadoop YARN**: эластичный запуск пула воркеров через `ReplicatorYarnClient` под управлением `ReplicatorApplicationMaster` с автоматическим пробросом **HDFS Delegation Tokens** (не требуются локальные keytab на NodeManager). Подробнее см. [docs/replicator-admin-guide.md#25-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#25-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
 
 ---
 
@@ -69,7 +75,7 @@
 | **SQL Explorer** | `8000` | `8003` | `https://sql.company.local` |
 | **Spark Explorer** | `8000` | `8004` | `https://spark.company.local` |
 | **Replicator Orchestrator** | `8005` | `8005` | `https://replicator.company.local` |
-| **Replicator Receiver (gRPC)** | `50051` | `50051` | `grpc://replicator-dc2.company.local:50051` |
+| **Replicator Agent (gRPC)** | `50051` | `50051` | `grpc://replicator-dc2.company.local:50051` |
 
 ---
 
@@ -109,7 +115,7 @@ scrape_configs:
 ### Доступные дашборды Grafana
 В каталоге `monitoring/grafana/dashboards/` подготовлены преднастроенные дашборды:
 - 🚀 **Platform Overview**: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — сводное здоровье и Golden Signals всех 5 сервисов платформы.
-- 🔄 **gRPC Replicator**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, воркеры, планировщик Cron.
+- 🔄 **gRPC Replicator**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
 - 📁 **HDFS Operations**: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, Upload/Download Throughput, отказы.
 - ⚡ **YARN Queues**: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, Change Requests.
 - 📊 **Spark & SQL Analytics**: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — Livy сессии, интерактивный Spark, Trino & Hive запросы.

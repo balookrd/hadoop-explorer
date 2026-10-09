@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Скрипт запуска Replicator Agent (Java 17) на нодах Hadoop (DataNode, Edge Node)
+# Скрипт запуска Replicator Agent (Java 21) на нодах Hadoop (DataNode, Edge Node)
 # ==============================================================================
 set -euo pipefail
 
@@ -32,7 +32,7 @@ fi
 
 JVM_OPTS="${JVM_OPTS:--Xms512m -Xmx2048m -XX:+UseG1GC}"
 
-echo "==> Запуск Replicator Agent (Java 17)..."
+echo "==> Запуск Replicator Agent (Java 21)..."
 echo "JAR: ${JAR_FILE}"
 echo "JAVA: ${JAVA_CMD}"
 

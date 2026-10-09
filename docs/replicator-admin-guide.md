@@ -1,9 +1,10 @@
 # 🛠️ Руководство администратора: Hadoop gRPC Replicator
 
-Данный документ содержит полное руководство для инженеров **DevOps / SRE / сетевых администраторов** по установке, конфигурированию, промышленному развертыванию и эксплуатации распределенной системы межкластерной репликации **Hadoop gRPC Replicator** в трех режимах:
-1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
-2. **Docker & Docker Compose** (Контейнеризированный запуск компонентов)
-3. **Kubernetes** (Промышленное развертывание в K8s)
+Данный документ содержит полное руководство для инженеров **DevOps / SRE / сетевых администраторов** по установке, конфигурированию, промышленному развертыванию и эксплуатации распределенной системы межкластерной репликации **Hadoop gRPC Replicator** в четырех режимах:
+1. **Standalone & Hadoop Nodes** (Bare-Metal / DataNode / Edge Nodes под управлением systemd или `hadoop jar`)
+2. **Apache Hadoop YARN** (Эластичный пул распределенных агентов под управлением ApplicationMaster)
+3. **Docker & Docker Compose** (Контейнеризированный запуск компонентов)
+4. **Kubernetes** (Промышленное развертывание в K8s)
 
 ---
 
@@ -76,8 +77,8 @@ flowchart TD
    - Агент при старте автоматически сообщает свой внешний адрес `advertised_grpc_address` (например, `agent-dc1:50051`).
    - Оркестратор динамически регистрирует этот адрес за целевым HDFS-кластером.
    - Если один кластер обслуживают несколько агентов (горизонтальное масштабирование), Оркестратор выполняет балансировку нагрузки, выбирая узел с наименьшим числом текущих задач (`active_transfers`).
-2. **Статическая топология Оркестратора (`config.yaml`)**:
-   - Значения по умолчанию из файла конфигурации используются как резерв, если живой агент еще не зарегистрировался.
+2. **Статическая топология Оркестратора (`application.yml`)**:
+   - Значения по умолчанию из конфигурации Оркестратора (`hadoop.replicator.clusters`) используются как резерв, если живой агент еще не зарегистрировался.
 3. **Локальный оверрайд переменной окружения `AGENT_TARGET_<CLUSTER_ID>`**:
    - Применяется в нестандартных изолированных сетях (NAT, Ingress-шлюзы, раздельные DMZ).
 4. **Резервный адрес по умолчанию (Fallback)**:
@@ -92,8 +93,8 @@ flowchart TD
    - Агент автоматически передает этот токен в HTTP-заголовке `X-Agent-Secret` (или `Authorization: Bearer <token>`) при вызовах `/api/v1/agents/register`, `/api/v1/agents/heartbeat`, `/api/v1/agents/unregister` и запросах сетевых квот `/api/v1/tokens/request`.
    - Запросы без валидного токена отбрасываются с кодом `401 Unauthorized`. В боевом режиме (`ENVIRONMENT=production`) отсутствие переменной блокирует старт сервиса.
 2. **Белый список кластеров (Cluster Whitelisting)**:
-   - Переменная `REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (по умолчанию активна в боевом режиме).
-   - Агенту разрешено регистрироваться только для тех кластеров, которые явно объявлены администратором в `config.yaml` (`topology.clusters`).
+   - Свойство `hadoop.replicator.enforce-cluster-whitelist=true` (по умолчанию активно в боевом режиме).
+   - Агенту разрешено регистрироваться только для тех кластеров, которые явно объявлены администратором в `application.yml` (`hadoop.replicator.clusters`).
    - Попытка зарегистрировать неавторизованный кластер отклоняется с ошибкой `403 Forbidden`, защищая топологию от отравления (Topology Poisoning).
 3. **Защита от SSRF и валидация сетевых адресов**:
    - Оркестратор валидирует структуру анонсируемого gRPC-адреса `host:port` и диапазон порта (1–65535).
@@ -120,12 +121,13 @@ flowchart TD
 #### 1.4.1 Переменные Replicator Orchestrator
 | Переменная | Описание | Значение по умолчанию | Обязательность |
 |---|---|---|---|
-| `CONFIG_PATH` / `REPLICATOR_CONFIG_PATH` | Путь к файлу конфигурации топологии и лимитов | `backend/replicator/config/config.yaml` | Опционально |
-| `REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит пропускной способности WAN (байт/сек) | `52428800` (50 МБ/с) | Опционально |
-| `REPLICATOR_DATABASE_URL` | Строка подключения к базе данных SQLite/PostgreSQL | `sqlite:////app/data/replicator.db` | Опционально |
-| `REPLICATOR_SERVICE_PRINCIPAL` | Kerberos-принципал системной техучетки для репликации | `hdfs-replicator@REALM.LOCAL` | Опционально |
-| `REPLICATOR_AGENT_SECRET` | Общий секретный ключ аутентификации агентов репликации (заголовок `X-Agent-Secret`) | — (в dev опционален, в prod обязателен) | Обязательно в prod |
-| `REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Принудительная блокировка регистрации неизвестных кластеров (`true`/`false`) | `false` (в prod автоматически `true`) | Опционально |
+| `SPRING_CONFIG_ADDITIONAL_LOCATION` | Путь к внешнему файлу конфигурации Spring Boot | `file:/etc/hadoop-explorer/replicator/application.yml` | Опционально |
+| `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит пропускной способности WAN (байт/сек) | `104857600` (100 МБ/с) | Опционально |
+| `SPRING_DATASOURCE_URL` | JDBC URL подключения к БД (PostgreSQL / SQLite / H2) | `jdbc:h2:mem:replicator` | Опционально |
+| `SPRING_DATASOURCE_USERNAME` | Пользователь базы данных | `sa` | Опционально |
+| `SPRING_DATASOURCE_PASSWORD` | Пароль пользователя базы данных | `""` | Опционально |
+| `HADOOP_REPLICATOR_AGENT_SECRET` | Общий секретный ключ аутентификации агентов репликации (заголовок `X-Agent-Secret`) | — (в dev опционален, в prod обязателен) | Обязательно в prod |
+| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Принудительная блокировка регистрации неизвестных кластеров (`true`/`false`) | `false` (в prod рекомендуется `true`) | Опционально |
 | `JWT_SECRET_KEY` | Секретный ключ подписи JWT-токенов сессий Web UI (мин. 32 симв.) | В dev автогенерируется, в prod обязателен | Обязательно в prod |
 
 #### 1.4.2 Переменные Replicator Agent (Full-Duplex)
@@ -183,10 +185,10 @@ flowchart TD
 
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
 
-Развертывание трех компонентов на Linux-серверах под управлением `systemd`.
+Развертывание компонентов платформы (Orchestrator и нативных Replicator Agent) на Linux-серверах под управлением `systemd`.
 
 ### Шаг 1: Системные пакеты ОС
-Выполняется на серверах Orchestrator, Receiver и Worker:
+Выполняется на серверах Orchestrator и Agent:
 ```bash
 # Ubuntu / Debian:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -212,80 +214,84 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/replicator
 ```
 
-### Шаг 3: Размещение кода и виртуального окружения
+### Шаг 3: Получение исходного кода и сборка артефактов
 ```bash
 sudo -u appuser -i
 cd /opt/hadoop-explorer/replicator
 git clone https://github.com/company/hadoop-explorer.git .
 
-# Сборка нативного мультимодульного Java-проекта Replicator (Agent + Orchestrator)
+# Сборка мультимодульного Java-проекта Replicator (Agent + Orchestrator)
 mvn clean package -DskipTests -f backend/replicator/pom.xml
 
-# Сборка фронтенда Replicator SPA (автоматически упаковывается в Orchestrator)
+# Сборка фронтенда Replicator SPA (автоматически упаковывается в Orchestrator JAR)
 cd frontend
 npm ci --workspace=apps/replicator --include-workspace-root
 npm run build:replicator
 cd ..
 ```
 
-### Шаг 4: Конфигурация компонентов (`/etc/hadoop-explorer/replicator/config.yaml`)
+### Шаг 4: Конфигурация Оркестратора (`/etc/hadoop-explorer/replicator/application.yml`)
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8005
-  debug: false
-  secure_cookies: true
-  cors_origins:
-    - "https://replicator.company.local"
 
-security:
-  secret_key: "CHANGE_TO_SUPER_SECURE_KEY_AT_LEAST_32_CHARS"
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "replicator_session"
+spring:
+  datasource:
+    # Для Standalone / Тестирования:
+    url: jdbc:h2:file:/var/lib/hadoop-explorer/replicator/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    # Для промышленного кластера (PostgreSQL):
+    # url: jdbc:postgresql://pg.company.local:5432/replicator
+    # username: replicator_user
+    # password: "DbPassword123"
+  jpa:
+    hibernate:
+      ddl-auto: update
 
-database:
-  url: "sqlite:////var/lib/hadoop-explorer/replicator/data/replicator.db"
-  # Для промышленного кластера:
-  # url: "postgresql://replicator_user:DbPass123@pg.company.local:5432/replicator"
+hadoop:
+  security:
+    jwt:
+      secret-key: "CHANGE_TO_SUPER_SECURE_KEY_AT_LEAST_32_CHARS"
+      expiration-minutes: 480
+    cors:
+      allowed-origins:
+        - "https://replicator.company.local"
+        - "http://localhost:8005"
 
-# Настройка топологии ЦОД и иерархического шейпинга
-replicator:
-  global_limit_mb_per_sec: 100 # Глобальный пул полосы пропускания WAN
+  replicator:
+    # Глобальный пул полосы пропускания WAN (в байтах/сек, 100 МБ/с = 104857600)
+    global-limit-bytes-per-sec: 104857600
+    agent-secret: "CHANGE_TO_SUPER_SECURE_AGENT_SECRET_KEY_32_CHARS"
+    enforce-cluster-whitelist: true
+    agent-heartbeat-timeout-seconds: 15
+    agent-offline-timeout-seconds: 45
 
-  datacenters:
-    - id: "dc1"
-      name: "Дата-Центр Москва (DC1)"
-      location: "Moscow"
-    - id: "dc2"
-      name: "Дата-Центр Санкт-Петербург (DC2)"
-      location: "Saint-Petersburg"
+    # Настройка топологии дата-центров
+    datacenters:
+      - id: "dc1"
+        name: "Дата-Центр Москва (DC1)"
+        network-zone: "zone-a"
+      - id: "dc2"
+        name: "Дата-Центр Санкт-Петербург (DC2)"
+        network-zone: "zone-b"
 
-  clusters:
-    - id: "demo-cluster"
-      name: "HDFS Primary (Prod)"
-      dc_id: "dc1"
-      default_path: "/data/production"
-    - id: "backup-cluster"
-      name: "HDFS DR (Backup)"
-      dc_id: "dc2"
-      default_path: "/backup/mirror"
-
-  # Ограничения каналов между дата-центрами (DC-DC)
-  dc_limits:
-    - source_dc: "dc1"
-      target_dc: "dc2"
-      limit_mb_per_sec: 80
-
-  # Ограничения каналов между кластерами HDFS (HDFS-HDFS)
-  hdfs_limits:
-    - source_cluster: "demo-cluster"
-      target_cluster: "backup-cluster"
-      limit_mb_per_sec: 60
+    # Реестр обслуживаемых HDFS кластеров
+    clusters:
+      - id: "demo-cluster"
+        name: "HDFS Primary (Prod)"
+        dc-id: "dc1"
+        hdfs-rpc-address: "hdfs://namenode-dc1:8020"
+        grpc-host: "node1.dc1.company.local"
+        grpc-port: 50051
+      - id: "backup-cluster"
+        name: "HDFS DR (Backup)"
+        dc-id: "dc2"
+        hdfs-rpc-address: "hdfs://namenode-dc2:8020"
+        grpc-host: "node1.dc2.company.local"
+        grpc-port: 50051
 ```
 
 > [!NOTE]
-> **Важно**: В актуальной архитектуре файл `config.yaml` Оркестратора управляет **исключительно сетевой топологией и лимитами полосы WAN**. Секции `receiver` и `worker` более не используются — функции приема и передачи объединены в единый универсальный **Replicator Agent**, который настраивается переменными окружения и регистрируется на Оркестраторе динамически.
+> Конфигурация Оркестратора управляет **сетевой топологией, аутентификацией и глобальными лимитами полосы WAN**. Агенты репликации (`Replicator Agent`) настраиваются через переменные окружения и регистрируются на Оркестраторе динамически при старте, передавая свой статус, анонсируемый адрес и локальные ограничения скорости.
 
 
 ### Шаг 5: Создание systemd units
@@ -315,7 +321,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 ```
 
-#### 2. Рекомендуемый сервис: Универсальный Агент (`/etc/systemd/system/replicator-agent.service`):
+#### 2. Сервис Агента репликации (`/etc/systemd/system/replicator-agent.service`):
 Устанавливается на серверах в каждом ЦОД (DC1 и DC2) для обеспечения полной двунаправленной репликации (`DC1 ⇄ DC2`):
 ```ini
 [Unit]
@@ -449,81 +455,357 @@ Environment="AGENT_MAX_BANDWIDTH_MB_S=40.0"
 2. **Входящий трафик (Receiver Backpressure Throttling)**: При приеме чанков на стороне сервера Receiver агент сдерживает чтение блоков через `LocalBandwidthLimiter`. Благодаря протоколу HTTP/2 и окнам приема TCP (TCP Window Flow Control), задержка в чтении буфера автоматически передается удаленному передающему узлу через WAN, плавно снижая скорость отправки без переполнения оперативной памяти и без потерь пакетов.
 3. **Мониторинг и наблюдаемость**: Заданное значение `max_bandwidth_mb_s` автоматически передается при динамической регистрации на Оркестраторе и отображается в карточке агента в веб-консоли (бейдж с точным ограничением либо статус «без ограничений»).
 
-### 2.3 Развертывание нативного Java Replicator Agent (`agent`)
+### 2.3 Архитектура и структура JAR-артефактов Replicator Agent
 
-Для кластеров Hadoop, где требуется максимальная производительность, нативная работа с `org.apache.hadoop.fs.FileSystem`, использование Hadoop Delegation Tokens и запуск внутри **Apache Hadoop YARN**, разработан нативный **Java Replicator Agent**.
+Replicator Agent спроектирован для высокоскоростной передачи данных с глубокой интеграцией в инфраструктуру Apache Hadoop: прямое взаимодействие с `org.apache.hadoop.fs.FileSystem`, использование криптографических билетов HDFS Delegation Tokens, поддержка имперсонации пользователей через `UserGroupInformation.doAs` и нативное исполнение в распределенных контейнерах **Apache Hadoop YARN**.
 
-#### 2.3.1 Сборка JAR-пакета
+Для обеспечения максимальной гибкости при эксплуатации в различных сценариях (автономные серверы, Docker/K8s, узлы Hadoop DataNode, эластичные пулы YARN) сборка агента через `maven-shade-plugin` формирует два специализированных JAR-артефакта:
+
+#### 2.3.1 Сборка JAR-пакетов
+Сборка выполняется через корневой Makefile или напрямую через Maven:
 ```bash
-# Из корня репозитория
+# Из корня репозитория через Makefile:
 make build-replicator-agent
-# Формируется автономный Shaded JAR:
-# backend/replicator/agent/target/replicator-agent-1.0.0-all.jar
+
+# Либо напрямую через Maven:
+mvn clean package -pl backend/replicator/agent -am -DskipTests
 ```
 
-#### 2.3.2 Запуск на нодах Hadoop (DataNode / Edge Nodes) через systemd
+В результате сборки в каталоге `backend/replicator/agent/target/` генерируются два взаимодополняющих артефакта:
+
+| Артефакт | Размер | Содержимое | Сценарии применения |
+|---|---|---|---|
+| **`replicator-agent-1.0.0-all.jar`**<br/>*(Shaded Fat JAR)* | ~81.5 МБ | Включает скомпилированные классы агента, сгенерированные gRPC/Protobuf стабы, а также все упакованные runtime-зависимости: Netty HTTP/2, gRPC Java runtime, Apache Hadoop Client, YARN Client, Jackson, Commons CLI. | 1. Запуск в **Docker-контейнерах** (`Dockerfile.replicator-agent`).<br/>2. Автономный запуск через `java -jar` на серверах без дистрибутива Hadoop.<br/>3. Сабмит в **YARN** (`yarn jar` или `submit-yarn.sh` — JAR автоматически загружается в HDFS staging директорию приложения).<br/>4. Запуск через `hadoop jar` на DataNode и Edge-нодах. |
+| **`replicator-agent-1.0.0.jar`**<br/>*(Тонкий JAR)* | ~211 КБ | Содержит исключительно скомпилированные классы агента и Protobuf DTO (без внешних библиотек). | 1. Использование в качестве Maven-зависимости в `replicator-orchestrator` (`<artifactId>replicator-agent</artifactId>`) без раздувания classpath.<br/>2. Запуск на Hadoop-нодах с подключением системного `HADOOP_CLASSPATH` (`hadoop classpath`). |
+
+#### 2.3.2 Архитектурное разделение: почему формируются два артефакта?
+В отличие от Spring Boot сервисов (где плагин `spring-boot-maven-plugin` заменяет исходный JAR исполняемым fat-архивом), сборка Replicator Agent решает две разнородные задачи:
+1. **Изоляция транзитивных зависимостей**: Модуль `replicator-orchestrator` напрямую ссылается на библиотеку `replicator-agent` для вызова Protobuf-моделей и служебных классов. Если бы Shade-плагин перезаписал базовый артефакт 80-мегабайтным Fat JAR, Оркестратор затянул бы в свой classpath десятки дублирующих и затененных версий Netty и Hadoop Client, вызвав конфликты версий (JAR Hell).
+2. **Экономия дискового пространства и трафика**: В кластерах с уже установленным дистрибутивом Hadoop (Cloudera, Arenadata, Apache Hadoop) все базовые клиенты (`hadoop-common`, `hadoop-hdfs-client`) уже лежат на нодах. Тонкий JAR (211 КБ) позволяет запускать агент без необходимости повторного копирования 80+ МБ библиотек на десятки серверов.
+
+---
+
+### 2.4 Варианты запуска Replicator Agent на нодах Hadoop
+
+Агент может быть запущен непосредственно на DataNode, Edge Node или выделенном сервере передачи данных кластера Hadoop тремя способами:
+
+#### 2.4.1 Способ А: Прямой запуск через Hadoop CLI (`hadoop jar`)
+Запуск через стандартную утилиту `hadoop jar` является предпочтительным для ad-hoc задач, ручного тестирования или интеграции с корпоративными планировщиками (Airflow, Control-M, Autosys). Утилита `hadoop` автоматически подгружает конфигурационные файлы (`core-site.xml`, `hdfs-site.xml`, `yarn-site.xml`) из каталога `$HADOOP_CONF_DIR`.
+
+```bash
+# 1. Запуск Shaded Fat JAR через hadoop jar:
+hadoop jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+    org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
+    --agent-id agent-dn01-dc1 \
+    --cluster-id dc1-prod \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --port 50051 \
+    --bandwidth 80.0 \
+    --staging-dir /data/replicator-staging \
+    --mode all
+```
+
+**Запуск с тонким JAR через Java с подключением системного `HADOOP_CLASSPATH`**:
+Если на узле уже развернут дистрибутив Hadoop (Cloudera, Arenadata, Apache Hadoop), можно сэкономить дисковое пространство и использовать тонкий JAR:
+```bash
+# Формирование системного classpath Hadoop
+export HADOOP_CLASSPATH=$(hadoop classpath)
+
+java -Xms1g -Xmx4g \
+    -cp "/opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
+    org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
+    --agent-id agent-dn01-dc1 \
+    --cluster-id dc1-prod \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --port 50051 \
+    --bandwidth 80.0 \
+    --mode all
+```
+
+#### 2.4.2 Способ Б: Запуск через скрипт `replicator-agent.sh`
+Скрипт `bin/replicator-agent.sh` инкапсулирует автоопределение путей к JAR, проверку наличия `hadoop classpath`, выбор оптимальных флагов JVM G1GC и запуск процесса:
+
+```bash
+./backend/replicator/agent/bin/replicator-agent.sh \
+    --agent-id agent-dn01-dc1 \
+    --cluster-id dc1-prod \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --port 50051 \
+    --bandwidth 80.0 \
+    --staging-dir /data/replicator-staging \
+    --mode all
+```
+
+#### 2.4.3 Способ В: Постоянный фоновый сервис systemd (DataNode Daemon)
+Для промышленной круглосуточной репликации на постоянных узлах рекомендуется зарегистрировать агент как управляемый systemd-юнит.
+
 Создайте файл `/etc/systemd/system/replicator-agent.service`:
 ```ini
 [Unit]
-Description=Hadoop gRPC Replicator Agent
+Description=Hadoop gRPC Replicator Agent (Java 21)
 After=network.target hadoop-hdfs-datanode.service
+Wants=hadoop-hdfs-datanode.service
 
 [Service]
 Type=simple
 User=hdfs
 Group=hadoop
 WorkingDirectory=/opt/hadoop-explorer/replicator
+
+# Окружение Java и Hadoop
 Environment="JAVA_HOME=/usr/lib/jvm/java-21-openjdk"
 Environment="HADOOP_CONF_DIR=/etc/hadoop/conf"
-Environment="AGENT_ID=agent-dn-01"
-Environment="AGENT_CLUSTER_ID=demo-cluster"
+
+# Идентификация и топология
+Environment="AGENT_ID=agent-dn01-dc1"
+Environment="AGENT_CLUSTER_ID=dc1-prod"
 Environment="AGENT_MODE=all"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
+
+# Сеть и лимиты
+Environment="RECEIVER_HOST=0.0.0.0"
 Environment="RECEIVER_PORT=50051"
 Environment="AGENT_MAX_BANDWIDTH_MB_S=60.0"
+Environment="REPLICATOR_STAGING_DIR=/tmp/staging"
+
+# Безопасность Kerberos
 Environment="KRB5_KEYTAB=/etc/security/keytabs/hdfs.keytab"
 Environment="KRB5_PRINCIPAL=hdfs/_HOST@REALM.LOCAL"
 
-ExecStart=/opt/hadoop-explorer/replicator/bin/replicator-agent.sh
+# Параметры запуска
+ExecStart=/opt/hadoop-explorer/replicator/backend/replicator/agent/bin/replicator-agent.sh
 
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=replicator-agent
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-#### 2.3.3 Запуск агентов в кластере Apache Hadoop YARN
-Replicator Agent включает встроенные `ReplicatorYarnClient` и `ReplicatorApplicationMaster`. При подаче заявки в YARN ApplicationMaster запрашивает у ResourceManager нужное количество контейнеров и запускает репликационные воркеры на узлах NodeManager:
-
+Управление сервисом:
 ```bash
-# Отправка приложения в YARN:
-./backend/replicator/agent/bin/submit-yarn.sh \
-    --cluster_id demo-cluster \
-    --orchestrator http://orchestrator.company.local:8005 \
-    --num_containers 4 \
-    --memory 2048 \
-    --vcores 1 \
-    --queue default
-
-# Либо стандартным вызовом hadoop jar:
-hadoop jar backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
-    org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
-    --jar backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
-    --cluster_id demo-cluster \
-    --orchestrator http://orchestrator.company.local:8005 \
-    --num_containers 4 \
-    --memory 2048 \
-    --vcores 1 \
-    --queue default
+sudo systemctl daemon-reload
+sudo systemctl enable --now replicator-agent
+sudo systemctl status replicator-agent
 ```
 
-**Особенности работы в YARN**:
-- Автоматическое распределение контейнеров по разным NodeManager в кластере.
-- Автоматическое наследование Hadoop Delegation Tokens для безопасной авторизации в Kerberos HDFS.
-- Автоматическая динамическая саморегистрация каждого YARN-контейнера в Оркестраторе (`agent-id: yarn-<container_id>`).
-- При падении контейнера ApplicationMaster автоматически запрашивает новый у ResourceManager.
+#### 2.4.4 Справочник параметров командной строки и переменных окружения
+Агент поддерживает конфигурацию как через флаги командной строки, так и через переменные окружения (флаги CLI имеют наивысший приоритет):
+
+| Флаг CLI | Переменная окружения | По умолчанию | Описание |
+|---|---|---|---|
+| `-i, --agent-id` | `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в реестре Оркестратора. |
+| `-c, --cluster-id` | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера (должен соответствовать топологии в Оркестраторе). |
+| `-o, --orchestrator` | `ORCHESTRATOR_URL` | `http://localhost:8005` | URL REST API Оркестратора для регистрации и получения задач. |
+| `-m, --mode` | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс: прием и передача), `sender` (только чтение и отправка), `receiver` (только прием и запись). |
+| `-p, --port` | `RECEIVER_PORT` | `50051` | Порт прослушивания входящих gRPC-соединений для приема данных. |
+| `-b, --bandwidth` | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` | Локальный Token Bucket лимит скорости репликации в МБ/с (`0.0` — без ограничений). |
+| `-s, --staging-dir` | `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Локальная или HDFS директория временных файлов перед коммитом. |
+| — | `REPLICATOR_AGENT_SECRET` | `null` | Общий секретный токен для заголовка `X-Agent-Secret`. |
+| — | `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение защищенного TLS/mTLS gRPC соединения. |
+| — | `REPLICATOR_GRPC_CERT_CHAIN_PATH` | `null` | Путь к цепочке X.509 сертификатов (PEM). |
+| — | `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | `null` | Путь к закрытому ключу PKCS8 (PEM). |
+| — | `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | `null` | Путь к доверенным корневым сертификатам CA для mTLS. |
+| — | `REPLICATOR_GRPC_CLIENT_AUTH` | `NONE` | Режим проверки клиентских сертификатов: `NONE`, `OPTIONAL`, `REQUIRE`. |
+| — | `KRB5_KEYTAB` | `null` | Путь к Kerberos Keytab файлу для авторизации в защищенном HDFS. |
+| — | `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs/node01.corp@REALM`). |
+
+---
+
+### 2.5 Запуск распределенного пула агентов в Apache Hadoop YARN
+
+Для крупных кластеров и высоконагруженных миграций (сотни терабайт и миллионы файлов) запуск агентов на выделенных серверах может приводить к узким местам в пропускной способности. В Replicator встроен **нативный YARN Client и ApplicationMaster**, позволяющий запускать динамический масштабируемый пул агентов прямо в вычислительных ресурсах Hadoop YARN.
+
+#### 2.5.1 Архитектура и принцип работы в YARN
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Администратор / Cron
+    participant Client as ReplicatorYarnClient
+    participant HDFS as HDFS Staging
+    participant RM as YARN ResourceManager
+    participant AM as ReplicatorApplicationMaster
+    participant NM as NodeManager Containers (Agents)
+    participant Orch as Replicator Orchestrator
+
+    Admin->>Client: yarn jar replicator-agent-1.0.0-all.jar ...
+    Client->>HDFS: Загрузка fat JAR и токенов в .replicator-staging/<appId>
+    Client->>RM: submitApplication(ApplicationSubmissionContext)
+    RM->>AM: Выделение контейнера и запуск ApplicationMaster
+    AM->>RM: registerApplicationMaster()
+    AM->>RM: Запрос N контейнеров (память, vCores, приоритет)
+    RM-->>AM: Выделение N контейнеров на NodeManager узлах
+    loop Запуск воркеров
+        AM->>NM: startContainer(ReplicatorAgentMain, agent-id=yarn-<containerId>)
+        NM->>Orch: POST /api/v1/agents/register (саморегистрация, ONLINE)
+    end
+    Note over NM,Orch: Контейнеры берут задачи из пула Оркестратора и передают файлы
+    loop Мониторинг и Heartbeat
+        AM->>RM: allocate() heartbeat
+        NM->>AM: Проверка жизнеспособности воркеров
+        alt Падение NodeManager / контейнера
+            AM->>RM: Повторный запрос контейнера у ResourceManager
+            Orch->>Orch: Авто-failover зависших задач на других агентов
+        end
+    end
+    Admin->>RM: yarn application -kill <appId>
+    RM->>AM: Остановка ApplicationMaster
+    AM->>NM: Graceful shutdown агентов
+    NM->>Orch: POST /api/v1/agents/heartbeat (OFFLINE)
+```
+
+**Ключевые преимущества работы в YARN**:
+1. **Эластичное масштабирование**: Мгновенное выделение от 2 до 50+ агентов под тяжелые ночные пакетные репликации без ручной настройки отдельных ВМ.
+2. **Colocation с данными**: YARN размещает контейнеры на тех же физических узлах NodeManager/DataNode, где расположены реплицируемые HDFS-блоки, минимизируя трафик внутри стойки (Data Locality).
+3. **Безопасность без распространения Keytab**: Клиент YARN автоматически получает **HDFS Delegation Tokens** от активной NameNode и вкладывает их в контекст безопасности контейнеров. Контейнерам агента **не требуется доступ к физическим Kerberos keytab файлам на хостах**.
+4. **Гарантия изоляции ресурсов**: Память и vCores строго изолируются через cgroups YARN NodeManager.
+5. **Авто-перезапуск (Fault-Tolerance)**: При аппаратном сбое узла или перезагрузке сервера ApplicationMaster автоматически запрашивает новый контейнер у ResourceManager.
+
+#### 2.5.2 Способы отправки (сабмита) в YARN
+
+##### Способ 1: Прямой вызов через CLI `yarn jar` или `hadoop jar`
+```bash
+# Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication
+yarn jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+    org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
+    --jar /opt/hadoop-explorer/replicator/backend/replicator/agent/target/replicator-agent-1.0.0-all.jar \
+    --cluster_id dc1-prod \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --num_containers 4 \
+    --memory 2048 \
+    --vcores 1 \
+    --queue replication
+```
+
+##### Способ 2: Запуск через скрипт `submit-yarn.sh`
+Скрипт `backend/replicator/agent/bin/submit-yarn.sh` упрощает запуск и проверяет переменные окружения:
+```bash
+./backend/replicator/agent/bin/submit-yarn.sh \
+    --cluster_id dc1-prod \
+    --orchestrator http://orchestrator.company.local:8005 \
+    --num_containers 8 \
+    --memory 4096 \
+    --vcores 2 \
+    --queue data_transfer
+```
+
+#### 2.5.3 Полный справочник параметров `ReplicatorYarnClient`
+
+| Флаг CLI | Обязательный | По умолчанию | Описание |
+|---|---|---|---|
+| `-j, --jar <path>` | **Да** | — | Абсолютный путь к Shaded JAR файлу агента на машине сабмита. Этот файл автоматически загружается в HDFS staging директорию для раздачи на ноды. |
+| `-c, --cluster_id <id>` | **Да** | `demo-cluster` | Идентификатор кластера HDFS, задачи которого будут обрабатывать созданные контейнеры. Должен совпадать с `cluster_id` в настройках Оркестратора. |
+| `-o, --orchestrator <url>` | Нет | `http://localhost:8005` | URL REST API Оркестратора, к которому будут подключаться запущенные контейнеры. |
+| `-n, --num_containers <n>` | Нет | `1` | Количество рабочих контейнеров (агентов репликации), выделяемых в кластере. |
+| `-m, --memory <mb>` | Нет | `1024` | Объем оперативной памяти на один рабочий контейнер (в мегабайтах). |
+| `-v, --vcores <n>` | Нет | `1` | Количество виртуальных процессорных ядер (vCores) на один рабочий контейнер. |
+| `-q, --queue <name>` | Нет | `default` | Имя очереди в YARN Capacity Scheduler, в которой будет запущено приложение. |
+| `-h, --help` | Нет | — | Вывод краткой справки по доступным флагам. |
+
+#### 2.5.4 Настройка очереди в YARN Capacity Scheduler (`capacity-scheduler.xml`)
+Для предотвращения вытеснения производственных Spark/Tez/Hive нагрузок рекомендуется создать в YARN выделенную очередь `root.replication` с жестким ограничением максимальной емкости:
+
+```xml
+<!-- Добавление очереди replication в список очередей корня -->
+<property>
+  <name>yarn.scheduler.capacity.root.queues</name>
+  <value>default,analytics,replication</value>
+</property>
+
+<!-- Гарантированная емкость очереди репликации (10% кластера) -->
+<property>
+  <name>yarn.scheduler.capacity.root.replication.capacity</name>
+  <value>10</value>
+</property>
+
+<!-- Максимальный лимит (Bursting) не более 30% ресурсов кластера -->
+<property>
+  <name>yarn.scheduler.capacity.root.replication.maximum-capacity</name>
+  <value>30</value>
+</property>
+
+<!-- Ограничение аллокации ресурсов на одного пользователя -->
+<property>
+  <name>yarn.scheduler.capacity.root.replication.user-limit-factor</name>
+  <value>1</value>
+</property>
+
+<!-- Состояние очереди -->
+<property>
+  <name>yarn.scheduler.capacity.root.replication.state</name>
+  <value>RUNNING</value>
+</property>
+
+<!-- Разрешение прерывания (Preemption) задач репликации при нехватке ресурсов для SLA-очередей -->
+<property>
+  <name>yarn.scheduler.capacity.root.replication.preemption.disabled</name>
+  <value>false</value>
+</property>
+```
+
+Применение изменений без перезагрузки кластера:
+```bash
+yarn rmadmin -refreshQueues
+```
+
+#### 2.5.5 Kerberos-аутентификация и Delegation Tokens в YARN
+При запуске в защищенном Kerberos-кластере:
+1. Пользователь или планировщик перед выполнением `yarn jar` выполняет первичный `kinit`:
+   ```bash
+   kinit -kt /etc/security/keytabs/hdfs-replicator.keytab hdfs-replicator@REALM.LOCAL
+   ```
+2. `ReplicatorYarnClient` при инициализации обращается к HDFS NameNode и запрашивает **HDFS Delegation Token**.
+3. Токены делегирования автоматически сериализуются в `Credentials` контекста `ApplicationSubmissionContext`.
+4. ResourceManager передает токены на узлы NodeManager, и контейнеры агента работают с HDFS от имени принципала `hdfs-replicator` без локальных keytab-файлов.
+
+#### 2.5.6 Мониторинг, логирование и управление жизненным циклом в YARN
+
+##### 1. Проверка статуса приложения:
+```bash
+# Список всех активных приложений репликатора
+yarn application -list -appTypes YARN | grep Hadoop-Replicator-Agent
+
+# Детальная информация о приложении по ApplicationId
+yarn application -status application_1728460000000_0042
+```
+
+##### 2. Просмотр логов воркеров и ApplicationMaster:
+```bash
+# Получение объединенных логов всех контейнеров приложения
+yarn logs -applicationId application_1728460000000_0042
+
+# Получение логов только контейнера ApplicationMaster
+yarn logs -applicationId application_1728460000000_0042 -containerId container_1728460000000_0042_01_000001
+
+# Получение только ошибок (stderr)
+yarn logs -applicationId application_1728460000000_0042 -logFiles stderr
+```
+
+##### 3. Остановка пула агентов в YARN:
+```bash
+yarn application -kill application_1728460000000_0042
+```
+При принудительном завершении:
+- ResourceManager отзывает контейнеры.
+- Оркестратор обнаруживает отсутствие heartbeat от агентов (`yarn-<containerId>`), переводит их в `OFFLINE`, а встроенный watchdog автоматически возвращает незавершенные задачи репликации в статус `QUEUED` для перехвата оставшимися живыми воркерами.
+
+---
+
+### 2.6 Сравнительная матрица вариантов развертывания Replicator Agent
+
+| Критерий | Standalone (systemd) | Прямой запуск (`hadoop jar`) | Пул в Apache Hadoop YARN | Docker / Kubernetes |
+|---|---|---|---|---|
+| **Где размещается** | DataNode / Edge Server | DataNode / Edge Server / Gateway | Контейнеры NodeManager по всему кластеру | Контейнеры на K8s Worker Nodes |
+| **Масштабируемость** | Фиксированная (по числу серверов) | Ручная (на каждый хост) | **Эластичная** (динамически 1–100+ воркеров) | Эластичная (HPA / Deployment replicas) |
+| **Авто-перезапуск контейнеров** | systemd (`Restart=always`) | Отсутствует (ручной перезапуск) | **ApplicationMaster** перезаказывает упавшие контейнеры | K8s Kubelet (`restartPolicy`) |
+| **Kerberos** | Локальный Keytab на ноде | Локальный Keytab / `kinit` | **HDFS Delegation Tokens** (без keytab на NM) | Secret с keytab / sidecar kinit |
+| **Влияние на кластер** | Задается через `AGENT_MAX_BANDWIDTH_MB_S` | Задается через `--bandwidth` | Ограничено очередью Capacity Scheduler и лимитами vCores/RAM | Ограничено K8s resource limits |
+| **Рекомендуемый сценарий** | Постоянная непрерывная синхронизация каталогов | Разовые ad-hoc копирования, отладка | **Тяжелые миграции больших объемов данных**, ночные бэкапы | Развертывание в гибридных и облачных средах |
 
 ---
 
@@ -539,19 +821,20 @@ docker build -t hadoop-explorer/replicator:latest -f docker/Dockerfile.replicato
 ### 3.2 Полный `docker-compose.yml` (Двунаправленная репликация DC1 ⇄ DC2)
 Готовый compose-файл находится в `demo/replicator/docker-compose.yml`:
 ```yaml
-version: "3.8"
+name: hadoop-replicator-demo
 
 services:
-  # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Metrics)
+  # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Prometheus)
   orchestrator:
-    image: hadoop-explorer/replicator:latest
+    image: hadoop-explorer/replicator-orchestrator:latest
     container_name: replicator-orchestrator
+    hostname: orchestrator
     restart: unless-stopped
-    command: ["java", "-jar", "/app/orchestrator.jar"]
     environment:
-      - REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC=104857600 # 100 МБ/с
-      - REPLICATOR_DATABASE_URL=jdbc:sqlite:/app/data/replicator.db
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600" # 100 MB/s
+      HADOOP_REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-}"
     volumes:
       - replicator-data:/app/data
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -566,22 +849,25 @@ services:
       timeout: 5s
       retries: 3
 
-  # 2. Агент DC1 (Primary ЦОД: Москва) — Полный дуплекс (Sender + Receiver)
+  # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
   agent-dc1:
-    image: hadoop-explorer/replicator:latest
+    image: hadoop-explorer/replicator-agent:latest
     container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
-    command: ["java", "-jar", "/app/agent.jar"]
     environment:
-      - AGENT_ID=agent-dc1
-      - AGENT_CLUSTER_ID=demo-cluster
-      - AGENT_MODE=all
-      - ORCHESTRATOR_URL=http://orchestrator:8005
-      - RECEIVER_HOST=0.0.0.0
-      - RECEIVER_PORT=50051
-      - REPLICATOR_STAGING_DIR=/tmp/staging
-      - POLL_INTERVAL_SEC=2.0
+      AGENT_ID: "agent-dc1"
+      AGENT_CLUSTER_ID: "dc1"
+      AGENT_MODE: "all"
+      AGENT_MAX_BANDWIDTH_MB_S: "80.0"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      RECEIVER_HOST: "0.0.0.0"
+      RECEIVER_PORT: "50051"
+      AGENT_ADVERTISED_ADDRESS: "agent-dc1:50051"
+      FALLBACK_TARGET_ADDRESS: "agent-dc2:50051"
+      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      POLL_INTERVAL_SEC: "2.0"
+      REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
     volumes:
       - agent-dc1-staging:/tmp/staging
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -593,22 +879,25 @@ services:
     networks:
       - replicator-net
 
-  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург) — Полный дуплекс (Sender + Receiver)
+  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-dc2:
-    image: hadoop-explorer/replicator:latest
+    image: hadoop-explorer/replicator-agent:latest
     container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
-    command: ["java", "-jar", "/app/agent.jar"]
     environment:
-      - AGENT_ID=agent-dc2
-      - AGENT_CLUSTER_ID=backup-cluster
-      - AGENT_MODE=all
-      - ORCHESTRATOR_URL=http://orchestrator:8005
-      - RECEIVER_HOST=0.0.0.0
-      - RECEIVER_PORT=50051
-      - REPLICATOR_STAGING_DIR=/tmp/staging
-      - POLL_INTERVAL_SEC=2.0
+      AGENT_ID: "agent-dc2"
+      AGENT_CLUSTER_ID: "dc2"
+      AGENT_MODE: "all"
+      AGENT_MAX_BANDWIDTH_MB_S: "60.0"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      RECEIVER_HOST: "0.0.0.0"
+      RECEIVER_PORT: "50051"
+      AGENT_ADVERTISED_ADDRESS: "agent-dc2:50051"
+      FALLBACK_TARGET_ADDRESS: "agent-dc1:50051"
+      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      POLL_INTERVAL_SEC: "2.0"
+      REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
     volumes:
       - agent-dc2-staging:/tmp/staging
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -827,13 +1116,13 @@ spec:
 | `gRPC Unavailable: failed to connect to agent:50051` | Сетевая блокировка между ЦОД или агент не запущен | Проверьте статус пода/сервиса агента репликации и откройте порт `50051` TCP в межсетевом экране (Firewall) между ЦОД. |
 | Периодическая задача зависла в статусе `SCHEDULED` | Время следующего запуска `next_run_at` еще не наступило | Статус `SCHEDULED` является штатным режимом ожидания между циклами расписания. Чтобы запустить задачу немедленно, нажмите кнопку `▶` (Старт) в строке таблицы. |
 | Переполнение каталога Staging (`No space left on device`) | Большой поток файлов при медленной финализации в HDFS | Увеличьте размер буфера Staging или смонтируйте быстрый NVMe диск в `/var/lib/hadoop-explorer/replicator/staging`. |
-| Рост базы данных SQLite при частых cron-запусках | Настроена слишком большая глубина истории | Уменьшите лимит `history_retention_runs` (например, до 10–20 запусков). Старые записи автоматически удаляются функцией прунинга. |
+| Рост базы данных при частых cron-запусках | Настроена слишком большая глубина истории | Уменьшите лимит `history_retention_runs` (например, до 10–20 запусков). Старые записи автоматически удаляются функцией прунинга. |
 
 ---
 
 ## 6. Промышленная эксплуатация на стеке Java 21 / Spring Boot 3
 
-Сервис **Hadoop gRPC Replicator** построен на базе нативного мультимодульного проекта Java 21 (`backend/replicator/pom.xml`), объединяющего:
+Сервис **Hadoop gRPC Replicator** построен на базе мультимодульного проекта Java 21 (`backend/replicator/pom.xml`), объединяющего:
 - **`agent`** (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
 - **`orchestrator`** (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `common-security-starter`).
 
