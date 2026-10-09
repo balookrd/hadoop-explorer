@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
+import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.HmsClient;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.HmsClientPool;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.MockHmsClient;
@@ -14,11 +15,12 @@ import org.springframework.web.bind.annotation.*;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 
 /**
- * REST API эмуляции Hive/HMS метастора и HDFS хранилища для дата-центров (DC1 и DC2).
- * Позволяет smoke-тестам и внешним клиентам создавать таблицы, записывать данные и генерировать CDC события.
+ * REST API управления Hive/HMS метастором и HDFS хранилищем для дата-центров (DC1 и DC2).
+ * Обеспечивает прямое взаимодействие с HDFS и координацию схем метаданных.
  */
 @RestController
 @RequestMapping("/api/v1/hms/clusters")
@@ -27,6 +29,7 @@ public class HmsClusterApiController {
     private static final Logger log = LoggerFactory.getLogger(HmsClusterApiController.class);
 
     private final HmsClientPool clientPool;
+    private final HadoopFsManager fsManager = new HadoopFsManager();
 
     public HmsClusterApiController(HmsClientPool clientPool) {
         this.clientPool = clientPool;
@@ -171,6 +174,25 @@ public class HmsClusterApiController {
         long bytesWritten = 0;
 
         try {
+            if (location != null && location.startsWith("hdfs://")) {
+                File tempFile = File.createTempFile("hms_data_", ".tmp");
+                if (req.content() != null) {
+                    Files.write(tempFile.toPath(), req.content().getBytes(StandardCharsets.UTF_8));
+                    bytesWritten = tempFile.length();
+                } else {
+                    long size = req.size_bytes() != null ? req.size_bytes() : 1024 * 1024;
+                    bytesWritten = writeDummyBytes(tempFile, size);
+                }
+                String targetPath = location.replaceAll("/+$", "") + "/" + fileName;
+                fsManager.commitFile(tempFile.getAbsolutePath(), targetPath, null, true);
+                log.info("[HmsClusterApi] Записаны данные в HDFS {}.{}: {} ({} байт)", db, table, targetPath, bytesWritten);
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "path", targetPath,
+                        "bytes_written", bytesWritten
+                ));
+            }
+
             File dir = resolveLocalPath(location);
             if (!dir.exists()) {
                 dir.mkdirs();
@@ -214,6 +236,22 @@ public class HmsClusterApiController {
         }
 
         String location = opt.get().sdLocation();
+
+        if (location != null && location.startsWith("hdfs://")) {
+            try {
+                List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(location, null, true);
+                if (items != null && !items.isEmpty()) {
+                    long totalBytes = items.stream().mapToLong(HadoopFsManager.FileItem::size).sum();
+                    List<String> names = items.stream()
+                            .map(it -> it.relativePath() + " (" + it.size() + "B)")
+                            .toList();
+                    return ResponseEntity.ok(new TableDataStatusResponse(true, location, items.size(), totalBytes, names));
+                }
+            } catch (Exception e) {
+                log.debug("HDFS scan error: {}, falling back to local path", e.getMessage());
+            }
+        }
+
         File dir = resolveLocalPath(location);
 
         if (!dir.exists() || !dir.isDirectory()) {
@@ -281,6 +319,14 @@ public class HmsClusterApiController {
 
     private void createSampleDataFile(String locationUri, String fileName, long sizeBytes) {
         try {
+            if (locationUri != null && locationUri.startsWith("hdfs://")) {
+                File tempFile = File.createTempFile("hms_sample_", ".tmp");
+                writeDummyBytes(tempFile, sizeBytes);
+                String targetPath = locationUri.replaceAll("/+$", "") + "/" + fileName;
+                fsManager.commitFile(tempFile.getAbsolutePath(), targetPath, null, true);
+                log.info("[HmsClusterApi] Сгенерирован тестовый сэмпл в HDFS: {} ({} байт)", targetPath, sizeBytes);
+                return;
+            }
             File dir = resolveLocalPath(locationUri);
             if (!dir.exists()) dir.mkdirs();
             File f = new File(dir, fileName);

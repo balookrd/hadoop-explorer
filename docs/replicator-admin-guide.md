@@ -1432,15 +1432,22 @@ java -jar -Dspring.profiles.active=prod \
   backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
 ```
 
-### 6.4 Автоматические Smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
+### 6.4 Полноценные End-to-End Smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
 
-Для проверки работоспособности платформы в CI/CD и демонстрационных контурах реализован end-to-end smoke-тест полного цикла репликации между двумя изолированными дата-центрами (`dc1` и `dc2`):
+Для сквозной проверки работоспособности платформы в CI/CD и демонстрационных контурах реализован полноценный end-to-end smoke-тест полного цикла репликации между двумя изолированными дата-центрами (`dc1` и `dc2`) со всем платформенным стеком:
+- **Kerberos KDC** (порт 88, Realm `COMPANY.LOCAL`)
+- **Primary HDFS Cluster 1** (WebHDFS порт 9870, RPC 9000)
+- **DR Backup HDFS Cluster 2** (WebHDFS порт 9872, RPC 9000)
+- **Primary Hive Metastore 1** (Thrift порт 9083, Apache Hive 4.0.0)
+- **DR Hive Metastore 2** (Thrift порт 9084, Apache Hive 4.0.0)
+- **Replicator Orchestrator** (порт 8005)
+- **2x Replicator Agents** (gRPC порты 50051 и 50052)
 
 ```bash
 # Прямой запуск скрипта smoke-тестирования:
 ./demo/replicator/run-smoke-tests.sh
 
-# Запуск в изолированном контейнере Docker Compose:
+# Запуск в изолированном тест-раннере Docker Compose:
 docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smoke-test
 ```
 

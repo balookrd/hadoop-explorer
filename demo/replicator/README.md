@@ -26,14 +26,19 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 
 ---
 
-## 🌐 Сетевые интерфейсы и порты
+## 🌐 Сетевые интерфейсы и компоненты стенда
 
-| Сервис | Порт | Технология | Описание | URL |
+| Сервис | Порт | Технология | Описание | URL / Доступ |
 |---|---|---|---|---|
 | **Replicator Orchestrator** | `8005` | Java 21 LTS (Spring Boot 3 + Svelte 5) | Веб-интерфейс, REST API, Token Bucket и шедулер | [http://localhost:8005](http://localhost:8005) |
 | **Prometheus Metrics** | `8005` | Spring Boot Actuator | Экспорт системных и сетевых метрик | [http://localhost:8005/actuator/prometheus](http://localhost:8005/actuator/prometheus) |
-| **Agent DC1 (Primary ЦОД)** | `50051` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc1` | `localhost:50051` |
-| **Agent DC2 (DR ЦОД)** | `50052` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc2` | `localhost:50052` |
+| **Agent DC1 (Primary ЦОД)** | `50051` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc1` (HDFS 1 Kerberos) | `localhost:50051` |
+| **Agent DC2 (DR ЦОД)** | `50052` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc2` (HDFS 2 Kerberos) | `localhost:50052` |
+| **Primary HDFS (Cluster 1)** | `9870` | Apache Hadoop 3.3 (WebHDFS) | Исходный DataLake кластер (DC1) | [http://localhost:9870](http://localhost:9870) |
+| **DR Backup HDFS (Cluster 2)** | `9872` | Apache Hadoop 3.3 (WebHDFS) | Резервный DataLake кластер (DC2) | [http://localhost:9872](http://localhost:9872) |
+| **Hive Metastore 1 (DC1)** | `9083` | Apache Hive 4.0.0 (Thrift) | Метастор схем первичного кластера (DC1) | `thrift://localhost:9083` |
+| **Hive Metastore 2 (DC2)** | `9084` | Apache Hive 4.0.0 (Thrift) | Метастор схем резервного кластера (DC2) | `thrift://localhost:9084` |
+| **MIT Kerberos KDC** | `88` | Kerberos 5 KDC Daemon | Единый KDC аутентификации (Realm `COMPANY.LOCAL`) | `localhost:88` |
 
 ---
 
@@ -42,7 +47,7 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 Стенд демонстрирует полный цикл работы изолированных ЦОД с распределенным пулом пофайловых задач:
 
 ```bash
-# 1. Запуск стенда
+# 1. Запуск стенда (поднимает KDC, 2x HDFS, 2x HMS, Orchestrator и 2x Агента)
 ./start-demo.sh
 
 # 2. Создание демо-задач (DC1 ➔ DC2 и DC2 ➔ DC1)
@@ -59,14 +64,15 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 
 ---
 
-## 🔬 Автоматические Smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
+## 🔬 Полноценные End-to-End Smoke-тесты репликации HMS и HDFS (2 ЦОД)
 
-В стенд включен автоматический end-to-end smoke-тест полного жизненного цикла репликации схемы и данных:
-1. Создание таблицы Hive и запись данных в **DC1** (Primary ЦОД).
-2. Запуск репликации схемы базы данных, ожидание завершения первичного **Bootstrap sync** (статус `ACTIVE`).
-3. Создание **НОВОЙ таблицы** в синхронизированной схеме в **DC1** + запись данных (генерация CDC-события `CREATE_TABLE` в `NOTIFICATION_LOG`).
-4. Запуск **CDC sync** и перенос метаданных и файлов партиций на **DC2**.
-5. Финальная верификация: подтверждение появления схемы в HMS DC2, физического коммита файлов данных на HDFS DC2 и изоляции подзадач `HMS_SUBJOB`.
+В стенд включен автоматический end-to-end smoke-тест полного жизненного цикла репликации схемы и данных между реальными сервисами:
+1. **Проверка доступности всей инфраструктуры**: Kerberos KDC, 2x HDFS NameNode (WebHDFS), 2x Hive Metastore (Thrift), 2x Replicator Agents (gRPC), Orchestrator.
+2. **Создание таблицы Hive и запись данных в Primary HDFS DC1**: генерация схемы базы данных и таблицы `sales_initial` (EXTERNAL_TABLE) с реальным файлом данных 512 КБ в `hdfs://hdfs-cluster-1:9000`.
+3. **Проверка чистоты DR кластера**: гарантированное подтверждение отсутствия схемы в HMS DC2 (HTTP 404) и отсутствия данных на HDFS DC2 до старта репликации.
+4. **Запуск репликации схемы и Bootstrap Sync**: трансляция путей с `hdfs://hdfs-cluster-1:9000` на `hdfs://hdfs-cluster-2:9000`, создание скрытого саб-джоба `HMS_SUBJOB`, передача файлов данных агентами по gRPC с валидацией контрольных сумм SHA-256.
+5. **Создание НОВОЙ таблицы в DC1 и потоковая CDC-синхронизация**: добавление таблицы `customers_cdc` (MANAGED non-transactional) с файлом данных 256 КБ, фиксация события в `NOTIFICATION_LOG`, запуск CDC sync и подтверждение появления схемы в HMS DC2 и файлов в HDFS DC2.
+6. **Проверка изоляции подзадач**: подтверждение сокрытия служебных подзадач передачи данных из общего регламентного списка.
 
 ### Запуск smoke-тестов:
 ```bash

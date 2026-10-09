@@ -1,5 +1,9 @@
 name: hadoop-replicator-demo
 
+include:
+  - path: ../platform/docker-compose.hms.yml
+  - path: ../platform/docker-compose.hdfs.yml
+
 services:
   # 1. Оркестратор задач и Token Bucket Throttler (Java 21 / Spring Boot 3 + Web UI + Prometheus)
   orchestrator:
@@ -15,15 +19,38 @@ services:
       SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
       SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.H2Dialect"
       SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+      HDFS_DC1_URL: "http://hdfs-cluster-1:9870"
+      HDFS_DC2_URL: "http://hdfs-cluster-2:9870"
+      HMS_DC1_HOST: "hive-metastore-1"
+      HMS_DC1_PORT: "9083"
+      HMS_DC2_HOST: "hive-metastore-2"
+      HMS_DC2_PORT: "9083"
     volumes:
       - replicator-db-data:/app/data
       - shared-demo-data:/tmp/data
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     ports:
       - "8005:8005"
+    depends_on:
+      kdc:
+        condition: service_healthy
+      hdfs-cluster-1:
+        condition: service_started
+      hdfs-cluster-2:
+        condition: service_started
+      sql-hive-metastore:
+        condition: service_started
+      sql-hive-metastore-2:
+        condition: service_started
     networks:
-      - replicator-net
+      demo-platform-net:
+        aliases:
+          - orchestrator
 
-  # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
+  # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс с Kerberos & HDFS
   agent-dc1:
     build:
       context: ../..
@@ -43,19 +70,29 @@ services:
       FALLBACK_TARGET_ADDRESS: "agent-dc2:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
+      KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
+      KRB5_PRINCIPAL: "hdfs/hdfs-cluster-1@COMPANY.LOCAL"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
     volumes:
       - agent-staging-dc1:/tmp/staging
       - shared-demo-data:/tmp/data
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     ports:
       - "50051:50051"
     depends_on:
       - orchestrator
+      - hdfs-cluster-1
     networks:
-      - replicator-net
+      demo-platform-net:
+        aliases:
+          - agent-dc1
 
-  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
+  # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс с Kerberos & HDFS
   agent-dc2:
     build:
       context: ../..
@@ -75,19 +112,29 @@ services:
       FALLBACK_TARGET_ADDRESS: "agent-dc1:50051"
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
+      KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-2.keytab"
+      KRB5_PRINCIPAL: "hdfs/hdfs-cluster-2@COMPANY.LOCAL"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
     volumes:
       - agent-staging-dc2:/tmp/staging
       - shared-demo-data:/tmp/data
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
     ports:
       - "50052:50051"
     depends_on:
       - orchestrator
+      - hdfs-cluster-2
     networks:
-      - replicator-net
+      demo-platform-net:
+        aliases:
+          - agent-dc2
 
-  # 4. Smoke Test Runner (эмуляция 2x DC: Hive/HMS/HDFS -> Bootstrap -> New Table CDC)
+  # 4. Smoke Test Runner (End-to-End: KDC + 2x HMS + 2x HDFS -> Bootstrap -> New Table CDC)
   smoke-test:
     image: curlimages/curl:latest
     container_name: replicator-smoke-test
@@ -95,14 +142,25 @@ services:
       - orchestrator
       - agent-dc1
       - agent-dc2
+      - sql-hive-metastore
+      - sql-hive-metastore-2
+      - hdfs-cluster-1
+      - hdfs-cluster-2
     entrypoint: ["/bin/sh", "/tests/run-smoke-tests.sh"]
     volumes:
       - ./run-smoke-tests.sh:/tests/run-smoke-tests.sh:ro
       - shared-demo-data:/tmp/data
     environment:
       ORCHESTRATOR_URL: "http://orchestrator:8005"
+      HDFS1_URL: "http://hdfs-cluster-1:9870"
+      HDFS2_URL: "http://hdfs-cluster-2:9870"
+      HMS1_HOST: "hive-metastore-1"
+      HMS1_PORT: "9083"
+      HMS2_HOST: "hive-metastore-2"
+      HMS2_PORT: "9083"
+      KDC_HOST: "kdc"
     networks:
-      - replicator-net
+      demo-platform-net:
     profiles:
       - test
 
@@ -111,7 +169,3 @@ volumes:
   agent-staging-dc1:
   agent-staging-dc2:
   shared-demo-data:
-
-networks:
-  replicator-net:
-    driver: bridge
