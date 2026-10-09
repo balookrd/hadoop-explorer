@@ -30,30 +30,32 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 
 | Сервис | Порт | Технология | Описание | URL |
 |---|---|---|---|---|
-| **Replicator Orchestrator** | `8005` | Python (FastAPI + Svelte 5) | Веб-интерфейс, REST API, Token Bucket и шедулер | [http://localhost:8005](http://localhost:8005) |
-| **Prometheus Metrics** | `8005` | Prometheus Client | Экспорт системных и сетевых метрик | [http://localhost:8005/metrics](http://localhost:8005/metrics) |
-| **Agent DC1 (Primary ЦОД)** | `50051` | Python 3.12 (gRPC) | Дуплексный агент кластера `demo-cluster` | `localhost:50051` |
-| **Agent DC2 (DR ЦОД)** | `50052` | Java 17 LTS (gRPC) | Дуплексный нативный Hadoop агент `backup-cluster` | `localhost:50052` |
+| **Replicator Orchestrator** | `8005` | Java 21 LTS (Spring Boot 3 + Svelte 5) | Веб-интерфейс, REST API, Token Bucket и шедулер | [http://localhost:8005](http://localhost:8005) |
+| **Prometheus Metrics** | `8005` | Spring Boot Actuator | Экспорт системных и сетевых метрик | [http://localhost:8005/actuator/prometheus](http://localhost:8005/actuator/prometheus) |
+| **Agent DC1 (Primary ЦОД)** | `50051` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc1` | `localhost:50051` |
+| **Agent DC2 (DR ЦОД)** | `50052` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc2` | `localhost:50052` |
 
 ---
 
-## 🧪 Запуск демонстрационных задач интероперабельности (Python ⇄ Java)
+## 🧪 Запуск демонстрационных задач распределенной репликации
 
-Стенд демонстрирует полную сквозную совместимость между Python и Java 17 агентами в обоих направлениях:
+Стенд демонстрирует полный цикл работы изолированных ЦОД с распределенным пулом пофайловых задач:
 
 ```bash
 # 1. Запуск стенда
 ./start-demo.sh
 
-# 2. Создание демо-задач (Python DC1 ➔ Java DC2 и Java DC2 ➔ Python DC1)
+# 2. Создание демо-задач (DC1 ➔ DC2 и DC2 ➔ DC1)
 ./create-test-jobs.sh
 ```
 
 Скрипт автоматически:
-1. Генерирует файлы в общем томе данных (`prod_sales_dc1.csv` 5 МБ и `analytics_report_dc2.parquet` 3 МБ).
-2. Ставит задачу репликации **Python Agent ➔ Java 17 Agent** от принципала `data_engineer@REALM.LOCAL`.
-3. Ставит задачу репликации **Java 17 Agent ➔ Python Agent** от принципала `lead_analyst@REALM.LOCAL`.
-4. В обоих направлениях проверяется совпадение контрольных сумм SHA-256 после передачи.
+1. Генерирует файлы в общем томе данных (`prod_sales_dc1.csv` 5 МБ, `events_stream_dc1.json` 2 МБ и `analytics_report_dc2.parquet` 3 МБ).
+2. Ставит задачу репликации **Agent DC1 ➔ Agent DC2** (`prod_sales_dc1.csv`) от принципала `writer_user@REALM.LOCAL`.
+3. Ставит задачу репликации **Agent DC2 ➔ Agent DC1** (`analytics_report_dc2.parquet`) от принципала `de_user@REALM.LOCAL`.
+4. Ставит задачу потоковой передачи **Agent DC1 ➔ Agent DC2** (`events_stream_dc1.json`) от принципала `reader_user@REALM.LOCAL`.
+5. Тестирует обработку ошибок при репликации несуществующего пути (задача переходит в `FAILED`).
+6. Агенты выполняют анализ каталогов, формируют пул пофайловых подзадач, параллельные воркеры забирают задачи через `claimTasks` и передают потоком gRPC с валидацией контрольных сумм SHA-256.
 
 ---
 
