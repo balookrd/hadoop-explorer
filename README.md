@@ -257,11 +257,37 @@ make demo-all
 
 ---
 
+## ☕ Сборка Java JAR-пакетов и CI/CD
+
+Платформа собирается как единый Maven Reactor (Java 21 LTS):
+
+```bash
+# Сборка всех JAR-пакетов платформы (fat JAR / shaded JAR):
+make build-java
+# или напрямую через Maven:
+mvn clean package -DskipTests
+
+# Запуск всех тестов Java сервисов:
+make test-java
+# или:
+mvn test
+```
+
+В репозитории настроен GitHub Actions CI workflow (`.github/workflows/ci.yml`), который при пушах и PR автоматически:
+1. Настраивает JDK 21 (Eclipse Temurin) с кэшированием Maven.
+2. Прогоняет полный набор unit- и интеграционных тестов (`mvn -B test`).
+3. Собирает JAR-пакеты всех микросервисов (`mvn -B -DskipTests package`).
+4. Формирует каталог артефактов `dist/` с вычислением контрольных сумм `SHA256SUMS.txt`.
+5. Публикует архив артефактов `hadoop-explorer-jars`.
+
+---
+
 ## 🐳 Сборка Docker-контейнеров
 
-Все образы собираются по двухэтапной multi-stage схеме:
-1. **Этап 1 (Node.js 22)**: компиляция frontend SPA (Svelte 5 + Vite).
-2. **Этап 2 (Python 3.12-slim)**: системные библиотеки Kerberos/SASL/LDAP, установка Python-зависимостей, копирование статики и запуск под непривилегированным пользователем `appuser (UID 10001)`.
+Все образы базируются на легковесном образе `eclipse-temurin:21-jre-jammy`:
+1. Установка системных библиотек Kerberos (`krb5-user`).
+2. Копирование собранного Spring Boot Fat JAR и фронтенд статики.
+3. Запуск под непривилегированным пользователем `appuser (UID 10001)`.
 
 ```bash
 # Сборка всех контейнеров платформы
@@ -272,14 +298,16 @@ make build-yarn     # hadoop-explorer/yarn:latest
 make build-hdfs     # hadoop-explorer/hdfs:latest
 make build-sql      # hadoop-explorer/sql:latest
 make build-spark    # hadoop-explorer/spark:latest
+make build-replicator # hadoop-explorer/replicator-orchestrator:latest
 ```
 
 Прямой запуск через Docker CLI:
 ```bash
 docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
 docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
-docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql .
-docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark .
+docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql-java .
+docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
+docker build -t hadoop-explorer/replicator-orchestrator:latest -f docker/Dockerfile.replicator-orchestrator .
 ```
 
 ---
@@ -391,6 +419,8 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make frontend-test` | Запуск компонентных и юнит-тестов фронтенда |
 | `make frontend-e2e` | Запуск браузерных E2E тестов Playwright |
 | `make frontend-build` | Компиляция всех 5 SPA фронтендов через Vite |
+| `make build-java` | Сборка всех Java JAR-пакетов платформы (Maven Reactor) |
+| `make build-security-starter` | Сборка JAR-пакета `common-security-starter` |
 | `make build` | Сборка Docker-образов всех приложений платформы |
 | `make build-yarn` | Сборка Docker-образа YARN Explorer (Java 21) |
 | `make build-hdfs` | Сборка Docker-образа HDFS Explorer (Java 21) |

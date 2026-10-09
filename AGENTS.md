@@ -66,8 +66,9 @@ hadoop-explorer/
 
 * **Сборка и тесты бэкенда (Java 21 / Spring Boot 3)**:
   * Единый запуск всех тестов: `./scripts/run-tests.sh all` (или `make test`)
-  * Все тесты Java: `make test-java`
-  * Стартер безопасности: `make test-security-starter`
+  * Все тесты Java: `make test-java` (или `mvn test`)
+  * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)
+  * Стартер безопасности: `make test-security-starter` (сборка: `make build-security-starter`)
   * Сервис YARN: `mvn test -f backend/yarn/pom.xml` (или `make test-yarn`)
   * Сервис HDFS: `mvn test -f backend/hdfs/pom.xml` (или `make test-hdfs`)
   * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)

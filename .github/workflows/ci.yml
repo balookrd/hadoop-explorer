@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B test
+
+      - name: Build jars
+        run: mvn -B -DskipTests package
+
+      - name: Stage build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find backend -type f -name "*.jar" ! -name "*-sources.jar" ! -name "*.jar.original" -exec cp {} dist/ \;
+          shopt -s nullglob
+          jars=(dist/*.jar)
+          if (( ${#jars[@]} == 0 )); then
+            echo "No JAR files produced in backend modules!" >&2
+            exit 1
+          fi
+          cd dist
+          sha256sum *.jar > SHA256SUMS.txt
+          ls -la
+
+      - name: Upload build artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hadoop-explorer-jars
+          path: |
+            dist/*.jar
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

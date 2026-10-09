@@ -1,6 +1,6 @@
 .PHONY: help test test-yarn test-hdfs test-sql test-spark test-replicator \
         test-security-starter test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-yarn build-hdfs build-sql build-spark build-replicator \
+        build build-java build-security-starter build-yarn build-hdfs build-sql build-spark build-replicator \
         frontend-build frontend-install demo-yarn demo-hdfs demo-sql demo-spark demo-all \
         demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
         skeleton skeleton-all skeleton-backend java-index java-query
@@ -23,7 +23,9 @@ help:
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
 	@echo "    make test-ui          - Запуск тестов фронтенда (Vitest / Svelte 5)"
 	@echo ""
-	@echo "  Сборка Docker-контейнеров:"
+	@echo "  Сборка JAR-пакетов и Docker-контейнеров:"
+	@echo "    make build-java       - Сборка всех Java JAR-пакетов платформы (Maven Reactor)"
+	@echo "    make build-security-starter - Сборка common-security-starter JAR"
 	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark, replicator)"
 	@echo "    make build-yarn       - Сборка образа YARN Explorer"
 	@echo "    make build-hdfs       - Сборка образа HDFS Explorer"
@@ -101,6 +103,12 @@ test-ui:
 
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
+
+build-security-starter:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/common-security-starter/pom.xml
+
+build-java:
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests
 
 build-yarn:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/yarn/pom.xml
