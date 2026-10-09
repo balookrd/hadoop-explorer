@@ -13,44 +13,32 @@
 Hadoop gRPC Replicator построен на базе симметричных универсальных агентов **Replicator Agent (`Full-Duplex`)**:
 Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Это обеспечивает полноценную двунаправленную репликацию (`DC1 ⇄ DC2`, DR failback) в рамках единого сервиса.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                             ЦОД 1 (Москва / Primary)                            │
-│                                                                                 │
-│   ┌────────────────────────┐                    ┌───────────────────────────┐   │
-│   │    HDFS DataLake 1     │ ◄──(чтение/запись)─► │   Replicator Agent DC1    │   │
-│   │(demo/analytics-cluster)│                    │  (:50051, Mode: Full-Duplex)│ │
-│   └────────────────────────┘                    └─────────────▲─────────────┘   │
-└───────────────────────────────────────────────────────────────│─────────────────┘
-                                                                │
-                     ┌──────────────────────────────────────────┴───────────────┐
-                     │ Двунаправленный gRPC стриминг (:50051 ⇄ :50051 / :50052) │
-                     │ [Многоуровневый шейпинг WAN: Global + DC-DC + HDFS-HDFS] │
-                     ▼                                                          │
-┌───────────────────────────────────────────────────────────────────────────────┴─┐
-│                     ЦОД 2 (Санкт-Петербург / Disaster Recovery)                 │
-│                                                                                 │
-│   ┌────────────────────────┐                    ┌───────────────────────────┐   │
-│   │    HDFS DataLake 2     │ ◄──(чтение/запись)─► │   Replicator Agent DC2    │   │
-│   │    (backup-cluster)    │                    │  (:50051, Mode: Full-Duplex)│ │
-│   └────────────────────────┘                    └───────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                ▲                                ▲
-             (запрос квот)      │                                │ (оркестрация)
-                                │                                │
-┌──────────────────────────────┴────────────────────────────────┴─────────────────┐
-│                     ЦОД Управления / Центральный сегмент                        │
-│                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                    Replicator Orchestrator (:8005)                      │   │
-│   │  - Web UI SPA (Svelte 5) & REST API                                     │   │
-│   │  - Hierarchical Token Bucket Throttler (многоуровневый шейпинг полосы)  │   │
-│   │  - Cron Scheduler (планировщик периодических задач со статусом SCHEDULED│   │
-│   │  - Job Runs History & Retention (журнал запусков со статистикой)        │   │
-│   │  - Реестр топологии кластеров и автоматический резолвинг target_address │   │
-│   │  - Каноническая база данных SQLite: /app/data/replicator.db             │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph DC1["🏢 ЦОД 1 (Москва / Primary)"]
+        HDFS1[("🗄️ HDFS DataLake 1<br/>(analytics-cluster)")]
+        Agent1["⚡ Replicator Agent DC1<br/><code>:50051 (Full-Duplex)</code>"]
+        HDFS1 <-->|"Чтение / Запись<br/>(doAs Impersonation)"| Agent1
+    end
+
+    subgraph DC2["🏢 ЦОД 2 (Санкт-Петербург / Disaster Recovery)"]
+        HDFS2[("🗄️ HDFS DataLake 2<br/>(backup-cluster)")]
+        Agent2["⚡ Replicator Agent DC2<br/><code>:50051 (Full-Duplex)</code>"]
+        HDFS2 <-->|"Чтение / Запись<br/>(doAs Impersonation)"| Agent2
+    end
+
+    subgraph MGMT["⚙️ Сегмент управления (Management DC)"]
+        Orchestrator["🎯 Replicator Orchestrator <code>:8005</code><br/>• Web UI (Svelte 5) & REST API<br/>• Иерархический Token Bucket шейпер<br/>• Cron-планировщик и история запусков<br/>• Реестр топологии и адресов агентов"]
+        DB[("💾 Репозиторий метаданных<br/>(SQLite / PostgreSQL)")]
+        Orchestrator --- DB
+    end
+
+    %% Межкластерная передача
+    Agent1 <===>|"Двунаправленный gRPC стриминг (mTLS / TLS)<br/>Чанки 4MB + SHA-256 контрольные суммы<br/>Шейпинг полосы WAN (Global + DC-DC + Cluster-Cluster)"| Agent2
+
+    %% Управление и квоты
+    Agent1 -.->|"1. Задачи / Токены шейпера<br/>2. Heartbeat (каждые 3с)"| Orchestrator
+    Agent2 -.->|"1. Задачи / Токены шейпера<br/>2. Heartbeat (каждые 3с)"| Orchestrator
 ```
 
 ### 1.2 Сетевые порты и протоколы
@@ -65,29 +53,21 @@ Hadoop gRPC Replicator построен на базе симметричных �
 
 В платформе реализован режим **динамической саморегистрации агентов с keepalive-мониторингом**:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│             Динамический жизненный цикл агента (Keepalive Lifecycle)        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-               [1. Старт агента]      ▼
-          POST /api/v1/agents/register (agent_id, cluster_id, grpc_address)
-                                      │
-                                      ▼
-               ┌──────────────────────────────────────────────┐
-               │ Статус: ONLINE                               │
-               │ Оркестратор привязывает gRPC-адрес к кластеру│
-               └──────────────────────┬───────────────────────┘
-                                      │
-     ┌────────────────────────────────┼────────────────────────────────┐
-     │ Каждые 3 сек:                  │ При остановке агента (SIGTERM):│
-     ▼                                ▼                                ▼
-POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api/v1/agents/unregister
-(active_transfers: N)            (нет heartbeat)                       │
-     │                                │                                ▼
-     ▼                                ▼                       Статус: OFFLINE
-Обновление TTL                   Статус: STALE                 (исключен из пула)
-(счетчик активных задач)         (исключен из маршрутизации)
+```mermaid
+flowchart TD
+    Start(["🚀 Старт Replicator Agent"]) --> Reg["1. POST /api/v1/agents/register<br/><code>agent_id, cluster_id, grpc_address</code>"]
+    
+    Reg --> Online["🟢 Статус: ONLINE<br/>Оркестратор связывает адрес с кластером<br/>Агент включен в пул балансировки"]
+
+    Online -->|"Каждые 3 сек"| HB["💓 POST /api/v1/agents/heartbeat<br/><code>active_transfers: N</code>"]
+    HB -->|"Продление TTL"| Online
+
+    Online -->|"Таймаут > 15 сек<br/>(нет heartbeat)"| Stale["🟠 Статус: STALE<br/>Исключен из маршрутизации задач<br/>Ожидание восстановления связи"]
+    Stale -->|"Получен heartbeat"| Online
+
+    Online -->|"Корректная остановка<br/>(SIGTERM)"| Unreg["🛑 POST /api/v1/agents/unregister"]
+    Stale -->|"Остановка"| Unreg
+    Unreg --> Offline["🔴 Статус: OFFLINE<br/>Удален из активного пула адресов"]
 ```
 
 #### Приоритет разрешения целевого адреса (get_target_address):
@@ -160,7 +140,7 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 | `AGENT_ADVERTISED_ADDRESS` | Внешний gRPC-адрес для саморегистрации в Оркестраторе (например, `agent-dc1:50051`) | Вычисляется автоматически (`hostname:50051`) | Опционально |
 | `AGENT_ENABLE_REGISTRATION` | Включение режима динамической саморегистрации с keepalive | `true` | Опционально |
 | `REPLICATOR_STAGING_DIR` | Локальная директория буфера для приема чанков перед коммитом | `/tmp/staging` | Опционально |
-| `REPLICATOR_HDFS_NAMENODE` | Хост целевого NameNode для прямого HDFS-коммита через PyArrow | Не задано (локальный commit) | Опционально |
+| `REPLICATOR_HDFS_NAMENODE` | Хост целевого NameNode для прямого HDFS-коммита через Java HDFS Client | Не задано (локальный commit) | Опционально |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач и keepalive-пингов (секунды) | `3.0` | Опционально |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит пропускной способности агента (МБ/с, Token Bucket). Предотвращает перегрузку сетевой карты и дисков при установке непосредственно на ноду Hadoop (DataNode / Edge Gateway). `0` или пусто — без ограничений | `0.0` (без ограничений) | Опционально |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для целевого кластера (для NAT/DMZ) | Динамический реестр Оркестратора | Опционально |
@@ -177,7 +157,7 @@ POST /api/v1/agents/heartbeat    Таймаут > 15 сек            POST /api
 
 Для обеспечения прозрачного аудита безопасности и применения политик доступа в **Apache Ranger** платформа использует протокол **Hadoop Proxy User (doAs имперсонация)**:
 1. Replicator Agent аутентифицируется в Kerberos KDC по системному keytab техучетки (`hdfs-replicator@REALM.LOCAL`).
-2. При вызове HDFS (`pyarrow.fs.HadoopFileSystem`) агент передает имя конечного пользователя (`user=alice`, извлеченное из `execution_principal` или сессии).
+2. При операциях с HDFS (`HadoopFsManager` / `FileSystem.get`) агент создает прокси-контекст `UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)` от имени конечного пользователя (`user=alice`, извлеченное из `execution_principal` или сессии).
 3. NameNode и Apache Ranger проверяют политики доступа непосредственно для `alice`, а в Ranger Audit Log регистрируется запись вида:
    ```
    UGI: alice (auth:PROXY via hdfs-replicator@REALM.LOCAL)
