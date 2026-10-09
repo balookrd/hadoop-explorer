@@ -303,7 +303,7 @@ public class TaskService {
     @Transactional
     public boolean failoverTask(TaskEntity task, String failedAgentId, String reason) {
         int currentRetries = task.getRetryCount();
-        int maxRetries = task.getMaxRetries() > 0 ? task.getMaxRetries() : properties.getMaxTaskRetries();
+        int maxRetries = task.getMaxRetries();
 
         if (currentRetries < maxRetries) {
             // Автоматический failover: повтор задачи на другом агенте

@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,6 +34,9 @@ class DistributedTaskQueueIntegrationTest {
 
     @Autowired
     private AgentRegistry agentRegistry;
+
+    @Autowired
+    private org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
 
     @Test
     @DisplayName("Оркестратор: полный жизненный цикл распределенного пула пофайловых задач (Batch -> Claim -> Complete -> Finish)")
@@ -169,8 +173,8 @@ class DistributedTaskQueueIntegrationTest {
         String jobId = "job-failover-test-" + UUID.randomUUID();
 
         // 1. Регистрируем двух живых агентов в реестре для кластера dc1
-        agentRegistry.register(new AgentRegisterRequest("worker-alpha", "dc1", "all", "alpha:50051", null, null), null);
-        agentRegistry.register(new AgentRegisterRequest("worker-beta", "dc1", "all", "beta:50051", null, null), null);
+        agentRegistry.register(new AgentRegisterRequest("worker-alpha", "dc1", "all", "alpha:50051", null, null), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest("worker-beta", "dc1", "all", "beta:50051", null, null), properties.getAgentSecret());
 
         JobEntity job = new JobEntity();
         job.setId(jobId);
@@ -236,8 +240,8 @@ class DistributedTaskQueueIntegrationTest {
     void testAutomaticFailoverWhenAgentGoesOffline() {
         String jobId = "job-offline-failover-" + UUID.randomUUID();
 
-        agentRegistry.register(new AgentRegisterRequest("worker-crash", "dc1", "all", "crash:50051", null, null), null);
-        agentRegistry.register(new AgentRegisterRequest("worker-rescue", "dc1", "all", "rescue:50051", null, null), null);
+        agentRegistry.register(new AgentRegisterRequest("worker-crash", "dc1", "all", "crash:50051", null, null), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest("worker-rescue", "dc1", "all", "rescue:50051", null, null), properties.getAgentSecret());
 
         JobEntity job = new JobEntity();
         job.setId(jobId);
@@ -259,8 +263,8 @@ class DistributedTaskQueueIntegrationTest {
         assertEquals("RUNNING", runningTask.getStatus());
         assertEquals("worker-crash", runningTask.getAssignedAgentId());
 
-        // Симулируем аварийное падение узла (перевод агента в статус OFFLINE без вызова failTask)
-        agentRegistry.getAgent("worker-crash").ifPresent(a -> a.setStatus(AgentRegistry.AgentStatus.OFFLINE));
+        // Симулируем аварийное падение узла (прекращение heartbeat, таймаут > 45 сек -> OFFLINE)
+        agentRegistry.getAgent("worker-crash").ifPresent(a -> a.setLastHeartbeat(Instant.now().minusSeconds(100)));
 
         // Срабатывает watchdog мониторинга зависших задач
         taskService.checkAndFailoverOrphanedTasks();
