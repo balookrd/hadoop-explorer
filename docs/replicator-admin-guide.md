@@ -14,31 +14,32 @@ Hadoop gRPC Replicator построен на базе симметричных �
 Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Это обеспечивает полноценную двунаправленную репликацию (`DC1 ⇄ DC2`, DR failback) в рамках единого сервиса.
 
 ```mermaid
-flowchart TB
+flowchart TD
+    subgraph MGMT["🎯 Сегмент управления (Control Plane)"]
+        Orch["🎯 <b>Replicator Orchestrator (:8005)</b><br/>• Web UI Console (Svelte 5) & REST API<br/>• Иерархический Token Bucket шейпер (Global + DC-DC + HDFS-HDFS)<br/>• Cron Scheduler периодических задач & Реестр топологии кластеров"]
+    end
+
     subgraph DC1["🏢 ЦОД 1 (Москва / Primary)"]
         HDFS1[("🗄️ HDFS DataLake 1<br/>(analytics-cluster)")]
         Agent1["⚡ Replicator Agent DC1<br/><code>:50051 (Full-Duplex)</code>"]
-        HDFS1 <-->|"Чтение / Запись<br/>(doAs Impersonation)"| Agent1
+        HDFS1 <-->|"doAs (чтение/запись)"| Agent1
     end
 
     subgraph DC2["🏢 ЦОД 2 (Санкт-Петербург / Disaster Recovery)"]
         HDFS2[("🗄️ HDFS DataLake 2<br/>(backup-cluster)")]
         Agent2["⚡ Replicator Agent DC2<br/><code>:50051 (Full-Duplex)</code>"]
-        HDFS2 <-->|"Чтение / Запись<br/>(doAs Impersonation)"| Agent2
+        HDFS2 <-->|"doAs (чтение/запись)"| Agent2
     end
 
-    subgraph MGMT["⚙️ Сегмент управления (Management DC)"]
-        Orchestrator["🎯 Replicator Orchestrator <code>:8005</code><br/>• Web UI (Svelte 5) & REST API<br/>• Иерархический Token Bucket шейпер<br/>• Cron-планировщик и история запусков<br/>• Реестр топологии и адресов агентов"]
-        DB[("💾 Репозиторий метаданных<br/>(SQLite / PostgreSQL)")]
-        Orchestrator --- DB
+    subgraph WAN["🌐 Межкластерный транспорт WAN (Data Plane)"]
+        Stream{{"⚡ <b>Двунаправленный gRPC стриминг (:50051 ⇄ :50051)</b><br/>• Потоковая передача чанками 4MB + контрольные суммы SHA-256<br/>• Иерархический контроль полосы (Token Bucket Throttling)<br/>• Защищенный транспортный уровень mTLS / TLS"}}
     end
 
-    %% Межкластерная передача
-    Agent1 <===>|"Двунаправленный gRPC стриминг (mTLS / TLS)<br/>Чанки 4MB + SHA-256 контрольные суммы<br/>Шейпинг полосы WAN (Global + DC-DC + Cluster-Cluster)"| Agent2
+    Orch -.->|"Выдача квот & задач"| Agent1
+    Orch -.->|"Выдача квот & задач"| Agent2
 
-    %% Управление и квоты
-    Agent1 -.->|"1. Задачи / Токены шейпера<br/>2. Heartbeat (каждые 3с)"| Orchestrator
-    Agent2 -.->|"1. Задачи / Токены шейпера<br/>2. Heartbeat (каждые 3с)"| Orchestrator
+    Agent1 ===>|"gRPC mTLS"| Stream
+    Agent2 ===>|"gRPC mTLS"| Stream
 ```
 
 ### 1.2 Сетевые порты и протоколы
