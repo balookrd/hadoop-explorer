@@ -46,14 +46,20 @@ class IgnoredTempFilesFilterTest {
         assertTrue(HadoopFsManager.isIgnoredDirectory("_tmp"));
         assertTrue(HadoopFsManager.isIgnoredDirectory("_custom_dir"));
 
-        // Скрытые каталоги
+        // Скрытые каталоги и Hive / Tez / Spark staging
         assertTrue(HadoopFsManager.isIgnoredDirectory(".spark-staging-123"));
         assertTrue(HadoopFsManager.isIgnoredDirectory(".staging"));
         assertTrue(HadoopFsManager.isIgnoredDirectory(".tmp"));
         assertTrue(HadoopFsManager.isIgnoredDirectory(".Trash"));
         assertTrue(HadoopFsManager.isIgnoredDirectory(".git"));
         assertTrue(HadoopFsManager.isIgnoredDirectory(".idea"));
-        assertTrue(HadoopFsManager.isIgnoredDirectory(".hive-staging-task"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory(".hive-staging_hive_2026-10-09_12-00-00_123_456"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory("hive-staging-query999"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory("_hive_staging_session"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory("-ext-10000"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory("-ext-10001"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory(".tez-staging-app"));
+        assertTrue(HadoopFsManager.isIgnoredDirectory("tez-staging-run"));
 
         // Системные и временные суффиксы
         assertTrue(HadoopFsManager.isIgnoredDirectory("lost+found"));
@@ -61,7 +67,8 @@ class IgnoredTempFilesFilterTest {
         assertTrue(HadoopFsManager.isIgnoredDirectory("data.tmp"));
         assertTrue(HadoopFsManager.isIgnoredDirectory("data.staging"));
 
-        // Легитимные бизнес-каталоги
+        // Легитимные каталоги
+        assertFalse(HadoopFsManager.isIgnoredDirectory("_delta_log")); // Транзакционные логи Delta Lake
         assertFalse(HadoopFsManager.isIgnoredDirectory("users"));
         assertFalse(HadoopFsManager.isIgnoredDirectory("sales_2026"));
         assertFalse(HadoopFsManager.isIgnoredDirectory("partition_date=2026-10-09"));
@@ -99,9 +106,11 @@ class IgnoredTempFilesFilterTest {
         assertTrue(HadoopFsManager.isIgnoredFile("file._COPYING_"));
         assertTrue(HadoopFsManager.isIgnoredFile("_copying_temp.dat"));
 
-        // Временные файлы коммиттеров
+        // Временные файлы коммиттеров и движков
         assertTrue(HadoopFsManager.isIgnoredFile("_temporary_state"));
         assertTrue(HadoopFsManager.isIgnoredFile("_tmp_file"));
+        assertTrue(HadoopFsManager.isIgnoredFile("query.hive-staging-task.xml"));
+        assertTrue(HadoopFsManager.isIgnoredFile("data.spark-staging"));
 
         // ВАЖНО: Легитимные файлы метаданных НЕ должны отсекаться!
         assertFalse(HadoopFsManager.isIgnoredFile("_SUCCESS"));
@@ -156,6 +165,8 @@ class IgnoredTempFilesFilterTest {
         createFile("_temporary/0/task_001/part-00000.parquet");
         createFile("_staging/job_999/task.dat");
         createFile(".spark-staging-12345/executor.jar");
+        createFile(".hive-staging_hive_2026-10-09/-ext-10000/000000_0");
+        createFile("nested/hive-staging-task/query.xml");
         createFile(".hidden_dir/file.txt");
         createFile("nested/.tmp/temp_cache.bin");
 

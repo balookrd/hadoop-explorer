@@ -459,13 +459,36 @@ public class HadoopFsManager {
         if (name.equals(".") || name.equals("..")) {
             return true;
         }
+
+        String lower = name.toLowerCase(Locale.ROOT);
+
+        // Легитимные транзакционные каталоги Delta Lake
+        if ("_delta_log".equals(lower)) {
+            return false;
+        }
+
+        // Каталоги, начинающиеся с '.' (.spark-staging, .hive-staging, .staging, .tmp, .Trash, .git и т.д.)
+        // или '_' (служебные каталоги коммиттеров: _temporary, _staging, _distcp, _tmp и т.д.)
         if (name.startsWith(".") || name.startsWith("_")) {
             return true;
         }
+
+        // Вспомогательные подкаталоги внешних задач Hive MapReduce/Tez (-ext-10000, -ext-*, _ext-*)
+        if (lower.startsWith("-ext-")) {
+            return true;
+        }
+
+        // Каталоги staging движков Hive / Spark / Tez (независимо от настроек префикса)
+        if (lower.contains("hive-staging") || lower.contains("hive_staging") ||
+                lower.contains("spark-staging") || lower.contains("spark_staging") ||
+                lower.contains("tez-staging") || lower.contains("tez_staging")) {
+            return true;
+        }
+
         if ("lost+found".equalsIgnoreCase(name)) {
             return true;
         }
-        String lower = name.toLowerCase(Locale.ROOT);
+
         return lower.endsWith(".tmp") || lower.endsWith(".temp") || lower.endsWith(".staging");
     }
 
@@ -474,6 +497,7 @@ public class HadoopFsManager {
      * <ul>
      *   <li>Скрытые файлы (начинающиеся с '.')</li>
      *   <li>Служебные файлы ОС (Thumbs.db, desktop.ini, .DS_Store)</li>
+     *   <li>Временные staging-файлы Hive, Spark, Tez (содержащие hive-staging, spark-staging)</li>
      *   <li>Временные расширения незавершенной записи (.tmp, .temp, .inprogress, .staging, .pending, .copying, .part, .partial, .swp, .swo, ~)</li>
      *   <li>Файлы промежуточного копирования (*_copying_*)</li>
      *   <li>Временные файлы коммиттеров (_temporary*, _tmp*)</li>
@@ -486,6 +510,14 @@ public class HadoopFsManager {
         }
         String name = fileName.trim();
 
+        // Легитимные маркеры и метаданные НЕ должны отсекаться!
+        if ("_SUCCESS".equalsIgnoreCase(name) ||
+                "_SUCCESS.crc".equalsIgnoreCase(name) ||
+                "_metadata".equalsIgnoreCase(name) ||
+                "_common_metadata".equalsIgnoreCase(name)) {
+            return false;
+        }
+
         // Скрытые файлы
         if (name.startsWith(".")) {
             return true;
@@ -497,6 +529,12 @@ public class HadoopFsManager {
         }
 
         String lower = name.toLowerCase(Locale.ROOT);
+
+        // Временные файлы staging Hive / Spark / Tez
+        if (lower.contains("hive-staging") || lower.contains("hive_staging") ||
+                lower.contains("spark-staging") || lower.contains("spark_staging")) {
+            return true;
+        }
 
         // Временные расширения и суффиксы незавершенной записи
         if (lower.endsWith(".tmp") ||
