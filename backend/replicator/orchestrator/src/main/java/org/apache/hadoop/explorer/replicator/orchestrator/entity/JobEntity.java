@@ -76,6 +76,18 @@ public class JobEntity {
     @Column(name = "active_run_id", length = 64)
     private String activeRunId;
 
+    @Column(name = "total_objects", nullable = false)
+    private int totalObjects = 0;
+
+    @Column(name = "transferred_objects", nullable = false)
+    private int transferredObjects = 0;
+
+    @Column(name = "skipped_objects", nullable = false)
+    private int skippedObjects = 0;
+
+    @Column(name = "failed_objects", nullable = false)
+    private int failedObjects = 0;
+
     @OneToMany(mappedBy = "job", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<TaskEntity> tasks = new ArrayList<>();
 
@@ -164,4 +176,12 @@ public class JobEntity {
     public void setTasks(List<TaskEntity> tasks) { this.tasks = tasks; }
     public List<JobRunEntity> getRuns() { return runs; }
     public void setRuns(List<JobRunEntity> runs) { this.runs = runs; }
+    public int getTotalObjects() { return totalObjects; }
+    public void setTotalObjects(int totalObjects) { this.totalObjects = totalObjects; }
+    public int getTransferredObjects() { return transferredObjects; }
+    public void setTransferredObjects(int transferredObjects) { this.transferredObjects = transferredObjects; }
+    public int getSkippedObjects() { return skippedObjects; }
+    public void setSkippedObjects(int skippedObjects) { this.skippedObjects = skippedObjects; }
+    public int getFailedObjects() { return failedObjects; }
+    public void setFailedObjects(int failedObjects) { this.failedObjects = failedObjects; }
 }

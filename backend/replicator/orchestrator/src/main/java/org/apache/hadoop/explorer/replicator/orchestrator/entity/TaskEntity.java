@@ -6,7 +6,14 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "replication_tasks")
+@Table(
+    name = "replication_tasks",
+    indexes = {
+        @Index(name = "idx_task_job_id", columnList = "job_id"),
+        @Index(name = "idx_task_status", columnList = "status"),
+        @Index(name = "idx_task_job_status", columnList = "job_id, status")
+    }
+)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class TaskEntity {
 
@@ -43,6 +50,9 @@ public class TaskEntity {
     @Column(name = "checksum")
     private String checksum;
 
+    @Column(name = "error_message")
+    private String errorMessage;
+
     public TaskEntity() {}
 
     public String getId() { return id; }
@@ -65,4 +75,6 @@ public class TaskEntity {
     public void setAssignedAgentId(String assignedAgentId) { this.assignedAgentId = assignedAgentId; }
     public String getChecksum() { return checksum; }
     public void setChecksum(String checksum) { this.checksum = checksum; }
+    public String getErrorMessage() { return errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
 }

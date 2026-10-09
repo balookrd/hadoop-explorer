@@ -7,6 +7,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.ReplicationScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,10 +28,12 @@ public class JobService {
 
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
+    private final TaskRepository taskRepository;
 
-    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository) {
+    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
+        this.taskRepository = taskRepository;
     }
 
     @PostConstruct
@@ -415,6 +418,18 @@ public class JobService {
             if (req.getMessage() != null) {
                 job.setMessage(req.getMessage());
             }
+            if (req.getTotalObjects() != null) {
+                job.setTotalObjects(req.getTotalObjects());
+            }
+            if (req.getTransferredObjects() != null) {
+                job.setTransferredObjects(req.getTransferredObjects());
+            }
+            if (req.getSkippedObjects() != null) {
+                job.setSkippedObjects(req.getSkippedObjects());
+            }
+            if (req.getFailedObjects() != null) {
+                job.setFailedObjects(req.getFailedObjects());
+            }
 
             Instant now = Instant.now();
             if ("RUNNING".equalsIgnoreCase(job.getStatus()) && job.getStartedAt() == null) {
@@ -445,6 +460,10 @@ public class JobService {
             run.setStatus(job.getStatus());
             run.setCopiedBytes(job.getCopiedBytes());
             run.setTotalBytes(job.getTotalBytes());
+            run.setTotalObjects(job.getTotalObjects());
+            run.setTransferredObjects(job.getTransferredObjects());
+            run.setSkippedObjects(job.getSkippedObjects());
+            run.setFailedObjects(job.getFailedObjects());
             run.setMessage(job.getMessage());
             if ("RUNNING".equalsIgnoreCase(job.getStatus()) && run.getStartedAt() == null) {
                 run.setStartedAt(job.getStartedAt() != null ? job.getStartedAt() : now);
@@ -545,6 +564,7 @@ public class JobService {
     @Transactional
     public boolean deleteJob(String id) {
         if (jobRepository.existsById(id)) {
+            taskRepository.deleteByJobId(id);
             jobRunRepository.deleteByJobId(id);
             jobRepository.deleteById(id);
             return true;

@@ -215,6 +215,18 @@ public class AgentRegistry {
             .findAny();
     }
 
+    /**
+     * Поиск наименее загруженного агента в целевом кластере для балансировки входящего трафика.
+     */
+    public Optional<AgentEntry> getLeastLoadedAgentForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> a.getClusterId().equalsIgnoreCase(clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && ("all".equalsIgnoreCase(a.getMode()) || "receiver".equalsIgnoreCase(a.getMode())))
+            .min(Comparator.comparingInt(AgentEntry::getActiveTransfers));
+    }
+
     public void verifySecret(String secretHeader) {
         String expected = properties.getAgentSecret();
         if (expected == null || expected.isBlank()) return;

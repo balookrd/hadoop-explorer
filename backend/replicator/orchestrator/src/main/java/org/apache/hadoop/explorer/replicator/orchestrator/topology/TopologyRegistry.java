@@ -64,6 +64,15 @@ public class TopologyRegistry {
         return Optional.ofNullable(clusters.get(id));
     }
 
+    public String getClusterGrpcAddress(String clusterId) {
+        if (clusterId == null) return null;
+        ReplicatorProperties.ClusterConfig c = clusters.get(clusterId);
+        if (c != null && c.getGrpcHost() != null) {
+            return c.getGrpcHost() + ":" + c.getGrpcPort();
+        }
+        return null;
+    }
+
     public void updateClusterGrpcAddress(String clusterId, String grpcAddress) {
         if (clusterId == null || grpcAddress == null || !grpcAddress.contains(":")) return;
         String[] parts = grpcAddress.split(":");

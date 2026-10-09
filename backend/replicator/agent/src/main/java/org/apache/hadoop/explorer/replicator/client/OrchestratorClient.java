@@ -229,6 +229,80 @@ public class OrchestratorClient {
         return Collections.emptyList();
     }
 
+    /**
+     * Пакетная регистрация пофайловых задач в пуле Оркестратора после этапа анализа.
+     */
+    public boolean batchCreateTasks(BatchCreateTasksRequest request) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(request);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs/" + URLEncoder.encode(request.getJobId(), StandardCharsets.UTF_8) + "/tasks/batch")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200 || response.statusCode() == 201;
+        } catch (Exception e) {
+            logger.warn("Ошибка пакетной регистрации задач для job '{}': {}", request.getJobId(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Забор задач из распределенного пула Оркестратора воркером.
+     */
+    public List<TaskItemDto> claimTasks(ClaimTasksRequest request) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(request);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/tasks/claim")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), new TypeReference<List<TaskItemDto>>() {});
+            }
+        } catch (Exception e) {
+            logger.debug("Ошибка получения задач из пула Оркестратора: {}", e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Фиксация успешного завершения пофайловой задачи воркером.
+     */
+    public boolean completeTask(CompleteTaskRequest request) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(request);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/tasks/" + URLEncoder.encode(request.getTaskId(), StandardCharsets.UTF_8) + "/complete")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            logger.warn("Ошибка фиксации завершения задачи '{}': {}", request.getTaskId(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Фиксация ошибки передачи файла воркером.
+     */
+    public boolean failTask(FailTaskRequest request) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(request);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/tasks/" + URLEncoder.encode(request.getTaskId(), StandardCharsets.UTF_8) + "/fail")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            logger.warn("Ошибка фиксации сбоя задачи '{}': {}", request.getTaskId(), e.getMessage());
+            return false;
+        }
+    }
+
     public String getBaseUrl() {
         return baseUrl;
     }

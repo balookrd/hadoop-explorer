@@ -10,6 +10,12 @@ option java_outer_classname = "ReplicatorProto";
 service DataTransferService {
   // Потоковая передача файла: первый элемент потока — метаданные, последующие — чанки байтов
   rpc TransferFile (stream TransferFileRequest) returns (TransferFileResponse);
+
+  // Проверка статуса файла на целевом узле для инкрементальной синхронизации без повторной перекачки
+  rpc CheckFile (CheckFileRequest) returns (CheckFileResponse);
+
+  // Пакетное получение манифеста каталога для мгновенного in-memory diff между изолированными DC
+  rpc GetDirectoryManifest (DirectoryManifestRequest) returns (DirectoryManifestResponse);
 }
 
 // Запрос на передачу: либо метаданные файла, либо порция данных
@@ -48,4 +54,39 @@ message TransferFileResponse {
   string message = 4;                    // Диагностическое сообщение или описание ошибки
   string target_path = 5;                // Итоговый путь в HDFS приемника
   string checksum = 6;                   // Вычисленная контрольная сумма записанного файла
+}
+
+// Запрос проверки статуса файла на узле назначения
+message CheckFileRequest {
+  string path = 1;                       // Проверяемый путь на целевом кластере
+  string execution_principal = 2;        // Kerberos принципал (опционально)
+  bool run_as_service_account = 3;       // Выполнять от системной техучетки
+}
+
+// Ответ со статусом файла на целевом узле
+message CheckFileResponse {
+  bool exists = 1;                       // Существует ли файл на целевой стороне
+  int64 size = 2;                        // Фактический размер в байтах
+  int64 modification_time = 3;           // Время модификации в миллисекундах
+  bool is_directory = 4;                 // Является ли директорией
+}
+
+// Запрос пакетного получения манифеста каталога
+message DirectoryManifestRequest {
+  string path = 1;                       // Базовый путь каталога на приемнике
+  string execution_principal = 2;        // Kerberos принципал (опционально)
+  bool run_as_service_account = 3;       // Выполнять от системной техучетки
+}
+
+// Элемент файла в манифесте
+message FileManifestEntry {
+  string relative_path = 1;              // Относительный путь от корня каталога
+  int64 size = 2;                        // Размер файла в байтах
+  int64 modification_time = 3;           // Время модификации в миллисекундах
+}
+
+// Ответ со списком всех файлов каталога
+message DirectoryManifestResponse {
+  bool exists = 1;                       // Существует ли каталог
+  repeated FileManifestEntry files = 2;  // Список файлов в каталоге на целевой стороне
 }

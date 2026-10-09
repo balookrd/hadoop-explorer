@@ -66,6 +66,18 @@ public class JobRunEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "total_objects")
+    private int totalObjects = 0;
+
+    @Column(name = "transferred_objects")
+    private int transferredObjects = 0;
+
+    @Column(name = "skipped_objects")
+    private int skippedObjects = 0;
+
+    @Column(name = "failed_objects")
+    private int failedObjects = 0;
+
     public JobRunEntity() {}
 
     public void calculateMetrics() {
@@ -113,4 +125,12 @@ public class JobRunEntity {
     public void setTriggeredBy(String triggeredBy) { this.triggeredBy = triggeredBy; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public int getTotalObjects() { return totalObjects; }
+    public void setTotalObjects(int totalObjects) { this.totalObjects = totalObjects; }
+    public int getTransferredObjects() { return transferredObjects; }
+    public void setTransferredObjects(int transferredObjects) { this.transferredObjects = transferredObjects; }
+    public int getSkippedObjects() { return skippedObjects; }
+    public void setSkippedObjects(int skippedObjects) { this.skippedObjects = skippedObjects; }
+    public int getFailedObjects() { return failedObjects; }
+    public void setFailedObjects(int failedObjects) { this.failedObjects = failedObjects; }
 }

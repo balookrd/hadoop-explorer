@@ -142,4 +142,72 @@ public class DataTransferServiceGrpcTest {
         assertTrue(targetFile.exists(), "Целевой файл должен существовать после коммита");
         assertArrayEquals(testData, Files.readAllBytes(targetFile.toPath()));
     }
+
+    @Test
+    public void testCheckFileStatus() throws Exception {
+        DataTransferServiceGrpc.DataTransferServiceBlockingStub stub =
+                DataTransferServiceGrpc.newBlockingStub(inProcessChannel);
+
+        File testFile = new File(tempTargetDir, "existing.dat");
+        Files.writeString(testFile.toPath(), "Content for testing checkFile");
+
+        // 1. Проверка существующего файла
+        CheckFileResponse respExisting = stub.checkFile(CheckFileRequest.newBuilder()
+                .setPath(testFile.getAbsolutePath())
+                .setRunAsServiceAccount(true)
+                .build());
+
+        assertTrue(respExisting.getExists());
+        assertEquals(testFile.length(), respExisting.getSize());
+        assertFalse(respExisting.getIsDirectory());
+
+        // 2. Проверка несуществующего файла
+        CheckFileResponse respMissing = stub.checkFile(CheckFileRequest.newBuilder()
+                .setPath(new File(tempTargetDir, "missing.dat").getAbsolutePath())
+                .setRunAsServiceAccount(true)
+                .build());
+
+        assertFalse(respMissing.getExists());
+        assertEquals(0L, respMissing.getSize());
+
+        // 3. Проверка директории
+        CheckFileResponse respDir = stub.checkFile(CheckFileRequest.newBuilder()
+                .setPath(tempTargetDir.getAbsolutePath())
+                .setRunAsServiceAccount(true)
+                .build());
+
+        assertTrue(respDir.getExists());
+        assertTrue(respDir.getIsDirectory());
+    }
+
+    @Test
+    public void testGetDirectoryManifest() throws Exception {
+        DataTransferServiceGrpc.DataTransferServiceBlockingStub stub =
+                DataTransferServiceGrpc.newBlockingStub(inProcessChannel);
+
+        File dir = new File(tempTargetDir, "manifest_test");
+        dir.mkdirs();
+        File f1 = new File(dir, "a.txt");
+        File f2 = new File(dir, "sub/b.txt");
+        f2.getParentFile().mkdirs();
+        Files.writeString(f1.toPath(), "File A");
+        Files.writeString(f2.toPath(), "File B in sub");
+
+        DirectoryManifestResponse resp = stub.getDirectoryManifest(DirectoryManifestRequest.newBuilder()
+                .setPath(dir.getAbsolutePath())
+                .setRunAsServiceAccount(true)
+                .build());
+
+        assertTrue(resp.getExists());
+        assertEquals(2, resp.getFilesCount());
+
+        java.util.Map<String, Long> map = new java.util.HashMap<>();
+        for (FileManifestEntry entry : resp.getFilesList()) {
+            map.put(entry.getRelativePath(), entry.getSize());
+        }
+        assertTrue(map.containsKey("a.txt"));
+        assertEquals(f1.length(), map.get("a.txt"));
+        assertTrue(map.containsKey("sub/b.txt"));
+        assertEquals(f2.length(), map.get("sub/b.txt"));
+    }
 }

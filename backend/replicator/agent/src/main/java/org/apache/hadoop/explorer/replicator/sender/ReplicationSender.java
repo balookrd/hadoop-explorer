@@ -11,15 +11,14 @@ import io.grpc.stub.StreamObserver;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
-import org.apache.hadoop.explorer.replicator.model.JobDto;
-import org.apache.hadoop.explorer.replicator.model.TokenRequest;
-import org.apache.hadoop.explorer.replicator.model.UpdateJobRequest;
+import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.InputStream;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -64,7 +63,8 @@ public class ReplicationSender {
     }
 
     /**
-     * Потоковая передача файла на целевой узел gRPC с контролем полосы и обновлением прогресса.
+     * Потоковая передача файла или рекурсивная инкрементальная синхронизация каталога
+     * на целевой узел gRPC с контролем полосы, пропуском неизмененных файлов и обновлением прогресса.
      */
     public boolean transferFile(JobDto job, String targetAddress) {
         String jobId = job.getId();
@@ -107,28 +107,183 @@ public class ReplicationSender {
             return false;
         }
 
-        long totalBytes = 0;
-        try {
-            totalBytes = fsManager.getFileSize(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
-        } catch (Exception e) {
-            logger.warn("Не удалось определить размер файла '{}': {}", sourcePath, e.getMessage());
-        }
-
-        // Обновляем статус RUNNING
-        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("RUNNING", 0L, totalBytes, "Начало передачи данных (Java Agent)"));
-
         ManagedChannel channel;
         try {
             channel = createManagedChannel(targetAddress);
         } catch (Exception e) {
             String err = "Не удалось создать gRPC соединение к " + targetAddress + ": " + e.getMessage();
             logger.error(err, e);
-            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, totalBytes, err));
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
         }
 
-        CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
+        try {
+            boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
+            if (isDir) {
+                return transferDirectory(job, channel);
+            } else {
+                return transferSingleFileWithSync(job, channel);
+            }
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+                try {
+                    channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
 
+    /**
+     * Этап анализа (Analyzer): обход HDFS-1, запрос манифеста HDFS-2,
+     * вычисление in-memory diff и создание распределенного пула пофайловых задач в Оркестраторе.
+     */
+    public boolean analyzeAndCreateTaskPool(JobDto job, String targetAddress) {
+        String jobId = job.getId();
+        String sourcePath = job.getSourcePath();
+        String targetPath = job.getTargetPath();
+
+        if (!fsManager.exists(sourcePath)) {
+            String err = "Исходный путь не найден: " + sourcePath;
+            logger.error(err);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
+            return false;
+        }
+
+        ManagedChannel channel = null;
+        try {
+            channel = createManagedChannel(targetAddress);
+            boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
+            boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), asService);
+
+            List<TaskCreateItem> taskItems = new ArrayList<>();
+
+            if (isDir) {
+                if (HadoopFsManager.isIgnoredDirectoryPath(sourcePath)) {
+                    logger.info("Каталог {} пропущен согласно фильтру временных папок", sourcePath);
+                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
+                    return true;
+                }
+
+                List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(
+                        sourcePath, job.getExecutionPrincipal(), asService
+                );
+
+                if (items.isEmpty()) {
+                    logger.info("Каталог {} пуст или все файлы отфильтрованы. Создание пустой задачи.", sourcePath);
+                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
+                    return true;
+                }
+
+                // Запрос пакетного манифеста у целевого агента (1 сетевой round-trip)
+                DirectoryManifestResponse remoteManifest = fetchRemoteManifest(channel, targetPath, job);
+                Map<String, Long> remoteFileSizes = new HashMap<>();
+                if (remoteManifest != null && remoteManifest.getExists()) {
+                    for (FileManifestEntry entry : remoteManifest.getFilesList()) {
+                        remoteFileSizes.put(entry.getRelativePath(), entry.getSize());
+                    }
+                }
+
+                // In-memory diff и формирование пула подзадач
+                for (HadoopFsManager.FileItem item : items) {
+                    Long remoteSize = remoteFileSizes.get(item.relativePath());
+                    boolean skipped = (remoteSize != null && remoteSize == item.size() && item.size() > 0);
+                    String subTargetPath = combinePaths(targetPath, item.relativePath());
+
+                    taskItems.add(new TaskCreateItem(
+                            UUID.randomUUID().toString(),
+                            item.fullPath(),
+                            subTargetPath,
+                            item.size(),
+                            skipped
+                    ));
+                }
+            } else {
+                if (HadoopFsManager.isIgnoredPath(sourcePath)) {
+                    logger.info("Файл {} пропущен согласно фильтру временных файлов", sourcePath);
+                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
+                    return true;
+                }
+
+                long fileBytes = fsManager.getFileSize(sourcePath, job.getExecutionPrincipal(), asService);
+                CheckFileResponse check = checkRemoteFile(channel, targetPath, job);
+                boolean skipped = (check != null && check.getExists() && check.getSize() == fileBytes && fileBytes > 0);
+
+                taskItems.add(new TaskCreateItem(
+                        UUID.randomUUID().toString(),
+                        sourcePath,
+                        targetPath,
+                        fileBytes,
+                        skipped
+                ));
+            }
+
+            boolean ok = orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, taskItems));
+            logger.info("Для задания '{}' успешно сформирован и зарегистрирован пул из {} пофайловых задач", jobId, taskItems.size());
+            return ok;
+        } catch (Exception e) {
+            String err = "Ошибка при анализе каталога " + sourcePath + ": " + e.getMessage();
+            logger.error(err, e);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
+            return false;
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+                try {
+                    channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * Исполнение конкретной пофайловой задачи воркером из распределенного пула.
+     */
+    public boolean transferTask(TaskItemDto task) {
+        String taskId = task.getId();
+        String jobId = task.getJobId();
+        String sourcePath = task.getSourcePath();
+        String targetPath = task.getTargetPath();
+        long fileSize = task.getFileSize();
+        String targetAddress = task.getTargetAddress() != null ? task.getTargetAddress() : "localhost:50051";
+
+        logger.info("Воркер '{}' начинает передачу файла задачи '{}': {} -> {} ({} байт) на {}",
+                workerId, taskId, sourcePath, targetPath, fileSize, targetAddress);
+
+        ManagedChannel channel = null;
+        try {
+            channel = createManagedChannel(targetAddress);
+
+            boolean success = streamTaskFileToChannel(taskId, jobId, sourcePath, targetPath, fileSize,
+                    task.getExecutionPrincipal(), task.getRunAsServiceAccount(), channel);
+
+            if (success) {
+                logger.info("Воркер '{}' успешно передал файл задачи '{}': {} ({} байт)", workerId, taskId, sourcePath, fileSize);
+                orchestratorClient.completeTask(new CompleteTaskRequest(taskId, workerId, fileSize, "OK"));
+                return true;
+            } else {
+                logger.error("Воркер '{}' не смог передать файл задачи '{}': {}", workerId, taskId, sourcePath);
+                orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, "Ошибка передачи чанков на приемник"));
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("Исключение при передаче задачи '{}': {}", taskId, e.getMessage(), e);
+            orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
+            return false;
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+                try {
+                    channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    private boolean streamTaskFileToChannel(String taskId, String jobId, String sourcePath, String targetPath,
+                                            long fileBytes, String executionPrincipal, Boolean runAsServiceAccount,
+                                            ManagedChannel channel) {
+        CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
         try {
             DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
 
@@ -145,44 +300,41 @@ public class ReplicationSender {
 
                 @Override
                 public void onCompleted() {
-                    // responseFuture уже завершен в onNext
                 }
             });
 
-            // 1. Отправка метаданных файла
+            // Метаданные файла
+            boolean asService = runAsServiceAccount != null && runAsServiceAccount;
             FileMetadata metadata = FileMetadata.newBuilder()
                     .setJobId(jobId)
                     .setSourcePath(sourcePath)
                     .setTargetPath(targetPath)
-                    .setTotalBytes(totalBytes)
-                    .setRunAsServiceAccount(job.getRunAsServiceAccount())
-                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL")
+                    .setTotalBytes(fileBytes)
+                    .setRunAsServiceAccount(asService)
+                    .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "hdfs-replicator@REALM.LOCAL")
                     .build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
-            // 2. Чтение и потоковая отправка файла чанками с doAs имперсонацией
-            try (InputStream in = fsManager.openInputStream(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount())) {
+            // Потоковая передача чанками с шейпингом
+            try (InputStream in = fsManager.openInputStream(sourcePath, executionPrincipal, asService)) {
                 byte[] buffer = new byte[chunkSize];
                 long offset = 0;
-                long lastProgressUpdate = 0;
                 int bytesRead;
 
                 while ((bytesRead = in.read(buffer)) != -1) {
-                    boolean isLast = (offset + bytesRead) >= totalBytes;
+                    boolean isLast = (offset + bytesRead) >= fileBytes;
 
-                    // Шейпинг полосы (локальный Token Bucket)
                     if (bandwidthLimiter != null) {
                         bandwidthLimiter.throttle(bytesRead);
                     }
 
-                    // Шейпинг полосы (глобальный Orchestrator Token Bucket)
-                    double orchestratorWait = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, bytesRead, job.getSourceClusterId(), job.getTargetClusterId())
+                    double waitSec = orchestratorClient.requestNetworkTokens(
+                            new TokenRequest(workerId, bytesRead, null, null)
                     );
-                    if (orchestratorWait > 0) {
+                    if (waitSec > 0) {
                         try {
-                            Thread.sleep((long) (orchestratorWait * 1000));
+                            Thread.sleep((long) (waitSec * 1000));
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             break;
@@ -197,13 +349,253 @@ public class ReplicationSender {
                             .build();
 
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
+                    offset += bytesRead;
+                }
 
+                requestObserver.onCompleted();
+            }
+
+            TransferFileResponse response = responseFuture.get(60, TimeUnit.MINUTES);
+            return response.getSuccess();
+        } catch (Exception e) {
+            logger.error("Ошибка при потоковой передаче задачи {}: {}", taskId, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private boolean transferSingleFileWithSync(JobDto job, ManagedChannel channel) {
+        String jobId = job.getId();
+        String sourcePath = job.getSourcePath();
+        String targetPath = job.getTargetPath();
+
+        if (HadoopFsManager.isIgnoredPath(sourcePath)) {
+            logger.info("Пропуск файла '{}' согласно фильтру временных файлов", sourcePath);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", 0L, 0L,
+                    "Файл пропущен согласно фильтру временных файлов"));
+            return true;
+        }
+
+        long totalBytes = 0;
+        try {
+            totalBytes = fsManager.getFileSize(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
+        } catch (Exception e) {
+            logger.warn("Не удалось определить размер файла '{}': {}", sourcePath, e.getMessage());
+        }
+
+        // 1. Инкрементальная проверка: если файл на целевом узле уже существует и размер совпадает
+        CheckFileResponse check = checkRemoteFile(channel, targetPath, job);
+        if (check != null && check.getExists() && check.getSize() == totalBytes && totalBytes > 0) {
+            logger.info("Инкрементальный пропуск: целевой файл '{}' уже идентичен исходному ({} байт)", targetPath, totalBytes);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", totalBytes, totalBytes,
+                    "Файл уже актуален на целевом узле (инкрементальный пропуск)"));
+            return true;
+        }
+
+        // 2. Файл новый или изменен — передаем
+        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("RUNNING", 0L, totalBytes, "Начало передачи данных (Java Agent)"));
+
+        boolean success = streamFileToChannel(jobId, sourcePath, targetPath, totalBytes, job, channel, 0L, totalBytes);
+        if (success) {
+            logger.info("Передача задачи {} успешно завершена! ({} байт)", jobId, totalBytes);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", totalBytes, totalBytes,
+                    "Репликация успешно завершена (Java Agent)"));
+            return true;
+        } else {
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, totalBytes,
+                    "Ошибка при передаче файла на целевой узел"));
+            return false;
+        }
+    }
+
+    private boolean transferDirectory(JobDto job, ManagedChannel channel) {
+        String jobId = job.getId();
+        String sourceDir = job.getSourcePath();
+        String targetDir = job.getTargetPath();
+
+        if (HadoopFsManager.isIgnoredDirectoryPath(sourceDir)) {
+            logger.info("Каталог {} пропущен согласно фильтру временных папок", sourceDir);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", 0L, 0L,
+                    "Каталог пропущен согласно фильтру временных папок"));
+            return true;
+        }
+
+        List<HadoopFsManager.FileItem> items;
+        try {
+            items = fsManager.listFilesRecursively(sourceDir, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
+        } catch (Exception e) {
+            String err = "Ошибка обхода каталога " + sourceDir + ": " + e.getMessage();
+            logger.error(err, e);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
+            return false;
+        }
+
+        if (items.isEmpty()) {
+            logger.info("Каталог {} пуст или не содержит регулярных файлов. Синхронизация завершена.", sourceDir);
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", 0L, 0L,
+                    "Каталог пуст, синхронизация завершена"));
+            return true;
+        }
+
+        long totalBytes = items.stream().mapToLong(HadoopFsManager.FileItem::size).sum();
+        logger.info("Рекурсивная синхронизация каталога {}: найдено файлов: {}, общий объем: {} байт",
+                sourceDir, items.size(), totalBytes);
+
+        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("RUNNING", 0L, totalBytes,
+                String.format("Синхронизация каталога: %d файлов (%d байт)", items.size(), totalBytes)));
+
+        // 1. Пакетный запрос манифеста целевого каталога (Batch Manifest Diff за 1 сетевой вызов)
+        DirectoryManifestResponse remoteManifest = fetchRemoteManifest(channel, targetDir, job);
+        Map<String, Long> remoteFileSizes = new HashMap<>();
+        if (remoteManifest != null && remoteManifest.getExists()) {
+            for (FileManifestEntry entry : remoteManifest.getFilesList()) {
+                remoteFileSizes.put(entry.getRelativePath(), entry.getSize());
+            }
+            logger.info("Получен пакетный манифест целевого каталога '{}': {} файлов уже на приемнике",
+                    targetDir, remoteFileSizes.size());
+        } else {
+            logger.info("Целевой каталог '{}' отсутствует или пуст на приемнике, полная передача", targetDir);
+        }
+
+        // 2. Мгновенный in-memory diff
+        List<HadoopFsManager.FileItem> toTransfer = new ArrayList<>();
+        long copiedBytes = 0;
+        int skippedCount = 0;
+
+        for (HadoopFsManager.FileItem item : items) {
+            Long remoteSize = remoteFileSizes.get(item.relativePath());
+            if (remoteSize != null && remoteSize == item.size() && item.size() > 0) {
+                logger.info("Инкрементальный пропуск (in-memory diff): '{}' актуален на приемнике ({} байт)",
+                        item.relativePath(), item.size());
+                copiedBytes += item.size();
+                skippedCount++;
+            } else {
+                toTransfer.add(item);
+            }
+        }
+
+        logger.info("Результат in-memory diff каталога {}: к передаче {} файлов, пропущено {} актуальных",
+                sourceDir, toTransfer.size(), skippedCount);
+
+        // 3. Передача изменившихся/новых файлов
+        int transferredCount = 0;
+        for (HadoopFsManager.FileItem item : toTransfer) {
+            String subTargetPath = combinePaths(targetDir, item.relativePath());
+
+            boolean ok = streamFileToChannel(jobId, item.fullPath(), subTargetPath, item.size(), job, channel, copiedBytes, totalBytes);
+            if (!ok) {
+                String err = "Ошибка передачи файла: " + item.relativePath();
+                logger.error(err);
+                orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", copiedBytes, totalBytes, err));
+                return false;
+            }
+
+            copiedBytes += item.size();
+            transferredCount++;
+            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest(null, copiedBytes, totalBytes,
+                    String.format("Синхронизация (%d/%d): передан %s", transferredCount + skippedCount, items.size(), item.relativePath())));
+        }
+
+        String msg = String.format("Синхронизация каталога завершена: передано %d, пропущено %d (всего %d файлов)",
+                transferredCount, skippedCount, items.size());
+        logger.info("Задача {}: {}", jobId, msg);
+        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", copiedBytes, totalBytes, msg));
+        return true;
+    }
+
+    private DirectoryManifestResponse fetchRemoteManifest(ManagedChannel channel, String targetDir, JobDto job) {
+        try {
+            DataTransferServiceGrpc.DataTransferServiceBlockingStub blockingStub =
+                    DataTransferServiceGrpc.newBlockingStub(channel).withDeadlineAfter(30, TimeUnit.SECONDS);
+
+            DirectoryManifestRequest req = DirectoryManifestRequest.newBuilder()
+                    .setPath(targetDir)
+                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "")
+                    .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
+                    .build();
+
+            return blockingStub.getDirectoryManifest(req);
+        } catch (Exception e) {
+            logger.debug("Не удалось получить пакетный манифест каталога '{}' через gRPC (возможно, новый каталог): {}", targetDir, e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean streamFileToChannel(String jobId, String sourcePath, String targetPath, long fileBytes,
+                                        JobDto job, ManagedChannel channel, long baseCopiedBytes, long grandTotalBytes) {
+        CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
+        try {
+            DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
+
+            StreamObserver<TransferFileRequest> requestObserver = stub.transferFile(new StreamObserver<>() {
+                @Override
+                public void onNext(TransferFileResponse value) {
+                    responseFuture.complete(value);
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    responseFuture.completeExceptionally(t);
+                }
+
+                @Override
+                public void onCompleted() {
+                }
+            });
+
+            // Метаданные файла
+            FileMetadata metadata = FileMetadata.newBuilder()
+                    .setJobId(jobId)
+                    .setSourcePath(sourcePath)
+                    .setTargetPath(targetPath)
+                    .setTotalBytes(fileBytes)
+                    .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
+                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL")
+                    .build();
+
+            requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
+
+            // Потоковая передача чанками
+            try (InputStream in = fsManager.openInputStream(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount())) {
+                byte[] buffer = new byte[chunkSize];
+                long offset = 0;
+                long lastProgressUpdate = 0;
+                int bytesRead;
+
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    boolean isLast = (offset + bytesRead) >= fileBytes;
+
+                    // Локальный шейпинг
+                    if (bandwidthLimiter != null) {
+                        bandwidthLimiter.throttle(bytesRead);
+                    }
+
+                    // Глобальный шейпинг
+                    double waitSec = orchestratorClient.requestNetworkTokens(
+                            new TokenRequest(workerId, bytesRead, job.getSourceClusterId(), job.getTargetClusterId())
+                    );
+                    if (waitSec > 0) {
+                        try {
+                            Thread.sleep((long) (waitSec * 1000));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+
+                    FileChunk chunk = FileChunk.newBuilder()
+                            .setJobId(jobId)
+                            .setOffset(offset)
+                            .setData(ByteString.copyFrom(buffer, 0, bytesRead))
+                            .setIsLastChunk(isLast)
+                            .build();
+
+                    requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
                     offset += bytesRead;
 
-                    // Периодически обновляем прогресс в Оркестраторе (каждые 1 МБ или в конце)
                     if (offset - lastProgressUpdate >= 1024 * 1024 || isLast) {
-                        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest(null, offset, totalBytes,
-                                "Передано " + offset + " из " + totalBytes + " байт"));
+                        long currentOverall = baseCopiedBytes + offset;
+                        orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest(null, currentOverall, grandTotalBytes,
+                                "Передано " + currentOverall + " из " + grandTotalBytes + " байт"));
                         lastProgressUpdate = offset;
                     }
                 }
@@ -211,34 +603,40 @@ public class ReplicationSender {
                 requestObserver.onCompleted();
             }
 
-            // Ожидаем ответ приемника
             TransferFileResponse response = responseFuture.get(60, TimeUnit.MINUTES);
-            if (response.getSuccess()) {
-                logger.info("Передача задачи {} успешно завершена! Записано {} байт, sha256={}",
-                        jobId, response.getBytesWritten(), response.getChecksum());
-                orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", response.getBytesWritten(), totalBytes,
-                        "Репликация успешно завершена (Java Agent)"));
-                return true;
-            } else {
-                logger.error("Ошибка на стороне приемника для задачи {}: {}", jobId, response.getMessage());
-                orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", response.getBytesWritten(), totalBytes,
-                        "Ошибка приемника: " + response.getMessage()));
+            if (!response.getSuccess()) {
+                logger.error("Приемник вернул ошибку при передаче {}: {}", sourcePath, response.getMessage());
                 return false;
             }
-
+            return true;
         } catch (Exception e) {
-            logger.error("Исключение при передаче файла задачи {}: {}", jobId, e.getMessage(), e);
-            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", null, totalBytes,
-                    "Ошибка gRPC передачи: " + e.getMessage()));
+            logger.error("Ошибка при потоковой передаче файла {}: {}", sourcePath, e.getMessage(), e);
             return false;
-        } finally {
-            if (channel != null) {
-                channel.shutdown();
-                try {
-                    channel.awaitTermination(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-            }
         }
+    }
+
+    private CheckFileResponse checkRemoteFile(ManagedChannel channel, String targetPath, JobDto job) {
+        try {
+            DataTransferServiceGrpc.DataTransferServiceBlockingStub blockingStub =
+                    DataTransferServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS);
+
+            CheckFileRequest req = CheckFileRequest.newBuilder()
+                    .setPath(targetPath)
+                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "")
+                    .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
+                    .build();
+
+            return blockingStub.checkFile(req);
+        } catch (Exception e) {
+            logger.debug("Статус целевого файла '{}' не получен через gRPC (возможно, новый файл): {}", targetPath, e.getMessage());
+            return null;
+        }
+    }
+
+    private static String combinePaths(String base, String relative) {
+        String b = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        String r = relative.startsWith("/") ? relative.substring(1) : relative;
+        return b + "/" + r;
     }
 
     /**
@@ -247,6 +645,20 @@ public class ReplicationSender {
     private ManagedChannel createManagedChannel(String targetAddress) throws javax.net.ssl.SSLException {
         String cleanAddress = targetAddress;
         boolean useTls = this.tlsEnabled;
+
+        if (cleanAddress.startsWith("inprocess://") || cleanAddress.startsWith("inprocess:")) {
+            String name = cleanAddress.startsWith("inprocess://")
+                    ? cleanAddress.substring("inprocess://".length())
+                    : cleanAddress.substring("inprocess:".length());
+            try {
+                Class<?> clazz = Class.forName("io.grpc.inprocess.InProcessChannelBuilder");
+                Object builder = clazz.getMethod("forName", String.class).invoke(null, name);
+                builder = clazz.getMethod("directExecutor").invoke(builder);
+                return (ManagedChannel) clazz.getMethod("build").invoke(builder);
+            } catch (Exception e) {
+                throw new IllegalStateException("io.grpc.inprocess недоступен в рантайме: " + e.getMessage(), e);
+            }
+        }
 
         if (cleanAddress.startsWith("grpcs://")) {
             cleanAddress = cleanAddress.substring("grpcs://".length());

@@ -13,6 +13,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 
 /**
  * gRPC Servicer сервиса DataTransferService для приема файлов и атомарного коммита в HDFS/FS.
@@ -40,6 +41,91 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
     public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter) {
         this(stagingDir, fsManager, bandwidthLimiter, null);
+    }
+
+    @Override
+    public void checkFile(CheckFileRequest request, StreamObserver<CheckFileResponse> responseObserver) {
+        try {
+            String path = request.getPath();
+            boolean exists = fsManager.exists(path);
+            long size = 0L;
+            long mtime = 0L;
+            boolean isDir = false;
+
+            if (exists) {
+                isDir = fsManager.isDirectory(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                if (!isDir) {
+                    size = fsManager.getFileSize(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                    mtime = fsManager.getFileModificationTime(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                }
+            }
+
+            CheckFileResponse response = CheckFileResponse.newBuilder()
+                    .setExists(exists)
+                    .setSize(size)
+                    .setModificationTime(mtime)
+                    .setIsDirectory(isDir)
+                    .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.warn("Ошибка при проверке файла {}: {}", request.getPath(), e.getMessage());
+            responseObserver.onNext(CheckFileResponse.newBuilder()
+                    .setExists(false)
+                    .setSize(0L)
+                    .setModificationTime(0L)
+                    .setIsDirectory(false)
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public void getDirectoryManifest(DirectoryManifestRequest request, StreamObserver<DirectoryManifestResponse> responseObserver) {
+        try {
+            String path = request.getPath();
+            if (HadoopFsManager.isIgnoredDirectoryPath(path)) {
+                logger.info("Запрошенный каталог '{}' игнорируется согласно фильтру временных папок", path);
+                responseObserver.onNext(DirectoryManifestResponse.newBuilder().setExists(true).build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            boolean exists = fsManager.exists(path);
+            if (!exists) {
+                responseObserver.onNext(DirectoryManifestResponse.newBuilder()
+                        .setExists(false)
+                        .build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(
+                    path,
+                    request.getExecutionPrincipal(),
+                    request.getRunAsServiceAccount()
+            );
+
+            DirectoryManifestResponse.Builder builder = DirectoryManifestResponse.newBuilder().setExists(true);
+            for (HadoopFsManager.FileItem item : items) {
+                builder.addFiles(FileManifestEntry.newBuilder()
+                        .setRelativePath(item.relativePath())
+                        .setSize(item.size())
+                        .setModificationTime(item.modificationTime())
+                        .build());
+            }
+
+            logger.info("Сформирован манифест каталога '{}' для удаленного агента: {} файлов", path, items.size());
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.warn("Ошибка при получении манифеста каталога {}: {}", request.getPath(), e.getMessage());
+            responseObserver.onNext(DirectoryManifestResponse.newBuilder()
+                    .setExists(false)
+                    .build());
+            responseObserver.onCompleted();
+        }
     }
 
     @Override

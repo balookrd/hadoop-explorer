@@ -1,17 +1,28 @@
 package org.apache.hadoop.explorer.replicator.fs;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 
 /**
  * Менеджер взаимодействия с HDFS и локальной файловой системой узлов Hadoop.
@@ -55,6 +66,14 @@ public class HadoopFsManager {
 
         // Инициализация Kerberos аутентификации системной техучетки (Proxy User)
         initKerberos();
+    }
+
+    public HadoopFsManager() {
+        this("file:///", null, null);
+    }
+
+    public HadoopFsManager(String defaultFsUri) {
+        this(defaultFsUri, null, null);
     }
 
     private void initKerberos() {
@@ -228,6 +247,373 @@ public class HadoopFsManager {
             return fs.exists(path) || new File(pathStr).exists();
         } catch (Exception e) {
             return new File(pathStr).exists();
+        }
+    }
+
+    /**
+     * Элемент файла при рекурсивном обходе директории.
+     */
+    public record FileItem(String relativePath, String fullPath, long size, long modificationTime) {
+    }
+
+    /**
+     * Проверяет, является ли путь директорией.
+     */
+    public boolean isDirectory(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        if (isLocalPath(pathStr)) {
+            File file = new File(pathStr);
+            return file.exists() && file.isDirectory();
+        }
+
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                if (fs.exists(path)) {
+                    return fs.getFileStatus(path).isDirectory();
+                }
+                File fallback = new File(pathStr);
+                return fallback.exists() && fallback.isDirectory();
+            });
+        } catch (Exception e) {
+            File fallback = new File(pathStr);
+            return fallback.exists() && fallback.isDirectory();
+        }
+    }
+
+    public boolean isDirectory(String pathStr) {
+        return isDirectory(pathStr, null, true);
+    }
+
+    /**
+     * Получает время последней модификации файла в миллисекундах.
+     */
+    public long getFileModificationTime(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        if (isLocalPath(pathStr)) {
+            File file = new File(pathStr);
+            return file.exists() ? file.lastModified() : 0L;
+        }
+
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<Long>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                if (fs.exists(path)) {
+                    return fs.getFileStatus(path).getModificationTime();
+                }
+                File fallback = new File(pathStr);
+                return fallback.exists() ? fallback.lastModified() : 0L;
+            });
+        } catch (Exception e) {
+            File fallback = new File(pathStr);
+            return fallback.exists() ? fallback.lastModified() : 0L;
+        }
+    }
+
+    /**
+     * Рекурсивно собирает все регулярные файлы внутри директории (или одиночный файл, если путь указывает на файл).
+     */
+    public List<FileItem> listFilesRecursively(String basePathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        if (isLocalPath(basePathStr)) {
+            return listLocalFilesRecursively(basePathStr);
+        }
+
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<List<FileItem>>) () -> {
+                List<FileItem> items = new ArrayList<>();
+                Path basePath = new Path(basePathStr);
+                FileSystem fs = basePath.getFileSystem(conf);
+
+                if (!fs.exists(basePath)) {
+                    File fallback = new File(basePathStr);
+                    if (fallback.exists()) {
+                        return listLocalFilesRecursively(basePathStr);
+                    }
+                    return items;
+                }
+
+                if (!fs.getFileStatus(basePath).isDirectory()) {
+                    FileStatus st = fs.getFileStatus(basePath);
+                    if (!isIgnoredFile(basePath.getName())) {
+                        items.add(new FileItem(basePath.getName(), basePath.toString(), st.getLen(), st.getModificationTime()));
+                    }
+                    return items;
+                }
+
+                String basePrefix = basePath.toString().replaceAll("/+$", "") + "/";
+                RemoteIterator<LocatedFileStatus> iter = fs.listFiles(basePath, true);
+                while (iter.hasNext()) {
+                    LocatedFileStatus st = iter.next();
+                    String fullPath = st.getPath().toString();
+                    String relPath = fullPath.startsWith(basePrefix)
+                            ? fullPath.substring(basePrefix.length())
+                            : st.getPath().getName();
+                    if (isIgnoredPath(relPath)) {
+                        logger.debug("Пропуск временного файла при сканировании HDFS: {}", relPath);
+                        continue;
+                    }
+                    items.add(new FileItem(relPath, fullPath, st.getLen(), st.getModificationTime()));
+                }
+                return items;
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Прервано рекурсивное сканирование HDFS каталога: " + e.getMessage(), e);
+        } catch (Exception e) {
+            File fallback = new File(basePathStr);
+            if (fallback.exists()) {
+                return listLocalFilesRecursively(basePathStr);
+            }
+            if (e instanceof IOException ioException) throw ioException;
+            throw new IOException("Ошибка обхода каталога HDFS " + basePathStr + ": " + e.getMessage(), e);
+        }
+    }
+
+    public List<FileItem> listFilesRecursively(String basePathStr) throws IOException {
+        return listFilesRecursively(basePathStr, null, true);
+    }
+
+    private List<FileItem> listLocalFilesRecursively(String basePathStr) {
+        List<FileItem> items = new ArrayList<>();
+        File baseFile = new File(basePathStr);
+        if (!baseFile.exists()) {
+            return items;
+        }
+        if (baseFile.isFile()) {
+            if (!isIgnoredFile(baseFile.getName())) {
+                items.add(new FileItem(baseFile.getName(), baseFile.getAbsolutePath(), baseFile.length(), baseFile.lastModified()));
+            }
+            return items;
+        }
+
+        java.nio.file.Path startPath = baseFile.toPath();
+        try {
+            Files.walkFileTree(startPath, new SimpleFileVisitor<java.nio.file.Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(java.nio.file.Path dir, BasicFileAttributes attrs) {
+                    if (!dir.equals(startPath)) {
+                        String dirName = dir.getFileName().toString();
+                        if (isIgnoredDirectory(dirName)) {
+                            logger.debug("Пропуск временного каталога при обходе: {}", dir);
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(java.nio.file.Path file, BasicFileAttributes attrs) {
+                    String rel = startPath.relativize(file).toString().replace(File.separatorChar, '/');
+                    if (!isIgnoredPath(rel)) {
+                        items.add(new FileItem(rel, file.toAbsolutePath().toString(), attrs.size(), attrs.lastModifiedTime().toMillis()));
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            logger.warn("Ошибка рекурсивного обхода локальной директории {}: {}", basePathStr, e.getMessage());
+        }
+        return items;
+    }
+
+    /**
+     * Нормализует путь, удаляя схему (hdfs://, file://) и ведущие/замыкающие слэши.
+     */
+    public static String normalizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return "";
+        }
+        String clean = path.replace('\\', '/').trim();
+        int protoIdx = clean.indexOf("://");
+        if (protoIdx != -1) {
+            clean = clean.substring(protoIdx + 3);
+            int slashIdx = clean.indexOf('/');
+            clean = (slashIdx != -1) ? clean.substring(slashIdx) : "";
+        }
+        while (clean.startsWith("/")) {
+            clean = clean.substring(1);
+        }
+        while (clean.endsWith("/")) {
+            clean = clean.substring(0, clean.length() - 1);
+        }
+        return clean;
+    }
+
+    /**
+     * Проверяет, является ли каталог служебным или временным:
+     * <ul>
+     *   <li>Каталоги, начинающиеся с '.' (скрытые: .spark-staging, .staging, .tmp, .Trash, .git, .hive-staging)</li>
+     *   <li>Каталоги, начинающиеся с '_' (служебные каталоги коммиттеров: _temporary, _staging, _distcp, _tmp)</li>
+     *   <li>Системные каталоги HDFS/POSIX (lost+found)</li>
+     *   <li>Каталоги с временными суффиксами (.tmp, .temp, .staging)</li>
+     * </ul>
+     */
+    public static boolean isIgnoredDirectory(String dirName) {
+        if (dirName == null || dirName.isBlank()) {
+            return false;
+        }
+        String name = dirName.trim();
+        if (name.equals(".") || name.equals("..")) {
+            return true;
+        }
+        if (name.startsWith(".") || name.startsWith("_")) {
+            return true;
+        }
+        if ("lost+found".equalsIgnoreCase(name)) {
+            return true;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".tmp") || lower.endsWith(".temp") || lower.endsWith(".staging");
+    }
+
+    /**
+     * Проверяет, является ли файл временным, служебным или файлом незавершенной записи:
+     * <ul>
+     *   <li>Скрытые файлы (начинающиеся с '.')</li>
+     *   <li>Служебные файлы ОС (Thumbs.db, desktop.ini, .DS_Store)</li>
+     *   <li>Временные расширения незавершенной записи (.tmp, .temp, .inprogress, .staging, .pending, .copying, .part, .partial, .swp, .swo, ~)</li>
+     *   <li>Файлы промежуточного копирования (*_copying_*)</li>
+     *   <li>Временные файлы коммиттеров (_temporary*, _tmp*)</li>
+     *   <li>Легитимные маркеры и метаданные (_SUCCESS, _metadata, _common_metadata) НЕ отсекаются</li>
+     * </ul>
+     */
+    public static boolean isIgnoredFile(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return false;
+        }
+        String name = fileName.trim();
+
+        // Скрытые файлы
+        if (name.startsWith(".")) {
+            return true;
+        }
+
+        // Системные файлы ОС
+        if ("thumbs.db".equalsIgnoreCase(name) || "desktop.ini".equalsIgnoreCase(name) || ".ds_store".equalsIgnoreCase(name)) {
+            return true;
+        }
+
+        String lower = name.toLowerCase(Locale.ROOT);
+
+        // Временные расширения и суффиксы незавершенной записи
+        if (lower.endsWith(".tmp") ||
+                lower.endsWith(".temp") ||
+                lower.endsWith(".inprogress") ||
+                lower.endsWith(".staging") ||
+                lower.endsWith(".pending") ||
+                lower.endsWith(".copying") ||
+                lower.endsWith(".part") ||
+                lower.endsWith(".partial") ||
+                lower.endsWith(".swp") ||
+                lower.endsWith(".swo") ||
+                name.endsWith("~")) {
+            return true;
+        }
+
+        // Промежуточные файлы утилит копирования (DistCp / FsShell)
+        if (lower.contains("_copying_")) {
+            return true;
+        }
+
+        // Временные файлы коммиттеров
+        if (lower.startsWith("_temporary") || lower.startsWith("_tmp")) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Проверяет, должен ли файл (по относительному или абсолютному пути) быть исключен из репликации:
+     * проверяются все промежуточные каталоги в пути (начинающиеся с _ или .) и сам файл.
+     */
+    public static boolean isIgnoredPath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            return false;
+        }
+        String clean = normalizePath(relativePath);
+        if (clean.isEmpty()) {
+            return false;
+        }
+
+        String[] segments = clean.split("/+");
+        if (segments.length == 0) {
+            return false;
+        }
+
+        for (int i = 0; i < segments.length - 1; i++) {
+            if (isIgnoredDirectory(segments[i])) {
+                return true;
+            }
+        }
+
+        String leaf = segments[segments.length - 1];
+        return isIgnoredFile(leaf);
+    }
+
+    /**
+     * Проверяет, является ли путь к каталогу временным или служебным.
+     */
+    public static boolean isIgnoredDirectoryPath(String dirPath) {
+        if (dirPath == null || dirPath.isBlank()) {
+            return false;
+        }
+        String clean = normalizePath(dirPath);
+        if (clean.isEmpty()) {
+            return false;
+        }
+
+        String[] segments = clean.split("/+");
+        for (String segment : segments) {
+            if (isIgnoredDirectory(segment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Создает снэпшот каталога (если включена поддержка HDFS Snapshots).
+     */
+    public String createSnapshot(String pathStr, String snapshotName, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<String>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                if (fs instanceof DistributedFileSystem dfs) {
+                    Path snapPath = dfs.createSnapshot(path, snapshotName);
+                    logger.info("Успешно создан HDFS снэпшот: {} (директория: {})", snapshotName, pathStr);
+                    return snapPath != null ? snapPath.toString() : snapshotName;
+                }
+                throw new UnsupportedOperationException("Снэпшоты не поддерживаются файловой системой: " + fs.getClass().getName());
+            });
+        } catch (Exception e) {
+            throw new IOException("Ошибка создания HDFS снэпшота " + snapshotName + " для " + pathStr + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Удаляет устаревший снэпшот каталога (Snapshot Retention / Pruning).
+     */
+    public boolean deleteSnapshot(String pathStr, String snapshotName, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                if (fs instanceof DistributedFileSystem dfs) {
+                    dfs.deleteSnapshot(path, snapshotName);
+                    logger.info("Успешно удален устаревший HDFS снэпшот: {} (директория: {})", snapshotName, pathStr);
+                    return true;
+                }
+                return false;
+            });
+        } catch (Exception e) {
+            throw new IOException("Ошибка удаления HDFS снэпшота " + snapshotName + " для " + pathStr + ": " + e.getMessage(), e);
         }
     }
 

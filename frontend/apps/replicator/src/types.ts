@@ -14,6 +14,10 @@ export interface JobRun {
   completed_at?: string;
   duration_seconds?: number;
   average_speed_mb_s?: number;
+  total_objects?: number;
+  transferred_objects?: number;
+  skipped_objects?: number;
+  failed_objects?: number;
   error_message?: string;
   message?: string;
   triggered_by?: string;
@@ -30,6 +34,10 @@ export interface Job {
   progress_percent?: number;
   copied_bytes: number;
   total_bytes: number;
+  total_objects?: number;
+  transferred_objects?: number;
+  skipped_objects?: number;
+  failed_objects?: number;
   transfer_speed_mb_s?: number;
   average_speed_mb_s?: number;
   error_message?: string;

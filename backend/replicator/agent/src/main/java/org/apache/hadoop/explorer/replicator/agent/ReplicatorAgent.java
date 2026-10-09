@@ -8,10 +8,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
-import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
-import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
-import org.apache.hadoop.explorer.replicator.model.ClusterDto;
-import org.apache.hadoop.explorer.replicator.model.JobDto;
+import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.sender.ReplicationSender;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
@@ -108,12 +105,13 @@ public class ReplicatorAgent {
         }
 
         // 2. gRPC Receiver Server
-        if ("all".equals(config.getMode()) || "receiver".equals(config.getMode())) {
+        if ("all".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
             startReceiverServer();
         }
 
-        // 3. Sender Loop
-        if ("all".equals(config.getMode()) || "sender".equals(config.getMode())) {
+        // 3. Sender / Worker / Analyzer Loop
+        if ("all".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())
+                || "worker".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode())) {
             startSenderLoop();
         }
     }
@@ -216,44 +214,74 @@ public class ReplicatorAgent {
     }
 
     private void runSenderLoop() {
-        logger.info("Цикл Sender запущен (опрос очереди каждые {}с)", config.getPollIntervalSec());
+        logger.info("Цикл Sender/Worker запущен: mode='{}' (опрос очереди каждые {}с)",
+                config.getMode(), config.getPollIntervalSec());
+
+        boolean canAnalyze = "all".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode());
+        boolean canWork = "all".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()) || "worker".equalsIgnoreCase(config.getMode());
 
         while (running.get()) {
+            boolean didWork = false;
             try {
-                List<JobDto> jobs = orchestratorClient.getJobs();
-                for (JobDto job : jobs) {
-                    if (!running.get()) break;
+                // 1. Фаза анализатора: поиск заданий в QUEUED и создание пула подзадач
+                if (canAnalyze) {
+                    List<JobDto> jobs = orchestratorClient.getJobs();
+                    for (JobDto job : jobs) {
+                        if (!running.get()) break;
 
-                    boolean isPending = "QUEUED".equalsIgnoreCase(job.getStatus())
-                            || ("RUNNING".equalsIgnoreCase(job.getStatus()) && (job.getCopiedBytes() == null || job.getCopiedBytes() == 0));
-                    if (!isPending) {
-                        continue;
+                        if (!"QUEUED".equalsIgnoreCase(job.getStatus())) {
+                            continue;
+                        }
+
+                        if (config.getClusterId() != null && job.getSourceClusterId() != null
+                                && !matchesCluster(config.getClusterId(), job.getSourceClusterId())) {
+                            continue;
+                        }
+
+                        logger.info("Агент '{}' взял задачу '{}' на анализ каталога и формирование пула задач",
+                                config.getAgentId(), job.getId());
+                        orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
+                                "Анализ каталога и вычисление diff деревьев"));
+
+                        String targetAddress = resolveTargetAddress(job.getTargetClusterId());
+                        boolean ok = sender.analyzeAndCreateTaskPool(job, targetAddress);
+                        if (ok) {
+                            didWork = true;
+                        }
                     }
+                }
 
-                    // Если агент привязан к конкретному кластеру, берем только задачи этого источника
-                    if (config.getClusterId() != null && job.getSourceClusterId() != null
-                            && !matchesCluster(config.getClusterId(), job.getSourceClusterId())) {
-                        continue;
-                    }
+                // 2. Фаза воркера: забор и параллельное исполнение задач из распределенного пула
+                if (canWork) {
+                    List<TaskItemDto> claimedTasks = orchestratorClient.claimTasks(
+                            new ClaimTasksRequest(config.getAgentId(), config.getClusterId(), 5)
+                    );
 
-                    String targetAddress = resolveTargetAddress(job.getTargetClusterId());
+                    if (!claimedTasks.isEmpty()) {
+                        didWork = true;
+                        for (TaskItemDto task : claimedTasks) {
+                            if (!running.get()) break;
 
-                    activeTransfers.incrementAndGet();
-                    try {
-                        sender.transferFile(job, targetAddress);
-                    } finally {
-                        activeTransfers.decrementAndGet();
+                            activeTransfers.incrementAndGet();
+                            try {
+                                sender.transferTask(task);
+                            } finally {
+                                activeTransfers.decrementAndGet();
+                            }
+                        }
                     }
                 }
             } catch (Exception e) {
-                logger.error("Ошибка в цикле Sender: {}", e.getMessage(), e);
+                logger.error("Ошибка в цикле Sender/Worker: {}", e.getMessage(), e);
             }
 
-            try {
-                Thread.sleep((long) (config.getPollIntervalSec() * 1000));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
+            if (!didWork) {
+                try {
+                    Thread.sleep((long) (config.getPollIntervalSec() * 1000));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
     }

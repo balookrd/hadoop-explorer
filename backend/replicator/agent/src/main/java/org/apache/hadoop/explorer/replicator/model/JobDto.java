@@ -42,6 +42,18 @@ public class JobDto {
     @JsonProperty("message")
     private String message;
 
+    @JsonProperty("total_objects")
+    private Integer totalObjects;
+
+    @JsonProperty("transferred_objects")
+    private Integer transferredObjects;
+
+    @JsonProperty("skipped_objects")
+    private Integer skippedObjects;
+
+    @JsonProperty("failed_objects")
+    private Integer failedObjects;
+
     public JobDto() {}
 
     public String getId() { return id; }
@@ -76,4 +88,16 @@ public class JobDto {
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+
+    public Integer getTotalObjects() { return totalObjects; }
+    public void setTotalObjects(Integer totalObjects) { this.totalObjects = totalObjects; }
+
+    public Integer getTransferredObjects() { return transferredObjects; }
+    public void setTransferredObjects(Integer transferredObjects) { this.transferredObjects = transferredObjects; }
+
+    public Integer getSkippedObjects() { return skippedObjects; }
+    public void setSkippedObjects(Integer skippedObjects) { this.skippedObjects = skippedObjects; }
+
+    public Integer getFailedObjects() { return failedObjects; }
+    public void setFailedObjects(Integer failedObjects) { this.failedObjects = failedObjects; }
 }

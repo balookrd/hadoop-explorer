@@ -37,6 +37,7 @@
     User,
     RotateCcw,
     History,
+    Files,
   } from 'lucide-svelte';
 
   // Состояние аутентификации
@@ -1066,6 +1067,24 @@
                               {formatSpeed(job)}
                             </span>
                           </div>
+
+                          {#if (job.total_objects ?? 0) > 0}
+                            <div class="flex items-center justify-between">
+                              <span class="flex items-center gap-1 text-slate-400">
+                                <Files class="w-2.5 h-2.5 text-teal-500 shrink-0" />
+                                <span>Объекты:</span>
+                              </span>
+                              <span class="font-mono text-slate-700 dark:text-slate-300 font-medium">
+                                {(job.transferred_objects ?? 0) + (job.skipped_objects ?? 0)} / {job.total_objects}
+                                {#if (job.skipped_objects ?? 0) > 0}
+                                  <span class="text-slate-400 text-[9px]">(проп. {job.skipped_objects})</span>
+                                {/if}
+                                {#if (job.failed_objects ?? 0) > 0}
+                                  <span class="text-rose-500 text-[9px] font-bold">(! {job.failed_objects})</span>
+                                {/if}
+                              </span>
+                            </div>
+                          {/if}
                         </div>
                       </td>
 
@@ -1075,6 +1094,10 @@
                         {#if job.error_message}
                           <div class="text-[10px] text-rose-500 truncate max-w-[150px] mt-0.5" title={job.error_message}>
                             {job.error_message}
+                          </div>
+                        {:else if job.message}
+                          <div class="text-[10px] text-slate-500 truncate max-w-[150px] mt-0.5" title={job.message}>
+                            {job.message}
                           </div>
                         {/if}
                       </td>
@@ -2061,6 +2084,11 @@
                     <td class="py-2.5 px-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">
                       <div>{formatBytes(run.copied_bytes)}</div>
                       <div class="text-[10px] text-slate-400">из {formatBytes(run.total_bytes)}</div>
+                      {#if (run.total_objects ?? 0) > 0}
+                        <div class="text-[9px] text-teal-600 dark:text-teal-400 font-medium">
+                          {(run.transferred_objects ?? 0) + (run.skipped_objects ?? 0)}/{run.total_objects} объектов
+                        </div>
+                      {/if}
                     </td>
 
                     <!-- Средняя скорость -->
