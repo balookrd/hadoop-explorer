@@ -1,0 +1,190 @@
+name: Release Build
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+      make_latest:
+        required: false
+        type: boolean
+        default: true
+      release_name:
+        required: false
+        type: string
+        default: ""
+      rolling_tag:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: vars
+        name: Resolve workflow variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ inputs.tag }}"
+          checkout_ref="${{ inputs.checkout_ref }}"
+          release_name="${{ inputs.release_name }}"
+
+          if [[ -z "$checkout_ref" ]]; then
+            checkout_ref="$tag"
+          fi
+
+          if [[ -z "$release_name" ]]; then
+            release_name="Release $tag"
+          fi
+
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.checkout_ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B test
+
+      - name: Build jars
+        run: mvn -B -DskipTests package
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find backend -type f -name "*.jar" ! -name "*-sources.jar" ! -name "*.jar.original" -exec cp {} dist/ \;
+          shopt -s nullglob
+          assets=(dist/*.jar)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No jars produced under backend/" >&2
+            exit 1
+          fi
+          cd dist
+          sha256sum *.jar > SHA256SUMS.txt
+          ls -la
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hadoop-explorer-${{ inputs.tag }}
+          path: |
+            dist/*.jar
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Move rolling tag
+        if: ${{ inputs.rolling_tag }}
+        env:
+          TAG: ${{ inputs.tag }}
+          REF: ${{ steps.vars.outputs.checkout_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin --tags --force
+          git tag -f "$TAG" "$REF"
+          git push origin "refs/tags/$TAG" --force
+
+      - name: Delete old rolling assets
+        if: ${{ inputs.rolling_tag }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Rolling release $TAG does not exist yet, nothing to clean."
+            exit 0
+          fi
+
+          mapfile -t assets < <(gh release view "$TAG" --json assets --jq '.assets[].name')
+          if (( ${#assets[@]} == 0 )); then
+            echo "No old assets to delete."
+            exit 0
+          fi
+
+          for asset in "${assets[@]}"; do
+            echo "Deleting old asset: $asset"
+            gh release delete-asset "$TAG" "$asset" --yes
+          done
+
+      - name: Install git-cliff
+        env:
+          GIT_CLIFF_VERSION: "2.13.1"
+          GIT_CLIFF_SHA256: "9a1263f24e59a2f508c7b3d3283c9dea94a8bf697f96dbc18cc783cac6284546"
+        run: |
+          set -euo pipefail
+          url="https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "$url" -o /tmp/git-cliff.tar.gz
+          echo "${GIT_CLIFF_SHA256}  /tmp/git-cliff.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/git-cliff.tar.gz -C /tmp
+          sudo install "/tmp/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" /usr/local/bin/git-cliff
+          git-cliff --version
+
+      - name: Generate release notes
+        env:
+          TAG: ${{ inputs.tag }}
+        run: .github/scripts/gen-release-notes.sh "$TAG" release-notes.md
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RELEASE_NAME: ${{ steps.vars.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          MAKE_LATEST: ${{ inputs.make_latest }}
+        run: |
+          set -euo pipefail
+
+          flags=(
+            --title "${RELEASE_NAME}"
+            --notes-file release-notes.md
+          )
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          if [[ "${MAKE_LATEST}" == "true" ]]; then
+            flags+=(--latest)
+          else
+            flags+=(--latest=false)
+          fi
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Updating existing release ${TAG}..."
+            gh release edit "${TAG}" "${flags[@]}"
+            gh release upload "${TAG}" dist/*.jar dist/SHA256SUMS.txt --clobber
+          else
+            echo "Creating release ${TAG}..."
+            gh release create "${TAG}" dist/*.jar dist/SHA256SUMS.txt "${flags[@]}"
+          fi

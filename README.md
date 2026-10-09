@@ -273,12 +273,11 @@ make test-java
 mvn test
 ```
 
-В репозитории настроен GitHub Actions CI workflow (`.github/workflows/ci.yml`), который при пушах и PR автоматически:
-1. Настраивает JDK 21 (Eclipse Temurin) с кэшированием Maven.
-2. Прогоняет полный набор unit- и интеграционных тестов (`mvn -B test`).
-3. Собирает JAR-пакеты всех микросервисов (`mvn -B -DskipTests package`).
-4. Формирует каталог артефактов `dist/` с вычислением контрольных сумм `SHA256SUMS.txt`.
-5. Публикует архив артефактов `hadoop-explorer-jars`.
+В репозитории настроен автоматический CI/CD на базе GitHub Actions:
+- **Nightly Release** (`.github/workflows/nightly-release.yml`): при каждом коммите в ветку `main` автоматически прогоняет тесты, собирает JAR-пакеты, генерирует список изменений (`git-cliff`) и публикует pre-release с тегом `nightly`, прикрепляя все JAR-архивы и `SHA256SUMS.txt`.
+- **CI** (`.github/workflows/ci.yml`): на Pull Request и в ветках выполняет полную валидацию, модульные/интеграционные тесты и тестовую сборку пакетов.
+- **Tag Release** (`.github/workflows/tag-release.yml`): при пуше тега `v*` выполняет релизную сборку и создает стабильный релиз на GitHub.
+- **Cleanup Artifacts** (`.github/workflows/cleanup-artifacts.yml`): ежедневная очистка устаревших артефактов Actions по расписанию.
 
 ---
 
