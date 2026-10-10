@@ -85,5 +85,6 @@ private/
 *.local.yaml
 *.local.yml
 .agents/
+.agent/
 .context/
 
