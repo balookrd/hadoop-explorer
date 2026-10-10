@@ -200,6 +200,9 @@ public class DisasterRecoveryService {
                             && isSameOrFlippedPath(rj.getSourcePath(), j.getTargetPath()))
                     .findFirst();
 
+            boolean isReverseReplica = j.getId().startsWith("rev-")
+                    || (j.getMessage() != null && j.getMessage().toLowerCase().contains("обратная репликация"));
+
             hdfsRoutes.add(new DrStatusResponse.DrRouteItem(
                     j.getId(),
                     "HDFS",
@@ -213,7 +216,10 @@ public class DisasterRecoveryService {
                     j.getCronExpression(),
                     lag,
                     reverse.isPresent(),
-                    reverse.map(JobEntity::getId).orElse(null)
+                    reverse.map(JobEntity::getId).orElse(null),
+                    reverse.map(JobEntity::getStatus).orElse(null),
+                    isReverseReplica,
+                    j.getMessage()
             ));
         }
 
@@ -237,6 +243,9 @@ public class DisasterRecoveryService {
                             && Objects.equals(rh.getSourceDbName(), h.getTargetDbName()))
                     .findFirst();
 
+            boolean isReverseReplica = h.getId().startsWith("rev-")
+                    || (h.getMessage() != null && h.getMessage().toLowerCase().contains("обратная репликация"));
+
             hmsRoutes.add(new DrStatusResponse.DrRouteItem(
                     h.getId(),
                     "HMS",
@@ -250,7 +259,10 @@ public class DisasterRecoveryService {
                     "CDC Event Stream",
                     eventLag,
                     reverseHms.isPresent(),
-                    reverseHms.map(HmsReplicationJobEntity::getId).orElse(null)
+                    reverseHms.map(HmsReplicationJobEntity::getId).orElse(null),
+                    reverseHms.map(HmsReplicationJobEntity::getStatus).orElse(null),
+                    isReverseReplica,
+                    h.getMessage()
             ));
         }
 
@@ -523,6 +535,84 @@ public class DisasterRecoveryService {
         jobRepository.save(revJob);
 
         return DrActionResponse.reverseSuccess("Обратная задача создана: " + revJob.getId(), 1, 0, List.of(revJob.getId()));
+    }
+
+    /**
+     * Отзыв (отмена) обратной репликации: удаление созданной обратной задачи и восстановление прямого маршрута.
+     */
+    @Transactional
+    public DrActionResponse undoReverse(String jobId, String username) {
+        String operator = username != null ? username : "dr_operator";
+        log.info("[Disaster Recovery] Запрос отзыва обратной задачи для '{}' оператором '{}'", jobId, operator);
+
+        // 1. Поиск среди HDFS задач
+        Optional<JobEntity> optJob = jobRepository.findById(jobId);
+        if (optJob.isPresent()) {
+            JobEntity job = optJob.get();
+            String targetToDeleteId = null;
+
+            if (job.getId().startsWith("rev-") || (job.getMessage() != null && job.getMessage().toLowerCase().contains("обратная репликация"))) {
+                targetToDeleteId = job.getId();
+            } else {
+                List<JobEntity> allJobs = jobRepository.findAll();
+                Optional<JobEntity> reverse = allJobs.stream()
+                        .filter(rj -> !rj.getId().equals(job.getId())
+                                && matchesCluster(rj.getSourceClusterId(), job.getTargetClusterId())
+                                && matchesCluster(rj.getTargetClusterId(), job.getSourceClusterId())
+                                && isSameOrFlippedPath(rj.getSourcePath(), job.getTargetPath()))
+                        .findFirst();
+
+                if (reverse.isPresent()) {
+                    targetToDeleteId = reverse.get().getId();
+                }
+            }
+
+            if (targetToDeleteId != null) {
+                taskRepository.deleteByJobId(targetToDeleteId);
+                jobRunRepository.deleteByJobId(targetToDeleteId);
+                jobRepository.deleteById(targetToDeleteId);
+
+                String msg = String.format("Обратная задача '%s' успешно отозвана и удалена. Прямой маршрут разблокирован.", targetToDeleteId);
+                log.info("[Disaster Recovery] {}", msg);
+                return DrActionResponse.reverseSuccess(msg, 0, 0, List.of(targetToDeleteId));
+            } else {
+                throw new IllegalArgumentException("Для задачи '" + jobId + "' не найдена обратная задача для отзыва");
+            }
+        }
+
+        // 2. Поиск среди HMS задач
+        Optional<HmsReplicationJobEntity> optHms = hmsReplicationJobRepository.findById(jobId);
+        if (optHms.isPresent()) {
+            HmsReplicationJobEntity hmsJob = optHms.get();
+            String targetToDeleteHmsId = null;
+
+            if (hmsJob.getId().startsWith("rev-") || (hmsJob.getMessage() != null && hmsJob.getMessage().toLowerCase().contains("обратная репликация"))) {
+                targetToDeleteHmsId = hmsJob.getId();
+            } else {
+                List<HmsReplicationJobEntity> allHms = hmsReplicationJobRepository.findAll();
+                Optional<HmsReplicationJobEntity> reverseHms = allHms.stream()
+                        .filter(rh -> !rh.getId().equals(hmsJob.getId())
+                                && matchesCluster(rh.getSourceClusterId(), hmsJob.getTargetClusterId())
+                                && matchesCluster(rh.getTargetClusterId(), hmsJob.getSourceClusterId())
+                                && Objects.equals(rh.getSourceDbName(), hmsJob.getTargetDbName()))
+                        .findFirst();
+
+                if (reverseHms.isPresent()) {
+                    targetToDeleteHmsId = reverseHms.get().getId();
+                }
+            }
+
+            if (targetToDeleteHmsId != null) {
+                hmsReplicationJobRepository.deleteById(targetToDeleteHmsId);
+                String msg = String.format("Обратная HMS-задача '%s' успешно отозвана и удалена.", targetToDeleteHmsId);
+                log.info("[Disaster Recovery] {}", msg);
+                return DrActionResponse.reverseSuccess(msg, 0, 0, List.of(targetToDeleteHmsId));
+            } else {
+                throw new IllegalArgumentException("Для HMS-задачи '" + jobId + "' не найдена обратная задача для отзыва");
+            }
+        }
+
+        throw new IllegalArgumentException("Задача с ID '" + jobId + "' не найдена");
     }
 
     private static boolean matchesCluster(String c1, String c2) {

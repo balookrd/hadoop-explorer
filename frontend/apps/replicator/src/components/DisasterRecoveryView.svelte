@@ -23,7 +23,9 @@
     Filter,
     HardDrive,
     Info,
-    Flame
+    Flame,
+    Undo2,
+    Trash2
   } from 'lucide-svelte';
   import { api } from '../api/client';
   import type {
@@ -157,6 +159,24 @@
       }
     } catch (e: any) {
       showToast('Ошибка точечного разворота: ' + (e?.message || e), 'error');
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function undoReverseRoute(jobId: string, isReverseJob = false) {
+    if (isReader) return;
+    actionLoading = true;
+    try {
+      const resp = await api.undoReverse(jobId);
+      if (resp.success) {
+        showToast(resp.message, 'success');
+        await loadDrStatus();
+      } else {
+        showToast('Ошибка: ' + resp.message, 'error');
+      }
+    } catch (e: any) {
+      showToast('Ошибка отзыва зеркальной задачи: ' + (e?.message || e), 'error');
     } finally {
       actionLoading = false;
     }
@@ -592,15 +612,22 @@
             {#each allRoutes() as route}
               <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-950/40 transition">
                 <td class="py-2.5 px-3 font-semibold">
-                  {#if route.type === 'HDFS'}
-                    <span class="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
-                      <HardDrive class="w-3.5 h-3.5" /> HDFS
-                    </span>
-                  {:else}
-                    <span class="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
-                      <Database class="w-3.5 h-3.5" /> HMS
-                    </span>
-                  {/if}
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    {#if route.type === 'HDFS'}
+                      <span class="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
+                        <HardDrive class="w-3.5 h-3.5" /> HDFS
+                      </span>
+                    {:else}
+                      <span class="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                        <Database class="w-3.5 h-3.5" /> HMS
+                      </span>
+                    {/if}
+                    {#if route.is_reverse_replica}
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800" title="Задача создана в рамках обратной репликации">
+                        Зеркало ⇄
+                      </span>
+                    {/if}
+                  </div>
                 </td>
 
                 <td class="py-2.5 px-3 font-mono font-medium text-slate-700 dark:text-slate-300">
@@ -618,7 +645,14 @@
                 </td>
 
                 <td class="py-2.5 px-3">
-                  <StatusBadge status={route.status} />
+                  <div class="flex flex-col gap-0.5">
+                    <StatusBadge status={route.status} />
+                    {#if route.status === 'FAILED' && route.message}
+                      <span class="text-[10px] text-rose-600 dark:text-rose-400 max-w-[190px] truncate cursor-help hover:underline" title={route.message}>
+                        ⚠ {route.message}
+                      </span>
+                    {/if}
+                  </div>
                 </td>
 
                 <td class="py-2.5 px-3 font-mono font-semibold">
@@ -635,9 +669,23 @@
 
                 <td class="py-2.5 px-3">
                   {#if route.has_reverse_job}
-                    <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold">
-                      <CheckCircle2 class="w-3.5 h-3.5" /> Настроена ({route.reverse_job_id?.substring(0, 8)})
-                    </span>
+                    <div class="inline-flex items-center gap-1.5 flex-wrap">
+                      <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold">
+                        <CheckCircle2 class="w-3.5 h-3.5" />
+                        {route.reverse_job_id ? route.reverse_job_id.substring(0, 10) : 'Настроена'}
+                      </span>
+                      {#if route.reverse_job_status}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold {
+                          route.reverse_job_status === 'RUNNING' || route.reverse_job_status === 'ACTIVE'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : route.reverse_job_status === 'FAILED' || route.reverse_job_status === 'ERROR'
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }">
+                          {route.reverse_job_status}
+                        </span>
+                      {/if}
+                    </div>
                   {:else}
                     <span class="text-slate-400 dark:text-slate-500 text-[11px]">
                       Не создана
@@ -646,16 +694,41 @@
                 </td>
 
                 <td class="py-2.5 px-3 text-right">
-                  {#if !isReader && !route.has_reverse_job && route.type === 'HDFS'}
-                    <button
-                      onclick={() => reverseSingleJob(route.id)}
-                      disabled={actionLoading}
-                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900 transition cursor-pointer disabled:opacity-50"
-                    >
-                      <RotateCcw class="w-3 h-3" /> Развернуть ⇄
-                    </button>
-                  {:else if route.has_reverse_job}
-                    <span class="text-[11px] text-slate-400 italic">Зеркало активно</span>
+                  {#if !isReader}
+                    <div class="inline-flex items-center gap-1.5 justify-end">
+                      {#if !route.has_reverse_job && !route.is_reverse_replica && route.type === 'HDFS'}
+                        <button
+                          onclick={() => reverseSingleJob(route.id)}
+                          disabled={actionLoading}
+                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900 transition cursor-pointer disabled:opacity-50"
+                          title="Создать зеркальную задачу репликации в обратную сторону"
+                        >
+                          <RotateCcw class="w-3 h-3" /> Развернуть ⇄
+                        </button>
+                      {:else if route.has_reverse_job && !route.is_reverse_replica}
+                        <!-- Исходная прямая задача: возможность отозвать зеркало и вернуть исходную кнопку -->
+                        <button
+                          onclick={() => undoReverseRoute(route.id)}
+                          disabled={actionLoading}
+                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900 transition cursor-pointer disabled:opacity-50"
+                          title="Отозвать обратное зеркало ({route.reverse_job_id}) и вернуть кнопку разворота"
+                        >
+                          <Undo2 class="w-3 h-3" /> Отозвать ↩
+                        </button>
+                      {:else if route.is_reverse_replica}
+                        <!-- Сама обратная задача: кнопка быстрого удаления зеркала -->
+                        <button
+                          onclick={() => undoReverseRoute(route.id, true)}
+                          disabled={actionLoading}
+                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900 transition cursor-pointer disabled:opacity-50"
+                          title="Удалить эту зеркальную задачу и разблокировать прямой маршрут"
+                        >
+                          <Trash2 class="w-3 h-3" /> Удалить зеркало ✕
+                        </button>
+                      {:else}
+                        <span class="text-[11px] text-slate-400">—</span>
+                      {/if}
+                    </div>
                   {:else}
                     <span class="text-[11px] text-slate-400">—</span>
                   {/if}

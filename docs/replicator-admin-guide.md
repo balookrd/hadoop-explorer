@@ -1714,6 +1714,7 @@ flowchart TD
 | `POST` | `/api/v1/dr/emergency-stop` | ADMIN, WRITER | Экстренная остановка (Kill-Switch) всех задач указанного источника, снятие расписания и сетевое ограждение |
 | `POST` | `/api/v1/dr/reverse` | ADMIN, WRITER | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS |
 | `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN, WRITER | Точечный разворот отдельной HDFS задачи в обратную сторону |
+| `POST` / `DELETE` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN, WRITER | Отзыв и удаление созданного обратного зеркала, разблокировка прямого маршрута репликации |
 
 ### Примеры CLI вызовов:
 
@@ -1730,6 +1731,9 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
   -H "Content-Type: application/json" \
   -d '{"from_cluster_id": "dc2", "to_cluster_id": "dc1", "include_hdfs": true, "include_hms": true, "auto_start": true}'
+
+# 4. Отзыв обратного зеркала и возврат прямого маршрута
+curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 ```
 
 

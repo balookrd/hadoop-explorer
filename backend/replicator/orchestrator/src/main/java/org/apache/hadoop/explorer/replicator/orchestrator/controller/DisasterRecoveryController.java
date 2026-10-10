@@ -77,4 +77,26 @@ public class DisasterRecoveryController {
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.reverseSingleHdfsJob(jobId, username));
     }
+
+    @PostMapping("/jobs/{jobId}/undo-reverse")
+    public ResponseEntity<DrActionResponse> undoReverseJob(
+            @PathVariable String jobId,
+            Authentication auth
+    ) {
+        checkWriteAccess(auth);
+        UserSession session = getSession(auth);
+        String username = session != null ? session.username() : "system_operator";
+        return ResponseEntity.ok(drService.undoReverse(jobId, username));
+    }
+
+    @DeleteMapping("/jobs/{jobId}/reverse")
+    public ResponseEntity<DrActionResponse> deleteReverseJob(
+            @PathVariable String jobId,
+            Authentication auth
+    ) {
+        checkWriteAccess(auth);
+        UserSession session = getSession(auth);
+        String username = session != null ? session.username() : "system_operator";
+        return ResponseEntity.ok(drService.undoReverse(jobId, username));
+    }
 }

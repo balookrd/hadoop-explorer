@@ -14,6 +14,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +33,7 @@ class DisasterRecoveryServiceTest {
 
     private JobRepository jobRepository;
     private JobRunRepository jobRunRepository;
+    private TaskRepository taskRepository;
     private HmsReplicationJobRepository hmsReplicationJobRepository;
     private AgentRegistry agentRegistry;
     private TopologyRegistry topologyRegistry;
@@ -44,6 +46,7 @@ class DisasterRecoveryServiceTest {
     void setUp() {
         jobRepository = mock(JobRepository.class);
         jobRunRepository = mock(JobRunRepository.class);
+        taskRepository = mock(TaskRepository.class);
         hmsReplicationJobRepository = mock(HmsReplicationJobRepository.class);
         agentRegistry = mock(AgentRegistry.class);
         topologyRegistry = mock(TopologyRegistry.class);
@@ -67,6 +70,7 @@ class DisasterRecoveryServiceTest {
         drService = new DisasterRecoveryService(
                 jobRepository,
                 jobRunRepository,
+                taskRepository,
                 hmsReplicationJobRepository,
                 agentRegistry,
                 topologyRegistry,
@@ -234,5 +238,57 @@ class DisasterRecoveryServiceTest {
         assertEquals("dc1", rev.getTargetClusterId());
         assertEquals("/backup/warehouse/raw", rev.getSourcePath());
         assertEquals("/data/warehouse/raw", rev.getTargetPath());
+    }
+
+    @Test
+    @DisplayName("Должен отзывать (удалять) обратную задачу при вызове с ID прямой задачи")
+    void shouldUndoReverseViaDirectJobId() {
+        JobEntity directJob = new JobEntity();
+        directJob.setId("job-direct-1");
+        directJob.setSourceClusterId("dc1");
+        directJob.setTargetClusterId("dc2");
+        directJob.setSourcePath("/data/sales");
+        directJob.setTargetPath("/backup/sales");
+
+        JobEntity reverseJob = new JobEntity();
+        reverseJob.setId("rev-8848");
+        reverseJob.setSourceClusterId("dc2");
+        reverseJob.setTargetClusterId("dc1");
+        reverseJob.setSourcePath("/backup/sales");
+        reverseJob.setTargetPath("/data/sales");
+        reverseJob.setMessage("Обратная репликация для задачи job-direct-1");
+
+        when(jobRepository.findById("job-direct-1")).thenReturn(Optional.of(directJob));
+        when(jobRepository.findAll()).thenReturn(List.of(directJob, reverseJob));
+
+        DrActionResponse resp = drService.undoReverse("job-direct-1", "admin_user");
+
+        assertTrue(resp.success());
+        assertTrue(resp.createdJobIds().contains("rev-8848"));
+        verify(taskRepository).deleteByJobId("rev-8848");
+        verify(jobRunRepository).deleteByJobId("rev-8848");
+        verify(jobRepository).deleteById("rev-8848");
+    }
+
+    @Test
+    @DisplayName("Должен удалять саму обратную задачу при вызове с ID зеркала (rev-*)")
+    void shouldUndoReverseViaReverseJobId() {
+        JobEntity reverseJob = new JobEntity();
+        reverseJob.setId("rev-9999");
+        reverseJob.setSourceClusterId("dc2");
+        reverseJob.setTargetClusterId("dc1");
+        reverseJob.setSourcePath("/backup/sales");
+        reverseJob.setTargetPath("/data/sales");
+        reverseJob.setMessage("Обратная репликация");
+
+        when(jobRepository.findById("rev-9999")).thenReturn(Optional.of(reverseJob));
+
+        DrActionResponse resp = drService.undoReverse("rev-9999", "admin_user");
+
+        assertTrue(resp.success());
+        assertTrue(resp.createdJobIds().contains("rev-9999"));
+        verify(taskRepository).deleteByJobId("rev-9999");
+        verify(jobRunRepository).deleteByJobId("rev-9999");
+        verify(jobRepository).deleteById("rev-9999");
     }
 }

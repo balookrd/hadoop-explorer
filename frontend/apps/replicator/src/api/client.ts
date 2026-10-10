@@ -237,6 +237,12 @@ export class ReplicatorApiClient extends BaseApiClient {
       method: 'POST',
     });
   }
+
+  async undoReverse(jobId: string): Promise<DrActionResponse> {
+    return this.request<DrActionResponse>(`/dr/jobs/${encodeURIComponent(jobId)}/undo-reverse`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new ReplicatorApiClient();

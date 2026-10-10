@@ -257,6 +257,9 @@ export interface DrRouteItem {
   lag_bytes_or_events: number;
   has_reverse_job: boolean;
   reverse_job_id?: string;
+  reverse_job_status?: string;
+  is_reverse_replica?: boolean;
+  message?: string;
 }
 
 export interface DrStatusResponse {
