@@ -12,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.Closeable;
 import java.util.*;
 import java.util.concurrent.*;
@@ -39,6 +40,7 @@ public class HmsTaskExecutor implements Closeable {
     private final boolean grpcTlsEnabled;
     private final boolean insecureSkipVerify;
     private final int partitionBatchSize;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HmsTaskExecutor(
             String agentId,
@@ -387,6 +389,21 @@ public class HmsTaskExecutor implements Closeable {
                 } else if ("DROP_TABLE".equalsIgnoreCase(eventType)) {
                     sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl));
                     eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null, "APPLIED", "deleteData=false"));
+                } else if ("DROP_PARTITION".equalsIgnoreCase(eventType)) {
+                    List<String> partVals = Collections.emptyList();
+                    try {
+                        if (event.message() != null && event.message().contains("\"values\"")) {
+                            Map<?, ?> map = objectMapper.readValue(event.message(), Map.class);
+                            Object v = map.get("values");
+                            if (v instanceof List<?> l) {
+                                partVals = l.stream().map(Object::toString).toList();
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    if (!partVals.isEmpty()) {
+                        sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals));
+                        eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, String.join(",", partVals), null, null, null, "APPLIED", "deleteData=false"));
+                    }
                 }
 
                 lastEventId = event.eventId();
@@ -416,7 +433,10 @@ public class HmsTaskExecutor implements Closeable {
     }
 
     private boolean matchesPattern(String tableName, String pattern) {
-        if (pattern == null || pattern.isBlank() || pattern.equals("*")) return true;
+        if (pattern == null || pattern.isBlank() || pattern.equals("*") || pattern.equals(".*")) return true;
+        try {
+            if (tableName.matches(pattern)) return true;
+        } catch (Exception ignored) {}
         String regex = pattern.replace(".", "\\.").replace("*", ".*").replace("?", ".");
         return tableName.matches(regex);
     }

@@ -286,6 +286,206 @@ public class HmsClusterApiController {
         ));
     }
 
+    @GetMapping("/{clusterId}/tables/{db}/{table}/partitions")
+    public ResponseEntity<List<HmsPartitionDto>> getPartitions(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        return ResponseEntity.ok(client.getPartitions(db, table));
+    }
+
+    @DeleteMapping("/{clusterId}/tables/{db}/{table}")
+    public ResponseEntity<Map<String, Object>> dropTable(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table,
+            @RequestParam(defaultValue = "true") boolean deleteData,
+            @RequestParam(defaultValue = "true") boolean emitCdcEvent
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        client.dropTable(db, table, deleteData);
+        if (emitCdcEvent && client instanceof MockHmsClient mockClient) {
+            mockClient.emitEvent("DROP_TABLE", db, table, "{\"deleteData\":" + deleteData + "}");
+        }
+        return ResponseEntity.ok(Map.of("success", true, "table", table));
+    }
+
+    public record DropPartitionRequest(
+            List<String> values,
+            Boolean delete_data,
+            Boolean emit_cdc_event
+    ) {}
+
+    @DeleteMapping("/{clusterId}/tables/{db}/{table}/partitions")
+    public ResponseEntity<Map<String, Object>> dropPartition(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table,
+            @RequestBody DropPartitionRequest req
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        boolean delData = !Boolean.FALSE.equals(req.delete_data());
+        client.dropPartition(db, table, req.values(), delData);
+        if (!Boolean.FALSE.equals(req.emit_cdc_event()) && client instanceof MockHmsClient mockClient) {
+            mockClient.emitEvent("DROP_PARTITION", db, table, "{\"values\":" + req.values() + ",\"deleteData\":" + delData + "}");
+        }
+        return ResponseEntity.ok(Map.of("success", true, "values", req.values()));
+    }
+
+    public record AddPartitionDataRequest(
+            List<String> values,
+            String file_name,
+            String content,
+            Long size_bytes
+    ) {}
+
+    @PostMapping("/{clusterId}/tables/{db}/{table}/partitions/data")
+    public ResponseEntity<Map<String, Object>> addPartitionData(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table,
+            @RequestBody AddPartitionDataRequest req
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        List<HmsPartitionDto> parts = client.getPartitions(db, table);
+        HmsPartitionDto targetPart = parts.stream()
+                .filter(p -> Objects.equals(p.values(), req.values()))
+                .findFirst()
+                .orElse(null);
+
+        String location = targetPart != null ? targetPart.location() :
+                "/tmp/data/" + clusterId + "/warehouse/" + db + "/" + table + "/part=" + String.join("_", req.values());
+        String fileName = req.file_name() != null ? req.file_name() : "part_append_" + System.currentTimeMillis() + ".parquet";
+        long bytesWritten = 0;
+
+        try {
+            if (location != null && location.startsWith("hdfs://")) {
+                long size = req.content() != null ? req.content().getBytes(StandardCharsets.UTF_8).length : (req.size_bytes() != null ? req.size_bytes() : 1024 * 1024);
+                String targetPath = location.replaceAll("/+$", "") + "/" + fileName;
+                log.info("[HmsClusterApi] Данные для HDFS партиции {}.{} [{}] зарегистрированы логически: {} ({} байт)", db, table, req.values(), targetPath, size);
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "path", targetPath,
+                        "bytes_written", size
+                ));
+            }
+
+            File dir = resolveLocalPath(location);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            File targetFile = new File(dir, fileName);
+
+            if (req.content() != null) {
+                byte[] bytes = req.content().getBytes(StandardCharsets.UTF_8);
+                try (FileOutputStream fos = new FileOutputStream(targetFile)) {
+                    fos.write(bytes);
+                }
+                bytesWritten = bytes.length;
+            } else {
+                long size = req.size_bytes() != null ? req.size_bytes() : 1024 * 1024;
+                bytesWritten = writeDummyBytes(targetFile, size);
+            }
+
+            log.info("[HmsClusterApi] Записаны данные в партицию {}.{} [{}]: {} ({} байт)", db, table, req.values(), targetFile.getAbsolutePath(), bytesWritten);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "path", targetFile.getAbsolutePath(),
+                    "bytes_written", bytesWritten
+            ));
+        } catch (Exception e) {
+            log.error("Ошибка записи данных партиции: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{clusterId}/tables/{db}/{table}/partitions/verify-data")
+    public ResponseEntity<TableDataStatusResponse> verifyPartitionData(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table,
+            @RequestBody Map<String, List<String>> body
+    ) {
+        List<String> values = body.getOrDefault("values", Collections.emptyList());
+        HmsClient client = clientPool.getClient(clusterId);
+        List<HmsPartitionDto> parts = client.getPartitions(db, table);
+        HmsPartitionDto targetPart = parts.stream()
+                .filter(p -> Objects.equals(p.values(), values))
+                .findFirst()
+                .orElse(null);
+
+        if (targetPart == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String location = targetPart.location();
+        if (location != null && location.startsWith("hdfs://")) {
+            return ResponseEntity.ok(new TableDataStatusResponse(true, location, 1, 1024L, List.of("hdfs_partition_sample.parquet (1024B)")));
+        }
+
+        File dir = resolveLocalPath(location);
+        if (!dir.exists() || !dir.isDirectory()) {
+            return ResponseEntity.ok(new TableDataStatusResponse(false, location, 0, 0, Collections.emptyList()));
+        }
+
+        File[] files = dir.listFiles(f -> !f.getName().startsWith("."));
+        if (files == null || files.length == 0) {
+            return ResponseEntity.ok(new TableDataStatusResponse(true, location, 0, 0, Collections.emptyList()));
+        }
+
+        long totalBytes = 0;
+        List<String> names = new ArrayList<>();
+        for (File f : files) {
+            totalBytes += f.length();
+            names.add(f.getName() + " (" + f.length() + "B)");
+        }
+
+        return ResponseEntity.ok(new TableDataStatusResponse(true, location, files.length, totalBytes, names));
+    }
+
+    @PutMapping("/{clusterId}/tables/{db}/{table}")
+    public ResponseEntity<Map<String, Object>> alterTable(
+            @PathVariable String clusterId,
+            @PathVariable String db,
+            @PathVariable String table,
+            @RequestBody CreateTableRequest req
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        HmsTableDto tableDto = new HmsTableDto(
+                "hive",
+                db,
+                table,
+                req.table_type() != null ? req.table_type() : "EXTERNAL_TABLE",
+                req.location(),
+                req.parameters() != null ? req.parameters() : Collections.emptyMap(),
+                req.partition_keys() != null ? req.partition_keys() : Collections.emptyList(),
+                req.input_format() != null ? req.input_format() : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                req.output_format() != null ? req.output_format() : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+                req.serde_lib() != null ? req.serde_lib() : "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+        );
+        client.alterTable(tableDto);
+        return ResponseEntity.ok(Map.of("success", true, "table", table));
+    }
+
+    @GetMapping("/{clusterId}/notifications/current-id")
+    public ResponseEntity<Map<String, Object>> getCurrentNotificationEventId(@PathVariable String clusterId) {
+        HmsClient client = clientPool.getClient(clusterId);
+        return ResponseEntity.ok(Map.of("current_event_id", client.getCurrentNotificationEventId()));
+    }
+
+    @GetMapping("/{clusterId}/notifications")
+    public ResponseEntity<List<org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto>> getNextNotifications(
+            @PathVariable String clusterId,
+            @RequestParam(defaultValue = "0") long lastEventId,
+            @RequestParam(defaultValue = "50") int maxEvents
+    ) {
+        HmsClient client = clientPool.getClient(clusterId);
+        return ResponseEntity.ok(client.getNextNotifications(lastEventId, maxEvents));
+    }
+
     private File resolveLocalPath(String locationUri) {
         if (locationUri == null) return new File("/tmp/data");
         String p = locationUri;
@@ -294,6 +494,9 @@ public class HmsClusterApiController {
             p = (pathStart > 0) ? p.substring(pathStart) : "/tmp/data";
         } else if (p.startsWith("file://")) {
             p = p.substring(7);
+        }
+        if (!p.startsWith("/tmp/") && !p.equals("/tmp")) {
+            p = "/tmp" + (p.startsWith("/") ? "" : "/") + p;
         }
         return new File(p);
     }

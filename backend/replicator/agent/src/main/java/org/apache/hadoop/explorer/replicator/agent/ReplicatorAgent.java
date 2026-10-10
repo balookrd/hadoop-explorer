@@ -91,7 +91,13 @@ public class ReplicatorAgent {
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
-            this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            if (config.getOrchestratorUrl() != null && !config.getOrchestratorUrl().isBlank()) {
+                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
+                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
+                );
+            } else {
+                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            }
         }
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
@@ -263,6 +269,9 @@ public class ReplicatorAgent {
 
     private void startSenderLoop() {
         senderThread = new Thread(this::runSenderLoop, "replicator-sender-loop");
+        senderThread.setUncaughtExceptionHandler((t, e) -> {
+            logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
+        });
         senderThread.setDaemon(true);
         senderThread.start();
     }
@@ -341,8 +350,8 @@ public class ReplicatorAgent {
                         }
                     }
                 }
-            } catch (Exception e) {
-                logger.error("Ошибка в цикле Sender/Worker: {}", e.getMessage(), e);
+            } catch (Throwable t) {
+                logger.error("Ошибка в цикле Sender/Worker: {}", t.getMessage(), t);
             }
 
             if (!didWork) {

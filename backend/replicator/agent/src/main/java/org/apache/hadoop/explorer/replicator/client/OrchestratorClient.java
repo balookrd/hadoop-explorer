@@ -1,7 +1,9 @@
 package org.apache.hadoop.explorer.replicator.client;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +66,9 @@ public class OrchestratorClient {
         }
 
         this.httpClient = clientBuilder.build();
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = new ObjectMapper()
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     private HttpRequest.Builder newRequestBuilder(String path) {
@@ -331,9 +335,11 @@ public class OrchestratorClient {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 return objectMapper.readValue(response.body(), new TypeReference<List<HmsPendingJobDto>>() {});
+            } else {
+                logger.warn("Не удалось получить ожидающие HMS задачи: HTTP {} - {}", response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            logger.debug("Ошибка получения ожидающих HMS задач: {}", e.getMessage());
+            logger.warn("Ошибка получения ожидающих HMS задач: {}", e.getMessage(), e);
         }
         return Collections.emptyList();
     }

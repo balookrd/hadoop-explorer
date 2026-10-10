@@ -27,6 +27,8 @@ services:
       HMS_DC1_PORT: "9083"
       HMS_DC2_HOST: "hive-metastore-2"
       HMS_DC2_PORT: "9083"
+      HADOOP_STREAMING_ENABLED: "true"
+      HADOOP_STREAMING_POLL_INTERVAL_MS: "1000"
     volumes:
       - replicator-db-data:/app/data
       - shared-demo-data:/tmp/data
@@ -134,7 +136,100 @@ services:
         aliases:
           - agent-dc2
 
-  # 4. Smoke Test Runner (End-to-End: KDC + 2x HMS + 2x HDFS -> Bootstrap -> New Table CDC)
+  # 4. Inotify Стример DC1 #1 (Active Leader) — мониторинг NameNode EditLog в DC1
+  streamer-dc1-01:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: replicator-streamer-dc1-01
+    hostname: streamer-dc1-01
+    restart: unless-stopped
+    environment:
+      AGENT_ID: "streamer-dc1-01"
+      AGENT_CLUSTER_ID: "dc1"
+      AGENT_MODE: "streamer"
+      HADOOP_STREAMING_ENABLED: "true"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      POLL_INTERVAL_SEC: "1.0"
+      KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
+      KRB5_PRINCIPAL: "hdfs/hdfs-cluster-1@COMPANY.LOCAL"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    depends_on:
+      - orchestrator
+      - hdfs-cluster-1
+    networks:
+      demo-platform-net:
+        aliases:
+          - streamer-dc1-01
+
+  # 5. Inotify Стример DC1 #2 (Standby) — автоматический Failover при отказе лидера
+  streamer-dc1-02:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: replicator-streamer-dc1-02
+    hostname: streamer-dc1-02
+    restart: unless-stopped
+    environment:
+      AGENT_ID: "streamer-dc1-02"
+      AGENT_CLUSTER_ID: "dc1"
+      AGENT_MODE: "streamer"
+      HADOOP_STREAMING_ENABLED: "true"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      POLL_INTERVAL_SEC: "1.0"
+      KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
+      KRB5_PRINCIPAL: "hdfs/hdfs-cluster-1@COMPANY.LOCAL"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    depends_on:
+      - orchestrator
+      - hdfs-cluster-1
+    networks:
+      demo-platform-net:
+        aliases:
+          - streamer-dc1-02
+
+  # 6. Inotify Стример DC2 (DR ЦОД) — резервный стример для обратной синхронизации при Failover
+  streamer-dc2-01:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: replicator-streamer-dc2-01
+    hostname: streamer-dc2-01
+    restart: unless-stopped
+    environment:
+      AGENT_ID: "streamer-dc2-01"
+      AGENT_CLUSTER_ID: "dc2"
+      AGENT_MODE: "streamer"
+      HADOOP_STREAMING_ENABLED: "true"
+      ORCHESTRATOR_URL: "http://orchestrator:8005"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      POLL_INTERVAL_SEC: "1.0"
+      KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-2.keytab"
+      KRB5_PRINCIPAL: "hdfs/hdfs-cluster-2@COMPANY.LOCAL"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    depends_on:
+      - orchestrator
+      - hdfs-cluster-2
+    networks:
+      demo-platform-net:
+        aliases:
+          - streamer-dc2-01
+
+  # 7. Smoke Test Runner (End-to-End: KDC + 2x HMS + 2x HDFS -> Bootstrap -> New Table CDC -> Streamers HA)
   smoke-test:
     image: curlimages/curl:latest
     container_name: replicator-smoke-test
@@ -142,6 +237,9 @@ services:
       - orchestrator
       - agent-dc1
       - agent-dc2
+      - streamer-dc1-01
+      - streamer-dc1-02
+      - streamer-dc2-01
       - sql-hive-metastore
       - sql-hive-metastore-2
       - hdfs-cluster-1
