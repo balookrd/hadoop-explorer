@@ -427,7 +427,14 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "inotify" ]; then
 
     # 3. Проверка распознавания коммита из staging через Rename
     printf "\n%b==> [8/8] Проверка распознавания коммита (фильтрация staging ➔ коммит по RenameEvent)...%b\n" "$BLUE" "$NC"
-    STREAM_TEST_DIR="/warehouse/${DB_NAME}/streaming_staging_test"
+    STREAM_TEST_DIR="/warehouse/streaming_staging_test_${DB_NAME}"
+    STREAM_TARGET_DIR="/warehouse/streaming_target_test_${DB_NAME}"
+    
+    # Создаем директории в HDFS (внутри /warehouse, где у всех полные права)
+    docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
+      hdfs dfs -mkdir -p ${STREAM_TEST_DIR}"
+    docker exec hdfs-cluster-2 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server-2@COMPANY.LOCAL >/dev/null 2>&1 && \
+      hdfs dfs -mkdir -p ${STREAM_TARGET_DIR}"
     
     # Регистрация потоковой задачи для каталога
     curl -sf -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
@@ -435,7 +442,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "inotify" ]; then
       -H "Content-Type: application/json" \
       -d "{
         \"source_path\": \"${STREAM_TEST_DIR}\",
-        \"target_path\": \"/backup/${DB_NAME}/streaming_staging_test\",
+        \"target_path\": \"${STREAM_TARGET_DIR}\",
         \"source_cluster_id\": \"dc1\",
         \"target_cluster_id\": \"dc2\",
         \"job_type\": \"STREAMING\",
