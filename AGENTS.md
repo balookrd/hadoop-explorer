@@ -79,6 +79,6 @@ hadoop-explorer/
 * **Сборка Docker-контейнеров**:
   * `./scripts/build-containers.sh all` (или `make build`)
 * **Генерация AST-скелетов и индексов**:
-  * `make java-index` (генерация Java AST-индекса в `target/java-ast-index/`)
+  * `make java-index` (генерация Java AST-индекса в `target/java-ast-index/`) — **обязательно выполнять при каждом `git push`** (также автоматизировано через `.git/hooks/pre-push`).
   * `make java-query Q="class <Name>"` (структурный поиск по Java коду)
   * `ast-grep scan` (проверка структурных AST-правил кодовой базы)
