@@ -123,7 +123,7 @@ public class ReplicationSender {
         logger.info("Агент '{}' начинает передачу задачи {}: '{}' -> '{}' (целевой узел: {})",
                 workerId, jobId, sourcePath, targetPath, targetAddress);
 
-        if (!fsManager.exists(sourcePath)) {
+        if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), Boolean.TRUE.equals(job.getRunAsServiceAccount()))) {
             boolean autoCreate = Boolean.parseBoolean(System.getenv().getOrDefault("REPLICATOR_AUTO_CREATE_TEST_DATA", "true"));
             if (autoCreate) {
                 try {
@@ -149,8 +149,8 @@ public class ReplicationSender {
             }
         }
 
-        if (!fsManager.exists(sourcePath)) {
-            String err = "Исходный файл не найден: " + sourcePath;
+        if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), Boolean.TRUE.equals(job.getRunAsServiceAccount()))) {
+            String err = "Исходный путь не найден: " + sourcePath;
             logger.error(err);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
@@ -192,7 +192,8 @@ public class ReplicationSender {
         String sourcePath = job.getSourcePath();
         String targetPath = job.getTargetPath();
 
-        if (!fsManager.exists(sourcePath)) {
+        boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
+        if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), asService)) {
             String err = "Исходный путь не найден: " + sourcePath;
             logger.error(err);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
@@ -202,7 +203,6 @@ public class ReplicationSender {
         ManagedChannel channel = null;
         try {
             channel = createManagedChannel(targetAddress);
-            boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
             // Pre-flight очистка старых staging-файлов предыдущей попытки этого задания
             try {
                 fsManager.cleanStagingFiles(targetPath, jobId, 0L, job.getExecutionPrincipal(), asService);
@@ -941,6 +941,11 @@ public class ReplicationSender {
                     TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
                     tarEntry.setSize(entry.getSize());
                     tarOut.putArchiveEntry(tarEntry);
+
+                    if (!fsManager.exists(entry.getSourcePath(), principal, asService)) {
+                        logger.warn("Файл бандла '{}' не найден в HDFS, пропуск", entry.getSourcePath());
+                        continue;
+                    }
 
                     try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
                         IOUtils.copyBytes(in, tarOut, 32 * 1024, false);

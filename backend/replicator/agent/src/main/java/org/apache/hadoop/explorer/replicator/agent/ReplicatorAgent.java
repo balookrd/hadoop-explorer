@@ -53,6 +53,7 @@ public class ReplicatorAgent {
     private ScheduledExecutorService heartbeatExecutor;
     private ScheduledExecutorService stagingCleanupExecutor;
     private Thread senderThread;
+    private Thread hmsThread;
     private DataTransferServiceImpl receiverService;
     private org.apache.hadoop.explorer.replicator.inotify.HdfsInotifyListener inotifyListener;
 
@@ -98,9 +99,14 @@ public class ReplicatorAgent {
                 );
             } else if ("mock".equalsIgnoreCase(config.getHmsMode())) {
                 this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
-            } else if (config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank()) {
+            } else if ((config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank()) || "thrift".equalsIgnoreCase(config.getHmsMode())) {
                 logger.info("Боевой режим: прямое подключение агента к Hive Metastore по Thrift: {}", config.getHmsThriftUris());
-                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.ThriftHmsClient(
+                        config.getClusterId(),
+                        config.getHmsThriftUris(),
+                        config.getHmsKerberosPrincipal(),
+                        config.getKeytabPath()
+                );
             } else if ("auto".equalsIgnoreCase(config.getHmsMode()) && config.getOrchestratorUrl() != null && !config.getOrchestratorUrl().isBlank()) {
                 this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
                         config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
@@ -111,11 +117,14 @@ public class ReplicatorAgent {
         }
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
+            var mappings = org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter.parseMappings(config.getFederationMappings());
+            var pathRewriter = new org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter(mappings, config.getTargetDefaultFsUri());
             this.hmsTaskExecutor = new org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor(
                     config.getAgentId(),
                     config.getClusterId(),
                     hmsClient,
                     orchestratorClient,
+                    pathRewriter,
                     config.isGrpcTlsEnabled(),
                     config.isGrpcInsecureSkipVerify(),
                     8,
@@ -166,7 +175,12 @@ public class ReplicatorAgent {
             startSenderLoop();
         }
 
-        // 4. Фоновый сборщик мусора HDFS staging-файлов
+        // 4. HMS Metadata Replication Loop (Bootstrap & CDC)
+        if (hmsTaskExecutor != null && ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()))) {
+            startHmsLoop();
+        }
+
+        // 5. Фоновый сборщик мусора HDFS staging-файлов
         if (config.isStagingCleanupEnabled() && !"streamer".equalsIgnoreCase(config.getMode())) {
             startStagingCleaner();
         }
@@ -287,6 +301,49 @@ public class ReplicatorAgent {
         senderThread.start();
     }
 
+    private void startHmsLoop() {
+        hmsThread = new Thread(this::runHmsLoop, "replicator-hms-loop");
+        hmsThread.setUncaughtExceptionHandler((t, e) -> {
+            logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
+        });
+        hmsThread.setDaemon(true);
+        hmsThread.start();
+    }
+
+    private void runHmsLoop() {
+        logger.info("Выделенный цикл репликации Hive Metastore (Bootstrap & CDC) запущен: cluster='{}'", config.getClusterId());
+        while (running.get()) {
+            boolean didWork = false;
+            try {
+                if (hmsTaskExecutor != null) {
+                    List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto> hmsJobs =
+                            orchestratorClient.getPendingHmsJobs(config.getClusterId(), config.getAgentId());
+                    for (var hJob : hmsJobs) {
+                        if (!running.get()) break;
+                        if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
+                            didWork = true;
+                            hmsTaskExecutor.runBootstrap(hJob);
+                        } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
+                            int cdcCount = hmsTaskExecutor.pollAndSyncCdc(hJob);
+                            if (cdcCount > 0) didWork = true;
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                logger.error("Ошибка в цикле HMS репликации: {}", t.getMessage(), t);
+            }
+
+            if (!didWork) {
+                try {
+                    Thread.sleep(1500L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
     private void runSenderLoop() {
         logger.info("Цикл Sender/Worker запущен: mode='{}' (опрос очереди каждые {}с)",
                 config.getMode(), config.getPollIntervalSec());
@@ -342,22 +399,6 @@ public class ReplicatorAgent {
                             } finally {
                                 activeTransfers.decrementAndGet();
                             }
-                        }
-                    }
-                }
-
-                // 3. Фаза HMS метаданных: опрос и исполнение задач репликации схем через gRPC конвейер
-                if (hmsTaskExecutor != null) {
-                    List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto> hmsJobs =
-                            orchestratorClient.getPendingHmsJobs(config.getClusterId(), config.getAgentId());
-                    for (var hJob : hmsJobs) {
-                        if (!running.get()) break;
-                        if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
-                            didWork = true;
-                            hmsTaskExecutor.runBootstrap(hJob);
-                        } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
-                            int cdcCount = hmsTaskExecutor.pollAndSyncCdc(hJob);
-                            if (cdcCount > 0) didWork = true;
                         }
                     }
                 }
@@ -487,6 +528,10 @@ public class ReplicatorAgent {
 
         if (senderThread != null) {
             senderThread.interrupt();
+        }
+
+        if (hmsThread != null) {
+            hmsThread.interrupt();
         }
 
         if (heartbeatExecutor != null) {

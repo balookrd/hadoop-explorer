@@ -295,7 +295,7 @@
   - **Двусторонний Diff & Reconciliation**: идемпотентный DDL (`Create or Alter`) и безопасное удаление устаревших объектов (`drop_extraneous_tables`, `drop_extraneous_partitions`) со строгой гарантией `deleteData = false` (файлы на HDFS не удаляются).
   - **Изоляция подзадач**: задачи переноса HDFS для партиций создаются со статусом `job_type = 'HMS_SUBJOB'` и полностью скрыты из регламентного раздела «HDFS Replication».
   - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
-  - **HDFS Federation**: динамический парсинг NameService в `sd.location` партиций и маршрутизация по таблице соответствия `federation-mappings` с сохранением кластерных квот Token Bucket.
+  - **HDFS Federation и URI Translation**: трехуровневая трансляция физических путей HDFS (`HmsPathRewriter`) через `TARGET_HDFS_DEFAULT_FS`, сопоставление NameService/Cluster ID через `federation-mappings` и интеллектуальные эвристики имен кластеров, обеспечивающие корректную перелинковку `sdLocation` на целевой кластер и генерацию межкластерных HDFS саб-джобов.
   - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, репортуя прогресс в Оркестратор.
   - **Распределенный эксклюзивный лизинг (Distributed Lease & Failover)**:
     - Каждая активная схема и CDC-поток захватываются ровно одним агентом-источником (`assigned_agent_id`, `lease_expires_at`), что исключает гонки и дублирование CDC-потоков при работе пула агентов в кластере.
@@ -304,7 +304,7 @@
     - Отказоустойчивость приёмника: при сбое целевого агента (Target Agent) Оркестратор динамически отдаёт адрес резервного приёмника из `AgentRegistry`, и Source-агент переключает gRPC-канал без прерывания репликации.
 - **Нативная Java 21 экосистема исполнения**:
   - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: легковесный Control Plane оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
-  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`) и Hive Metastore (`HmsTransferService`).
+  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`) и Hive Metastore (`HmsTransferService`). Архитектурное разделение потоков: выделенный независимый `replicator-hms-loop` для Bootstrap схем и CDC метаданных предотвращает блокировки при параллельной передаче тяжелых блоков данных в потоке `replicator-sender-loop`.
   - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent` и `orchestrator` с общим циклом компиляции и тестирования (`make test-replicator`).
 
 ### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)

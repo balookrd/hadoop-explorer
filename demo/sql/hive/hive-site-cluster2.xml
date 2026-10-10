@@ -97,4 +97,14 @@
     <name>hive.security.authorization.enabled</name>
     <value>false</value>
   </property>
+
+  <!-- Доступ к Notification Log для CDC репликации -->
+  <property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+  </property>
 </configuration>

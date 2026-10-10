@@ -371,7 +371,7 @@ public class OrchestratorClient {
             req.put("target_cluster", dstCl != null ? dstCl : "default");
             req.put("bandwidth_limit_mb_s", 0L);
             req.put("execution_principal", (executionPrincipal != null && !executionPrincipal.isBlank()) ? executionPrincipal : "hdfs@EXAMPLE.COM");
-            req.put("run_as_service_account", false);
+            req.put("run_as_service_account", true);
             req.put("overwrite", true);
             req.put("sync_deletes", false);
             req.put("max_concurrency", 20);

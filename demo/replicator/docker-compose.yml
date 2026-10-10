@@ -29,7 +29,7 @@ services:
       HMS_DC2_PORT: "9083"
       HADOOP_STREAMING_ENABLED: "true"
       HADOOP_STREAMING_POLL_INTERVAL_MS: "1000"
-      REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "true"
+      REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "false"
     volumes:
       - replicator-db-data:/app/data
       - shared-demo-data:/tmp/data
@@ -74,9 +74,13 @@ services:
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      TARGET_HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      REPLICATOR_FEDERATION_MAPPINGS: "hdfs-cluster-1:9000=hdfs://hdfs-cluster-2:9000,hdfs-cluster-1=hdfs-cluster-2"
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
-      REPLICATOR_HMS_MODE: "demo-http"
+      REPLICATOR_HMS_MODE: "thrift"
+      HMS_THRIFT_URIS: "thrift://hive-metastore-1:9083"
+      HMS_KERBEROS_PRINCIPAL: "hive/hive-metastore@COMPANY.LOCAL"
       KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
       KRB5_PRINCIPAL: "hdfs/hdfs-cluster-1@COMPANY.LOCAL"
       KRB5_CONFIG: "/shared/conf/krb5.conf"
@@ -91,6 +95,7 @@ services:
     depends_on:
       - orchestrator
       - hdfs-cluster-1
+      - sql-hive-metastore
     networks:
       demo-platform-net:
         aliases:
@@ -117,9 +122,13 @@ services:
       REPLICATOR_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      TARGET_HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      REPLICATOR_FEDERATION_MAPPINGS: "hdfs-cluster-2:9000=hdfs://hdfs-cluster-1:9000,hdfs-cluster-2=hdfs-cluster-1"
       REPLICATOR_AUTO_CREATE_TEST_DATA: "true"
       REPLICATOR_AGENT_SECRET: ""
-      REPLICATOR_HMS_MODE: "demo-http"
+      REPLICATOR_HMS_MODE: "thrift"
+      HMS_THRIFT_URIS: "thrift://hive-metastore-2:9083"
+      HMS_KERBEROS_PRINCIPAL: "hive/hive-metastore-2.demo-platform-net@COMPANY.LOCAL"
       KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-2.keytab"
       KRB5_PRINCIPAL: "hdfs/hdfs-cluster-2@COMPANY.LOCAL"
       KRB5_CONFIG: "/shared/conf/krb5.conf"
@@ -134,6 +143,7 @@ services:
     depends_on:
       - orchestrator
       - hdfs-cluster-2
+      - sql-hive-metastore-2
     networks:
       demo-platform-net:
         aliases:

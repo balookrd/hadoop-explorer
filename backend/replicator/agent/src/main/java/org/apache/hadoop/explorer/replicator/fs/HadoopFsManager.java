@@ -82,6 +82,10 @@ public class HadoopFsManager {
         if (keytabPath != null && !keytabPath.isBlank()) {
             try {
                 this.conf.set("hadoop.security.authentication", "kerberos");
+                this.conf.set("dfs.namenode.kerberos.principal.pattern", "*");
+                String nnPrincipal = System.getenv().getOrDefault("HDFS_NAMENODE_PRINCIPAL", "nn/*@COMPANY.LOCAL");
+                this.conf.set("dfs.namenode.kerberos.principal", nnPrincipal);
+                this.conf.set("dfs.datanode.kerberos.principal", "dn/*@COMPANY.LOCAL");
                 UserGroupInformation.setConfiguration(conf);
                 UserGroupInformation.loginUserFromKeytab(servicePrincipal, keytabPath);
                 this.kerberosLoggedIn = true;
@@ -241,19 +245,26 @@ public class HadoopFsManager {
     }
 
     /**
-     * Проверяет существование файла.
+     * Проверяет существование файла или каталога с учетом Kerberos UGI.
      */
-    public boolean exists(String pathStr) {
+    public boolean exists(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        if (isLocalPath(pathStr)) {
+            return new File(pathStr).exists();
+        }
         try {
-            if (isLocalPath(pathStr)) {
-                return new File(pathStr).exists();
-            }
-            Path path = new Path(pathStr);
-            FileSystem fs = path.getFileSystem(conf);
-            return fs.exists(path) || new File(pathStr).exists();
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                return fs.exists(path) || new File(pathStr).exists();
+            });
         } catch (Exception e) {
             return new File(pathStr).exists();
         }
+    }
+
+    public boolean exists(String pathStr) {
+        return exists(pathStr, null, true);
     }
 
     /**

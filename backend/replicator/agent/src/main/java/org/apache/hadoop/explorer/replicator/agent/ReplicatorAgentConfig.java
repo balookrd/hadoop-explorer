@@ -17,6 +17,8 @@ public class ReplicatorAgentConfig {
     private int receiverPort;
     private String stagingDir;
     private String defaultFsUri;
+    private String targetDefaultFsUri;
+    private String federationMappings;
     private String fallbackTargetAddress;
     private String advertisedGrpcAddress;
     private String agentSecret;
@@ -34,6 +36,7 @@ public class ReplicatorAgentConfig {
     private boolean grpcInsecureSkipVerify;
     private boolean orchestratorInsecureSkipVerify;
     private String hmsThriftUris;
+    private String hmsKerberosPrincipal;
     private String hmsMode = "auto"; // "thrift" (боевой режим), "demo-http" (стенд), "mock" (unit-тесты)
     private String hiveVersion = "3.1.3";
     private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
@@ -67,6 +70,9 @@ public class ReplicatorAgentConfig {
         } else if (hdfsNamenode != null && !hdfsNamenode.isBlank()) {
             config.defaultFsUri = "hdfs://" + hdfsNamenode + ":" + hdfsPort;
         }
+
+        config.targetDefaultFsUri = getEnv("TARGET_HDFS_DEFAULT_FS", getEnv("HDFS_TARGET_FS", null));
+        config.federationMappings = getEnv("REPLICATOR_FEDERATION_MAPPINGS", getEnv("HDFS_FEDERATION_MAPPINGS", null));
 
         config.fallbackTargetAddress = getEnv("FALLBACK_TARGET_ADDRESS", getEnv("RECEIVER_ADDRESS", "localhost:50051"));
 
@@ -105,6 +111,7 @@ public class ReplicatorAgentConfig {
         config.orchestratorInsecureSkipVerify = Boolean.parseBoolean(getEnv("ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY", getEnv("REPLICATOR_TLS_INSECURE", "false")));
 
         config.hmsThriftUris = getEnv("HMS_THRIFT_URIS", getEnv("HIVE_METASTORE_URIS", null));
+        config.hmsKerberosPrincipal = getEnv("HMS_KERBEROS_PRINCIPAL", getEnv("HIVE_METASTORE_KERBEROS_PRINCIPAL", null));
         config.hmsMode = getEnv("REPLICATOR_HMS_MODE", (config.hmsThriftUris != null && !config.hmsThriftUris.isBlank()) ? "thrift" : "auto");
         config.hiveVersion = getEnv("HIVE_VERSION", "3.1.3");
 
@@ -153,6 +160,12 @@ public class ReplicatorAgentConfig {
 
     public String getDefaultFsUri() { return defaultFsUri; }
     public void setDefaultFsUri(String defaultFsUri) { this.defaultFsUri = defaultFsUri; }
+
+    public String getTargetDefaultFsUri() { return targetDefaultFsUri; }
+    public void setTargetDefaultFsUri(String targetDefaultFsUri) { this.targetDefaultFsUri = targetDefaultFsUri; }
+
+    public String getFederationMappings() { return federationMappings; }
+    public void setFederationMappings(String federationMappings) { this.federationMappings = federationMappings; }
 
     public String getFallbackTargetAddress() { return fallbackTargetAddress; }
     public void setFallbackTargetAddress(String fallbackTargetAddress) { this.fallbackTargetAddress = fallbackTargetAddress; }
@@ -237,4 +250,7 @@ public class ReplicatorAgentConfig {
 
     public String getHmsMode() { return hmsMode; }
     public void setHmsMode(String hmsMode) { this.hmsMode = hmsMode; }
+
+    public String getHmsKerberosPrincipal() { return hmsKerberosPrincipal; }
+    public void setHmsKerberosPrincipal(String hmsKerberosPrincipal) { this.hmsKerberosPrincipal = hmsKerberosPrincipal; }
 }

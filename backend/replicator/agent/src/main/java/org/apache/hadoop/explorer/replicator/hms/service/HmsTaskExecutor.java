@@ -47,6 +47,7 @@ public class HmsTaskExecutor implements Closeable {
             String clusterId,
             HmsClient hmsClient,
             OrchestratorClient orchestratorClient,
+            HmsPathRewriter pathRewriter,
             boolean grpcTlsEnabled,
             boolean insecureSkipVerify,
             int concurrency,
@@ -57,7 +58,7 @@ public class HmsTaskExecutor implements Closeable {
         this.hmsClient = hmsClient;
         this.orchestratorClient = orchestratorClient;
         this.tableFilter = new TableSupportFilter();
-        this.pathRewriter = new HmsPathRewriter();
+        this.pathRewriter = pathRewriter != null ? pathRewriter : new HmsPathRewriter();
         this.grpcTlsEnabled = grpcTlsEnabled;
         this.insecureSkipVerify = insecureSkipVerify;
         this.partitionBatchSize = partitionBatchSize > 0 ? partitionBatchSize : 1000;
@@ -68,6 +69,20 @@ public class HmsTaskExecutor implements Closeable {
             t.setDaemon(true);
             return t;
         });
+    }
+
+    public HmsTaskExecutor(
+            String agentId,
+            String clusterId,
+            HmsClient hmsClient,
+            OrchestratorClient orchestratorClient,
+            boolean grpcTlsEnabled,
+            boolean insecureSkipVerify,
+            int concurrency,
+            int partitionBatchSize
+    ) {
+        this(agentId, clusterId, hmsClient, orchestratorClient, new HmsPathRewriter(),
+                grpcTlsEnabled, insecureSkipVerify, concurrency, partitionBatchSize);
     }
 
     /**
