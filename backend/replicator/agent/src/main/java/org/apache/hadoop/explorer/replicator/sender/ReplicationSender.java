@@ -14,6 +14,7 @@ import io.grpc.stub.StreamObserver;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.*;
@@ -48,6 +49,8 @@ public class ReplicationSender {
     private final long smallFileThresholdBytes;
     private final long bundleTargetSizeBytes;
     private final int maxBundleFiles;
+    private final CompressionCodec defaultCompressionCodec;
+    private final int compressionLevel;
 
     public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
@@ -70,6 +73,19 @@ public class ReplicationSender {
                              String clientCertChainPath, String clientPrivateKeyPath,
                              boolean insecureSkipVerify,
                              long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles) {
+        this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, tlsEnabled,
+                trustCertCollectionPath, clientCertChainPath, clientPrivateKeyPath, insecureSkipVerify,
+                smallFileThresholdBytes, bundleTargetSizeBytes, maxBundleFiles,
+                CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL);
+    }
+
+    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+                             LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
+                             boolean tlsEnabled, String trustCertCollectionPath,
+                             String clientCertChainPath, String clientPrivateKeyPath,
+                             boolean insecureSkipVerify,
+                             long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles,
+                             CompressionCodec defaultCompressionCodec, int compressionLevel) {
         this.workerId = workerId;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
@@ -83,6 +99,16 @@ public class ReplicationSender {
         this.smallFileThresholdBytes = smallFileThresholdBytes;
         this.bundleTargetSizeBytes = bundleTargetSizeBytes > 0 ? bundleTargetSizeBytes : 16 * 1024 * 1024L;
         this.maxBundleFiles = maxBundleFiles > 0 ? maxBundleFiles : 500;
+        this.defaultCompressionCodec = defaultCompressionCodec != null ? defaultCompressionCodec : CompressionCodec.COMPRESSION_ZSTD;
+        this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
+    }
+
+    public CompressionCodec getDefaultCompressionCodec() {
+        return defaultCompressionCodec;
+    }
+
+    public int getCompressionLevel() {
+        return compressionLevel;
     }
 
     /**
@@ -380,6 +406,7 @@ public class ReplicationSender {
 
             // Метаданные файла
             boolean asService = runAsServiceAccount != null && runAsServiceAccount;
+            CompressionCodec effectiveCodec = WireCompressor.resolveCodecForPath(sourcePath, defaultCompressionCodec);
             FileMetadata metadata = FileMetadata.newBuilder()
                     .setJobId(jobId)
                     .setSourcePath(sourcePath)
@@ -387,11 +414,12 @@ public class ReplicationSender {
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(asService)
                     .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "hdfs-replicator@REALM.LOCAL")
+                    .setCompressionCodec(effectiveCodec)
                     .build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
-            // Потоковая передача чанками с шейпингом
+            // Потоковая передача чанками со сжатием на лету и шейпингом
             try (InputStream in = fsManager.openInputStream(sourcePath, executionPrincipal, asService)) {
                 byte[] buffer = new byte[chunkSize];
                 long offset = 0;
@@ -400,12 +428,20 @@ public class ReplicationSender {
                 while ((bytesRead = in.read(buffer)) != -1) {
                     boolean isLast = (offset + bytesRead) >= fileBytes;
 
+                    // Сжатие чанка на лету
+                    WireCompressor.CompressedPayload payload = WireCompressor.compress(
+                            buffer, 0, bytesRead, effectiveCodec, compressionLevel
+                    );
+                    int wireBytes = payload.bytes().length;
+
+                    // Локальный шейпинг полосы WAN по фактическому объему сжатых данных
                     if (bandwidthLimiter != null) {
-                        bandwidthLimiter.throttle(bytesRead);
+                        bandwidthLimiter.throttle(wireBytes);
                     }
 
+                    // Глобальный шейпинг токенов оркестратора
                     double waitSec = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, bytesRead, null, null)
+                            new TokenRequest(workerId, wireBytes, null, null)
                     );
                     if (waitSec > 0) {
                         try {
@@ -419,8 +455,10 @@ public class ReplicationSender {
                     FileChunk chunk = FileChunk.newBuilder()
                             .setJobId(jobId)
                             .setOffset(offset)
-                            .setData(ByteString.copyFrom(buffer, 0, bytesRead))
+                            .setData(ByteString.copyFrom(payload.bytes()))
                             .setIsLastChunk(isLast)
+                            .setCompressionCodec(payload.appliedCodec())
+                            .setUncompressedSize(bytesRead)
                             .build();
 
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
@@ -630,6 +668,7 @@ public class ReplicationSender {
             });
 
             // Метаданные файла
+            CompressionCodec effectiveCodec = WireCompressor.resolveCodecForPath(sourcePath, defaultCompressionCodec);
             FileMetadata metadata = FileMetadata.newBuilder()
                     .setJobId(jobId)
                     .setSourcePath(sourcePath)
@@ -637,11 +676,12 @@ public class ReplicationSender {
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
                     .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL")
+                    .setCompressionCodec(effectiveCodec)
                     .build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
-            // Потоковая передача чанками
+            // Потоковая передача чанками со сжатием на лету
             try (InputStream in = fsManager.openInputStream(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount())) {
                 byte[] buffer = new byte[chunkSize];
                 long offset = 0;
@@ -651,14 +691,20 @@ public class ReplicationSender {
                 while ((bytesRead = in.read(buffer)) != -1) {
                     boolean isLast = (offset + bytesRead) >= fileBytes;
 
-                    // Локальный шейпинг
+                    // Сжатие чанка на лету
+                    WireCompressor.CompressedPayload payload = WireCompressor.compress(
+                            buffer, 0, bytesRead, effectiveCodec, compressionLevel
+                    );
+                    int wireBytes = payload.bytes().length;
+
+                    // Локальный шейпинг полосы WAN по фактическому объему сжатых данных
                     if (bandwidthLimiter != null) {
-                        bandwidthLimiter.throttle(bytesRead);
+                        bandwidthLimiter.throttle(wireBytes);
                     }
 
                     // Глобальный шейпинг
                     double waitSec = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, bytesRead, job.getSourceClusterId(), job.getTargetClusterId())
+                            new TokenRequest(workerId, wireBytes, job.getSourceClusterId(), job.getTargetClusterId())
                     );
                     if (waitSec > 0) {
                         try {
@@ -672,8 +718,10 @@ public class ReplicationSender {
                     FileChunk chunk = FileChunk.newBuilder()
                             .setJobId(jobId)
                             .setOffset(offset)
-                            .setData(ByteString.copyFrom(buffer, 0, bytesRead))
+                            .setData(ByteString.copyFrom(payload.bytes()))
                             .setIsLastChunk(isLast)
+                            .setCompressionCodec(payload.appliedCodec())
+                            .setUncompressedSize(bytesRead)
                             .build();
 
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
@@ -856,6 +904,9 @@ public class ReplicationSender {
             // 1. Метаданные бандла
             boolean asService = task.getRunAsServiceAccount() != null && task.getRunAsServiceAccount();
             String principal = task.getExecutionPrincipal() != null ? task.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL";
+            boolean allPrecompressed = entries.stream().allMatch(e ->
+                    WireCompressor.isPrecompressedPath(e.getSourcePath()) || WireCompressor.isPrecompressedPath(e.getRelativePath()));
+            CompressionCodec tarCodec = allPrecompressed ? CompressionCodec.COMPRESSION_NONE : defaultCompressionCodec;
 
             TarStreamMetadata metadata = TarStreamMetadata.newBuilder()
                     .setJobId(jobId)
@@ -865,18 +916,21 @@ public class ReplicationSender {
                     .setTotalBytes(totalBytes)
                     .setRunAsServiceAccount(asService)
                     .setExecutionPrincipal(principal)
+                    .setCompressionCodec(tarCodec)
                     .build();
 
             requestObserver.onNext(TarStreamRequest.newBuilder().setMetadata(metadata).build());
 
-            // 2. Потоковая упаковка TAR на лету в памяти с чанкованием, шейпингом и запросом токенов
+            // 2. Потоковая упаковка TAR на лету в памяти с чанкованием, сжатием, шейпингом и запросом токенов
             TarChunkingOutputStream chunkingOut = new TarChunkingOutputStream(
                     taskId,
                     requestObserver,
                     chunkSize,
                     bandwidthLimiter,
                     orchestratorClient,
-                    workerId
+                    workerId,
+                    tarCodec,
+                    compressionLevel
             );
 
             try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
@@ -941,6 +995,8 @@ public class ReplicationSender {
         private final LocalBandwidthLimiter bandwidthLimiter;
         private final OrchestratorClient orchestratorClient;
         private final String workerId;
+        private final CompressionCodec codec;
+        private final int compressionLevel;
         private final byte[] buffer;
         private int count = 0;
         private long offset = 0;
@@ -948,12 +1004,22 @@ public class ReplicationSender {
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
                                        OrchestratorClient orchestratorClient, String workerId) {
+            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
+                    CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL);
+        }
+
+        public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
+                                       int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
+                                       OrchestratorClient orchestratorClient, String workerId,
+                                       CompressionCodec codec, int compressionLevel) {
             this.taskId = taskId;
             this.requestObserver = requestObserver;
             this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
             this.bandwidthLimiter = bandwidthLimiter;
             this.orchestratorClient = orchestratorClient;
             this.workerId = workerId;
+            this.codec = codec != null ? codec : CompressionCodec.COMPRESSION_NONE;
+            this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
             this.buffer = new byte[this.chunkSize];
         }
 
@@ -984,12 +1050,18 @@ public class ReplicationSender {
 
         private void flushBuffer() throws IOException {
             if (count == 0) return;
+
+            WireCompressor.CompressedPayload payload = WireCompressor.compress(
+                    buffer, 0, count, codec, compressionLevel
+            );
+            int wireBytes = payload.bytes().length;
+
             if (bandwidthLimiter != null) {
-                bandwidthLimiter.throttle(count);
+                bandwidthLimiter.throttle(wireBytes);
             }
             if (orchestratorClient != null && workerId != null) {
                 double waitSec = orchestratorClient.requestNetworkTokens(
-                        new TokenRequest(workerId, count, null, null)
+                        new TokenRequest(workerId, wireBytes, null, null)
                 );
                 if (waitSec > 0) {
                     try {
@@ -1004,7 +1076,9 @@ public class ReplicationSender {
             TarStreamChunk chunk = TarStreamChunk.newBuilder()
                     .setTaskId(taskId)
                     .setOffset(offset)
-                    .setData(ByteString.copyFrom(buffer, 0, count))
+                    .setData(ByteString.copyFrom(payload.bytes()))
+                    .setCompressionCodec(payload.appliedCodec())
+                    .setUncompressedSize(count)
                     .build();
 
             requestObserver.onNext(TarStreamRequest.newBuilder().setChunk(chunk).build());

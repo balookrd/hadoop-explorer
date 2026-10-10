@@ -21,6 +21,13 @@ service DataTransferService {
   rpc TransferTarStream (stream TarStreamRequest) returns (TarStreamResponse);
 }
 
+// Кодек сжатия данных в канале передачи (Wire Compression)
+enum CompressionCodec {
+  COMPRESSION_NONE = 0;
+  COMPRESSION_ZSTD = 1;
+  COMPRESSION_LZ4 = 2;
+}
+
 // Запрос на передачу: либо метаданные файла, либо порция данных
 message TransferFileRequest {
   oneof payload {
@@ -39,14 +46,17 @@ message FileMetadata {
   bool run_as_service_account = 6;       // Выполнять от системной техучетки
   string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
   string checksum = 8;                   // Контрольная сумма (опционально, например MD5/SHA256)
+  CompressionCodec compression_codec = 9;// Кодек сжатия чанков файла по умолчанию
 }
 
 // Чанк бинарных данных
 message FileChunk {
   string job_id = 1;                     // Идентификатор задачи
   int64 offset = 2;                      // Смещение чанка от начала файла
-  bytes data = 3;                        // Бинарные данные
+  bytes data = 3;                        // Бинарные данные (сырые или сжатые)
   bool is_last_chunk = 4;                // Флаг последнего чанка файла
+  CompressionCodec compression_codec = 5;// Кодек сжатия данного чанка
+  int32 uncompressed_size = 6;           // Исходный размер данных чанка до сжатия в байтах
 }
 
 // Ответ приемника (Receiver) по результатам передачи
@@ -111,14 +121,17 @@ message TarStreamMetadata {
   int64 total_bytes = 5;                 // Суммарный неупакованный объем в байтах
   bool run_as_service_account = 6;       // Выполнять от системной техучетки
   string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
+  CompressionCodec compression_codec = 8;// Кодек сжатия TAR-потока по умолчанию
 }
 
 // Чанк бинарных данных tar-потока
 message TarStreamChunk {
   string task_id = 1;                    // Идентификатор подзадачи бандла
   int64 offset = 2;                      // Смещение чанка в потоке
-  bytes data = 3;                        // Порция бинарных данных архива
+  bytes data = 3;                        // Порция бинарных данных архива (сырые или сжатые)
   bool is_last_chunk = 4;                // Флаг завершения передачи архива
+  CompressionCodec compression_codec = 5;// Кодек сжатия порции архива
+  int32 uncompressed_size = 6;           // Исходный размер порции данных архива до сжатия в байтах
 }
 
 // Результат коммита конкретного файла из архива

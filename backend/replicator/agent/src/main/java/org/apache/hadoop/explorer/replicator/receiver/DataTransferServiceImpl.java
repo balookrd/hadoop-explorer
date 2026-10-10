@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import io.grpc.stub.StreamObserver;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
@@ -226,10 +227,15 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
                         ByteString data = chunk.getData();
                         if (!data.isEmpty()) {
-                            byte[] bytes = data.toByteArray();
+                            byte[] rawBytes = data.toByteArray();
                             if (bandwidthLimiter != null) {
-                                bandwidthLimiter.throttle(bytes.length);
+                                bandwidthLimiter.throttle(rawBytes.length);
                             }
+                            byte[] bytes = WireCompressor.decompress(
+                                    rawBytes,
+                                    chunk.getCompressionCodec(),
+                                    chunk.getUncompressedSize()
+                            );
                             outputStream.write(bytes);
                             if (sha256Digest != null) {
                                 sha256Digest.update(bytes);
@@ -453,12 +459,17 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         }
                         ByteString data = chunk.getData();
                         if (!data.isEmpty()) {
-                            byte[] bytes = data.toByteArray();
+                            byte[] rawBytes = data.toByteArray();
                             if (bandwidthLimiter != null) {
-                                bandwidthLimiter.throttle(bytes.length);
+                                bandwidthLimiter.throttle(rawBytes.length);
                             }
+                            byte[] bytes = WireCompressor.decompress(
+                                    rawBytes,
+                                    chunk.getCompressionCodec(),
+                                    chunk.getUncompressedSize()
+                            );
                             pipedOut.write(bytes);
-                            bytesReceived += bytes.length;
+                            bytesReceived += rawBytes.length;
                         }
                     }
                 } catch (Exception e) {

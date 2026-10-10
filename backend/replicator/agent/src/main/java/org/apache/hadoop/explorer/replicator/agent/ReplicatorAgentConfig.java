@@ -42,6 +42,8 @@ public class ReplicatorAgentConfig {
     private boolean stagingCleanupEnabled = true;
     private long stagingCleanupIntervalMinutes = 15;
     private long stagingTtlMinutes = 30;
+    private org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec = org.apache.hadoop.explorer.replicator.generated.CompressionCodec.COMPRESSION_ZSTD;
+    private int wireCompressionLevel = 3;
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -112,6 +114,11 @@ public class ReplicatorAgentConfig {
         config.stagingCleanupEnabled = Boolean.parseBoolean(getEnv("REPLICATOR_STAGING_CLEANUP_ENABLED", "true"));
         config.stagingCleanupIntervalMinutes = Long.parseLong(getEnv("REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES", "15"));
         config.stagingTtlMinutes = Long.parseLong(getEnv("REPLICATOR_STAGING_TTL_MINUTES", "30"));
+
+        config.wireCompressionCodec = org.apache.hadoop.explorer.replicator.compression.WireCompressor.parseCodec(
+                getEnv("REPLICATOR_WIRE_COMPRESSION", getEnv("WIRE_COMPRESSION", "zstd"))
+        );
+        config.wireCompressionLevel = Integer.parseInt(getEnv("REPLICATOR_WIRE_COMPRESSION_LEVEL", "3"));
 
         return config;
     }
@@ -219,4 +226,10 @@ public class ReplicatorAgentConfig {
 
     public long getStagingTtlMinutes() { return stagingTtlMinutes; }
     public void setStagingTtlMinutes(long stagingTtlMinutes) { this.stagingTtlMinutes = stagingTtlMinutes; }
+
+    public org.apache.hadoop.explorer.replicator.generated.CompressionCodec getWireCompressionCodec() { return wireCompressionCodec; }
+    public void setWireCompressionCodec(org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec) { this.wireCompressionCodec = wireCompressionCodec; }
+
+    public int getWireCompressionLevel() { return wireCompressionLevel; }
+    public void setWireCompressionLevel(int wireCompressionLevel) { this.wireCompressionLevel = wireCompressionLevel; }
 }

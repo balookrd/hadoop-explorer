@@ -84,7 +84,9 @@ public class ReplicatorAgent {
                 config.isGrpcInsecureSkipVerify(),
                 config.getSmallFileThresholdBytes(),
                 config.getBundleTargetSizeBytes(),
-                config.getMaxBundleFiles()
+                config.getMaxBundleFiles(),
+                config.getWireCompressionCodec(),
+                config.getWireCompressionLevel()
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {

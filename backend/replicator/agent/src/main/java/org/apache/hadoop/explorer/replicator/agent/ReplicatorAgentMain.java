@@ -22,6 +22,8 @@ public class ReplicatorAgentMain {
         options.addOption("p", "port", true, "Порт gRPC приемника (default: 50051)");
         options.addOption("b", "bandwidth", true, "Локальный лимит полосы пропускания в МБ/с");
         options.addOption("s", "staging-dir", true, "Директория временных файлов staging");
+        options.addOption("z", "compression", true, "Кодек потокового сжатия в канале (zstd, lz4, none; default: zstd)");
+        options.addOption("zl", "compression-level", true, "Уровень сжатия Zstd (1-22; default: 3)");
         options.addOption("h", "help", false, "Показать справку");
 
         CommandLineParser parser = new DefaultParser();
@@ -42,6 +44,12 @@ public class ReplicatorAgentMain {
             if (cmd.hasOption("port")) config.setReceiverPort(Integer.parseInt(cmd.getOptionValue("port")));
             if (cmd.hasOption("bandwidth")) config.setMaxBandwidthMbS(Double.parseDouble(cmd.getOptionValue("bandwidth")));
             if (cmd.hasOption("staging-dir")) config.setStagingDir(cmd.getOptionValue("staging-dir"));
+            if (cmd.hasOption("compression")) {
+                config.setWireCompressionCodec(org.apache.hadoop.explorer.replicator.compression.WireCompressor.parseCodec(cmd.getOptionValue("compression")));
+            }
+            if (cmd.hasOption("compression-level")) {
+                config.setWireCompressionLevel(Integer.parseInt(cmd.getOptionValue("compression-level")));
+            }
 
         } catch (ParseException e) {
             System.err.println("Ошибка разбора аргументов командной строки: " + e.getMessage());
