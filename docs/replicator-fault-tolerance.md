@@ -142,6 +142,68 @@ sequenceDiagram
   * Стример проверяет: `isIgnoredPath(srcPath) == true` и `isIgnoredPath(dstPath) == false`.
   * Стример фиксирует факт **финального коммита** и мгновенно ставит `dstPath` в очередь репликации как готовый файл.
 
+### 3.6. Мультикластерная топология в одном ЦОД: изоляция стримеров по `cluster_id`
+
+В корпоративной инфраструктуре в границах одного дата-центра (например, `dc1`) регулярно сосуществуют несколько независимых HDFS кластеров: например, `prod-core` (транзакционный data lake), `analytics` (витрины данных) и `archive` (холодный архив).
+
+```mermaid
+flowchart TB
+    subgraph DC1 ["Дата-Центр 1 (DC1 / Primary DC)"]
+        subgraph Cluster1 ["HDFS Кластер: prod-core"]
+            NN1["NameNode prod-core<br/>(hdfs://nn-core:8020)"]
+            S1_A["Streamer core-01<br/>(ACTIVE для prod-core)"]
+            S1_B["Streamer core-02<br/>(STANDBY для prod-core)"]
+            W1["Workers Pool core"]
+            NN1 --> S1_A
+        end
+
+        subgraph Cluster2 ["HDFS Кластер: analytics"]
+            NN2["NameNode analytics<br/>(hdfs://nn-analytics:8020)"]
+            S2_A["Streamer analytics-01<br/>(ACTIVE для analytics)"]
+            S2_B["Streamer analytics-02<br/>(STANDBY для analytics)"]
+            W2["Workers Pool analytics"]
+            NN2 --> S2_A
+        end
+    end
+
+    subgraph OrchestratorService ["Оркестратор Replicator & БД"]
+        Orch["Оркестратор HA"]
+        DB[(Таблица Лизингов<br/>replicator_streaming_lease)]
+        Orch --- DB
+    end
+
+    S1_A -->|Аренда: cluster_id=prod-core| Orch
+    S1_B -.->|Standby: cluster_id=prod-core| Orch
+    S2_A -->|Аренда: cluster_id=analytics| Orch
+    S2_B -.->|Standby: cluster_id=analytics| Orch
+
+    classDef active fill:#16a34a,stroke:#14532d,color:#ffffff,stroke-width:2px;
+    classDef standby fill:#ca8a04,stroke:#713f12,color:#ffffff,stroke-width:2px;
+    classDef orch fill:#0284c7,stroke:#0369a1,color:#ffffff,stroke-width:2px;
+
+    class S1_A,S2_A active;
+    class S1_B,S2_B standby;
+    class Orch,DB orch;
+```
+
+#### Принципы разделения и изоляции:
+1. **Каждому кластеру HDFS — свой выделенный пул стримеров**:
+   - Inotify является сокет-протоколом конкретного NameNode конкретного кластера (`dfsClient.getInotifyEventStream()`). Каждый кластер имеет свой собственный EditLog и независимый монотонный счетчик транзакций `txId`.
+   - Для каждого кластера запускается собственный отказоустойчивый пул стримеров (минимум 2 инстанса на кластер):
+     - Кластер `prod-core`: `CLUSTER_ID=prod-core`, `HADOOP_NAMENODE_RPC_ADDRESS=hdfs://nn-core:8020`.
+     - Кластер `analytics`: `CLUSTER_ID=analytics`, `HADOOP_NAMENODE_RPC_ADDRESS=hdfs://nn-analytics:8020`.
+2. **Изоляция распределенной аренды (Lease Per Cluster)**:
+   - В таблице `replicator_streaming_lease` первичным ключом является `cluster_id`.
+   - Запросы на продление аренды разделяются: пул кластера `prod-core` соревнуется за запись `cluster_id='prod-core'`, а пул кластера `analytics` — за запись `cluster_id='analytics'`.
+   - Никаких взаимных блокировок, гонок или интерференций между стримерами разных кластеров не происходит.
+3. **Маршрутизация и фильтрация событий**:
+   - Стример кластера `prod-core` запрашивает у Оркестратора только те задачи репликации, где `source_cluster_id == 'prod-core'`, и отслеживает пути только своего NameNode.
+   - Стример кластера `analytics` аналогично обрабатывает только задачи с `source_cluster_id == 'analytics'`.
+4. **Безопасность и Kerberos Realms**:
+   - Если кластеры используют разные Kerberos Realms или разные Keytabs администраторов HDFS, стримеры каждого пула монтируют соответствующие локальные keytab файлы для своего NameNode.
+5. **Сетевой шейпинг (Hierarchical Token Bucket)**:
+   - Несмотря на независимость стримеров, Оркестратор объединяет оба кластера лимитами дата-центра (`dc_limits: dc1 ➔ dc2`) и общим пулом (`global_limit`). При передаче файлов воркерами трафик с обоих кластеров суммируется и никогда не перегружает общую сетевую магистраль ЦОД.
+
 ---
 
 ## 4. Отказоустойчивость пула воркеров (Data Worker Pool HA)
