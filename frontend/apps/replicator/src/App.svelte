@@ -51,8 +51,30 @@
   let authErrorMessage = $state<string | null>(null);
   let isLoginModalOpen = $state(false);
 
-  // Табы приложения
-  let activeTab = $state<'jobs' | 'hms' | 'topology' | 'dr'>('jobs');
+  function getInitialTab(): 'jobs' | 'hms' | 'topology' | 'dr' {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'jobs' || hash === 'hms' || hash === 'topology' || hash === 'dr') {
+        return hash;
+      }
+      const saved = localStorage.getItem('replicator_active_tab');
+      if (saved === 'jobs' || saved === 'hms' || saved === 'topology' || saved === 'dr') {
+        return saved;
+      }
+    }
+    return 'jobs';
+  }
+
+  // Табы приложения с сохранением состояния при перезагрузке
+  let activeTab = $state<'jobs' | 'hms' | 'topology' | 'dr'>(getInitialTab());
+
+  function setActiveTab(tab: 'jobs' | 'hms' | 'topology' | 'dr') {
+    activeTab = tab;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('replicator_active_tab', tab);
+      window.location.hash = tab;
+    }
+  }
 
   let jobs = $state<Job[]>([]);
   let jobsLoading = $state(false);
@@ -691,6 +713,8 @@
   }
 
 
+  let onHashChangeHandler: (() => void) | null = null;
+
   onMount(async () => {
     // Подписка на 401 Unauthorized / истечение сессии
     api.onUnauthorized((msg) => {
@@ -713,6 +737,15 @@
       authLoading = false;
     }
 
+    const onHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'jobs' || hash === 'hms' || hash === 'topology' || hash === 'dr') {
+        activeTab = hash;
+      }
+    };
+    onHashChangeHandler = onHashChange;
+    window.addEventListener('hashchange', onHashChange);
+
     pollTimer = setInterval(() => {
       if (user) {
         if (activeTab === 'jobs') {
@@ -727,6 +760,9 @@
 
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
+    if (onHashChangeHandler) {
+      window.removeEventListener('hashchange', onHashChangeHandler);
+    }
   });
 </script>
 
@@ -734,25 +770,25 @@
   <!-- Навигационные вкладки -->
   <nav class="flex items-center gap-1 bg-slate-100 dark:bg-slate-950/80 p-1 rounded-lg border border-slate-200 dark:border-slate-800">
     <button
-      onclick={() => (activeTab = 'jobs')}
+      onclick={() => setActiveTab('jobs')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'jobs' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       HDFS Replication
     </button>
     <button
-      onclick={() => (activeTab = 'hms')}
+      onclick={() => setActiveTab('hms')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'hms' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       HMS Replication
     </button>
     <button
-      onclick={() => (activeTab = 'topology')}
+      onclick={() => setActiveTab('topology')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'topology' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       Топология ЦОД и Полоса
     </button>
     <button
-      onclick={() => (activeTab = 'dr')}
+      onclick={() => setActiveTab('dr')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5 {activeTab === 'dr' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       <span class="w-1.5 h-1.5 rounded-full {activeTab === 'dr' ? 'bg-white' : 'bg-rose-500'}"></span>

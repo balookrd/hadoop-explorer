@@ -41,7 +41,8 @@
   let { user = null }: { user?: UserSession | null } = $props();
 
   const isReader = $derived(user?.system_role === 'reader');
-  const isAdmin = $derived(user?.system_role === 'admin' || user?.is_admin === true);
+  // В демо-режиме без авторизации (user == null) или для admin/operator считаем права полными
+  const isAdmin = $derived(!user || user?.system_role === 'admin' || user?.is_admin === true || user?.system_role === 'operator');
 
   // Состояние
   let drStatus = $state<DrStatusResponse | null>(null);
@@ -55,6 +56,12 @@
   let emergencyClusterId = $state<string>('dc1');
   let emergencyReason = $state<string>('');
   let emergencyFenceNetwork = $state<boolean>(true);
+
+  let showRollbackModal = $state<boolean>(false);
+  let rollbackClusterId = $state<string>('dc1');
+  let rollbackRestoreNetwork = $state<boolean>(true);
+  let rollbackResumeHms = $state<boolean>(true);
+  let rollbackResumeHdfs = $state<boolean>(true);
 
   let showReverseModal = $state<boolean>(false);
   let reverseFromCluster = $state<string>('dc2');
@@ -113,6 +120,34 @@
       }
     } catch (e: any) {
       showToast('Ошибка выполнения аварийного останова: ' + (e?.message || e), 'error');
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function executeRollbackEmergencyStop(targetClusterId?: string) {
+    if (!isAdmin) {
+      showToast('Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)', 'error');
+      return;
+    }
+    const cId = (typeof targetClusterId === 'string' && targetClusterId) ? targetClusterId : (rollbackClusterId || drStatus?.summary?.fenced_cluster_id || 'dc1');
+    actionLoading = true;
+    try {
+      const resp = await api.rollbackEmergencyStop({
+        cluster_id: cId,
+        restore_network: rollbackRestoreNetwork,
+        resume_hms: rollbackResumeHms,
+        resume_hdfs: rollbackResumeHdfs
+      });
+      if (resp.success) {
+        showToast(resp.message, 'success');
+        showRollbackModal = false;
+        await loadDrStatus();
+      } else {
+        showToast('Ошибка отката: ' + resp.message, 'error');
+      }
+    } catch (e: any) {
+      showToast('Ошибка выполнения отката аварийного останова: ' + (e?.message || e), 'error');
     } finally {
       actionLoading = false;
     }
@@ -297,34 +332,92 @@
         Обновить статус
       </button>
 
-      {#if isAdmin}
+      {#if drStatus?.summary?.kill_switch_active}
+        <!-- Режим активной аварии: кнопка снятия изоляции и отката -->
         <button
           onclick={() => {
+            if (!isAdmin) return;
+            rollbackClusterId = drStatus?.summary?.fenced_cluster_id || 'dc1';
+            showRollbackModal = true;
+          }}
+          disabled={actionLoading || !isAdmin}
+          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold {isAdmin ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-md ring-2 ring-amber-400 cursor-pointer animate-pulse' : 'bg-amber-950/40 text-amber-300/60 border border-amber-800/40 cursor-not-allowed opacity-60'} transition disabled:opacity-50"
+          title={isAdmin ? "Снять сетевое ограждение и возобновить репликацию" : "Требуются права Администратора платформы"}
+        >
+          <Unlock class="w-4 h-4" />
+          🛡️ Снять изоляцию / Откат ({drStatus.summary.fenced_cluster_id ? drStatus.summary.fenced_cluster_id.toUpperCase() : 'DC1'})
+        </button>
+      {:else}
+        <!-- Штатный режим: кнопка экстренного останова Kill-Switch -->
+        <button
+          onclick={() => {
+            if (!isAdmin) return;
             emergencyClusterId = 'dc1';
             showEmergencyModal = true;
           }}
-          disabled={actionLoading}
-          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition cursor-pointer disabled:opacity-50"
+          disabled={actionLoading || !isAdmin}
+          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold {isAdmin ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer' : 'bg-rose-950/30 text-rose-300/60 border border-rose-800/40 cursor-not-allowed opacity-60'} transition disabled:opacity-50"
+          title={isAdmin ? "Экстренный останов и изоляция сетевого канала (Kill-Switch)" : "Требуются права Администратора платформы"}
         >
           <PowerOff class="w-4 h-4" />
           🛑 Kill-Switch (Стоп DC1)
         </button>
-
-        <button
-          onclick={() => {
-            reverseFromCluster = 'dc2';
-            reverseToCluster = 'dc1';
-            showReverseModal = true;
-          }}
-          disabled={actionLoading}
-          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer disabled:opacity-50"
-        >
-          <RotateCcw class="w-4 h-4" />
-          🔄 Reverse Replication (DC2 ➔ DC1)
-        </button>
       {/if}
+
+      <button
+        onclick={() => {
+          if (!isAdmin) return;
+          reverseFromCluster = 'dc2';
+          reverseToCluster = 'dc1';
+          showReverseModal = true;
+        }}
+        disabled={actionLoading || !isAdmin}
+        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold {isAdmin ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer' : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'} transition disabled:opacity-50"
+        title={isAdmin ? "Развернуть направление репликации" : "Требуются права Администратора платформы"}
+      >
+        <RotateCcw class="w-4 h-4" />
+        🔄 Reverse Replication (DC2 ➔ DC1)
+      </button>
     </div>
   </div>
+
+  {#if drStatus?.summary?.kill_switch_active}
+    <!-- Баннер активного Kill-Switch режима -->
+    <div class="p-4 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl flex items-center justify-between gap-4 text-xs shadow-xs animate-in fade-in duration-200">
+      <div class="flex items-center gap-3">
+        <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-400 shrink-0">
+          <Flame class="w-5 h-5 animate-pulse" />
+        </div>
+        <div>
+          <div class="font-bold text-rose-900 dark:text-rose-200 text-sm flex items-center gap-2">
+            <span>Аварийная изоляция активна (Kill-Switch)</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 font-bold uppercase">
+              {drStatus.summary.fenced_cluster_id || 'DC1'}
+            </span>
+          </div>
+          <div class="text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">
+            Сетевой канал перекрыт (0 МБ/с). Задачи HDFS и схемы HMS переведены в режим ожидания.
+            {#if drStatus.summary.last_emergency_reason}
+              Причина: <span class="italic font-medium">«{drStatus.summary.last_emergency_reason}»</span>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <button
+        onclick={() => {
+          if (!isAdmin) return;
+          rollbackClusterId = drStatus?.summary?.fenced_cluster_id || 'dc1';
+          showRollbackModal = true;
+        }}
+        disabled={actionLoading || !isAdmin}
+        class="px-4 py-2 rounded-xl text-xs font-bold {isAdmin ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md cursor-pointer' : 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'} transition shrink-0 flex items-center gap-1.5"
+        title={isAdmin ? "Снять изоляцию и возобновить репликацию" : "Требуются права Администратора платформы"}
+      >
+        <RotateCcw class="w-4 h-4" />
+        Снять изоляцию и возобновить
+      </button>
+    </div>
+  {/if}
 
   {#if !isAdmin}
     <!-- Информационная плашка для не-админов (Read-Only) -->
@@ -360,8 +453,11 @@
       <div class="grid grid-cols-1 lg:grid-cols-7 gap-4 items-center">
         <!-- DC1 Карточка -->
         {#each drStatus.datacenters.filter(d => d.id === 'dc1') as dc1}
+          {@const isDc1Fenced = dc1.is_fenced || (drStatus.summary.kill_switch_active && (drStatus.summary.fenced_cluster_id === dc1.id || drStatus.summary.fenced_cluster_id === 'dc1'))}
           <div class="lg:col-span-3 p-5 rounded-xl border-2 transition relative overflow-hidden {
-            dc1.status === 'ONLINE'
+            isDc1Fenced
+              ? 'bg-rose-50/90 dark:bg-rose-950/50 border-rose-600 dark:border-rose-500 ring-2 ring-rose-500/40 shadow-md'
+              : dc1.status === 'ONLINE'
               ? 'bg-slate-50/80 dark:bg-slate-950/60 border-emerald-500/60 dark:border-emerald-600/60'
               : dc1.status === 'DEGRADED'
               ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-500/60'
@@ -374,33 +470,65 @@
                     {dc1.name}
                   </span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase {
-                    dc1.role === 'PRIMARY'
+                    isDc1Fenced
+                      ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 border border-rose-400'
+                      : dc1.role === 'PRIMARY'
                       ? 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                   }">
-                    {dc1.role}
+                    {isDc1Fenced ? 'FENCED' : dc1.role}
                   </span>
                 </div>
                 <span class="text-xs text-slate-500 dark:text-slate-400 font-mono">Cluster ID: {dc1.id}</span>
               </div>
 
               <!-- Статус бэйдж -->
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold {
-                dc1.status === 'ONLINE'
-                  ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                  : dc1.status === 'DEGRADED'
-                  ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                  : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-              }">
-                {#if dc1.status === 'ONLINE'}
-                  <Wifi class="w-3.5 h-3.5" /> ONLINE
-                {:else if dc1.status === 'DEGRADED'}
-                  <AlertTriangle class="w-3.5 h-3.5" /> DEGRADED
-                {:else}
-                  <WifiOff class="w-3.5 h-3.5" /> OFFLINE
-                {/if}
-              </span>
+              {#if isDc1Fenced}
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-600 text-white shadow-xs animate-pulse">
+                  <Lock class="w-3.5 h-3.5" /> ПОДАВЛЕН (FENCED)
+                </span>
+              {:else}
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold {
+                  dc1.status === 'ONLINE'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : dc1.status === 'DEGRADED'
+                    ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                    : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                }">
+                  {#if dc1.status === 'ONLINE'}
+                    <Wifi class="w-3.5 h-3.5" /> ONLINE
+                  {:else if dc1.status === 'DEGRADED'}
+                    <AlertTriangle class="w-3.5 h-3.5" /> DEGRADED
+                  {:else}
+                    <WifiOff class="w-3.5 h-3.5" /> OFFLINE
+                  {/if}
+                </span>
+              {/if}
             </div>
+
+            <!-- Баннер подавления внутри карточки -->
+            {#if isDc1Fenced}
+              <div class="mt-3.5 p-2.5 rounded-lg bg-rose-100/90 dark:bg-rose-900/60 border border-rose-300 dark:border-rose-700 flex items-center justify-between gap-2 text-xs text-rose-900 dark:text-rose-100">
+                <div class="flex items-center gap-2">
+                  <Flame class="w-4 h-4 text-rose-600 shrink-0 animate-pulse" />
+                  <div>
+                    <div class="font-extrabold text-[11px]">Кластер подавлен (Kill-Switch)</div>
+                    <div class="text-[10px] text-rose-700 dark:text-rose-300">Сетевой трафик заблокирован (0 МБ/с). Задачи на паузе.</div>
+                  </div>
+                </div>
+                {#if isAdmin}
+                  <button
+                    onclick={() => {
+                      rollbackClusterId = dc1.id;
+                      showRollbackModal = true;
+                    }}
+                    class="px-2 py-1 rounded-md text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs transition cursor-pointer shrink-0"
+                  >
+                    Снять
+                  </button>
+                {/if}
+              </div>
+            {/if}
 
             <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800/80 grid grid-cols-2 gap-3 text-xs">
               <div>
@@ -411,23 +539,65 @@
               </div>
               <div>
                 <span class="text-slate-400 block text-[11px]">Шейпер пропускной способности</span>
-                <span class="font-bold font-mono {dc1.is_fenced ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}">
-                  {dc1.is_fenced ? '0 МБ/с (FENCED 🔒)' : `${dc1.bandwidth_limit_mb_s} МБ/с`}
+                <span class="font-bold font-mono {isDc1Fenced ? 'text-rose-600 dark:text-rose-400 font-extrabold' : 'text-slate-800 dark:text-slate-200'}">
+                  {isDc1Fenced ? '0 МБ/с (ПОДАВЛЕН 🔒)' : `${dc1.bandwidth_limit_mb_s} МБ/с`}
                 </span>
               </div>
             </div>
 
-            {#if isAdmin && dc1.status !== 'OFFLINE'}
+            <!-- Список привязанных HDFS кластеров с бейджами статуса -->
+            {#if drStatus.clusters && drStatus.clusters.some(c => c.dc_id === dc1.id || c.id.includes(dc1.id))}
+              <div class="mt-3 pt-2.5 border-t border-slate-200/80 dark:border-slate-800/80">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5">
+                  Кластеры хранения:
+                </span>
+                <div class="space-y-1.5">
+                  {#each drStatus.clusters.filter(c => c.dc_id === dc1.id || c.id.includes(dc1.id)) as cl}
+                    {@const clFenced = cl.is_fenced || isDc1Fenced}
+                    <div class="flex items-center justify-between p-2 rounded-lg {clFenced ? 'bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300 dark:border-rose-800' : 'bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800'} text-[11px]">
+                      <div class="flex items-center gap-1.5">
+                        <Server class="w-3.5 h-3.5 {clFenced ? 'text-rose-600' : 'text-slate-500'}" />
+                        <span class="font-bold text-slate-800 dark:text-slate-200">{cl.name}</span>
+                        <span class="text-[10px] text-slate-400 font-mono">({cl.id})</span>
+                      </div>
+                      {#if clFenced}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white animate-pulse">
+                          <Lock class="w-3 h-3" /> ПОДАВЛЕН
+                        </span>
+                      {:else}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                          <CheckCircle2 class="w-3 h-3" /> АКТИВЕН
+                        </span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if isAdmin}
               <div class="mt-3 pt-2">
-                <button
-                  onclick={() => {
-                    emergencyClusterId = dc1.id;
-                    showEmergencyModal = true;
-                  }}
-                  class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <PowerOff class="w-3 h-3" /> Экстренно изолировать {dc1.id}
-                </button>
+                {#if isDc1Fenced}
+                  <button
+                    onclick={() => {
+                      rollbackClusterId = dc1.id;
+                      showRollbackModal = true;
+                    }}
+                    class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                  >
+                    <Unlock class="w-3 h-3" /> Снять изоляцию и возобновить {dc1.id}
+                  </button>
+                {:else if dc1.status !== 'OFFLINE'}
+                  <button
+                    onclick={() => {
+                      emergencyClusterId = dc1.id;
+                      showEmergencyModal = true;
+                    }}
+                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <PowerOff class="w-3 h-3" /> Экстренно изолировать {dc1.id}
+                  </button>
+                {/if}
               </div>
             {/if}
           </div>
@@ -440,7 +610,16 @@
           </div>
 
           <div class="w-full flex items-center justify-center">
-            {#if drStatus.summary.active_source_dc === 'dc1'}
+            {#if drStatus.summary.kill_switch_active}
+              <!-- Аварийное перекрытие канала -->
+              <div class="flex flex-col items-center gap-1 text-rose-600 dark:text-rose-400">
+                <div class="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800">
+                  <Lock class="w-3 h-3" />
+                  <span>ИЗОЛИРОВАН</span>
+                </div>
+                <span class="text-[9px] font-mono text-rose-500 font-bold">0 МБ/с Fenced</span>
+              </div>
+            {:else if drStatus.summary.active_source_dc === 'dc1'}
               <!-- Направление DC1 ➔ DC2 -->
               <div class="flex flex-col items-center gap-1 text-sky-600 dark:text-sky-400 animate-pulse">
                 <div class="flex items-center gap-1">
@@ -472,8 +651,11 @@
 
         <!-- DC2 Карточка -->
         {#each drStatus.datacenters.filter(d => d.id === 'dc2') as dc2}
+          {@const isDc2Fenced = dc2.is_fenced || (drStatus.summary.kill_switch_active && (drStatus.summary.fenced_cluster_id === dc2.id || drStatus.summary.fenced_cluster_id === 'dc2'))}
           <div class="lg:col-span-3 p-5 rounded-xl border-2 transition relative overflow-hidden {
-            dc2.status === 'ONLINE'
+            isDc2Fenced
+              ? 'bg-rose-50/90 dark:bg-rose-950/50 border-rose-600 dark:border-rose-500 ring-2 ring-rose-500/40 shadow-md'
+              : dc2.status === 'ONLINE'
               ? 'bg-slate-50/80 dark:bg-slate-950/60 border-emerald-500/60 dark:border-emerald-600/60'
               : dc2.status === 'DEGRADED'
               ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-500/60'
@@ -486,33 +668,65 @@
                     {dc2.name}
                   </span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase {
-                    dc2.role === 'PROMOTED_PRIMARY'
+                    isDc2Fenced
+                      ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 border border-rose-400'
+                      : dc2.role === 'PROMOTED_PRIMARY'
                       ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                   }">
-                    {dc2.role}
+                    {isDc2Fenced ? 'FENCED' : dc2.role}
                   </span>
                 </div>
                 <span class="text-xs text-slate-500 dark:text-slate-400 font-mono">Cluster ID: {dc2.id}</span>
               </div>
 
               <!-- Статус бэйдж -->
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold {
-                dc2.status === 'ONLINE'
-                  ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                  : dc2.status === 'DEGRADED'
-                  ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                  : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-              }">
-                {#if dc2.status === 'ONLINE'}
-                  <Wifi class="w-3.5 h-3.5" /> ONLINE
-                {:else if dc2.status === 'DEGRADED'}
-                  <AlertTriangle class="w-3.5 h-3.5" /> DEGRADED
-                {:else}
-                  <WifiOff class="w-3.5 h-3.5" /> OFFLINE
-                {/if}
-              </span>
+              {#if isDc2Fenced}
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-600 text-white shadow-xs animate-pulse">
+                  <Lock class="w-3.5 h-3.5" /> ПОДАВЛЕН (FENCED)
+                </span>
+              {:else}
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold {
+                  dc2.status === 'ONLINE'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : dc2.status === 'DEGRADED'
+                    ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                    : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                }">
+                  {#if dc2.status === 'ONLINE'}
+                    <Wifi class="w-3.5 h-3.5" /> ONLINE
+                  {:else if dc2.status === 'DEGRADED'}
+                    <AlertTriangle class="w-3.5 h-3.5" /> DEGRADED
+                  {:else}
+                    <WifiOff class="w-3.5 h-3.5" /> OFFLINE
+                  {/if}
+                </span>
+              {/if}
             </div>
+
+            <!-- Баннер подавления внутри карточки -->
+            {#if isDc2Fenced}
+              <div class="mt-3.5 p-2.5 rounded-lg bg-rose-100/90 dark:bg-rose-900/60 border border-rose-300 dark:border-rose-700 flex items-center justify-between gap-2 text-xs text-rose-900 dark:text-rose-100">
+                <div class="flex items-center gap-2">
+                  <Flame class="w-4 h-4 text-rose-600 shrink-0 animate-pulse" />
+                  <div>
+                    <div class="font-extrabold text-[11px]">Кластер подавлен (Kill-Switch)</div>
+                    <div class="text-[10px] text-rose-700 dark:text-rose-300">Сетевой трафик заблокирован (0 МБ/с). Задачи на паузе.</div>
+                  </div>
+                </div>
+                {#if isAdmin}
+                  <button
+                    onclick={() => {
+                      rollbackClusterId = dc2.id;
+                      showRollbackModal = true;
+                    }}
+                    class="px-2 py-1 rounded-md text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs transition cursor-pointer shrink-0"
+                  >
+                    Снять
+                  </button>
+                {/if}
+              </div>
+            {/if}
 
             <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800/80 grid grid-cols-2 gap-3 text-xs">
               <div>
@@ -523,24 +737,66 @@
               </div>
               <div>
                 <span class="text-slate-400 block text-[11px]">Шейпер пропускной способности</span>
-                <span class="font-bold font-mono {dc2.is_fenced ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}">
-                  {dc2.is_fenced ? '0 МБ/с (FENCED 🔒)' : `${dc2.bandwidth_limit_mb_s} МБ/с`}
+                <span class="font-bold font-mono {isDc2Fenced ? 'text-rose-600 dark:text-rose-400 font-extrabold' : 'text-slate-800 dark:text-slate-200'}">
+                  {isDc2Fenced ? '0 МБ/с (ПОДАВЛЕН 🔒)' : `${dc2.bandwidth_limit_mb_s} МБ/с`}
                 </span>
               </div>
             </div>
 
+            <!-- Список привязанных HDFS кластеров с бейджами статуса -->
+            {#if drStatus.clusters && drStatus.clusters.some(c => c.dc_id === dc2.id || c.id.includes(dc2.id))}
+              <div class="mt-3 pt-2.5 border-t border-slate-200/80 dark:border-slate-800/80">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5">
+                  Кластеры хранения:
+                </span>
+                <div class="space-y-1.5">
+                  {#each drStatus.clusters.filter(c => c.dc_id === dc2.id || c.id.includes(dc2.id)) as cl}
+                    {@const clFenced = cl.is_fenced || isDc2Fenced}
+                    <div class="flex items-center justify-between p-2 rounded-lg {clFenced ? 'bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300 dark:border-rose-800' : 'bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800'} text-[11px]">
+                      <div class="flex items-center gap-1.5">
+                        <Server class="w-3.5 h-3.5 {clFenced ? 'text-rose-600' : 'text-slate-500'}" />
+                        <span class="font-bold text-slate-800 dark:text-slate-200">{cl.name}</span>
+                        <span class="text-[10px] text-slate-400 font-mono">({cl.id})</span>
+                      </div>
+                      {#if clFenced}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white animate-pulse">
+                          <Lock class="w-3 h-3" /> ПОДАВЛЕН
+                        </span>
+                      {:else}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                          <CheckCircle2 class="w-3 h-3" /> АКТИВЕН
+                        </span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
             {#if isAdmin}
               <div class="mt-3 pt-2">
-                <button
-                  onclick={() => {
-                    reverseFromCluster = dc2.id;
-                    reverseToCluster = 'dc1';
-                    showReverseModal = true;
-                  }}
-                  class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <RotateCcw class="w-3 h-3" /> Настроить репликацию из {dc2.id}
-                </button>
+                {#if isDc2Fenced}
+                  <button
+                    onclick={() => {
+                      rollbackClusterId = dc2.id;
+                      showRollbackModal = true;
+                    }}
+                    class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                  >
+                    <Unlock class="w-3 h-3" /> Снять изоляцию и возобновить {dc2.id}
+                  </button>
+                {:else}
+                  <button
+                    onclick={() => {
+                      reverseFromCluster = dc2.id;
+                      reverseToCluster = 'dc1';
+                      showReverseModal = true;
+                    }}
+                    class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw class="w-3 h-3" /> Настроить репликацию из {dc2.id}
+                  </button>
+                {/if}
               </div>
             {/if}
           </div>
@@ -969,6 +1225,145 @@
           {:else}
             <RotateCcw class="w-3.5 h-3.5" />
             Запустить обратную синхронизацию
+          {/if}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Модальное окно отката аварийного останова (Rollback / Unfence Modal) -->
+{#if showRollbackModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div
+    role="presentation"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 select-none"
+    onclick={(e) => { if (e.target === e.currentTarget) showRollbackModal = false; }}
+  >
+    <div
+      class="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 select-auto text-slate-900 dark:text-slate-100"
+    >
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+            <Unlock class="w-4 h-4" />
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100">
+              Снятие изоляции и откат Kill-Switch
+            </h3>
+            <p class="text-[11px] text-slate-500">Восстановление сетевых каналов и возобновление задач</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onclick={() => (showRollbackModal = false)}
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition cursor-pointer p-1"
+        >
+          <X class="w-5 h-5" />
+        </button>
+      </div>
+
+      <div class="space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Кластер для снятия изоляции:
+          </label>
+          <select
+            bind:value={rollbackClusterId}
+            class="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono text-xs focus:ring-1 focus:ring-emerald-500 font-bold text-slate-800 dark:text-slate-100"
+          >
+            {#if drStatus?.clusters && drStatus.clusters.length > 0}
+              {#each drStatus.clusters as cl}
+                <option value={cl.id}>
+                  {cl.id} ({cl.name}) {cl.is_fenced || (drStatus?.summary?.kill_switch_active && (drStatus?.summary?.fenced_cluster_id === cl.id || drStatus?.summary?.fenced_cluster_id === cl.dc_id)) ? '— [ПОДАВЛЕН 🔒]' : ''}
+                </option>
+              {/each}
+            {:else if drStatus?.datacenters && drStatus.datacenters.length > 0}
+              {#each drStatus.datacenters as dc}
+                <option value={dc.id}>
+                  {dc.id} ({dc.name}) {dc.is_fenced || (drStatus?.summary?.kill_switch_active && drStatus?.summary?.fenced_cluster_id === dc.id) ? '— [ПОДАВЛЕН 🔒]' : ''}
+                </option>
+              {/each}
+            {:else}
+              <option value="dc1">dc1 (HDFS DC1 Production) — [ПОДАВЛЕН 🔒]</option>
+              <option value="dc2">dc2 (HDFS DC2 Disaster Recovery)</option>
+            {/if}
+          </select>
+        </div>
+
+        <div class="p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+          <label class="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              bind:checked={rollbackRestoreNetwork}
+              class="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200">
+                Снять сетевое ограждение (Unfence Network)
+              </div>
+              <div class="text-[10px] text-slate-500 leading-relaxed">
+                Восстанавливает лимиты шейпера между датацентрами с 0 МБ/с до штатных значений (100 МБ/с).
+              </div>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              bind:checked={rollbackResumeHms}
+              class="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200">
+                Возобновить репликацию схем Hive Metastore
+              </div>
+              <div class="text-[10px] text-slate-500 leading-relaxed">
+                Переводит приостановленные (PAUSED) схемы обратно в статус ACTIVE и запускает опрос CDC.
+              </div>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              bind:checked={rollbackResumeHdfs}
+              class="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200">
+                Возобновить HDFS задачи и их расписания
+              </div>
+              <div class="text-[10px] text-slate-500 leading-relaxed">
+                Возвращает задачи в очередь QUEUED и реактивирует cron-расписания.
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <button
+          type="button"
+          onclick={() => (showRollbackModal = false)}
+          disabled={actionLoading}
+          class="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+        >
+          Отмена
+        </button>
+        <button
+          type="button"
+          onclick={executeRollbackEmergencyStop}
+          disabled={actionLoading || (!rollbackRestoreNetwork && !rollbackResumeHms && !rollbackResumeHdfs)}
+          class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {#if actionLoading}
+            <RefreshCw class="w-3.5 h-3.5 animate-spin" />
+            Откат...
+          {:else}
+            <RotateCcw class="w-3.5 h-3.5" />
+            Снять ограничения и возобновить
           {/if}
         </button>
       </div>

@@ -57,6 +57,18 @@ public class DisasterRecoveryController {
         return ResponseEntity.ok(drService.emergencyStop(req, username));
     }
 
+    @PostMapping({"/emergency-stop/rollback", "/emergency-stop/cancel", "/restore"})
+    public ResponseEntity<DrActionResponse> rollbackEmergencyStop(
+            @RequestBody(required = false) org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyRollbackRequest req,
+            Authentication auth
+    ) {
+        requireAdmin(auth);
+        UserSession session = getSession(auth);
+        String username = session != null ? session.username() : "system_operator";
+        var request = req != null ? req : new org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyRollbackRequest("dc1", true, true, true);
+        return ResponseEntity.ok(drService.rollbackEmergencyStop(request, username));
+    }
+
     @PostMapping("/reverse")
     public ResponseEntity<DrActionResponse> reverseReplication(
             @Valid @RequestBody DrReverseRequest req,

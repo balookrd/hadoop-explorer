@@ -317,16 +317,6 @@ public class HmsCoordinatorService {
         if (report.eventLag() != null) {
             job.setEventLag(report.eventLag());
         }
-        if (report.message() != null) {
-            job.setMessage(report.message());
-        }
-        if (report.agentId() != null && !report.agentId().isBlank()) {
-            job.setAssignedAgentId(report.agentId());
-            job.setLeaseExpiresAt(Instant.now().plusSeconds(getLeaseDurationSeconds()));
-        }
-        job.setLastSyncAt(Instant.now());
-        hmsJobRepository.save(job);
-
         // Сохранение DDL событий в историю аудита
         if (report.events() != null && !report.events().isEmpty()) {
             for (HmsEventReportDto ev : report.events()) {
@@ -345,6 +335,26 @@ public class HmsCoordinatorService {
                 hmsEventLogRepository.save(eventEntity);
             }
         }
+
+        if (report.message() != null) {
+            if (report.message().startsWith("Синхронизировано")) {
+                long totalEvents = hmsEventLogRepository.countByHmsJobId(jobId);
+                long lag = job.getEventLag() != null ? job.getEventLag() : 0L;
+                if (totalEvents > 0) {
+                    job.setMessage(String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.", totalEvents, lag));
+                } else {
+                    job.setMessage(report.message());
+                }
+            } else {
+                job.setMessage(report.message());
+            }
+        }
+        if (report.agentId() != null && !report.agentId().isBlank()) {
+            job.setAssignedAgentId(report.agentId());
+            job.setLeaseExpiresAt(Instant.now().plusSeconds(getLeaseDurationSeconds()));
+        }
+        job.setLastSyncAt(Instant.now());
+        hmsJobRepository.save(job);
     }
 
     /**

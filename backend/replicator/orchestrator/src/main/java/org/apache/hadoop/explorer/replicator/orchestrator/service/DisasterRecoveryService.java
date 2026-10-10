@@ -24,11 +24,45 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyRollbackRequest;
 
 @Service
 public class DisasterRecoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(DisasterRecoveryService.class);
+
+    public static class EmergencySnapshot {
+        private final String clusterId;
+        private final String operator;
+        private final String reason;
+        private final Instant timestamp;
+        private final boolean networkFenced;
+        private final Map<String, Long> previousDcLimits = new HashMap<>();
+        private final List<String> stoppedHdfsJobIds = new ArrayList<>();
+        private final Map<String, Boolean> previousHdfsScheduled = new HashMap<>();
+        private final List<String> pausedHmsJobIds = new ArrayList<>();
+
+        public EmergencySnapshot(String clusterId, String operator, String reason, Instant timestamp, boolean networkFenced) {
+            this.clusterId = clusterId;
+            this.operator = operator;
+            this.reason = reason;
+            this.timestamp = timestamp;
+            this.networkFenced = networkFenced;
+        }
+
+        public String getClusterId() { return clusterId; }
+        public String getOperator() { return operator; }
+        public String getReason() { return reason; }
+        public Instant getTimestamp() { return timestamp; }
+        public boolean isNetworkFenced() { return networkFenced; }
+        public Map<String, Long> getPreviousDcLimits() { return previousDcLimits; }
+        public List<String> getStoppedHdfsJobIds() { return stoppedHdfsJobIds; }
+        public Map<String, Boolean> getPreviousHdfsScheduled() { return previousHdfsScheduled; }
+        public List<String> getPausedHmsJobIds() { return pausedHmsJobIds; }
+    }
+
+    private final Map<String, EmergencySnapshot> activeSnapshots = new ConcurrentHashMap<>();
 
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
@@ -127,6 +161,12 @@ public class DisasterRecoveryService {
                     }
                 }
             }
+            boolean hasSnapshot = activeSnapshots.containsKey(dcId.toLowerCase())
+                    || activeSnapshots.values().stream().anyMatch(s -> s.getClusterId() != null && matchesDc(s.getClusterId(), dcId));
+            if (hasSnapshot) {
+                isFenced = true;
+                limitBytes = 0;
+            }
 
             double limitMbS = Math.round((limitBytes / (1024.0 * 1024.0)) * 10.0) / 10.0;
 
@@ -164,6 +204,10 @@ public class DisasterRecoveryService {
                     .toList();
             boolean isOnline = clusterAgents.stream().anyMatch(a -> "online".equalsIgnoreCase(a.status()));
 
+            boolean isClusterFenced = activeSnapshots.containsKey(cId.toLowerCase())
+                    || activeSnapshots.values().stream().anyMatch(s -> s.getClusterId() != null && matchesCluster(s.getClusterId(), cId))
+                    || dcStatuses.stream().anyMatch(dc -> dc.id().equalsIgnoreCase(c.getDcId()) && dc.isFenced());
+
             clusterStatuses.add(new DrStatusResponse.DrClusterStatus(
                     cId,
                     c.getName() != null ? c.getName() : cId,
@@ -172,7 +216,8 @@ public class DisasterRecoveryService {
                     active,
                     queued,
                     failed,
-                    completed
+                    completed,
+                    isClusterFenced
             ));
         }
 
@@ -277,6 +322,12 @@ public class DisasterRecoveryService {
             activeDstDc = "dc1";
         }
 
+        boolean anyZeroLimit = topologyRegistry.getDcLimitsList().stream().anyMatch(l -> l.limitBytesPerSec() == 0L);
+        boolean hasSnapshot = !activeSnapshots.isEmpty();
+        boolean killSwitchActive = hasSnapshot || anyZeroLimit;
+        String fencedClusterId = activeSnapshots.keySet().stream().findFirst().orElse(anyZeroLimit ? "dc1" : null);
+        String lastReason = activeSnapshots.values().stream().findFirst().map(EmergencySnapshot::getReason).orElse(null);
+
         DrStatusResponse.DrSummary summary = new DrStatusResponse.DrSummary(
                 activeSrcDc,
                 activeDstDc,
@@ -286,7 +337,10 @@ public class DisasterRecoveryService {
                 frozenJobsCount,
                 failedJobsCount,
                 totalUnreplicatedBytes,
-                totalUnreplicatedEvents
+                totalUnreplicatedEvents,
+                killSwitchActive,
+                fencedClusterId,
+                lastReason
         );
 
         return new DrStatusResponse(dcStatuses, clusterStatuses, summary, hdfsRoutes, hmsRoutes);
@@ -306,12 +360,27 @@ public class DisasterRecoveryService {
         log.warn("[Disaster Recovery] АВАРИЙНЫЙ ОСТАНОВ (Kill-Switch) для кластера '{}' оператором '{}'{}",
                 clusterId, operator, note);
 
+        // 1. Создаем и сохраняем снимок состояния (Snapshot) для возможности точного отката
+        EmergencySnapshot snapshot = new EmergencySnapshot(
+                clusterId, operator, req.reason(), now, Boolean.TRUE.equals(req.fenceNetwork())
+        );
+
+        // Сохраняем лимиты пропускной способности каналов до ограждения
+        for (var limit : topologyRegistry.getDcLimitsList()) {
+            if (matchesDc(limit.sourceDc(), clusterId) || matchesDc(limit.targetDc(), clusterId)) {
+                snapshot.getPreviousDcLimits().put(limit.sourceDc() + "->" + limit.targetDc(), limit.limitBytesPerSec());
+            }
+        }
+
         int stoppedHdfs = 0;
         List<JobEntity> jobs = jobRepository.findAll();
         for (JobEntity j : jobs) {
             if (matchesCluster(j.getSourceClusterId(), clusterId)) {
                 String status = j.getStatus() != null ? j.getStatus().toUpperCase() : "";
                 if ("RUNNING".equals(status) || "QUEUED".equals(status) || "ANALYZING".equals(status) || "STREAMING".equals(status)) {
+                    snapshot.getStoppedHdfsJobIds().add(j.getId());
+                    snapshot.getPreviousHdfsScheduled().put(j.getId(), j.isScheduled());
+
                     j.setStatus("STOPPED");
                     j.setScheduled(false); // Отключаем планировщик
                     j.setCompletedAt(now);
@@ -330,6 +399,9 @@ public class DisasterRecoveryService {
                     jobRepository.save(j);
                     stoppedHdfs++;
                 } else if (j.isScheduled()) {
+                    snapshot.getStoppedHdfsJobIds().add(j.getId());
+                    snapshot.getPreviousHdfsScheduled().put(j.getId(), true);
+
                     // Если задача ждет по расписанию, снимаем расписание
                     j.setScheduled(false);
                     j.setMessage("Расписание деактивировано аварийным Kill-Switch");
@@ -344,6 +416,8 @@ public class DisasterRecoveryService {
         for (HmsReplicationJobEntity h : hmsJobs) {
             if (matchesCluster(h.getSourceClusterId(), clusterId)) {
                 if (!"PAUSED".equalsIgnoreCase(h.getStatus())) {
+                    snapshot.getPausedHmsJobIds().add(h.getId());
+
                     h.setStatus("PAUSED");
                     h.setMessage("Приостановлено аварийным Kill-Switch оператором " + operator + note);
                     hmsReplicationJobRepository.save(h);
@@ -362,9 +436,102 @@ public class DisasterRecoveryService {
             }
         }
 
+        // Регистрируем снимок для отката
+        activeSnapshots.put(clusterId.toLowerCase(), snapshot);
+
         String msg = String.format("Аварийный останов выполнен: остановлено %d HDFS задач и %d HMS задач для кластера '%s'",
                 stoppedHdfs, stoppedHms, clusterId);
         return DrActionResponse.stopSuccess(msg, stoppedHdfs, stoppedHms);
+    }
+
+    /**
+     * Откат аварийного останова (Kill-Switch Rollback / Unfence):
+     * Восстанавливает лимиты каналов шейпера, возвращает схемы HMS в ACTIVE и реактивирует расписания HDFS задач.
+     */
+    @Transactional
+    public DrActionResponse rollbackEmergencyStop(DrEmergencyRollbackRequest req, String username) {
+        String clusterId = req.clusterId();
+        String operator = username != null ? username : "operator";
+        EmergencySnapshot snapshot = activeSnapshots.remove(clusterId.toLowerCase());
+        if (snapshot == null && !activeSnapshots.isEmpty()) {
+            // Если в мапе сохранен снимок под другим регистром или кластером
+            var entry = activeSnapshots.entrySet().iterator().next();
+            snapshot = entry.getValue();
+            activeSnapshots.remove(entry.getKey());
+        }
+
+        int restoredLimits = 0;
+        int resumedHms = 0;
+        int resumedHdfs = 0;
+
+        // 1. Снятие сетевого ограждения (Unfence Network)
+        if (Boolean.TRUE.equals(req.restoreNetwork())) {
+            long defaultLimit = 100L * 1024 * 1024; // 100 МБ/с по умолчанию
+            if (snapshot != null && !snapshot.getPreviousDcLimits().isEmpty()) {
+                for (var entry : snapshot.getPreviousDcLimits().entrySet()) {
+                    String[] parts = entry.getKey().split("->");
+                    if (parts.length == 2) {
+                        long lim = entry.getValue() > 0 ? entry.getValue() : defaultLimit;
+                        topologyRegistry.setDcLimit(parts[0], parts[1], lim);
+                        restoredLimits++;
+                    }
+                }
+            } else {
+                // Восстанавливаем дефолтные лимиты для всех датацентров
+                for (var srcDc : topologyRegistry.getDatacenters()) {
+                    for (var dstDc : topologyRegistry.getDatacenters()) {
+                        if (!srcDc.getId().equalsIgnoreCase(dstDc.getId())) {
+                            topologyRegistry.setDcLimit(srcDc.getId(), dstDc.getId(), defaultLimit);
+                            restoredLimits++;
+                        }
+                    }
+                }
+            }
+            log.info("[Disaster Recovery Rollback] Сетевое ограждение для кластера '{}' снято (обновлено {} каналов)", clusterId, restoredLimits);
+        }
+
+        // 2. Возобновление схем HMS
+        if (Boolean.TRUE.equals(req.resumeHms())) {
+            List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findAll();
+            for (HmsReplicationJobEntity h : hmsJobs) {
+                if (matchesCluster(h.getSourceClusterId(), clusterId)) {
+                    boolean wasPausedBySnapshot = snapshot != null && snapshot.getPausedHmsJobIds().contains(h.getId());
+                    if (wasPausedBySnapshot || "PAUSED".equalsIgnoreCase(h.getStatus())) {
+                        h.setStatus("ACTIVE");
+                        h.setMessage("Возобновлено после отката Kill-Switch оператором " + operator);
+                        hmsReplicationJobRepository.save(h);
+                        resumedHms++;
+                    }
+                }
+            }
+            log.info("[Disaster Recovery Rollback] Возобновлено {} схем HMS для кластера '{}'", resumedHms, clusterId);
+        }
+
+        // 3. Восстановление расписаний и состояния HDFS задач
+        if (Boolean.TRUE.equals(req.resumeHdfs())) {
+            List<JobEntity> jobs = jobRepository.findAll();
+            for (JobEntity j : jobs) {
+                if (matchesCluster(j.getSourceClusterId(), clusterId)) {
+                    boolean wasStoppedBySnapshot = snapshot != null && snapshot.getStoppedHdfsJobIds().contains(j.getId());
+                    if (wasStoppedBySnapshot || "STOPPED".equalsIgnoreCase(j.getStatus())) {
+                        boolean shouldSchedule = snapshot != null
+                                ? Boolean.TRUE.equals(snapshot.getPreviousHdfsScheduled().get(j.getId()))
+                                : (j.getCronExpression() != null && !j.getCronExpression().isBlank());
+
+                        j.setStatus("QUEUED");
+                        j.setScheduled(shouldSchedule);
+                        j.setMessage("Возобновлено после отката Kill-Switch оператором " + operator);
+                        jobRepository.save(j);
+                        resumedHdfs++;
+                    }
+                }
+            }
+            log.info("[Disaster Recovery Rollback] Возобновлено {} HDFS задач для кластера '{}'", resumedHdfs, clusterId);
+        }
+
+        String msg = String.format("Откат Kill-Switch выполнен успешно: снято сетевое ограждение (%d каналов), возобновлено %d схем HMS и %d HDFS задач",
+                restoredLimits, resumedHms, resumedHdfs);
+        return DrActionResponse.stopSuccess(msg, resumedHdfs, resumedHms);
     }
 
     /**

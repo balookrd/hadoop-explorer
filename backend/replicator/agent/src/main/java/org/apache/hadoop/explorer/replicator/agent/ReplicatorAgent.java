@@ -186,7 +186,8 @@ public class ReplicatorAgent {
         }
 
         // 5. HDFS Inotify Streamer Loop (Near-Zero RPO)
-        if ("streamer".equalsIgnoreCase(config.getMode()) || "all".equalsIgnoreCase(config.getMode())) {
+        // Запускается только для специализированных Inotify стримеров (mode="streamer")
+        if ("streamer".equalsIgnoreCase(config.getMode())) {
             this.inotifyListener = new org.apache.hadoop.explorer.replicator.inotify.HdfsInotifyListener(
                     config, orchestratorClient, fsManager
             );

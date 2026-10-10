@@ -60,6 +60,7 @@
 
   // Модальное окно создания новой репликации
   let isCreateModalOpen = $state(false);
+  let showRulesInfo = $state(false);
   let newJob = $state({
     source_cluster_id: 'dc1',
     target_cluster_id: 'dc2',
@@ -533,10 +534,10 @@
         <thead>
           <tr class="bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
             <th scope="col" class="py-3 px-4 w-44">Схема и ID</th>
-            <th scope="col" class="py-3 px-4 w-44">Маршрут</th>
+            <th scope="col" class="py-3 px-4 w-36">Маршрут</th>
             <th scope="col" class="py-3 px-4 w-40">Объекты</th>
-            <th scope="col" class="py-3 px-4 w-44">CDC Чекпоинт</th>
-            <th scope="col" class="py-3 px-4 w-32">Статус</th>
+            <th scope="col" class="py-3 px-4 w-40">CDC Чекпоинт</th>
+            <th scope="col" class="py-3 px-4 w-48">Статус</th>
             <th scope="col" class="py-3 px-4 w-44 text-right">Действия</th>
           </tr>
         </thead>
@@ -673,7 +674,7 @@
                     text={job.status}
                   />
                   {#if job.message}
-                    <div class="text-[10px] text-slate-500 truncate max-w-[150px] mt-0.5" title={job.message}>
+                    <div class="text-[10px] text-slate-500 truncate max-w-[210px] mt-0.5" title={job.message}>
                       {job.message}
                     </div>
                   {/if}
@@ -752,6 +753,7 @@
               </tr>
 
               <!-- РАСКРЫВАЮЩИЙСЯ ИНЛАЙН-БЛОК ПОД СТРОКОЙ ТАБЛИЦЫ -->
+              <!-- РАСКРЫВАЮЩИЙСЯ ИНЛАЙН-БЛОК ПОД СТРОКОЙ ТАБЛИЦЫ (ДВА СТОЛБИКА: HMS И HDFS) -->
               {#if expandedJobId === job.id}
                 <tr class="bg-slate-50/70 dark:bg-slate-950/50">
                   <td colspan="6" class="p-4 border-t border-slate-100 dark:border-slate-800/80">
@@ -759,42 +761,117 @@
                       <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
                           <Clock class="w-3.5 h-3.5 text-sky-600" />
-                          <span>Последние события CDC и подзадачи HDFS</span>
+                          <span>Детали репликации схемы и передачи данных</span>
                           {#if detailsLoading}
                             <RefreshCw class="w-3 h-3 text-slate-400 animate-spin" />
                           {/if}
                         </div>
-                        <button
-                          onclick={() => openDetailsModal(job, 'events')}
-                          class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium cursor-pointer flex items-center gap-1"
-                        >
-                          <span>Открыть полный журнал в модальном окне</span>
-                          <ArrowRight class="w-3 h-3" />
-                        </button>
+                        <div class="flex items-center gap-3">
+                          <button
+                            onclick={() => openDetailsModal(job, 'events')}
+                            class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium cursor-pointer flex items-center gap-1"
+                          >
+                            <span>Открыть полный журнал в модальном окне</span>
+                            <ArrowRight class="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
 
-                      {#if events.length === 0}
-                        <div class="text-xs text-slate-400 py-2">Событий CDC пока не зарегистрировано.</div>
-                      {:else}
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {#each events.slice(0, 4) as ev}
-                            <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs">
-                              <div class="flex items-center gap-2 min-w-0">
-                                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 shrink-0">
-                                  {ev.event_type}
-                                </span>
-                                <span class="font-mono text-slate-700 dark:text-slate-300 truncate" title={ev.table_name}>
-                                  {ev.table_name}
-                                </span>
-                              </div>
-                              <div class="flex items-center gap-2 shrink-0">
-                                <span class="text-[10px] text-emerald-600 font-semibold uppercase">● {ev.status}</span>
-                                <span class="text-[10px] text-slate-400 font-mono">{formatTime(ev.created_at)}</span>
-                              </div>
+                      <!-- ДВА СТОЛБИКА: СЛЕВА HMS СОБЫТИЯ, СПРАВА HDFS ПОДЗАДАЧИ -->
+                      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <!-- ЛЕВЫЙ СТОЛБИК: HMS СОБЫТИЯ МЕТАДАННЫХ -->
+                        <div class="space-y-2 bg-slate-100/60 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-800/70">
+                          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 pb-1.5 border-b border-slate-200/50 dark:border-slate-800/50">
+                            <div class="flex items-center gap-1.5">
+                              <Database class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                              <span>HMS События метаданных</span>
+                              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono font-bold">
+                                {events.length}
+                              </span>
                             </div>
-                          {/each}
+                            <button
+                              onclick={() => openDetailsModal(job, 'events')}
+                              class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>Все события ({events.length})</span>
+                              <ArrowRight class="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {#if events.length === 0}
+                            <div class="text-xs text-slate-400 py-4 text-center">
+                              Событий CDC пока не зарегистрировано.
+                            </div>
+                          {:else}
+                            <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                              {#each events.slice(0, 6) as ev}
+                                <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-2xs">
+                                  <div class="flex items-center gap-2 min-w-0">
+                                    <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold shrink-0 {ev.event_type.startsWith('BOOTSTRAP') ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800'}">
+                                      {ev.event_type}
+                                    </span>
+                                    <span class="font-mono text-[11px] text-slate-800 dark:text-slate-200 truncate" title="{ev.table_name}{ev.partition_name ? ` (${ev.partition_name})` : ''}">
+                                      {ev.table_name}{#if ev.partition_name}<span class="text-slate-400 font-normal"> ({ev.partition_name})</span>{/if}
+                                    </span>
+                                  </div>
+                                  <div class="flex items-center gap-2 shrink-0">
+                                    <span class="text-[10px] text-emerald-600 font-semibold uppercase">● {ev.status}</span>
+                                    <span class="text-[10px] text-slate-400 font-mono">{formatTime(ev.created_at)}</span>
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
                         </div>
-                      {/if}
+
+                        <!-- ПРАВЫЙ СТОЛБИК: HDFS ПОДЗАДАЧИ ПЕРЕДАЧИ ФАЙЛОВ -->
+                        <div class="space-y-2 bg-slate-100/60 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-800/70">
+                          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 pb-1.5 border-b border-slate-200/50 dark:border-slate-800/50">
+                            <div class="flex items-center gap-1.5">
+                              <HardDrive class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>HDFS Подзадачи передачи файлов</span>
+                              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold">
+                                {subtasks.length}
+                              </span>
+                            </div>
+                            <button
+                              onclick={() => openDetailsModal(job, 'subtasks')}
+                              class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>Все подзадачи ({subtasks.length})</span>
+                              <ArrowRight class="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {#if subtasks.length === 0}
+                            <div class="text-xs text-slate-400 py-4 text-center">
+                              Подзадач передачи данных HDFS пока нет.
+                            </div>
+                          {:else}
+                            <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                              {#each subtasks.slice(0, 6) as sub}
+                                <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-2xs">
+                                  <div class="flex items-center gap-2 min-w-0">
+                                    <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                      {sub.id.substring(0, 8)}
+                                    </span>
+                                    <div class="truncate text-[11px]">
+                                      <span class="font-mono text-slate-700 dark:text-slate-300 truncate" title="{sub.source_path} → {sub.target_path}">
+                                        {sub.source_path.split('/').pop() || sub.source_path}
+                                      </span>
+                                      <span class="text-[10px] text-slate-400 ml-1">({formatBytes(sub.copied_bytes || sub.total_bytes)})</span>
+                                    </div>
+                                  </div>
+                                  <div class="flex items-center gap-2 shrink-0">
+                                    <span class="text-[10px] {sub.status === 'COMPLETED' ? 'text-emerald-600' : sub.status === 'RUNNING' ? 'text-sky-600' : 'text-slate-500'} font-semibold uppercase">● {sub.status}</span>
+                                    <span class="text-[10px] text-slate-400 font-mono">{formatTime(sub.started_at || sub.created_at)}</span>
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -1058,10 +1135,11 @@
     onclick={(e) => { if (e.target === e.currentTarget) isCreateModalOpen = false; }}
   >
     <div
-      class="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 space-y-4 select-auto text-slate-900 dark:text-slate-100"
+      class="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden select-auto text-slate-900 dark:text-slate-100"
     >
-      <div class="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
-        <div class="flex items-center gap-2.5">
+      <!-- Заголовок (фиксированный) -->
+      <div class="flex justify-between items-center px-6 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+        <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 flex items-center justify-center text-sky-600 dark:text-sky-400">
             <Database class="w-4 h-4" />
           </div>
@@ -1073,15 +1151,17 @@
           </div>
         </div>
         <button
+          type="button"
           onclick={() => (isCreateModalOpen = false)}
-          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition cursor-pointer p-1"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition cursor-pointer p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <X class="w-5 h-5" />
         </button>
       </div>
 
-      <div class="space-y-3.5 text-xs">
-        <!-- Кластеры источника и назначения -->
+      <!-- Тело формы со скроллом при необходимости -->
+      <div class="p-6 overflow-y-auto flex-1 space-y-4 text-xs">
+        <!-- Кластеры: Источник и Назначение в 2 колонки -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
             <label for="hms-src-cluster" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1128,51 +1208,67 @@
           </div>
         </div>
 
-        <div>
-          <label for="hms-source-db" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Имя базы в источнике (Source Database)
-          </label>
-          <input
-            id="hms-source-db"
-            type="text"
-            placeholder="analytics"
-            bind:value={newJob.source_db}
-            class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
-          />
+        <!-- Базы данных: Источник и Приемник в 2 колонки -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="hms-source-db" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              База в источнике <span class="text-rose-500">*</span>
+            </label>
+            <input
+              id="hms-source-db"
+              type="text"
+              placeholder="retail_analytics_dw"
+              bind:value={newJob.source_db}
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+            />
+          </div>
+
+          <div>
+            <label for="hms-target-db" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              База на приемнике
+            </label>
+            <input
+              id="hms-target-db"
+              type="text"
+              placeholder="совпадает с источником"
+              bind:value={newJob.target_db}
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+            />
+          </div>
         </div>
 
-        <div>
-          <label for="hms-target-db" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Имя базы на приемнике (оставьте пустым для совпадения)
-          </label>
-          <input
-            id="hms-target-db"
-            type="text"
-            placeholder="analytics (или analytics_replica)"
-            bind:value={newJob.target_db}
-            class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
-          />
-        </div>
+        <!-- Фильтр таблиц и Пользователь имперсонации в 2 колонки -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="hms-table-pattern" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Фильтр таблиц (Include Pattern)
+            </label>
+            <input
+              id="hms-table-pattern"
+              type="text"
+              placeholder="*"
+              bind:value={newJob.table_pattern}
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+            />
+          </div>
 
-        <div>
-          <label for="hms-table-pattern" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Фильтр таблиц (Include Pattern)
-          </label>
-          <input
-            id="hms-table-pattern"
-            type="text"
-            placeholder="*"
-            bind:value={newJob.table_pattern}
-            class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
-          />
-        </div>
-
-        <!-- Пользователь для имперсонации HDFS (doAs username) -->
-        <div>
-          <label for="hms-impersonation-user" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Пользователь имперсонации HDFS (doAs username)
-          </label>
-          <div class="relative">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="hms-impersonation-user" class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                <span>Имперсонация HDFS</span>
+                <span
+                  class="cursor-help text-slate-400 hover:text-sky-500 transition"
+                  title={isAdmin
+                    ? 'Администратор может указать имя пользователя для Kerberos doAs имперсонации при репликации файлов данных таблиц и партиций в HDFS.'
+                    : `Репликация файлов данных в HDFS выполняется от имени ${user?.username || 'текущего пользователя'} через Kerberos Proxy User.`}
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </span>
+              </label>
+              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded {isAdmin ? 'bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">
+                {isAdmin ? 'admin' : 'doAs'}
+              </span>
+            </div>
             {#if isAdmin}
               <input
                 id="hms-impersonation-user"
@@ -1181,9 +1277,6 @@
                 placeholder={user?.username || 'hdfs'}
                 class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
-              <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">
-                admin
-              </span>
             {:else}
               <input
                 id="hms-impersonation-user"
@@ -1192,84 +1285,101 @@
                 disabled
                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed"
               />
-              <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">
-                doAs
-              </span>
             {/if}
-          </div>
-          <div class="mt-1.5 p-2.5 bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/50 rounded-xl flex items-start gap-2">
-            <Shield class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
-            <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              {#if isAdmin}
-                Администратор может указать имя пользователя для Kerberos doAs имперсонации при репликации файлов данных таблиц и партиций в HDFS.
-              {:else}
-                Репликация файлов данных в HDFS выполняется от вашего имени <strong class="font-mono text-slate-700 dark:text-slate-300">({user?.username || 'текущий пользователь'})</strong> через Kerberos Proxy User.
-              {/if}
-            </div>
           </div>
         </div>
 
         <!-- Опции двустороннего согласования схемы (Diff & Reconciliation) -->
-        <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-          <div class="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider">
+        <div class="pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div class="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider mb-2">
             Сверка схемы и согласование (Diff & Reconciliation)
           </div>
-          <label class="flex items-start gap-2.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              bind:checked={newJob.drop_extraneous_tables}
-              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
-            />
-            <div>
-              <div class="font-medium text-slate-800 dark:text-slate-200">
-                Удалять лишние таблицы на приемнике
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 cursor-pointer select-none hover:border-slate-300 dark:hover:border-slate-700 transition">
+              <input
+                type="checkbox"
+                bind:checked={newJob.drop_extraneous_tables}
+                class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+              />
+              <div>
+                <div class="font-medium text-slate-800 dark:text-slate-200">
+                  Удалять лишние таблицы
+                </div>
+                <div class="text-[10px] text-slate-500 leading-tight mt-0.5">
+                  Удаляет из приемника таблицы, отсутствующие в источнике (deleteData=false).
+                </div>
               </div>
-              <div class="text-[10px] text-slate-500">
-                Удаляет таблицы, отсутствующие в источнике (без удаления файлов в HDFS, deleteData=false).
+            </label>
+            <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 cursor-pointer select-none hover:border-slate-300 dark:hover:border-slate-700 transition">
+              <input
+                type="checkbox"
+                bind:checked={newJob.drop_extraneous_partitions}
+                class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+              />
+              <div>
+                <div class="font-medium text-slate-800 dark:text-slate-200">
+                  Удалять лишние партиции
+                </div>
+                <div class="text-[10px] text-slate-500 leading-tight mt-0.5">
+                  Удаляет партиции-сироты из целевого HMS (deleteData=false).
+                </div>
               </div>
-            </div>
-          </label>
-          <label class="flex items-start gap-2.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              bind:checked={newJob.drop_extraneous_partitions}
-              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
-            />
-            <div>
-              <div class="font-medium text-slate-800 dark:text-slate-200">
-                Удалять лишние партиции на приемнике
-              </div>
-              <div class="text-[10px] text-slate-500">
-                Сверяет партиции и удаляет сироты из целевого HMS (без удаления файлов в HDFS, deleteData=false).
-              </div>
-            </div>
-          </label>
+            </label>
+          </div>
         </div>
+
+        <!-- Всплывающий баннер правил репликации -->
+        {#if showRulesInfo}
+          <div class="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+            <div class="font-semibold flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <Shield class="w-3.5 h-3.5" /> <span>Правила репликации схемы:</span>
+              </div>
+              <button
+                type="button"
+                onclick={() => (showRulesInfo = false)}
+                class="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 cursor-pointer"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div>• Выполняется полный первичный Bootstrap всех таблиц и партиций.</div>
+            <div>• Поддерживаются External и Managed Non-Transactional таблицы (ACID пропускаются).</div>
+            <div>• Перенос файлов партиций осуществляется изолированными подзадачами HDFS.</div>
+          </div>
+        {/if}
       </div>
 
-      <div class="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
-        <div class="font-semibold flex items-center gap-1.5">
-          <Shield class="w-3.5 h-3.5" /> <span>Правила репликации схемы:</span>
-        </div>
-        <div>• Выполняется полный первичный Bootstrap всех таблиц и партиций.</div>
-        <div>• Поддерживаются External и Managed Non-Transactional таблицы (ACID пропускаются).</div>
-        <div>• Перенос файлов партиций осуществляется изолированными подзадачами HDFS.</div>
-      </div>
+      <!-- Фиксированный футер с кнопками и кнопкой правил -->
+      <div class="px-6 py-3.5 bg-slate-50 dark:bg-slate-950/70 border-t border-slate-100 dark:border-slate-800 shrink-0 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onclick={() => (showRulesInfo = !showRulesInfo)}
+          class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 transition cursor-pointer select-none"
+        >
+          <Info class="w-4 h-4 text-amber-500" />
+          <span class="underline decoration-dotted underline-offset-2">
+            {showRulesInfo ? 'Скрыть правила' : 'Правила репликации'}
+          </span>
+        </button>
 
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-        <button
-          onclick={() => (isCreateModalOpen = false)}
-          class="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
-        >
-          Отмена
-        </button>
-        <button
-          onclick={handleCreateJob}
-          disabled={!newJob.source_db.trim() || loading}
-          class="px-4 py-2 text-xs font-semibold rounded-xl bg-sky-600 hover:bg-sky-500 text-white transition cursor-pointer shadow-md shadow-sky-600/20 disabled:opacity-50"
-        >
-          {loading ? 'Создание...' : 'Запустить репликацию'}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick={() => (isCreateModalOpen = false)}
+            class="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            onclick={handleCreateJob}
+            disabled={!newJob.source_db.trim() || loading}
+            class="px-4 py-2 text-xs font-semibold rounded-xl bg-sky-600 hover:bg-sky-500 text-white transition cursor-pointer shadow-md shadow-sky-600/20 disabled:opacity-50"
+          >
+            {loading ? 'Создание...' : 'Запустить репликацию'}
+          </button>
+        </div>
       </div>
     </div>
   </div>

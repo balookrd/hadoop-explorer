@@ -85,8 +85,8 @@ hadoop:
     hms-bootstrap-concurrency: 8
     hms-partition-batch-size: 1000
     streaming:
-      enabled: false                      # По умолчанию выключено
-      poll-interval-ms: 1000
+      enabled: ${HADOOP_REPLICATOR_STREAMING_ENABLED:${HADOOP_STREAMING_ENABLED:true}}
+      poll-interval-ms: ${HADOOP_REPLICATOR_STREAMING_POLL_INTERVAL_MS:${HADOOP_STREAMING_POLL_INTERVAL_MS:1000}}
       max-events-per-batch: 100
       debounce-delay-ms: 1500
       auto-reconciliation-on-gap: true

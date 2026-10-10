@@ -1748,6 +1748,7 @@ flowchart TD
 |---|---|---|---|
 | `GET` | `/api/v1/dr/status` | ALL | Сводная телеметрия: доступность DC1/DC2, активное направление, суммарный лаг дельты, статус изоляции (Fencing) |
 | `POST` | `/api/v1/dr/emergency-stop` | ADMIN | Экстренная остановка (Kill-Switch) всех задач указанного источника, снятие расписания и сетевое ограждение |
+| `POST` | `/api/v1/dr/emergency-stop/rollback` | ADMIN | Откат аварийной изоляции (Kill-Switch): снятие сетевого ограждения, возобновление задач HDFS и очередей HMS |
 | `POST` | `/api/v1/dr/reverse` | ADMIN | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS (инвертируются кластеры и пути передачи данных) |
 | `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN | Точечный разворот отдельной HDFS задачи в обратную сторону с инверсией кластеров и путей (`sourcePath ⇄ targetPath`) |
 | `POST` / `DELETE` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN | Отзыв и удаление созданного обратного зеркала, разблокировка прямого маршрута репликации |
@@ -1763,12 +1764,17 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
   -H "Content-Type: application/json" \
   -d '{"cluster_id": "dc1", "reason": "Авария энергоснабжения ЦОД1", "fence_network": true}'
 
-# 3. Запуск обратной репликации дельты из DC2 в DC1 после восстановления площадки
+# 3. Откат экстренного останова и снятие сетевого ограждения (Unfence Network & Resume)
+curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop/rollback" \
+  -H "Content-Type: application/json" \
+  -d '{"cluster_id": "dc1", "restore_network": true, "resume_hms": true, "resume_hdfs": true}'
+
+# 4. Запуск обратной репликации дельты из DC2 в DC1 после восстановления площадки
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
   -H "Content-Type: application/json" \
   -d '{"from_cluster_id": "dc2", "to_cluster_id": "dc1", "include_hdfs": true, "include_hms": true, "auto_start": true}'
 
-# 4. Отзыв обратного зеркала и возврат прямого маршрута
+# 5. Отзыв обратного зеркала и возврат прямого маршрута
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 ```
 

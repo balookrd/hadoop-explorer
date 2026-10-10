@@ -1,14 +1,21 @@
 package org.apache.hadoop.explorer.replicator.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class StreamingLeaseRenewResponse {
+    @JsonProperty("status")
     private String status;
+    @JsonProperty("epoch")
     private long epoch;
+    @JsonProperty("active_agent_id")
     private String activeAgentId;
+    @JsonProperty("registered_streamers_count")
     private int registeredStreamersCount;
+    @JsonProperty("redundancy_warning")
     private boolean redundancyWarning;
+    @JsonProperty("last_committed_txid")
     private long lastCommittedTxid;
 
     public StreamingLeaseRenewResponse() {}

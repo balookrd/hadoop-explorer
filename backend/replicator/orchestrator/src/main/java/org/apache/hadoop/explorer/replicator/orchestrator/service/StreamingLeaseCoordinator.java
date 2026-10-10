@@ -67,6 +67,32 @@ public class StreamingLeaseCoordinator {
             );
         }
 
+        // Проверяем, что агент имеет режим streamer, если в кластере есть выделенные стримеры
+        boolean hasDedicatedStreamers = agentRegistry.getAgents().stream()
+                .anyMatch(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), clusterId));
+        boolean isAgentStreamer = agentRegistry.getAgents().stream()
+                .filter(a -> a.getAgentId().equalsIgnoreCase(agentId))
+                .findFirst()
+                .map(a -> "streamer".equalsIgnoreCase(a.getMode()))
+                .orElse(true);
+
+        if (hasDedicatedStreamers && !isAgentStreamer) {
+            log.warn("[Streamer HA] Агент '{}' с режимом, отличным от 'streamer', отклонен от лизинга кластера '{}', так как зарегистрированы специализированные стримеры",
+                    agentId, clusterId);
+            StreamingLeaseEntity currentLease = leaseRepository.findById(clusterId).orElse(null);
+            return new StreamingLeaseRenewResponse(
+                    "STANDBY",
+                    currentLease != null ? currentLease.getEpoch() : 0L,
+                    currentLease != null ? currentLease.getActiveAgentId() : "none",
+                    currentLease != null ? currentLease.getExpiresAt() : Instant.now(),
+                    (int) agentRegistry.getAgents().stream()
+                            .filter(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), clusterId))
+                            .count(),
+                    false,
+                    0L
+            );
+        }
+
         Instant now = Instant.now();
         Instant expiresAt = now.plus(DEFAULT_LEASE_DURATION);
 

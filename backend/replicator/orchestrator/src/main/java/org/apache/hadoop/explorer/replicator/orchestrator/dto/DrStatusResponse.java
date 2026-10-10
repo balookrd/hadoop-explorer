@@ -29,8 +29,16 @@ public record DrStatusResponse(
         @JsonProperty("active_jobs_count") int activeJobsCount,
         @JsonProperty("queued_jobs_count") int queuedJobsCount,
         @JsonProperty("failed_jobs_count") int failedJobsCount,
-        @JsonProperty("completed_jobs_count") int completedJobsCount
-    ) {}
+        @JsonProperty("completed_jobs_count") int completedJobsCount,
+        @JsonProperty("is_fenced") boolean isFenced
+    ) {
+        public DrClusterStatus(
+            String id, String name, String dcId, String status,
+            int activeJobsCount, int queuedJobsCount, int failedJobsCount, int completedJobsCount
+        ) {
+            this(id, name, dcId, status, activeJobsCount, queuedJobsCount, failedJobsCount, completedJobsCount, false);
+        }
+    }
 
     public record DrSummary(
         @JsonProperty("active_source_dc") String activeSourceDc,
@@ -41,8 +49,27 @@ public record DrStatusResponse(
         @JsonProperty("total_frozen_jobs") int totalFrozenJobs,
         @JsonProperty("total_failed_jobs") int totalFailedJobs,
         @JsonProperty("unreplicated_bytes") long unreplicatedBytes,
-        @JsonProperty("unreplicated_events") long unreplicatedEvents
-    ) {}
+        @JsonProperty("unreplicated_events") long unreplicatedEvents,
+        @JsonProperty("kill_switch_active") boolean killSwitchActive,
+        @JsonProperty("fenced_cluster_id") String fencedClusterId,
+        @JsonProperty("last_emergency_reason") String lastEmergencyReason
+    ) {
+        public DrSummary(
+            String activeSourceDc,
+            String activeTargetDc,
+            boolean primaryDcOnline,
+            boolean standbyDcOnline,
+            int totalActiveJobs,
+            int totalFrozenJobs,
+            int totalFailedJobs,
+            long unreplicatedBytes,
+            long unreplicatedEvents
+        ) {
+            this(activeSourceDc, activeTargetDc, primaryDcOnline, standbyDcOnline,
+                 totalActiveJobs, totalFrozenJobs, totalFailedJobs, unreplicatedBytes, unreplicatedEvents,
+                 false, null, null);
+        }
+    }
 
     public record DrRouteItem(
         @JsonProperty("id") String id,

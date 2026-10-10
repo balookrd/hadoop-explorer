@@ -404,9 +404,13 @@ public class OrchestratorClient {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 return objectMapper.readValue(response.body(), org.apache.hadoop.explorer.replicator.model.StreamingLeaseRenewResponse.class);
+            } else {
+                logger.warn("Ошибка продления аренды стримера для кластера '{}': HTTP {} body={}",
+                        req.getClusterId(), response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            logger.warn("Ошибка продления аренды стримера для кластера '{}': {}", req.getClusterId(), e.getMessage());
+            logger.warn("Исключение при продлении аренды стримера для кластера '{}': {}",
+                    req.getClusterId(), e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
         return null;
     }

@@ -1,7 +1,11 @@
 package org.apache.hadoop.explorer.replicator.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class StreamingLeaseRenewRequest {
+    @JsonProperty("cluster_id")
     private String clusterId;
+    @JsonProperty("agent_id")
     private String agentId;
 
     public StreamingLeaseRenewRequest() {}

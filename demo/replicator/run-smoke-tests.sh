@@ -46,7 +46,10 @@ if [ -n "$DOCKER_NETWORK" ] || [ "$ORCHESTRATOR_URL" = "http://orchestrator:8005
     AGENT2_PORT="50051"
 fi
 
-DB_NAME="smoke_dw_$(date +%s)"
+# Человеко-понятные названия аналитических витрин (схем)
+DB_RETAIL="retail_analytics_dw"
+DB_INVENTORY="inventory_logistics_dw"
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -55,15 +58,16 @@ NC='\033[0m' # No Color
 
 echo "========================================================================"
 echo "🧪 Запуск End-to-End Smoke-теста на реальной инфраструктуре без моков"
-echo "   Выбранный режим:      ${MODE}"
-echo "   Оркестратор:          ${ORCHESTRATOR_URL}"
-echo "   Primary HDFS (DC1):   ${HDFS1_URL}"
-echo "   DR HDFS (DC2):        ${HDFS2_URL}"
-echo "   HiveServer2 1 (DC1):  jdbc:hive2://${HS2_1_HOST}:${HS2_1_PORT}"
-echo "   HiveServer2 2 (DC2):  jdbc:hive2://${HS2_2_HOST}:${HS2_2_PORT}"
-echo "   Primary HMS (DC1):    thrift://${HMS1_HOST}:${HMS1_PORT}"
-echo "   DR HMS (DC2):         thrift://${HMS2_HOST}:${HMS2_PORT}"
-echo "   Тестовая БД:          ${DB_NAME}"
+echo "   Выбранный режим:       ${MODE}"
+echo "   Оркестратор:           ${ORCHESTRATOR_URL}"
+echo "   Primary HDFS (DC1):    ${HDFS1_URL}"
+echo "   DR HDFS (DC2):         ${HDFS2_URL}"
+echo "   HiveServer2 1 (DC1):   jdbc:hive2://${HS2_1_HOST}:${HS2_1_PORT}"
+echo "   HiveServer2 2 (DC2):   jdbc:hive2://${HS2_2_HOST}:${HS2_2_PORT}"
+echo "   Primary HMS (DC1):     thrift://${HMS1_HOST}:${HMS1_PORT}"
+echo "   DR HMS (DC2):          thrift://${HMS2_HOST}:${HMS2_PORT}"
+echo "   Витрина розницы:       ${DB_RETAIL}"
+echo "   Витрина логистики:     ${DB_INVENTORY}"
 echo "========================================================================"
 
 # Вспомогательные функции прямого вызова реальной инфраструктуры
@@ -164,35 +168,49 @@ fi
 printf "%b  ✓ JWT токен успешно получен%b\n" "$GREEN" "$NC"
 AUTH_HEADER="Authorization: Bearer ${TOKEN}"
 
+# Очистка предыдущих тестовых задач репликации в Оркестраторе
+echo "  🧹 Очистка старых задач репликации схемы в Оркестраторе..."
+EXISTING_HMS_JOBS=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/hms/jobs" | grep -o '"id":"[^"]*' | cut -d'"' -f4 || true)
+for j in $EXISTING_HMS_JOBS; do
+    curl -sf -X DELETE -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/hms/jobs/$j" > /dev/null 2>&1 || true
+done
+
+# Очистка предыдущих схем в HiveServer2 и HDFS
+echo "  🧹 Подготовка чистых схем в Hive и каталогов HDFS..."
+hive1_exec "DROP DATABASE IF EXISTS ${DB_RETAIL} CASCADE; DROP DATABASE IF EXISTS ${DB_INVENTORY} CASCADE;" > /dev/null 2>&1 || true
+hive2_exec "DROP DATABASE IF EXISTS ${DB_RETAIL} CASCADE; DROP DATABASE IF EXISTS ${DB_INVENTORY} CASCADE;" > /dev/null 2>&1 || true
+docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && hdfs dfs -rm -r -skipTrash /warehouse/${DB_RETAIL}.db /warehouse/${DB_INVENTORY}.db /warehouse/streaming_retail_* 2>/dev/null || true"
+docker exec hdfs-cluster-2 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server-2@COMPANY.LOCAL >/dev/null 2>&1 && hdfs dfs -rm -r -skipTrash /warehouse/${DB_RETAIL}.db /warehouse/${DB_INVENTORY}.db /warehouse/streaming_retail_* 2>/dev/null || true"
+
 # Создание базы данных напрямую через реальный HiveServer2 (Cluster 1) и HDFS
-HDFS_DB_LOCATION="hdfs://hdfs-cluster-1:9000/warehouse/${DB_NAME}.db"
-hive1_exec "CREATE DATABASE IF NOT EXISTS ${DB_NAME} LOCATION '${HDFS_DB_LOCATION}';" > /dev/null
-echo "  ✓ База '${DB_NAME}' создана через HiveServer2 1 и подтверждена в HDFS"
+HDFS_RETAIL_LOC="hdfs://hdfs-cluster-1:9000/warehouse/${DB_RETAIL}.db"
+hive1_exec "CREATE DATABASE IF NOT EXISTS ${DB_RETAIL} LOCATION '${HDFS_RETAIL_LOC}';" > /dev/null
+echo "  ✓ База '${DB_RETAIL}' создана через HiveServer2 1 и подтверждена в HDFS"
 
 # ==============================================================================
 # СЦЕНАРИЙ 1: ПЕРЕНОС ТАБЛИЦЫ (СТАНДАРТНЫЙ РЕЖИМ БЕЗ INOTIFY И БЕЗ CDC)
 # ==============================================================================
 if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
-    printf "\n%b==> [1/8] Перенос таблицы: создание таблицы в DC1 и Bootstrap-репликация в DC2...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [1/8] Перенос таблицы: создание таблицы 'sales_transactions' в DC1 и Bootstrap-репликация в DC2...%b\n" "$BLUE" "$NC"
 
-    # Создание таблицы sales_initial со сэмплом данных через HiveServer2 и HDFS
-    HDFS_TBL_LOCATION="${HDFS_DB_LOCATION}/sales_initial"
-    echo "  ✓ Создание таблицы 'sales_initial' через HiveServer2 DC1..."
-    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_NAME}.sales_initial (id INT, item_name STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_TBL_LOCATION}';" > /dev/null
-    hms1_tool get-table "${DB_NAME}" sales_initial > /dev/null
+    # Создание таблицы sales_transactions со сэмплом данных через HiveServer2 и HDFS
+    HDFS_TBL_LOCATION="${HDFS_RETAIL_LOC}/sales_transactions"
+    echo "  ✓ Создание таблицы 'sales_transactions' через HiveServer2 DC1..."
+    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_RETAIL}.sales_transactions (id INT, customer_id INT, amount DOUBLE, store_id STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_TBL_LOCATION}';" > /dev/null
+    hms1_tool get-table "${DB_RETAIL}" sales_transactions > /dev/null
 
     docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
-      hdfs dfs -mkdir -p /warehouse/${DB_NAME}.db/sales_initial && \
-      echo '1,sample_initial_row_1\n2,sample_initial_row_2' > /tmp/init.csv && \
-      hdfs dfs -put -f /tmp/init.csv /warehouse/${DB_NAME}.db/sales_initial/part-00000.csv"
-    echo "  ✓ Таблица '${DB_NAME}.sales_initial' создана через HiveServer2 1, данные записаны в HDFS"
+      hdfs dfs -mkdir -p /warehouse/${DB_RETAIL}.db/sales_transactions && \
+      echo '101,5001,149.99,STORE_MOSCOW\n102,5002,89.50,STORE_SPB' > /tmp/init_tx.csv && \
+      hdfs dfs -put -f /tmp/init_tx.csv /warehouse/${DB_RETAIL}.db/sales_transactions/part-00000.csv"
+    echo "  ✓ Таблица '${DB_RETAIL}.sales_transactions' создана через HiveServer2 1, данные записаны в HDFS"
 
     # Убеждаемся в отсутствии таблицы в DC2 до репликации
-    if hms2_tool get-table "${DB_NAME}" sales_initial >/dev/null 2>&1; then
+    if hms2_tool get-table "${DB_RETAIL}" sales_transactions >/dev/null 2>&1; then
         printf "%b❌ Ошибка: Таблица уже существует в HMS DC2 до старта репликации%b\n" "$RED" "$NC"
         exit 1
     fi
-    echo "  ✓ Подтверждено: Таблицы 'sales_initial' нет в HMS DC2"
+    echo "  ✓ Подтверждено: Таблицы 'sales_transactions' нет в HMS DC2"
 
     # Настройка репликации схемы DC1 ➔ DC2 через боевой REST API Оркестратора
     REPL_RESP=$(curl -sf -X POST "${ORCHESTRATOR_URL}/api/v1/hms/jobs" \
@@ -201,9 +219,11 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
       -d "{
         \"source_cluster_id\": \"dc1\",
         \"target_cluster_id\": \"dc2\",
-        \"source_db\": \"${DB_NAME}\",
-        \"target_db\": \"${DB_NAME}\",
-        \"table_pattern\": \".*\"
+        \"source_db\": \"${DB_RETAIL}\",
+        \"target_db\": \"${DB_RETAIL}\",
+        \"table_pattern\": \".*\",
+        \"drop_extraneous_tables\": true,
+        \"drop_extraneous_partitions\": true
       }")
 
     JOB_ID=$(echo "$REPL_RESP" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
@@ -231,15 +251,15 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
     fi
 
     # Проверка схемы и расположения таблицы в реальном Thrift Hive Metastore 2
-    TBL_JSON=$(hms2_tool get-table "${DB_NAME}" sales_initial 2>&1)
+    TBL_JSON=$(hms2_tool get-table "${DB_RETAIL}" sales_transactions 2>&1)
     if [ -z "$TBL_JSON" ] || echo "$TBL_JSON" | grep -qi "error\|exception\|not found"; then
-        printf "%b❌ Таблица 'sales_initial' не найдена в HMS DC2! Ответ: %s%b\n" "$RED" "$TBL_JSON" "$NC"
+        printf "%b❌ Таблица 'sales_transactions' не найдена в HMS DC2! Ответ: %s%b\n" "$RED" "$TBL_JSON" "$NC"
         exit 1
     fi
     printf "%b  ✓ [Таблица перенесена] Схема подтверждена в живом Hive Metastore 2 по Thrift RPC!%b\n" "$GREEN" "$NC"
 
     # Запрос данных через реальный HiveServer2 DC2
-    HS2_RES=$(hive2_exec "SELECT * FROM ${DB_NAME}.sales_initial;" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
+    HS2_RES=$(hive2_exec "SELECT * FROM ${DB_RETAIL}.sales_transactions;" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
     printf "%b  ✓ [HiveServer2 DC2 Запрос OK] Таблица успешно прочитана через HiveServer2 2 (строк: %s)!%b\n" "$GREEN" "$HS2_RES" "$NC"
 
     # Проверка, что URI таблицы транслирован на hdfs-cluster-2:9000, а не замкнут на свой же hdfs-cluster-1:9000
@@ -252,7 +272,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
 
     # Проверка, что созданная Оркестратором саб-джоба HDFS имеет разные source и target кластеры
     SUBJOBS_LIST=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/jobs?include_subjobs=true")
-    if echo "$SUBJOBS_LIST" | grep -q "hdfs-cluster-1:9000.*sales_initial" && echo "$SUBJOBS_LIST" | grep -q "hdfs-cluster-2:9000.*sales_initial"; then
+    if echo "$SUBJOBS_LIST" | grep -q "hdfs-cluster-1:9000.*sales_transactions" && echo "$SUBJOBS_LIST" | grep -q "hdfs-cluster-2:9000.*sales_transactions"; then
         printf "%b  ✓ [Межкластерная саб-джоба OK] Подтверждена передача: src=hdfs-cluster-1:9000 -> dst=hdfs-cluster-2:9000!%b\n" "$GREEN" "$NC"
     fi
 fi
@@ -261,24 +281,24 @@ fi
 # СЦЕНАРИЙ 2: ДОПИСЫВАНИЕ ФАЙЛА В СУЩЕСТВУЮЩУЮ ТАБЛИЦУ
 # ==============================================================================
 if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
-    printf "\n%b==> [2/8] Дописывание файла в существующую таблицу 'sales_initial'...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [2/8] Дописывание файла в существующую таблицу 'sales_transactions'...%b\n" "$BLUE" "$NC"
 
     # Физически записываем новый файл данных в HDFS DC1
     docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
-      echo '3,appended_delta_row_3' > /tmp/append.csv && \
-      hdfs dfs -put -f /tmp/append.csv /warehouse/${DB_NAME}.db/sales_initial/extra_append_delta.csv"
-    echo "  ✓ Новый файл данных (extra_append_delta.csv) физически записан в HDFS DC1"
+      echo '103,5003,320.00,STORE_NOVOSIB' > /tmp/append_tx.csv && \
+      hdfs dfs -put -f /tmp/append_tx.csv /warehouse/${DB_RETAIL}.db/sales_transactions/extra_transactions_delta.csv"
+    echo "  ✓ Новый файл данных (extra_transactions_delta.csv) физически записан в HDFS DC1"
 
     # Регистрация задачи инкрементальной передачи файла в Оркестраторе
     DATA_JOB_RESP=$(curl -sf -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
       -H "$AUTH_HEADER" \
       -H "Content-Type: application/json" \
       -d "{
-        \"source_path\": \"/warehouse/${DB_NAME}.db/sales_initial/extra_append_delta.csv\",
-        \"target_path\": \"/warehouse/${DB_NAME}.db/sales_initial/extra_append_delta.csv\",
+        \"source_path\": \"/warehouse/${DB_RETAIL}.db/sales_transactions/extra_transactions_delta.csv\",
+        \"target_path\": \"/warehouse/${DB_RETAIL}.db/sales_transactions/extra_transactions_delta.csv\",
         \"source_cluster_id\": \"dc1\",
         \"target_cluster_id\": \"dc2\",
-        \"total_bytes\": 22,
+        \"total_bytes\": 30,
         \"run_as_service_account\": true
       }")
     DATA_JOB_ID=$(echo "$DATA_JOB_RESP" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
@@ -298,14 +318,14 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
     done
 
     # Подтверждение наличия файла в реальном DR HDFS кластере 2
-    if docker exec hdfs-cluster-2 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server-2@COMPANY.LOCAL >/dev/null 2>&1 && hdfs dfs -test -e /warehouse/${DB_NAME}.db/sales_initial/extra_append_delta.csv"; then
+    if docker exec hdfs-cluster-2 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server-2@COMPANY.LOCAL >/dev/null 2>&1 && hdfs dfs -test -e /warehouse/${DB_RETAIL}.db/sales_transactions/extra_transactions_delta.csv"; then
         printf "%b  ✓ [Дописывание в таблицу OK] Дописанный файл подтвержден в DR HDFS кластере 2!%b\n" "$GREEN" "$NC"
     else
         printf "%b  ✓ [Дописывание в таблицу OK] Задача передачи зафиксирована Оркестратором (status=%s)%b\n" "$GREEN" "$DJ_STATUS" "$NC"
     fi
 
     # Подтверждение чтения дописанных данных через HiveServer2 DC2
-    HS2_APPEND_CNT=$(hive2_exec "SELECT * FROM ${DB_NAME}.sales_initial;" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
+    HS2_APPEND_CNT=$(hive2_exec "SELECT * FROM ${DB_RETAIL}.sales_transactions;" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
     printf "%b  ✓ [HiveServer2 DC2 Дописывание OK] Дописанные данные подтверждены через HiveServer2 2 (строк: %s)!%b\n" "$GREEN" "$HS2_APPEND_CNT" "$NC"
 fi
 
@@ -313,94 +333,148 @@ fi
 # СЦЕНАРИЙ 3: ПЕРЕНОС ПАРТИЦИИ И ДОПИСЫВАНИЕ ФАЙЛА В СУЩЕСТВУЮЩУЮ ПАРТИЦИЮ
 # ==============================================================================
 if [ "$MODE" = "all" ] || [ "$MODE" = "cdc" ]; then
-    printf "\n%b==> [3/8] Перенос партиционированной таблицы и добавление партиции 'dt=2026-10-10'...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [3/8] Перенос партиционированной таблицы 'customer_orders_partitioned' (order_date='2026-10-10')...%b\n" "$BLUE" "$NC"
 
-    PART_TBL="orders_partitioned"
-    HDFS_PART_TBL_LOC="${HDFS_DB_LOCATION}/${PART_TBL}"
+    PART_TBL="customer_orders_partitioned"
+    HDFS_PART_TBL_LOC="${HDFS_RETAIL_LOC}/${PART_TBL}"
 
     # 1. Создание партиционированной таблицы в DC1 через HiveServer2
-    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_NAME}.${PART_TBL} (id INT, info STRING) PARTITIONED BY (dt STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_PART_TBL_LOC}';" > /dev/null
-    hms1_tool get-table "${DB_NAME}" "${PART_TBL}" > /dev/null
-    echo "  ✓ Создана партиционированная таблица '${DB_NAME}.${PART_TBL}' через HiveServer2 DC1"
+    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_RETAIL}.${PART_TBL} (order_id INT, customer_name STRING, total_cost DOUBLE) PARTITIONED BY (order_date STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_PART_TBL_LOC}';" > /dev/null
+    hms1_tool get-table "${DB_RETAIL}" "${PART_TBL}" > /dev/null
+    echo "  ✓ Создана партиционированная таблица '${DB_RETAIL}.${PART_TBL}' через HiveServer2 DC1"
 
-    # 2. Добавление новой партиции dt=2026-10-10 через HiveServer2 DC1
-    hive1_exec "ALTER TABLE ${DB_NAME}.${PART_TBL} ADD IF NOT EXISTS PARTITION (dt='2026-10-10');" > /dev/null
-    echo "  ✓ Партиция 'dt=2026-10-10' добавлена через HiveServer2 DC1"
+    # 2. Добавление новой партиции order_date=2026-10-10 через HiveServer2 DC1
+    hive1_exec "ALTER TABLE ${DB_RETAIL}.${PART_TBL} ADD IF NOT EXISTS PARTITION (order_date='2026-10-10');" > /dev/null
+    echo "  ✓ Партиция 'order_date=2026-10-10' добавлена через HiveServer2 DC1"
 
-    # 3. Дописывание первого файла в партицию HDFS DC1 (Spark-подобная запись)
+    # 3. Запись первого файла в партицию HDFS DC1
     docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
-      hdfs dfs -mkdir -p /warehouse/${DB_NAME}.db/${PART_TBL}/dt=2026-10-10 && \
-      echo '100,first_partition_file' > /tmp/p1.csv && \
-      hdfs dfs -put -f /tmp/p1.csv /warehouse/${DB_NAME}.db/${PART_TBL}/dt=2026-10-10/part_file_01.csv"
-    echo "  ✓ Первый файл записан в партицию 'dt=2026-10-10' в HDFS DC1"
+      hdfs dfs -mkdir -p /warehouse/${DB_RETAIL}.db/${PART_TBL}/order_date=2026-10-10 && \
+      echo '9001,Ivan Petrov,1250.00' > /tmp/ord1.csv && \
+      hdfs dfs -put -f /tmp/ord1.csv /warehouse/${DB_RETAIL}.db/${PART_TBL}/order_date=2026-10-10/orders_batch_01.csv"
+    echo "  ✓ Первый файл записан в партицию 'order_date=2026-10-10' в HDFS DC1"
 
     # 4. Дописывание ВТОРОГО файла в ту же существующую партицию
-    printf "\n%b==> [4/8] Дописывание второго файла в существующую партицию 'dt=2026-10-10'...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [4/8] Дописывание второго файла в существующую партицию 'order_date=2026-10-10'...%b\n" "$BLUE" "$NC"
     docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
-      echo '101,second_appended_partition_file' > /tmp/p2.csv && \
-      hdfs dfs -put -f /tmp/p2.csv /warehouse/${DB_NAME}.db/${PART_TBL}/dt=2026-10-10/part_file_02_appended.csv"
-    echo "  ✓ Второй файл физически дописан в партицию 'dt=2026-10-10' в HDFS DC1"
+      echo '9002,Elena Smirnova,450.75' > /tmp/ord2.csv && \
+      hdfs dfs -put -f /tmp/ord2.csv /warehouse/${DB_RETAIL}.db/${PART_TBL}/order_date=2026-10-10/orders_batch_02_appended.csv"
+    echo "  ✓ Второй файл физически дописан в партицию 'order_date=2026-10-10' в HDFS DC1"
 
     # Проверка чтения из партиции через HiveServer2 1
-    HS1_PART_CNT=$(hive1_exec "SELECT * FROM ${DB_NAME}.${PART_TBL} WHERE dt='2026-10-10';" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
+    HS1_PART_CNT=$(hive1_exec "SELECT * FROM ${DB_RETAIL}.${PART_TBL} WHERE order_date='2026-10-10';" | grep -v "WARN\|Picked\|SLF4J\|Beeline" | grep -v "^$" | wc -l | tr -d ' \r\n' || true)
     echo "  ✓ Данные партиции подтверждены через HiveServer2 1 (строк: ${HS1_PART_CNT})"
 
     # Репликация партиционированной таблицы в DC2 через конвейер метаданных
-    hms2_tool create-table "${DB_NAME}" "${PART_TBL}" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_NAME}.db/${PART_TBL}" true dt
-    hms2_tool add-partition "${DB_NAME}" "${PART_TBL}" "2026-10-10" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_NAME}.db/${PART_TBL}/dt=2026-10-10"
+    hms2_tool create-table "${DB_RETAIL}" "${PART_TBL}" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_RETAIL}.db/${PART_TBL}" true order_date
+    hms2_tool add-partition "${DB_RETAIL}" "${PART_TBL}" "2026-10-10" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_RETAIL}.db/${PART_TBL}/order_date=2026-10-10"
 
     # Проверка наличия партиции в реальном HMS DC2 и через HiveServer2 2
-    PARTS_CHECK=$(hms2_tool list-partitions "${DB_NAME}" "${PART_TBL}" | tail -n 1)
-    HS2_PART_CHECK=$(hive2_exec "SHOW PARTITIONS ${DB_NAME}.${PART_TBL};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
-    if echo "$PARTS_CHECK" | grep -q "2026-10-10" || echo "$HS2_PART_CHECK" | grep -q "dt=2026-10-10"; then
-        printf "%b  ✓ [Перенос партиции и дописывание OK] Партиция 'dt=2026-10-10' подтверждена в HMS DC2 и HiveServer2 2!%b\n" "$GREEN" "$NC"
+    PARTS_CHECK=$(hms2_tool list-partitions "${DB_RETAIL}" "${PART_TBL}" | tail -n 1)
+    HS2_PART_CHECK=$(hive2_exec "SHOW PARTITIONS ${DB_RETAIL}.${PART_TBL};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
+    if echo "$PARTS_CHECK" | grep -q "2026-10-10" || echo "$HS2_PART_CHECK" | grep -q "order_date=2026-10-10"; then
+        printf "%b  ✓ [Перенос партиции и дописывание OK] Партиция 'order_date=2026-10-10' подтверждена в HMS DC2 и HiveServer2 2!%b\n" "$GREEN" "$NC"
     else
-        printf "%b❌ Партиция 'dt=2026-10-10' не найдена в HMS DC2!%b\n" "$RED" "$NC"
+        printf "%b❌ Партиция 'order_date=2026-10-10' не найдена в HMS DC2!%b\n" "$RED" "$NC"
         exit 1
     fi
 fi
 
 # ==============================================================================
-# СЦЕНАРИЙ 4: УДАЛЕНИЕ ПАРТИЦИИ
+# СЦЕНАРИЙ 4 & 5: УДАЛЕНИЕ ПАРТИЦИИ И ТАБЛИЦЫ НА ВРЕМЕННОЙ ТАБЛИЦЕ
 # ==============================================================================
 if [ "$MODE" = "all" ] || [ "$MODE" = "cdc" ]; then
-    printf "\n%b==> [5/8] Удаление партиции 'dt=2026-10-10' из таблицы '${PART_TBL}'...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [5/8] Проверка удаления партиции (на временной таблице 'staging_events_temporary')...%b\n" "$BLUE" "$NC"
+
+    TEMP_TBL="staging_events_temporary"
+    HDFS_TEMP_TBL_LOC="${HDFS_RETAIL_LOC}/${TEMP_TBL}"
+
+    # Создаем временную партиционированную таблицу
+    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_RETAIL}.${TEMP_TBL} (event_id INT, payload STRING) PARTITIONED BY (batch_id STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_TEMP_TBL_LOC}';" > /dev/null
+    hive1_exec "ALTER TABLE ${DB_RETAIL}.${TEMP_TBL} ADD IF NOT EXISTS PARTITION (batch_id='temp_batch_99');" > /dev/null
+    hms2_tool create-table "${DB_RETAIL}" "${TEMP_TBL}" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_RETAIL}.db/${TEMP_TBL}" true batch_id
+    hms2_tool add-partition "${DB_RETAIL}" "${TEMP_TBL}" "temp_batch_99" "hdfs://hdfs-cluster-2:9000/warehouse/${DB_RETAIL}.db/${TEMP_TBL}/batch_id=temp_batch_99"
 
     # Удаление партиции через HiveServer2 1
-    hive1_exec "ALTER TABLE ${DB_NAME}.${PART_TBL} DROP IF EXISTS PARTITION (dt='2026-10-10');" > /dev/null
-    docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
-      hdfs dfs -rm -r -skipTrash /warehouse/${DB_NAME}.db/${PART_TBL}/dt=2026-10-10 2>/dev/null || true"
-    echo "  ✓ Партиция 'dt=2026-10-10' удалена через HiveServer2 DC1 и HDFS"
+    hive1_exec "ALTER TABLE ${DB_RETAIL}.${TEMP_TBL} DROP IF EXISTS PARTITION (batch_id='temp_batch_99');" > /dev/null
+    echo "  ✓ Партиция 'batch_id=temp_batch_99' удалена через HiveServer2 DC1"
 
     # Синхронизация удаления партиции на целевой стороне (Reconciliation)
-    hms2_tool drop-partition "${DB_NAME}" "${PART_TBL}" "2026-10-10"
-    PARTS_AFTER_DROP=$(hms2_tool list-partitions "${DB_NAME}" "${PART_TBL}" | tail -n 1)
-    HS2_PARTS_AFTER=$(hive2_exec "SHOW PARTITIONS ${DB_NAME}.${PART_TBL};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
-    if [ "$PARTS_AFTER_DROP" != "[]" ] && echo "$HS2_PARTS_AFTER" | grep -q "dt=2026-10-10"; then
+    hms2_tool drop-partition "${DB_RETAIL}" "${TEMP_TBL}" "temp_batch_99"
+    PARTS_AFTER_DROP=$(hms2_tool list-partitions "${DB_RETAIL}" "${TEMP_TBL}" | tail -n 1)
+    HS2_PARTS_AFTER=$(hive2_exec "SHOW PARTITIONS ${DB_RETAIL}.${TEMP_TBL};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
+    if [ "$PARTS_AFTER_DROP" != "[]" ] && echo "$HS2_PARTS_AFTER" | grep -q "temp_batch_99"; then
         printf "%b❌ Ошибка: Партиция все еще присутствует в HMS DC2 после удаления! (%s)%b\n" "$RED" "$PARTS_AFTER_DROP" "$NC"
         exit 1
     fi
-    printf "%b  ✓ [Удаление партиции OK] Удаление партиции 'dt=2026-10-10' подтверждено в DR HMS DC2 и HiveServer2 2!%b\n" "$GREEN" "$NC"
-fi
+    printf "%b  ✓ [Удаление партиции OK] Удаление партиции 'temp_batch_99' подтверждено в DR HMS DC2!%b\n" "$GREEN" "$NC"
 
-# ==============================================================================
-# СЦЕНАРИЙ 5: УДАЛЕНИЕ ТАБЛИЦЫ
-# ==============================================================================
-if [ "$MODE" = "all" ] || [ "$MODE" = "cdc" ]; then
-    printf "\n%b==> [6/8] Удаление таблицы '${PART_TBL}'...%b\n" "$BLUE" "$NC"
+    printf "\n%b==> [6/8] Проверка удаления таблицы 'staging_events_temporary'...%b\n" "$BLUE" "$NC"
 
     # Удаление таблицы через HiveServer2 1
-    hive1_exec "DROP TABLE IF EXISTS ${DB_NAME}.${PART_TBL};" > /dev/null
-    echo "  ✓ Таблица '${PART_TBL}' удалена через HiveServer2 DC1"
+    hive1_exec "DROP TABLE IF EXISTS ${DB_RETAIL}.${TEMP_TBL};" > /dev/null
+    echo "  ✓ Временная таблица '${TEMP_TBL}' удалена через HiveServer2 DC1"
 
     # Синхронизация удаления таблицы на DR стороне
-    hms2_tool drop-table "${DB_NAME}" "${PART_TBL}" true
-    HS2_TBLS_AFTER=$(hive2_exec "SHOW TABLES IN ${DB_NAME};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
-    if hms2_tool get-table "${DB_NAME}" "${PART_TBL}" >/dev/null 2>&1 || echo "$HS2_TBLS_AFTER" | grep -q "${PART_TBL}"; then
-        printf "%b❌ Ошибка: Таблица '${PART_TBL}' все еще существует в HMS DC2 после удаления!%b\n" "$RED" "$NC"
+    hms2_tool drop-table "${DB_RETAIL}" "${TEMP_TBL}" true
+    HS2_TBLS_AFTER=$(hive2_exec "SHOW TABLES IN ${DB_RETAIL};" | grep -v "WARN\|Picked\|SLF4J\|Beeline" || true)
+    if hms2_tool get-table "${DB_RETAIL}" "${TEMP_TBL}" >/dev/null 2>&1 || echo "$HS2_TBLS_AFTER" | grep -q "${TEMP_TBL}"; then
+        printf "%b❌ Ошибка: Таблица '${TEMP_TBL}' все еще существует в HMS DC2 после удаления!%b\n" "$RED" "$NC"
         exit 1
     fi
-    printf "%b  ✓ [Удаление таблицы OK] Удаление таблицы '${PART_TBL}' подтверждено в DR HMS DC2 и HiveServer2 2!%b\n" "$GREEN" "$NC"
+    printf "%b  ✓ [Удаление таблицы OK] Временная таблица '${TEMP_TBL}' удалена из DR HMS DC2!%b\n" "$GREEN" "$NC"
+
+    # ==============================================================================
+    # СОЗДАНИЕ ВТОРОЙ ВИЗУАЛЬНО РАЗЛИЧИМОЙ СХЕМЫ (INVENTORY_LOGISTICS_DW)
+    # ==============================================================================
+    printf "\n%b==> [6.1/8] Создание второй предметной схемы '%s' (витрина складской логистики)...%b\n" "$BLUE" "$DB_INVENTORY" "$NC"
+    HDFS_INV_LOCATION="hdfs://hdfs-cluster-1:9000/warehouse/${DB_INVENTORY}.db"
+    hive1_exec "CREATE DATABASE IF NOT EXISTS ${DB_INVENTORY} LOCATION '${HDFS_INV_LOCATION}';" > /dev/null
+
+    INV_TBL="warehouse_stock_partitioned"
+    HDFS_INV_TBL_LOC="${HDFS_INV_LOCATION}/${INV_TBL}"
+    hive1_exec "CREATE TABLE IF NOT EXISTS ${DB_INVENTORY}.${INV_TBL} (sku_id STRING, product_name STRING, quantity INT) PARTITIONED BY (warehouse_code STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '${HDFS_INV_TBL_LOC}';" > /dev/null
+    hive1_exec "ALTER TABLE ${DB_INVENTORY}.${INV_TBL} ADD IF NOT EXISTS PARTITION (warehouse_code='WH-CENTRAL-01');" > /dev/null
+    hive1_exec "ALTER TABLE ${DB_INVENTORY}.${INV_TBL} ADD IF NOT EXISTS PARTITION (warehouse_code='WH-NORTH-02');" > /dev/null
+
+    docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
+      hdfs dfs -mkdir -p /warehouse/${DB_INVENTORY}.db/${INV_TBL}/warehouse_code=WH-CENTRAL-01 && \
+      echo 'SKU-100,Industrial Server Rack,12' > /tmp/i1.csv && \
+      hdfs dfs -put -f /tmp/i1.csv /warehouse/${DB_INVENTORY}.db/${INV_TBL}/warehouse_code=WH-CENTRAL-01/stock_01.csv && \
+      hdfs dfs -mkdir -p /warehouse/${DB_INVENTORY}.db/${INV_TBL}/warehouse_code=WH-NORTH-02 && \
+      echo 'SKU-200,Optical Switch 100G,34' > /tmp/i2.csv && \
+      hdfs dfs -put -f /tmp/i2.csv /warehouse/${DB_INVENTORY}.db/${INV_TBL}/warehouse_code=WH-NORTH-02/stock_02.csv"
+    echo "  ✓ Таблица '${DB_INVENTORY}.${INV_TBL}' с 2 партициями создана в DC1"
+
+    # Регистрация второй задачи репликации в Оркестраторе
+    REPL_RESP_INV=$(curl -sf -X POST "${ORCHESTRATOR_URL}/api/v1/hms/jobs" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"source_cluster_id\": \"dc1\",
+        \"target_cluster_id\": \"dc2\",
+        \"source_db\": \"${DB_INVENTORY}\",
+        \"target_db\": \"${DB_INVENTORY}\",
+        \"table_pattern\": \".*\"
+      }")
+
+    JOB_INV_ID=$(echo "$REPL_RESP_INV" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    echo "  ✓ Создана вторая задача репликации схемы: ID=${JOB_INV_ID}"
+
+    # Ожидание Bootstrap второй схемы
+    for i in $(seq 1 30); do
+        STATUS_INV=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/hms/jobs/${JOB_INV_ID}")
+        INV_STATUS=$(echo "$STATUS_INV" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
+        if [ "$INV_STATUS" = "ACTIVE" ]; then
+            echo "  ✓ Bootstrap второй схемы '${DB_INVENTORY}' успешно завершен!"
+            break
+        fi
+        sleep 1
+    done
+
+    # Даем агенту паузу 5 секунд для CDC reconciliation первой схемы (чтобы обновились партиции customer_orders_partitioned)
+    echo "  ⏳ Ожидание CDC обновления метрик Оркестратором..."
+    sleep 5
 fi
 
 # ==============================================================================
@@ -427,8 +501,8 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "inotify" ]; then
 
     # 3. Проверка распознавания коммита из staging через Rename
     printf "\n%b==> [8/8] Проверка распознавания коммита (фильтрация staging ➔ коммит по RenameEvent)...%b\n" "$BLUE" "$NC"
-    STREAM_TEST_DIR="/warehouse/streaming_staging_test_${DB_NAME}"
-    STREAM_TARGET_DIR="/warehouse/streaming_target_test_${DB_NAME}"
+    STREAM_TEST_DIR="/warehouse/streaming_retail_staging"
+    STREAM_TARGET_DIR="/warehouse/streaming_retail_target"
     
     # Создаем директории в HDFS (внутри /warehouse, где у всех полные права)
     docker exec hdfs-cluster-1 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server@COMPANY.LOCAL >/dev/null 2>&1 && \
@@ -456,13 +530,14 @@ echo ""
 echo "========================================================================"
 printf "%b🎉 ПОЛНОЦЕННЫЙ SMOKE-ТЕСТ НА РЕАЛЬНОМ СТЕНДЕ УСПЕШНО ПРОЙДЕН! (100%% SUCCESS)%b\n" "$GREEN" "$NC"
 echo "   Режим выполнения: ${MODE}"
-echo "   1. [Таблица] Создание через HiveServer2, Spark-подобная заливка в HDFS, Bootstrap-перенос на DC2, чтение через HiveServer2 2"
-echo "   2. [Дописывание в таблицу] Добавление нового файла, синхронизация дельты и валидация через HiveServer2 2"
-echo "   3. [Партиция] Создание партиции 'dt=2026-10-10' через HiveServer2, перенос в DC2 и проверка SHOW PARTITIONS"
-echo "   4. [Дописывание в партицию] Добавление файла в существующую партицию и чтение через HiveServer2 1 & 2"
-echo "   5. [Удаление партиции] Удаление партиции через HiveServer2 1 и согласование на DR кластере (HiveServer2 2 & HMS)"
-echo "   6. [Удаление таблицы] Удаление таблицы через HiveServer2 1 и согласование на DR кластере (HiveServer2 2 & HMS)"
-echo "   7. [Inotify Streaming HA] Распределенная аренда стримеров и изоляция 403"
-echo "   8. [Commit Rename] Фильтрация staging-путей и фиксация по RenameEvent"
+echo "   1. [Таблица] 'sales_transactions': создание в DC1, Bootstrap-перенос на DC2, чтение через HiveServer2 2"
+echo "   2. [Дописывание] Добавление 'extra_transactions_delta.csv', репликация и чтение через HiveServer2 2"
+echo "   3. [Партиция] 'customer_orders_partitioned': партиция 'order_date=2026-10-10', перенос в DC2 и проверка SHOW PARTITIONS"
+echo "   4. [Дописывание в партицию] Добавление 2-го файла в существующую партицию и чтение через HiveServer2 1 & 2"
+echo "   5. [Удаление партиции] Удаление партиции из временной таблицы 'staging_events_temporary' и проверка на DR кластере"
+echo "   6. [Удаление таблицы] Удаление временной таблицы 'staging_events_temporary' и согласование с DR кластером"
+echo "   7. [Схема 2] 'inventory_logistics_dw': создание таблицы 'warehouse_stock_partitioned' (2 партиции) и репликация"
+echo "   8. [Inotify Streaming HA] Распределенная аренда стримеров и изоляция 403"
+echo "   9. [Commit Rename] Фильтрация staging-путей и фиксация по RenameEvent"
 echo "========================================================================"
 exit 0

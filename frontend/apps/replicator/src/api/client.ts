@@ -14,6 +14,7 @@ import type {
   StreamingLeaseStatus,
   DrStatusResponse,
   DrEmergencyStopPayload,
+  DrEmergencyRollbackPayload,
   DrReversePayload,
   DrActionResponse,
 } from '../types';
@@ -222,6 +223,13 @@ export class ReplicatorApiClient extends BaseApiClient {
     return this.request<DrActionResponse>('/dr/emergency-stop', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  }
+
+  async rollbackEmergencyStop(payload?: DrEmergencyRollbackPayload): Promise<DrActionResponse> {
+    return this.request<DrActionResponse>('/dr/emergency-stop/rollback', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     });
   }
 

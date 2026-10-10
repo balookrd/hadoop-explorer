@@ -41,6 +41,7 @@ public class HmsTaskExecutor implements Closeable {
     private final boolean insecureSkipVerify;
     private final int partitionBatchSize;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob = new ConcurrentHashMap<>();
 
     public HmsTaskExecutor(
             String agentId,
@@ -357,6 +358,13 @@ public class HmsTaskExecutor implements Closeable {
 
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify)) {
             for (HmsNotificationEventDto event : events) {
+                lastEventId = event.eventId();
+
+                // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
+                if (event.dbName() != null && !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
+                    continue;
+                }
+
                 String tbl = event.tableName();
                 String eventType = event.eventType();
 
@@ -421,16 +429,35 @@ public class HmsTaskExecutor implements Closeable {
                     }
                 }
 
-                lastEventId = event.eventId();
                 processed++;
             }
 
             long currentMax = hmsClient.getCurrentNotificationEventId();
             long lag = Math.max(0, currentMax - lastEventId);
 
+            List<String> currentTables = Collections.emptyList();
+            int curPartCount = 0;
+            try {
+                currentTables = hmsClient.getAllTables(job.sourceDbName()).stream()
+                        .filter(t -> matchesPattern(t, job.tableIncludePattern()))
+                        .toList();
+                for (String ct : currentTables) {
+                    try {
+                        curPartCount += hmsClient.getPartitions(job.sourceDbName(), ct).size();
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception e) {
+                log.warn("[HmsTaskExecutor] Не удалось получить актуальные таблицы/партиции схемы {}: {}", job.sourceDbName(), e.getMessage());
+            }
+
+            // Накопительный счетчик обработанных CDC событий схемы
+            AtomicInteger counter = syncedCdcEventsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0));
+            int cumulativeEvents = (processed > 0) ? counter.addAndGet(processed) : counter.get();
+
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
-                    "ACTIVE", 0, 0, 0, 0, lastEventId, null, lag,
-                    String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.", processed, lag),
+                    "ACTIVE", currentTables.size(), currentTables.size(), curPartCount, curPartCount, lastEventId, null, lag,
+                    String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.",
+                            cumulativeEvents > 0 ? cumulativeEvents : processed, lag),
                     eventLog, agentId
             ));
         } catch (Exception e) {

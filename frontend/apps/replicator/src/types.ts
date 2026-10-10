@@ -229,6 +229,7 @@ export interface DrClusterStatus {
   queued_jobs_count: number;
   failed_jobs_count: number;
   completed_jobs_count: number;
+  is_fenced?: boolean;
 }
 
 export interface DrSummary {
@@ -241,6 +242,9 @@ export interface DrSummary {
   total_failed_jobs: number;
   unreplicated_bytes: number;
   unreplicated_events: number;
+  kill_switch_active?: boolean;
+  fenced_cluster_id?: string;
+  last_emergency_reason?: string;
 }
 
 export interface DrRouteItem {
@@ -274,6 +278,13 @@ export interface DrEmergencyStopPayload {
   cluster_id: string;
   reason?: string;
   fence_network?: boolean;
+}
+
+export interface DrEmergencyRollbackPayload {
+  cluster_id?: string;
+  restore_network?: boolean;
+  resume_hms?: boolean;
+  resume_hdfs?: boolean;
 }
 
 export interface DrReversePayload {
