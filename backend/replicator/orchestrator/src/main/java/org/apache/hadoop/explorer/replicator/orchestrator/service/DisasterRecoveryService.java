@@ -495,17 +495,15 @@ public class DisasterRecoveryService {
         JobEntity direct = jobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("Задача с ID " + jobId + " не найдена"));
 
-        String fromCluster = direct.getTargetClusterId();
-        String toCluster = direct.getSourceClusterId();
         String operator = username != null ? username : "dr_operator";
         Instant now = Instant.now();
 
         JobEntity revJob = new JobEntity();
         revJob.setId("rev-" + UUID.randomUUID().toString().substring(0, 8));
+        revJob.setSourceClusterId(direct.getTargetClusterId());
+        revJob.setTargetClusterId(direct.getSourceClusterId());
         revJob.setSourcePath(direct.getTargetPath());
         revJob.setTargetPath(direct.getSourcePath());
-        revJob.setSourceClusterId(fromCluster);
-        revJob.setTargetClusterId(toCluster);
         revJob.setTotalBytes(direct.getTotalBytes());
         revJob.setCopiedBytes(0L);
         revJob.setStatus("QUEUED");
