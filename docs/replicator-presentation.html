@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Презентация: Hadoop gRPC Replicator — Архитектура развертывания и потоки трафика</title>
+  <title>Hadoop gRPC Replicator: Системная архитектура и эксплуатация (Техническая спецификация)</title>
   <style>
     :root {
       --bg: #090d16;
-      --card-bg: rgba(22, 30, 49, 0.75);
+      --card-bg: rgba(22, 30, 49, 0.85);
       --card-border: rgba(255, 255, 255, 0.08);
       --primary: #6366f1;
       --primary-light: #818cf8;
@@ -17,13 +17,10 @@
       --danger: #ef4444;
       --text: #f8fafc;
       --text-muted: #94a3b8;
+      --code-bg: #0b1120;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -37,16 +34,15 @@
       user-select: none;
     }
 
-    /* Верхний бар навигации */
     header {
-      height: 56px;
-      min-height: 56px;
+      height: 54px;
+      min-height: 54px;
       padding: 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid var(--card-border);
-      background: rgba(9, 13, 22, 0.88);
+      background: rgba(9, 13, 22, 0.9);
       backdrop-filter: blur(12px);
       z-index: 100;
     }
@@ -68,7 +64,7 @@
     .brand-tag {
       background: linear-gradient(135deg, #4f46e5, #06b6d4);
       color: white;
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       padding: 3px 8px;
       border-radius: 999px;
       font-weight: 700;
@@ -79,14 +75,14 @@
     .header-controls {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .slide-counter {
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       color: var(--text-muted);
       font-weight: 600;
-      min-width: 85px;
+      min-width: 80px;
       text-align: center;
     }
 
@@ -94,10 +90,10 @@
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid var(--card-border);
       color: var(--text);
-      padding: 6px 14px;
+      padding: 6px 12px;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 500;
       display: inline-flex;
       align-items: center;
@@ -111,10 +107,6 @@
       transform: translateY(-1px);
     }
 
-    .btn:active {
-      transform: translateY(0);
-    }
-
     .btn-primary {
       background: linear-gradient(135deg, #4f46e5, #4338ca);
       border: 1px solid #6366f1;
@@ -122,11 +114,6 @@
       box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
     }
 
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-    }
-
-    /* Полоса прогресса */
     .progress-bar-container {
       width: 100%;
       height: 3px;
@@ -142,7 +129,6 @@
       box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
     }
 
-    /* Контейнер слайдов */
     main {
       flex: 1;
       position: relative;
@@ -162,7 +148,7 @@
       opacity: 0;
       visibility: hidden;
       transform: translateX(30px) scale(0.99);
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -178,23 +164,22 @@
       transform: translateX(-30px) scale(0.99);
     }
 
-    /* Стили шапки слайда */
     .slide-header {
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       flex-shrink: 0;
     }
 
     .slide-subtitle {
       color: var(--accent);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
 
     .slide-title {
-      font-size: 1.85rem;
+      font-size: 1.75rem;
       font-weight: 800;
       letter-spacing: -0.02em;
       line-height: 1.2;
@@ -205,20 +190,19 @@
 
     .slide-desc {
       color: var(--text-muted);
-      font-size: 0.92rem;
-      margin-top: 4px;
-      line-height: 1.4;
+      font-size: 0.88rem;
+      margin-top: 3px;
+      line-height: 1.35;
     }
 
     .slide-body {
       flex: 1;
       min-height: 0;
       display: flex;
-      gap: 20px;
+      gap: 16px;
       overflow-y: auto;
     }
 
-    /* Сетка карточек */
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -235,29 +219,15 @@
       height: 100%;
     }
 
-    .grid-4 {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-      width: 100%;
-      height: 100%;
-    }
-
     .card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      padding: 18px;
+      padding: 16px;
       backdrop-filter: blur(12px);
-      transition: border-color 0.2s ease, transform 0.2s ease;
-      position: relative;
       display: flex;
       flex-direction: column;
-    }
-
-    .card:hover {
-      border-color: rgba(99, 102, 241, 0.4);
-      transform: translateY(-2px);
+      position: relative;
     }
 
     .card-accent-indigo { border-top: 3px solid var(--primary); }
@@ -267,7 +237,7 @@
     .card-accent-red { border-top: 3px solid var(--danger); }
 
     .card-title {
-      font-size: 1.05rem;
+      font-size: 1rem;
       font-weight: 700;
       color: #fff;
       margin-bottom: 10px;
@@ -281,12 +251,12 @@
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 6px;
       overflow-y: auto;
     }
 
     .card-list li {
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       color: var(--text-muted);
       line-height: 1.45;
       position: relative;
@@ -301,7 +271,20 @@
       font-weight: bold;
     }
 
-    /* Полноразмерный контейнер генеральной схемы */
+    .code-box {
+      background: var(--code-bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      color: #38bdf8;
+      overflow-x: auto;
+      line-height: 1.45;
+      margin-top: 8px;
+      white-space: pre-wrap;
+    }
+
     .arch-container {
       width: 100%;
       height: 100%;
@@ -311,7 +294,7 @@
       background: #0f172a;
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      padding: 12px;
+      padding: 10px;
       cursor: zoom-in;
       position: relative;
       overflow: hidden;
@@ -319,7 +302,7 @@
 
     .arch-container img {
       max-width: 100%;
-      max-height: calc(100vh - 200px);
+      max-height: calc(100vh - 190px);
       width: auto;
       height: auto;
       object-fit: contain;
@@ -329,20 +312,19 @@
 
     .arch-zoom-hint {
       position: absolute;
-      bottom: 16px;
-      right: 20px;
+      bottom: 14px;
+      right: 18px;
       background: rgba(15, 23, 42, 0.88);
       border: 1px solid rgba(255, 255, 255, 0.15);
-      padding: 5px 12px;
+      padding: 4px 10px;
       border-radius: 20px;
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       color: var(--accent);
       font-weight: 600;
       backdrop-filter: blur(8px);
       pointer-events: none;
     }
 
-    /* Таблицы */
     .table-container {
       width: 100%;
       height: 100%;
@@ -361,11 +343,11 @@
     th {
       background: #1e293b;
       color: var(--accent);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      padding: 12px 16px;
+      padding: 10px 14px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       position: sticky;
       top: 0;
@@ -373,39 +355,32 @@
     }
 
     td {
-      padding: 10px 16px;
-      font-size: 0.86rem;
+      padding: 9px 14px;
+      font-size: 0.83rem;
       color: var(--text-muted);
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
 
-    tr:nth-child(even) td {
-      background: rgba(255, 255, 255, 0.015);
-    }
-
-    tr:hover td {
-      background: rgba(99, 102, 241, 0.06);
-      color: var(--text);
-    }
+    tr:nth-child(even) td { background: rgba(255, 255, 255, 0.015); }
+    tr:hover td { background: rgba(99, 102, 241, 0.06); color: var(--text); }
 
     .port-badge {
       display: inline-block;
-      padding: 2px 7px;
+      padding: 2px 6px;
       border-radius: 4px;
       font-family: monospace;
       font-weight: 700;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
     }
 
     .port-wan { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
     .port-control { background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
     .port-lan { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
 
-    /* Слайды со скриншотами UI */
     .ui-split {
       display: grid;
       grid-template-columns: minmax(360px, 420px) 1fr;
-      gap: 20px;
+      gap: 16px;
       width: 100%;
       height: 100%;
       align-items: stretch;
@@ -414,7 +389,7 @@
     .ui-left {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       height: 100%;
       overflow-y: auto;
     }
@@ -423,7 +398,7 @@
       background: #0f172a;
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      padding: 10px;
+      padding: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -435,7 +410,7 @@
 
     .ui-screenshot-card img {
       max-width: 100%;
-      max-height: calc(100vh - 200px);
+      max-height: calc(100vh - 190px);
       width: auto;
       height: auto;
       object-fit: contain;
@@ -443,111 +418,65 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
 
-    /* Нижний колонтитул */
     footer {
-      height: 40px;
-      min-height: 40px;
+      height: 38px;
+      min-height: 38px;
       padding: 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-top: 1px solid var(--card-border);
-      background: rgba(9, 13, 22, 0.88);
-      font-size: 0.8rem;
+      background: rgba(9, 13, 22, 0.9);
+      font-size: 0.78rem;
       color: var(--text-muted);
       z-index: 100;
     }
 
-    /* Модальное окно Lightbox */
     .lightbox {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0, 0, 0, 0.94);
       backdrop-filter: blur(16px);
       z-index: 1000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      visibility: hidden;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; visibility: hidden;
       transition: all 0.25s ease;
       cursor: zoom-out;
     }
 
-    .lightbox.active {
-      opacity: 1;
-      visibility: visible;
-    }
-
+    .lightbox.active { opacity: 1; visibility: visible; }
     .lightbox img {
-      max-width: 95vw;
-      max-height: 95vh;
-      border-radius: 8px;
-      box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+      max-width: 95vw; max-height: 95vh;
+      border-radius: 8px; box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    /* Меню обзора слайдов (Overview) */
     .overview-modal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(9, 13, 22, 0.96);
       backdrop-filter: blur(16px);
       z-index: 900;
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
       padding: 32px;
-      opacity: 0;
-      visibility: hidden;
+      opacity: 0; visibility: hidden;
       transition: all 0.25s ease;
     }
 
-    .overview-modal.active {
-      opacity: 1;
-      visibility: visible;
-    }
-
+    .overview-modal.active { opacity: 1; visibility: visible; }
     .overview-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      flex-shrink: 0;
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 20px; flex-shrink: 0;
     }
-
     .overview-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-      gap: 14px;
-      overflow-y: auto;
-      padding-bottom: 20px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 14px; overflow-y: auto; padding-bottom: 20px;
     }
-
     .overview-item {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 14px;
-      cursor: pointer;
-      transition: all 0.2s ease;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.2s ease;
     }
-
-    .overview-item:hover {
-      border-color: var(--accent);
-      transform: translateY(-2px);
-      background: rgba(30, 41, 59, 0.8);
-    }
-
-    .overview-item.current {
-      border-color: var(--primary-light);
-      box-shadow: 0 0 14px rgba(99, 102, 241, 0.4);
-    }
+    .overview-item:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .overview-item.current { border-color: var(--primary-light); box-shadow: 0 0 14px rgba(99, 102, 241, 0.4); }
   </style>
 </head>
 <body>
@@ -557,7 +486,7 @@
     <div class="brand">
       <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform">
       <span>gRPC Replicator</span>
-      <span class="brand-tag">Architecture</span>
+      <span class="brand-tag">Tech Specs</span>
     </div>
 
     <div class="header-controls">
@@ -585,38 +514,43 @@
   <main id="slideDeck">
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 1: ТИТУЛЬНЫЙ -->
+    <!-- СЛАЙД 1: СИСТЕМНАЯ СПЕЦИФИКАЦИЯ -->
     <!-- ========================================== -->
     <div class="slide active" id="slide-1">
       <div class="slide-header">
-        <div class="slide-subtitle">Hadoop Explorer Platform • Системная Архитектура</div>
-        <h1 class="slide-title">Hadoop gRPC Replicator</h1>
-        <p class="slide-desc">Архитектура развертывания («Что куда ставится») и сетевые потоки («Как ходит трафик»)</p>
+        <div class="slide-subtitle">Архитектурная спецификация • DevOps / Архитектура / SRE</div>
+        <h1 class="slide-title">Hadoop gRPC Replicator: Системная архитектура</h1>
+        <p class="slide-desc">Физическая модель компонентов, интерфейсы взаимодействия, сетевой шейпинг и регламент Disaster Recovery</p>
       </div>
       <div class="slide-body">
         <div class="grid-3">
           <div class="card card-accent-indigo">
-            <div class="card-title">🏢 Что куда устанавливается?</div>
+            <div class="card-title">⚙️ Control Plane (Orchestrator)</div>
             <ul class="card-list">
-              <li><strong>Control Plane (Orchestrator)</strong>: отдельный хост управления, VM или K8s Pod. Слушает порт <code>:8005</code> (REST API, Web UI Svelte 5).</li>
-              <li><strong>Data Plane (Replicator Agents)</strong>: устанавливаются в каждом ЦОД на узлы DataNode (Colocated) или Edge Gateway с 10/25G LAN.</li>
-              <li><strong>Hadoop узлы</strong>: NameNode, DataNodes, Hive Metastore работают штатно без сторонних плагинов или изменений в ядре.</li>
+              <li><strong>Стек:</strong> Java 21 LTS, Spring Boot 3.3.4, Spring Data JPA.</li>
+              <li><strong>Порт:</strong> <code>TCP :8005</code> (REST API, SSE Event Bus, Svelte 5 SPA).</li>
+              <li><strong>БД метаданных:</strong> PostgreSQL 14+ / H2 (таблицы jobs, tasks, hms_jobs, lease).</li>
+              <li><strong>Координация:</strong> Распределение квот Token Bucket, арбитраж Inotify Lease HA.</li>
+              <li><strong>⚠️ Инвариант:</strong> Оркестратор <strong>НЕ прокачивает байты файлов</strong> через себя!</li>
             </ul>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">🌐 Как ходит трафик данных?</div>
+            <div class="card-title">🚀 Data Plane (Replicator Agents)</div>
             <ul class="card-list">
-              <li><strong>Прямой gRPC WAN стрим</strong>: трафик данных идет <strong>НАПРЯМУЮ</strong> от Agent DC1 в Agent DC2 (<code>:50051</code>) минуя Оркестратор!</li>
-              <li><strong>Оркестратор НЕ качает файлы</strong> через себя (чистый Control Plane).</li>
-              <li>Потоковая нарезка чанков по 4 МБ, Tar-Streaming мелких файлов, сквозной хэш SHA-256.</li>
+              <li><strong>Стек:</strong> Java 21 LTS, Netty 4.1 gRPC Daemon (Full-Duplex).</li>
+              <li><strong>Порт приемника:</strong> <code>TCP :50051</code> (gRPC HTTP/2, mTLS v1.3).</li>
+              <li><strong>Протоколы LAN:</strong> Hadoop RPC (<code>:8020/:9000</code>), SASL DTP (<code>:9866</code>), Thrift (<code>:9083</code>).</li>
+              <li><strong>Авторизация:</strong> Системный keytab + Kerberos <code>doAs</code> Impersonation.</li>
+              <li><strong>Сжатие в канале:</strong> Потоковый Zstandard (level 3) или LZ4.</li>
             </ul>
           </div>
           <div class="card card-accent-cyan">
-            <div class="card-title">🛡️ Сеть и Disaster Recovery</div>
+            <div class="card-title">🛡️ Сетевая топология и DR</div>
             <ul class="card-list">
-              <li>В межЦОДном фаерволе открывается <strong>ТОЛЬКО ОДИН ПОРТ</strong>: <code>TCP :50051</code> (mTLS v1.3).</li>
-              <li>Иерархический шейпер Token Bucket: строгий аппаратный контроль полосы WAN.</li>
-              <li>Авария и DR: Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1).</li>
+              <li><strong>МежЦОДный фаервол:</strong> Ровно 1 открытый порт — <code>TCP :50051</code>.</li>
+              <li><strong>Шейпер полосы:</strong> Hierarchical Token Bucket на Netty буферах (без iptables).</li>
+              <li><strong>Авария DC1 (Fencing):</strong> Сброс WAN в 0 МБ/с, остановка задач, защита от Split-Brain.</li>
+              <li><strong>Восстановление:</strong> Unfence без автозапуска + 1-Click Reverse Replication (DC2 ➔ DC1).</li>
             </ul>
           </div>
         </div>
@@ -624,70 +558,62 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 2: ГЛАВНАЯ АРХИТЕКТУРНАЯ СХЕМА -->
+    <!-- СЛАЙД 2: ГЕНЕРАЛЬНАЯ АРХИТЕКТУРНАЯ СХЕМА -->
     <!-- ========================================== -->
     <div class="slide" id="slide-2">
       <div class="slide-header">
-        <div class="slide-subtitle">Генеральная схема</div>
-        <h1 class="slide-title">Архитектура развертывания и потоки трафика (Deployment & Data Flow)</h1>
-        <p class="slide-desc">Физическое размещение компонентов в ЦОД, роли узлов, порты фаервола и направления сетевых потоков</p>
+        <div class="slide-subtitle">Генеральная схема развертывания</div>
+        <h1 class="slide-title">Физическое размещение и сетевые потоки (Data & Control Flows)</h1>
+        <p class="slide-desc">Сетевые сегменты Management, DC1 Primary, WAN магистраль и DC2 Standby/DR с портами и протоколами</p>
       </div>
       <div class="slide-body">
         <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
-          <img src="images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки">
+          <img src="images/replicator/architecture_deployment_traffic.png" alt="Генеральная архитектурная схема">
           <div class="arch-zoom-hint">🔍 Нажмите на схему для полноэкранного зума</div>
         </div>
       </div>
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 3: ЧТО КУДА УСТАНАВЛИВАЕТСЯ -->
+    <!-- СЛАЙД 3: ПАРАМЕТРЫ ЗАПУСКА И РАЗМЕЩЕНИЕ -->
     <!-- ========================================== -->
     <div class="slide" id="slide-3">
       <div class="slide-header">
-        <div class="slide-subtitle">Топология размещения</div>
-        <h1 class="slide-title">Что куда устанавливается (Component Placement Map)</h1>
-        <p class="slide-desc">Детальная спецификация хостов, контейнеров и ролей в корпоративной инфраструктуре</p>
+        <div class="slide-subtitle">Инсталляция и запуск процессов</div>
+        <h1 class="slide-title">Параметры запуска CLI, systemd и модели размещения</h1>
+        <p class="slide-desc">Спецификация аргументов командной строки агента и сравнение топологий размещения в кластере</p>
       </div>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">1. Control Plane Host (Orchestrator)</div>
+            <div class="card-title">Параметры CLI агента (ReplicatorAgentMain)</div>
             <ul class="card-list">
-              <li><strong>Где работает:</strong> Выделенная виртуальная машина или Kubernetes Pod.</li>
-              <li><strong>Процесс:</strong> <code>replicator-orchestrator</code> (Java 21 LTS / Spring Boot 3).</li>
-              <li><strong>Порт:</strong> <code>TCP :8005</code> (HTTP/REST API, SSE подписки, веб-консоль Svelte 5).</li>
-              <li><strong>База данных:</strong> PostgreSQL / H2 (хранение задач, cron расписаний, истории).</li>
-              <li><strong>⚠️ Роль:</strong> Только координация и лимиты. Файлы через него НЕ идут!</li>
+              <li><code>--agent-id &lt;id&gt;</code>: Уникальный ID агента (hostname).</li>
+              <li><code>--cluster-id &lt;id&gt;</code>: ID обслуживаемого кластера (<code>dc1</code> / <code>dc2</code>).</li>
+              <li><code>--mode &lt;all|sender|receiver&gt;</code>: Режим работы (default: <code>all</code>).</li>
+              <li><code>--orchestrator &lt;url&gt;</code>: URL оркестратора (<code>http://orch:8005</code>).</li>
+              <li><code>--port &lt;50051&gt;</code>: Порт входящего gRPC Netty сервера.</li>
+              <li><code>--bandwidth &lt;MB/s&gt;</code>: Локальный лимит полосы пропускания.</li>
+              <li><code>--compression &lt;zstd|lz4|none&gt;</code>: Кодек сжатия (default: <code>zstd</code>).</li>
+              <li><code>--compression-level &lt;1-22&gt;</code>: Уровень сжатия Zstd (default: <code>3</code>).</li>
             </ul>
+            <div class="code-box"># Запуск демона под Kerberos учеткой:
+java -Xms4g -Xmx8g -XX:+UseG1GC   -jar replicator-agent.jar   --agent-id=agent-dc1-01 --cluster-id=dc1   --mode=all --orchestrator=http://orch:8005   --port=50051 --bandwidth=100 --compression=zstd</div>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">2. ЦОД-1 Узлы (Primary — Москва)</div>
+            <div class="card-title">Сравнение моделей размещения агентов</div>
             <ul class="card-list">
-              <li><strong>Где работает:</strong> Узлы DataNode кластера или Edge Gateway узлы с 10/25G LAN.</li>
-              <li><strong>Процесс:</strong> <code>replicator-agent-dc1</code> (Java 21 / Netty gRPC демон).</li>
-              <li><strong>Порт:</strong> <code>TCP :50051</code> (gRPC Server / Client, Full-Duplex режим).</li>
-              <li><strong>Kerberos:</strong> Системный keytab <code>hdfs-cluster-1.keytab</code>.</li>
-              <li><strong>Роль:</strong> Diff манифестов, блочное чтение из DataNode под UGI <code>doAs</code>, опрос HMS NOTIFICATION_LOG, стриминг в WAN.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-cyan">
-            <div class="card-title">3. ЦОД-2 Узлы (Standby / DR — Санкт-Петербург)</div>
-            <ul class="card-list">
-              <li><strong>Где работает:</strong> Узлы DataNode кластера или Edge Gateway узлы DC2.</li>
-              <li><strong>Процесс:</strong> <code>replicator-agent-dc2</code> (Java 21 / Netty gRPC демон).</li>
-              <li><strong>Порт:</strong> <code>TCP :50051</code> (gRPC Server, Full-Duplex приемник).</li>
-              <li><strong>Kerberos:</strong> Системный keytab <code>hdfs-cluster-2.keytab</code>.</li>
-              <li><strong>Роль:</strong> Прием 4 МБ чанков по WAN, Zero-Staging запись в DataNode (<code>:9866</code>), сверка SHA-256, rename, накат DDL в HMS DC2.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-amber">
-            <div class="card-title">4. Рабочие станции инженеров и клиентов</div>
-            <ul class="card-list">
-              <li><strong>Где работает:</strong> Браузер пользователя (Chrome, Safari, Firefox).</li>
-              <li><strong>Сетевой доступ:</strong> HTTPS <code>:8005</code> к Orchestrator.</li>
-              <li><strong>Аутентификация:</strong> Kerberos SPNEGO SSO в 1 клик или LDAP логин/пароль.</li>
-              <li><strong>Роли RBAC:</strong> ADMIN (полный доступ + DR Hub), WRITER (свои задачи), READER (аудит).</li>
+              <li><strong>Модель 1: Colocated (на узлах Hadoop DataNode):</strong>
+                <br/>• Максимальная скорость за счет <em>Short-Circuit Local Read</em>.
+                <br/>• <strong>0 байт</strong> паразитного трафика в локальной сети ЦОД.
+                <br/>• Требует: 2–4 vCPU, 4–8 GB JVM Heap на узел DataNode.
+              </li>
+              <li><strong>Модель 2: Dedicated Edge Gateway:</strong>
+                <br/>• Агенты вынесены на 2–4 отдельных шлюзовых сервера с 25G/40G NIC.
+                <br/>• Чтение блоков идет по сети LAN ЦОД через Data Transfer Protocol (:9866).
+                <br/>• Полная изоляция от production-узлов Hadoop.
+              </li>
+              <li><strong>Оркестратор:</strong> Отдельная VM / K8s Deployment (4 vCPU, 8 GB RAM, 50 GB SSD).</li>
             </ul>
           </div>
         </div>
@@ -699,17 +625,17 @@
     <!-- ========================================== -->
     <div class="slide" id="slide-4">
       <div class="slide-header">
-        <div class="slide-subtitle">Сетевая безопасность</div>
-        <h1 class="slide-title">Сетевая матрица портов и фаервола (Network Matrix)</h1>
-        <p class="slide-desc">Какие порты открываются в межЦОДных межсетевых экранах (WAN) и внутри дата-центров (LAN)</p>
+        <div class="slide-subtitle">Сетевая безопасность и NetOps</div>
+        <h1 class="slide-title">Сетевая матрица портов, фаервол и протоколы передачи</h1>
+        <p class="slide-desc">Полный перечень L4/L7 соединений для согласования со службами ИБ и сетевыми инженерами</p>
       </div>
       <div class="slide-body">
         <div class="table-container">
           <table>
             <thead>
               <tr>
-                <th>Направление соединения</th>
-                <th>Протокол</th>
+                <th>Направление</th>
+                <th>Протокол L4 / L7</th>
                 <th>Порт</th>
                 <th>Назначение сетевого потока</th>
                 <th>Сетевой сегмент</th>
@@ -718,58 +644,58 @@
             <tbody>
               <tr>
                 <td><strong>Agent DC1 ➔ Agent DC2</strong></td>
-                <td>gRPC / HTTP/2 (mTLS)</td>
+                <td>TCP / gRPC (mTLS v1.3)</td>
                 <td><span class="port-badge port-wan">TCP 50051</span></td>
-                <td>Прямая передача блоков HDFS и DDL пакетов Hive Metastore</td>
+                <td>Прямая передача блоков HDFS и DDL пакетов Hive CDC</td>
                 <td><strong>WAN (МежЦОД)</strong></td>
               </tr>
               <tr>
                 <td><strong>Agent DC2 ➔ Agent DC1</strong></td>
-                <td>gRPC / HTTP/2 (mTLS)</td>
+                <td>TCP / gRPC (mTLS v1.3)</td>
                 <td><span class="port-badge port-wan">TCP 50051</span></td>
-                <td>Обратная репликация Reverse Replication при аварии (DR)</td>
+                <td>Обратный поток при Reverse Replication в сценарии DR</td>
                 <td><strong>WAN (МежЦОД)</strong></td>
               </tr>
               <tr>
                 <td><strong>Браузер ➔ Orchestrator</strong></td>
-                <td>HTTPS / HTTP</td>
+                <td>TCP / HTTPS (TLS 1.3)</td>
                 <td><span class="port-badge port-control">TCP 8005</span></td>
-                <td>Доступ к UI Svelte 5, REST API, SSE подпискам</td>
+                <td>Web UI Svelte 5, REST API, SSE шина событий</td>
                 <td>Corporate LAN</td>
               </tr>
               <tr>
                 <td><strong>Agents ➔ Orchestrator</strong></td>
-                <td>HTTP REST</td>
+                <td>TCP / HTTP REST</td>
                 <td><span class="port-badge port-control">TCP 8005</span></td>
-                <td>Heartbeat (5с), Claim подзадач, продление Lease HA</td>
+                <td>Heartbeat (каждые 5с), Claim подзадач, продление Lease HA</td>
                 <td>Management LAN</td>
               </tr>
               <tr>
-                <td><strong>Agent ➔ NameNode (локально)</strong></td>
-                <td>Hadoop RPC</td>
-                <td><span class="port-badge port-lan">TCP 9000 / 8020</span></td>
-                <td>Листинг каталогов, манифесты блоков, атомарный rename</td>
+                <td><strong>Agent ➔ NameNode (LAN)</strong></td>
+                <td>TCP / Hadoop RPC</td>
+                <td><span class="port-badge port-lan">TCP 8020/9000</span></td>
+                <td>Листинг каталогов, получение манифестов, атомарный rename</td>
                 <td>DC LAN (Внутри ЦОД)</td>
               </tr>
               <tr>
-                <td><strong>Agent ➔ DataNodes (локально)</strong></td>
-                <td>Data Transfer Protocol</td>
-                <td><span class="port-badge port-lan">TCP 9866 (SASL)</span></td>
-                <td>Прямое блочное чтение и запись блоков HDFS</td>
+                <td><strong>Agent ➔ DataNodes (LAN)</strong></td>
+                <td>TCP / SASL DTP</td>
+                <td><span class="port-badge port-lan">TCP 9866</span></td>
+                <td>Прямое блочное чтение/запись данных под UGI (doAs)</td>
                 <td>DC LAN (Внутри ЦОД)</td>
               </tr>
               <tr>
                 <td><strong>Agent ➔ Hive Metastore</strong></td>
-                <td>Thrift RPC</td>
+                <td>TCP / Thrift RPC</td>
                 <td><span class="port-badge port-lan">TCP 9083</span></td>
-                <td>Чтение NOTIFICATION_LOG (DC1) и накат DDL (DC2)</td>
+                <td>Опрос NOTIFICATION_LOG (DC1) и накат DDL схемы (DC2)</td>
                 <td>DC LAN (Внутри ЦОД)</td>
               </tr>
               <tr>
                 <td><strong>Agent ➔ Kerberos KDC</strong></td>
-                <td>Kerberos AS/TGS</td>
+                <td>TCP/UDP / Kerberos</td>
                 <td><span class="port-badge port-lan">TCP/UDP 88</span></td>
-                <td>Получение тикетов TGT по keytab техучетки</td>
+                <td>Получение TGT тикетов по системному keytab</td>
                 <td>DC LAN (Внутри ЦОД)</td>
               </tr>
             </tbody>
@@ -779,50 +705,32 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 5: DATA FLOW HDFS -->
+    <!-- СЛАЙД 5: DATA PLANE МЕХАНИКА -->
     <!-- ========================================== -->
     <div class="slide" id="slide-5">
       <div class="slide-header">
-        <div class="slide-subtitle">HDFS Data Flow</div>
-        <h1 class="slide-title">Как ходит трафик при репликации файлов HDFS (Пошаговый цикл)</h1>
-        <p class="slide-desc">От построения дельты до атомарного переименования в целевом кластере</p>
+        <div class="slide-subtitle">Data Plane Deep Dive</div>
+        <h1 class="slide-title">Протокол HDFS Data Plane: Wire-формат, Tar-Stream и Zero-Staging</h1>
+        <p class="slide-desc">Прямой стриминг чанков, упаковка мелких файлов, сквозной хеш SHA-256 и атомарный коммит</p>
       </div>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">Шаг 1. Анализ дельты и планирование</div>
+            <div class="card-title">1. Fast In-Memory Diff и Чанкирование</div>
             <ul class="card-list">
-              <li>Воркер в DC1 забирает подзадачу из Orchestrator (<code>:8005 /tasks/claim</code>).</li>
-              <li>Запрашивает манифест у локальной NameNode DC1 (<code>:9000</code>).</li>
-              <li>Одним gRPC вызовом <code>GetDirectoryManifest</code> запрашивает манифест у Agent DC2.</li>
-              <li>В памяти строится O(N) Diff: неизмененные файлы пропускаются (0 байт WAN!).</li>
+              <li><strong>Метод <code>GetDirectoryManifest()</code>:</strong> Возвращает список <code>{path, size, mtime}</code> целевой папки одним gRPC вызовом.</li>
+              <li><strong>In-Memory Diff:</strong> Идентичные файлы отсекаются за миллисекунды (0 байт в WAN канале).</li>
+              <li><strong>Чанки по 4 МБ:</strong> Большие файлы передаются через <code>TransferFile(stream)</code> чанками по 4 МБ со сжатием Zstd.</li>
+              <li><strong>Сквозной SHA-256:</strong> Хеш считается на лету при чтении и сверяется на стороне приемника перед коммитом.</li>
             </ul>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">Шаг 2. Чтение блоков и упаковка</div>
+            <div class="card-title">2. Tar-Streaming и Zero-Staging коммит</div>
             <ul class="card-list">
-              <li>Агент DC1 читает блоки из DataNodes DC1 (<code>:9866</code>) под UGI автора задачи (<code>doAs</code>).</li>
-              <li>Запрашивает разрешение на передачу у Token Bucket шейпера полосы.</li>
-              <li>Файлы &lt; 1 МБ упаковываются в виртуальный Tar-Stream на лету.</li>
-              <li>Файлы &gt;= 1 МБ нарезаются на чанки по 4 МБ со сжатием Zstd/LZ4.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-cyan">
-            <div class="card-title">Шаг 3. Прямой gRPC WAN стриминг</div>
-            <ul class="card-list">
-              <li>Агент DC1 стримит чанки <strong>НАПРЯМУЮ</strong> в Agent DC2 (<code>:50051 gRPC, mTLS</code>).</li>
-              <li>Никакие байты файлов <strong>НЕ проходят через Оркестратор!</strong></li>
-              <li>Потоковое вычисление контрольной суммы SHA-256 на обеих сторонах.</li>
-              <li>Скорость строго удерживается шейпером Token Bucket.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-amber">
-            <div class="card-title">Шаг 4. Zero-Staging и фиксация в HDFS</div>
-            <ul class="card-list">
-              <li>Агент DC2 пишет блоки в DataNodes DC2 (<code>:9866</code>) во временный файл <code>._staging_</code>.</li>
-              <li>Сверка хэша SHA-256: при совпадении вызывается атомарный <code>fs.rename()</code>.</li>
-              <li>Для мелких файлов Tar-Stream распаковывается прямо в HDFS без диска.</li>
-              <li>Агент DC1 отправляет рапорт в Orchestrator (<code>:8005 /progress</code>) с обновлением ETA.</li>
+              <li><strong>Виртуальный Tar-Streaming (&lt; 1 МБ):</strong> Метод <code>TransferTarStream()</code> упаковывает сотни мелких файлов в непрерывный поток в RAM. Приемник потоково пишет файлы прямо в HDFS (8 параллельных потоков). <strong>0 шторма RPC к NameNode!</strong></li>
+              <li><strong>Zero-Staging коммит:</strong> Приемник пишет поток напрямую в целевой HDFS: <code>&lt;path&gt;._staging_&lt;jobId&gt;</code> без локального диска.</li>
+              <li><strong>Атомарный <code>fs.rename()</code>:</strong> Чистовой файл фиксируется атомарным RPC переименованием NameNode.</li>
+              <li><strong>Staging Garbage Collection:</strong> Демон удаляет осиротевшие файлы <code>._staging_*</code> старше 24ч раз в 15 минут.</li>
             </ul>
           </div>
         </div>
@@ -830,50 +738,70 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 6: DATA FLOW HIVE CDC -->
+    <!-- СЛАЙД 6: АЛГОРИТМ ШЕЙПИНГА -->
     <!-- ========================================== -->
     <div class="slide" id="slide-6">
       <div class="slide-header">
-        <div class="slide-subtitle">Metadata Data Flow</div>
-        <h1 class="slide-title">Как ходит трафик при репликации Hive Metastore (HMS CDC)</h1>
-        <p class="slide-desc">Потоковая передача DDL-событий с распределенным лизингом Inotify Lease HA</p>
+        <div class="slide-subtitle">Сетевой шейпинг полосы</div>
+        <h1 class="slide-title">Алгоритм сетевого шейпинга: Hierarchical Token Bucket</h1>
+        <p class="slide-desc">Аппаратный контроль полосы пропускания WAN на уровне Netty буферов без использования iptables/tc</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card card-accent-cyan">
+            <div class="card-title">Иерархия лимитов полосы</div>
+            <ul class="card-list">
+              <li><strong>Уровень 1 (Global Limit):</strong> Суммарная планка всей платформы (например, 200 МБ/с).</li>
+              <li><strong>Уровень 2 (DC Channel Limit):</strong> Лимит физического WAN канала между площадками (150 МБ/с).</li>
+              <li><strong>Уровень 3 (Task Queue):</strong>
+                <br/>• <code>CRITICAL</code> (HMS CDC, витрины): Гарантированная полоса (50 МБ/с), Burstable.
+                <br/>• <code>BATCH</code> (Ночные синки сырых слоев): Лимит 80 МБ/с.
+                <br/>• <code>BACKGROUND</code> (Архивы, бэкапы): Best Effort (20 МБ/с).
+              </li>
+              <li><strong>Динамическое изменение:</strong> Новые лимиты применяются через SSE за 100 мс без рестарта демонов.</li>
+            </ul>
+          </div>
+          <div class="card card-accent-amber">
+            <div class="card-title">Механизм троттлинга (LocalBandwidthLimiter)</div>
+            <ul class="card-list">
+              <li><strong>Пополнение корзины:</strong> Каждую миллисекунду корзина токенов пополняется на <code>allowedBytesPerSec / 1000</code>.</li>
+              <li><strong>Троттлинг потока:</strong> Перед отправкой чанка вызывается <code>limiter.throttle(chunkSize)</code>.</li>
+              <li><strong>Высокоточная пауза:</strong> При нехватке токенов поток усыпляется через <code>LockSupport.parkNanos()</code>.</li>
+              <li><strong>HTTP/2 Flow Control:</strong> Обратное давление (Backpressure) удерживает Netty буферы от переполнения.</li>
+              <li><strong>Гарантия без голодания:</strong> Низкоприоритетные очереди получают гарантированный квант полосы.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 7: HIVE METASTORE CDC -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-7">
+      <div class="slide-header">
+        <div class="slide-subtitle">Репликация метаданных</div>
+        <h1 class="slide-title">Протокол Hive Metastore CDC, Inotify Lease HA и Non-ACID Gate</h1>
+        <p class="slide-desc">Вычитка NOTIFICATION_LOG, распределенный лизинг воркеров, трансляция путей и защита данных</p>
       </div>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">1. Захват эксклюзивной аренды (Lease)</div>
+            <div class="card-title">1. Вычитка событий и Inotify Lease HA</div>
             <ul class="card-list">
-              <li>Агент DC1 запрашивает аренду схемы: <code>POST /hms/lease/claim</code> (Оркестратор).</li>
-              <li>Оркестратор выдает эксклюзивный токен аренды на 60 секунд с автопродлением.</li>
-              <li>Исключены гонки: ровно один воркер в кластере читает CDC-поток схемы.</li>
-              <li>При сбое воркера аренда протухает, и другой агент подхватывает стрим.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-amber">
-            <div class="card-title">2. Локальный опрос NOTIFICATION_LOG</div>
-            <ul class="card-list">
-              <li>Агент DC1 по LAN Thrift <code>:9083</code> вычитывает события из Hive Metastore DC1.</li>
-              <li>События: <code>CREATE_TABLE</code>, <code>ADD_PARTITION</code>, <code>ALTER_TABLE</code>, <code>DROP_PARTITION</code>.</li>
-              <li><strong>Non-ACID Gate:</strong> ACID transactional таблицы безопасно пропускаются.</li>
-              <li>Пакеты событий формируются пачками для минимизации RPC.</li>
+              <li><strong>Опрос NOTIFICATION_LOG:</strong> Агент опрашивает Thrift <code>:9083</code> методом <code>get_next_notification()</code>.</li>
+              <li><strong>Распределенный лизинг (Lease HA):</strong> Оркестратор выдает эксклюзивный токен аренды потока схемы на 60 сек (heartbeat раз в 20 сек). Ровно 1 воркер читает поток схемы.</li>
+              <li><strong>Автоматический Failover воркера:</strong> При падении держателя аренда протухает через 60 сек, и поток подхватывает соседний агент с позиции <code>last_processed_event_id</code>.</li>
+              <li><strong>Non-ACID Gate:</strong> Таблицы с <code>transactional=true</code> отфильтровываются, исключая повреждение дельт.</li>
             </ul>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">3. Передача пакетов DDL по WAN</div>
+            <div class="card-title">2. Federation Rewrite и накат схемы</div>
             <ul class="card-list">
-              <li>Агент DC1 передает пачку DDL в Agent DC2 по WAN <code>:50051</code> (gRPC contract).</li>
-              <li>Агент DC2 транслирует Federation NameService: <code>hdfs://ns-dc1/</code> ➔ <code>hdfs://ns-dc2/</code>.</li>
-              <li>Перелинковка <code>sdLocation</code> на целевой кластер и генерация саб-джобов HDFS.</li>
-              <li>Изоляция сабтасок: перенос файлов партиций скрыт из основного списка.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-cyan">
-            <div class="card-title">4. Применение DDL и подтверждение</div>
-            <ul class="card-list">
-              <li>Агент DC2 по LAN Thrift <code>:9083</code> накатывает DDL в Hive Metastore DC2.</li>
-              <li>Безопасность: при <code>DROP_TABLE</code> флаг <code>deleteData=false</code> (файлы не стираются!).</li>
-              <li>Агент DC2 подтверждает накат ➔ Агент DC1 рапортует прогресс в Orchestrator.</li>
-              <li>Фиксация <code>last_processed_event_id</code>: позиция гарантированно сохранена.</li>
+              <li><strong>Трансляция NameService:</strong> <code>HmsPathRewriter</code> на лету переписывает URI в DDL: <code>hdfs://ns-dc1/</code> ➔ <code>hdfs://ns-dc2/</code> для таблиц и партиций.</li>
+              <li><strong>gRPC протокол <code>HmsTransferService</code>:</strong> Методы <code>ApplyDatabase</code>, <code>ApplyTable</code>, <code>ApplyPartitionBatch</code>, <code>ApplyCdcBatch</code>.</li>
+              <li><strong>Защита от удаления файлов:</strong> При операциях <code>DROP_TABLE</code> и <code>DROP_PARTITION</code> в Thrift вызове принудительно ставится <code>deleteData=false</code>.</li>
+              <li><strong>Фоновые подзадачи:</strong> Перемещение файлов партиций HDFS изолировано и скрыто из общего UI.</li>
             </ul>
           </div>
         </div>
@@ -881,75 +809,135 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 7: ТРАФИК В DISASTER RECOVERY -->
-    <!-- ========================================== -->
-    <div class="slide" id="slide-7">
-      <div class="slide-header">
-        <div class="slide-subtitle">Disaster Recovery Traffic</div>
-        <h1 class="slide-title">Потоки трафика в Disaster Recovery: Штатно vs Kill-Switch vs Reverse</h1>
-        <p class="slide-desc">Как ведет себя сеть при аварии основного ЦОД и как безопасно разворачивается поток данных</p>
-      </div>
-      <div class="slide-body">
-        <div class="grid-3">
-          <div class="card card-accent-green">
-            <div class="card-title">1. Штатный режим (DC1 ➔ DC2)</div>
-            <ul class="card-list">
-              <li><strong>Клиентский трафик:</strong> Направлен на DC1.</li>
-              <li><strong>Data Plane WAN:</strong> Поток идет от Agent DC1 в Agent DC2 (<code>:50051</code>).</li>
-              <li><strong>Шейпер полосы:</strong> Лимит канала (100 МБ/с).</li>
-              <li><strong>HMS CDC:</strong> Стриминг дельты в DC2.</li>
-              <li>DC2 выступает пассивным Standby-приемником.</li>
-            </ul>
-          </div>
-          <div class="card card-accent-red">
-            <div class="card-title">2. Авария DC1 и Kill-Switch</div>
-            <ul class="card-list">
-              <li><strong>Событие:</strong> DC1 упал. Клиенты переключены на DC2.</li>
-              <li><strong>Действие оператора:</strong> Нажатие 🛑 Kill-Switch.</li>
-              <li><strong>WAN сетевой барьер:</strong> Лимит канала ➔ <strong>0 МБ/с (Fencing)</strong>.</li>
-              <li><strong>Задачи:</strong> Все прямые задачи заморожены (STOPPED, Cron OFF).</li>
-              <li><strong>Защита от Split-Brain:</strong> При оживании DC1 старые задачи НЕ запустятся и не затрут данные DC2!</li>
-            </ul>
-          </div>
-          <div class="card card-accent-cyan">
-            <div class="card-title">3. Восстановление DC1 (Reverse)</div>
-            <ul class="card-list">
-              <li><strong>Событие:</strong> DC1 починили и включили.</li>
-              <li><strong>Снятие изоляции:</strong> Прямые задачи остаются STOPPED!</li>
-              <li><strong>Reverse Replication:</strong> Запуск зеркальных задач <strong>DC2 ➔ DC1</strong>.</li>
-              <li><strong>Поток данных РАЗВОРАЧИВАЕТСЯ:</strong> Agent DC2 стримит дельту в Agent DC1.</li>
-              <li>После догона дельты DC1 готов к возврату в продуктив.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- СЛАЙД 8: ИНТЕРФЕЙС - ТОПОЛОГИЯ И ШЕЙПЕР -->
+    <!-- СЛАЙД 8: БЕЗОПАСНОСТЬ И KERBEROS -->
     <!-- ========================================== -->
     <div class="slide" id="slide-8">
       <div class="slide-header">
-        <div class="slide-subtitle">Архитектура в интерфейсе</div>
-        <h1 class="slide-title">Управление топологией дата-центров и шейпером полосы</h1>
-        <p class="slide-desc">Иерархический Token Bucket: глобальные лимиты каналов и пулы приоритетов задач</p>
+        <div class="slide-subtitle">Информационная безопасность</div>
+        <h1 class="slide-title">Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit</h1>
+        <p class="slide-desc">Сквозной аудит доступа под реальным логином автора задачи и mTLS шифрование канала</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card card-accent-cyan">
+            <div class="card-title">Kerberos Proxy User doAs Impersonation</div>
+            <ul class="card-list">
+              <li><strong>Системный Keytab:</strong> Агент стартует под техучеткой <code>hdfs-replicator/node@REALM</code> (прописана в <code>hadoop.proxyuser.hosts</code>).</li>
+              <li><strong>Выполнение под UGI автора:</strong> Чтение и запись в HDFS производятся строго от имени автора задачи:
+                <br/><code>UGI.createProxyUser(jobAuthor, systemUGI).doAs(...)</code>.
+              </li>
+              <li><strong>Apache Ranger Audit:</strong> В аудит-логах HDFS фиксируется реальный автор (например, <code>ivan_de</code>), а не техническая учетная запись.</li>
+              <li><strong>Сохранение POSIX прав:</strong> В <code>FileMetadata</code> передаются <code>file_mode</code>, <code>owner</code>, <code>group</code>. На приемнике права выставляются через <code>fs.setPermission()</code>.</li>
+            </ul>
+          </div>
+          <div class="card card-accent-amber">
+            <div class="card-title">Аутентификация и сетевое шифрование</div>
+            <ul class="card-list">
+              <li><strong>mTLS v1.3:</strong> МежЦОДное gRPC соединение защищено взаимными x509 сертификатами с валидацией корпоративным CA.</li>
+              <li><strong>Web UI SSO:</strong> Вход в веб-интерфейс через Kerberos SPNEGO SSO в 1 клик (Negotiate header) или LDAP Bind.</li>
+              <li><strong>JWT Сессии:</strong> Безопасные HttpOnly / SameSite Lax Cookie с валидацией ролей (ADMIN, WRITER, READER).</li>
+              <li><strong>Защита секретов:</strong> Ключи агентов и токены передаются в защищенных заголовках <code>X-Replicator-Agent-Secret</code>.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 9: SRE RUNBOOK - АВАРИЯ И KILL-SWITCH -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-9">
+      <div class="slide-header">
+        <div class="slide-subtitle">Disaster Recovery Runbook • Часть 1</div>
+        <h1 class="slide-title">SRE Runbook: Авария основного ЦОД и сетевое ограждение (Kill-Switch)</h1>
+        <p class="slide-desc">Пошаговый регламент действий дежурного SRE при отказе DC1 и защита от Split-Brain</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card card-accent-red">
+            <div class="card-title">Пошаговый регламент действий при аварии DC1</div>
+            <ul class="card-list">
+              <li><strong>Шаг 1 (Детектирование):</strong> Агенты DC1 не присылают heartbeat (> 15 сек). Кластер недоступен.</li>
+              <li><strong>Шаг 2 (Сетевое ограждение Fencing):</strong> Дежурный SRE нажимает 🛑 <strong>Kill-Switch</strong> в UI DR Hub (или вызывает <code>POST /api/dr/fencing/activate</code>).</li>
+              <li><strong>Шаг 3 (Системные действия):</strong>
+                <br/>• Лимит WAN полосы в Token Bucket сбрасывается в <strong>0 МБ/с</strong>.
+                <br/>• Все активные gRPC потоки отменяются (<code>Status.CANCELLED</code>).
+                <br/>• Все прямые задачи репликации переводятся в статус <code>STOPPED</code>.
+                <br/>• Планировщик Cron Schedules принудительно отключается.
+              </li>
+              <li><strong>Шаг 4 (Промоушен DC2):</strong> Клиентский трафик (Spark, Trino, BI) переключается на ЦОД-2. ЦОД-2 становится Active кластером на запись.</li>
+            </ul>
+          </div>
+          <div class="card card-accent-amber">
+            <div class="card-title">Защита от Split-Brain: Физический барьер</div>
+            <ul class="card-list">
+              <li><strong>В чем риск:</strong> Если упавший ЦОД-1 внезапно оживет без сетевого ограждения, старые фоновые задачи репликации перетерли бы новые данные, записанные клиентами на ЦОД-2!</li>
+              <li><strong>Как решено:</strong> Kill-Switch ставит двойной барьер — программный (заморозка задач) и сетевой (квота шейпера 0 МБ/с). Ни один байт не покидает периметр.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 10: SRE RUNBOOK - ВОССТАНОВЛЕНИЕ -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-10">
+      <div class="slide-header">
+        <div class="slide-subtitle">Disaster Recovery Runbook • Часть 2</div>
+        <h1 class="slide-title">SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication</h1>
+        <p class="slide-desc">Регламент ввода ожившего ЦОД-1 в строй: разворот потока трафика и догон дельты</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card card-accent-cyan">
+            <div class="card-title">Безопасное снятие изоляции (Unfence)</div>
+            <ul class="card-list">
+              <li><strong>Оживание площадки:</strong> Инфраструктура ЦОД-1 восстановлена и включена.</li>
+              <li><strong>Снятие изоляции:</strong> В UI нажимается кнопка <em>Снять изоляцию</em> (Unfence).</li>
+              <li><strong>⚠️ КРИТИЧЕСКИЙ ФАКТ:</strong> Снятие изоляции <strong>НЕ ЗАПУСКАЕТ прямые задачи!</strong> Они остаются в статусе <code>STOPPED</code>, исключая стирание данных на DC2.</li>
+              <li><strong>Снятие барьера:</strong> Лимит WAN канала возвращается в штатное состояние (100 МБ/с).</li>
+            </ul>
+          </div>
+          <div class="card card-accent-green">
+            <div class="card-title">Запуск Reverse Replication (Догон дельты)</div>
+            <ul class="card-list">
+              <li><strong>1-Click Reverse Wizard:</strong> Мастер автоматически генерирует зеркальные задачи с инвертированными путями: <strong>DC2 (Standby) ➔ DC1 (Primary)</strong>.</li>
+              <li><strong>Разворот потока данных:</strong> Агент DC2 читает свежие файлы и стримит их в Агент DC1 по WAN :50051.</li>
+              <li><strong>Контроль выравнивания:</strong> Мониторинг проверяет: <code>Remaining Bytes = 0</code> и <code>HMS Event Lag = 0</code>.</li>
+              <li><strong>Failback:</strong> Клиентские приложения переключаются обратно на ЦОД-1. Возобновляется штатный прямой поток.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 11: АРХИТЕКТУРА В ИНТЕРФЕЙСЕ -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-11">
+      <div class="slide-header">
+        <div class="slide-subtitle">Инструменты управления платформой</div>
+        <h1 class="slide-title">Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub</h1>
+        <p class="slide-desc">Рабочие экраны администратора и инженера данных для мониторинга и оперативного контроля</p>
       </div>
       <div class="slide-body">
         <div class="ui-split">
           <div class="ui-left">
             <div class="card card-accent-indigo">
-              <div class="card-title">Пирамида лимитов полосы</div>
+              <div class="card-title">Экраны консоли управления</div>
               <ul class="card-list">
-                <li><strong>Глобальный лимит ЦОД:</strong> Верхняя планка суммарного WAN канала между Москвой и Санкт-Петербургом.</li>
-                <li><strong>Гарантии без голодания:</strong> Приоритетные задачи (CRITICAL) получают полосу первыми.</li>
-                <li><strong>Zero-Overhead:</strong> Контроль токенов в памяти воркеров, мгновенный троттлинг Netty буферов.</li>
+                <li><strong>Топология ЦОД:</strong> Настройка пирамиды лимитов WAN и очередей в рантайме.</li>
+                <li><strong>Дашборд репликации:</strong> Мониторинг скорости в МБ/с, прогресс-бары и ETA.</li>
+                <li><strong>HMS Replication:</strong> Мониторинг отставания событий и статуса Lease HA.</li>
+                <li><strong>DR Hub:</strong> Индикация барьера Kill-Switch и мастер Reverse Replication.</li>
               </ul>
             </div>
             <div class="card card-accent-green">
-              <div class="card-title">Динамическое изменение</div>
+              <div class="card-title">Интеграция с экосистемой</div>
               <ul class="card-list">
-                <li>Смена лимита в интерфейсе мгновенно вступает в силу через SSE без рестарта демонов.</li>
-                <li>Сетевой стек точно выдерживает профиль нагрузки.</li>
+                <li>Единая навигационная панель Hadoop Explorer Platform (YARN, HDFS, SQL, Spark).</li>
+                <li>Kerberos SPNEGO бесшовный вход без ввода пароля.</li>
               </ul>
             </div>
           </div>
@@ -962,176 +950,82 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 9: ИНТЕРФЕЙС - ЗАДАЧИ И ДАШБОРД -->
-    <!-- ========================================== -->
-    <div class="slide" id="slide-9">
-      <div class="slide-header">
-        <div class="slide-subtitle">Архитектура в интерфейсе</div>
-        <h1 class="slide-title">Контроль задач и прямого статуса репликации в реальном времени</h1>
-        <p class="slide-desc">Метрики пропускной способности, прогресс-бары, статус воркеров и детальный аудит</p>
-      </div>
-      <div class="slide-body">
-        <div class="ui-split">
-          <div class="ui-left">
-            <div class="card card-accent-cyan">
-              <div class="card-title">Мгновенный мониторинг</div>
-              <ul class="card-list">
-                <li>Отображение текущей сетевой утилизации в МБ/с.</li>
-                <li>Количество переданных файлов и байт.</li>
-                <li>Динамический расчет оставшегося времени (ETA) на базе скользящей средней скорости.</li>
-              </ul>
-            </div>
-            <div class="card card-accent-amber">
-              <div class="card-title">Гибкое управление</div>
-              <ul class="card-list">
-                <li>Мастер создания задач: указание source/target путей HDFS.</li>
-                <li>Привязка к профилю шейпинга и очередей полосы.</li>
-                <li>Поддержка Cron расписаний и ручного триггера.</li>
-              </ul>
-            </div>
-          </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/02_main_dashboard.png')">
-            <img src="images/replicator/02_main_dashboard.png" onerror="this.src='images/replicator/replicator_dashboard_screen.png'" alt="Дашборд задач репликации">
-            <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- СЛАЙД 10: ИНТЕРФЕЙС - HIVE METASTORE -->
-    <!-- ========================================== -->
-    <div class="slide" id="slide-10">
-      <div class="slide-header">
-        <div class="slide-subtitle">Архитектура в интерфейсе</div>
-        <h1 class="slide-title">Потоковая репликация метаданных Hive Metastore (HMS Console)</h1>
-        <p class="slide-desc">Непрерывная синхронизация каталогов DDL и статус распределенной аренды Inotify Lease</p>
-      </div>
-      <div class="slide-body">
-        <div class="ui-split">
-          <div class="ui-left">
-            <div class="card card-accent-indigo">
-              <div class="card-title">Контроль отставания (Lag)</div>
-              <ul class="card-list">
-                <li>Отображение разницы между <code>Max Event ID</code> источника и <code>Last Processed Event ID</code> приемника.</li>
-                <li>Автоматическая сигнализация при росте задержки синхронизации метаданных.</li>
-              </ul>
-            </div>
-            <div class="card card-accent-green">
-              <div class="card-title">Статус Inotify Lease HA</div>
-              <ul class="card-list">
-                <li>Информация об активном воркере-держателе аренды.</li>
-                <li>Отображение оставшегося TTL аренды и частоты продления.</li>
-                <li>Скрытие служебных подзадач переноса партиций из общего списка.</li>
-              </ul>
-            </div>
-          </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/06_hms_replication_dashboard.png')">
-            <img src="images/replicator/06_hms_replication_dashboard.png" onerror="this.src='images/replicator/replicator_hms_screen.png'" alt="Консоль Hive Metastore CDC">
-            <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- СЛАЙД 11: ИНТЕРФЕЙС - DR HUB И ИЗОЛЯЦИЯ -->
-    <!-- ========================================== -->
-    <div class="slide" id="slide-11">
-      <div class="slide-header">
-        <div class="slide-subtitle">Архитектура в интерфейсе</div>
-        <h1 class="slide-title">Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch</h1>
-        <p class="slide-desc">Защита от Split-Brain: мгновенная блокировка сетевого канала и остановка прямых задач</p>
-      </div>
-      <div class="slide-body">
-        <div class="ui-split">
-          <div class="ui-left">
-            <div class="card card-accent-red">
-              <div class="card-title">🛑 Аварийный барьер (Fencing)</div>
-              <ul class="card-list">
-                <li>Яркий баннер аварийного состояния на всех экранах платформы.</li>
-                <li>Установка лимита WAN в 0 МБ/с: ни один пакет не покидает периметр.</li>
-                <li>Принудительная остановка фоновых задач и отключение планировщика Cron.</li>
-              </ul>
-            </div>
-            <div class="card card-accent-amber">
-              <div class="card-title">Безопасность данных</div>
-              <ul class="card-list">
-                <li>Гарантирует, что оживший аварийный узел не перезапишет свежие клиентские изменения на резервном ЦОД.</li>
-              </ul>
-            </div>
-          </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/10_disaster_recovery_fenced_state.png')">
-            <img src="images/replicator/10_disaster_recovery_fenced_state.png" onerror="this.src='images/replicator/replicator_dr_isolated_screen.png'" alt="DR Hub в режиме изоляции">
-            <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- СЛАЙД 12: ИНТЕРФЕЙС - UNFENCE И REVERSE -->
+    <!-- СЛАЙД 12: НАБЛЮДАЕМОСТЬ И МЕТРИКИ -->
     <!-- ========================================== -->
     <div class="slide" id="slide-12">
       <div class="slide-header">
-        <div class="slide-subtitle">Архитектура в интерфейсе</div>
-        <h1 class="slide-title">Снятие изоляции и мастер 1-Click Reverse Replication</h1>
-        <p class="slide-desc">Безопасный возврат узла в строй: разворот потока данных для догона дельты на оживший кластер</p>
+        <div class="slide-subtitle">Observability & Monitoring</div>
+        <h1 class="slide-title">Наблюдаемость: Метрики Prometheus, Healthcheck и Алерты</h1>
+        <p class="slide-desc">Реестр системных метрик, эндпоинты мониторинга и рекомендуемые правила Alertmanager</p>
       </div>
       <div class="slide-body">
-        <div class="ui-split">
-          <div class="ui-left">
-            <div class="card card-accent-cyan">
-              <div class="card-title">Безопасный Unfence</div>
-              <ul class="card-list">
-                <li>Снятие изоляции возвращает лимит канала, но <strong>НЕ запускает старые задачи</strong>!</li>
-                <li>Исключен риск случайного стирания свежих данных.</li>
-              </ul>
-            </div>
-            <div class="card card-accent-green">
-              <div class="card-title">1-Click Reverse Wizard</div>
-              <ul class="card-list">
-                <li>Автоматическое создание зеркальных задач с инвертированными путями (<code>DC2 ➔ DC1</code>).</li>
-                <li>Чекбоксы для выборочного догона критических таблиц.</li>
-                <li>Поток данных идет в обратную сторону до полной синхронизации.</li>
-              </ul>
-            </div>
+        <div class="grid-2">
+          <div class="card card-accent-cyan">
+            <div class="card-title">Реестр ключевых метрик Prometheus</div>
+            <ul class="card-list">
+              <li><code>replicator_throughput_bytes_total</code> (Counter): Суммарный объем переданных байт по WAN.</li>
+              <li><code>replicator_throughput_bytes_per_second</code> (Gauge): Текущая мгновенная скорость передачи.</li>
+              <li><code>replicator_task_duration_seconds</code> (Histogram): Длительность выполнения задач.</li>
+              <li><code>replicator_hms_lag_events</code> (Gauge): Отставание CDC в событиях NOTIFICATION_LOG.</li>
+              <li><code>replicator_active_streams_count</code> (Gauge): Количество открытых параллельных gRPC стримов.</li>
+              <li><code>replicator_staging_orphans_count</code> (Gauge): Количество обнаруженных осиротевших staging файлов.</li>
+            </ul>
+            <div class="code-box"># Эндпоинты сбора метрик:
+GET http://orchestrator:8005/actuator/prometheus
+GET http://orchestrator:8005/actuator/health</div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/12_reverse_replication_modal.png')">
-            <img src="images/replicator/12_reverse_replication_modal.png" onerror="this.src='images/replicator/replicator_unfence_reverse_screen.png'" alt="Снятие изоляции и Reverse Replication">
-            <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
+          <div class="card card-accent-red">
+            <div class="card-title">Правила алертинга (Prometheus Alertmanager)</div>
+            <ul class="card-list">
+              <li><strong>ReplicatorAgentOffline (Critical):</strong>
+                <br/><code>time() - replicator_agent_heartbeat_timestamp > 30s</code>
+                <br/>Агент не присылает heartbeat более 30 секунд.
+              </li>
+              <li><strong>ReplicatorHmsLagHigh (Warning):</strong>
+                <br/><code>replicator_hms_lag_events > 10000</code> в течение 5 минут.
+                <br/>Отставание репликации метаданных превысило допустимый порог.
+              </li>
+              <li><strong>ReplicatorChecksumMismatch (Critical):</strong>
+                <br/>Ошибка сквозной проверки хеша SHA-256 при коммите файла.
+              </li>
+            </ul>
           </div>
         </div>
       </div>
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 13: САЙЗИНГ И БЕЗОПАСНОСТЬ -->
+    <!-- СЛАЙД 13: САЙЗИНГ И ТЮНИНГ -->
     <!-- ========================================== -->
     <div class="slide" id="slide-13">
       <div class="slide-header">
-        <div class="slide-subtitle">Эксплуатация и комплаенс</div>
-        <h1 class="slide-title">Аппаратный сайзинг и чеклист информационной безопасности (ИБ)</h1>
-        <p class="slide-desc">Рекомендации по ресурсам хостов и сквозной аудит доступа Kerberos / Apache Ranger</p>
+        <div class="slide-subtitle">Инфраструктура и тюнинг ОС</div>
+        <h1 class="slide-title">Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг</h1>
+        <p class="slide-desc">Рекомендации по sysctl сетевого стека для 10G/40G WAN, опции JVM и разбор типовых инцидентов</p>
       </div>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">Рекомендации по аппаратному сайзингу</div>
+            <div class="card-title">Тюнинг ядра Linux для 10G/40G WAN (/etc/sysctl.conf)</div>
             <ul class="card-list">
-              <li><strong>Модель Colocated (на узлах DataNode):</strong> максимальная локальность данных (Short-Circuit Local Read), 0 дополнительной нагрузки на сеть ЦОД. Требует: 2-4 vCPU, 4-8 GB JVM heap, 10G/25G сетевая карта.</li>
-              <li><strong>Модель Dedicated Gateway:</strong> полная изоляция от узлов Hadoop, независимое обновление. Чтение идет по LAN ЦОД. Требует: 8-16 vCPU, 16-32 GB RAM, 25G/40G сетевая карта.</li>
-              <li><strong>Orchestrator Host:</strong> 4 vCPU, 8 GB RAM, 50 GB SSD для журнала и БД метаданных.</li>
+              <li><code>net.core.rmem_max = 67108864</code> (64MB сетевой буфер приема).</li>
+              <li><code>net.core.wmem_max = 67108864</code> (64MB сетевой буфер отправки).</li>
+              <li><code>net.ipv4.tcp_rmem = 4096 87380 33554432</code> (TCP авто-окно).</li>
+              <li><code>net.ipv4.tcp_wmem = 4096 65536 33554432</code> (TCP авто-окно).</li>
+              <li><code>net.core.somaxconn = 4096</code>, <code>fs.file-max = 2097152</code>.</li>
             </ul>
+            <div class="code-box"># Рекомендуемые опции JVM (Java 21):
+-XX:+UseG1GC -XX:MaxGCPauseMillis=50
+-XX:InitiatingHeapOccupancyPercent=45
+-Dio.netty.allocator.type=pooled</div>
           </div>
-          <div class="card card-accent-green">
-            <div class="card-title">Чеклист информационной безопасности</div>
+          <div class="card card-accent-amber">
+            <div class="card-title">Диагностика типовых инцидентов (SRE FAQ)</div>
             <ul class="card-list">
-              <li>✅ <strong>Изоляция портов:</strong> в межЦОДном фаерволе открыт ровно 1 порт — <code>TCP :50051</code>.</li>
-              <li>✅ <strong>Шифрование:</strong> mTLS v1.3 со взаимной аутентификацией агентов.</li>
-              <li>✅ <strong>Kerberos impersonation:</strong> чтение и запись блоков под UGI автора задачи (<code>UserGroupInformation.doAs</code>).</li>
-              <li>✅ <strong>Apache Ranger Audit:</strong> все операции логируются в аудит HDFS под именем инициатора задачи.</li>
-              <li>✅ <strong>Hive Safety:</strong> при операциях DROP флаг <code>deleteData=false</code> исключает потерю физических файлов.</li>
+              <li><strong>GSSException / TGT Expired:</strong> Проверить валидность keytab: <code>klist -kt &lt;keytab&gt;</code>. Агент автоматически обновляет билет за 10 мин до экспирации.</li>
+              <li><strong>NameNode in SafeMode:</strong> Дождаться выхода целевого кластера из безопасного режима (<code>hdfs dfsadmin -safemode wait</code>).</li>
+              <li><strong>Сброс соединений Stateful Firewall:</strong> В Netty активен TCP Keepalive (<code>keepAliveTime=30s</code>), предотвращая разрыв сессий межсетевыми экранами.</li>
+              <li><strong>Осиротевшие staging-файлы:</strong> Сборщик мусора удаляет файлы <code>._staging_*</code> старше 24ч автоматически.</li>
             </ul>
           </div>
         </div>
@@ -1146,12 +1040,10 @@
     <div>Навигация: ◄ / ► (Стрелки) &nbsp;|&nbsp; Пробел &nbsp;|&nbsp; F (На весь экран) &nbsp;|&nbsp; O (Обзор)</div>
   </footer>
 
-  <!-- LIGHTBOX МОДАЛКА -->
   <div class="lightbox" id="lightbox" onclick="closeLightbox()">
     <img id="lightboxImg" src="" alt="Увеличенное изображение">
   </div>
 
-  <!-- OVERVIEW МОДАЛКА -->
   <div class="overview-modal" id="overviewModal">
     <div class="overview-header">
       <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff;">Карта слайдов презентации</h2>
@@ -1160,7 +1052,6 @@
     <div class="overview-grid" id="overviewGrid"></div>
   </div>
 
-  <!-- СКРИПТ НАВИГАЦИИ -->
   <script>
     let currentSlide = 1;
     const slides = document.querySelectorAll('.slide');
@@ -1305,14 +1196,13 @@
         item.onclick = () => goToSlide(idx + 1);
         item.innerHTML = `
           <div style="font-size: 0.72rem; color: var(--accent); font-weight: 700; text-transform: uppercase;">Слайд ${idx + 1}</div>
-          <div style="font-size: 0.9rem; font-weight: 700; margin: 3px 0; color: #fff; line-height: 1.3;">${title}</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted);">${subtitle}</div>
+          <div style="font-size: 0.88rem; font-weight: 700; margin: 3px 0; color: #fff; line-height: 1.3;">${title}</div>
+          <div style="font-size: 0.74rem; color: var(--text-muted);">${subtitle}</div>
         `;
         grid.appendChild(item);
       });
     }
 
-    // Инициализация при старте с учетом hash
     currentSlide = parseHash();
     initOverview();
     updateSlide(false);

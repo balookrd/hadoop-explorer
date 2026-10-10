@@ -1,348 +1,539 @@
-# 📊 Презентация платформы: Hadoop gRPC Replicator
-## Архитектура физического развертывания («Что ставится куда») и сетевые потоки («Как ходит трафик»)
+# 📊 Техническая спецификация и архитектура: Hadoop gRPC Replicator
+## Руководство для системных архитекторов, DevOps-инженеров и администраторов Data Platform
 
 <div align="center">
-  <img src="../images/logo_white.png" alt="Hadoop Explorer Platform" width="360" />
-  <p><strong>Материалы для проведения технической презентации и демонстрации команде инженеров и архитекторов</strong></p>
-  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивное слайд-шоу в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📋 <a href="#📑-содержание-слайдов-презентации"><strong>Текстовый план доклада (Markdown)</strong></a></p>
+  <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform" width="340" />
+  <p><strong>Инженерный регламент архитектуры, сетевых протоколов, шейпинга и Disaster Recovery</strong></p>
+  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивная слайдовая презентация в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📋 <a href="#📑-содержание-инженерных-разделов"><strong>Навигация по разделам</strong></a></p>
 </div>
 
 ---
 
-## 📑 Содержание слайдов презентации
+## 📑 Содержание инженерных разделов
 
-1. [Слайд 1: Титульный — Архитектура развертывания и сетевые потоки](#слайд-1-титульный--hadoop-grpc-replicator)
-2. [Слайд 2: Главная архитектурная схема развертывания и трафика](#слайд-2-главная-архитектурная-схема-развертывания-и-трафика)
-3. [Слайд 3: Что куда устанавливается (Placement Map)](#слайд-3-что-куда-устанавливается-placement-map)
-4. [Слайд 4: Сетевая матрица портов и фаервола (Network Matrix)](#слайд-4-сетевая-матрица-портов-и-фаервола-network-matrix)
-5. [Слайд 5: Жизненный цикл передачи HDFS файла (Data Flow)](#слайд-5-жизненный-цикл-передачи-hdfs-файла-data-flow)
-6. [Слайд 6: Жизненный цикл репликации Hive Metastore CDC (Metadata Flow)](#слайд-6-жизненный-цикл-репликации-hive-metastore-cdc-metadata-flow)
-7. [Слайд 7: Потоки трафика в Disaster Recovery (Штатно vs Kill-Switch vs Reverse)](#слайд-7-потоки-трафика-в-disaster-recovery)
-8. [Слайд 8: Архитектура в интерфейсе — Топология ЦОД и шейпер полосы](#слайд-8-архитектура-в-интерфейсе--топология-цод-и-шейпер-полосы)
-9. [Слайд 9: Архитектура в интерфейсе — Задачи и прямой мониторинг передачи](#слайд-9-архитектура-в-интерфейсе--задачи-и-прямой-мониторинг-передачи)
-10. [Слайд 10: Архитектура в интерфейсе — Потоковая репликация Hive Metastore](#слайд-10-архитектура-в-интерфейсе--потоковая-репликация-hive-metastore)
-11. [Слайд 11: Архитектура в интерфейсе — DR Hub, изоляция и Kill-Switch](#слайд-11-архитектура-в-интерфейсе--dr-hub-изоляция-и-kill-switch)
-12. [Слайд 12: Архитектура в интерфейсе — Снятие изоляции и Reverse Replication](#слайд-12-архитектура-в-интерфейсе--снятие-изоляции-и-reverse-replication)
-13. [Слайд 13: Аппаратный сайзинг и чеклист информационной безопасности](#слайд-13-аппаратный-сайзинг-и-чеклист-информационной-безопасности)
-
----
-
-## Слайд 1: Титульный — Hadoop gRPC Replicator
-
-### Архитектура развертывания («Что ставится куда») и сетевые потоки («Как ходит трафик»)
-
-- **Сервис**: `Hadoop gRPC Replicator` (входит в стек **Hadoop Explorer Platform**);
-- **Стек бэкенда**: Java 21 LTS, Spring Boot 3.3.4, gRPC / Protobuf, Netty, Spring Data JPA;
-- **Стек фронтенда**: TypeScript, Svelte 5 (Runes), Tailwind CSS, Vite;
-- **Целевая среда**: Распределенные кластеры Apache Hadoop 3.x, HDP 3.1, Apache Hive 3/4, Kerberos / FreeIPA / Active Directory.
-
-### Ключевые архитектурные тезисы
-
-1. **🏢 Что куда устанавливается?**
-   - **Control Plane (Orchestrator)**: отдельный сервер управления, VM или Kubernetes Pod. Слушает порт `8005` (REST API + Web UI Svelte 5).
-   - **Data Plane (Replicator Agents)**: устанавливаются в каждом ЦОД на узлы Hadoop DataNode (Colocated) или Edge Gateway узлы с 10/25/40G LAN.
-   - **Hadoop узлы**: NameNode, DataNodes, Hive Metastore работают в штатном режиме без сторонних плагинов или изменений в ядре Hadoop.
-
-2. **🌐 Как ходит трафик данных?**
-   - **Прямой gRPC WAN стрим**: трафик данных идет **НАПРЯМУЮ** от `Agent DC1` к `Agent DC2` по порту `50051 (mTLS)`.
-   - **Оркестратор НЕ качает байты через себя**: он выполняет исключительно функции Control Plane (раздача задач, координация лимитов Token Bucket, продление аренды).
-   - Потоковая нарезка чанков по 4 МБ, Tar-Streaming мелких файлов, сквозной расчет хэша SHA-256 на лету.
-
-3. **🛡️ Сеть и Disaster Recovery**
-   - В межЦОДном фаерволе между площадками открывается **ТОЛЬКО ОДИН ПОРТ**: `TCP :50051 (gRPC / HTTP/2, mTLS)`.
-   - Иерархический шейпер Hierarchical Token Bucket гарантирует жесткое соблюдение лимитов WAN-канала в мегабайтах в секунду.
-   - При аварии Kill-Switch мгновенно глушит WAN-трафик в 0 МБ/с, а после оживания площадки Reverse Replication разворачивает поток трафика `DC2 ➔ DC1`.
+1. [Слайд 1: Системная спецификация платформы и компоненты](#слайд-1-системная-спецификация-платформы-и-компоненты)
+2. [Слайд 2: Генеральная схема физического развертывания и сетевых потоков](#слайд-2-генеральная-схема-физического-развертывания-и-сетевых-потоков)
+3. [Слайд 3: Модель развертывания, параметры CLI и конфигурация процессов](#слайд-3-модель-развертывания-параметры-cli-и-конфигурация-процессов)
+4. [Слайд 4: Сетевая матрица портов, правила фаервола и L4/L7 протоколы](#слайд-4-сетевая-матрица-портов-правила-фаервола-и-l4l7-протоколы)
+5. [Слайд 5: Протокол HDFS Data Plane: Wire-формат, чанкирование и Zero-Staging](#слайд-5-протокол-hdfs-data-plane-wire-формат-чанкирование-и-zero-staging)
+6. [Слайд 6: Алгоритм сетевого шейпинга: Иерархический Token Bucket](#слайд-6-алгоритм-сетевого-шейпинга-иерархический-token-bucket)
+7. [Слайд 7: Протокол Hive Metastore CDC, распределенный лизинг и Non-ACID Gate](#слайд-7-протокол-hive-metastore-cdc-распределенный-лизинг-и-non-acid-gate)
+8. [Слайд 8: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit](#слайд-8-безопасность-kerberos-impersonation-doas-и-apache-ranger-audit)
+9. [Слайд 9: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)](#слайд-9-sre-runbook-авария-основного-цод-и-сетевое-ограждение-fencing-kill-switch)
+10. [Слайд 10: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication](#слайд-10-sre-runbook-восстановление-безопасный-unfence-и-reverse-replication)
+11. [Слайд 11: Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub](#слайд-11-управление-платформой-в-web-ui-топология-задачи-hms-и-dr-hub)
+12. [Слайд 12: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты](#слайд-12-наблюдаемость-observability-метрики-prometheus-healthcheck-и-алерты)
+13. [Слайд 13: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг](#слайд-13-сайзинг-оборудования-тюнинг-ос-linux-jvm-и-траблшутинг)
 
 ---
 
-## Слайд 2: Главная архитектурная схема развертывания и трафика
+## Слайд 1: Системная спецификация платформы и компоненты
 
-### Генеральная схема размещения компонентов и направлений сетевых потоков
+### Назначение и стек технологий
+
+`Hadoop gRPC Replicator` — специализированный сервис репликации данных HDFS и метаданных Apache Hive Metastore между изолированными дата-центрами (On-Premises, Private Cloud, Hybrid Cloud) с аппаратным контролем полосы WAN и защитой от Split-Brain.
+
+| Параметр | Control Plane (Оркестратор) | Data Plane (Агенты репликации) |
+| :--- | :--- | :--- |
+| **Бинарный пакет** | `hadoop-grpc-replicator-orchestrator.jar` | `hadoop-grpc-replicator-agent.jar` |
+| **Среда исполнения** | Java 21 LTS (Spring Boot 3.3.4) | Java 21 LTS (Netty 4.1 gRPC Daemon) |
+| **Сетевые интерфейсы** | `TCP :8005` (HTTP/REST API, SSE шина, Web UI) | `TCP :50051` (gRPC HTTP/2, mTLS v1.3 Full-Duplex) |
+| **База метаданных** | PostgreSQL 14+ / H2 (in-memory/file) | Отсутствует (Stateless воркеры) |
+| **Аутентификация** | Kerberos SPNEGO SSO, LDAP Bind, JWT HttpOnly | Kerberos Keytab (`hdfs.headless.keytab`), mTLS x509 |
+| **Целевые системы** | Браузеры операторов, Prometheus scraper | Hadoop 3.x (RPC :8020/:9000, DTP :9866), Hive Metastore (:9083) |
+
+### Базовые архитектурные факты
+
+1. **Строгое разделение Control Plane и Data Plane**:
+   - Оркестратор отвечает исключительно за координацию: планирование задач, учет воркеров, распределение квот полосы Token Bucket и координацию распределенной аренды HMS Lease.
+   - **Байты файлов и DDL-пакеты через Orchestrator НЕ прокачиваются**.
+2. **Прямой Peer-to-Peer обмен между агентами по WAN**:
+   - Передача данных выполняется напрямую между демонами `replicator-agent-dc1` и `replicator-agent-dc2` по порту `TCP :50051`.
+   - В фаерволе между ЦОД открывается ровно один порт. Кластерные порты Hadoop (NameNode, DataNodes) наружу не выставляются.
+3. **Stateless-архитектура воркеров**:
+   - Агенты не сохраняют локальное состояние задач на диск. При перезапуске или сбое воркера подзадачи мгновенно перехватываются соседними агентами кластера.
+
+---
+
+## Слайд 2: Генеральная схема физического развертывания и сетевых потоков
 
 <div align="center">
   <img src="images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator" width="100%" />
 </div>
 
-### Пояснение к генеральной схеме
+### Разбор физических контуров и направлений трафика
 
-1. **Верхний контур — Control Plane (Orchestrator Host)**:
-   - Хост оркестратора разворачивается в управляющей зоне сети (Management Network).
-   - Предоставляет пользователям SPA-консоль на Svelte 5 и REST API на порту `:8005`.
-   - Координирует работу агентов: раздает подзадачи (`/tasks/claim`), собирает прогресс (`/tasks/progress`), управляет квотами скорости Token Bucket и распределенной блокировкой `Inotify Lease HA` для Hive CDC.
-   - **Критический архитектурный принцип**: Байты пользовательских файлов через оркестратор НЕ передаются!
-
-2. **Левый контур — ЦОД-1 Primary (Москва, Data Plane & Hadoop Cluster)**:
-   - В дата-центре запускаются демоны `replicator-agent-dc1` на узлах кластера.
-   - Внутри периметра ЦОД агенты по локальной сети (LAN 10/25 Gbps) взаимодействуют с:
-     - NameNode (`:9000/:8020 Hadoop RPC`) — для мгновенного построения манифестов директорий;
-     - DataNodes (`:9866 Data Transfer Protocol`) — для блочного чтения данных под Kerberos UGI автора (`doAs`);
-     - Hive Metastore (`:9083 Thrift RPC`) — для вычитки журнала событий `NOTIFICATION_LOG`.
-
-3. **Центральный межЦОДный WAN-канал (Магистраль Москва ➔ Санкт-Петербург)**:
-   - Единственный порт в фаерволе между ЦОД: **`TCP :50051` (gRPC over HTTP/2, mTLS)**.
-   - Трафик идет **напрямую от Data Plane DC1 к Data Plane DC2**.
-   - Аппаратная скорость канала защищена шейпером Hierarchical Token Bucket.
-
-4. **Правый контур — ЦОД-2 Standby / DR (Санкт-Петербург, Data Plane & Standby Cluster)**:
-   - Демоны `replicator-agent-dc2` слушают порт `:50051` и принимают 4 МБ блоки данных.
-   - Принимают поток, пишут в DataNodes DC2 во временные файлы `._staging_`, сверяют хэш SHA-256 и вызывают атомарный `fs.rename()`.
-   - Применяют DDL-схемы в локальный Hive Metastore DC2 по порту `:9083`.
+1. **Контур управления (Control Plane)**:
+   - Развертывается на выделенной виртуальной машине (VM) или в Kubernetes Pod в управляющем сетевом сегменте (Management VLAN).
+   - Предоставляет REST API и SPA-интерфейс на порту `:8005`.
+   - Общается с агентами обоих ЦОД по протоколу HTTP REST (регистрация агентов, heartbeat каждые 5с, выдача квантов подзадач, продление лизинга Lease HA).
+2. **Контур ЦОД-1 Primary (Москва)**:
+   - Демоны `replicator-agent-dc1` запущены на узлах DataNode или Edge Gateway.
+   - Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют с:
+     - NameNode (`TCP :8020/:9000`) — вычитка структуры директорий и снапшотов;
+     - DataNodes (`TCP :9866`) — прямое чтение блоков HDFS по протоколу SASL Data Transfer Protocol от имени пользователя (`doAs`);
+     - Hive Metastore (`TCP :9083`) — вычитка событий таблицы `NOTIFICATION_LOG` по протоколу Thrift.
+3. **МежЦОДная магистраль WAN (Москва ➔ Санкт-Петербург)**:
+   - Единственный порт в фаерволе: **`TCP :50051` (gRPC / HTTP/2, mTLS)**.
+   - Трафик идет **напрямую от Agent DC1 к Agent DC2**. Скорость канала жестко лимитируется локальным Token Bucket шейпером.
+4. **Контур ЦОД-2 Standby / DR (Санкт-Петербург)**:
+   - Демоны `replicator-agent-dc2` слушают порт `:50051`.
+   - Принимают чанки данных, пишут во временные файлы `._staging_<jobId>` локального HDFS (`TCP :9866`), сверяют SHA-256 и выполняют атомарный `fs.rename()`.
+   - Принимают DDL-пакеты, переписывают URI путей NameService и накатывают схему в локальный Hive Metastore DC2 (`TCP :9083`).
 
 ---
 
-## Слайд 3: Что куда устанавливается (Placement Map)
+## Слайд 3: Модель развертывания, параметры CLI и конфигурация процессов
 
-### Детальная спецификация хостов, контейнеров и ролей в инфраструктуре
+### Параметры запуска процесса Replicator Orchestrator
 
-| Компонент / Сервер | Процесс и Стек | Порты | Размещение в инфраструктуре | Роль и обязанности |
-| :--- | :--- | :--- | :--- | :--- |
-| **Control Plane Host** | `replicator-orchestrator`<br/>(Java 21 / Spring Boot 3) | `TCP 8005` (HTTP/REST, SSE) | Отдельная VM (4-8 vCPU, 8-16 GB RAM) или Kubernetes Deployment | Оркестрация задач, веб-консоль Svelte 5, Cron Scheduler, иерархический шейпер Token Bucket, хранение метаданных в PostgreSQL/H2. **Файлы через себя НЕ пропускает.** |
-| **ЦОД-1 Data Plane** | `replicator-agent-dc1`<br/>(Java 21 / Netty gRPC Daemon) | `TCP 50051` (gRPC Server / Client) | На узлах Hadoop DataNode (Colocated) или Edge Gateway (10/25G LAN) | Сканирование HDFS манифестов, прямое чтение блоков DataNode (:9866) под UGI автора (`doAs`), чтение HMS NOTIFICATION_LOG (:9083), стриминг данных в WAN. |
-| **ЦОД-2 Data Plane** | `replicator-agent-dc2`<br/>(Java 21 / Netty gRPC Daemon) | `TCP 50051` (gRPC Server / Client) | На узлах Hadoop DataNode (Colocated) или Edge Gateway DC2 | Прием 4 МБ чанков по WAN, Zero-Staging запись в DataNode (:9866), расчет SHA-256, атомарный rename, трансляция NameService и накат DDL в HMS (:9083). |
-| **Клиентские ПК** | Веб-браузер (Chrome, Firefox, Safari) | `TCP 8005` (HTTPS к Orchestrator) | Рабочие места администраторов и дата-инженеров | Управление задачами, мониторинг скорости, просмотр HMS CDC, 1-Click DR Hub (Kill-Switch / Unfence / Reverse Replication). |
-
----
-
-## Слайд 4: Сетевая матрица портов и фаервола (Network Matrix)
-
-### Полный реестр сетевых доступов для согласования со службой информационной безопасности (ИБ)
-
-| Направление соединения | Протокол | Порт | Назначение сетевого потока | Сегмент сети |
-| :--- | :--- | :--- | :--- | :--- |
-| **Agent DC1 ➔ Agent DC2** | `gRPC / HTTP/2 (mTLS)` | **TCP 50051** | Прямая передача блоков HDFS и DDL пакетов Hive Metastore | **WAN (МежЦОД)** |
-| **Agent DC2 ➔ Agent DC1** | `gRPC / HTTP/2 (mTLS)` | **TCP 50051** | Обратная репликация Reverse Replication при аварии (DR) | **WAN (МежЦОД)** |
-| **Браузер ➔ Orchestrator** | `HTTPS / HTTP` | **TCP 8005** | Доступ к веб-интерфейсу Svelte 5, REST API, SSE событиям | Corporate LAN |
-| **Agents ➔ Orchestrator** | `HTTP REST` | **TCP 8005** | Heartbeat (каждые 5с), Claim подзадач, продление Lease | Management LAN |
-| **Agent ➔ NameNode (локально)** | `Hadoop RPC` | **TCP 9000 / 8020** | Листинг каталогов, метаданные блоков, атомарный rename | DC LAN (Внутри ЦОД) |
-| **Agent ➔ DataNodes (локально)** | `Data Transfer Protocol` | **TCP 9866 (SASL)** | Прямое чтение и запись блоков HDFS | DC LAN (Внутри ЦОД) |
-| **Agent ➔ Hive Metastore** | `Thrift RPC` | **TCP 9083** | Чтение NOTIFICATION_LOG (DC1) и накат DDL схемы (DC2) | DC LAN (Внутри ЦОД) |
-| **Agent ➔ Kerberos KDC** | `Kerberos AS/TGS` | **TCP/UDP 88** | Получение тикетов TGT по keytab технической учетной записи | DC LAN (Внутри ЦОД) |
-
-> [!IMPORTANT]
-> **Минимум дыр в фаерволе**: Для работы репликации между дата-центрами требуется открыть **ровно один порт** — `TCP :50051`. Ни NameNode, ни DataNodes, ни Hive Metastore наружу в WAN не публикуются!
-
----
-
-## Слайд 5: Жизненный цикл передачи HDFS файла (Data Flow)
-
-### Пошаговый цикл передачи: от анализа дельты до атомарного переименования в целевом кластере
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Orch as ⚙️ Orchestrator (:8005)
-    participant A1 as 🚀 Agent DC1
-    participant NN1 as 📁 NameNode DC1 (:9000)
-    participant DN1 as 💾 DataNode DC1 (:9866)
-    participant A2 as 🎯 Agent DC2 (:50051)
-    participant DN2 as 💾 DataNode DC2 (:9866)
-
-    A1->>Orch: POST /tasks/claim (Запрос подзадачи)
-    Orch-->>A1: Задача: /data/warehouse/orders
-    A1->>NN1: Листинг директории (RPC)
-    A1->>A2: gRPC GetDirectoryManifest()
-    A2-->>A1: Манифест файлов целевого кластера
-    Note over A1: Построение O(N) Diff в памяти:<br/>Неизмененные файлы пропускаются (0 байт WAN!)
-    
-    A1->>DN1: Чтение блоков файла под UGI doAs (SASL :9866)
-    A1->>A1: Шейпер Token Bucket: проверка лимита полосы
-    A1->>A2: gRPC StreamChunks (4 МБ чанки + SHA-256)
-    A2->>DN2: Запись во временный файл ._staging_ (SASL :9866)
-    Note over A2: Сверка хэша SHA-256: совпадение!
-    A2->>DN2: Атомарный fs.rename(._staging_ -> orders.parquet)
-    A2-->>A1: gRPC FileTransferResponse (OK)
-    A1->>Orch: POST /tasks/progress (Обновление прогресса и ETA)
+```bash
+# Запуск Orchestrator как systemd-сервиса или в Docker-контейнере
+java -Xms4g -Xmx8g -XX:+UseG1GC \
+  -Dserver.port=8005 \
+  -Dspring.datasource.url=jdbc:postgresql://postgres.infra:5432/replicator_db \
+  -Dspring.datasource.username=replicator_app \
+  -Dspring.datasource.password=${DB_PASSWORD} \
+  -jar replicator-orchestrator.jar
 ```
 
-### 4 ключевых этапа передачи данных
+### Параметры запуска процесса Replicator Agent (CLI Options)
 
-1. **Шаг 1. Анализ дельты и планирование**:
-   - Воркер в DC1 забирает подзадачу из Orchestrator (`:8005 /tasks/claim`).
-   - Запрашивает манифест у локальной NameNode DC1 (`:9000`).
-   - Одним gRPC вызовом `GetDirectoryManifest` запрашивает манифест у `Agent DC2`.
-   - В памяти строится мгновенный $O(N)$ Diff: файлы с одинаковым размером и mtime пропускаются без передачи по сети.
-2. **Шаг 2. Чтение блоков и упаковка**:
-   - Агент DC1 читает блоки из локальных DataNodes DC1 (`:9866`) под UGI автора задачи (`doAs`).
-   - Запрашивает квант полосы у иерархического шейпера Token Bucket.
-   - Мелкие файлы (< 1 МБ) упаковываются на лету в виртуальный Tar-Stream.
-   - Большие файлы нарезываются на чанки по 4 МБ со сжатием Zstd/LZ4.
-3. **Шаг 3. Прямой gRPC WAN стриминг**:
-   - Агент DC1 стримит чанки **НАПРЯМУЮ** в `Agent DC2` (`:50051 gRPC, mTLS`).
-   - Байты файлов **НЕ проходят через Оркестратор**.
-   - Потоковое вычисление контрольной суммы SHA-256 на обеих сторонах.
-   - Скорость передачи строго удерживается шейпером Token Bucket.
-4. **Шаг 4. Zero-Staging и фиксация в HDFS**:
-   - Агент DC2 пишет блоки в DataNodes DC2 (`:9866`) во временный файл `._staging_`.
-   - По завершении стрима сверяется хэш SHA-256: при совпадении вызывается атомарный `fs.rename()`.
-   - Для мелких файлов Tar-Stream распаковывается потоково прямо в HDFS без промежуточного диска.
-   - Агент DC1 отправляет рапорт в Orchestrator (`:8005 /progress`) с пересчетом общего ETA.
+Точка входа: `org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain`.
 
----
-
-## Слайд 6: Жизненный цикл репликации Hive Metastore CDC (Metadata Flow)
-
-### Потоковая передача DDL-событий с распределенным лизингом Inotify Lease HA
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Orch as ⚙️ Orchestrator (:8005)
-    participant A1 as 🚀 Agent DC1
-    participant HMS1 as 🐝 Hive Metastore DC1 (:9083)
-    participant A2 as 🎯 Agent DC2 (:50051)
-    participant HMS2 as 🐝 Hive Metastore DC2 (:9083)
-
-    A1->>Orch: POST /hms/lease/claim (Захват аренды CDC на 60с)
-    Orch-->>A1: Lease Granted (Token: hms-dc1-token)
-    
-    loop Каждые N секунд
-        A1->>HMS1: Thrift get_next_notification(last_event_id)
-        HMS1-->>A1: События: CREATE_TABLE, ADD_PARTITION
-        Note over A1: Пропуск ACID таблиц (Non-ACID Gate)
-        A1->>A2: gRPC SyncHmsEvents (Пакет DDL)
-        Note over A2: Трансляция Federation NameService:<br/>hdfs://ns-dc1/ -> hdfs://ns-dc2/
-        A2->>HMS2: Thrift apply_ddl (Накат схемы, deleteData=false)
-        HMS2-->>A2: Success
-        A2-->>A1: Ack
-        A1->>Orch: POST /hms/progress (last_processed_event_id)
-    end
-```
-
-### 4 этапа работы механизма Hive CDC
-
-1. **Захват эксклюзивной аренды (Lease HA)**:
-   - Воркер DC1 запрашивает аренду потока схемы: `POST /hms/lease/claim` в Оркестратор.
-   - Оркестратор выдает эксклюзивный токен аренды на 60 секунд с автоматическим продлением каждые 20 секунд.
-   - Полностью исключены гонки: ровно один воркер в кластере читает CDC-поток конкретной базы данных. При падении воркера аренда истекает и поток подхватывает соседний агент.
-2. **Локальный опрос NOTIFICATION_LOG**:
-   - Агент DC1 по локальному LAN Thrift (`:9083`) вычитывает события из Hive Metastore DC1.
-   - Перехватываются события: `CREATE_TABLE`, `ADD_PARTITION`, `ALTER_TABLE`, `DROP_PARTITION`.
-   - **Non-ACID Gate**: ACID transactional таблицы безопасно пропускаются, предотвращая порчу delta-файлов.
-3. **Передача пакетов DDL по WAN**:
-   - Агент DC1 отправляет пачку DDL в `Agent DC2` по WAN (`:50051 gRPC`).
-   - Агент DC2 транслирует Federation NameService: заменяет пути вида `hdfs://ns-dc1/...` на `hdfs://ns-dc2/...`.
-   - Перелинковывает `sdLocation` на целевой кластер и генерирует фоновые подзадачи переноса файлов партиций.
-4. **Применение DDL и подтверждение**:
-   - Агент DC2 по локальному LAN Thrift (`:9083`) накатывает DDL в Hive Metastore DC2.
-   - **Защита данных**: при `DROP_TABLE` принудительно выставляется `deleteData=false`.
-   - Агент DC2 подтверждает накат ➔ Агент DC1 рапортует прогресс в Orchestrator и фиксирует `last_processed_event_id`.
-
----
-
-## Слайд 7: Потоки трафика в Disaster Recovery
-
-### Штатно vs Fencing Kill-Switch (0 МБ/с) vs Reverse Replication разворот
-
-| Параметр | Штатный режим (DC1 ➔ DC2) | Авария DC1 и Kill-Switch | Снятие изоляции и Reverse Replication |
+| Параметр CLI | Переменная окружения | По умолчанию | Описание и назначение |
 | :--- | :--- | :--- | :--- |
-| **Трафик клиентов** | Приложения читают/пишут в **DC1** | Клиенты переключаются на **DC2** | Клиенты продолжают писать в **DC2** |
-| **Направление WAN** | `Agent DC1 ➔ Agent DC2 (:50051)` | **Канал заморожен (0 МБ/с)** | `Agent DC2 ➔ Agent DC1 (:50051)` *(Разворот!)* |
-| **Шейпер полосы** | Лимит канала (например, 100 МБ/с) | **Лимит выставлен в 0 МБ/с (Fencing)** | Лимит канала для обратного потока |
-| **Статус прямых задач** | `RUNNING` / По расписанию | Все прямые задачи остановлены (`STOPPED`) | Прямые задачи остаются `STOPPED` |
-| **Защита от Split-Brain** | Не требуется (активен один ЦОД) | **Сетевой барьер гарантирован** | **DC1 догоняет дельту, накопленную на DC2** |
+| `-id`, `--agent-id` | `AGENT_ID` | `hostname` | Уникальный строковый идентификатор агента в реестре |
+| `-c`, `--cluster-id` | `CLUSTER_ID` | `default` | ID обслуживаемого HDFS-кластера (`dc1` или `dc2`) |
+| `-m`, `--mode` | `AGENT_MODE` | `all` | Режим работы демона: `all` (sender+receiver), `sender`, `receiver` |
+| `-o`, `--orchestrator`| `ORCHESTRATOR_URL` | `http://localhost:8005` | URL управляющего оркестратора для регистрации и heartbeat |
+| `-p`, `--port` | `AGENT_RECEIVER_PORT`| `50051` | Порт локального gRPC Netty сервера для приема входящего WAN трафика |
+| `-b`, `--bandwidth` | `AGENT_MAX_BANDWIDTH`| `0` (unlimited) | Локальный лимит пропускной способности агента в МБ/с |
+| `-s`, `--staging-dir` | `AGENT_STAGING_DIR` | `/tmp/staging` | Локальный каталог временных метаданных staging |
+| `-z`, `--compression` | `WIRE_COMPRESSION` | `zstd` | Алгоритм сжатия потока в канале WAN: `zstd`, `lz4`, `none` |
+| `-zl`, `--compression-level` | `ZSTD_LEVEL` | `3` | Уровень сжатия Zstandard (от 1 до 22; оптимум CPU/сеть — 3) |
 
-```
-ШТАТНЫЙ РЕЖИМ:
-[Клиенты] ➔ [DC1 Active] ═══════ gRPC WAN :50051 (100 МБ/с) ══════> [DC2 Standby]
+### Сравнение моделей размещения агентов (Colocated vs Dedicated Gateway)
 
-АВАРИЯ DC1 (KILL-SWITCH 0 МБ/с):
-[DC1 Dead]   ⛔ 0 МБ/с Fencing Barrier ⛔   [DC2 Promoted]  [Клиенты]
-
-ВОССТАНОВЛЕНИЕ DC1 (REVERSE REPLICATION РАЗВОРОТ ТРАФИКА):
-[DC1 Catching Up] <═════ gRPC WAN :50051 (Reverse Flow) ═════ [DC2 Active]  [Клиенты]
-```
-
-> [!WARNING]
-> **Критический архитектурный инвариант**: При снятии изоляции («Unfence») остановленные прямые задачи `DC1 ➔ DC2` **НИКОГДА автоматически не запускаются**! Иначе оживший DC1 стёр бы свежие файлы, записанные клиентами на DC2. Вместо этого запускается реверсивная репликация `DC2 ➔ DC1`.
+| Характеристика | Модель Colocated (на узлах DataNode) | Модель Dedicated Edge Gateway |
+| :--- | :--- | :--- |
+| **Физическое размещение** | Устанавливается на физические DataNode кластера | Выделенные 2–4 сервера в стойке с 25G/40G NIC |
+| **Локальность данных** | **Short-Circuit Local Read** (чтение блоков напрямую с дисков узла) | Дистанционное чтение блоков по LAN ЦОД (DTP RPC) |
+| **Нагрузка на LAN ЦОД** | **0 байт дополнительного трафика** в сети ЦОД | Двойная прокачка (чтение из DataNode + отправка в WAN) |
+| **Влияние на Hadoop** | Потребляет 2-4 vCPU и 4-8 GB RAM на узле DataNode | Нулевое влияние на вычислительные ресурсы узлов Hadoop |
+| **Рекомендация** | Идеально для кластеров с дисковым I/O запасом | Идеально при жестких политиках изоляции серверов Hadoop |
 
 ---
 
-## Слайд 8: Архитектура в интерфейсе — Топология ЦОД и шейпер полосы
+## Слайд 4: Сетевая матрица портов, правила фаервола и L4/L7 протоколы
 
-### Управление пирамидой лимитов Hierarchical Token Bucket
+### Сводная сетевая матрица для NetOps и Информационной Безопасности
 
+| Сетевой сегмент | Источник | Назначение | Протокол L4 / L7 | Порт | Описание потока трафика |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **WAN (МежЦОД)** | `Agent DC1` | `Agent DC2` | **TCP / gRPC (mTLS v1.3)** | **50051** | Прямой стриминг чанков HDFS и пакетов DDL Hive CDC |
+| **WAN (МежЦОД)** | `Agent DC2` | `Agent DC1` | **TCP / gRPC (mTLS v1.3)** | **50051** | Обратный поток при Reverse Replication в сценарии DR |
+| **Corporate LAN**| Браузер оператора| `Orchestrator` | TCP / HTTPS (TLS 1.3) | **8005** | Доступ к Web UI Svelte 5, REST API, SSE подпискам |
+| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Heartbeat (каждые 5с), Claim подзадач, Lease продление |
+| **DC LAN (Primary)**| `Agent DC1` | `NameNode DC1` | TCP / Hadoop RPC | **8020 / 9000** | Листинг каталогов, получение блочных манифестов |
+| **DC LAN (Primary)**| `Agent DC1` | `DataNodes DC1`| TCP / SASL DTP | **9866** | Блочное чтение данных под Kerberos UGI (`doAs`) |
+| **DC LAN (Primary)**| `Agent DC1` | `Hive Metastore 1`| TCP / Thrift RPC | **9083** | Опрос журнала `NOTIFICATION_LOG` Hive Metastore |
+| **DC LAN (Standby)**| `Agent DC2` | `NameNode DC2` | TCP / Hadoop RPC | **8020 / 9000** | Создание каталогов, атомарный `fs.rename()` |
+| **DC LAN (Standby)**| `Agent DC2` | `DataNodes DC2`| TCP / SASL DTP | **9866** | Запись блоков данных в целевой HDFS |
+| **DC LAN (Standby)**| `Agent DC2` | `Hive Metastore 2`| TCP / Thrift RPC | **9083** | Применение DDL изменений схемы (`deleteData=false`) |
+| **DC LAN (Оба ЦОД)**| Агенты DC1/DC2 | `Kerberos KDC` | TCP/UDP / Kerberos | **88** | Получение TGT билетов по системному keytab |
+
+### Сетевые рекомендации
+- **Jumbo Frames (MTU 9000)**: Настоятельно рекомендуется включить MTU 9000 на межЦОДной оптической магистрали для уменьшения оверхеда прерываний сетевой карты при передаче 4 МБ чанков.
+- **Изоляция портов**: Ни один внутренний порт Hadoop (`9000`, `9866`, `9083`, `88`) **не требует открытия в WAN**. Вся передача мультиплексируется через gRPC HTTP/2 соединение по порту `50051`.
+
+---
+
+## Слайд 5: Протокол HDFS Data Plane: Wire-формат, чанкирование и Zero-Staging
+
+### Жизненный цикл передачи данных (Step-by-Step Data Flow)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A1 as 🚀 Agent DC1 (Sender)
+    participant NN1 as 📁 NameNode DC1 (:8020)
+    participant DN1 as 💾 DataNodes DC1 (:9866)
+    participant A2 as 🎯 Agent DC2 (Receiver)
+    participant DN2 as 💾 DataNodes DC2 (:9866)
+
+    Note over A1,A2: ЭТАП 1: Fast Diff (Мгновенное вычисление дельты)
+    A1->>NN1: getListing(/data/warehouse)
+    A1->>A2: gRPC GetDirectoryManifest(/data/warehouse)
+    A2-->>A1: FileManifestEntry[] (path, size, mtime)
+    Note over A1: In-memory O(N) Diff: идентичные файлы отсекаются (0 байт WAN)
+
+    Note over A2: ЭТАП 2: Передача файлов >= 1 МБ (Chunked Stream)
+    A1->>DN1: doAs(user) -> openInputStream()
+    A1->>A2: gRPC TransferFile: Metadata(job_id, target_path, permissions, checksum)
+    A2->>DN2: openOutputStream(target_path._staging_job123)
+    loop Чанки по 4 МБ
+        A1->>A1: WireCompressor.compress(Zstd level 3)
+        A1->>A2: FileChunk(data, offset, is_last, sha256_chunk)
+        A2->>A2: WireCompressor.decompress()
+        A2->>DN2: write(chunkBytes)
+    end
+    Note over A2: Проверка сквозного SHA-256 хеша
+    A2->>DN2: fs.rename(target_path._staging_job123 -> target_path)
+    A2-->>A1: TransferFileResponse(success=true, bytes_written, sha256)
+
+    Note over A1,A2: ЭТАП 3: Передача мелких файлов < 1 МБ (Tar-Streaming)
+    A1->>A2: gRPC TransferTarStream: TarStreamMetadata(total_files=500)
+    A1->>A2: Потоковый виртуальный TAR-stream в памяти
+    Note over A2: Потоковая распаковка без сохранения tar на локальный диск
+    A2->>DN2: Параллельная запись 500 файлов в HDFS (8 потоков committer)
+    A2-->>A1: TarStreamResponse(files_committed=500)
+```
+
+### Ключевые механизмы Data Plane
+
+1. **Zero-Staging архитектура**:
+   - Принимающий агент `Agent DC2` пишет входящий поток напрямую в целевой HDFS во временный файл `<targetPath>._staging_<jobId>`.
+   - Локальный диск приемника не используется под буферизацию (исключены лишние циклы чтения/записи на NVMe/SATA).
+2. **Атомарная фиксация (Atomic Rename)**:
+   - Переименование файла из `._staging_<jobId>` в чистовой `<targetPath>` выполняется через вызов HDFS RPC `fs.rename()`, который в NameNode является атомарной операцией обновления дерева метаданных. Читатели никогда не увидят недокачанный файл.
+3. **Защита от утечки дискового пространства (Staging Cleanup)**:
+   - В `DataTransferServiceImpl` работает сборщик мусора: метод `cleanOrphanedStaging(ttlMillis)`.
+   - Раз в 15 минут сканируются известные целевые директории, и файлы с маской `._staging_*` старше 24 часов (брошенные при аварийном падении узлов) принудительно удаляются.
+
+---
+
+## Слайд 6: Алгоритм сетевого шейпинга: Иерархический Token Bucket
+
+### Архитектура пирамиды лимитов
+
+Сетевой шейпинг реализован на базе иерархического алгоритма **Hierarchical Token Bucket (HTB)** без использования системного `tc/iptables`, работающего на уровне Netty буферов приложений:
+
+```
+[Глобальный лимит платформы (Global Limit)] = 200 МБ/с
+       │
+       ├──► [Канал DC1 ➔ DC2 (Inter-DC WAN)] = 150 МБ/с
+       │         │
+       │         ├──► Очередь CRITICAL (HMS CDC, витрины): Гарантия 50 МБ/с, Burstable
+       │         ├──► Очередь BATCH (Ночные синки сырых слоев): Лимит 80 МБ/с
+       │         └──► Очередь BACKGROUND (Архивы, бэкапы): Best Effort (20 МБ/с)
+       │
+       └──► [Канал DC2 ➔ DC1 (Reverse WAN / DR)] = 50 МБ/с (в штатном режиме)
+```
+
+### Механизм троттлинга в коде агента (`LocalBandwidthLimiter`)
+
+1. **Пополнение токенов**: Каждую миллисекунду корзина токенов пополняется в соответствии с лимитом `allowedBytesPerSecond / 1000`. Максимальная емкость корзины ограничена размером пакета для предотвращения burst-всплесков.
+2. **Запрос квоты (`throttle(bytes)`)**: Перед отправкой каждого чанка агент вызывает `limiter.throttle(chunkSize)`.
+3. **Блокировка без spin-lock**: Если доступных токенов меньше, чем размер чанка, поток переводится в ожидание через высокоточный таймер `LockSupport.parkNanos(sleepTime)`.
+4. **Защита от голодания (Starvation-Free)**: Очереди с более высоким приоритетом забирают токены первыми, но для очередей низкого приоритета резервируется минимальный квант полосы (Fair Share).
+5. **Динамическое управление**: При изменении лимита полосы в Web UI новое значение транслируется агентам по SSE-каналу и вступает в силу за 100 мс без перезапуска демонов.
+
+---
+
+## Слайд 7: Протокол Hive Metastore CDC, распределенный лизинг и Non-ACID Gate
+
+### Механика вычитки и применения изменений каталога Hive
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Orch as ⚙️ Orchestrator (:8005)
+    participant A1 as 🚀 Agent DC1
+    participant HMS1 as 🐝 HMS DC1 (:9083)
+    participant A2 as 🎯 Agent DC2 (:50051)
+    participant HMS2 as 🐝 HMS DC2 (:9083)
+
+    Note over A1,Orch: Распределенный лизинг Inotify Lease HA
+    A1->>Orch: POST /hms/lease/claim (schema="default", ttl=60s)
+    Orch-->>A1: LeaseToken(granted=true, lease_id="dc1-worker-01-token")
+
+    loop Каждые 20 секунд (Heartbeat лизинга)
+        A1->>Orch: POST /hms/lease/renew(lease_id)
+        Orch-->>A1: RenewAck(ttl_remaining=60s)
+    end
+
+    Note over A1,HMS1: Чтение журнала NOTIFICATION_LOG
+    A1->>HMS1: get_next_notification(last_event_id=142050)
+    HMS1-->>A1: NotificationEvents[] (CREATE_TABLE, ADD_PARTITION)
+
+    Note over A1: Шлюз TableSupportFilter: пропуск transactional=true (ACID)
+    Note over A1: HmsPathRewriter: трансляция hdfs://ns-dc1 -> hdfs://ns-dc2
+
+    A1->>A2: gRPC HmsTransferService.ApplyCdcBatch(events)
+    A2->>HMS2: Thrift alter_table / add_partitions(deleteData=false)
+    HMS2-->>A2: Success
+    A2-->>A1: HmsOperationResponse(success=true)
+    A1->>Orch: POST /hms/progress(last_processed_event_id=142100)
+```
+
+### Инженерные гарантии репликации метаданных
+
+- **Распределенный лизинг Inotify Lease HA**:
+  - Исключает дублирование и гонки: ровно один воркер в кластере читает поток конкретной БД.
+  - При падении воркера (отсутствие heartbeat более 60 секунд) аренда автоматически освобождается, и любой другой живой агент подхватывает стриминг с последнего зафиксированного `last_processed_event_id`.
+- **Шлюз Non-ACID Gate (`TableSupportFilter`)**:
+  - Таблицы с параметром `'transactional'='true'` (Hive full ACID с delta-файлами) безопасно пропускаются, так как прямая репликация их каталогов в рантайме нарушает транзакционную целостность до момента выполнения Compaction.
+- **Трансляция Federation NameService (`HmsPathRewriter`)**:
+  - Все пути к схемам и партициям (`sdLocation`) на лету переписываются с пространства имен источника на пространство имен приемника (`hdfs://ns-dc1/apps/hive/...` ➔ `hdfs://ns-dc2/apps/hive/...`).
+- **Защита от случайного удаления данных (`deleteData=false`)**:
+  - При репликации операций `DROP_TABLE` и `DROP_PARTITION` в целевом вызове Thrift API принудительно передается флаг `deleteData=false`. Метаданные удаляются, но физические файлы в HDFS остаются нетронутыми.
+
+---
+
+## Слайд 8: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit
+
+### Архитектура сквозной аутентификации и авторизации
+
+```
+[Пользователь / ETL Job: ivan_de]
+        │
+        ▼ (Создание задачи в UI / REST API с JWT токеном)
+[Replicator Orchestrator]
+        │
+        ▼ (Выдача задания агенту: author="ivan_de", run_as_service=false)
+[Replicator Agent (DC1)]
+        │ 1. Авторизация агента по системному keytab: hdfs-replicator@REALM
+        │ 2. Создание прокси-пользователя: UGI.createProxyUser("ivan_de", systemUGI)
+        │ 3. Вызов блочного чтения: proxyUGI.doAs(() -> hdfs.open(path))
+        ▼
+[HDFS NameNode / DataNodes] ──► [Apache Ranger Plugin]
+                                      │
+                                      ▼
+                        Логирование в Ranger Audit:
+                        • User: "ivan_de" (реальный автор задачи)
+                        • Proxy: "hdfs-replicator" (техучетка агента)
+                        • Action: "READ"
+                        • Resource: "/data/raw/transactions"
+                        • Result: ALLOWED / DENIED
+```
+
+### Ключевые принципы информационной безопасности
+
+1. **Kerberos Impersonation (`UserGroupInformation.doAs`)**:
+   - Агент запускается под системным принципалом (например, `hdfs-replicator/node01@REALM`), прописанным в `core-site.xml` в параметре `hadoop.proxyuser.hdfs-replicator.hosts` и `hadoop.proxyuser.hdfs-replicator.groups`.
+   - Каждое обращение к файловой системе выполняется под реальным логином инициатора задачи через механизм Proxy User. Если у пользователя `ivan_de` нет прав на чтение директории, операция будет отклонена NameNode с ошибкой `AccessControlException`.
+2. **Сохранение метаданных безопасности POSIX**:
+   - При передаче файла в `FileMetadata` упаковываются оригинальный битовый режим прав доступа (`file_mode`), владелец (`owner`) и группа (`group`).
+   - На целевой стороне агент восстанавливает оригинальные права через вызовы `fs.setPermission()` и `fs.setOwner()`.
+3. **mTLS шифрование межЦОДного канала**:
+   - Канал `TCP :50051` защищен протоколом взаимной TLS-аутентификации (mTLS v1.3).
+   - Агент DC1 проверяет сертификат Агента DC2, а Агент DC2 разрешает подключения только от клиентов с валидным сертификатом доверенного корпоративного CA.
+
+---
+
+## Слайд 9: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)
+
+### Пошаговый сценарий действий при падении DC1
+
+```
+СОСТОЯНИЕ: Полный отказ инфраструктуры ЦОД-1 (Пожар / Сетевой сплит / Питание)
+
+[1. ДЕТЕКТИРОВАНИЕ]
+  • Оркестратор фиксирует таймаут heartbeat от агентов DC1 (> 15 сек).
+  • Внутренний мониторинг фиксирует недоступность NameNode DC1.
+
+[2. СЕТЕВОЕ ОГРАЖДЕНИЕ: АКТИВАЦИЯ KILL-SWITCH]
+  • Дежурный SRE / Администратор нажимает 🛑 Kill-Switch в UI DR Hub.
+  • Или через автоматический CLI скрипт:
+    curl -X POST http://orchestrator:8005/api/dr/fencing/activate \
+         -H "Authorization: Bearer ${JWT_TOKEN}"
+
+[3. СИСТЕМНЫЕ ДЕЙСТВИЯ ПЛАТФОРМЫ ПОД КАПОТОМ]
+  ├── Лимит WAN полосы в Token Bucket Шейпере принудительно сбрасывается в 0 МБ/с.
+  ├── Все активные входящие/исходящие gRPC стримы отменяются (Status.CANCELLED).
+  ├── Все прямые задачи репликации переходят в статус STOPPED.
+  └── Фоновый планировщик Cron Schedules принудительно деактивируется.
+
+[4. ПРОМОУШЕН РЕЗЕРВНОГО ЦОД (DC2 PROMOTION)]
+  • Клиентский трафик (Spark, Trino, BI) переключается на ЦОД-2.
+  • ЦОД-2 становится основным активным кластером на запись.
+```
+
+### Защита от Split-Brain: почему Kill-Switch обязателен
+
+Если упавший ЦОД-1 внезапно оживет при отсутствии сетевого ограждения, старые фоновые задачи репликации могли бы начать перетирать свежие файлы, записанные клиентами на ЦОД-2 во время аварии. Kill-Switch выставляет жесткий барьер (0 МБ/с + деактивация задач), исключая любую возможность рассинхронизации или повреждения данных.
+
+---
+
+## Слайд 10: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication
+
+### Пошаговый алгоритм безопасного возврата ЦОД-1 в строй
+
+```
+СОСТОЯНИЕ: ЦОД-1 восстановлен после аварии. Необходимо синхронизировать дельту.
+
+[1. СНЯТИЕ ИЗОЛЯЦИИ (UNFENCE)]
+  • В UI DR Hub нажимается кнопка "Снять изоляцию" (Unfence).
+  • Снимается ограничение 0 МБ/с, восстанавливается лимит канала.
+  • ⚠️ ВАЖНО: Прямые задачи (DC1 -> DC2) ОСТАЮТСЯ В СТАТУСЕ STOPPED!
+    Автоматический перезапуск прямых задач строго заблокирован ядром платформы.
+
+[2. ЗАПУСК REVERSE REPLICATION (ДОГОН ДЕЛЬТЫ)]
+  • В 1-Click мастере выбираются таблицы и директории, измененные во время аварии.
+  • Автоматически генерируются зеркальные задачи:
+    Source: DC2 (Standby Cluster) ➔ Target: DC1 (Primary Cluster)
+  • Поток данных РАЗВОРАЧИВАЕТСЯ: Agent DC2 стримит блоки в Agent DC1 по WAN :50051.
+
+[3. ВЫРАВНИВАНИЕ ДЕЛЬТЫ И МЕТРИК]
+  • Мониторинг отслеживает:
+    - Bytes remaining = 0
+    - HMS Event Lag = 0
+  • Данные на ЦОД-1 догнали все изменения, внесенные на ЦОД-2.
+
+[4. ПЕРЕКЛЮЧЕНИЕ ТРАФИКА (FAILBACK)]
+  • Клиентские приложения переключаются обратно на ЦОД-1.
+  • Обратные задачи останавливаются, возобновляется штатная репликация DC1 -> DC2.
+```
+
+---
+
+## Слайд 11: Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub
+
+### Рабочие экраны администратора и инженера данных
+
+#### 1. Управление топологией дата-центров и шейпером полосы
 <div align="center">
   <img src="images/replicator/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
 </div>
-
-- **Глобальный лимит пула ЦОД**: верхняя граница суммарной пропускной способности WAN между Москвой и Санкт-Петербургом (например, 150 МБ/с).
-- **Приоритеты очередей**:
-  - `CRITICAL` (High Priority) — потоковая репликация схем Hive Metastore и витрин реального времени;
-  - `BATCH` (Normal) — ночные тяжелые синки сырых слоев Data Lake;
-  - `BACKGROUND` (Low) — архивные данные и бэкапы.
-- **Динамическое перераспределение без перезапуска демонов**: изменение лимитов в UI мгновенно вступает в силу через SSE-шину.
+*Конфигурация глобальных лимитов WAN, порогов каналов между ЦОД и приоритетных очередей без перезапуска демонов.*
 
 ---
 
-## Слайд 9: Архитектура в интерфейсе — Задачи и прямой мониторинг передачи
-
-### Контроль задач и статуса репликации в реальном времени
-
+#### 2. Главная панель задач и мониторинг передачи в реальном времени
 <div align="center">
   <img src="images/replicator/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
 </div>
-
-- **Мгновенный статус**: активные потоки передачи, текущая сетевая утилизация WAN в МБ/с, количество переданных файлов и байт.
-- **Расчет дельты в реальном времени**: прогресс-бар вычисляет оставшийся объем и прогноз времени завершения (ETA).
-- **Мастер создания задач**: указание исходного и целевого путей HDFS, выбор профиля шейпинга полосы, настройка Cron-расписания.
+*Контроль активных потоков данных, мгновенной сетевой утилизации в МБ/с, переданных байт и прогноза времени завершения (ETA).*
 
 ---
 
-## Слайд 10: Архитектура в интерфейсе — Потоковая репликация Hive Metastore
-
-### Непрерывная синхронизация DDL-событий каталога метаданных
-
+#### 3. Консоль потоковой CDC репликации Hive Metastore
 <div align="center">
   <img src="images/replicator/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
 </div>
-
-- **Мониторинг отставания (Lag)**: отображение разницы между `Max Event ID` в `NOTIFICATION_LOG` источника и `Last Processed Event ID` на приемнике.
-- **Статус распределенной аренды Inotify Lease HA**: текущий воркер-держатель аренды, время истечения аренды (TTL), предупреждения об истечении лизинга.
-- **Скрытие служебных подзадач**: фоновые перемещения файлов партиций HDFS изолированы и не захламляют общий список задач.
+*Мониторинг отставания событий (Lag), статуса распределенной аренды Inotify Lease HA и журнала трансляции DDL.*
 
 ---
 
-## Слайд 11: Архитектура в интерфейсе — DR Hub, изоляция и Kill-Switch
-
-### Аварийное сетевое ограждение и защита от Split-Brain
-
+#### 4. Центр катастрофоустойчивости DR Hub в режиме изоляции Kill-Switch
 <div align="center">
   <img src="images/replicator/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
 </div>
-
-- **Большой баннер изоляции**: ярко-красный индикатор аварийного режима и сетевого барьера.
-- **Мгновенный Kill-Switch**: одно нажатие устанавливает лимит WAN в 0 МБ/с и останавливает все задачи.
-- **Статус сетевого барьера (Network Barrier Status)**: подтверждение того, что трафик в сторону аварийного ЦОД заблокирован на уровне шейпера.
+*Яркая индикация сетевого барьера (0 МБ/с), заморозка прямых задач и защита кластера от Split-Brain.*
 
 ---
 
-## Слайд 12: Архитектура в интерфейсе — Снятие изоляции и Reverse Replication
-
-### Безопасное снятие ограждения и 1-Click запуск обратного догона дельты
-
+#### 5. Мастер безопасного снятия изоляции и 1-Click Reverse Replication
 <div align="center">
   <img src="images/replicator/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
 </div>
-
-- **Безопасный Unfence**: снятие сетевого барьера без автоматического перезапуска прямых задач.
-- **1-Click Reverse Replication**: автоматическое создание зеркальных задач с инвертированными путями (`DC2 ➔ DC1`) для догона дельты на оживший ЦОД.
-- **Индивидуальный выбор задач**: чекбоксы для выборочного догона критических таблиц перед полным открытием трафика.
+*Безопасный Unfence без автоматического старта прямых задач и запуск обратного потока DC2 ➔ DC1 для догона дельты.*
 
 ---
 
-## Слайд 13: Аппаратный сайзинг и чеклист информационной безопасности
+## Слайд 12: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты
 
-### Рекомендации по аппаратному сайзингу
+### Эндпоинты мониторинга
 
-| Модель развертывания | Плюсы | Минусы | Рекомендуемый сайзинг на узел |
+- **Метрики Prometheus**: `GET http://orchestrator:8005/actuator/prometheus`
+- **Проверка здоровья (Healthcheck)**: `GET http://orchestrator:8005/actuator/health`
+  - Проверяет: статус соединения с БД, активность зарегистрированных агентов, статус Token Bucket.
+
+### Реестр ключевых метрик Prometheus
+
+| Название метрики | Тип | Лейблы | Описание |
 | :--- | :--- | :--- | :--- |
-| **Colocated (на узлах DataNode)** | Максимальная локальность данных (Short-Circuit Local Read), нулевая нагрузка на LAN ЦОД | Требует установки демона на узлы Hadoop | 2-4 vCPU, 4-8 GB RAM JVM, 10G/25G сетевая карта |
-| **Dedicated Edge Gateway** | Полная изоляция от Hadoop-узлов, простота обновления и сопровождения | Чтение блоков идет по сети LAN ЦОД | 8-16 vCPU, 16-32 GB RAM, 25G/40G сетевая карта |
+| `replicator_throughput_bytes_total` | Counter | `dc`, `cluster_id` | Суммарный объем переданных байт по WAN каналу |
+| `replicator_throughput_bytes_per_second` | Gauge | `dc`, `cluster_id` | Текущая мгновенная скорость передачи данных |
+| `replicator_task_duration_seconds` | Histogram | `status`, `job_id` | Длительность выполнения задач и подзадач |
+| `replicator_hms_lag_events` | Gauge | `db_name` | Количество необработанных событий в NOTIFICATION_LOG |
+| `replicator_active_streams_count` | Gauge | `direction` | Количество одновременно открытых gRPC потоков |
+| `replicator_staging_orphans_count` | Gauge | `cluster_id` | Количество обнаруженных осиротевших файлов staging |
+| `replicator_agent_heartbeat_timestamp`| Gauge | `agent_id`, `dc` | Временная метка последнего успешного heartbeat |
 
-### Чеклист информационной безопасности (ИБ)
+### Рекомендуемые правила для Prometheus Alertmanager
 
-- [x] **Изоляция портов**: в межЦОДном фаерволе открыт только порт `TCP :50051`.
-- [x] **Шифрование канала**: mTLS v1.3 с взаимной проверкой сертификатов агентов.
-- [x] **Kerberos сквозная безопасность**: чтение и запись блоков выполняются строго под UGI автора задачи (`UserGroupInformation.doAs`).
-- [x] **Apache Ranger аудит**: все операции логируются в Ranger HDFS Access Audit под именем инициатора.
-- [x] **Безопасность метаданных**: при операциях `DROP TABLE` флаг `deleteData=false` исключает потерю физических файлов.
+```yaml
+groups:
+  - name: replicator-alerts
+    rules:
+      - alert: ReplicatorAgentOffline
+        expr: time() - replicator_agent_heartbeat_timestamp > 30
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Агент репликатора {{ $labels.agent_id }} не отвечает более 30 секунд"
+
+      - alert: ReplicatorHmsLagHigh
+        expr: replicator_hms_lag_events > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокое отставание репликации Hive Metastore в БД {{ $labels.db_name }} (> 10000)"
+
+      - alert: ReplicatorThroughputZeroOnActiveJobs
+        expr: replicator_throughput_bytes_per_second == 0 and replicator_active_streams_count > 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Зависание gRPC стримов передачи данных при активных заданиях"
+```
+
+---
+
+## Слайд 13: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг
+
+### Рекомендации по ресурсам и аппаратному обеспечению
+
+| Узел / Компонент | vCPU | RAM | Сетевой адаптер (NIC) | Дисковая подсистема |
+| :--- | :--- | :--- | :--- | :--- |
+| **Orchestrator Host** | 4–8 vCPU | 8–16 GB | 1 Gbps / 10 Gbps | 50 GB SSD (NVMe) под базу данных |
+| **Agent Colocated** | 4 vCPU | 8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с DataNode Hadoop |
+| **Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps | 200 GB SSD под системные журналы |
+
+### Тюнинг ядра Linux для 10G/40G WAN каналов (`/etc/sysctl.conf`)
+
+```ini
+# Увеличение максимального размера сетевых буферов TCP для исключения дропов пакетов
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.core.rmem_default = 33554432
+net.core.wmem_default = 33554432
+
+# Авто-тюнинг TCP окон (min, default, max)
+net.ipv4.tcp_rmem = 4096 87380 33554432
+net.ipv4.tcp_wmem = 4096 65536 33554432
+
+# Увеличение очереди подключений и дескрипторов файлов
+net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 10000
+fs.file-max = 2097152
+```
+
+### Тюнинг JVM (Java 21 LTS)
+
+```bash
+# Рекомендуемые опции JVM для воркеров репликатора
+-XX:+UseG1GC \
+-XX:MaxGCPauseMillis=50 \
+-XX:InitiatingHeapOccupancyPercent=45 \
+-XX:+ExplicitGCInvokesConcurrent \
+-Dio.netty.allocator.type=pooled \
+-Dio.netty.allocator.numDirectArenas=4
+```
+
+### Диагностика типовых инцидентов (Troubleshooting FAQ)
+
+1. **Ошибка `GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)`**:
+   - *Причина*: Истек TGT тикет технической учетной записи демона.
+   - *Решение*: Проверить валидность keytab через `klist -kt /etc/security/keytabs/hdfs.headless.keytab`. Агент автоматически обновляет тикет за 10 минут до истечения срока действия.
+2. **Ошибка `org.apache.hadoop.ipc.RemoteException: Cannot create file ... NameNode is in safe mode`**:
+   - *Причина*: Целевой кластер находится в безопасном режиме (SafeMode) после рестарта.
+   - *Решение*: Дождаться выхода кластера из SafeMode (`hdfs dfsadmin -safemode wait`) или выполнить `hdfs dfsadmin -safemode leave`.
+3. **Зависание gRPC потоков при наличии Stateful Firewall**:
+   - *Причина*: Межсетевой экран сбрасывает неактивные TCP соединения по таймауту TCP Keepalive.
+   - *Решение*: В конфигурации Netty включены gRPC Keepalive: `keepAliveTime(30, TimeUnit.SECONDS)`, `keepAliveTimeout(10, TimeUnit.SECONDS)`.
