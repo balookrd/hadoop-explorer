@@ -43,6 +43,7 @@
     Files,
   } from 'lucide-svelte';
   import HmsReplicationView from './components/HmsReplicationView.svelte';
+  import DisasterRecoveryView from './components/DisasterRecoveryView.svelte';
 
   // Состояние аутентификации
   let authLoading = $state(true);
@@ -51,7 +52,7 @@
   let isLoginModalOpen = $state(false);
 
   // Табы приложения
-  let activeTab = $state<'jobs' | 'hms' | 'topology'>('jobs');
+  let activeTab = $state<'jobs' | 'hms' | 'topology' | 'dr'>('jobs');
 
   let jobs = $state<Job[]>([]);
   let jobsLoading = $state(false);
@@ -749,6 +750,13 @@
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'topology' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       Топология ЦОД и Полоса
+    </button>
+    <button
+      onclick={() => (activeTab = 'dr')}
+      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5 {activeTab === 'dr' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
+    >
+      <span class="w-1.5 h-1.5 rounded-full {activeTab === 'dr' ? 'bg-white' : 'bg-rose-500'}"></span>
+      Disaster Recovery
     </button>
   </nav>
 {/snippet}
@@ -1685,6 +1693,12 @@
             </div>
           {/if}
         </div>
+      </main>
+
+    <!-- КОНТЕНТ ВКЛАДКИ: DISASTER RECOVERY & FAILOVER (DR CONSOLE) -->
+    {:else if activeTab === 'dr'}
+      <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
+        <DisasterRecoveryView {user} />
       </main>
     {/if}
   </div>

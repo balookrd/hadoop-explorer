@@ -12,6 +12,10 @@ import type {
   HmsEventLog,
   CreateHmsJobPayload,
   StreamingLeaseStatus,
+  DrStatusResponse,
+  DrEmergencyStopPayload,
+  DrReversePayload,
+  DrActionResponse,
 } from '../types';
 
 export class ReplicatorApiClient extends BaseApiClient {
@@ -206,6 +210,32 @@ export class ReplicatorApiClient extends BaseApiClient {
 
   async getStreamingLeaseStatuses(): Promise<Record<string, StreamingLeaseStatus>> {
     return this.request<Record<string, StreamingLeaseStatus>>('/streaming/lease/all');
+  }
+
+  // --- Disaster Recovery (DR) & Failover ---
+
+  async getDrStatus(): Promise<DrStatusResponse> {
+    return this.request<DrStatusResponse>('/dr/status');
+  }
+
+  async emergencyStop(payload: DrEmergencyStopPayload): Promise<DrActionResponse> {
+    return this.request<DrActionResponse>('/dr/emergency-stop', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async reverseReplication(payload: DrReversePayload): Promise<DrActionResponse> {
+    return this.request<DrActionResponse>('/dr/reverse', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async reverseSingleJob(jobId: string): Promise<DrActionResponse> {
+    return this.request<DrActionResponse>(`/dr/jobs/${encodeURIComponent(jobId)}/reverse`, {
+      method: 'POST',
+    });
   }
 }
 

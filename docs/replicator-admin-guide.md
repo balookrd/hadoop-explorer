@@ -1700,4 +1700,35 @@ flowchart TD
    - В предикат `HadoopFsManager.isIgnoredFile` добавлена строгая проверка паттернов `._staging_`, `.staging.` и `_staging_`.
    - Временные файлы никогда не включаются в удаленный манифест целевого каталога и не участвуют в вычислении дельты (`in-memory diff`). Это исключает ситуации, когда незавершенный staging-файл ошибочно признается самостоятельным объектом репликации.
 
+---
+
+## 14. REST API аварийного переключения и обратной репликации (Disaster Recovery & Failover API)
+
+Для автоматизации сценариев Disaster Recovery (DR) и интеграции с внешними системами оркестрации (Ansible, AWX, Terraform) Оркестратор предоставляет специализированный программный интерфейс `/api/v1/dr/*`:
+
+| Метод | Эндпоинт | Роли | Назначение |
+|---|---|---|---|
+| `GET` | `/api/v1/dr/status` | ALL | Сводная телеметрия: доступность DC1/DC2, активное направление, суммарный лаг дельты, статус изоляции (Fencing) |
+| `POST` | `/api/v1/dr/emergency-stop` | ADMIN, WRITER | Экстренная остановка (Kill-Switch) всех задач указанного источника, снятие расписания и сетевое ограждение |
+| `POST` | `/api/v1/dr/reverse` | ADMIN, WRITER | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS |
+| `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN, WRITER | Точечный разворот отдельной HDFS задачи в обратную сторону |
+
+### Примеры CLI вызовов:
+
+```bash
+# 1. Получение сводного DR статуса и лага непереданных данных
+curl -s -X GET "http://orchestrator:8005/api/v1/dr/status" | jq .
+
+# 2. Экстренный останов всех репликаций из DC1 с сетевым ограждением (Fencing)
+curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
+  -H "Content-Type: application/json" \
+  -d '{"cluster_id": "dc1", "reason": "Авария энергоснабжения ЦОД1", "fence_network": true}'
+
+# 3. Запуск обратной репликации дельты из DC2 в DC1 после восстановления площадки
+curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
+  -H "Content-Type: application/json" \
+  -d '{"from_cluster_id": "dc2", "to_cluster_id": "dc1", "include_hdfs": true, "include_hms": true, "auto_start": true}'
+```
+
+
 

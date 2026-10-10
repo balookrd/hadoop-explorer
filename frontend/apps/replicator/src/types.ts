@@ -208,3 +208,85 @@ export interface StreamingLeaseStatus {
   redundancy_warning: boolean;
   last_committed_txid: number;
 }
+
+export interface DrDcStatus {
+  id: string;
+  name: string;
+  status: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN';
+  role: 'PRIMARY' | 'STANDBY' | 'PROMOTED_PRIMARY';
+  online_agents: number;
+  total_agents: number;
+  bandwidth_limit_mb_s: number;
+  is_fenced: boolean;
+}
+
+export interface DrClusterStatus {
+  id: string;
+  name: string;
+  dc_id: string;
+  status: 'ONLINE' | 'OFFLINE';
+  active_jobs_count: number;
+  queued_jobs_count: number;
+  failed_jobs_count: number;
+  completed_jobs_count: number;
+}
+
+export interface DrSummary {
+  active_source_dc: string;
+  active_target_dc: string;
+  primary_dc_online: boolean;
+  standby_dc_online: boolean;
+  total_active_jobs: number;
+  total_frozen_jobs: number;
+  total_failed_jobs: number;
+  unreplicated_bytes: number;
+  unreplicated_events: number;
+}
+
+export interface DrRouteItem {
+  id: string;
+  type: 'HDFS' | 'HMS';
+  name: string;
+  source_cluster_id: string;
+  target_cluster_id: string;
+  source_path: string;
+  target_path: string;
+  status: string;
+  is_scheduled: boolean;
+  cron_expression?: string;
+  lag_bytes_or_events: number;
+  has_reverse_job: boolean;
+  reverse_job_id?: string;
+}
+
+export interface DrStatusResponse {
+  datacenters: DrDcStatus[];
+  clusters: DrClusterStatus[];
+  summary: DrSummary;
+  hdfs_routes: DrRouteItem[];
+  hms_routes: DrRouteItem[];
+}
+
+export interface DrEmergencyStopPayload {
+  cluster_id: string;
+  reason?: string;
+  fence_network?: boolean;
+}
+
+export interface DrReversePayload {
+  from_cluster_id: string;
+  to_cluster_id: string;
+  include_hdfs?: boolean;
+  include_hms?: boolean;
+  auto_start?: boolean;
+}
+
+export interface DrActionResponse {
+  success: boolean;
+  message: string;
+  stopped_hdfs_jobs: number;
+  stopped_hms_jobs: number;
+  reversed_hdfs_jobs: number;
+  reversed_hms_jobs: number;
+  created_job_ids: string[];
+}
