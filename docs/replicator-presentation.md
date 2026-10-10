@@ -5,6 +5,7 @@
   <img src="../images/logo_white.png" alt="Hadoop Explorer Platform" width="360" />
   <p><strong>Материалы для проведения технической презентации и демонстрации команде</strong></p>
   <p><em>Архитектура, протоколы передачи данных, сетевой шейпинг, CDC Hive Metastore и регламент Disaster Recovery</em></p>
+  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивное слайд-шоу в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📥 <a href="replicator-presentation.pptx"><strong>Файл презентации PowerPoint (PPTX)</strong></a></p>
 </div>
 
 ---
