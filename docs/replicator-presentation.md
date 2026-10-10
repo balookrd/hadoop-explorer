@@ -4,8 +4,7 @@
 <div align="center">
   <img src="../images/logo_white.png" alt="Hadoop Explorer Platform" width="360" />
   <p><strong>Материалы для проведения технической презентации и демонстрации команде инженеров и архитекторов</strong></p>
-  <p><em>Control Plane vs Data Plane, сетевая матрица портов, прямое peer-to-peer gRPC соединение, иерархический шейпинг и регламент Disaster Recovery</em></p>
-  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивное слайд-шоу в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📥 <a href="replicator-presentation.pptx"><strong>Файл презентации PowerPoint (PPTX)</strong></a></p>
+  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивное слайд-шоу в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📋 <a href="#📑-содержание-слайдов-презентации"><strong>Текстовый план доклада (Markdown)</strong></a></p>
 </div>
 
 ---
@@ -60,7 +59,9 @@
 
 ### Генеральная схема размещения компонентов и направлений сетевых потоков
 
-![Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator](images/replicator/architecture_deployment_traffic.png)
+<div align="center">
+  <img src="images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator" width="100%" />
+</div>
 
 ### Пояснение к генеральной схеме
 
@@ -260,7 +261,9 @@ sequenceDiagram
 
 ### Управление пирамидой лимитов Hierarchical Token Bucket
 
-![Управление топологией дата-центров и шейпером полосы](images/replicator/replicator_topology_screen.png)
+<div align="center">
+  <img src="images/replicator/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
+</div>
 
 - **Глобальный лимит пула ЦОД**: верхняя граница суммарной пропускной способности WAN между Москвой и Санкт-Петербургом (например, 150 МБ/с).
 - **Приоритеты очередей**:
@@ -275,7 +278,9 @@ sequenceDiagram
 
 ### Контроль задач и статуса репликации в реальном времени
 
-![Главный экран задач репликации и статистика производительности](images/replicator/replicator_dashboard_screen.png)
+<div align="center">
+  <img src="images/replicator/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
+</div>
 
 - **Мгновенный статус**: активные потоки передачи, текущая сетевая утилизация WAN в МБ/с, количество переданных файлов и байт.
 - **Расчет дельты в реальном времени**: прогресс-бар вычисляет оставшийся объем и прогноз времени завершения (ETA).
@@ -287,7 +292,9 @@ sequenceDiagram
 
 ### Непрерывная синхронизация DDL-событий каталога метаданных
 
-![Консоль потоковой CDC репликации Hive Metastore](images/replicator/replicator_hms_screen.png)
+<div align="center">
+  <img src="images/replicator/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
+</div>
 
 - **Мониторинг отставания (Lag)**: отображение разницы между `Max Event ID` в `NOTIFICATION_LOG` источника и `Last Processed Event ID` на приемнике.
 - **Статус распределенной аренды Inotify Lease HA**: текущий воркер-держатель аренды, время истечения аренды (TTL), предупреждения об истечении лизинга.
@@ -299,7 +306,9 @@ sequenceDiagram
 
 ### Аварийное сетевое ограждение и защита от Split-Brain
 
-![Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch](images/replicator/replicator_dr_isolated_screen.png)
+<div align="center">
+  <img src="images/replicator/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
+</div>
 
 - **Большой баннер изоляции**: ярко-красный индикатор аварийного режима и сетевого барьера.
 - **Мгновенный Kill-Switch**: одно нажатие устанавливает лимит WAN в 0 МБ/с и останавливает все задачи.
@@ -311,7 +320,9 @@ sequenceDiagram
 
 ### Безопасное снятие ограждения и 1-Click запуск обратного догона дельты
 
-![Снятие изоляции и мастер 1-Click Reverse Replication](images/replicator/replicator_unfence_reverse_screen.png)
+<div align="center">
+  <img src="images/replicator/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
+</div>
 
 - **Безопасный Unfence**: снятие сетевого барьера без автоматического перезапуска прямых задач.
 - **1-Click Reverse Replication**: автоматическое создание зеркальных задач с инвертированными путями (`DC2 ➔ DC1`) для догона дельты на оживший ЦОД.

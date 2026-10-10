@@ -30,6 +30,7 @@
       background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, var(--bg) 60%);
       color: var(--text);
       min-height: 100vh;
+      height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -38,13 +39,14 @@
 
     /* Верхний бар навигации */
     header {
-      height: 60px;
-      padding: 0 32px;
+      height: 56px;
+      min-height: 56px;
+      padding: 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid var(--card-border);
-      background: rgba(9, 13, 22, 0.85);
+      background: rgba(9, 13, 22, 0.88);
       backdrop-filter: blur(12px);
       z-index: 100;
     }
@@ -59,7 +61,7 @@
     }
 
     .brand img {
-      height: 30px;
+      height: 28px;
       filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
     }
 
@@ -77,14 +79,14 @@
     .header-controls {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
     }
 
     .slide-counter {
       font-size: 0.9rem;
       color: var(--text-muted);
       font-weight: 600;
-      min-width: 90px;
+      min-width: 85px;
       text-align: center;
     }
 
@@ -92,7 +94,7 @@
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid var(--card-border);
       color: var(--text);
-      padding: 7px 14px;
+      padding: 6px 14px;
       border-radius: 8px;
       cursor: pointer;
       font-size: 0.85rem;
@@ -146,25 +148,24 @@
       position: relative;
       overflow: hidden;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 16px 28px;
     }
 
     .slide {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      padding: 36px 48px;
+      top: 16px;
+      left: 28px;
+      right: 28px;
+      bottom: 16px;
       opacity: 0;
       visibility: hidden;
-      transform: translateX(40px) scale(0.98);
-      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateX(30px) scale(0.99);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
+      overflow: hidden;
     }
 
     .slide.active {
@@ -174,25 +175,26 @@
     }
 
     .slide.prev {
-      transform: translateX(-40px) scale(0.98);
+      transform: translateX(-30px) scale(0.99);
     }
 
-    /* Стили контента слайдов */
+    /* Стили шапки слайда */
     .slide-header {
-      margin-bottom: 24px;
+      margin-bottom: 14px;
+      flex-shrink: 0;
     }
 
     .slide-subtitle {
       color: var(--accent);
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .slide-title {
-      font-size: 2.1rem;
+      font-size: 1.85rem;
       font-weight: 800;
       letter-spacing: -0.02em;
       line-height: 1.2;
@@ -203,48 +205,54 @@
 
     .slide-desc {
       color: var(--text-muted);
-      font-size: 1rem;
-      margin-top: 6px;
-      max-width: 900px;
-      line-height: 1.5;
+      font-size: 0.92rem;
+      margin-top: 4px;
+      line-height: 1.4;
     }
 
     .slide-body {
       flex: 1;
+      min-height: 0;
       display: flex;
-      gap: 24px;
+      gap: 20px;
+      overflow-y: auto;
     }
 
     /* Сетка карточек */
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 20px;
+      gap: 16px;
       width: 100%;
+      height: 100%;
     }
 
     .grid-3 {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
+      gap: 16px;
       width: 100%;
+      height: 100%;
     }
 
     .grid-4 {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+      gap: 14px;
       width: 100%;
+      height: 100%;
     }
 
     .card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 22px;
+      border-radius: 12px;
+      padding: 18px;
       backdrop-filter: blur(12px);
       transition: border-color 0.2s ease, transform 0.2s ease;
       position: relative;
+      display: flex;
+      flex-direction: column;
     }
 
     .card:hover {
@@ -259,28 +267,30 @@
     .card-accent-red { border-top: 3px solid var(--danger); }
 
     .card-title {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 700;
       color: #fff;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .card-list {
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
+      overflow-y: auto;
     }
 
     .card-list li {
-      font-size: 0.92rem;
+      font-size: 0.88rem;
       color: var(--text-muted);
       line-height: 1.45;
       position: relative;
-      padding-left: 16px;
+      padding-left: 14px;
     }
 
     .card-list li::before {
@@ -291,51 +301,55 @@
       font-weight: bold;
     }
 
-    /* Полноразмерный контейнер схемы */
+    /* Полноразмерный контейнер генеральной схемы */
     .arch-container {
       width: 100%;
       height: 100%;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       background: #0f172a;
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 12px;
       cursor: zoom-in;
       position: relative;
+      overflow: hidden;
     }
 
     .arch-container img {
       max-width: 100%;
-      max-height: 520px;
+      max-height: calc(100vh - 200px);
+      width: auto;
+      height: auto;
       object-fit: contain;
-      border-radius: 8px;
+      border-radius: 6px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
 
     .arch-zoom-hint {
       position: absolute;
-      bottom: 24px;
-      right: 28px;
-      background: rgba(15, 23, 42, 0.85);
+      bottom: 16px;
+      right: 20px;
+      background: rgba(15, 23, 42, 0.88);
       border: 1px solid rgba(255, 255, 255, 0.15);
-      padding: 6px 14px;
+      padding: 5px 12px;
       border-radius: 20px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--accent);
       font-weight: 600;
       backdrop-filter: blur(8px);
+      pointer-events: none;
     }
 
     /* Таблицы */
     .table-container {
       width: 100%;
+      height: 100%;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      overflow: hidden;
+      border-radius: 12px;
+      overflow-y: auto;
     }
 
     table {
@@ -347,17 +361,20 @@
     th {
       background: #1e293b;
       color: var(--accent);
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      padding: 14px 18px;
+      padding: 12px 16px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
 
     td {
-      padding: 12px 18px;
-      font-size: 0.9rem;
+      padding: 10px 16px;
+      font-size: 0.86rem;
       color: var(--text-muted);
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
@@ -367,17 +384,17 @@
     }
 
     tr:hover td {
-      background: rgba(99, 102, 241, 0.05);
+      background: rgba(99, 102, 241, 0.06);
       color: var(--text);
     }
 
     .port-badge {
       display: inline-block;
-      padding: 2px 8px;
+      padding: 2px 7px;
       border-radius: 4px;
       font-family: monospace;
       font-weight: 700;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
     }
 
     .port-wan { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
@@ -387,49 +404,58 @@
     /* Слайды со скриншотами UI */
     .ui-split {
       display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 24px;
+      grid-template-columns: minmax(360px, 420px) 1fr;
+      gap: 20px;
       width: 100%;
       height: 100%;
+      align-items: stretch;
     }
 
     .ui-left {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
+      height: 100%;
+      overflow-y: auto;
     }
 
     .ui-screenshot-card {
       background: #0f172a;
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 12px;
+      border-radius: 12px;
+      padding: 10px;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       cursor: zoom-in;
       position: relative;
+      overflow: hidden;
+      height: 100%;
     }
 
     .ui-screenshot-card img {
       max-width: 100%;
-      max-height: 480px;
-      border-radius: 8px;
+      max-height: calc(100vh - 200px);
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 6px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
 
     /* Нижний колонтитул */
     footer {
-      height: 48px;
-      padding: 0 32px;
+      height: 40px;
+      min-height: 40px;
+      padding: 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-top: 1px solid var(--card-border);
-      background: rgba(9, 13, 22, 0.85);
-      font-size: 0.82rem;
+      background: rgba(9, 13, 22, 0.88);
+      font-size: 0.8rem;
       color: var(--text-muted);
+      z-index: 100;
     }
 
     /* Модальное окно Lightbox */
@@ -439,7 +465,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.92);
+      background: rgba(0, 0, 0, 0.94);
       backdrop-filter: blur(16px);
       z-index: 1000;
       display: flex;
@@ -457,8 +483,8 @@
     }
 
     .lightbox img {
-      max-width: 94vw;
-      max-height: 94vh;
+      max-width: 95vw;
+      max-height: 95vh;
       border-radius: 8px;
       box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -471,12 +497,12 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(9, 13, 22, 0.95);
+      background: rgba(9, 13, 22, 0.96);
       backdrop-filter: blur(16px);
       z-index: 900;
       display: flex;
       flex-direction: column;
-      padding: 40px;
+      padding: 32px;
       opacity: 0;
       visibility: hidden;
       transition: all 0.25s ease;
@@ -491,13 +517,14 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
+      flex-shrink: 0;
     }
 
     .overview-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 14px;
       overflow-y: auto;
       padding-bottom: 20px;
     }
@@ -506,7 +533,7 @@
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 10px;
-      padding: 16px;
+      padding: 14px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -528,7 +555,7 @@
   <!-- ВЕРХНИЙ БАР -->
   <header>
     <div class="brand">
-      <img src="../images/logo_white.png" alt="Hadoop Explorer Platform">
+      <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform">
       <span>gRPC Replicator</span>
       <span class="brand-tag">Architecture</span>
     </div>
@@ -571,9 +598,9 @@
           <div class="card card-accent-indigo">
             <div class="card-title">🏢 Что куда устанавливается?</div>
             <ul class="card-list">
-              <li><strong>Control Plane (Orchestrator)</strong>: отдельный хост управления, VM или K8s Pod. Слушает порт <code>:8005</code> (REST API, Web UI).</li>
+              <li><strong>Control Plane (Orchestrator)</strong>: отдельный хост управления, VM или K8s Pod. Слушает порт <code>:8005</code> (REST API, Web UI Svelte 5).</li>
               <li><strong>Data Plane (Replicator Agents)</strong>: устанавливаются в каждом ЦОД на узлы DataNode (Colocated) или Edge Gateway с 10/25G LAN.</li>
-              <li><strong>Hadoop узлы</strong>: NameNode, DataNodes, Hive Metastore работают штатно без плагинов или модификации ядра.</li>
+              <li><strong>Hadoop узлы</strong>: NameNode, DataNodes, Hive Metastore работают штатно без сторонних плагинов или изменений в ядре.</li>
             </ul>
           </div>
           <div class="card card-accent-green">
@@ -587,7 +614,7 @@
           <div class="card card-accent-cyan">
             <div class="card-title">🛡️ Сеть и Disaster Recovery</div>
             <ul class="card-list">
-              <li>В межЦОДном фаерволе открывается <strong>ТОЛЬКО ОДИН ПОРТ</strong>: <code>TCP :50051</code> (mTLS).</li>
+              <li>В межЦОДном фаерволе открывается <strong>ТОЛЬКО ОДИН ПОРТ</strong>: <code>TCP :50051</code> (mTLS v1.3).</li>
               <li>Иерархический шейпер Token Bucket: строгий аппаратный контроль полосы WAN.</li>
               <li>Авария и DR: Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1).</li>
             </ul>
@@ -608,7 +635,7 @@
       <div class="slide-body">
         <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
           <img src="images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки">
-          <div class="arch-zoom-hint">🔍 Нажмите на схему для увеличения (Lightbox)</div>
+          <div class="arch-zoom-hint">🔍 Нажмите на схему для полноэкранного зума</div>
         </div>
       </div>
     </div>
@@ -641,7 +668,7 @@
               <li><strong>Процесс:</strong> <code>replicator-agent-dc1</code> (Java 21 / Netty gRPC демон).</li>
               <li><strong>Порт:</strong> <code>TCP :50051</code> (gRPC Server / Client, Full-Duplex режим).</li>
               <li><strong>Kerberos:</strong> Системный keytab <code>hdfs-cluster-1.keytab</code>.</li>
-              <li><strong>Роль:</strong> Diff манифестов, блочное чтение из DataNode pod UGI <code>doAs</code>, опрос HMS NOTIFICATION_LOG, стриминг в WAN.</li>
+              <li><strong>Роль:</strong> Diff манифестов, блочное чтение из DataNode под UGI <code>doAs</code>, опрос HMS NOTIFICATION_LOG, стриминг в WAN.</li>
             </ul>
           </div>
           <div class="card card-accent-cyan">
@@ -926,8 +953,8 @@
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/replicator_topology_screen.png')">
-            <img src="images/replicator/replicator_topology_screen.png" alt="Управление топологией дата-центров">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/04_topology_bandwidth.png')">
+            <img src="images/replicator/04_topology_bandwidth.png" onerror="this.src='images/replicator/replicator_topology_screen.png'" alt="Управление топологией дата-центров">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -963,8 +990,8 @@
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/replicator_dashboard_screen.png')">
-            <img src="images/replicator/replicator_dashboard_screen.png" alt="Дашборд задач репликации">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/02_main_dashboard.png')">
+            <img src="images/replicator/02_main_dashboard.png" onerror="this.src='images/replicator/replicator_dashboard_screen.png'" alt="Дашборд задач репликации">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -999,8 +1026,8 @@
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/replicator_hms_screen.png')">
-            <img src="images/replicator/replicator_hms_screen.png" alt="Консоль Hive Metastore CDC">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/06_hms_replication_dashboard.png')">
+            <img src="images/replicator/06_hms_replication_dashboard.png" onerror="this.src='images/replicator/replicator_hms_screen.png'" alt="Консоль Hive Metastore CDC">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -1034,8 +1061,8 @@
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/replicator_dr_isolated_screen.png')">
-            <img src="images/replicator/replicator_dr_isolated_screen.png" alt="DR Hub в режиме изоляции">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/10_disaster_recovery_fenced_state.png')">
+            <img src="images/replicator/10_disaster_recovery_fenced_state.png" onerror="this.src='images/replicator/replicator_dr_isolated_screen.png'" alt="DR Hub в режиме изоляции">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -1070,8 +1097,8 @@
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/replicator_unfence_reverse_screen.png')">
-            <img src="images/replicator/replicator_unfence_reverse_screen.png" alt="Снятие изоляции и Reverse Replication">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/12_reverse_replication_modal.png')">
+            <img src="images/replicator/12_reverse_replication_modal.png" onerror="this.src='images/replicator/replicator_unfence_reverse_screen.png'" alt="Снятие изоляции и Reverse Replication">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -1127,7 +1154,7 @@
   <!-- OVERVIEW МОДАЛКА -->
   <div class="overview-modal" id="overviewModal">
     <div class="overview-header">
-      <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff;">Карта слайдов презентации</h2>
+      <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff;">Карта слайдов презентации</h2>
       <button class="btn btn-primary" onclick="closeOverview()">✕ Закрыть</button>
     </div>
     <div class="overview-grid" id="overviewGrid"></div>
@@ -1139,7 +1166,16 @@
     const slides = document.querySelectorAll('.slide');
     const totalSlides = slides.length;
 
-    function updateSlide() {
+    function parseHash() {
+      const hash = window.location.hash.replace('#', '').replace('slide-', '');
+      const num = parseInt(hash, 10);
+      if (!isNaN(num) && num >= 1 && num <= totalSlides) {
+        return num;
+      }
+      return 1;
+    }
+
+    function updateSlide(updateHash = true) {
       slides.forEach((slide, idx) => {
         slide.classList.remove('active', 'prev');
         if (idx + 1 === currentSlide) {
@@ -1157,6 +1193,10 @@
       overviewItems.forEach((item, idx) => {
         item.classList.toggle('current', idx + 1 === currentSlide);
       });
+
+      if (updateHash) {
+        history.replaceState(null, '', '#slide-' + currentSlide);
+      }
     }
 
     function nextSlide() {
@@ -1180,6 +1220,11 @@
         closeOverview();
       }
     }
+
+    window.addEventListener('hashchange', () => {
+      currentSlide = parseHash();
+      updateSlide(false);
+    });
 
     window.addEventListener('keydown', (e) => {
       if (document.getElementById('lightbox').classList.contains('active')) {
@@ -1259,16 +1304,18 @@
         item.className = `overview-item ${idx + 1 === currentSlide ? 'current' : ''}`;
         item.onclick = () => goToSlide(idx + 1);
         item.innerHTML = `
-          <div style="font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase;">Слайд ${idx + 1}</div>
-          <div style="font-size: 0.95rem; font-weight: 700; margin: 4px 0; color: #fff;">${title}</div>
-          <div style="font-size: 0.8rem; color: var(--text-muted);">${subtitle}</div>
+          <div style="font-size: 0.72rem; color: var(--accent); font-weight: 700; text-transform: uppercase;">Слайд ${idx + 1}</div>
+          <div style="font-size: 0.9rem; font-weight: 700; margin: 3px 0; color: #fff; line-height: 1.3;">${title}</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">${subtitle}</div>
         `;
         grid.appendChild(item);
       });
     }
 
+    // Инициализация при старте с учетом hash
+    currentSlide = parseHash();
     initOverview();
-    updateSlide();
+    updateSlide(false);
   </script>
 </body>
 </html>
