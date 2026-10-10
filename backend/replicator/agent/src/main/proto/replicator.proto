@@ -90,3 +90,125 @@ message DirectoryManifestResponse {
   bool exists = 1;                       // Существует ли каталог
   repeated FileManifestEntry files = 2;  // Список файлов в каталоге на целевой стороне
 }
+
+// ============================================================================
+// Сервис прямого конвейера метаданных Hive Metastore (Source Agent -> Target Agent)
+// ============================================================================
+service HmsTransferService {
+  // Применение БД на целевой стороне
+  rpc ApplyDatabase (ApplyDatabaseRequest) returns (HmsOperationResponse);
+
+  // Идемпотентное создание или обновление таблицы (Create or Alter Table)
+  rpc ApplyTable (ApplyTableRequest) returns (HmsOperationResponse);
+
+  // Пакетная вставка/обновление чанка партиций
+  rpc ApplyPartitionBatch (ApplyPartitionBatchRequest) returns (HmsOperationResponse);
+
+  // Согласование (Reconciliation) лишних объектов (deleteData = false)
+  rpc ReconcileExtraneous (ReconcileExtraneousRequest) returns (HmsOperationResponse);
+
+  // Применение батча потоковых CDC событий из NOTIFICATION_LOG
+  rpc ApplyCdcBatch (ApplyCdcBatchRequest) returns (HmsOperationResponse);
+
+  // Получение среза существующих объектов на приемнике для двустороннего Diff
+  rpc GetMetadataSnapshot (GetMetadataSnapshotRequest) returns (GetMetadataSnapshotResponse);
+}
+
+// Запрос создания/проверки базы данных
+message ApplyDatabaseRequest {
+  string job_id = 1;
+  string db_name = 2;
+  string location_uri = 3;
+}
+
+// Метаданные таблицы Hive
+message HmsTableProto {
+  string catalog_name = 1;
+  string db_name = 2;
+  string table_name = 3;
+  string table_type = 4;
+  string sd_location = 5;
+  map<string, string> parameters = 6;
+  repeated string partition_keys = 7;
+  string input_format = 8;
+  string output_format = 9;
+  string serde_lib = 10;
+}
+
+// Запрос создания или изменения таблицы
+message ApplyTableRequest {
+  string job_id = 1;
+  HmsTableProto table = 2;
+}
+
+// Метаданные партиции Hive
+message HmsPartitionProto {
+  string catalog_name = 1;
+  string db_name = 2;
+  string table_name = 3;
+  repeated string values = 4;
+  string location = 5;
+  map<string, string> parameters = 6;
+}
+
+// Пакетная вставка партиций
+message ApplyPartitionBatchRequest {
+  string job_id = 1;
+  string db_name = 2;
+  string table_name = 3;
+  repeated HmsPartitionProto partitions = 4;
+}
+
+// Значения удаляемой партиции
+message HmsDroppedPartitionProto {
+  repeated string values = 1;
+}
+
+// Запрос согласования и удаления лишних таблиц и партиций
+message ReconcileExtraneousRequest {
+  string job_id = 1;
+  string db_name = 2;
+  repeated string drop_tables = 3;
+  string table_name = 4;
+  repeated HmsDroppedPartitionProto drop_partitions = 5;
+}
+
+// Событие из NOTIFICATION_LOG Hive Metastore
+message HmsNotificationEventProto {
+  int64 event_id = 1;
+  int32 event_time = 2;
+  string event_type = 3;
+  string db_name = 4;
+  string table_name = 5;
+  string message = 6;
+  string message_format = 7;
+}
+
+// Запрос применения пачки событий CDC
+message ApplyCdcBatchRequest {
+  string job_id = 1;
+  repeated HmsNotificationEventProto events = 2;
+}
+
+// Запрос среза метаданных для двустороннего Diff
+message GetMetadataSnapshotRequest {
+  string job_id = 1;
+  string db_name = 2;
+  string table_name = 3;
+}
+
+// Ответ со срезом метаданных
+message GetMetadataSnapshotResponse {
+  bool db_exists = 1;
+  repeated string existing_tables = 2;
+  repeated HmsPartitionProto existing_partitions = 3;
+}
+
+// Унифицированный ответ об операции с метаданными
+message HmsOperationResponse {
+  string job_id = 1;
+  bool success = 2;
+  string message = 3;
+  int32 affected_count = 4;
+}
+

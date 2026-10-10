@@ -11,6 +11,8 @@ import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.sender.ReplicationSender;
+import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
+import org.apache.hadoop.explorer.replicator.hms.client.MockHmsClient;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +46,8 @@ public class ReplicatorAgent {
     private final HadoopFsManager fsManager;
     private final OrchestratorClient orchestratorClient;
     private final ReplicationSender sender;
+    private HmsClient hmsClient;
+    private org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor hmsTaskExecutor;
 
     private Server grpcServer;
     private ScheduledExecutorService heartbeatExecutor;
@@ -77,7 +81,30 @@ public class ReplicatorAgent {
                 config.getGrpcPrivateKeyPath(),
                 config.isGrpcInsecureSkipVerify()
         );
+
+        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
+            this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+        }
+
+        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
+            this.hmsTaskExecutor = new org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor(
+                    config.getAgentId(),
+                    config.getClusterId(),
+                    hmsClient,
+                    orchestratorClient,
+                    config.isGrpcTlsEnabled(),
+                    config.isGrpcInsecureSkipVerify(),
+                    8,
+                    1000
+            );
+        }
     }
+
+    public HmsClient getHmsClient() { return hmsClient; }
+    public void setHmsClient(HmsClient hmsClient) { this.hmsClient = hmsClient; }
+    public org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor getHmsTaskExecutor() { return hmsTaskExecutor; }
+    public void setHmsTaskExecutor(org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor executor) { this.hmsTaskExecutor = executor; }
+
 
     /**
      * Запуск всех компонентов агента.
@@ -127,6 +154,11 @@ public class ReplicatorAgent {
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
                 .addService(service)
                 .maxInboundMessageSize(64 * 1024 * 1024);
+
+        if (hmsClient != null) {
+            serverBuilder.addService(new org.apache.hadoop.explorer.replicator.hms.service.HmsTransferServiceImpl(hmsClient));
+            logger.info("gRPC сервис HmsTransferService успешно зарегистрирован на Receiver сервере");
+        }
 
         if (config.isGrpcTlsEnabled()) {
             SslContextBuilder sslBuilder;
@@ -271,6 +303,22 @@ public class ReplicatorAgent {
                         }
                     }
                 }
+
+                // 3. Фаза HMS метаданных: опрос и исполнение задач репликации схем через gRPC конвейер
+                if (hmsTaskExecutor != null) {
+                    List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto> hmsJobs =
+                            orchestratorClient.getPendingHmsJobs(config.getClusterId());
+                    for (var hJob : hmsJobs) {
+                        if (!running.get()) break;
+                        if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
+                            didWork = true;
+                            hmsTaskExecutor.runBootstrap(hJob);
+                        } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
+                            int cdcCount = hmsTaskExecutor.pollAndSyncCdc(hJob);
+                            if (cdcCount > 0) didWork = true;
+                        }
+                    }
+                }
             } catch (Exception e) {
                 logger.error("Ошибка в цикле Sender/Worker: {}", e.getMessage(), e);
             }
@@ -373,6 +421,10 @@ public class ReplicatorAgent {
 
         if (heartbeatExecutor != null) {
             heartbeatExecutor.shutdownNow();
+        }
+
+        if (hmsTaskExecutor != null) {
+            hmsTaskExecutor.close();
         }
 
         if (config.isEnableDynamicRegistration()) {

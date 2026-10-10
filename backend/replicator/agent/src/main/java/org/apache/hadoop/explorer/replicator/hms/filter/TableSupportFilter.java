@@ -1,11 +1,9 @@
-package org.apache.hadoop.explorer.replicator.orchestrator.hms.filter;
+package org.apache.hadoop.explorer.replicator.hms.filter;
 
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsTableDto;
-import org.springframework.stereotype.Component;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 
 import java.util.*;
 
-@Component
 public class TableSupportFilter {
 
     private static final Set<String> REMOVED_VENDOR_PARAMS = Set.of(
@@ -42,8 +40,6 @@ public class TableSupportFilter {
             }
         }
 
-        // Если это MANAGED_TABLE без transactional=true - поддерживаем (Managed Non-Transactional)
-        // Если это EXTERNAL_TABLE - поддерживаем
         return FilterResult.accept();
     }
 

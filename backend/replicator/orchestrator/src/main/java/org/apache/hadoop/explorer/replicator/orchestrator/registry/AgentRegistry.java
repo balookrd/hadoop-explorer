@@ -211,7 +211,16 @@ public class AgentRegistry {
     public Optional<AgentEntry> getLiveAgentForCluster(String clusterId) {
         refreshHealth();
         return agents.values().stream()
-            .filter(a -> a.getClusterId().equalsIgnoreCase(clusterId) && a.getStatus() == AgentStatus.ONLINE)
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId) && a.getStatus() == AgentStatus.ONLINE)
+            .findAny();
+    }
+
+    public Optional<AgentEntry> getLiveHmsAgentForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && ("all".equalsIgnoreCase(a.getMode()) || "hms".equalsIgnoreCase(a.getMode())))
             .findAny();
     }
 

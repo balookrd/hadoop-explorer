@@ -1,4 +1,4 @@
-package org.apache.hadoop.explorer.replicator.orchestrator.hms.model;
+package org.apache.hadoop.explorer.replicator.hms.model;
 
 import java.util.Collections;
 import java.util.HashMap;

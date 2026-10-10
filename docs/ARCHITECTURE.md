@@ -281,14 +281,18 @@
   - Двухфазная распределенная репликация (Distributed Task Pool): фаза анализа с регистрацией пула сабтасок (`/api/v1/jobs/{id}/tasks/batch`) и параллельная фаза воркеров (`claimTasks`). Подзадачи полностью инкапсулированы внутри родительской задачи `Job`; родительское задание переходит в терминальный статус (`COMPLETED`/`FAILED`) строго после закрытия всех сабтасок с накоплением счетчиков объектов (`total_objects`, `transferred_objects`, `skipped_objects`, `failed_objects`), объемов и средней скорости.
 - **Репликация Hive Metastore (HMS Replication)**:
   - Выделенный **Раздел «HMS Replication»** для межкластерной синхронизации метаданных баз и таблиц (HDP 3.1 ➔ Apache Hive 3.1.3).
+  - **Строгое разделение Control Plane и Metadata Plane**:
+    - **Orchestrator (Control Plane)**: чистый координатор без прямых обращений в HDFS и без Thrift RPC соединений. Управляет задачами в БД, проверяет реестр `AgentRegistry`, при отсутствии пары агентов переводит задачу в `WAITING_FOR_AGENTS` (без попыток локального выполнения), принимает отчеты о прогрессе и логирует DDL-события через REST API.
+    - **Replicator Agent (Data & Metadata Plane)**: агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по LAN Thrift 9083, Target Agent применяет DDL в целевой HMS по локальному LAN Thrift, а обмен между агентами по WAN идет напрямую по защищенному gRPC-контракту `HmsTransferService` (порт 50051).
+  - **Масштабируемый многопоточный Bootstrap и чанкинг**: параллельный обход таблиц схемы пулом воркеров агента, чанкинг партиций (по 1000 шт) для предотвращения `MaxMessageSize exceeded` в Thrift RPC и создания ровно 1 корневой саб-джобы HDFS передачи файлов корня таблицы.
+  - **Двусторонний Diff & Reconciliation**: идемпотентный DDL (`Create or Alter`) и безопасное удаление устаревших объектов (`drop_extraneous_tables`, `drop_extraneous_partitions`) со строгой гарантией `deleteData = false` (файлы на HDFS не удаляются).
   - **Изоляция подзадач**: задачи переноса HDFS для партиций создаются со статусом `job_type = 'HMS_SUBJOB'` и полностью скрыты из регламентного раздела «HDFS Replication».
   - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
   - **HDFS Federation**: динамический парсинг NameService в `sd.location` партиций и маршрутизация по таблице соответствия `federation-mappings` с сохранением кластерных квот Token Bucket.
-  - **Полный Bootstrap и потоковый CDC**: первичный экспорт структуры таблиц/партиций с автоматическим переходом в режим потокового чтения `NOTIFICATION_LOG`.
-  - **Безопасное удаление**: операции `DROP` выполняются в целевом HMS строго с параметром `deleteData = false`, сохраняя файлы в HDFS.
+  - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, репортуя прогресс в Оркестратор.
 - **Нативная Java 21 экосистема исполнения**:
-  - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: высокопроизводительный нативный оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
-  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной полнодуплексный воркер для DataNode и контейнеров Apache Hadoop YARN.
+  - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: легковесный Control Plane оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
+  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`) и Hive Metastore (`HmsTransferService`).
   - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent` и `orchestrator` с общим циклом компиляции и тестирования (`make test-replicator`).
 
 ### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)

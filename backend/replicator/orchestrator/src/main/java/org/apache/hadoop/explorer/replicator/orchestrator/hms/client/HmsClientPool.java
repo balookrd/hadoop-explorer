@@ -1,7 +1,9 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.hms.client;
 
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsPartitionDto;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsTableDto;
+import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
+import org.apache.hadoop.explorer.replicator.hms.client.MockHmsClient;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

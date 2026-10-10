@@ -33,6 +33,8 @@ public class ReplicatorAgentConfig {
     private String grpcClientAuth = "none";
     private boolean grpcInsecureSkipVerify;
     private boolean orchestratorInsecureSkipVerify;
+    private String hmsThriftUris;
+    private String hiveVersion = "3.1.3";
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -91,6 +93,9 @@ public class ReplicatorAgentConfig {
         config.grpcClientAuth = getEnv("REPLICATOR_GRPC_CLIENT_AUTH", "none");
         config.grpcInsecureSkipVerify = Boolean.parseBoolean(getEnv("REPLICATOR_GRPC_INSECURE_SKIP_VERIFY", getEnv("GRPC_INSECURE_SKIP_VERIFY", "false")));
         config.orchestratorInsecureSkipVerify = Boolean.parseBoolean(getEnv("ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY", getEnv("REPLICATOR_TLS_INSECURE", "false")));
+
+        config.hmsThriftUris = getEnv("HMS_THRIFT_URIS", getEnv("HIVE_METASTORE_URIS", null));
+        config.hiveVersion = getEnv("HIVE_VERSION", "3.1.3");
 
         return config;
     }
@@ -171,4 +176,10 @@ public class ReplicatorAgentConfig {
 
     public boolean isOrchestratorInsecureSkipVerify() { return orchestratorInsecureSkipVerify; }
     public void setOrchestratorInsecureSkipVerify(boolean orchestratorInsecureSkipVerify) { this.orchestratorInsecureSkipVerify = orchestratorInsecureSkipVerify; }
+
+    public String getHmsThriftUris() { return hmsThriftUris; }
+    public void setHmsThriftUris(String hmsThriftUris) { this.hmsThriftUris = hmsThriftUris; }
+
+    public String getHiveVersion() { return hiveVersion; }
+    public void setHiveVersion(String hiveVersion) { this.hiveVersion = hiveVersion; }
 }

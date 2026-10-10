@@ -1,8 +1,8 @@
-package org.apache.hadoop.explorer.replicator.orchestrator.hms.client;
+package org.apache.hadoop.explorer.replicator.hms.client;
 
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsNotificationEventDto;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsPartitionDto;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsTableDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

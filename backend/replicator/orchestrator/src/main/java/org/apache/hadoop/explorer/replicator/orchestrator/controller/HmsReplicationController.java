@@ -82,6 +82,22 @@ public class HmsReplicationController {
         return ResponseEntity.ok(jobRepository.findAll());
     }
 
+    @GetMapping("/pending")
+    public ResponseEntity<List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto>> getPendingJobs(
+            @RequestParam(required = false) String clusterId
+    ) {
+        return ResponseEntity.ok(coordinatorService.getPendingJobsForCluster(clusterId));
+    }
+
+    @PostMapping("/{id}/progress")
+    public ResponseEntity<Map<String, Object>> updateProgress(
+            @PathVariable String id,
+            @RequestBody org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest report
+    ) {
+        coordinatorService.updateJobProgress(id, report);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<HmsReplicationJobEntity> getJob(@PathVariable String id) {
         return jobRepository.findById(id)
@@ -91,8 +107,7 @@ public class HmsReplicationController {
 
     @PostMapping("/{id}/sync")
     public ResponseEntity<Map<String, Object>> triggerSync(@PathVariable String id) {
-        int processed = coordinatorService.pollCdcEvents(id);
-        return ResponseEntity.ok(Map.of("success", true, "events_processed", processed));
+        return ResponseEntity.ok(Map.of("success", true, "message", "Потоковая репликация CDC выполняется агентом"));
     }
 
     @GetMapping("/{id}/events")

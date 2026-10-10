@@ -303,6 +303,63 @@ public class OrchestratorClient {
         }
     }
 
+    public List<HmsPendingJobDto> getPendingHmsJobs(String clusterId) {
+        try {
+            String path = "/api/v1/hms/jobs/pending" + (clusterId != null ? "?clusterId=" + URLEncoder.encode(clusterId, StandardCharsets.UTF_8) : "");
+            HttpRequest httpRequest = newRequestBuilder(path).GET().build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), new TypeReference<List<HmsPendingJobDto>>() {});
+            }
+        } catch (Exception e) {
+            logger.debug("Ошибка получения ожидающих HMS задач: {}", e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    public boolean reportHmsProgress(String jobId, HmsProgressReportRequest report) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(report);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/hms/jobs/" + URLEncoder.encode(jobId, StandardCharsets.UTF_8) + "/progress")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            logger.warn("Ошибка отправки прогресса HMS задачи '{}': {}", jobId, e.getMessage());
+            return false;
+        }
+    }
+
+    public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl) {
+        try {
+            var req = new java.util.LinkedHashMap<String, Object>();
+            req.put("source_path", srcPath);
+            req.put("target_path", dstPath);
+            req.put("source_cluster", srcCl != null ? srcCl : "default");
+            req.put("target_cluster", dstCl != null ? dstCl : "default");
+            req.put("bandwidth_limit_mb_s", 0L);
+            req.put("execution_principal", "hdfs@EXAMPLE.COM");
+            req.put("overwrite", true);
+            req.put("sync_deletes", false);
+            req.put("max_concurrency", 20);
+            req.put("job_type", "HMS_SUBJOB");
+            req.put("parent_job_id", hmsJobId);
+            String jsonBody = objectMapper.writeValueAsString(req);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200 || response.statusCode() == 201) {
+                var map = objectMapper.readValue(response.body(), new TypeReference<java.util.Map<String, Object>>() {});
+                return (String) map.get("id");
+            }
+        } catch (Exception e) {
+            logger.warn("Ошибка создания HDFS саб-джобы для HMS {}: {}", hmsJobId, e.getMessage());
+        }
+        return null;
+    }
+
     public String getBaseUrl() {
         return baseUrl;
     }

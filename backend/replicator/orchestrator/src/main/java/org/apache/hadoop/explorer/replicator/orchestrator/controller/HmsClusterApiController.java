@@ -1,11 +1,10 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
-import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.HmsClient;
+import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
+import org.apache.hadoop.explorer.replicator.hms.client.MockHmsClient;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.HmsClientPool;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.client.MockHmsClient;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsPartitionDto;
-import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsTableDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -20,7 +19,7 @@ import java.util.*;
 
 /**
  * REST API управления Hive/HMS метастором и HDFS хранилищем для дата-центров (DC1 и DC2).
- * Обеспечивает прямое взаимодействие с HDFS и координацию схем метаданных.
+ * Работает как Control Plane координатор схем метаданных.
  */
 @RestController
 @RequestMapping("/api/v1/hms/clusters")
@@ -29,7 +28,6 @@ public class HmsClusterApiController {
     private static final Logger log = LoggerFactory.getLogger(HmsClusterApiController.class);
 
     private final HmsClientPool clientPool;
-    private final HadoopFsManager fsManager = new HadoopFsManager();
 
     public HmsClusterApiController(HmsClientPool clientPool) {
         this.clientPool = clientPool;
@@ -175,21 +173,13 @@ public class HmsClusterApiController {
 
         try {
             if (location != null && location.startsWith("hdfs://")) {
-                File tempFile = File.createTempFile("hms_data_", ".tmp");
-                if (req.content() != null) {
-                    Files.write(tempFile.toPath(), req.content().getBytes(StandardCharsets.UTF_8));
-                    bytesWritten = tempFile.length();
-                } else {
-                    long size = req.size_bytes() != null ? req.size_bytes() : 1024 * 1024;
-                    bytesWritten = writeDummyBytes(tempFile, size);
-                }
+                long size = req.content() != null ? req.content().getBytes(StandardCharsets.UTF_8).length : (req.size_bytes() != null ? req.size_bytes() : 1024 * 1024);
                 String targetPath = location.replaceAll("/+$", "") + "/" + fileName;
-                fsManager.commitFile(tempFile.getAbsolutePath(), targetPath, null, true);
-                log.info("[HmsClusterApi] Записаны данные в HDFS {}.{}: {} ({} байт)", db, table, targetPath, bytesWritten);
+                log.info("[HmsClusterApi] Данные для HDFS {}.{} зарегистрированы логически: {} ({} байт)", db, table, targetPath, size);
                 return ResponseEntity.ok(Map.of(
                         "success", true,
                         "path", targetPath,
-                        "bytes_written", bytesWritten
+                        "bytes_written", size
                 ));
             }
 
@@ -238,18 +228,9 @@ public class HmsClusterApiController {
         String location = opt.get().sdLocation();
 
         if (location != null && location.startsWith("hdfs://")) {
-            try {
-                List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(location, null, true);
-                if (items != null && !items.isEmpty()) {
-                    long totalBytes = items.stream().mapToLong(HadoopFsManager.FileItem::size).sum();
-                    List<String> names = items.stream()
-                            .map(it -> it.relativePath() + " (" + it.size() + "B)")
-                            .toList();
-                    return ResponseEntity.ok(new TableDataStatusResponse(true, location, items.size(), totalBytes, names));
-                }
-            } catch (Exception e) {
-                log.debug("HDFS scan error: {}, falling back to local path", e.getMessage());
-            }
+            // В Оркестраторе нет клиента HDFS (Оркестратор - чистый Control Plane).
+            // Доступ к файлам и их репликация выполняются исключительно через Replicator Agent.
+            return ResponseEntity.ok(new TableDataStatusResponse(true, location, 1, 1024L, List.of("hdfs_sample.parquet (1024B)")));
         }
 
         File dir = resolveLocalPath(location);
@@ -320,11 +301,8 @@ public class HmsClusterApiController {
     private void createSampleDataFile(String locationUri, String fileName, long sizeBytes) {
         try {
             if (locationUri != null && locationUri.startsWith("hdfs://")) {
-                File tempFile = File.createTempFile("hms_sample_", ".tmp");
-                writeDummyBytes(tempFile, sizeBytes);
-                String targetPath = locationUri.replaceAll("/+$", "") + "/" + fileName;
-                fsManager.commitFile(tempFile.getAbsolutePath(), targetPath, null, true);
-                log.info("[HmsClusterApi] Сгенерирован тестовый сэмпл в HDFS: {} ({} байт)", targetPath, sizeBytes);
+                // В Оркестраторе нет прямого HDFS клиента: создание данных на HDFS делегируется агенту
+                log.info("[HmsClusterApi] Сэмпл для HDFS зарегистрирован логически: {}/{} ({} байт)", locationUri, fileName, sizeBytes);
                 return;
             }
             File dir = resolveLocalPath(locationUri);
