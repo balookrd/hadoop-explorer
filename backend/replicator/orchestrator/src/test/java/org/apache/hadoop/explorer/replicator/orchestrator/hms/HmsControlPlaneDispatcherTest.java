@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -44,6 +45,7 @@ public class HmsControlPlaneDispatcherTest {
     void setup() {
         hmsJobRepository.deleteAll();
         eventLogRepository.deleteAll();
+        agentRegistry.clear();
     }
 
     @Test
@@ -170,5 +172,123 @@ public class HmsControlPlaneDispatcherTest {
         HmsReplicationJobEntity refreshed = hmsJobRepository.findById(job.getId()).orElseThrow();
         assertEquals("QUEUED", refreshed.getStatus());
         assertTrue(refreshed.getMessage().contains("192.168.2.2:50051"));
+    }
+
+    @Test
+    @DisplayName("Эксклюзивный Distributed Lease: задача захватывается одним агентом, второй агент получает пустой список")
+    void testDistributedLeaseExclusiveClaim() {
+        // Регистрируем два агента источника в dc1 и один в dc2
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-src-alpha", "dc1", "all", "10.0.1.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-src-beta", "dc1", "all", "10.0.1.2:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dst-primary", "dc2", "all", "10.0.2.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+
+        HmsReplicationJobEntity job = coordinatorService.createAndStartReplication(
+                "dc1", "dc2", "crm_db", "crm_db", "*", "operator"
+        );
+        assertEquals("QUEUED", job.getStatus());
+
+        // 1. Первый агент (alpha) запрашивает задачи со своим agentId -> успешно захватывает lease
+        List<HmsPendingJobDto> alphaJobs = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-alpha");
+        assertEquals(1, alphaJobs.size());
+        assertEquals(job.getId(), alphaJobs.get(0).id());
+        assertEquals("agent-src-alpha", alphaJobs.get(0).assignedAgentId());
+
+        HmsReplicationJobEntity claimedJob = hmsJobRepository.findById(job.getId()).orElseThrow();
+        assertEquals("agent-src-alpha", claimedJob.getAssignedAgentId());
+        assertNotNull(claimedJob.getLeaseExpiresAt());
+
+        // 2. Второй агент (beta) запрашивает задачи со своим agentId -> задача заблокирована
+        List<HmsPendingJobDto> betaJobs = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-beta");
+        assertTrue(betaJobs.isEmpty(), "Второй агент не должен получить задачу, пока удерживается lease");
+
+        // 3. Первый агент шлет прогресс -> lease продлевается
+        var initialLease = claimedJob.getLeaseExpiresAt();
+        coordinatorService.updateJobProgress(job.getId(), new HmsProgressReportRequest(
+                "ACTIVE", 10, 10, 50, 50, 42L, 42L, 0L,
+                "CDC в процессе", List.of(), "agent-src-alpha"
+        ));
+
+        HmsReplicationJobEntity renewedJob = hmsJobRepository.findById(job.getId()).orElseThrow();
+        assertEquals("agent-src-alpha", renewedJob.getAssignedAgentId());
+        assertEquals(42L, renewedJob.getLastProcessedEventId());
+        assertTrue(!renewedJob.getLeaseExpiresAt().isBefore(initialLease));
+    }
+
+    @Test
+    @DisplayName("Авто-failover: при падении удерживающего агента задача перехватывается другим агентом пула с сохранением CDC смещения")
+    void testAutoFailoverWhenAssignedAgentGoesOffline() {
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-failover-1", "dc1", "all", "10.0.1.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-failover-2", "dc1", "all", "10.0.1.2:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dst-main", "dc2", "all", "10.0.2.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+
+        HmsReplicationJobEntity job = coordinatorService.createAndStartReplication(
+                "dc1", "dc2", "orders_db", "orders_db", "*", "operator"
+        );
+
+        // Агент 1 забирает задачу и начинает стримить CDC до события 1500
+        coordinatorService.getPendingJobsForCluster("dc1", "agent-failover-1");
+        coordinatorService.updateJobProgress(job.getId(), new HmsProgressReportRequest(
+                "ACTIVE", 5, 5, 100, 100, 1500L, 1000L, 0L,
+                "CDC поток активен", List.of(), "agent-failover-1"
+        ));
+
+        // Эмулируем падение агента 1: сдвигаем heartbeat далеко в прошлое
+        var agent1Entry = agentRegistry.getAgent("agent-failover-1").orElseThrow();
+        agent1Entry.setLastHeartbeat(Instant.now().minusSeconds(100));
+
+        // Шедулер авто-failover обнаруживает брошенную задачу
+        coordinatorService.checkAndFailoverOrphanedHmsJobs();
+
+        HmsReplicationJobEntity afterFailover = hmsJobRepository.findById(job.getId()).orElseThrow();
+        assertNull(afterFailover.getAssignedAgentId(), "Назначение должно быть сброшено для авто-failover");
+        assertEquals("agent-failover-1", afterFailover.getLastFailedAgentId());
+        assertEquals(1500L, afterFailover.getLastProcessedEventId(), "CDC offset должен сохраниться");
+
+        // Агент 2 запрашивает задачи -> мгновенно перехватывает задачу и продолжает с 1500L
+        List<HmsPendingJobDto> agent2Jobs = coordinatorService.getPendingJobsForCluster("dc1", "agent-failover-2");
+        assertEquals(1, agent2Jobs.size());
+        assertEquals(job.getId(), agent2Jobs.get(0).id());
+        assertEquals("agent-failover-2", agent2Jobs.get(0).assignedAgentId());
+        assertEquals(1500L, agent2Jobs.get(0).lastProcessedEventId());
+    }
+
+    @Test
+    @DisplayName("Переключение Target-агента: при сбое приемника Source-агент получает адрес резервного приемника")
+    void testTargetAgentFailoverSwitch() {
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-src-node", "dc1", "all", "10.0.1.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dst-nodeA", "dc2", "all", "10.0.2.10:50051", null, 100.0
+        ), properties.getAgentSecret());
+
+        HmsReplicationJobEntity job = coordinatorService.createAndStartReplication(
+                "dc1", "dc2", "logs_db", "logs_db", "*", "operator"
+        );
+
+        List<HmsPendingJobDto> initial = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-node");
+        assertEquals("10.0.2.10:50051", initial.get(0).targetAgentGrpcAddress());
+
+        // Регистрируем второй целевой агент и переводим nodeA в OFFLINE
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dst-nodeB", "dc2", "all", "10.0.2.20:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.getAgent("agent-dst-nodeA").orElseThrow().setLastHeartbeat(Instant.now().minusSeconds(100));
+
+        // При очередном цикле опроса Source-агент получает адрес резервного приемника (nodeB)
+        List<HmsPendingJobDto> switched = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-node");
+        assertEquals("10.0.2.20:50051", switched.get(0).targetAgentGrpcAddress());
     }
 }

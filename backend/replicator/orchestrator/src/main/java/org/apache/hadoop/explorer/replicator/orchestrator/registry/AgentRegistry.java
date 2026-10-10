@@ -75,6 +75,10 @@ public class AgentRegistry {
         this.topologyRegistry = topologyRegistry;
     }
 
+    public void clear() {
+        agents.clear();
+    }
+
     public void validateGrpcAddress(String address) {
         if (address == null || address.isBlank()) return;
         String trimmed = address.trim();

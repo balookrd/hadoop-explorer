@@ -290,6 +290,11 @@
   - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
   - **HDFS Federation**: динамический парсинг NameService в `sd.location` партиций и маршрутизация по таблице соответствия `federation-mappings` с сохранением кластерных квот Token Bucket.
   - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, репортуя прогресс в Оркестратор.
+  - **Распределенный эксклюзивный лизинг (Distributed Lease & Failover)**:
+    - Каждая активная схема и CDC-поток захватываются ровно одним агентом-источником (`assigned_agent_id`, `lease_expires_at`), что исключает гонки и дублирование CDC-потоков при работе пула агентов в кластере.
+    - Автоматическое продление аренды при отправке прогресса (`/progress`) и опросе очереди (`/pending`).
+    - Автоматический failover: при переходе агента в `OFFLINE` или протухании аренды фоновый планировщик Оркестратора (`checkAndFailoverOrphanedHmsJobs`) сбрасывает привязку задачи, и любой доступный агент пула мгновенно перехватывает CDC-стрим без потери позиции с сохранённого `lastProcessedEventId`.
+    - Отказоустойчивость приёмника: при сбое целевого агента (Target Agent) Оркестратор динамически отдаёт адрес резервного приёмника из `AgentRegistry`, и Source-агент переключает gRPC-канал без прерывания репликации.
 - **Нативная Java 21 экосистема исполнения**:
   - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: легковесный Control Plane оркестратор с интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
   - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`) и Hive Metastore (`HmsTransferService`).
@@ -472,7 +477,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 | **HDFS Explorer** | **16 тестов (Java 21)** | NameNode HA Failover при `StandbyException`, Kerberos Proxy User doAs имперсонация, ContentSummary квоты, ACL, API, Parquet/ORC Preview со schema footer reader, MockHdfsClient, Circuit Breaker + Prometheus metrics, Rate Limiter |
 | **SQL Explorer** | **10 тестов (Java 21)** | Catalog API валидация и эндпоинты, Trino/Hive движки, MockStorage, AI ассистент, токены, CSRF, ролевой доступ к кластерам, User Workspace |
 | **Spark Explorer** | **12 тестов (Java 21)** | REST клиент Apache Livy, DAG валидация циклов (алгоритм Кана), MockSparkEngine, User Workspace, ролевой доступ, сессии и выполнение statements |
-| **Hadoop gRPC Replicator** | **13 тестов (Java 21)** | Hierarchical Token Bucket (Global, DC-DC, HDFS-HDFS bottleneck), gRPC контракт Worker Agent, Orchestrator API, Prometheus метрики, Cron Scheduler, JobRun история |
+| **Hadoop gRPC Replicator** | **38 тестов (Java 21)** | Hierarchical Token Bucket, gRPC контракты DataTransferService & HmsTransferService, Source-to-Target HMS Pipe, Distributed Lease & Failover, Orchestrator Control Plane, Prometheus метрики, Cron Scheduler |
 | **Frontend UI Suite** | **92 теста (Vitest)** | Компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), строгая проверка типов `svelte-check` |
 
 ### 9.2 Тестирование отказоустойчивости (Resilience Testing)

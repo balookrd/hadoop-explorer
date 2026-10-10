@@ -84,9 +84,10 @@ public class HmsReplicationController {
 
     @GetMapping("/pending")
     public ResponseEntity<List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto>> getPendingJobs(
-            @RequestParam(required = false) String clusterId
+            @RequestParam(required = false) String clusterId,
+            @RequestParam(required = false) String agentId
     ) {
-        return ResponseEntity.ok(coordinatorService.getPendingJobsForCluster(clusterId));
+        return ResponseEntity.ok(coordinatorService.getPendingJobsForCluster(clusterId, agentId));
     }
 
     @PostMapping("/{id}/progress")

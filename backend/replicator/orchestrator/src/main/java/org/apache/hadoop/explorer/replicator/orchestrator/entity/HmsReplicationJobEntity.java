@@ -74,6 +74,15 @@ public class HmsReplicationJobEntity {
     @Column(name = "last_sync_at")
     private Instant lastSyncAt;
 
+    @Column(name = "assigned_agent_id", length = 64)
+    private String assignedAgentId;
+
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
+    @Column(name = "last_failed_agent_id", length = 64)
+    private String lastFailedAgentId;
+
     public HmsReplicationJobEntity() {}
 
     @PreUpdate
@@ -125,4 +134,10 @@ public class HmsReplicationJobEntity {
     public void setDropExtraneousTables(boolean dropExtraneousTables) { this.dropExtraneousTables = dropExtraneousTables; }
     public boolean isDropExtraneousPartitions() { return dropExtraneousPartitions; }
     public void setDropExtraneousPartitions(boolean dropExtraneousPartitions) { this.dropExtraneousPartitions = dropExtraneousPartitions; }
+    public String getAssignedAgentId() { return assignedAgentId; }
+    public void setAssignedAgentId(String assignedAgentId) { this.assignedAgentId = assignedAgentId; }
+    public Instant getLeaseExpiresAt() { return leaseExpiresAt; }
+    public void setLeaseExpiresAt(Instant leaseExpiresAt) { this.leaseExpiresAt = leaseExpiresAt; }
+    public String getLastFailedAgentId() { return lastFailedAgentId; }
+    public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
 }

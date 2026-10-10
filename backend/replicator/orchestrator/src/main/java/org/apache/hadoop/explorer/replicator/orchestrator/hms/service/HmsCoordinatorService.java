@@ -11,6 +11,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicat
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -42,6 +43,22 @@ public class HmsCoordinatorService {
     private final HmsEventLogRepository hmsEventLogRepository;
     private final AgentRegistry agentRegistry;
     private final JobService jobService;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
+
+    @Autowired
+    public HmsCoordinatorService(
+            HmsReplicationJobRepository hmsJobRepository,
+            HmsEventLogRepository hmsEventLogRepository,
+            AgentRegistry agentRegistry,
+            JobService jobService,
+            org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties
+    ) {
+        this.hmsJobRepository = hmsJobRepository;
+        this.hmsEventLogRepository = hmsEventLogRepository;
+        this.agentRegistry = agentRegistry;
+        this.jobService = jobService;
+        this.properties = properties;
+    }
 
     public HmsCoordinatorService(
             HmsReplicationJobRepository hmsJobRepository,
@@ -49,10 +66,7 @@ public class HmsCoordinatorService {
             AgentRegistry agentRegistry,
             JobService jobService
     ) {
-        this.hmsJobRepository = hmsJobRepository;
-        this.hmsEventLogRepository = hmsEventLogRepository;
-        this.agentRegistry = agentRegistry;
-        this.jobService = jobService;
+        this(hmsJobRepository, hmsEventLogRepository, agentRegistry, jobService, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties());
     }
 
     /**
@@ -106,6 +120,9 @@ public class HmsCoordinatorService {
      * Если хотя бы один агент недоступен, задача переводится в WAITING_FOR_AGENTS.
      */
     public void dispatchJob(HmsReplicationJobEntity job) {
+        job.setAssignedAgentId(null);
+        job.setLeaseExpiresAt(null);
+
         var srcAgentOpt = agentRegistry.getLiveHmsAgentForCluster(job.getSourceClusterId());
         var dstAgentOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId());
 
@@ -140,8 +157,19 @@ public class HmsCoordinatorService {
      * Получение списка задач, готовых к исполнению или находящихся в процессе, для агента источника.
      */
     public List<HmsPendingJobDto> getPendingJobsForCluster(String clusterId) {
+        return getPendingJobsForCluster(clusterId, null);
+    }
+
+    /**
+     * Получение списка задач с эксклюзивным распределенным лизингом (Distributed Lease).
+     * Предотвращает дублирование CDC потоков между несколькими активными агентами одного кластера.
+     */
+    @Transactional
+    public List<HmsPendingJobDto> getPendingJobsForCluster(String clusterId, String requestingAgentId) {
         List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
         List<HmsPendingJobDto> result = new ArrayList<>();
+        Instant now = Instant.now();
+        long leaseSec = getLeaseDurationSeconds();
 
         for (HmsReplicationJobEntity job : allJobs) {
             if (clusterId != null && !matchesCluster(job.getSourceClusterId(), clusterId)) {
@@ -160,8 +188,44 @@ public class HmsCoordinatorService {
             if (targetAddress == null && !"ACTIVE".equalsIgnoreCase(job.getStatus())) {
                 job.setStatus("WAITING_FOR_AGENTS");
                 job.setMessage("Целевой агент для кластера " + job.getTargetClusterId() + " недоступен");
+                job.setAssignedAgentId(null);
+                job.setLeaseExpiresAt(null);
                 hmsJobRepository.save(job);
                 continue;
+            }
+
+            // Механизм эксклюзивного лизинга:
+            if (requestingAgentId != null && !requestingAgentId.isBlank()) {
+                String assigned = job.getAssignedAgentId();
+                Instant leaseExp = job.getLeaseExpiresAt();
+                boolean isAssignedToMe = requestingAgentId.equalsIgnoreCase(assigned);
+                boolean isLeaseExpired = leaseExp == null || leaseExp.isBefore(now);
+                boolean isAssignedAgentDead = assigned != null && !isAgentOnline(assigned);
+
+                if (isAssignedToMe) {
+                    // Продление существующей аренды
+                    job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
+                    hmsJobRepository.save(job);
+                } else if (assigned == null || isLeaseExpired || isAssignedAgentDead) {
+                    // Если задача недавно упала на этом агенте, отдаем предпочтение другому агенту пула
+                    if (job.getLastFailedAgentId() != null
+                            && job.getLastFailedAgentId().equalsIgnoreCase(requestingAgentId)
+                            && agentRegistry.hasOtherOnlineAgentsForCluster(clusterId, requestingAgentId)) {
+                        continue;
+                    }
+
+                    // Эксклюзивный захват задачи
+                    job.setAssignedAgentId(requestingAgentId);
+                    job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
+                    if (assigned != null && !assigned.equalsIgnoreCase(requestingAgentId)) {
+                        log.info("[HmsCoordinator] Задача {} перехвачена агентом '{}' (прежний агент '{}': dead={}, expired={})",
+                                job.getId(), requestingAgentId, assigned, isAssignedAgentDead, isLeaseExpired);
+                    }
+                    hmsJobRepository.save(job);
+                } else {
+                    // Задача удерживается другим живым агентом — пропускаем
+                    continue;
+                }
             }
 
             result.add(new HmsPendingJobDto(
@@ -175,7 +239,8 @@ public class HmsCoordinatorService {
                     job.isDropExtraneousPartitions(),
                     targetAddress,
                     job.getStatus(),
-                    job.getLastProcessedEventId()
+                    job.getLastProcessedEventId(),
+                    job.getAssignedAgentId()
             ));
         }
 
@@ -221,6 +286,10 @@ public class HmsCoordinatorService {
         }
         if (report.message() != null) {
             job.setMessage(report.message());
+        }
+        if (report.agentId() != null && !report.agentId().isBlank()) {
+            job.setAssignedAgentId(report.agentId());
+            job.setLeaseExpiresAt(Instant.now().plusSeconds(getLeaseDurationSeconds()));
         }
         job.setLastSyncAt(Instant.now());
         hmsJobRepository.save(job);
@@ -306,6 +375,116 @@ public class HmsCoordinatorService {
         hmsJobRepository.deleteById(id);
         log.info("[HmsCoordinator] Задача {} и связанные ресурсы удалены", id);
         return true;
+    }
+
+    /**
+     * Фоновый мониторинг зависших или брошенных HMS задач (сбой или падение агента).
+     * При переходе агента в OFFLINE или протухании аренды выполняет авто-failover.
+     */
+    @Scheduled(fixedDelayString = "${hadoop.replicator.hms-failover-check-ms:3000}")
+    @Transactional
+    public void checkAndFailoverOrphanedHmsJobs() {
+        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
+        Instant now = Instant.now();
+
+        for (HmsReplicationJobEntity job : allJobs) {
+            String assignedAgent = job.getAssignedAgentId();
+            if (assignedAgent == null || assignedAgent.isBlank()) {
+                continue;
+            }
+
+            if (!"BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())
+                    && !"ACTIVE".equalsIgnoreCase(job.getStatus())
+                    && !"QUEUED".equalsIgnoreCase(job.getStatus())) {
+                continue;
+            }
+
+            boolean shouldFailover = false;
+            String reason = null;
+
+            var agentOpt = agentRegistry.getAgent(assignedAgent);
+            if (agentOpt.isEmpty()) {
+                shouldFailover = true;
+                reason = "Агент '" + assignedAgent + "' не зарегистрирован в реестре";
+            } else {
+                var agent = agentOpt.get();
+                if (agent.getStatus() == AgentRegistry.AgentStatus.OFFLINE) {
+                    shouldFailover = true;
+                    reason = "Агент '" + assignedAgent + "' перешел в статус OFFLINE";
+                } else if (job.getLeaseExpiresAt() != null && job.getLeaseExpiresAt().isBefore(now)) {
+                    shouldFailover = true;
+                    reason = "Истекла аренда (lease) задачи более " + getLeaseDurationSeconds() + "с";
+                }
+            }
+
+            if (shouldFailover) {
+                log.warn("[HmsCoordinator] Зависшая/брошенная задача '{}' на агенте '{}' ({}). Выполняется авто-failover...",
+                        job.getId(), assignedAgent, reason);
+                failoverHmsJob(job, assignedAgent, reason);
+            }
+        }
+    }
+
+    /**
+     * Автоматический failover задачи репликации схемы на другой агент.
+     */
+    @Transactional
+    public void failoverHmsJob(HmsReplicationJobEntity job, String failedAgentId, String reason) {
+        job.setLastFailedAgentId(failedAgentId);
+        job.setAssignedAgentId(null);
+        job.setLeaseExpiresAt(null);
+
+        var srcOpt = agentRegistry.getLiveHmsAgentForCluster(job.getSourceClusterId());
+        var dstOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId());
+
+        if (srcOpt.isEmpty() || dstOpt.isEmpty()) {
+            job.setStatus("WAITING_FOR_AGENTS");
+            job.setMessage(String.format("Авто-failover: сбой на агенте '%s' (%s). Ожидание подключения новых агентов.",
+                    failedAgentId != null ? failedAgentId : "неизвестен", reason));
+        } else {
+            if ("BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
+                job.setStatus("QUEUED");
+                job.setMessage(String.format("Авто-failover: сбой Bootstrap на агенте '%s' (%s). Задача возвращена в очередь.",
+                        failedAgentId != null ? failedAgentId : "неизвестен", reason));
+            } else if ("ACTIVE".equalsIgnoreCase(job.getStatus())) {
+                job.setMessage(String.format("Авто-failover: сбой CDC на агенте '%s' (%s). Задача доступна для перехвата другим агентом кластера.",
+                        failedAgentId != null ? failedAgentId : "неизвестен", reason));
+            }
+        }
+
+        hmsJobRepository.saveAndFlush(job);
+        log.info("[HmsCoordinator] Авто-failover задачи {} завершен: статус={}, причина={}",
+                job.getId(), job.getStatus(), reason);
+    }
+
+    /**
+     * Эвакуация задач при явном отключении агента.
+     */
+    @Transactional
+    public int failoverHmsJobsForAgent(String agentId, String reason) {
+        if (agentId == null || agentId.isBlank()) return 0;
+        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
+        int count = 0;
+        for (HmsReplicationJobEntity job : allJobs) {
+            if (agentId.equalsIgnoreCase(job.getAssignedAgentId())) {
+                failoverHmsJob(job, agentId, reason);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private long getLeaseDurationSeconds() {
+        return properties != null && properties.getHmsLeaseTimeoutSeconds() > 0
+                ? properties.getHmsLeaseTimeoutSeconds()
+                : 30L;
+    }
+
+    private boolean isAgentOnline(String agentId) {
+        if (agentId == null) return false;
+        return agentRegistry.getAgent(agentId)
+                .map(a -> a.getStatus() == AgentRegistry.AgentStatus.ONLINE)
+                .orElse(false);
     }
 
     private boolean matchesCluster(String c1, String c2) {

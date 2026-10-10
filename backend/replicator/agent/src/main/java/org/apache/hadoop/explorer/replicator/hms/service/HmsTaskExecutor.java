@@ -83,7 +83,7 @@ public class HmsTaskExecutor implements Closeable {
 
         orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
                 "BOOTSTRAPPING", 0, 0, 0, 0, null, null, null,
-                "Агент " + agentId + " запустил начальный перенос схемы (Bootstrap)", Collections.emptyList()
+                "Агент " + agentId + " запустил начальный перенос схемы (Bootstrap)", Collections.emptyList(), agentId
         ));
 
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify)) {
@@ -159,7 +159,8 @@ public class HmsTaskExecutor implements Closeable {
                     0L,
                     String.format("Первичный Bootstrap успешно завершен (таблиц: %d/%d, партиций: %d). Режим CDC активен.",
                             replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()),
-                    new ArrayList<>(eventLog)
+                    new ArrayList<>(eventLog),
+                    agentId
             );
             orchestratorClient.reportHmsProgress(job.id(), finalReport);
 
@@ -170,7 +171,7 @@ public class HmsTaskExecutor implements Closeable {
             log.error("[HmsTaskExecutor] Критическая ошибка при исполнении Bootstrap задачи {}: {}", job.id(), e.getMessage(), e);
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
                     "FAILED", 0, 0, 0, 0, null, null, null,
-                    "Сбой выполнения Bootstrap агентом: " + e.getMessage(), Collections.emptyList()
+                    "Сбой выполнения Bootstrap агентом: " + e.getMessage(), Collections.emptyList(), agentId
             ));
             return false;
         }
@@ -398,7 +399,7 @@ public class HmsTaskExecutor implements Closeable {
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
                     "ACTIVE", 0, 0, 0, 0, lastEventId, null, lag,
                     String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.", processed, lag),
-                    eventLog
+                    eventLog, agentId
             ));
         } catch (Exception e) {
             log.error("[HmsTaskExecutor] Ошибка при передаче CDC событий: {}", e.getMessage(), e);

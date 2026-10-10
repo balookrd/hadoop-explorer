@@ -18,6 +18,7 @@ public class ReplicatorProperties {
     private long hmsPollIntervalMs = 5000L;
     private int hmsBootstrapConcurrency = 8;
     private int hmsPartitionBatchSize = 1000;
+    private int hmsLeaseTimeoutSeconds = 30;
 
     private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
         new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
@@ -49,6 +50,8 @@ public class ReplicatorProperties {
     public void setHmsBootstrapConcurrency(int hmsBootstrapConcurrency) { this.hmsBootstrapConcurrency = hmsBootstrapConcurrency; }
     public int getHmsPartitionBatchSize() { return hmsPartitionBatchSize; }
     public void setHmsPartitionBatchSize(int hmsPartitionBatchSize) { this.hmsPartitionBatchSize = hmsPartitionBatchSize; }
+    public int getHmsLeaseTimeoutSeconds() { return hmsLeaseTimeoutSeconds; }
+    public void setHmsLeaseTimeoutSeconds(int hmsLeaseTimeoutSeconds) { this.hmsLeaseTimeoutSeconds = hmsLeaseTimeoutSeconds; }
     public List<DatacenterConfig> getDatacenters() { return datacenters; }
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }

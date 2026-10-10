@@ -307,7 +307,7 @@ public class ReplicatorAgent {
                 // 3. Фаза HMS метаданных: опрос и исполнение задач репликации схем через gRPC конвейер
                 if (hmsTaskExecutor != null) {
                     List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto> hmsJobs =
-                            orchestratorClient.getPendingHmsJobs(config.getClusterId());
+                            orchestratorClient.getPendingHmsJobs(config.getClusterId(), config.getAgentId());
                     for (var hJob : hmsJobs) {
                         if (!running.get()) break;
                         if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {

@@ -304,8 +304,22 @@ public class OrchestratorClient {
     }
 
     public List<HmsPendingJobDto> getPendingHmsJobs(String clusterId) {
+        return getPendingHmsJobs(clusterId, null);
+    }
+
+    public List<HmsPendingJobDto> getPendingHmsJobs(String clusterId, String agentId) {
         try {
-            String path = "/api/v1/hms/jobs/pending" + (clusterId != null ? "?clusterId=" + URLEncoder.encode(clusterId, StandardCharsets.UTF_8) : "");
+            StringBuilder sb = new StringBuilder("/api/v1/hms/jobs/pending?");
+            if (clusterId != null && !clusterId.isBlank()) {
+                sb.append("clusterId=").append(URLEncoder.encode(clusterId, StandardCharsets.UTF_8)).append("&");
+            }
+            if (agentId != null && !agentId.isBlank()) {
+                sb.append("agentId=").append(URLEncoder.encode(agentId, StandardCharsets.UTF_8)).append("&");
+            }
+            String path = sb.toString();
+            if (path.endsWith("&") || path.endsWith("?")) {
+                path = path.substring(0, path.length() - 1);
+            }
             HttpRequest httpRequest = newRequestBuilder(path).GET().build();
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
