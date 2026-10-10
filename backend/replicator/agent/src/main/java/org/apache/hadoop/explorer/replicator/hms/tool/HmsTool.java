@@ -59,6 +59,13 @@ public class HmsTool {
                     break;
                 }
 
+                case "list-databases":
+                case "get-databases": {
+                    List<String> dbs = client.getAllDatabases();
+                    System.out.println(MAPPER.writeValueAsString(dbs));
+                    break;
+                }
+
                 case "create-table": {
                     if (args.length < 3) {
                         System.err.println("Использование: create-table <dbName> <tableName> [locationUri] [isPartitioned] [partKey]");

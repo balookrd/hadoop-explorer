@@ -48,6 +48,10 @@ services:
         condition: service_started
       sql-hive-metastore-2:
         condition: service_started
+      sql-hive-server:
+        condition: service_started
+      sql-hive-server-2:
+        condition: service_started
     networks:
       demo-platform-net:
         aliases:

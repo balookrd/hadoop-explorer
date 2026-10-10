@@ -280,7 +280,9 @@
   - Двусторонняя защита: исключение из распределенного пула задач на стороне источника (Sender/Analyzer) и исключение из удаленного манифеста на стороне приемника (Receiver).
 - **Безопасность, Kerberos-изоляция и имперсонация (Apache Ranger)**:
   - Менеджер файловой системы `HadoopFsManager`: аутентификация системной техучетки по keytab (`hdfs-replicator@REALM.LOCAL`).
+  - **Kerberos Data Transfer Protection**: автоматическая конфигурация SASL защиты канала передачи блоков DataNode (`dfs.data.transfer.protection = integrity/privacy`), исключающая `SocketException: Connection reset` при передаче пофайловых дельт между Kerberized узлами.
   - **Hadoop Proxy User & doAs имперсонация**: агент подключается от доверенной техучетки, выполняя операции с HDFS под UGI пользователя (`UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)`). Это гарантирует строгую проверку политик доступа в Apache Ranger и корректную фиксацию в Ranger Audit Log (`ugi: user (auth:PROXY via hdfs-replicator)`).
+  - **Поддержка HiveServer2**: сквозное тестирование и работа с Apache Hive 4.0.0 через Beeline по протоколу Kerberos/JDBC (создание баз, таблиц, партиций, выборка данных).
 - **Мониторинг, Web UI и Управление задачами**:
   - Экспорт метрик Prometheus (`/actuator/prometheus`) на `:8005`.
   - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.

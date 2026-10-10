@@ -1589,20 +1589,34 @@ java -jar -Dspring.profiles.active=prod \
 
 Для сквозной проверки работоспособности платформы в CI/CD и демонстрационных контурах реализован полноценный end-to-end smoke-тест полного цикла репликации между двумя изолированными дата-центрами (`dc1` и `dc2`) со всем платформенным стеком:
 - **Kerberos KDC** (порт 88, Realm `COMPANY.LOCAL`)
-- **Primary HDFS Cluster 1** (WebHDFS порт 9870, RPC 9000)
-- **DR Backup HDFS Cluster 2** (WebHDFS порт 9872, RPC 9000)
+- **Primary HDFS Cluster 1** (WebHDFS порт 9870, RPC 9000, DataNode 9866 с SASL integrity)
+- **DR Backup HDFS Cluster 2** (WebHDFS порт 9872, RPC 9000, DataNode 9866 с SASL integrity)
 - **Primary Hive Metastore 1** (Thrift порт 9083, Apache Hive 4.0.0)
 - **DR Hive Metastore 2** (Thrift порт 9084, Apache Hive 4.0.0)
+- **Primary HiveServer2 1** (порт 10000 Beeline JDBC, Kerberos SPNEGO/doAs, Apache Hive 4.0.0)
+- **DR HiveServer2 2** (порт 10001 Beeline JDBC, Kerberos SPNEGO/doAs, Apache Hive 4.0.0)
 - **Replicator Orchestrator** (порт 8005)
-- **2x Replicator Agents** (gRPC порты 50051 и 50052)
+- **2x Replicator Agents & 3x Inotify Streamers** (gRPC порты 50051 и 50052)
 
 ```bash
-# Прямой запуск скрипта smoke-тестирования:
-./demo/replicator/run-smoke-tests.sh
+# Прямой запуск полного сквозного smoke-тестирования:
+./demo/replicator/run-smoke-tests.sh all
 
-# Запуск в изолированном тест-раннере Docker Compose:
-docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smoke-test
+# Выборочный запуск целевого сценария:
+./demo/replicator/run-smoke-tests.sh standard   # Сценарии 1-2 (перенос таблицы и дописывание)
+./demo/replicator/run-smoke-tests.sh cdc        # Сценарии 1-6 (таблицы, партиции, дописывание, drop)
+./demo/replicator/run-smoke-tests.sh inotify    # Сценарии 7-8 (Inotify lease HA и commit rename)
 ```
+
+#### Набор проверяемых сценариев (100% реальный стек без заглушек):
+1. **[Перенос таблицы]**: Создание таблицы через реальный HiveServer2 (Beeline JDBC по Kerberos), Spark-подобная заливка файлов данных в HDFS, запуск Bootstrap-репликации через боевой REST API Оркестратора, валидация трансляции URI на целевой кластер и прямое чтение строк данных через HiveServer2 2.
+2. **[Дописывание файла в существующую таблицу]**: Физическая дозапись нового файла (`extra_append_delta.csv`) в каталог существующей таблицы, запуск инкрементальной передачи данных через gRPC пайплайн агентов с SASL `integrity` и подтверждение выборки всех строк через HiveServer2 2.
+3. **[Перенос партиционированной таблицы и партиций]**: Создание таблицы `orders_partitioned` с ключом партиционирования `dt`, добавление партиции `dt=2026-10-10` через HiveServer2 DC1, запись файла данных и репликация метаданных в DC2 с валидацией через `SHOW PARTITIONS`.
+4. **[Дописывание файла в существующую партицию]**: Добавление второго файла в уже существующую партицию HDFS DC1 и успешное чтение накопившихся строк через HiveServer2 1 и HiveServer2 2.
+5. **[Удаление партиции]**: Удаление партиции через HiveServer2 DC1 (`ALTER TABLE ... DROP PARTITION`) и автоматическое согласование на DR кластере (проверка исчезновения из HMS 2 и HiveServer2 2).
+6. **[Удаление таблицы]**: Удаление всей таблицы через HiveServer2 DC1 (`DROP TABLE`) и согласование на DR стороне (проверка удаления из метастора DC2 и отсутствия в `SHOW TABLES` HiveServer2 2).
+7. **[HDFS Inotify Streaming HA]**: Проверка распределенного лидерства и мульти-ЦОД лизинга стримеров с изоляцией привилегий (запрос передачи от стримера отклоняется с кодом HTTP 403 Forbidden).
+8. **[Commit Rename]**: Проверка работы Inotify фильтрации staging-путей (`.staging`, `_temporary`) и надежной фиксации коммита только по завершающему `RenameEvent`.
 
 #### REST API управления кластерами для тестов и интеграций (`/api/v1/hms/clusters`):
 - `POST /api/v1/hms/clusters/{clusterId}/databases` — создание базы данных в метасторе кластера.

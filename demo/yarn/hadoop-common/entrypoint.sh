@@ -11,7 +11,11 @@ done
 cp /shared-krb5/krb5.conf /etc/krb5.conf
 chmod 644 /etc/krb5.conf
 
-export HADOOP_OPTS="-Djava.security.krb5.conf=/etc/krb5.conf -Dsun.security.krb5.debug=true"
+if [ "${DEBUG_KRB5:-false}" = "true" ]; then
+    export HADOOP_OPTS="-Djava.security.krb5.conf=/etc/krb5.conf -Dsun.security.krb5.debug=true"
+else
+    export HADOOP_OPTS="-Djava.security.krb5.conf=/etc/krb5.conf"
+fi
 export YARN_RESOURCEMANAGER_USER=root
 export HADOOP_SECURE_DN_USER=root
 

@@ -225,8 +225,12 @@ if [ ! -d "/opt/hadoop/dfs/name/current" ]; then
 fi
 
 echo "Запуск NameNode..."
-export HADOOP_OPTS="-Dsun.security.krb5.debug=true $HADOOP_OPTS"
-su -s /bin/bash hadoop -c "export HADOOP_OPTS='-Dsun.security.krb5.debug=true'; /opt/hadoop/bin/hdfs --daemon start namenode"
+if [ "${DEBUG_KRB5:-false}" = "true" ]; then
+    export HADOOP_OPTS="-Dsun.security.krb5.debug=true $HADOOP_OPTS"
+    su -s /bin/bash hadoop -c "export HADOOP_OPTS='-Dsun.security.krb5.debug=true'; /opt/hadoop/bin/hdfs --daemon start namenode"
+else
+    su -s /bin/bash hadoop -c "/opt/hadoop/bin/hdfs --daemon start namenode"
+fi
 
 echo "Запуск DataNode..."
 su -s /bin/bash hadoop -c "/opt/hadoop/bin/hdfs --daemon start datanode"

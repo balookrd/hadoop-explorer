@@ -56,6 +56,11 @@ public class HadoopFsManager {
             this.conf.set("fs.defaultFS", defaultFsUri);
         }
 
+        String dataTransferProtection = System.getenv().getOrDefault("HDFS_DATA_TRANSFER_PROTECTION", "integrity");
+        if (dataTransferProtection != null && !dataTransferProtection.isBlank()) {
+            this.conf.set("dfs.data.transfer.protection", dataTransferProtection);
+        }
+
         String envServicePrincipal = System.getenv("REPLICATOR_SERVICE_PRINCIPAL");
         this.servicePrincipal = (principal != null && !principal.isBlank()) ? principal :
                 (envServicePrincipal != null && !envServicePrincipal.isBlank() ? envServicePrincipal : DEFAULT_SERVICE_PRINCIPAL);
@@ -86,10 +91,13 @@ public class HadoopFsManager {
                 String nnPrincipal = System.getenv().getOrDefault("HDFS_NAMENODE_PRINCIPAL", "nn/*@COMPANY.LOCAL");
                 this.conf.set("dfs.namenode.kerberos.principal", nnPrincipal);
                 this.conf.set("dfs.datanode.kerberos.principal", "dn/*@COMPANY.LOCAL");
+                String dataTransferProtection = System.getenv().getOrDefault("HDFS_DATA_TRANSFER_PROTECTION", "integrity");
+                this.conf.set("dfs.data.transfer.protection", dataTransferProtection);
                 UserGroupInformation.setConfiguration(conf);
                 UserGroupInformation.loginUserFromKeytab(servicePrincipal, keytabPath);
                 this.kerberosLoggedIn = true;
-                logger.info("Успешная Kerberos-аутентификация Proxy User техучетки '{}' по keytab: {}", servicePrincipal, keytabPath);
+                logger.info("Успешная Kerberos-аутентификация Proxy User техучетки '{}' по keytab: {} (qop: {})",
+                        servicePrincipal, keytabPath, dataTransferProtection);
             } catch (IOException e) {
                 logger.error("Ошибка Kerberos аутентификации Proxy User: {}", e.getMessage(), e);
             }
