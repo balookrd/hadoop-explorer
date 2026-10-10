@@ -1764,10 +1764,11 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
   -H "Content-Type: application/json" \
   -d '{"cluster_id": "dc1", "reason": "Авария энергоснабжения ЦОД1", "fence_network": true}'
 
-# 3. Откат экстренного останова и снятие сетевого ограждения (Unfence Network & Resume)
+# 3. Откат экстренного останова и снятие сетевого ограждения (Unfence Network)
+# ВАЖНО: resume_hms и resume_hdfs передаются как false во избежание перезаписи свежих данных DC2!
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop/rollback" \
   -H "Content-Type: application/json" \
-  -d '{"cluster_id": "dc1", "restore_network": true, "resume_hms": true, "resume_hdfs": true}'
+  -d '{"cluster_id": "dc1", "restore_network": true, "resume_hms": false, "resume_hdfs": false}'
 
 # 4. Запуск обратной репликации дельты из DC2 в DC1 после восстановления площадки
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
@@ -1777,6 +1778,10 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
 # 5. Отзыв обратного зеркала и возврат прямого маршрута
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 ```
+
+> [!TIP]
+> Полный пошаговый регламент действий, архитектура сетевого ограждения и предотвращения Split-Brain подробно описаны в документе:
+> [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (replicator-disaster-recovery-guide.md)](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/replicator-disaster-recovery-guide.md).
 
 
 

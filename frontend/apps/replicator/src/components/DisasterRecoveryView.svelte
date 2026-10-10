@@ -60,8 +60,8 @@
   let showRollbackModal = $state<boolean>(false);
   let rollbackClusterId = $state<string>('dc1');
   let rollbackRestoreNetwork = $state<boolean>(true);
-  let rollbackResumeHms = $state<boolean>(true);
-  let rollbackResumeHdfs = $state<boolean>(true);
+  let rollbackResumeHms = $state<boolean>(false);
+  let rollbackResumeHdfs = $state<boolean>(false);
 
   let showReverseModal = $state<boolean>(false);
   let reverseFromCluster = $state<string>('dc2');
@@ -1292,6 +1292,20 @@
           </select>
         </div>
 
+        <!-- Предупреждение о защите данных при аварийном восстановлении -->
+        <div class="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/80 text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
+          <div class="font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+            <AlertTriangle class="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            Защита от перезаписи данных (Split-Brain Protection)
+          </div>
+          <p class="leading-relaxed">
+            Если основной кластер ожил после аварии, <strong>не возобновляйте</strong> прямые задачи! Старый источник может перезаписать новые данные, созданные на резервной площадке во время простоя.
+          </p>
+          <p class="leading-relaxed text-[10px] text-amber-800/80 dark:text-amber-300/80">
+            Снимите только сетевое ограждение, затем запустите <strong>Reverse Replication</strong> для переноса дельты на восстановленный кластер.
+          </p>
+        </div>
+
         <div class="p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
           <label class="flex items-start gap-2.5 cursor-pointer select-none">
             <input
@@ -1304,7 +1318,7 @@
                 Снять сетевое ограждение (Unfence Network)
               </div>
               <div class="text-[10px] text-slate-500 leading-relaxed">
-                Восстанавливает лимиты шейпера между датацентрами с 0 МБ/с до штатных значений (100 МБ/с).
+                Восстанавливает лимиты шейпера между датацентрами с 0 МБ/с до штатных значений (100 МБ/с) для возможности управления и приема дельты.
               </div>
             </div>
           </label>
@@ -1316,11 +1330,12 @@
               class="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
             />
             <div>
-              <div class="font-medium text-slate-800 dark:text-slate-200">
-                Возобновить репликацию схем Hive Metastore
+              <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                Возобновить старые схемы Hive Metastore
+                <span class="text-[10px] font-normal text-amber-600 dark:text-amber-400">(Опасно при активном DC2)</span>
               </div>
               <div class="text-[10px] text-slate-500 leading-relaxed">
-                Переводит приостановленные (PAUSED) схемы обратно в статус ACTIVE и запускает опрос CDC.
+                Переводит прямые схемы из DC1 обратно в ACTIVE. Оставьте выключенным, если планируется обратная синхронизация дельты из DC2 в DC1.
               </div>
             </div>
           </label>
@@ -1332,11 +1347,12 @@
               class="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
             />
             <div>
-              <div class="font-medium text-slate-800 dark:text-slate-200">
-                Возобновить HDFS задачи и их расписания
+              <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                Возобновить старые HDFS задачи и их расписания
+                <span class="text-[10px] font-normal text-amber-600 dark:text-amber-400">(Опасно при активном DC2)</span>
               </div>
               <div class="text-[10px] text-slate-500 leading-relaxed">
-                Возвращает задачи в очередь QUEUED и реактивирует cron-расписания.
+                Возвращает прямые задачи DC1 в очередь QUEUED. Оставьте выключенным, пока дельта не будет перенесена из DC2 в DC1 через Reverse Replication.
               </div>
             </div>
           </label>
@@ -1354,7 +1370,7 @@
         </button>
         <button
           type="button"
-          onclick={executeRollbackEmergencyStop}
+          onclick={() => executeRollbackEmergencyStop()}
           disabled={actionLoading || (!rollbackRestoreNetwork && !rollbackResumeHms && !rollbackResumeHdfs)}
           class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
         >
@@ -1363,7 +1379,7 @@
             Откат...
           {:else}
             <RotateCcw class="w-3.5 h-3.5" />
-            Снять ограничения и возобновить
+            {rollbackResumeHdfs || rollbackResumeHms ? 'Снять ограничения и возобновить' : 'Снять сетевую изоляцию (Unfence)'}
           {/if}
         </button>
       </div>

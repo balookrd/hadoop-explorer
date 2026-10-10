@@ -523,5 +523,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 - 🔍 [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
 - ⚡ [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
 - 🔄 [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
+- 🛡️ [Руководство по Disaster Recovery и защите от Split-Brain (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md)
+- 🔒 [Руководство по отказоустойчивости Replicator (replicator-fault-tolerance.md)](replicator-fault-tolerance.md)
 
 
