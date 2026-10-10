@@ -346,6 +346,10 @@ public class OrchestratorClient {
     }
 
     public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl) {
+        return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, null);
+    }
+
+    public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal) {
         try {
             var req = new java.util.LinkedHashMap<String, Object>();
             req.put("source_path", srcPath);
@@ -353,7 +357,8 @@ public class OrchestratorClient {
             req.put("source_cluster", srcCl != null ? srcCl : "default");
             req.put("target_cluster", dstCl != null ? dstCl : "default");
             req.put("bandwidth_limit_mb_s", 0L);
-            req.put("execution_principal", "hdfs@EXAMPLE.COM");
+            req.put("execution_principal", (executionPrincipal != null && !executionPrincipal.isBlank()) ? executionPrincipal : "hdfs@EXAMPLE.COM");
+            req.put("run_as_service_account", false);
             req.put("overwrite", true);
             req.put("sync_deletes", false);
             req.put("max_concurrency", 20);

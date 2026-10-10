@@ -39,12 +39,16 @@ public class HmsReplicationController {
         this.jobService = jobService;
     }
 
-    private String getUsername(Authentication auth) {
+    private UserSession getSession(Authentication auth) {
         if (auth instanceof CommonAuthenticationToken tokenAuth) {
-            UserSession session = tokenAuth.getUserSession();
-            if (session != null) return session.username();
+            return tokenAuth.getUserSession();
         }
-        return "system_operator";
+        return null;
+    }
+
+    private String getUsername(Authentication auth) {
+        UserSession session = getSession(auth);
+        return session != null ? session.username() : "system_operator";
     }
 
     public record CreateHmsJobRequest(
@@ -54,7 +58,8 @@ public class HmsReplicationController {
             String target_db,
             String table_pattern,
             Boolean drop_extraneous_tables,
-            Boolean drop_extraneous_partitions
+            Boolean drop_extraneous_partitions,
+            String execution_principal
     ) {}
 
     @PostMapping
@@ -62,6 +67,26 @@ public class HmsReplicationController {
             @RequestBody CreateHmsJobRequest req,
             Authentication auth
     ) {
+        UserSession session = getSession(auth);
+        String username = session != null ? session.username() : "system_operator";
+        String executionPrincipal;
+
+        if (session != null) {
+            if (session.isAdmin() && req.execution_principal() != null && !req.execution_principal().isBlank()) {
+                executionPrincipal = req.execution_principal().trim();
+            } else {
+                executionPrincipal = session.username();
+            }
+        } else {
+            executionPrincipal = (req.execution_principal() != null && !req.execution_principal().isBlank())
+                    ? req.execution_principal().trim()
+                    : username;
+        }
+
+        if (executionPrincipal != null && !executionPrincipal.contains("@")) {
+            executionPrincipal = executionPrincipal + "@REALM.LOCAL";
+        }
+
         boolean dropTables = req.drop_extraneous_tables() != null && req.drop_extraneous_tables();
         boolean dropParts = req.drop_extraneous_partitions() != null && req.drop_extraneous_partitions();
         HmsReplicationJobEntity created = coordinatorService.createAndStartReplication(
@@ -70,9 +95,10 @@ public class HmsReplicationController {
                 req.source_db(),
                 req.target_db(),
                 req.table_pattern(),
-                getUsername(auth),
+                username,
                 dropTables,
-                dropParts
+                dropParts,
+                executionPrincipal
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }

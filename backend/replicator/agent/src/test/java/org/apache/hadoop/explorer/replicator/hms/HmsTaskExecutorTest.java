@@ -59,6 +59,11 @@ public class HmsTaskExecutorTest {
 
             @Override
             public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl) {
+                return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, null);
+            }
+
+            @Override
+            public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal) {
                 String subId = "subjob-" + createdSubjobs.size();
                 createdSubjobs.add(subId);
                 return subId;

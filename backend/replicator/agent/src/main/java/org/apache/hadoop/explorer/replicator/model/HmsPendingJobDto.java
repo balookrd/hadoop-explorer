@@ -15,7 +15,8 @@ public record HmsPendingJobDto(
         String targetAgentGrpcAddress,
         String status,
         Long lastProcessedEventId,
-        String assignedAgentId
+        String assignedAgentId,
+        String executionPrincipal
 ) {
     public HmsPendingJobDto(
             String id,
@@ -32,6 +33,25 @@ public record HmsPendingJobDto(
     ) {
         this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
                 tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
-                targetAgentGrpcAddress, status, lastProcessedEventId, null);
+                targetAgentGrpcAddress, status, lastProcessedEventId, null, null);
+    }
+
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId,
+            String assignedAgentId
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
+                tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
+                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, null);
     }
 }

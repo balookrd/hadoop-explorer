@@ -139,4 +139,116 @@ class OrchestratorIntegrationTest {
         mockMvc.perform(get("/api/v1/jobs/" + jobId).cookie(authCookie))
             .andExpect(status().isNotFound());
     }
+
+    @Test
+    @DisplayName("Администратор может указать произвольного пользователя имперсонации в HDFS и HMS")
+    void adminCanSpecifyCustomImpersonationUserInHdfsAndHms() throws Exception {
+        LoginRequest adminLogin = new LoginRequest("admin_user", "password123");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(adminLogin)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie adminCookie = loginResult.getResponse().getCookie("access_token");
+        assertNotNull(adminCookie);
+
+        // HDFS: Создание с кастомным пользователем имперсонации
+        CreateJobRequest customHdfsJob = new CreateJobRequest(
+            "/data/admin/custom",
+            "/backup/admin/custom",
+            "dc1",
+            "dc2",
+            1000L,
+            "alice", // без @REALM.LOCAL должно дополниться автоматически
+            false,
+            false,
+            null
+        );
+
+        mockMvc.perform(post("/api/v1/jobs")
+                .cookie(adminCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(customHdfsJob)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.created_by").value("admin_user"))
+            .andExpect(jsonPath("$.execution_principal").value("alice@REALM.LOCAL"));
+
+        // HMS: Создание с кастомным пользователем имперсонации
+        var customHmsJob = new org.apache.hadoop.explorer.replicator.orchestrator.controller.HmsReplicationController.CreateHmsJobRequest(
+            "dc1",
+            "dc2",
+            "analytics_admin",
+            "analytics_admin_replica",
+            "*",
+            false,
+            false,
+            "bob"
+        );
+
+        mockMvc.perform(post("/api/v1/hms/jobs")
+                .cookie(adminCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(customHmsJob)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.created_by").value("admin_user"))
+            .andExpect(jsonPath("$.execution_principal").value("bob@REALM.LOCAL"));
+    }
+
+    @Test
+    @DisplayName("Обычный пользователь (не admin) не может переопределить пользователя имперсонации в HDFS и HMS")
+    void nonAdminCannotOverrideImpersonationUserInHdfsAndHms() throws Exception {
+        LoginRequest writerLogin = new LoginRequest("writer_user", "password123");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(writerLogin)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie writerCookie = loginResult.getResponse().getCookie("access_token");
+        assertNotNull(writerCookie);
+
+        // HDFS: Попытка передать чужой execution_principal root
+        CreateJobRequest exploitHdfsJob = new CreateJobRequest(
+            "/data/writer/secure",
+            "/backup/writer/secure",
+            "dc1",
+            "dc2",
+            1000L,
+            "root@REALM.LOCAL",
+            false,
+            false,
+            null
+        );
+
+        mockMvc.perform(post("/api/v1/jobs")
+                .cookie(writerCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(exploitHdfsJob)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.created_by").value("writer_user"))
+            .andExpect(jsonPath("$.execution_principal").value("writer_user@REALM.LOCAL"));
+
+        // HMS: Попытка передать чужой execution_principal superuser
+        var exploitHmsJob = new org.apache.hadoop.explorer.replicator.orchestrator.controller.HmsReplicationController.CreateHmsJobRequest(
+            "dc1",
+            "dc2",
+            "analytics_writer",
+            "analytics_writer_replica",
+            "*",
+            false,
+            false,
+            "superuser"
+        );
+
+        mockMvc.perform(post("/api/v1/hms/jobs")
+                .cookie(writerCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(exploitHmsJob)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.created_by").value("writer_user"))
+            .andExpect(jsonPath("$.execution_principal").value("writer_user@REALM.LOCAL"));
+    }
 }

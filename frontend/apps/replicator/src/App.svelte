@@ -73,6 +73,7 @@
   let newJobTargetCluster = $state('backup-cluster');
   let newJobSourcePath = $state('/data/production/events/2026-10');
   let newJobTargetPath = $state('/backup/mirror/events/2026-10');
+  let newJobImpersonationUser = $state('');
   let newJobIsScheduled = $state(false);
   let newJobCronPreset = $state('@every_5m');
   let newJobHistoryRetention = $state<number>(20);
@@ -86,6 +87,7 @@
   let editJobTargetCluster = $state('backup-cluster');
   let editJobSourcePath = $state('');
   let editJobTargetPath = $state('');
+  let editJobImpersonationUser = $state('');
   let editJobIsScheduled = $state(false);
   let editJobCronPreset = $state('@every_5m');
   let editJobHistoryRetention = $state<number>(20);
@@ -306,6 +308,13 @@
     await Promise.all([loadJobs(), loadTopology(), loadAgents()]);
   }
 
+  // Открытие модалки создания задачи
+  function openCreateModal() {
+    newJobImpersonationUser = user?.username || '';
+    createJobError = null;
+    isCreateModalOpen = true;
+  }
+
   // Создание задачи
   async function handleCreateJob(e: Event) {
     e.preventDefault();
@@ -313,13 +322,18 @@
     isSubmittingJob = true;
 
     try {
+      const chosenUser = (isAdmin && newJobImpersonationUser.trim())
+        ? newJobImpersonationUser.trim()
+        : (user?.username || 'writer_user');
+      const executionPrincipal = chosenUser.includes('@') ? chosenUser : `${chosenUser}@REALM.LOCAL`;
+
       const payload: any = {
         source_cluster_id: newJobSourceCluster,
         target_cluster_id: newJobTargetCluster,
         source_path: newJobSourcePath.trim(),
         target_path: newJobTargetPath.trim(),
         run_as_service_account: false,
-        execution_principal: user?.username ? `${user.username}@REALM.LOCAL` : undefined,
+        execution_principal: executionPrincipal,
         is_scheduled: newJobIsScheduled,
         history_retention_runs: Number(newJobHistoryRetention) || 20,
       };
@@ -364,6 +378,10 @@
     editJobTargetCluster = job.target_cluster_id;
     editJobSourcePath = job.source_path;
     editJobTargetPath = job.target_path;
+    const initialUser = job.execution_principal
+      ? (job.execution_principal.includes('@') ? job.execution_principal.split('@')[0] : job.execution_principal)
+      : (job.created_by || '');
+    editJobImpersonationUser = initialUser;
     editJobIsScheduled = job.is_scheduled ?? false;
     editJobCronPreset = job.cron_expression || '@every_5m';
     editJobHistoryRetention = job.history_retention_runs ?? 20;
@@ -386,6 +404,11 @@
         is_scheduled: editJobIsScheduled,
         history_retention_runs: Number(editJobHistoryRetention) || 20,
       };
+
+      if (isAdmin && editJobImpersonationUser.trim()) {
+        const u = editJobImpersonationUser.trim();
+        payload.execution_principal = u.includes('@') ? u : `${u}@REALM.LOCAL`;
+      }
 
       if (editJobIsScheduled) {
         payload.cron_expression = editJobCronPreset;
@@ -820,7 +843,7 @@
             </button>
             {#if canCreate}
               <button
-                onclick={() => (isCreateModalOpen = true)}
+                onclick={openCreateModal}
                 class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition cursor-pointer shadow-md shadow-sky-600/20"
               >
                 <Plus class="w-4 h-4" />
@@ -951,7 +974,7 @@
                         <ArrowLeftRight class="w-8 h-8 stroke-1 text-slate-300 dark:text-slate-700" />
                         <span>Нет активных или выполненных задач репликации</span>
                         <button
-                          onclick={() => (isCreateModalOpen = true)}
+                          onclick={openCreateModal}
                           class="mt-2 text-xs text-sky-600 dark:text-sky-400 hover:underline font-semibold cursor-pointer"
                         >
                           Создать первую задачу
@@ -1183,7 +1206,7 @@
     <!-- КОНТЕНТ ВКЛАДКИ: РЕПЛИКАЦИЯ HIVE METASTORE (HMS REPLICATION) -->
     {:else if activeTab === 'hms'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
-        <HmsReplicationView {topology} />
+        <HmsReplicationView {topology} {user} />
       </main>
 
     <!-- КОНТЕНТ ВКЛАДКИ: ТОПОЛОГИЯ ЦОД И ПОЛОСА ПРОПУСКАНИЯ -->
@@ -1618,16 +1641,44 @@
             />
           </div>
 
-          <!-- Авторизация и аудит Ranger (Hadoop Proxy User / Impersonation) -->
-          <div class="p-3 bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/50 rounded-xl flex items-start gap-2.5">
-            <Shield class="w-4 h-4 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
-            <div class="text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
-              <div class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                Имперсонация и аудит Apache Ranger
-                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">doAs</span>
-              </div>
-              <div class="text-slate-500 dark:text-slate-400 leading-relaxed">
-                Доступ к HDFS выполняется от вашего имени <strong class="font-mono text-slate-700 dark:text-slate-300">({user?.username || 'текущий пользователь'})</strong> через Kerberos Proxy User. Все операции проверяются политиками Ranger и фиксируются в audit log.
+          <!-- Пользователь для имперсонации (doAs) и аудит Ranger -->
+          <div>
+            <label for="create-impersonation-user" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Пользователь имперсонации HDFS (doAs username)
+            </label>
+            <div class="relative">
+              {#if isAdmin}
+                <input
+                  id="create-impersonation-user"
+                  type="text"
+                  bind:value={newJobImpersonationUser}
+                  placeholder={user?.username || 'hdfs'}
+                  class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">
+                  admin
+                </span>
+              {:else}
+                <input
+                  id="create-impersonation-user"
+                  type="text"
+                  value={user?.username || 'текущий пользователь'}
+                  disabled
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed"
+                />
+                <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">
+                  doAs
+                </span>
+              {/if}
+            </div>
+            <div class="mt-1.5 p-2.5 bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/50 rounded-xl flex items-start gap-2">
+              <Shield class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                {#if isAdmin}
+                  Администратор может указать username для выполнения HDFS репликации от его имени через Hadoop Proxy User.
+                {:else}
+                  Доступ к HDFS выполняется от вашего имени <strong class="font-mono text-slate-700 dark:text-slate-300">({user?.username || 'текущий пользователь'})</strong> через Kerberos Proxy User.
+                {/if}
               </div>
             </div>
           </div>
@@ -1815,13 +1866,43 @@
             />
           </div>
 
-          <!-- Информация об имперсонации -->
-          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl flex items-center justify-between text-xs">
-            <span class="text-slate-500 flex items-center gap-1.5">
-              <Shield class="w-3.5 h-3.5 text-sky-500" />
-              Имперсонация доступа HDFS
-            </span>
-            <span class="font-mono text-[11px] text-sky-600 dark:text-sky-400 font-medium">doAs (Ranger Audit)</span>
+          <!-- Пользователь для имперсонации (doAs) -->
+          <div>
+            <label for="edit-impersonation-user" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Пользователь имперсонации HDFS (doAs username)
+            </label>
+            <div class="relative">
+              {#if isAdmin}
+                <input
+                  id="edit-impersonation-user"
+                  type="text"
+                  bind:value={editJobImpersonationUser}
+                  placeholder="hdfs"
+                  class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">
+                  admin
+                </span>
+              {:else}
+                <input
+                  id="edit-impersonation-user"
+                  type="text"
+                  value={editJobImpersonationUser}
+                  disabled
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed"
+                />
+                <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">
+                  doAs
+                </span>
+              {/if}
+            </div>
+            <p class="text-[10px] text-slate-400 mt-1">
+              {#if isAdmin}
+                Администратор может переопределить учетную запись Kerberos doAs имперсонации.
+              {:else}
+                Имперсонация зафиксирована за создателем задачи.
+              {/if}
+            </p>
           </div>
 
           <!-- Планировщик периодических задач (Cron Scheduler) -->

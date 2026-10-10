@@ -65,6 +65,9 @@ public class HmsReplicationJobEntity {
     @Column(name = "created_by", nullable = false)
     private String createdBy = "system_operator";
 
+    @Column(name = "execution_principal", length = 128)
+    private String executionPrincipal = "hdfs@EXAMPLE.COM";
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -124,6 +127,8 @@ public class HmsReplicationJobEntity {
     public void setMessage(String message) { this.message = message; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+    public String getExecutionPrincipal() { return executionPrincipal; }
+    public void setExecutionPrincipal(String executionPrincipal) { this.executionPrincipal = executionPrincipal; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

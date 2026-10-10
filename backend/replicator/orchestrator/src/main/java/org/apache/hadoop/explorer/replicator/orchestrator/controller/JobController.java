@@ -72,7 +72,36 @@ public class JobController {
         }
 
         String username = session != null ? session.username() : "writer_user";
-        if (session == null && req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
+        String executionPrincipal = req.executionPrincipal();
+
+        if (session != null) {
+            if (session.isAdmin()) {
+                if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+                    executionPrincipal = executionPrincipal.trim();
+                } else {
+                    executionPrincipal = session.username();
+                }
+            } else {
+                executionPrincipal = session.username();
+            }
+            if (executionPrincipal != null && !executionPrincipal.contains("@")) {
+                executionPrincipal = executionPrincipal + "@REALM.LOCAL";
+            }
+            req = new CreateJobRequest(
+                req.sourcePath(),
+                req.targetPath(),
+                req.sourceClusterId(),
+                req.targetClusterId(),
+                req.totalBytes(),
+                executionPrincipal,
+                req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false,
+                req.isScheduled(),
+                req.cronExpression(),
+                req.historyRetentionRuns(),
+                req.jobType(),
+                req.parentJobId()
+            );
+        } else if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
             String p = req.executionPrincipal().trim();
             int at = p.indexOf('@');
             username = (at > 0) ? p.substring(0, at) : p;
@@ -111,6 +140,44 @@ public class JobController {
         Authentication auth
     ) {
         checkJobAccess(jobId, auth);
+        UserSession session = getSession(auth);
+        if (session != null && !session.isAdmin()) {
+            var existing = jobService.getJobEntity(jobId);
+            String existingPrincipal = existing.map(org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity::getExecutionPrincipal).orElse(session.username() + "@REALM.LOCAL");
+            req = new CreateJobRequest(
+                req.sourcePath(),
+                req.targetPath(),
+                req.sourceClusterId(),
+                req.targetClusterId(),
+                req.totalBytes(),
+                existingPrincipal,
+                req.runAsServiceAccount(),
+                req.isScheduled(),
+                req.cronExpression(),
+                req.historyRetentionRuns(),
+                req.jobType(),
+                req.parentJobId()
+            );
+        } else if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
+            String ep = req.executionPrincipal().trim();
+            if (!ep.contains("@")) {
+                ep = ep + "@REALM.LOCAL";
+            }
+            req = new CreateJobRequest(
+                req.sourcePath(),
+                req.targetPath(),
+                req.sourceClusterId(),
+                req.targetClusterId(),
+                req.totalBytes(),
+                ep,
+                req.runAsServiceAccount(),
+                req.isScheduled(),
+                req.cronExpression(),
+                req.historyRetentionRuns(),
+                req.jobType(),
+                req.parentJobId()
+            );
+        }
         return jobService.updateJob(jobId, req)
             .map(ResponseEntity::ok)
             .orElseGet(() -> ResponseEntity.notFound().build());

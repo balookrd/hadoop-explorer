@@ -27,11 +27,15 @@
     Info
   } from 'lucide-svelte';
   import { api } from '../api/client';
-  import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse, ClusterInfo } from '../types';
-  import { StatusBadge } from '@hadoop-explorer/common';
+  import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse, ClusterInfo, CreateHmsJobPayload } from '../types';
+  import { StatusBadge, type UserSession } from '@hadoop-explorer/common';
 
   // Пропсы
-  let { topology = null }: { topology?: TopologyResponse | null } = $props();
+  let { topology = null, user = null }: { topology?: TopologyResponse | null; user?: UserSession | null } = $props();
+
+  const isAdmin = $derived(
+    user ? user.system_role === 'admin' || user.is_admin : false
+  );
 
   // Состояние списка задач и топологии
   let internalTopology: TopologyResponse | null = $state(null);
@@ -64,6 +68,7 @@
     table_pattern: '*',
     drop_extraneous_tables: false,
     drop_extraneous_partitions: false,
+    execution_principal: '',
   });
 
   // Модальное окно подтверждения удаления
@@ -265,6 +270,7 @@
       table_pattern: '*',
       drop_extraneous_tables: false,
       drop_extraneous_partitions: false,
+      execution_principal: user?.username || '',
     };
     isCreateModalOpen = true;
   }
@@ -273,7 +279,21 @@
     if (!newJob.source_db.trim()) return;
     try {
       loading = true;
-      const created = await api.createHmsJob(newJob);
+      const rawUser = (isAdmin && newJob.execution_principal?.trim())
+        ? newJob.execution_principal.trim()
+        : (user?.username || 'system_operator');
+      const principal = rawUser.includes('@') ? rawUser : `${rawUser}@REALM.LOCAL`;
+      const payload: CreateHmsJobPayload = {
+        source_cluster_id: newJob.source_cluster_id,
+        target_cluster_id: newJob.target_cluster_id,
+        source_db: newJob.source_db.trim(),
+        target_db: newJob.target_db?.trim() || undefined,
+        table_pattern: newJob.table_pattern?.trim() || '*',
+        drop_extraneous_tables: newJob.drop_extraneous_tables,
+        drop_extraneous_partitions: newJob.drop_extraneous_partitions,
+        execution_principal: principal,
+      };
+      const created = await api.createHmsJob(payload);
       isCreateModalOpen = false;
       await loadJobs();
       openDetailsModal(created, 'events');
@@ -567,6 +587,12 @@
                   <div class="text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5" title={job.id}>
                     {job.id}
                   </div>
+                  <div class="text-[10px] font-mono truncate mt-0.5" title={job.execution_principal || job.created_by || ''}>
+                    <span class="text-sky-600 dark:text-sky-400 inline-flex items-center gap-1">
+                      <span>👤 {job.execution_principal || job.created_by || 'system'}</span>
+                      <span class="text-[9px] px-1 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 font-semibold text-sky-700 dark:text-sky-300">doAs</span>
+                    </span>
+                  </div>
                   {#if job.table_pattern && job.table_pattern !== '*'}
                     <div class="text-[9px] text-slate-400 font-mono mt-0.5">
                       фильтр: {job.table_pattern}
@@ -818,6 +844,11 @@
               <span class="text-slate-400">
                 {getClusterLabel(modalJob.source_cluster_id)} → {getClusterLabel(modalJob.target_cluster_id)}
               </span>
+              <span>•</span>
+              <span class="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 font-mono">
+                <span>👤 {modalJob.execution_principal || modalJob.created_by || 'system'}</span>
+                <span class="text-[9px] px-1 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 font-semibold text-sky-700 dark:text-sky-300">doAs</span>
+              </span>
             </p>
           </div>
         </div>
@@ -976,7 +1007,10 @@
                 {#each subtasks as sub}
                   <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-850/50">
                     <td class="py-2.5 px-3 text-slate-700 dark:text-slate-300 truncate" title={sub.id}>
-                      {sub.id.substring(0, 12)}...
+                      <div class="truncate">{sub.id.substring(0, 12)}...</div>
+                      <div class="text-[9px] text-sky-600 dark:text-sky-400 font-mono truncate">
+                        👤 {sub.execution_principal || sub.created_by || 'system'}
+                      </div>
                     </td>
                     <td class="py-2.5 px-3 truncate" title="{sub.source_path} → {sub.target_path}">
                       <div class="truncate text-slate-700 dark:text-slate-300"><span class="text-slate-400">src:</span> {sub.source_path}</div>
@@ -1131,6 +1165,48 @@
             bind:value={newJob.table_pattern}
             class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
+        </div>
+
+        <!-- Пользователь для имперсонации HDFS (doAs username) -->
+        <div>
+          <label for="hms-impersonation-user" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Пользователь имперсонации HDFS (doAs username)
+          </label>
+          <div class="relative">
+            {#if isAdmin}
+              <input
+                id="hms-impersonation-user"
+                type="text"
+                bind:value={newJob.execution_principal}
+                placeholder={user?.username || 'hdfs'}
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+              <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold">
+                admin
+              </span>
+            {:else}
+              <input
+                id="hms-impersonation-user"
+                type="text"
+                value={user?.username || 'текущий пользователь'}
+                disabled
+                class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed"
+              />
+              <span class="absolute right-2.5 top-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">
+                doAs
+              </span>
+            {/if}
+          </div>
+          <div class="mt-1.5 p-2.5 bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/50 rounded-xl flex items-start gap-2">
+            <Shield class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              {#if isAdmin}
+                Администратор может указать имя пользователя для Kerberos doAs имперсонации при репликации файлов данных таблиц и партиций в HDFS.
+              {:else}
+                Репликация файлов данных в HDFS выполняется от вашего имени <strong class="font-mono text-slate-700 dark:text-slate-300">({user?.username || 'текущий пользователь'})</strong> через Kerberos Proxy User.
+              {/if}
+            </div>
+          </div>
         </div>
 
         <!-- Опции двустороннего согласования схемы (Diff & Reconciliation) -->

@@ -75,6 +75,7 @@ export interface EditJobPayload {
   target_cluster_id?: string;
   source_path?: string;
   target_path?: string;
+  execution_principal?: string;
   is_scheduled?: boolean;
   cron_expression?: string;
   history_retention_runs?: number;
@@ -158,6 +159,7 @@ export interface HmsReplicationJob {
   drop_extraneous_tables?: boolean;
   drop_extraneous_partitions?: boolean;
   created_by: string;
+  execution_principal?: string;
   created_at: string;
   updated_at: string;
   last_sync_at?: string;
@@ -186,4 +188,5 @@ export interface CreateHmsJobPayload {
   table_pattern?: string;
   drop_extraneous_tables?: boolean;
   drop_extraneous_partitions?: boolean;
+  execution_principal?: string;
 }

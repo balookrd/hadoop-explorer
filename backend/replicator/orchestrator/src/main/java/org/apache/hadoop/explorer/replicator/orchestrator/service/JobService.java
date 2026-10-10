@@ -427,6 +427,9 @@ public class JobService {
             if (req.targetPath() != null) job.setTargetPath(req.targetPath());
             if (req.sourceClusterId() != null) job.setSourceClusterId(req.sourceClusterId());
             if (req.targetClusterId() != null) job.setTargetClusterId(req.targetClusterId());
+            if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
+                job.setExecutionPrincipal(req.executionPrincipal());
+            }
             if (req.isScheduled() != null) job.setScheduled(req.isScheduled());
             if (req.cronExpression() != null) job.setCronExpression(req.cronExpression());
             if (req.historyRetentionRuns() != null) job.setHistoryRetentionRuns(req.historyRetentionRuns());

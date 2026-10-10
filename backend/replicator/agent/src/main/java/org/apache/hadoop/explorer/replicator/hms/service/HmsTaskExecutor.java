@@ -205,7 +205,7 @@ public class HmsTaskExecutor implements Closeable {
 
         // 3. Создание 1 корневой саб-джобы HDFS передачи файлов через Оркестратор!
         String tableSubjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
-                rewrite.sourceClusterId(), rewrite.targetClusterId());
+                rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
 
         // 4. Очистка вендорных параметров HDP 3.1
         Map<String, String> cleanParams = tableFilter.sanitizeParameters(table.parameters());
@@ -276,7 +276,7 @@ public class HmsTaskExecutor implements Closeable {
 
                     if (!isLocationWithinTable(part.location(), tableBaseLocation)) {
                         partSubjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
-                                partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId());
+                                partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
                     }
 
                     targetChunk.add(new HmsPartitionDto(
@@ -350,7 +350,7 @@ public class HmsTaskExecutor implements Closeable {
                         for (HmsPartitionDto part : parts) {
                             var partRewrite = pathRewriter.rewrite(part.location(), job.sourceClusterId(), job.targetClusterId());
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
-                                    partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId());
+                                    partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
 
                             sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
                                     new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(), part.parameters())
@@ -369,7 +369,7 @@ public class HmsTaskExecutor implements Closeable {
                         if (check.supported()) {
                             var rewrite = pathRewriter.rewrite(table.sdLocation(), job.sourceClusterId(), job.targetClusterId());
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(),
-                                    rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId());
+                                    rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId(), job.executionPrincipal());
 
                             HmsTableDto targetTable = new HmsTableDto(
                                     "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),

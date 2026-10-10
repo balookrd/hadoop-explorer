@@ -84,8 +84,38 @@ public class HmsCoordinatorService {
         return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern, author, false, false);
     }
 
+    @Transactional
+    public HmsReplicationJobEntity createAndStartReplication(
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDb,
+            String targetDb,
+            String tablePattern,
+            String author,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String executionPrincipal
+    ) {
+        String id = "hms-job-" + sourceDb + "-" + UUID.randomUUID().toString().substring(0, 8);
+
+        HmsReplicationJobEntity entity = new HmsReplicationJobEntity();
+        entity.setId(id);
+        entity.setSourceClusterId(sourceClusterId != null ? sourceClusterId : "dc1");
+        entity.setTargetClusterId(targetClusterId != null ? targetClusterId : "dc2");
+        entity.setSourceDbName(sourceDb);
+        entity.setTargetDbName(targetDb != null ? targetDb : sourceDb);
+        entity.setTableIncludePattern(tablePattern != null ? tablePattern : "*");
+        entity.setCreatedBy(author != null ? author : "system_operator");
+        entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : "hdfs@EXAMPLE.COM");
+        entity.setDropExtraneousTables(dropExtraneousTables);
+        entity.setDropExtraneousPartitions(dropExtraneousPartitions);
+
+        dispatchJob(entity);
+        return entity;
+    }
+
     /**
-     * Создание новой задачи репликации схемы и диспетчеризация паре агентов.
+     * Создание новой задачи репликации схемы и диспетчеризация паре агентов (обратная совместимость).
      */
     @Transactional
     public HmsReplicationJobEntity createAndStartReplication(
@@ -98,21 +128,10 @@ public class HmsCoordinatorService {
             boolean dropExtraneousTables,
             boolean dropExtraneousPartitions
     ) {
-        String id = "hms-job-" + sourceDb + "-" + UUID.randomUUID().toString().substring(0, 8);
-
-        HmsReplicationJobEntity entity = new HmsReplicationJobEntity();
-        entity.setId(id);
-        entity.setSourceClusterId(sourceClusterId != null ? sourceClusterId : "dc1");
-        entity.setTargetClusterId(targetClusterId != null ? targetClusterId : "dc2");
-        entity.setSourceDbName(sourceDb);
-        entity.setTargetDbName(targetDb != null ? targetDb : sourceDb);
-        entity.setTableIncludePattern(tablePattern != null ? tablePattern : "*");
-        entity.setCreatedBy(author != null ? author : "system_operator");
-        entity.setDropExtraneousTables(dropExtraneousTables);
-        entity.setDropExtraneousPartitions(dropExtraneousPartitions);
-
-        dispatchJob(entity);
-        return entity;
+        String defaultPrincipal = (author != null && !author.isBlank())
+                ? (author.contains("@") ? author : author + "@REALM.LOCAL")
+                : "hdfs@EXAMPLE.COM";
+        return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern, author, dropExtraneousTables, dropExtraneousPartitions, defaultPrincipal);
     }
 
     /**
@@ -240,7 +259,8 @@ public class HmsCoordinatorService {
                     targetAddress,
                     job.getStatus(),
                     job.getLastProcessedEventId(),
-                    job.getAssignedAgentId()
+                    job.getAssignedAgentId(),
+                    job.getExecutionPrincipal()
             ));
         }
 
