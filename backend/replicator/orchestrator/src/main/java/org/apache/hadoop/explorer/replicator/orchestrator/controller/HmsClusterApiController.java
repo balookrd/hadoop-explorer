@@ -7,6 +7,7 @@ import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,11 +19,12 @@ import java.nio.file.Files;
 import java.util.*;
 
 /**
- * REST API управления Hive/HMS метастором и HDFS хранилищем для дата-центров (DC1 и DC2).
- * Работает как Control Plane координатор схем метаданных.
+ * Тестовый REST API симуляции Hive/HMS метастора для стенда и E2E тестов.
+ * В боевом режиме (production) полностью отключен (matchIfMissing = false).
  */
 @RestController
 @RequestMapping("/api/v1/hms/clusters")
+@ConditionalOnProperty(name = "replicator.hms.mock-cluster-api.enabled", havingValue = "true", matchIfMissing = false)
 public class HmsClusterApiController {
 
     private static final Logger log = LoggerFactory.getLogger(HmsClusterApiController.class);

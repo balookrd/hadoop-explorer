@@ -6,6 +6,7 @@ import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
@@ -13,7 +14,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Пул симуляторов HMS для тестового и демо-окружения.
+ * В боевом режиме (production) полностью отключен.
+ */
 @Component
+@ConditionalOnProperty(name = "replicator.hms.mock-cluster-api.enabled", havingValue = "true", matchIfMissing = false)
 public class HmsClientPool {
 
     private static final Logger log = LoggerFactory.getLogger(HmsClientPool.class);

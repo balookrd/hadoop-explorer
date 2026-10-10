@@ -144,6 +144,9 @@ public class AgentRegistry {
         }
 
         AgentEntry entry = agents.get(agentId);
+        String mode = (request.getMode() != null && !request.getMode().isBlank())
+                ? request.getMode()
+                : (agentId.toLowerCase().startsWith("streamer") ? "streamer" : "all");
         if (entry == null) {
             String clusterId = request.getClusterId() != null ? request.getClusterId() : "default";
             String host = "localhost";
@@ -158,10 +161,12 @@ public class AgentRegistry {
             } else {
                 grpcAddress = host + ":" + port;
             }
-            entry = new AgentEntry(agentId, clusterId, host, port, grpcAddress, "all", null);
+            entry = new AgentEntry(agentId, clusterId, host, port, grpcAddress, mode, null);
             agents.put(agentId, entry);
             topologyRegistry.updateClusterGrpcAddress(clusterId, grpcAddress);
-            log.info("Agent auto-registered via heartbeat: id={}, cluster={}, grpc={}", agentId, clusterId, grpcAddress);
+            log.info("Agent auto-registered via heartbeat: id={}, cluster={}, grpc={}, mode={}", agentId, clusterId, grpcAddress, mode);
+        } else if (request.getMode() != null && !request.getMode().isBlank()) {
+            entry.setMode(request.getMode());
         }
 
         entry.setLastHeartbeat(Instant.now());

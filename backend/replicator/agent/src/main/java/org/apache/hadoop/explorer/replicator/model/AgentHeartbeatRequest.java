@@ -26,15 +26,26 @@ public class AgentHeartbeatRequest {
     @JsonProperty("active_transfers")
     private int activeTransfers = 0;
 
+    @JsonProperty("mode")
+    private String mode;
+
     public AgentHeartbeatRequest() {}
 
     public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers) {
+        this(agentId, clusterId, grpcAddress, activeTransfers, null);
+    }
+
+    public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers, String mode) {
         this.agentId = agentId;
         this.clusterId = clusterId;
         this.grpcAddress = grpcAddress;
         this.activeTransfers = activeTransfers;
         this.status = "online";
+        this.mode = mode;
     }
+
+    public String getMode() { return mode; }
+    public void setMode(String mode) { this.mode = mode; }
 
     public String getAgentId() { return agentId; }
     public void setAgentId(String agentId) { this.agentId = agentId; }

@@ -14,6 +14,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.slf4j.Logger;
@@ -31,6 +32,7 @@ public class DisasterRecoveryService {
 
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
+    private final TaskRepository taskRepository;
     private final HmsReplicationJobRepository hmsReplicationJobRepository;
     private final AgentRegistry agentRegistry;
     private final TopologyRegistry topologyRegistry;
@@ -40,6 +42,7 @@ public class DisasterRecoveryService {
     public DisasterRecoveryService(
             JobRepository jobRepository,
             JobRunRepository jobRunRepository,
+            TaskRepository taskRepository,
             HmsReplicationJobRepository hmsReplicationJobRepository,
             AgentRegistry agentRegistry,
             TopologyRegistry topologyRegistry,
@@ -48,6 +51,7 @@ public class DisasterRecoveryService {
     ) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
+        this.taskRepository = taskRepository;
         this.hmsReplicationJobRepository = hmsReplicationJobRepository;
         this.agentRegistry = agentRegistry;
         this.topologyRegistry = topologyRegistry;

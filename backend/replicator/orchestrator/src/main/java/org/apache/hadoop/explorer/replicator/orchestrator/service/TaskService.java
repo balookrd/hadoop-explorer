@@ -157,7 +157,9 @@ public class TaskService {
 
         // Защита и изоляция привилегий: агент в режиме streamer не имеет права забирать пользовательские задачи передачи данных
         var agentEntry = agentRegistry.getAgent(agentId);
-        if (agentEntry.isPresent() && "streamer".equalsIgnoreCase(agentEntry.get().getMode())) {
+        boolean isStreamer = (agentEntry.isPresent() && "streamer".equalsIgnoreCase(agentEntry.get().getMode()))
+                || (agentEntry.isEmpty() && agentId.toLowerCase().contains("streamer"));
+        if (isStreamer) {
             log.warn("[Security Isolation] Агент-стример '{}' отклонен от забора задач передачи данных", agentId);
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN,

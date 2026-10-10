@@ -34,6 +34,7 @@ public class ReplicatorAgentConfig {
     private boolean grpcInsecureSkipVerify;
     private boolean orchestratorInsecureSkipVerify;
     private String hmsThriftUris;
+    private String hmsMode = "auto"; // "thrift" (боевой режим), "demo-http" (стенд), "mock" (unit-тесты)
     private String hiveVersion = "3.1.3";
     private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
     private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
@@ -104,6 +105,7 @@ public class ReplicatorAgentConfig {
         config.orchestratorInsecureSkipVerify = Boolean.parseBoolean(getEnv("ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY", getEnv("REPLICATOR_TLS_INSECURE", "false")));
 
         config.hmsThriftUris = getEnv("HMS_THRIFT_URIS", getEnv("HIVE_METASTORE_URIS", null));
+        config.hmsMode = getEnv("REPLICATOR_HMS_MODE", (config.hmsThriftUris != null && !config.hmsThriftUris.isBlank()) ? "thrift" : "auto");
         config.hiveVersion = getEnv("HIVE_VERSION", "3.1.3");
 
         config.smallFileThresholdBytes = Long.parseLong(getEnv("REPLICATOR_SMALL_FILE_THRESHOLD_BYTES", String.valueOf(1024 * 1024L)));
@@ -232,4 +234,7 @@ public class ReplicatorAgentConfig {
 
     public int getWireCompressionLevel() { return wireCompressionLevel; }
     public void setWireCompressionLevel(int wireCompressionLevel) { this.wireCompressionLevel = wireCompressionLevel; }
+
+    public String getHmsMode() { return hmsMode; }
+    public void setHmsMode(String hmsMode) { this.hmsMode = hmsMode; }
 }

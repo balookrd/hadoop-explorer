@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 6. Удаление таблицы
  * 7. HDFS Inotify Streaming HA (Active-Standby лидеры, фильтрация staged путей, Failover)
  */
-@SpringBootTest
+@SpringBootTest(properties = {"replicator.hms.mock-cluster-api.enabled=true"})
 @ActiveProfiles("test")
 @Transactional
 public class ReplicatorFullInfrastructureSmokeTest {

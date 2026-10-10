@@ -16,6 +16,11 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
+replicator:
+  hms:
+    mock-cluster-api:
+      enabled: false # В боевом режиме отключено по умолчанию (чистый Control Plane)
+
 hadoop:
   security:
     debug: true

@@ -91,7 +91,17 @@ public class ReplicatorAgent {
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
-            if (config.getOrchestratorUrl() != null && !config.getOrchestratorUrl().isBlank()) {
+            if ("demo-http".equalsIgnoreCase(config.getHmsMode())) {
+                logger.info("Агент '{}' инициализирован с Demo HttpRemoteHmsClient (тестовый симулятор стенда)", config.getAgentId());
+                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
+                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
+                );
+            } else if ("mock".equalsIgnoreCase(config.getHmsMode())) {
+                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            } else if (config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank()) {
+                logger.info("Боевой режим: прямое подключение агента к Hive Metastore по Thrift: {}", config.getHmsThriftUris());
+                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            } else if ("auto".equalsIgnoreCase(config.getHmsMode()) && config.getOrchestratorUrl() != null && !config.getOrchestratorUrl().isBlank()) {
                 this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
                         config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
                 );
@@ -258,7 +268,8 @@ public class ReplicatorAgent {
                         config.getAgentId(),
                         config.getClusterId(),
                         config.getAdvertisedGrpcAddress(),
-                        activeTransfers.get()
+                        activeTransfers.get(),
+                        config.getMode()
                 );
                 orchestratorClient.heartbeat(hbReq);
             } catch (Exception e) {

@@ -57,6 +57,9 @@ public record DrStatusResponse(
         @JsonProperty("cron_expression") String cronExpression,
         @JsonProperty("lag_bytes_or_events") long lagBytesOrEvents,
         @JsonProperty("has_reverse_job") boolean hasReverseJob,
-        @JsonProperty("reverse_job_id") String reverseJobId
+        @JsonProperty("reverse_job_id") String reverseJobId,
+        @JsonProperty("reverse_job_status") String reverseJobStatus,
+        @JsonProperty("is_reverse_replica") boolean isReverseReplica,
+        @JsonProperty("message") String message
     ) {}
 }
