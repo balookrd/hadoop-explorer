@@ -38,6 +38,10 @@ public class TaskCreateItem {
 
     public TaskCreateItem() {}
 
+    public TaskCreateItem(String sourcePath, String targetPath, long fileSize, boolean skipped) {
+        this(java.util.UUID.randomUUID().toString(), sourcePath, targetPath, fileSize, skipped, null, "FILE", 1, null);
+    }
+
     public TaskCreateItem(String id, String sourcePath, String targetPath, long fileSize, boolean skipped) {
         this(id, sourcePath, targetPath, fileSize, skipped, null, "FILE", 1, null);
     }

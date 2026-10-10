@@ -247,6 +247,13 @@ public class OrchestratorClient {
         }
     }
 
+    public boolean batchCreateTasks(String jobId, BatchCreateTasksRequest request) {
+        if (request != null && jobId != null) {
+            request.setJobId(jobId);
+        }
+        return batchCreateTasks(request);
+    }
+
     /**
      * Забор задач из распределенного пула Оркестратора воркером.
      */
@@ -377,6 +384,47 @@ public class OrchestratorClient {
             logger.warn("Ошибка создания HDFS саб-джобы для HMS {}: {}", hmsJobId, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Продление распределенной аренды стримера HDFS Inotify (Active-Standby).
+     */
+    public org.apache.hadoop.explorer.replicator.model.StreamingLeaseRenewResponse renewStreamingLease(org.apache.hadoop.explorer.replicator.model.StreamingLeaseRenewRequest req) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(req);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/streaming/lease/renew")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), org.apache.hadoop.explorer.replicator.model.StreamingLeaseRenewResponse.class);
+            }
+        } catch (Exception e) {
+            logger.warn("Ошибка продления аренды стримера для кластера '{}': {}", req.getClusterId(), e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Обновление смещения стриминга (lastProcessedTxid и lag) для задачи.
+     */
+    public boolean updateJobStreamingTxid(String jobId, long txid, long lag) {
+        try {
+            var req = new java.util.LinkedHashMap<String, Object>();
+            req.put("status", "STREAMING");
+            req.put("last_processed_txid", txid);
+            req.put("txid_lag", lag);
+            req.put("message", "Inotify поток активен: txid=" + txid + " (лаг=" + lag + ")");
+            String jsonBody = objectMapper.writeValueAsString(req);
+            HttpRequest httpRequest = newRequestBuilder("/api/v1/jobs/" + URLEncoder.encode(jobId, StandardCharsets.UTF_8) + "/progress")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            logger.debug("Ошибка обновления смещения txid для задачи {}: {}", jobId, e.getMessage());
+            return false;
+        }
     }
 
     public String getBaseUrl() {

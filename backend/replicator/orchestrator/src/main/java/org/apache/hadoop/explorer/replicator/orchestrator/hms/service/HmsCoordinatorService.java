@@ -44,6 +44,7 @@ public class HmsCoordinatorService {
     private final AgentRegistry agentRegistry;
     private final JobService jobService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
 
     @Autowired
     public HmsCoordinatorService(
@@ -51,13 +52,25 @@ public class HmsCoordinatorService {
             HmsEventLogRepository hmsEventLogRepository,
             AgentRegistry agentRegistry,
             JobService jobService,
-            org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties
+            org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties,
+            @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService
     ) {
         this.hmsJobRepository = hmsJobRepository;
         this.hmsEventLogRepository = hmsEventLogRepository;
         this.agentRegistry = agentRegistry;
         this.jobService = jobService;
         this.properties = properties;
+        this.lockService = lockService;
+    }
+
+    public HmsCoordinatorService(
+            HmsReplicationJobRepository hmsJobRepository,
+            HmsEventLogRepository hmsEventLogRepository,
+            AgentRegistry agentRegistry,
+            JobService jobService,
+            org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties
+    ) {
+        this(hmsJobRepository, hmsEventLogRepository, agentRegistry, jobService, properties, null);
     }
 
     public HmsCoordinatorService(
@@ -335,10 +348,21 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Фоновая проверка задач в статусе WAITING_FOR_AGENTS.
-     * При появлении агентов переводит задачу в QUEUED.
+     * Фоновая периодическая проверка задач в статусе WAITING_FOR_AGENTS с защитой от параллельного запуска.
      */
     @Scheduled(fixedDelayString = "${hadoop.replicator.hms-agent-check-ms:5000}")
+    public void scheduledCheckWaitingJobs() {
+        if (lockService != null) {
+            lockService.runWithLock("hms_agent_check_lock", java.time.Duration.ofSeconds(4), this::checkWaitingJobs);
+        } else {
+            checkWaitingJobs();
+        }
+    }
+
+    /**
+     * Проверка задач в статусе WAITING_FOR_AGENTS.
+     * При появлении агентов переводит задачу в QUEUED.
+     */
     public void checkWaitingJobs() {
         List<HmsReplicationJobEntity> waiting = hmsJobRepository.findByStatus("WAITING_FOR_AGENTS");
         for (HmsReplicationJobEntity job : waiting) {
@@ -398,10 +422,22 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Фоновый мониторинг зависших или брошенных HMS задач (сбой или падение агента).
-     * При переходе агента в OFFLINE или протухании аренды выполняет авто-failover.
+    /**
+     * Фоновый периодический мониторинг зависших или брошенных HMS задач с защитой от параллельного запуска.
      */
     @Scheduled(fixedDelayString = "${hadoop.replicator.hms-failover-check-ms:3000}")
+    public void scheduledCheckAndFailoverOrphanedHmsJobs() {
+        if (lockService != null) {
+            lockService.runWithLock("hms_failover_check_lock", java.time.Duration.ofSeconds(4), this::checkAndFailoverOrphanedHmsJobs);
+        } else {
+            checkAndFailoverOrphanedHmsJobs();
+        }
+    }
+
+    /**
+     * Мониторинг зависших или брошенных HMS задач (сбой или падение агента).
+     * При переходе агента в OFFLINE или протухании аренды выполняет авто-failover.
+     */
     @Transactional
     public void checkAndFailoverOrphanedHmsJobs() {
         List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();

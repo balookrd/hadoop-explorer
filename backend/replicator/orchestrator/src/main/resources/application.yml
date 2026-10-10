@@ -79,6 +79,13 @@ hadoop:
     hms-poll-interval-ms: 5000
     hms-bootstrap-concurrency: 8
     hms-partition-batch-size: 1000
+    streaming:
+      enabled: false                      # По умолчанию выключено
+      poll-interval-ms: 1000
+      max-events-per-batch: 100
+      debounce-delay-ms: 1500
+      auto-reconciliation-on-gap: true
+      max-txid-lag-alert: 50000
     datacenters:
       - id: "dc1"
         name: "Дата-Центр 1 (Primary DC)"

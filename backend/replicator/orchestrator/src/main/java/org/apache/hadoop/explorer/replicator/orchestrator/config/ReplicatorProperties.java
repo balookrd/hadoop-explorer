@@ -23,6 +23,7 @@ public class ReplicatorProperties {
     private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
     private int maxBundleFiles = 500;
     private int bundleCommitConcurrency = 8;
+    private StreamingConfig streaming = new StreamingConfig();
 
     private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
         new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
@@ -152,5 +153,30 @@ public class ReplicatorProperties {
         public void setTargetNameservice(String targetNameservice) { this.targetNameservice = targetNameservice; }
         public String getTargetClusterId() { return targetClusterId; }
         public void setTargetClusterId(String targetClusterId) { this.targetClusterId = targetClusterId; }
+    }
+
+    public StreamingConfig getStreaming() { return streaming; }
+    public void setStreaming(StreamingConfig streaming) { this.streaming = streaming; }
+
+    public static class StreamingConfig {
+        private boolean enabled = false;
+        private long pollIntervalMs = 1000L;
+        private int maxEventsPerBatch = 100;
+        private long debounceDelayMs = 1500L;
+        private boolean autoReconciliationOnGap = true;
+        private long maxTxidLagAlert = 50000L;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public long getPollIntervalMs() { return pollIntervalMs; }
+        public void setPollIntervalMs(long pollIntervalMs) { this.pollIntervalMs = pollIntervalMs; }
+        public int getMaxEventsPerBatch() { return maxEventsPerBatch; }
+        public void setMaxEventsPerBatch(int maxEventsPerBatch) { this.maxEventsPerBatch = maxEventsPerBatch; }
+        public long getDebounceDelayMs() { return debounceDelayMs; }
+        public void setDebounceDelayMs(long debounceDelayMs) { this.debounceDelayMs = debounceDelayMs; }
+        public boolean isAutoReconciliationOnGap() { return autoReconciliationOnGap; }
+        public void setAutoReconciliationOnGap(boolean autoReconciliationOnGap) { this.autoReconciliationOnGap = autoReconciliationOnGap; }
+        public long getMaxTxidLagAlert() { return maxTxidLagAlert; }
+        public void setMaxTxidLagAlert(long maxTxidLagAlert) { this.maxTxidLagAlert = maxTxidLagAlert; }
     }
 }

@@ -1,6 +1,8 @@
 import type { UserSession } from '@hadoop-explorer/common';
 
-export type JobStatus = 'SCHEDULED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type JobStatus = 'SCHEDULED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STREAMING';
+
+export type SyncMode = 'MANUAL' | 'SCHEDULED' | 'STREAMING_INOTIFY';
 
 export interface JobRun {
   id: string;
@@ -45,6 +47,9 @@ export interface Job {
   created_by?: string;
   execution_principal?: string;
   run_as_service_account?: boolean;
+  sync_mode?: SyncMode;
+  last_processed_txid?: number;
+  txid_lag?: number;
   is_scheduled?: boolean;
   cron_expression?: string;
   next_run_at?: string;
@@ -65,6 +70,7 @@ export interface CreateJobPayload {
   target_path: string;
   run_as_service_account?: boolean;
   execution_principal?: string;
+  sync_mode?: 'MANUAL' | 'SCHEDULED' | 'STREAMING_INOTIFY';
   is_scheduled?: boolean;
   cron_expression?: string;
   history_retention_runs?: number;
@@ -118,6 +124,7 @@ export interface TopologyData {
   global_limit_mb_per_sec: number;
   dc_limits: DcLimitItem[];
   hdfs_limits: HdfsLimitItem[];
+  streaming_enabled?: boolean;
 }
 
 export type TopologyResponse = TopologyData;
@@ -189,4 +196,15 @@ export interface CreateHmsJobPayload {
   drop_extraneous_tables?: boolean;
   drop_extraneous_partitions?: boolean;
   execution_principal?: string;
+}
+
+export interface StreamingLeaseStatus {
+  status: 'ACTIVE' | 'STANDBY' | 'EXPIRED' | 'DISABLED';
+  epoch: number;
+  active_agent_id: string;
+  active_streamer_id?: string;
+  lease_expires_at: string;
+  registered_streamers_count: number;
+  redundancy_warning: boolean;
+  last_committed_txid: number;
 }

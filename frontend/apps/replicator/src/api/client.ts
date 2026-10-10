@@ -11,6 +11,7 @@ import type {
   HmsReplicationJob,
   HmsEventLog,
   CreateHmsJobPayload,
+  StreamingLeaseStatus,
 } from '../types';
 
 export class ReplicatorApiClient extends BaseApiClient {
@@ -195,6 +196,16 @@ export class ReplicatorApiClient extends BaseApiClient {
     return this.request<{ success: boolean; message: string }>(`/hms/jobs/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  }
+
+  // --- HDFS Inotify Streaming & Streamer HA ---
+
+  async getStreamingLeaseStatus(clusterId = 'dc1'): Promise<StreamingLeaseStatus> {
+    return this.request<StreamingLeaseStatus>(`/streaming/lease/status?clusterId=${encodeURIComponent(clusterId)}`);
+  }
+
+  async getStreamingLeaseStatuses(): Promise<Record<string, StreamingLeaseStatus>> {
+    return this.request<Record<string, StreamingLeaseStatus>>('/streaming/lease/all');
   }
 }
 

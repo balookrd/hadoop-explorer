@@ -52,6 +52,15 @@ public class JobEntity {
     @Column(name = "is_scheduled", nullable = false)
     private boolean isScheduled = false;
 
+    @Column(name = "sync_mode", nullable = false, length = 32)
+    private String syncMode = "MANUAL";
+
+    @Column(name = "last_processed_txid")
+    private Long lastProcessedTxid;
+
+    @Column(name = "txid_lag")
+    private Long txidLag;
+
     @Column(name = "cron_expression")
     private String cronExpression;
 
@@ -194,4 +203,10 @@ public class JobEntity {
     public void setJobType(String jobType) { this.jobType = jobType != null ? jobType : "STANDARD"; }
     public String getParentJobId() { return parentJobId; }
     public void setParentJobId(String parentJobId) { this.parentJobId = parentJobId; }
+    public String getSyncMode() { return syncMode; }
+    public void setSyncMode(String syncMode) { this.syncMode = syncMode != null ? syncMode : "MANUAL"; }
+    public Long getLastProcessedTxid() { return lastProcessedTxid; }
+    public void setLastProcessedTxid(Long lastProcessedTxid) { this.lastProcessedTxid = lastProcessedTxid; }
+    public Long getTxidLag() { return txidLag; }
+    public void setTxidLag(Long txidLag) { this.txidLag = txidLag; }
 }

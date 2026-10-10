@@ -20,6 +20,10 @@ public class BatchCreateTasksRequest {
 
     public BatchCreateTasksRequest() {}
 
+    public BatchCreateTasksRequest(List<TaskCreateItem> tasks) {
+        this(null, tasks);
+    }
+
     public BatchCreateTasksRequest(String jobId, List<TaskCreateItem> tasks) {
         this.jobId = jobId;
         this.tasks = tasks != null ? tasks : new ArrayList<>();

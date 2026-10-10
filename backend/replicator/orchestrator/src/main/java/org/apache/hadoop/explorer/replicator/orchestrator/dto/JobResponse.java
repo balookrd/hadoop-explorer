@@ -36,7 +36,10 @@ public record JobResponse(
     @JsonProperty("history_retention_runs") int historyRetentionRuns,
     @JsonProperty("runs_count") int runsCount,
     @JsonProperty("job_type") String jobType,
-    @JsonProperty("parent_job_id") String parentJobId
+    @JsonProperty("parent_job_id") String parentJobId,
+    @JsonProperty("sync_mode") String syncMode,
+    @JsonProperty("last_processed_txid") Long lastProcessedTxid,
+    @JsonProperty("txid_lag") Long txidLag
 ) {
     public static JobResponse fromEntity(JobEntity entity) {
         return fromEntity(entity, 0);
@@ -74,7 +77,10 @@ public record JobResponse(
             entity.getHistoryRetentionRuns(),
             runsCount,
             entity.getJobType(),
-            entity.getParentJobId()
+            entity.getParentJobId(),
+            entity.getSyncMode(),
+            entity.getLastProcessedTxid(),
+            entity.getTxidLag()
         );
     }
 }

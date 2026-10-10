@@ -25,10 +25,18 @@ public class ReplicationScheduler {
 
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
 
-    public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository,
+                                org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
+        this.lockService = lockService;
+    }
+
+    public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository) {
+        this(jobRepository, jobRunRepository, null);
     }
 
     public static Instant computeNextRun(String cronExpr, Instant baseTime) {
@@ -62,8 +70,16 @@ public class ReplicationScheduler {
     }
 
     @Scheduled(fixedDelay = 5000)
-    @Transactional
     public void schedulerTick() {
+        if (lockService != null) {
+            lockService.runWithLock("cron_scheduler_lock", Duration.ofSeconds(8), this::executeScheduledRuns);
+        } else {
+            executeScheduledRuns();
+        }
+    }
+
+    @Transactional
+    public void executeScheduledRuns() {
         Instant now = Instant.now();
         List<JobEntity> dueJobs = jobRepository.findByIsScheduledTrueAndNextRunAtLessThanEqual(now);
 

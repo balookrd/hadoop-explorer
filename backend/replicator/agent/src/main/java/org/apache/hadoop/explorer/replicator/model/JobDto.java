@@ -111,6 +111,30 @@ public class JobDto {
     public Integer getSkippedObjects() { return skippedObjects; }
     public void setSkippedObjects(Integer skippedObjects) { this.skippedObjects = skippedObjects; }
 
+    @JsonProperty("sync_mode")
+    private String syncMode;
+
+    @JsonProperty("sync_deletes")
+    private Boolean syncDeletes;
+
+    @JsonProperty("last_processed_txid")
+    private Long lastProcessedTxid;
+
+    @JsonProperty("txid_lag")
+    private Long txidLag;
+
     public Integer getFailedObjects() { return failedObjects; }
     public void setFailedObjects(Integer failedObjects) { this.failedObjects = failedObjects; }
+
+    public String getSyncMode() { return syncMode != null ? syncMode : "MANUAL"; }
+    public void setSyncMode(String syncMode) { this.syncMode = syncMode; }
+
+    public Boolean isSyncDeletes() { return Boolean.TRUE.equals(syncDeletes); }
+    public void setSyncDeletes(Boolean syncDeletes) { this.syncDeletes = syncDeletes; }
+
+    public Long getLastProcessedTxid() { return lastProcessedTxid; }
+    public void setLastProcessedTxid(Long lastProcessedTxid) { this.lastProcessedTxid = lastProcessedTxid; }
+
+    public Long getTxidLag() { return txidLag; }
+    public void setTxidLag(Long txidLag) { this.txidLag = txidLag; }
 }

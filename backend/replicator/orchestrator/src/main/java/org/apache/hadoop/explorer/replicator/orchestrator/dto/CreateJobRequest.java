@@ -40,7 +40,10 @@ public record CreateJobRequest(
     String jobType,
 
     @JsonProperty("parent_job_id")
-    String parentJobId
+    String parentJobId,
+
+    @JsonProperty("sync_mode")
+    String syncMode
 ) {
     public CreateJobRequest {
         if (sourceClusterId == null) sourceClusterId = "dc1";
@@ -51,6 +54,9 @@ public record CreateJobRequest(
         if (isScheduled == null) isScheduled = false;
         if (historyRetentionRuns == null) historyRetentionRuns = 20;
         if (jobType == null) jobType = "STANDARD";
+        if (syncMode == null) {
+            syncMode = Boolean.TRUE.equals(isScheduled) ? "SCHEDULED" : "MANUAL";
+        }
     }
 
     public CreateJobRequest(
@@ -64,6 +70,23 @@ public record CreateJobRequest(
         Boolean isScheduled,
         String cronExpression
     ) {
-        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, 20, "STANDARD", null);
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, 20, "STANDARD", null, null);
+    }
+
+    public CreateJobRequest(
+        String sourcePath,
+        String targetPath,
+        String sourceClusterId,
+        String targetClusterId,
+        Long totalBytes,
+        String executionPrincipal,
+        Boolean runAsServiceAccount,
+        Boolean isScheduled,
+        String cronExpression,
+        Integer historyRetentionRuns,
+        String jobType,
+        String parentJobId
+    ) {
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType, parentJobId, null);
     }
 }

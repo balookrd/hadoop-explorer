@@ -19,6 +19,12 @@ service DataTransferService {
 
   // Потоковая передача пакета мелких файлов в виде непрерывного виртуального TAR-архива
   rpc TransferTarStream (stream TarStreamRequest) returns (TarStreamResponse);
+
+  // Атомарное переименование файла или директории на целевом узле (Inotify Rename replication)
+  rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
+
+  // Удаление файла или директории на целевом узле (Inotify SyncDelete replication)
+  rpc DeletePath (DeletePathRequest) returns (DeletePathResponse);
 }
 
 // Кодек сжатия данных в канале передачи (Wire Compression)
@@ -273,5 +279,37 @@ message HmsOperationResponse {
   bool success = 2;
   string message = 3;
   int32 affected_count = 4;
+}
+
+// Запрос переименования пути
+message RenamePathRequest {
+  string job_id = 1;
+  string source_path = 2;
+  string target_path = 3;
+  string execution_principal = 4;
+  bool run_as_service_account = 5;
+}
+
+// Ответ о переименовании пути
+message RenamePathResponse {
+  string job_id = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// Запрос удаления пути
+message DeletePathRequest {
+  string job_id = 1;
+  string path = 2;
+  bool recursive = 3;
+  string execution_principal = 4;
+  bool run_as_service_account = 5;
+}
+
+// Ответ об удалении пути
+message DeletePathResponse {
+  string job_id = 1;
+  bool success = 2;
+  string message = 3;
 }
 

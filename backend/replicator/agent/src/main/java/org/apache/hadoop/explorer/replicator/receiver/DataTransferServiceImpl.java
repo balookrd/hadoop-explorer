@@ -545,6 +545,55 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         };
     }
 
+    @Override
+    public void renamePath(RenamePathRequest request, StreamObserver<RenamePathResponse> responseObserver) {
+        String src = request.getSourcePath();
+        String dst = request.getTargetPath();
+        logger.info("[gRPC Receiver] Запрос атомарного переименования: '{}' -> '{}' (job_id={})", src, dst, request.getJobId());
+
+        try {
+            boolean success = fsManager.renameFile(src, dst, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+            responseObserver.onNext(RenamePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(success)
+                    .setMessage(success ? "Путь успешно переименован" : "Не удалось переименовать путь в целевой ФС")
+                    .build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.error("[gRPC Receiver] Ошибка переименования '{}' -> '{}': {}", src, dst, e.getMessage(), e);
+            responseObserver.onNext(RenamePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(false)
+                    .setMessage("Ошибка переименования: " + e.getMessage())
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public void deletePath(DeletePathRequest request, StreamObserver<DeletePathResponse> responseObserver) {
+        String path = request.getPath();
+        logger.info("[gRPC Receiver] Запрос удаления пути: '{}' (recursive={}, job_id={})", path, request.getRecursive(), request.getJobId());
+
+        try {
+            boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+            responseObserver.onNext(DeletePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(success)
+                    .setMessage(success ? "Путь успешно удален" : "Путь не найден или не удален")
+                    .build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.error("[gRPC Receiver] Ошибка удаления '{}': {}", path, e.getMessage(), e);
+            responseObserver.onNext(DeletePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(false)
+                    .setMessage("Ошибка удаления: " + e.getMessage())
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
     public static String combinePaths(String base, String rel) {
         if (base == null || base.isEmpty()) return rel;
         if (rel == null || rel.isEmpty()) return base;

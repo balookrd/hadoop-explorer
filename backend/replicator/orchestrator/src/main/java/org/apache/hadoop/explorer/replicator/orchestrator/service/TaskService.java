@@ -155,6 +155,16 @@ public class TaskService {
         String clusterId = req.getClusterId();
         int limit = req.getLimit() > 0 ? req.getLimit() : 5;
 
+        // Защита и изоляция привилегий: агент в режиме streamer не имеет права забирать пользовательские задачи передачи данных
+        var agentEntry = agentRegistry.getAgent(agentId);
+        if (agentEntry.isPresent() && "streamer".equalsIgnoreCase(agentEntry.get().getMode())) {
+            log.warn("[Security Isolation] Агент-стример '{}' отклонен от забора задач передачи данных", agentId);
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "Агент-стример (" + agentId + ") изолирован и не имеет права исполнять пользовательские задачи передачи данных"
+            );
+        }
+
         // Находим все задачи со статусом QUEUED
         List<TaskEntity> queuedTasks = taskRepository.findByStatus("QUEUED");
         if (queuedTasks.isEmpty()) {

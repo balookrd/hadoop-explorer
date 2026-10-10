@@ -6,6 +6,9 @@
 3. **Docker & Docker Compose** (Контейнеризированный запуск компонентов)
 4. **Kubernetes** (Промышленное развертывание в K8s)
 
+> [!NOTE]
+> Архитектура высокой доступности (HA), распределенного лизинга и матрица отказоустойчивости всех компонентов подробно описана в документе: [Руководство по отказоустойчивости (replicator-fault-tolerance.md)](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/replicator-fault-tolerance.md).
+
 ---
 
 ## 1. Архитектура и сетевая топология

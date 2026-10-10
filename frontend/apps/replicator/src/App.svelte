@@ -10,6 +10,8 @@
     DatacenterInfo,
     TopologyData,
     AgentInfo,
+    StreamingLeaseStatus,
+    SyncMode,
   } from './types';
   import {
     ArrowLeftRight,
@@ -23,6 +25,7 @@
     Check,
     AlertCircle,
     Activity,
+    Radio,
     Layers,
     Gauge,
     HardDrive,
@@ -57,9 +60,19 @@
   let registeredAgents = $state<AgentInfo[]>([]);
   let agentsLoading = $state(false);
 
+  const onlineStreamers = $derived(
+    registeredAgents.filter((a) => a.mode === 'streamer' && a.status === 'online')
+  );
+
+  let streamingLease = $state<StreamingLeaseStatus | null>(null);
+  let streamingLeases = $state<Record<string, StreamingLeaseStatus>>({});
+  let streamingLeaseLoading = $state(false);
+
   let topology = $state<TopologyData | null>(null);
   let topologyLoading = $state(false);
   let topologyStatusMsg = $state<string | null>(null);
+
+  const isStreamingAvailable = $derived(topology?.streaming_enabled ?? false);
 
   // Локальные значения для редактирования лимитов
   let globalLimitMb = $state<number>(100);
@@ -74,6 +87,7 @@
   let newJobSourcePath = $state('/data/production/events/2026-10');
   let newJobTargetPath = $state('/backup/mirror/events/2026-10');
   let newJobImpersonationUser = $state('');
+  let newJobSyncMode = $state<SyncMode>('MANUAL');
   let newJobIsScheduled = $state(false);
   let newJobCronPreset = $state('@every_5m');
   let newJobHistoryRetention = $state<number>(20);
@@ -139,6 +153,7 @@
     scheduled: jobs.filter((j) => j.status === 'SCHEDULED').length,
     completed: jobs.filter((j) => j.status === 'COMPLETED').length,
     failed: jobs.filter((j) => j.status === 'FAILED').length,
+    streaming: jobs.filter((j) => j.status === 'STREAMING' || j.sync_mode === 'STREAMING_INOTIFY').length,
   });
 
   // Фильтрация и поиск задач
@@ -155,8 +170,14 @@
   const filteredJobs = $derived(
     jobs.filter((job) => {
       // Фильтр по статусу
-      if (selectedStatus !== 'ALL' && job.status !== selectedStatus) {
-        return false;
+      if (selectedStatus !== 'ALL') {
+        if (selectedStatus === 'STREAMING') {
+          if (job.status !== 'STREAMING' && job.sync_mode !== 'STREAMING_INOTIFY') {
+            return false;
+          }
+        } else if (job.status !== selectedStatus) {
+          return false;
+        }
       }
       // Фильтр по автору
       if (selectedAuthor !== 'ALL' && job.created_by !== selectedAuthor) {
@@ -304,13 +325,30 @@
     }
   }
 
+  // Загрузка статуса стриминговой аренды по всем кластерам (DC1, DC2, ...)
+  async function loadStreamingStatus() {
+    if (!user) return;
+    streamingLeaseLoading = true;
+    try {
+      const map = await api.getStreamingLeaseStatuses();
+      streamingLeases = map || {};
+      streamingLease = (map && (map['dc1'] || Object.values(map)[0])) || null;
+    } catch (e) {
+      console.error('Ошибка загрузки статуса аренды стриминга:', e);
+    } finally {
+      streamingLeaseLoading = false;
+    }
+  }
+
   async function loadInitialData() {
-    await Promise.all([loadJobs(), loadTopology(), loadAgents()]);
+    await Promise.all([loadJobs(), loadTopology(), loadAgents(), loadStreamingStatus()]);
   }
 
   // Открытие модалки создания задачи
   function openCreateModal() {
     newJobImpersonationUser = user?.username || '';
+    newJobSyncMode = 'MANUAL';
+    newJobIsScheduled = false;
     createJobError = null;
     isCreateModalOpen = true;
   }
@@ -326,6 +364,7 @@
         ? newJobImpersonationUser.trim()
         : (user?.username || 'writer_user');
       const executionPrincipal = chosenUser.includes('@') ? chosenUser : `${chosenUser}@REALM.LOCAL`;
+      const isScheduled = newJobSyncMode === 'SCHEDULED';
 
       const payload: any = {
         source_cluster_id: newJobSourceCluster,
@@ -334,11 +373,12 @@
         target_path: newJobTargetPath.trim(),
         run_as_service_account: false,
         execution_principal: executionPrincipal,
-        is_scheduled: newJobIsScheduled,
+        is_scheduled: isScheduled,
+        sync_mode: newJobSyncMode,
         history_retention_runs: Number(newJobHistoryRetention) || 20,
       };
 
-      if (newJobIsScheduled) {
+      if (isScheduled) {
         payload.cron_expression = newJobCronPreset;
       }
 
@@ -678,6 +718,7 @@
           loadJobs();
         } else if (activeTab === 'topology') {
           loadAgents();
+          loadStreamingStatus();
         }
       }
     }, 3000);
@@ -764,7 +805,7 @@
         <!-- Верхняя панель: Статистика и Кнопка создания -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <!-- Карточки статистики (с интерактивным фильтром статуса) -->
-          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-1">
+          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 flex-1">
             <button
               type="button"
               onclick={() => (selectedStatus = 'ALL')}
@@ -807,6 +848,22 @@
             >
               <span class="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 block">По расписанию</span>
               <span class="text-xl font-bold text-indigo-600 dark:text-indigo-400">{stats.scheduled}</span>
+            </button>
+
+            <button
+              type="button"
+              onclick={() => toggleStatusFilter('STREAMING')}
+              class="p-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs hover:shadow-xs {selectedStatus === 'STREAMING'
+                ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-400 dark:border-purple-600 ring-2 ring-purple-500/30'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-purple-300 dark:hover:border-purple-800'}"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-medium text-purple-600 dark:text-purple-400 block">Live Inotify</span>
+                {#if stats.streaming > 0}
+                  <span class="w-2 h-2 rounded-full bg-purple-500 animate-pulse" title="Активный поток HDFS событий"></span>
+                {/if}
+              </div>
+              <span class="text-xl font-bold text-purple-600 dark:text-purple-400">{stats.streaming}</span>
             </button>
 
             <button
@@ -903,6 +960,7 @@
                   <option value="RUNNING">В работе ({stats.running})</option>
                   <option value="QUEUED">В очереди ({stats.queued})</option>
                   <option value="SCHEDULED">По расписанию ({stats.scheduled})</option>
+                  <option value="STREAMING">Live Inotify ({stats.streaming})</option>
                   <option value="COMPLETED">Завершено ({stats.completed})</option>
                   <option value="FAILED">Ошибки ({stats.failed})</option>
                   <option value="CANCELLED">Отменено ({jobs.filter((j) => j.status === 'CANCELLED').length})</option>
@@ -1013,6 +1071,12 @@
                             {job.cron_expression || 'cron'}
                           </span>
                         {/if}
+                        {#if job.sync_mode === 'STREAMING_INOTIFY' || job.status === 'STREAMING'}
+                          <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 ml-1" title="Потоковая репликация HDFS Inotify (Near-Zero RPO)">
+                            <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                            Inotify
+                          </span>
+                        {/if}
                       </td>
 
                       <!-- Маршрут -->
@@ -1055,20 +1119,42 @@
 
                       <!-- Прогресс -->
                       <td class="py-3.5 px-4">
-                        <div class="flex items-center justify-between text-[11px] font-semibold mb-1">
-                          <span class="{job.status === 'FAILED' ? 'text-rose-600 dark:text-rose-400' : job.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'} font-mono">
-                            {getProgressPercent(job)}%
-                          </span>
-                          <span class="text-slate-400 font-mono text-[10px]">
-                            {formatBytes(job.copied_bytes)} / {formatBytes(job.total_bytes)}
-                          </span>
-                        </div>
-                        <div class="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden shadow-inner">
-                          <div
-                            class="h-full rounded-full transition-all duration-300 {job.status === 'FAILED' ? 'bg-rose-500' : job.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-gradient-to-r from-sky-500 to-indigo-500'}"
-                            style="width: {getProgressPercent(job)}%"
-                          ></div>
-                        </div>
+                        {#if job.sync_mode === 'STREAMING_INOTIFY' || job.status === 'STREAMING'}
+                          <div class="p-2 rounded-lg bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 space-y-1">
+                            <div class="flex items-center justify-between text-[11px] font-semibold">
+                              <span class="text-purple-700 dark:text-purple-300 flex items-center gap-1 font-mono">
+                                <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                                Live Sync
+                              </span>
+                              <span class="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                                TxID: {job.last_processed_txid ?? 0}
+                              </span>
+                            </div>
+                            <div class="flex items-center justify-between text-[10px]">
+                              <span class="text-slate-400">Лаг событий:</span>
+                              {#if (job.txid_lag ?? 0) === 0}
+                                <span class="font-mono font-semibold text-emerald-600 dark:text-emerald-400">0 tx (In-sync)</span>
+                              {:else}
+                                <span class="font-mono font-semibold text-amber-600 dark:text-amber-400">+{job.txid_lag} tx</span>
+                              {/if}
+                            </div>
+                          </div>
+                        {:else}
+                          <div class="flex items-center justify-between text-[11px] font-semibold mb-1">
+                            <span class="{job.status === 'FAILED' ? 'text-rose-600 dark:text-rose-400' : job.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'} font-mono">
+                              {getProgressPercent(job)}%
+                            </span>
+                            <span class="text-slate-400 font-mono text-[10px]">
+                              {formatBytes(job.copied_bytes)} / {formatBytes(job.total_bytes)}
+                            </span>
+                          </div>
+                          <div class="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden shadow-inner">
+                            <div
+                              class="h-full rounded-full transition-all duration-300 {job.status === 'FAILED' ? 'bg-rose-500' : job.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-gradient-to-r from-sky-500 to-indigo-500'}"
+                              style="width: {getProgressPercent(job)}%"
+                            ></div>
+                          </div>
+                        {/if}
 
                         <!-- Детализация таймингов и скорости передачи -->
                         <div class="mt-2 space-y-1 text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-1.5">
@@ -1124,7 +1210,14 @@
 
                       <!-- Статус -->
                       <td class="py-3.5 px-4">
-                        <StatusBadge status={job.status} />
+                        {#if job.status === 'STREAMING'}
+                          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            <span class="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                            STREAMING
+                          </span>
+                        {:else}
+                          <StatusBadge status={job.status} />
+                        {/if}
                         {#if job.error_message}
                           <div class="text-[10px] text-rose-500 truncate max-w-[150px] mt-0.5" title={job.error_message}>
                             {job.error_message}
@@ -1469,6 +1562,41 @@
             Агенты динамически регистрируются на Оркестраторе при старте, передают свой внешний gRPC адрес и подтверждают жизнеспособность через keepalive-пинги (таймаут 15 сек).
           </p>
 
+          <!-- Баннер отказоустойчивости Inotify Streamers (HA) -->
+          {#if topology?.streaming_enabled || onlineStreamers.length > 0}
+            {#if onlineStreamers.length < 2}
+              <div class="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300">
+                <AlertCircle class="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <div class="space-y-0.5">
+                  <div class="font-bold flex items-center gap-1.5">
+                    <span>Предупреждение отказоустойчивости стриминга (NO_REDUNDANCY)</span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200">
+                      Онлайн: {onlineStreamers.length} из 2 требуемых
+                    </span>
+                  </div>
+                  <p class="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                    Для обеспечения отказоустойчивости потоковой репликации HDFS Inotify и автоматического failover запустите как минимум 2 экземпляра стримера (<code class="font-mono">AGENT_MODE=streamer</code>).
+                  </p>
+                </div>
+              </div>
+            {:else}
+              <div class="mb-4 p-3 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+                <div class="flex items-center gap-2.5">
+                  <Shield class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div>
+                    <span class="font-bold">Высокая доступность Inotify Streamers (HA): Active-Standby кластер активен</span>
+                    <span class="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 block">
+                      Онлайн: {onlineStreamers.length} стримера в кластерах ({Object.keys(streamingLeases).join(', ') || 'dc1'}) · Готовность к прямому потоку и обратной синхронизации при Failover
+                    </span>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                  HEALTHY HA
+                </span>
+              </div>
+            {/if}
+          {/if}
+
           {#if registeredAgents.length === 0}
             <div class="py-8 text-center text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
               Нет активных зарегистрированных агентов. При запуске агенты `backend.replicator.agent` автоматически появятся здесь.
@@ -1478,10 +1606,28 @@
               {#each registeredAgents as agent}
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-3 shadow-2xs">
                   <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
+                    <div class="flex flex-col">
                       <span class="font-mono font-bold text-xs text-slate-800 dark:text-slate-200">
                         {agent.agent_id}
                       </span>
+                      {#if agent.mode === 'streamer'}
+                        {@const agentClusterLease = streamingLeases[agent.cluster_id || 'dc1'] || streamingLease}
+                        <div class="flex items-center gap-1.5 mt-1">
+                          <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                            <Radio class="w-2.5 h-2.5 text-purple-600 dark:text-purple-400" />
+                            <span>Inotify Streamer</span>
+                          </span>
+                          {#if (agentClusterLease?.active_agent_id || agentClusterLease?.active_streamer_id) === agent.agent_id}
+                            <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                              ACTIVE (Ep {agentClusterLease?.epoch ?? 1})
+                            </span>
+                          {:else}
+                            <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-medium bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                              STANDBY
+                            </span>
+                          {/if}
+                        </div>
+                      {/if}
                     </div>
                     {#if agent.status === 'online'}
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
@@ -1514,7 +1660,11 @@
                     <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
                       <span class="text-slate-400">Режим / Нагрузка:</span>
                       <span class="font-mono">
-                        {agent.mode} (активно: {agent.active_transfers})
+                        {#if agent.mode === 'streamer'}
+                          <span class="text-purple-600 dark:text-purple-400 font-semibold">Streamer (изолирован от задач)</span>
+                        {:else}
+                          {agent.mode} (активно: {agent.active_transfers})
+                        {/if}
                       </span>
                     </div>
                     <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
@@ -1683,22 +1833,74 @@
             </div>
           </div>
 
-          <!-- Планировщик периодических задач (Cron Scheduler) -->
-          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2.5">
-            <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                bind:checked={newJobIsScheduled}
-                class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-              />
-              <span class="flex items-center gap-1.5">
-                <Calendar class="w-3.5 h-3.5 text-indigo-500" />
-                Запуск по расписанию (Шедулер)
-              </span>
-            </label>
+          <!-- Режим синхронизации (Sync Mode) -->
+          <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-3">
+            <div>
+              <span class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Режим синхронизации</span>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Выберите способ запуска и частоту репликации данных</p>
+            </div>
 
-            {#if newJobIsScheduled}
-              <div class="space-y-1.5 pt-1">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <!-- Режим 1: Ручной -->
+              <label class="flex flex-col p-2.5 rounded-xl border cursor-pointer transition select-none {newJobSyncMode === 'MANUAL'
+                ? 'bg-sky-50/70 dark:bg-sky-950/50 border-sky-400 dark:border-sky-600 ring-1 ring-sky-500/30'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'}">
+                <div class="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="sync_mode"
+                    value="MANUAL"
+                    bind:group={newJobSyncMode}
+                    class="text-sky-600 focus:ring-sky-500"
+                  />
+                  <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Ручной запуск</span>
+                </div>
+                <span class="text-[10px] text-slate-500">Однократная репликация по кнопке Play</span>
+              </label>
+
+              <!-- Режим 2: По расписанию (Cron) -->
+              <label class="flex flex-col p-2.5 rounded-xl border cursor-pointer transition select-none {newJobSyncMode === 'SCHEDULED'
+                ? 'bg-indigo-50/70 dark:bg-indigo-950/50 border-indigo-400 dark:border-indigo-600 ring-1 ring-indigo-500/30'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'}">
+                <div class="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="sync_mode"
+                    value="SCHEDULED"
+                    bind:group={newJobSyncMode}
+                    class="text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span class="text-xs font-bold text-slate-800 dark:text-slate-200">По расписанию</span>
+                </div>
+                <span class="text-[10px] text-slate-500">Cron-шедулер оркестратора</span>
+              </label>
+
+              <!-- Режим 3: Потоковый Inotify -->
+              <label class="flex flex-col p-2.5 rounded-xl border transition select-none {isStreamingAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} {newJobSyncMode === 'STREAMING_INOTIFY'
+                ? 'bg-purple-50/70 dark:bg-purple-950/50 border-purple-400 dark:border-purple-600 ring-1 ring-purple-500/30'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'}">
+                <div class="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="sync_mode"
+                    value="STREAMING_INOTIFY"
+                    disabled={!isStreamingAvailable}
+                    bind:group={newJobSyncMode}
+                    class="text-purple-600 focus:ring-purple-500 disabled:opacity-50"
+                  />
+                  <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                    <span>Live Inotify</span>
+                    <span class="text-[9px] px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono">Near-0 RPO</span>
+                  </span>
+                </div>
+                <span class="text-[10px] text-slate-500">
+                  {isStreamingAvailable ? 'Потоковое чтение событий NameNode' : 'Отключено (streaming.enabled=false)'}
+                </span>
+              </label>
+            </div>
+
+            {#if newJobSyncMode === 'SCHEDULED'}
+              <div class="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-800">
                 <label class="block text-[11px] font-medium text-slate-500">Интервал повторения:</label>
                 <select
                   bind:value={newJobCronPreset}
@@ -1709,6 +1911,16 @@
                   <option value="@hourly">Каждый час (@hourly / 0 * * * *)</option>
                   <option value="@daily">Раз в сутки в полночь (@daily / 0 0 * * *)</option>
                 </select>
+              </div>
+            {:else if newJobSyncMode === 'STREAMING_INOTIFY'}
+              <div class="p-2.5 rounded-lg bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40 text-[11px] text-purple-800 dark:text-purple-300 space-y-1">
+                <div class="font-semibold flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                  <span>Режим непрерывного потока HDFS EditLog (Near-Zero RPO)</span>
+                </div>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400">
+                  Стример перехватывает операции Create/Close/Rename в реальном времени. Временные staging-каталоги игнорируются до финального перемещения.
+                </p>
               </div>
             {/if}
           </div>

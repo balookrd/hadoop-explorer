@@ -105,6 +105,10 @@ public class HadoopFsManager {
         return conf;
     }
 
+    public FileSystem getFileSystem() throws IOException {
+        return FileSystem.get(conf);
+    }
+
     public String getServicePrincipal() {
         return servicePrincipal;
     }
@@ -848,9 +852,13 @@ public class HadoopFsManager {
     }
 
     /**
-     * Удаление файла в HDFS или локальной ФС.
+     * Удаление файла или директории в HDFS или локальной ФС.
      */
     public boolean deletePath(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        return deletePath(pathStr, true, executionPrincipal, runAsServiceAccount);
+    }
+
+    public boolean deletePath(String pathStr, boolean recursive, String executionPrincipal, boolean runAsServiceAccount) {
         boolean targetIsHdfs = pathStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(pathStr));
         if (targetIsHdfs) {
             try {
@@ -858,7 +866,7 @@ public class HadoopFsManager {
                 return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
                     Path p = new Path(pathStr);
                     FileSystem fs = p.getFileSystem(conf);
-                    return fs.delete(p, true);
+                    return fs.delete(p, recursive);
                 });
             } catch (Exception e) {
                 logger.debug("Не удалось удалить HDFS путь {}: {}", pathStr, e.getMessage());
@@ -867,6 +875,10 @@ public class HadoopFsManager {
         try {
             File f = new File(pathStr);
             if (f.exists()) {
+                if (f.isDirectory() && recursive) {
+                    org.apache.commons.io.FileUtils.deleteDirectory(f);
+                    return true;
+                }
                 return f.delete();
             }
         } catch (Exception ignored) {}

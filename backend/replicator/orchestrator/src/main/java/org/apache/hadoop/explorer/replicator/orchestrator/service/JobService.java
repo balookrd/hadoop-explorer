@@ -12,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.ReplicationS
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
@@ -29,11 +30,19 @@ public class JobService {
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
     private final TaskRepository taskRepository;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
 
-    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository) {
+    @Autowired
+    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository,
+                      org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.taskRepository = taskRepository;
+        this.properties = properties != null ? properties : new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties();
+    }
+
+    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository) {
+        this(jobRepository, jobRunRepository, taskRepository, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties());
     }
 
     @PostConstruct
@@ -277,19 +286,47 @@ public class JobService {
         entity.setExecutionPrincipal(req.executionPrincipal());
         entity.setRunAsServiceAccount(req.runAsServiceAccount());
         entity.setCreatedBy(username != null ? username : "system_operator");
-        entity.setScheduled(req.isScheduled());
-        entity.setCronExpression(req.cronExpression());
-        entity.setJobType(req.jobType() != null ? req.jobType() : "STANDARD");
-        entity.setParentJobId(req.parentJobId());
-        if (req.historyRetentionRuns() != null) {
-            entity.setHistoryRetentionRuns(req.historyRetentionRuns());
-        }
 
-        if (req.isScheduled()) {
+        String syncMode = req.syncMode() != null ? req.syncMode().toUpperCase() :
+            (Boolean.TRUE.equals(req.isScheduled()) ? "SCHEDULED" : "MANUAL");
+
+        if ("STREAMING_INOTIFY".equalsIgnoreCase(syncMode)) {
+            if (!properties.getStreaming().isEnabled()) {
+                throw new IllegalArgumentException(
+                    "Потоковая репликация через HDFS Inotify отключена в конфигурации оркестратора " +
+                    "(hadoop.replicator.streaming.enabled=false). Обратитесь к администратору платформы."
+                );
+            }
+            entity.setSyncMode("STREAMING_INOTIFY");
+            entity.setScheduled(false);
+            entity.setStatus("STREAMING");
+            entity.setMessage("Потоковая репликация HDFS Inotify активна");
+            entity.setJobType(req.jobType() != null ? req.jobType() : "STANDARD");
+            entity.setParentJobId(req.parentJobId());
+            if (req.historyRetentionRuns() != null) {
+                entity.setHistoryRetentionRuns(req.historyRetentionRuns());
+            }
+            jobRepository.save(entity);
+        } else if (req.isScheduled()) {
+            entity.setSyncMode("SCHEDULED");
+            entity.setScheduled(true);
+            entity.setCronExpression(req.cronExpression());
+            entity.setJobType(req.jobType() != null ? req.jobType() : "STANDARD");
+            entity.setParentJobId(req.parentJobId());
+            if (req.historyRetentionRuns() != null) {
+                entity.setHistoryRetentionRuns(req.historyRetentionRuns());
+            }
             entity.setStatus("SCHEDULED");
             entity.setNextRunAt(ReplicationScheduler.computeNextRun(req.cronExpression(), Instant.now()));
             jobRepository.save(entity);
         } else {
+            entity.setSyncMode("MANUAL");
+            entity.setScheduled(false);
+            entity.setJobType(req.jobType() != null ? req.jobType() : "STANDARD");
+            entity.setParentJobId(req.parentJobId());
+            if (req.historyRetentionRuns() != null) {
+                entity.setHistoryRetentionRuns(req.historyRetentionRuns());
+            }
             entity.setStatus("QUEUED");
             jobRepository.saveAndFlush(entity);
 
@@ -311,8 +348,8 @@ public class JobService {
             jobRepository.save(entity);
         }
 
-        log.info("Created replication job: id={}, type={}, parent={}, src={}, dst={}, author={}",
-            id, entity.getJobType(), entity.getParentJobId(), req.sourcePath(), req.targetPath(), entity.getCreatedBy());
+        log.info("Created replication job: id={}, type={}, syncMode={}, parent={}, src={}, dst={}, author={}",
+            id, entity.getJobType(), entity.getSyncMode(), entity.getParentJobId(), req.sourcePath(), req.targetPath(), entity.getCreatedBy());
         return JobResponse.fromEntity(entity, jobRunRepository.countByJobId(id));
     }
 

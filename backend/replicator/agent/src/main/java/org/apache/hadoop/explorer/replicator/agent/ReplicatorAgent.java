@@ -54,6 +54,7 @@ public class ReplicatorAgent {
     private ScheduledExecutorService stagingCleanupExecutor;
     private Thread senderThread;
     private DataTransferServiceImpl receiverService;
+    private org.apache.hadoop.explorer.replicator.inotify.HdfsInotifyListener inotifyListener;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger activeTransfers = new AtomicInteger(0);
@@ -150,8 +151,16 @@ public class ReplicatorAgent {
         }
 
         // 4. Фоновый сборщик мусора HDFS staging-файлов
-        if (config.isStagingCleanupEnabled()) {
+        if (config.isStagingCleanupEnabled() && !"streamer".equalsIgnoreCase(config.getMode())) {
             startStagingCleaner();
+        }
+
+        // 5. HDFS Inotify Streamer Loop (Near-Zero RPO)
+        if ("streamer".equalsIgnoreCase(config.getMode()) || "all".equalsIgnoreCase(config.getMode())) {
+            this.inotifyListener = new org.apache.hadoop.explorer.replicator.inotify.HdfsInotifyListener(
+                    config, orchestratorClient, fsManager
+            );
+            this.inotifyListener.start();
         }
     }
 
@@ -484,11 +493,19 @@ public class ReplicatorAgent {
             logger.info("gRPC Receiver сервер остановлен");
         }
 
+        if (inotifyListener != null) {
+            inotifyListener.stop();
+        }
+
         logger.info("Replicator Agent '{}' успешно остановлен", config.getAgentId());
     }
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    public org.apache.hadoop.explorer.replicator.inotify.HdfsInotifyListener getInotifyListener() {
+        return inotifyListener;
     }
 
     public ReplicatorAgentConfig getConfig() {

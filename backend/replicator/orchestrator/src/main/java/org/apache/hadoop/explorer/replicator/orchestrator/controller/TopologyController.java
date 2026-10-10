@@ -16,10 +16,18 @@ public class TopologyController {
 
     private final TopologyRegistry topologyRegistry;
     private final TokenBucketThrottler throttler;
+    private final ReplicatorProperties properties;
 
-    public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler,
+                              ReplicatorProperties properties) {
         this.topologyRegistry = topologyRegistry;
         this.throttler = throttler;
+        this.properties = properties != null ? properties : new ReplicatorProperties();
+    }
+
+    public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler) {
+        this(topologyRegistry, throttler, new ReplicatorProperties());
     }
 
     @GetMapping("/api/v1/clusters")
@@ -36,13 +44,15 @@ public class TopologyController {
     public ResponseEntity<TopologyResponse> getTopology() {
         double globalLimitBytes = throttler.getGlobalLimit();
         double globalLimitMb = Math.round((globalLimitBytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
+        boolean streamingEnabled = properties.getStreaming() != null && properties.getStreaming().isEnabled();
         TopologyResponse response = new TopologyResponse(
             topologyRegistry.getDatacenters(),
             topologyRegistry.getClusters(),
             globalLimitBytes,
             globalLimitMb,
             topologyRegistry.getDcLimitsList(),
-            topologyRegistry.getHdfsLimitsList()
+            topologyRegistry.getHdfsLimitsList(),
+            streamingEnabled
         );
         return ResponseEntity.ok(response);
     }

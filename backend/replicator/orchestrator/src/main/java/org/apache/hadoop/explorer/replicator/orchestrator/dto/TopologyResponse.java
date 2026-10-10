@@ -12,8 +12,20 @@ public record TopologyResponse(
     @JsonProperty("global_limit_bytes_per_sec") double globalLimitBytesPerSec,
     @JsonProperty("global_limit_mb_per_sec") double globalLimitMbPerSec,
     @JsonProperty("dc_limits") List<DcLimitDto> dcLimits,
-    @JsonProperty("hdfs_limits") List<HdfsLimitDto> hdfsLimits
+    @JsonProperty("hdfs_limits") List<HdfsLimitDto> hdfsLimits,
+    @JsonProperty("streaming_enabled") boolean streamingEnabled
 ) {
+
+    public TopologyResponse(
+        List<ReplicatorProperties.DatacenterConfig> datacenters,
+        List<ClusterDto> clusters,
+        double globalLimitBytesPerSec,
+        double globalLimitMbPerSec,
+        List<DcLimitDto> dcLimits,
+        List<HdfsLimitDto> hdfsLimits
+    ) {
+        this(datacenters, clusters, globalLimitBytesPerSec, globalLimitMbPerSec, dcLimits, hdfsLimits, false);
+    }
 
     public record DcLimitDto(
         @JsonProperty("source_dc") String sourceDc,
