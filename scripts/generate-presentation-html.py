@@ -1,4 +1,12 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+"""
+Скрипт генерации интерактивной HTML-презентации docs/replicator-presentation.html
+на 13 слайдов с архитектурной схемой развертывания и сетевого трафика.
+"""
+
+import os
+
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -1272,3 +1280,14 @@
   </script>
 </body>
 </html>
+"""
+
+def main():
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    target_path = os.path.join(base_dir, "docs", "replicator-presentation.html")
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(HTML_TEMPLATE)
+    print(f"✅ Успешно сгенерирован HTML слайд-дек: {target_path}")
+
+if __name__ == "__main__":
+    main()

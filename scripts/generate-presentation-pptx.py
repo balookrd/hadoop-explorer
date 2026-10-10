@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Скрипт генерации корпоративной презентации PowerPoint (.pptx)
-для сервиса Hadoop gRPC Replicator на основе материалов docs/replicator-presentation.md.
+Скрипт генерации архитектурной презентации PowerPoint (.pptx)
+для сервиса Hadoop gRPC Replicator с фокусом на:
+- «Что ставится куда» (Deployment Topology)
+- «Как ходит трафик» (Network Flows & Protocols)
 """
 
 import os
@@ -26,7 +28,7 @@ ACCENT_RED = RGBColor(239, 68, 68)       # #EF4444 красный
 TABLE_HEADER_BG = RGBColor(30, 41, 59)   # #1E293B заголовок таблицы
 TABLE_ROW_ALT = RGBColor(17, 24, 39)     # #111827 альт. строка
 
-TOTAL_SLIDES = 18
+TOTAL_SLIDES = 13
 
 def set_shape_bg(shape, color, border_color=None, border_width=Pt(1)):
     shape.fill.solid()
@@ -41,17 +43,16 @@ def create_base_slide(prs, slide_num, category, title, description):
     slide_layout = prs.slide_layouts[6] # пустой макет
     slide = prs.slides.add_slide(slide_layout)
 
-    # 1. Заливка фона во весь слайд
+    # 1. Заливка фона
     bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
     set_shape_bg(bg, BG_COLOR)
 
-    # 2. Верхний колонтитул / заголовок
-    header_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.4), Inches(11.733), Inches(1.3))
+    # 2. Верхний колонтитул
+    header_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.35), Inches(11.733), Inches(1.3))
     tf = header_box.text_frame
     tf.word_wrap = True
     tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
 
-    # Категория
     p_cat = tf.paragraphs[0]
     p_cat.text = category.upper()
     p_cat.font.size = Pt(10)
@@ -59,28 +60,26 @@ def create_base_slide(prs, slide_num, category, title, description):
     p_cat.font.color.rgb = ACCENT_CYAN
     p_cat.space_after = Pt(2)
 
-    # Заголовок слайда
     p_title = tf.add_paragraph()
     p_title.text = title
-    p_title.font.size = Pt(22)
+    p_title.font.size = Pt(21)
     p_title.font.bold = True
     p_title.font.color.rgb = TEXT_WHITE
-    p_title.space_after = Pt(4)
+    p_title.space_after = Pt(3)
 
-    # Подзаголовок / описание
     if description:
         p_desc = tf.add_paragraph()
         p_desc.text = description
-        p_desc.font.size = Pt(11)
+        p_desc.font.size = Pt(10.5)
         p_desc.font.color.rgb = TEXT_MUTED
 
     # 3. Нижний колонтитул
-    footer_box = slide.shapes.add_textbox(Inches(0.8), Inches(7.0), Inches(11.733), Inches(0.4))
+    footer_box = slide.shapes.add_textbox(Inches(0.8), Inches(7.05), Inches(11.733), Inches(0.35))
     ftf = footer_box.text_frame
     ftf.word_wrap = True
     ftf.margin_left = ftf.margin_top = ftf.margin_right = ftf.margin_bottom = 0
     p_foot = ftf.paragraphs[0]
-    p_foot.text = "Hadoop Explorer Platform • Hadoop gRPC Replicator"
+    p_foot.text = "Hadoop Explorer Platform • Архитектура развертывания и сетевой трафик"
     p_foot.font.size = Pt(9)
     p_foot.font.color.rgb = RGBColor(100, 116, 139)
 
@@ -91,8 +90,8 @@ def create_base_slide(prs, slide_num, category, title, description):
     p_num.font.bold = True
     p_num.font.color.rgb = ACCENT_CYAN
 
-    # Тонкая линия разделителя внизу
-    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(6.9), Inches(11.733), Pt(1))
+    # Линия разделителя внизу
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(6.95), Inches(11.733), Pt(1))
     set_shape_bg(line, RGBColor(30, 41, 59))
 
     return slide
@@ -101,12 +100,11 @@ def add_card(slide, left, top, width, height, title, items, top_border_color=Non
     card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
     set_shape_bg(card, CARD_BG, CARD_BORDER, Pt(1))
 
-    # Верхняя цветная полоска акцента, если задана
     if top_border_color:
         accent_strip = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, Pt(3))
         set_shape_bg(accent_strip, top_border_color)
 
-    tb = slide.shapes.add_textbox(left + Inches(0.2), top + Inches(0.2), width - Inches(0.4), height - Inches(0.4))
+    tb = slide.shapes.add_textbox(left + Inches(0.2), top + Inches(0.18), width - Inches(0.4), height - Inches(0.36))
     tf = tb.text_frame
     tf.word_wrap = True
     tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
@@ -114,10 +112,10 @@ def add_card(slide, left, top, width, height, title, items, top_border_color=Non
     if title:
         p_title = tf.paragraphs[0]
         p_title.text = title
-        p_title.font.size = Pt(13)
+        p_title.font.size = Pt(12)
         p_title.font.bold = True
         p_title.font.color.rgb = TEXT_WHITE
-        p_title.space_after = Pt(8)
+        p_title.space_after = Pt(6)
         first_item = True
     else:
         first_item = False
@@ -126,38 +124,36 @@ def add_card(slide, left, top, width, height, title, items, top_border_color=Non
         p = tf.add_paragraph() if (title or not first_item) else tf.paragraphs[0]
         first_item = False
         p.text = f"• {item}"
-        p.font.size = Pt(10.5)
+        p.font.size = Pt(9.8)
         p.font.color.rgb = TEXT_MUTED
-        p.space_after = Pt(5)
+        p.space_after = Pt(4)
 
-def add_image_card(slide, left, top, width, height, image_path, caption):
-    # Рамка для картинки
+def add_image_card(slide, left, top, width, height, image_path, caption=None):
     frame = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
     set_shape_bg(frame, RGBColor(15, 23, 42), CARD_BORDER, Pt(1))
 
     if os.path.exists(image_path):
-        caption_height = Inches(0.35)
+        caption_height = Inches(0.3) if caption else 0
         img_top = top + Inches(0.08)
-        img_height = height - caption_height - Inches(0.12)
         img_left = left + Inches(0.08)
         img_width = width - Inches(0.16)
 
         try:
             slide.shapes.add_picture(image_path, img_left, img_top, width=img_width)
         except Exception as e:
-            print(f"Предупреждение: ошибка загрузки {image_path}: {e}")
+            print(f"Ошибка загрузки картинки {image_path}: {e}")
 
-        # Подпись снизу
-        tb = slide.shapes.add_textbox(left, top + height - caption_height, width, caption_height)
-        tf = tb.text_frame
-        tf.word_wrap = True
-        tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
-        p = tf.paragraphs[0]
-        p.text = caption
-        p.alignment = PP_ALIGN.CENTER
-        p.font.size = Pt(9)
-        p.font.italic = True
-        p.font.color.rgb = TEXT_MUTED
+        if caption:
+            tb = slide.shapes.add_textbox(left, top + height - caption_height, width, caption_height)
+            tf = tb.text_frame
+            tf.word_wrap = True
+            tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
+            p = tf.paragraphs[0]
+            p.text = caption
+            p.alignment = PP_ALIGN.CENTER
+            p.font.size = Pt(8.5)
+            p.font.italic = True
+            p.font.color.rgb = TEXT_MUTED
 
 def add_table_custom(slide, left, top, width, height, headers, rows, col_widths=None):
     num_rows = len(rows) + 1
@@ -169,7 +165,6 @@ def add_table_custom(slide, left, top, width, height, headers, rows, col_widths=
         for idx, w in enumerate(col_widths):
             table.columns[idx].width = w
 
-    # Заголовок
     for col_idx, h_text in enumerate(headers):
         cell = table.cell(0, col_idx)
         cell.fill.solid()
@@ -178,10 +173,9 @@ def add_table_custom(slide, left, top, width, height, headers, rows, col_widths=
         p = cell.text_frame.paragraphs[0]
         p.text = h_text
         p.font.bold = True
-        p.font.size = Pt(10.5)
+        p.font.size = Pt(10)
         p.font.color.rgb = ACCENT_CYAN
 
-    # Строки данных
     for row_idx, row_data in enumerate(rows):
         bg = TABLE_ROW_ALT if row_idx % 2 == 1 else CARD_BG
         for col_idx, val in enumerate(row_data):
@@ -191,7 +185,7 @@ def add_table_custom(slide, left, top, width, height, headers, rows, col_widths=
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             p = cell.text_frame.paragraphs[0]
             p.text = val
-            p.font.size = Pt(9.5)
+            p.font.size = Pt(9.2)
             p.font.color.rgb = TEXT_WHITE if col_idx == 0 else TEXT_MUTED
 
 def generate_presentation(output_pptx_path):
@@ -202,8 +196,9 @@ def generate_presentation(output_pptx_path):
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     img_dir = os.path.join(base_dir, "docs", "images", "replicator")
     logo_path = os.path.join(base_dir, "images", "logo_white.png")
+    arch_img_path = os.path.join(img_dir, "architecture_deployment_traffic.png")
 
-    print(f"🚀 Генерация 18 слайдов в {output_pptx_path}...")
+    print(f"🚀 Генерация 13 слайдов с архитектурными схемами в {output_pptx_path}...")
 
     # =========================================================================
     # СЛАЙД 1: ТИТУЛЬНЫЙ
@@ -212,15 +207,14 @@ def generate_presentation(output_pptx_path):
     bg1 = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
     set_shape_bg(bg1, BG_COLOR)
 
-    # Логотип
     if os.path.exists(logo_path):
         slide1.shapes.add_picture(logo_path, Inches(0.8), Inches(0.8), width=Inches(3.2))
 
-    tb1 = slide1.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.733), Inches(1.6))
+    tb1 = slide1.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.733), Inches(1.8))
     tf1 = tb1.text_frame
     tf1.word_wrap = True
     p = tf1.paragraphs[0]
-    p.text = "HADOOP EXPLORER PLATFORM • ИНФРАСТРУКТУРА ДАННЫХ"
+    p.text = "HADOOP EXPLORER PLATFORM • СИСТЕМНАЯ АРХИТЕКТУРА"
     p.font.size = Pt(11)
     p.font.bold = True
     p.font.color.rgb = ACCENT_CYAN
@@ -232,492 +226,360 @@ def generate_presentation(output_pptx_path):
     p.font.color.rgb = TEXT_WHITE
 
     p = tf1.add_paragraph()
-    p.text = "Высокоскоростная межкластерная репликация HDFS и Hive Metastore с защитой от Split-Brain и иерархическим шейпером WAN"
+    p.text = "Архитектура развертывания («Что куда ставится») и сетевые потоки («Как ходит трафик»)"
     p.font.size = Pt(13)
     p.font.color.rgb = TEXT_MUTED
 
-    # 6 карточек преимуществ (2 ряда по 3)
-    card_w = Inches(3.7)
-    card_h = Inches(1.5)
-    y_r1 = Inches(3.6)
-    y_r2 = Inches(5.3)
+    # 3 ключевых тезиса
+    add_card(slide1, Inches(0.8), Inches(3.8), Inches(3.7), Inches(2.8),
+             "🏢 Что куда устанавливается?",
+             [
+                 "Control Plane (Orchestrator): отдельный сервер управления / K8s / VM. Порт 8005 (REST + Web UI).",
+                 "Data Plane (Replicator Agents): устанавливаются в каждом ЦОД на узлы DataNode или Edge/Gateway.",
+                 "Hadoop узлы: NameNode, DataNodes, HMS работают в штатном режиме без плагинов."
+             ], ACCENT_INDIGO)
 
-    add_card(slide1, Inches(0.8), y_r1, card_w, card_h, "🚀 Высокая скорость gRPC",
-             ["Потоковый стриминг Netty минуя YARN", "Чанки по 4 МБ, сжатие Zstd/LZ4", "Tar-Streaming мелких файлов < 1 МБ"], ACCENT_INDIGO)
+    add_card(slide1, Inches(4.8), Inches(3.8), Inches(3.7), Inches(2.8),
+             "🌐 Как ходит трафик данных?",
+             [
+                 "Прямой gRPC WAN стрим: Agent DC1 ➔ Agent DC2 (:50051) минуя Оркестратор!",
+                 "Оркестратор НЕ качает байты через себя (чистый Control Plane).",
+                 "Чанки по 4 МБ, Tar-Streaming мелких файлов, сквозной хэш SHA-256."
+             ], ACCENT_GREEN)
 
-    add_card(slide1, Inches(4.8), y_r1, card_w, card_h, "🌐 Иерархический WAN Шейпер",
-             ["Hierarchical Token Bucket шейпинг", "Лимиты Global, DC-DC и Cluster", "Рантайм-применение за < 1 секунды"], ACCENT_CYAN)
-
-    add_card(slide1, Inches(8.8), y_r1, card_w, card_h, "🛡️ Disaster Recovery Hub",
-             ["Аварийный останов Kill-Switch (0 МБ/с)", "Безопасный откат Unfence без перезаписи", "1-Click Reverse Replication (DC2 ➔ DC1)"], ACCENT_GREEN)
-
-    add_card(slide1, Inches(0.8), y_r2, card_w, card_h, "🏛️ Hive Metastore CDC",
-             ["Потоковый захват NOTIFICATION_LOG", "Inotify Lease HA без гонок стримов", "HDFS Federation NameService translation"], ACCENT_AMBER)
-
-    add_card(slide1, Inches(4.8), y_r2, card_w, card_h, "🔐 Enterprise Безопасность",
-             ["Kerberos SPNEGO SSO и LDAP", "Keytab изоляция + UGI Proxy User doAs", "Полный аудит в Apache Ranger Logs"], RGBColor(236, 72, 153))
-
-    add_card(slide1, Inches(8.8), y_r2, card_w, card_h, "💻 Реактивный Web UI",
-             ["Svelte 5 SPA, мониторинг скорости (⚡)", "Расчет ETA и прогресса в реальном времени", "История запусков и Retention Policy"], RGBColor(139, 92, 246))
+    add_card(slide1, Inches(8.8), Inches(3.8), Inches(3.7), Inches(2.8),
+             "🛡️ Сеть и Disaster Recovery",
+             [
+                 "В межЦОДном фаерволе открывается ТОЛЬКО один порт: TCP 50051 (mTLS).",
+                 "Иерархический шейпер Token Bucket: жесткий контроль полосы WAN.",
+                 "Авария и DR: Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1)."
+             ], ACCENT_CYAN)
 
     # =========================================================================
-    # СЛАЙД 2: ПРОБЛЕМАТИКА DISTCP
+    # СЛАЙД 2: ГЛАВНАЯ АРХИТЕКТУРНАЯ СХЕМА (ВО ВЕСЬ ЭКРАН)
     # =========================================================================
-    slide2 = create_base_slide(prs, 2, "Предпосылки и Мотивация",
-                               "Почему Apache DistCp больше не решает задачи бизнеса?",
-                               "Классический стек межкластерного копирования Hadoop (MapReduce DistCp) создает критические риски в Enterprise")
+    slide2 = create_base_slide(prs, 2, "Генеральная схема",
+                               "Архитектура развертывания и потоки трафика (Deployment & Data Flow)",
+                               "Физическое размещение компонентов в ЦОД, роли узлов, порты фаервола и направления сетевых потоков")
 
-    headers2 = ["Фактор деградации", "Проблема классического DistCp (MapReduce)", "Архитектурный ответ Hadoop Replicator"]
-    rows2 = [
-        ["Конкуренция за YARN", "DistCp запускает тяжелый MR Job; отбирает ресурсы у бизнес-пайплайнов Spark/Flink", "Zero YARN footprint: независимые легковесные демоны на DataNode"],
-        ["Неуправляемый WAN", "Забивает межЦОДную магистраль; нет иерархических квот, деградируют клиентские API", "Hierarchical Token Bucket: рантайм-шейпинг Global, DC-DC и Cluster за < 1 сек"],
-        ["Шторм мелких файлов", "Файлы < 1 МБ вызывают дисковый bottleneck и перегрузку NameNode RPC сессиями", "Tar-Streaming на лету: упаковка в виртуальный поток с прямой распаковкой в память"],
-        ["Метаданные Hive", "Копирует только сырые файлы HDFS; схемы и партиции требуют ручных выгрузок DDL", "HMS CDC Engine: потоковый захват событий из NOTIFICATION_LOG и авто-накатывание DDL"],
-        ["Риск Split-Brain в DR", "Нет сетевого ограждения; случайный запуск после сбоя затирает свежие данные на резерве", "DR Failover Hub: сетевой барьер 0 МБ/с, безопасный Unfence и Reverse Replication"]
+    if os.path.exists(arch_img_path):
+        slide2.shapes.add_picture(arch_img_path, Inches(0.8), Inches(1.85), width=Inches(11.733))
+    else:
+        add_card(slide2, Inches(0.8), Inches(1.85), Inches(11.733), Inches(4.8),
+                 "Схема развертывания", ["Схема architecture_deployment_traffic.png генерируется из HTML."])
+
+    # =========================================================================
+    # СЛАЙД 3: ЧТО КУДА УСТАНАВЛИВАЕТСЯ (КОМПОНЕНТНАЯ КАРТА)
+    # =========================================================================
+    slide3 = create_base_slide(prs, 3, "Топология размещения",
+                               "Что куда устанавливается (Component Placement Map)",
+                               "Детальная спецификация хостов, контейнеров и ролей в инфраструктуре")
+
+    add_card(slide3, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.4),
+             "1. Control Plane Host (Orchestrator)",
+             [
+                 "Где работает: Выделенная виртуальная машина или Kubernetes Pod.",
+                 "Процесс: replicator-orchestrator (Java 21 LTS / Spring Boot 3).",
+                 "Порт: 8005 (HTTP/REST API, SSE подписки, веб-консоль Svelte 5).",
+                 "База данных: PostgreSQL / H2 (хранение задач, cron расписаний, истории).",
+                 "⚠️ Роль: Только координация и лимиты. Файлы через него НЕ идут!"
+             ], ACCENT_INDIGO)
+
+    add_card(slide3, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.4),
+             "2. ЦОД-1 Узлы (Primary — Москва)",
+             [
+                 "Где работает: Узлы DataNode кластера или выделенные Edge Gateway узлы.",
+                 "Процесс: replicator-agent-dc1 (Java 21 / Netty gRPC демон).",
+                 "Порт: 50051 (gRPC Server, Full-Duplex режим).",
+                 "Kerberos: Системный keytab hdfs-cluster-1.keytab.",
+                 "Роль: Анализ Diff, чтение из HDFS pod UGI doAs, опрос HMS NOTIFICATION_LOG, отправка в WAN."
+             ], ACCENT_GREEN)
+
+    add_card(slide3, Inches(0.8), Inches(4.45), Inches(5.7), Inches(2.35),
+             "3. ЦОД-2 Узлы (Standby / DR — Санкт-Петербург)",
+             [
+                 "Где работает: Узлы DataNode кластера или Edge Gateway узлы DC2.",
+                 "Процесс: replicator-agent-dc2 (Java 21 / Netty gRPC демон).",
+                 "Порт: 50051 (gRPC Server, Full-Duplex режим).",
+                 "Kerberos: Системный keytab hdfs-cluster-2.keytab.",
+                 "Роль: Прием 4 МБ чанков, запись в ._staging_, атомарный rename, накат DDL в HMS DC2."
+             ], ACCENT_CYAN)
+
+    add_card(slide3, Inches(6.8), Inches(4.45), Inches(5.7), Inches(2.35),
+             "4. Рабочие станции инженеров и клиентов",
+             [
+                 "Где работает: Браузер пользователя (Chrome, Safari, Firefox).",
+                 "Сетевой доступ: HTTPS :8005 к Orchestrator.",
+                 "Аутентификация: Kerberos SPNEGO SSO в 1 клик или LDAP логин/пароль.",
+                 "Роли RBAC: ADMIN (полный доступ + DR), WRITER (свои задачи), READER (аудит)."
+             ], ACCENT_AMBER)
+
+    # =========================================================================
+    # СЛАЙД 4: СЕТЕВАЯ МАТРИЦА И ПРАВИЛА ФАЕРВОЛА
+    # =========================================================================
+    slide4 = create_base_slide(prs, 4, "Сетевая безопасность",
+                               "Сетевая матрица портов и фаервола (Network Matrix)",
+                               "Какие порты открываются в межЦОДных межсетевых экранах (WAN) и внутри дата-центров (LAN)")
+
+    headers4 = ["Направление трафика", "Протокол", "Порт", "Назначение", "Сетевой сегмент"]
+    rows4 = [
+        ["Agent DC1 ➔ Agent DC2", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Прямая передача блоков HDFS и DDL пакетов HMS", "WAN (МежЦОД)"],
+        ["Agent DC2 ➔ Agent DC1", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Обратная репликация Reverse Replication в DR", "WAN (МежЦОД)"],
+        ["Браузер ➔ Orchestrator", "HTTPS / HTTP", "TCP 8005", "Доступ к UI Svelte 5, REST API, SSE событиям", "Corporate LAN"],
+        ["Agents ➔ Orchestrator", "HTTP REST", "TCP 8005", "Heartbeat (5с), Claim подзадач, Lease продление", "Management LAN"],
+        ["Agent ➔ NameNode (локально)", "Hadoop RPC", "TCP 9000 / 8020", "Листинг каталогов, метаданные блоков, атомарный rename", "DC LAN (Внутри ЦОД)"],
+        ["Agent ➔ DataNodes (локально)", "Data Transfer Protocol", "TCP 9866 (SASL)", "Прямое чтение и запись блоков HDFS", "DC LAN (Внутри ЦОД)"],
+        ["Agent ➔ Hive Metastore", "Thrift RPC", "TCP 9083", "Чтение NOTIFICATION_LOG (DC1) и применение DDL (DC2)", "DC LAN (Внутри ЦОД)"],
+        ["Agent ➔ Kerberos KDC", "Kerberos AS/TGS", "TCP/UDP 88", "Получение тикетов по keytab техучетки", "DC LAN (Внутри ЦОД)"]
     ]
-    add_table_custom(slide2, Inches(0.8), Inches(1.9), Inches(11.733), Inches(4.7), headers2, rows2,
-                     [Inches(2.5), Inches(4.6), Inches(4.633)])
+    add_table_custom(slide4, Inches(0.8), Inches(1.85), Inches(11.733), Inches(4.8), headers4, rows4,
+                     [Inches(2.7), Inches(1.8), Inches(1.3), Inches(4.333), Inches(1.6)])
 
     # =========================================================================
-    # СЛАЙД 3: ВЫСОКОУРОВНЕВАЯ АРХИТЕКТУРА
+    # СЛАЙД 5: ЖИЗНЕННЫЙ ЦИКЛ ПЕРЕДАЧИ HDFS ФАЙЛА
     # =========================================================================
-    slide3 = create_base_slide(prs, 3, "Архитектура системы",
-                               "Архитектура всей конструкции: Control Plane vs Data Plane",
-                               "Строгое разделение управляющего контура и прямой потоковой gRPC-магистрали между агентами")
+    slide5 = create_base_slide(prs, 5, "HDFS Data Flow",
+                               "Как ходит трафик при репликации файлов HDFS (Пошаговый цикл)",
+                               "От анализа дельты до атомарного переименования в целевом кластере")
 
-    add_card(slide3, Inches(0.8), Inches(1.9), Inches(5.7), Inches(4.7),
-             "⚙️ Control Plane (Orchestrator)",
+    add_card(slide5, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "Шаг 1. Анализ дельты и планирование",
              [
-                 "Технологии: Java 21 LTS, Spring Boot 3.3.4, Spring Data JPA, PostgreSQL / SQLite.",
-                 "Порт сервиса: 8005 (REST API, SSE подписки, раздача собранного Svelte 5 SPA).",
-                 "Job Scheduler: Встроенный Cron Scheduler (ReplicationScheduler) для регламентных синхронизаций.",
-                 "TokenBucketThrottler: Централизованный потокобезопасный координатор сетевых квот.",
-                 "Inotify Lease Coordinator: Распределенный эксклюзивный лизинг CDC схем для предотвращения дублирования.",
-                 "Split-Brain State Machine: Гарантирует целостность состояний при авариях ЦОД и снимках Snapshot."
+                 "1. Воркер в DC1 забирает подзадачу из Orchestrator (:8005 /tasks/claim).",
+                 "2. Запрашивает манифест у локальной NameNode DC1 (:9000).",
+                 "3. Одним gRPC вызовом GetDirectoryManifest запрашивает манифест у Agent DC2.",
+                 "4. В памяти строится O(N) Diff: неизмененные файлы пропускаются (0 байт WAN!)."
              ], ACCENT_INDIGO)
 
-    add_card(slide3, Inches(6.8), Inches(1.9), Inches(5.7), Inches(4.7),
-             "⚡ Data Plane (Worker & Receiver Agents)",
+    add_card(slide5, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "Шаг 2. Чтение блоков и упаковка",
              [
-                 "Технологии: Java 21 LTS, gRPC / Protobuf, Netty, Hadoop Client API.",
-                 "Порт gRPC: 50051 (mTLS / TLSv1.3 шифрование канала, Zero-Copy передача).",
-                 "Стриминг чанками: Передача файлов блоками по 4 МБ со сквозным контролем хэша SHA-256.",
-                 "Прямой HDFS I/O: Чтение из локального HDFS и запись в целевой HDFS через Proxy User doAs.",
-                 "HMS Thrift Connector: Локальное обращение к Hive Metastore по LAN (порт 9083 Thrift).",
-                 "Автономность: Агенты завершают передачу текущего блока даже при перезапуске Оркестратора."
+                 "5. Агент DC1 читает блоки из DataNodes DC1 (:9866) под UGI автора задачи (doAs).",
+                 "6. Запрашивает разрешение на передачу у Token Bucket шейпера полосы.",
+                 "7. Файлы < 1 МБ упаковываются в виртуальный Tar-Stream на лету.",
+                 "8. Файлы >= 1 МБ нарезаются на чанки по 4 МБ со сжатием Zstd/LZ4."
+             ], ACCENT_GREEN)
+
+    add_card(slide5, Inches(0.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "Шаг 3. Прямой gRPC WAN стриминг",
+             [
+                 "9. Агент DC1 стримит чанки НАПРЯМУЮ в Agent DC2 (:50051 gRPC, mTLS).",
+                 "10. Никакие байты файлов НЕ проходят через Оркестратор!",
+                 "11. Потоковое вычисление контрольной суммы SHA-256 на обеих сторонах.",
+                 "12. Скорость строго удерживается шейпером Token Bucket."
+             ], ACCENT_CYAN)
+
+    add_card(slide5, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "Шаг 4. Zero-Staging и фиксация в HDFS",
+             [
+                 "13. Агент DC2 пишет блоки в DataNodes DC2 (:9866) во временный файл ._staging_.",
+                 "14. Сверка хэша SHA-256: при совпадении вызывается атомарный fs.rename().",
+                 "15. Для мелких файлов Tar-Stream распаковывается прямо в HDFS без диска.",
+                 "16. Агент DC1 отправляет рапорт в Orchestrator (:8005 /progress) с обновлением ETA."
+             ], ACCENT_AMBER)
+
+    # =========================================================================
+    # СЛАЙД 6: ЖИЗНЕННЫЙ ЦИКЛ HIVE METASTORE CDC
+    # =========================================================================
+    slide6 = create_base_slide(prs, 6, "Metadata Data Flow",
+                               "Как ходит трафик при репликации Hive Metastore (HMS CDC)",
+                               "Потоковая передача DDL-событий с распределенным лизингом Inotify Lease HA")
+
+    add_card(slide6, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "1. Захват эксклюзивной аренды (Lease)",
+             [
+                 "Агент DC1 запрашивает аренду схемы: POST /hms/lease/claim (Оркестратор).",
+                 "Оркестратор выдает эксклюзивный токен аренды на 60 секунд.",
+                 "Исключены гонки: ровно один воркер в кластере читает CDC-поток схемы.",
+                 "При сбое воркера аренда протухает, и другой агент подхватывает стрим."
+             ], ACCENT_INDIGO)
+
+    add_card(slide6, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "2. Локальный опрос NOTIFICATION_LOG",
+             [
+                 "Агент DC1 по LAN Thrift :9083 вычитывает события из Hive Metastore DC1.",
+                 "События: CREATE_TABLE, ADD_PARTITION, ALTER_TABLE, DROP_PARTITION.",
+                 "Non-ACID Gate: ACID transactional таблицы безопасно пропускаются.",
+                 "Пакеты событий формируются пачками для минимизации RPC."
+             ], ACCENT_AMBER)
+
+    add_card(slide6, Inches(0.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "3. Передача пакетов DDL по WAN",
+             [
+                 "Агент DC1 передает пачку DDL в Agent DC2 по WAN :50051 (gRPC contract).",
+                 "Агент DC2 транслирует Federation NameService: hdfs://ns-dc1/ ➔ hdfs://ns-dc2/.",
+                 "Перелинковка sdLocation на целевой кластер и генерация саб-джобов HDFS.",
+                 "Изоляция сабтасок: перенос файлов партиций скрыт из основного списка."
+             ], ACCENT_GREEN)
+
+    add_card(slide6, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "4. Применение DDL и подтверждение",
+             [
+                 "Агент DC2 по LAN Thrift :9083 накатывает DDL в Hive Metastore DC2.",
+                 "Безопасность: при DROP_TABLE флаг deleteData=false (файлы не стираются!).",
+                 "Агент DC2 подтверждает накат ➔ Агент DC1 рапортует прогресс в Orchestrator.",
+                 "Фиксация last_processed_event_id: позиция гарантированно сохранена."
              ], ACCENT_CYAN)
 
     # =========================================================================
-    # СЛАЙД 4: ТОПОЛОГИЯ И ШЕЙПЕР
+    # СЛАЙД 7: ТРАФИК В DISASTER RECOVERY
     # =========================================================================
-    slide4 = create_base_slide(prs, 4, "Управление полосой пропускания",
-                               "Топология ЦОД и иерархический шейпер (Hierarchical Token Bucket)",
-                               "Многоуровневый контроль полосы WAN исключает деградацию клиентских сервисов компании")
+    slide7 = create_base_slide(prs, 7, "Disaster Recovery Traffic",
+                               "Потоки трафика в Disaster Recovery: Штатно vs Kill-Switch vs Reverse",
+                               "Как ведет себя сеть при аварии основного ЦОД и как разворачивается поток данных")
 
-    add_card(slide4, Inches(0.8), Inches(1.9), Inches(4.8), Inches(2.2),
-             "🎯 3 Уровня сетевого контроля",
+    add_card(slide7, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "1. Штатный режим (DC1 ➔ DC2)",
              [
-                 "Global WAN Cap: Общий лимит всей инфраструктуры (напр. 120 МБ/с).",
-                 "DC-DC WAN Limit: Магистральный канал между ЦОД (напр. DC1 ➔ DC2: 100 МБ/с).",
-                 "HDFS-HDFS Limit: Квоты между парами кластеров (напр. 60 МБ/с и 40 МБ/с)."
+                 "Трафик клиентов: Направлен на DC1.",
+                 "Data Plane WAN: Поток идет от Agent DC1 в Agent DC2 (:50051).",
+                 "Шейпер: Лимит 100 МБ/с.",
+                 "HMS CDC: Стриминг дельты в DC2.",
+                 "DC2 выступает пассивным Standby-приемником."
+             ], ACCENT_GREEN)
+
+    add_card(slide7, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "2. Авария DC1 и Kill-Switch",
+             [
+                 "Событие: DC1 упал. Клиенты переключены на DC2.",
+                 "Действие оператора: Нажатие 🛑 Kill-Switch.",
+                 "WAN сетевой барьер: Лимит канала ➔ 0 МБ/с (Fencing).",
+                 "Задачи: Все прямые задачи заморожены (STOPPED, Cron OFF).",
+                 "Защита от Split-Brain: При оживании DC1 старые задачи НЕ запустятся и не затрут свежие данные DC2!"
+             ], ACCENT_RED)
+
+    add_card(slide7, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "3. Оживание DC1 и Reverse",
+             [
+                 "Unfence: Снятие изоляции открывает сеть (100 МБ/с), задачи остаются STOPPED.",
+                 "Reverse Replication: Нажатие 🔄 Reverse Replication.",
+                 "РАЗВОРОТ ТРАФИКА: Agent DC2 становится Sender ➔ Agent DC1 (:50051 Receiver).",
+                 "Догон дельты: DC2 выкачивает накопленные изменения обратно в DC1 до RPO=0.",
+                 "Failback: Возврат клиентов на DC1, отзыв зеркал."
              ], ACCENT_CYAN)
 
-    add_card(slide4, Inches(0.8), Inches(4.3), Inches(4.8), Inches(2.3),
-             "⚡ Формула расчета задержки чанка",
-             [
-                 "delay = max(delay_global, delay_dc_dc, delay_hdfs_hdfs)",
-                 "Воркер засыпает по самому узкому горлышку маршрута.",
-                 "Рантайм-применение: изменение лимита оператором в UI вступает в силу за < 1 сек без перезапуска воркеров!"
-             ], ACCENT_INDIGO)
+    # =========================================================================
+    # СЛАЙД 8: СКРИНШОТ ТОПОЛОГИИ И ШЕЙПЕРА
+    # =========================================================================
+    slide8 = create_base_slide(prs, 8, "Интерфейс оператора",
+                               "Топология ЦОД и управление полосой WAN в интерфейсе",
+                               "Рантайм-управление квотами пропускной способности без перезапуска воркеров")
 
-    add_image_card(slide4, Inches(5.9), Inches(1.9), Inches(6.6), Inches(4.7),
+    add_image_card(slide8, Inches(0.8), Inches(1.85), Inches(7.5), Inches(4.8),
                    os.path.join(img_dir, "04_topology_bandwidth.png"),
-                   "Раздел «Топология ЦОД и Полоса»: шейпер Token Bucket (DC-DC, HDFS-HDFS, Global)")
+                   "Консоль «Топология ЦОД и Полоса»: шейпер Token Bucket (DC-DC, HDFS-HDFS, Global)")
 
-    # =========================================================================
-    # СЛАЙД 5: АУТЕНТИФИКАЦИЯ И RBAC
-    # =========================================================================
-    slide5 = create_base_slide(prs, 5, "Безопасность и Доступ",
-                               "Единый вход (SPNEGO SSO / LDAP) и ролевая модель (RBAC)",
-                               "Бесшовная интеграция в корпоративный домен безопасности платформы Hadoop Explorer")
-
-    add_card(slide5, Inches(0.8), Inches(1.9), Inches(4.8), Inches(2.2),
-             "🔑 Способы входа в систему",
+    add_card(slide8, Inches(8.5), Inches(1.85), Inches(4.0), Inches(4.8),
+             "⚡ Физика шейпинга в Data Plane",
              [
-                 "Kerberos SPNEGO SSO: Бесшовный вход в 1 клик по билету ОС.",
-                 "LDAP / Active Directory: Авторизация по корпоративным учеткам.",
-                 "Демо-профили: Быстрое переключение тестовых ролей (ADM/RW/RO)."
-             ], ACCENT_INDIGO)
-
-    add_card(slide5, Inches(0.8), Inches(4.3), Inches(4.8), Inches(2.3),
-             "👥 Ролевая модель (RBAC)",
-             [
-                 "ADMIN (admin_user): Управление всеми задачами, Kill-Switch, лимитами.",
-                 "WRITER (de_user): Создание задач в рамках назначенных квот.",
-                 "READER (analyst_user): Режим наблюдателя (Read-Only) без права мутаций."
-             ], ACCENT_GREEN)
-
-    add_image_card(slide5, Inches(5.9), Inches(1.9), Inches(6.6), Inches(4.7),
-                   os.path.join(img_dir, "01_login_screen.png"),
-                   "Экран аутентификации LDAP & Kerberos SSO с профилями быстрого переключения ролей")
-
-    # =========================================================================
-    # СЛАЙД 6: HDFS DATA PLANE ОПТИМИЗАЦИИ
-    # =========================================================================
-    slide6 = create_base_slide(prs, 6, "HDFS Data Plane",
-                               "Протокол передачи данных, Zero-Staging и Tar-Streaming",
-                               "Инженерные решения для надежной и быстрой передачи петабайтных объемов без мусора в хранилище")
-
-    add_card(slide6, Inches(0.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "📦 Tar-Streaming мелких файлов (< 1 MB)",
-             [
-                 "Файлы < 1 МБ пакуются в виртуальный TAR-поток на лету в RAM.",
-                 "Передаются единым непрерывным gRPC-стримом.",
-                 "Приемник на лету распаковывает стрим прямо в HDFS (Zero Disk I/O)."
-             ], ACCENT_INDIGO)
-
-    add_card(slide6, Inches(6.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "🔒 Zero-Staging и Атомарная фиксация",
-             [
-                 "Одиночные файлы пишутся во временный файл targetPath + '._staging_'.",
-                 "Потоковый расчет контрольной суммы SHA-256.",
-                 "После совпадения хэша — мгновенный атомарный fs.rename()."
+                 "Где работает: Внутри процесса каждого Replicator Agent перед отправкой 4 МБ чанка.",
+                 "Как работает: Вычисление задержки по формуле max(global, dc_dc, hdfs_hdfs).",
+                 "Реакция на мутацию: Оператор нажимает «Сохранить» в UI ➔ Оркестратор пушит лимит в кэш ➔ воркеры применяют за < 1 сек.",
+                 "Защита WAN: Ни при каких обстоятельствах суммарный трафик репликации не превысит установленный потолок."
              ], ACCENT_CYAN)
 
-    add_card(slide6, Inches(0.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🗜️ Wire Compression (Zstd / LZ4)",
-             [
-                 "Почанковое сжатие трафика в канале WAN на лету.",
-                 "Экономия 40–80% полосы на CSV, JSON, логах и дампах БД.",
-                 "Авто-отключение для Parquet/ORC для экономии CPU узлов."
-             ], ACCENT_GREEN)
-
-    add_card(slide6, Inches(6.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🧹 4-уровневый HDFS Garbage Collector",
-             [
-                 "Реактивная очистка staging-файлов при разрыве соединения.",
-                 "Предстартовая очистка перед повторным запуском задачи.",
-                 "Периодический демон каждые 15 мин удаляет сироты старше 30 мин."
-             ], ACCENT_AMBER)
-
     # =========================================================================
-    # СЛАЙД 7: ГЛАВНЫЙ ДАШБОРД И СОЗДАНИЕ ЗАДАЧ
+    # СЛАЙД 9: СКРИНШОТ ГЛАВНОГО ДАШБОРДА
     # =========================================================================
-    slide7 = create_base_slide(prs, 7, "Интерфейс оператора",
-                               "Главная панель HDFS Replication и создание задач",
-                               "Реактивный мониторинг прогресса, динамический расчет ETA и мастер создания задач")
+    slide9 = create_base_slide(prs, 9, "Интерфейс оператора",
+                               "Главная панель управления HDFS и создание задач",
+                               "Мониторинг скорости в реальном времени (⚡ МБ/с), расчет ETA и Kerberos doAs")
 
-    add_image_card(slide7, Inches(0.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide9, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "02_main_dashboard.png"),
-                   "Главная панель: интерактивные фильтры статусов, скорость (⚡ МБ/с), ETA и таблица")
+                   "Главная панель HDFS Replication: статус задач, скорость (⚡), ETA и фильтры")
 
-    add_image_card(slide7, Inches(6.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide9, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "03_create_job_modal.png"),
-                   "Мастер создания задачи: выбор путей, расписания Cron и Kerberos doAs")
+                   "Мастер создания задачи: пути, расписание Cron, UGI doAs имперсонация")
 
     # =========================================================================
-    # СЛАЙД 8: ИСТОРИЯ ЗАПУСКОВ И RETENTION
-    # =========================================================================
-    slide8 = create_base_slide(prs, 8, "Аналитика и Аудит",
-                               "История запусков задачи и политика хранения (Retention)",
-                               "Полная прозрачность каждого периодического запуска с контролем объема базы данных")
-
-    add_card(slide8, Inches(0.8), Inches(1.9), Inches(4.8), Inches(2.2),
-             "📜 Детальный журнал выполнений",
-             [
-                 "Хронология: номер запуска (#1, #2...), статус и источник (Шедулер/Ручной).",
-                 "Тайминги: время старта, финиша и длительность с точностью до секунды.",
-                 "Метрики: переданный объем и эффективная скорость передачи (⚡ МБ/с)."
-             ], ACCENT_INDIGO)
-
-    add_card(slide8, Inches(0.8), Inches(4.3), Inches(4.8), Inches(2.3),
-             "⚙️ Retention Policy в рантайме",
-             [
-                 "Динамическая настройка глубины хранения (от 1 до 500 запусков).",
-                 "Кнопка «Применить лимит» мгновенно удаляет устаревшие записи из БД.",
-                 "База данных оркестратора защищена от разрастания при частых запусках."
-             ], ACCENT_AMBER)
-
-    add_image_card(slide8, Inches(5.9), Inches(1.9), Inches(6.6), Inches(4.7),
-                   os.path.join(img_dir, "05_job_history_modal.png"),
-                   "Модальное окно Job Runs History: KPI задачи, журнал выполнений и динамический Retention")
-
-    # =========================================================================
-    # СЛАЙД 9: HIVE METASTORE CDC АРХИТЕКТУРА
-    # =========================================================================
-    slide9 = create_base_slide(prs, 9, "Метаданные Data Lake",
-                               "Репликация Hive Metastore: CDC и Inotify Lease HA",
-                               "Непрерывная синхронизация баз и таблиц Hive без потери позиции и гонок между воркерами")
-
-    add_card(slide9, Inches(0.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "🏛️ Потоковый CDC (NotificationLog)",
-             [
-                 "Source Agent автономно опрашивает NOTIFICATION_LOG Hive Metastore.",
-                 "События ADD_PARTITION, CREATE_TABLE передаются по gRPC.",
-                 "Target Agent применяет DDL локально с гарантией deleteData = false."
-             ], ACCENT_INDIGO)
-
-    add_card(slide9, Inches(6.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "🔒 Inotify Lease HA (Без гонок)",
-             [
-                 "Каждая схема захватывается ровно одним агентом (Lease на 60 сек).",
-                 "Авто-продление аренды при рапорте прогресса last_event_id.",
-                 "При сбое воркера другой агент пула перехватывает стрим без потерь."
-             ], ACCENT_CYAN)
-
-    add_card(slide9, Inches(0.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🌐 HDFS Federation Mapping",
-             [
-                 "Трансляция URI в путях партиций: hdfs://ns-dc1/ ➔ hdfs://ns-dc2/.",
-                 "Поддержка правил сопоставления федерации (federation-mappings).",
-                 "Корректная перелинковка sdLocation на целевой кластер."
-             ], ACCENT_GREEN)
-
-    add_card(slide9, Inches(6.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🛡️ Non-ACID Gate & Изоляция",
-             [
-                 "External и Non-Transactional таблицы реплицируются потоково.",
-                 "ACID transactional таблицы безопасно пропускаются (SKIPPED_ACID).",
-                 "HDFS саб-джобы переноса скрыты из основного списка репликатора."
-             ], ACCENT_AMBER)
-
-    # =========================================================================
-    # СЛАЙД 10: HMS REPLICATION ДАШБОРД
+    # СЛАЙД 10: СКРИНШОТ HMS REPLICATION
     # =========================================================================
     slide10 = create_base_slide(prs, 10, "Интерфейс оператора",
-                                "Раздел HMS Replication: мониторинг схем и Re-bootstrap",
-                                "Управление непрерывной потоковой CDC-репликацией схем Hive Metastore")
+                                "Консоль репликации Hive Metastore (HMS Replication)",
+                                "Мониторинг стримеров CDC, Event Lag и мастер создания схемы")
 
-    add_image_card(slide10, Inches(0.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide10, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "06_hms_replication_dashboard.png"),
                    "Консоль HMS Replication: статус CDC-стримеров, Event Lag и список схем")
 
-    add_image_card(slide10, Inches(6.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide10, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "07_create_hms_modal.png"),
-                   "Мастер создания схемы: выбор баз, фильтр таблиц и Reconciliation")
+                   "Мастер создания схемы: выбор баз, фильтр таблиц, Reconciliation опции")
 
     # =========================================================================
-    # СЛАЙД 11: SPLIT-BRAIN ПРОБЛЕМА
+    # СЛАЙД 11: СКРИНШОТ DR HUB И KILL-SWITCH
     # =========================================================================
-    slide11 = create_base_slide(prs, 11, "Disaster Recovery",
-                                "Проблема Split-Brain и риск деструктивной перезаписи данных",
-                                "Почему простое снятие сетевой блокировки без защитной логики уничтожает данные компании")
+    slide11 = create_base_slide(prs, 11, "Интерфейс Disaster Recovery",
+                                "DR Hub, экстренный Kill-Switch и состояние сетевого ограждения",
+                                "Интуитивный интерфейс дежурной смены при аварии дата-центра")
 
-    add_card(slide11, Inches(0.8), Inches(1.9), Inches(11.733), Inches(1.3),
-             "1. Штатный режим: DC1 (Primary) ➔ DC2 (Standby)",
-             ["Данные и метаданные непрерывно синхронизируются из основного дата-центра в резервный."], ACCENT_INDIGO)
-
-    add_card(slide11, Inches(0.8), Inches(3.3), Inches(11.733), Inches(1.3),
-             "2. Авария DC1 и переключение трафика на DC2",
-             ["DC1 падает. Клиенты и ETL переключаются на DC2. Бизнес пишет свежие данные в DC2. DC1 отстает на всю дельту аварии!"], ACCENT_AMBER)
-
-    add_card(slide11, Inches(0.8), Inches(4.7), Inches(5.7), Inches(1.9),
-             "❌ Катастрофа наивного снятия блокировки",
-             [
-                 "Если старые прямые задачи DC1 ➔ DC2 возобновятся автоматически:",
-                 "Старый DC1 затрет или удалит свежие файлы на DC2!",
-                 "Итог: Безвозвратная потеря бизнес-данных за время аварии."
-             ], ACCENT_RED)
-
-    add_card(slide11, Inches(6.8), Inches(4.7), Inches(5.7), Inches(1.9),
-             "✅ Решение Hadoop Replicator",
-             [
-                 "Снятие изоляции восстанавливает ТОЛЬКО сетевой канал (100 МБ/с).",
-                 "Старые прямые задачи остаются STOPPED (защита от запуска).",
-                 "Поток разворачивается через Reverse Replication (DC2 ➔ DC1)."
-             ], ACCENT_GREEN)
-
-    # =========================================================================
-    # СЛАЙД 12: 5-ФАЗНЫЙ РЕГЛАМЕНТ DR
-    # =========================================================================
-    slide12 = create_base_slide(prs, 12, "Регламент непрерывности бизнеса",
-                                "5-фазный регламент Disaster Recovery (RPO → 0, RTO < 5 мин)",
-                                "Четкий сквозной алгоритм действий системы и оператора на протяжении всего инцидента")
-
-    headers12 = ["Фаза регламента", "Состояние DC1", "Задачи DC1 ➔ DC2", "Лимит канала", "Действия оператора и системы"]
-    rows12 = [
-        ["1. Авария DC1 (Kill-Switch)", "DOWN / FENCED", "STOPPED (Cron OFF)", "0 МБ/с", "Кнопка Kill-Switch. Сетевой барьер 0 МБ/с, freeze задач, фиксация Snapshot."],
-        ["2. Работа на DR площадке", "OFFLINE", "STOPPED", "0 МБ/с", "Бизнес пишет в DC2. На панели накапливается Delta Lag (непереданные байты/DDL)."],
-        ["3. Оживание DC1 (Unfence)", "ALIVE (STANDBY)", "STOPPED (Защищены!)", "100 МБ/с", "Кнопка Снять изоляцию. Восстанавливается ТОЛЬКО сеть. Старые задачи НЕ запускаются!"],
-        ["4. Догон дельты (Reverse)", "RECEIVER", "STOPPED", "100 МБ/с", "Кнопка Reverse Replication. Авто-генерация зеркал rev-* (DC2 ➔ DC1) до RPO = 0."],
-        ["5. Возврат нагрузки (Failback)", "PRIMARY", "SCHEDULED", "100 МБ/с", "Переключение трафика на DC1. Отзыв зеркал (Отозвать ↩). Возобновление штатного цикла."]
-    ]
-    add_table_custom(slide12, Inches(0.8), Inches(1.9), Inches(11.733), Inches(4.7), headers12, rows12,
-                     [Inches(2.4), Inches(1.7), Inches(2.2), Inches(1.2), Inches(4.233)])
-
-    # =========================================================================
-    # СЛАЙД 13: DR HUB И ОГРАЖДЕНИЕ
-    # =========================================================================
-    slide13 = create_base_slide(prs, 13, "Интерфейс Disaster Recovery",
-                                "DR Hub, аварийный Kill-Switch и сетевое ограждение",
-                                "Наглядный мониторинг топологии и изоляция упавшей площадки в один клик")
-
-    add_image_card(slide13, Inches(0.8), Inches(1.9), Inches(6.2), Inches(4.7),
+    add_image_card(slide11, Inches(0.8), Inches(1.85), Inches(6.2), Inches(4.8),
                    os.path.join(img_dir, "08_disaster_recovery_dashboard.png"),
-                   "Консоль DR & Failover Hub: мониторинг доступности ЦОД, потока и суммарного лага дельты")
+                   "Консоль DR & Failover Hub: доступность ЦОД, направление потока и суммарный лаг дельты")
 
-    add_image_card(slide13, Inches(7.3), Inches(1.9), Inches(5.2), Inches(2.25),
+    add_image_card(slide11, Inches(7.3), Inches(1.85), Inches(5.2), Inches(2.3),
                    os.path.join(img_dir, "09_emergency_kill_switch_modal.png"),
-                   "Модальное окно аварийного останова (Kill-Switch)")
+                   "Модальное окно Kill-Switch: подтверждение останова и сетевое ограждение (0 МБ/с)")
 
-    add_image_card(slide13, Inches(7.3), Inches(4.35), Inches(5.2), Inches(2.25),
+    add_image_card(slide11, Inches(7.3), Inches(4.35), Inches(5.2), Inches(2.3),
                    os.path.join(img_dir, "10_disaster_recovery_fenced_state.png"),
-                   "Индикация подавленного кластера (ПОДАВЛЕН 🔒 и тревожный баннер)")
+                   "Индикация подавленного кластера: бейдж «ПОДАВЛЕН 🔒» и тревожный баннер")
 
     # =========================================================================
-    # СЛАЙД 14: СНЯТИЕ ИЗОЛЯЦИИ И REVERSE REPLICATION
+    # СЛАЙД 12: СКРИНШОТ UNFENCE И REVERSE REPLICATION
     # =========================================================================
-    slide14 = create_base_slide(prs, 14, "Интерфейс Disaster Recovery",
-                                "Безопасное снятие изоляции (Unfence) и Reverse Replication",
-                                "Защита от случайных действий и автоматическая генерация встречных задач синхронизации дельты")
+    slide12 = create_base_slide(prs, 12, "Интерфейс Disaster Recovery",
+                                "Безопасный откат (Unfence) и запуск Reverse Replication (DC2 ➔ DC1)",
+                                "Восстановление сети без перезаписи резерва и автоматический разворот потока данных")
 
-    add_image_card(slide14, Inches(0.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide12, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "11_rollback_unfence_modal.png"),
-                   "Модальное окно Unfence: снятие сетевого барьера без возобновления старых задач")
+                   "Модальное окно Unfence: снятие сетевого барьера без запуска старых задач")
 
-    add_image_card(slide14, Inches(6.8), Inches(1.9), Inches(5.7), Inches(4.7),
+    add_image_card(slide12, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "12_reverse_replication_modal.png"),
                    "Мастер Reverse Replication: разворот потока данных DC2 ➔ DC1 с подтверждением")
 
     # =========================================================================
-    # СЛАЙД 15: БЕЗОПАСНОСТЬ И RANGER
+    # СЛАЙД 13: РЕКОМЕНДАЦИИ ПО САЙЗИНГУ И РАЗВЕРТЫВАНИЮ
     # =========================================================================
-    slide15 = create_base_slide(prs, 15, "Enterprise Security",
-                                "Безопасность, Kerberos Context Isolation и Apache Ranger",
-                                "Полное соблюдение корпоративных политик безопасности банковского и телеком-сектора")
+    slide13 = create_base_slide(prs, 13, "Внедрение в Production",
+                                "Рекомендации по сайзингу, развертыванию и фаерволу",
+                                "Оптимальные архитектурные конфигурации для промышленного внедрения")
 
-    add_card(slide15, Inches(0.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "🔐 Kerberos Proxy User & doAs имперсонация",
+    add_card(slide13, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "🖥️ Сайзинг Orchestrator",
              [
-                 "Воркер аутентифицируется через системный keytab hdfs-replicator.",
-                 "Операции выполняются под UGI автора: createProxyUser(user).doAs(...).",
-                 "Пользователь не сможет скопировать данные, к которым нет прямого доступа."
+                 "Размещение: Выделенная VM / K8s Pod.",
+                 "CPU: 4–8 vCPU.",
+                 "RAM: 8–16 GB Heap (Java 21).",
+                 "Диск: 50–100 GB NVMe (для PostgreSQL БД истории).",
+                 "Сеть: 1 Gbps LAN.",
+                 "High Availability: Active-Passive с плавающим IP или K8s Deployment с 1 репликой и persistent volume."
              ], ACCENT_INDIGO)
 
-    add_card(slide15, Inches(6.8), Inches(1.9), Inches(5.7), Inches(2.2),
-             "🛡️ Полный аудит в Apache Ranger",
+    add_card(slide13, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "⚡ Сайзинг Replicator Agents",
              [
-                 "Ranger фиксирует реальное имя создателя задачи репликации.",
-                 "Запись в аудите: ugi: ivan_ivanov (auth:PROXY via hdfs-replicator).",
-                 "Полная прозрачность для службы информационной безопасности (ИБ)."
+                 "Вариант 1 (Colocated): На узлах DataNode. Максимальный Zero-Copy перформанс локального HDFS.",
+                 "Вариант 2 (Gateway): Выделенные Edge-серверы 2–4 шт на ЦОД с 25G/40G сетевыми картами.",
+                 "CPU: 8–16 vCPU на агента.",
+                 "RAM: 16–32 GB Heap (Netty off-heap буферы).",
+                 "Сеть: 10G / 25G / 40G NIC.",
+                 "Масштабирование: Добавление агентов в кластер линейно ускоряет параллельный перенос."
              ], ACCENT_GREEN)
 
-    add_card(slide15, Inches(0.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🔒 Data Transfer Protection (SASL)",
+    add_card(slide13, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
+             "🛡️ Чеклист фаервола и ИБ",
              [
-                 "Авто-конфигурация dfs.data.transfer.protection = integrity/privacy.",
-                 "Шифрование канала передачи блоков DataNode по сети.",
-                 "Исключение сбоев Connection reset на Kerberized-узлах."
-             ], ACCENT_AMBER)
-
-    add_card(slide15, Inches(6.8), Inches(4.4), Inches(5.7), Inches(2.2),
-             "🌐 Сквозной TLSv1.3 / mTLS",
-             [
-                 "Шифрование управляющих REST API эндпоинтов по HTTPS.",
-                 "Шифрование gRPC-магистрали между воркерами и приемниками.",
-                 "Поддержка взаимной аутентификации по X.509 сертификатам (mTLS)."
+                 "WAN межЦОД: Открыть TCP 50051 между пулами агентов DC1 и DC2.",
+                 "mTLS: Включить взаимную аутентификацию по X.509 сертификатам.",
+                 "Kerberos: Сгенерировать keytab hdfs-replicator с правами Proxy User в core-site.xml.",
+                 "SASL: Включить dfs.data.transfer.protection = privacy.",
+                 "Ranger: Настроить политики доступа на уровне UGI авторов задач."
              ], ACCENT_CYAN)
-
-    # =========================================================================
-    # СЛАЙД 16: СРАВНЕНИЕ С АЛЬТЕРНАТИВАМИ
-    # =========================================================================
-    slide16 = create_base_slide(prs, 16, "Конкурентный анализ",
-                                "Сравнение с альтернативными решениями на рынке",
-                                "Почему Hadoop gRPC Replicator превосходит существующие Open Source и коммерческие аналоги")
-
-    headers16 = ["Возможность / Критерий", "Apache DistCp", "Apache Falcon", "WANdisco Fusion", "Hadoop Replicator"]
-    rows16 = [
-        ["Нагрузка на YARN", "Высокая (MapReduce)", "Высокая (Oozie/MR)", "Свой демон", "✅ Zero YARN (gRPC)"],
-        ["Иерархический шейпер WAN", "Нет", "Нет", "Частичный", "✅ 3 уровня в рантайме (< 1с)"],
-        ["Tar-Streaming мелких файлов", "Лимитирован", "Нет", "Задержки", "✅ Потоковый Tar на лету"],
-        ["CDC Hive Metastore", "Нет", "Только DDL скрипты", "Сложный плагин", "✅ Inotify Lease HA"],
-        ["Защита от Split-Brain в DR", "Ручная (Риск потери)", "Ручная", "Консенсус Paxos", "✅ Fencing + Reverse Hub"],
-        ["Веб-интерфейс и мониторинг", "Только YARN UI", "Устаревший UI", "Тяжелый портал", "✅ Svelte 5 SPA"],
-        ["Стоимость владения", "Бесплатно", "Архив (EoL)", "$100k+ / год", "✅ Собственная платформа"]
-    ]
-    add_table_custom(slide16, Inches(0.8), Inches(1.9), Inches(11.733), Inches(4.7), headers16, rows16,
-                     [Inches(3.3), Inches(2.1), Inches(2.1), Inches(2.1), Inches(2.133)])
-
-    # =========================================================================
-    # СЛАЙД 17: ЭКСПЛУАТАЦИЯ И ТЕСТЫ
-    # =========================================================================
-    slide17 = create_base_slide(prs, 17, "DevOps & Production Readiness",
-                                "Эксплуатация, мониторинг Prometheus и Smoke-тестирование",
-                                "Полная прозрачность для инфраструктурных команд и дежурной смены")
-
-    add_card(slide17, Inches(0.8), Inches(1.9), Inches(3.7), Inches(4.7),
-             "📊 Метрики Prometheus",
-             [
-                 "Эндпоинт :8005/actuator/prometheus.",
-                 "replication_bytes_total — переданный объем.",
-                 "active_workers — число активных воркеров.",
-                 "replication_transfer_rate_mb_s — скорость.",
-                 "hms_replication_event_lag — лаг CDC.",
-                 "fenced_clusters_count — число подавленных кластеров под Kill-Switch."
-             ], ACCENT_INDIGO)
-
-    add_card(slide17, Inches(4.8), Inches(1.9), Inches(3.7), Inches(4.7),
-             "💓 Health Checks & Liveness",
-             [
-                 "Стандарты облачного развертывания.",
-                 "/actuator/health/liveness — статус работы JVM.",
-                 "/actuator/health/readiness — готовность к приему трафика.",
-                 "Интеграция с Kubernetes Ingress и внешними балансировщиками (HAProxy/Nginx)."
-             ], ACCENT_CYAN)
-
-    add_card(slide17, Inches(8.8), Inches(1.9), Inches(3.7), Inches(4.7),
-             "🧪 Docker Smoke Tests",
-             [
-                 "Скрипт ./demo/replicator/run-smoke-tests.sh.",
-                 "Развертывание 2 изолированных Hadoop ЦОД.",
-                 "Проверка начального Bootstrap данных.",
-                 "Проверка потокового CDC партиций Hive.",
-                 "Верификация контрольных сумм SHA-256."
-             ], ACCENT_GREEN)
-
-    # =========================================================================
-    # СЛАЙД 18: ИТОГИ И Q&A
-    # =========================================================================
-    slide18 = create_base_slide(prs, 18, "Заключение",
-                                "Итоги и готовность к демонстрации",
-                                "Hadoop gRPC Replicator переводит управление межкластерной репликацией на новый уровень")
-
-    add_card(slide18, Inches(0.8), Inches(1.9), Inches(5.7), Inches(3.2),
-             "🎯 Бизнес-эффект",
-             [
-                 "Нулевое влияние репликации на YARN-очереди компании.",
-                 "Защита критического корпоративного WAN-канала от деградации.",
-                 "RPO ➔ 0 и RTO < 5 минут при катастрофе основного дата-центра.",
-                 "Полная согласованность данных HDFS и схем Hive Metastore."
-             ], ACCENT_INDIGO)
-
-    add_card(slide18, Inches(6.8), Inches(1.9), Inches(5.7), Inches(3.2),
-             "🛠️ Инженерные преимущества",
-             [
-                 "Современный стек Java 21 LTS, Spring Boot 3, Netty gRPC.",
-                 "Zero-Staging и Tar-Streaming мелких файлов без лишнего I/O.",
-                 "Бесшовный откат с защитой от Split-Brain и деструктивной перезаписи.",
-                 "Удобный, отзывчивый интерфейс Svelte 5 с темной темой."
-             ], ACCENT_CYAN)
-
-    # Финальный блок
-    q_card = slide18.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(5.3), Inches(11.733), Inches(1.3))
-    set_shape_bg(q_card, CARD_BG, ACCENT_GREEN, Pt(1.5))
-    q_tb = slide18.shapes.add_textbox(Inches(1.0), Inches(5.45), Inches(11.333), Inches(1.0))
-    q_tf = q_tb.text_frame
-    q_tf.word_wrap = True
-    qp1 = q_tf.paragraphs[0]
-    qp1.text = "Спасибо за внимание! Вопросы и демонстрация стенда"
-    qp1.font.size = Pt(16)
-    qp1.font.bold = True
-    qp1.font.color.rgb = TEXT_WHITE
-    qp1.alignment = PP_ALIGN.CENTER
-
-    qp2 = q_tf.add_paragraph()
-    qp2.text = "Готовы перейти к демонстрации живой работы сервиса на локальном демо-стенде (http://localhost:8005)"
-    qp2.font.size = Pt(11)
-    qp2.font.color.rgb = ACCENT_CYAN
-    qp2.alignment = PP_ALIGN.CENTER
 
     prs.save(output_pptx_path)
     print(f"✅ Презентация успешно сохранена: {output_pptx_path} ({os.path.getsize(output_pptx_path) / 1024:.1f} KB)")
