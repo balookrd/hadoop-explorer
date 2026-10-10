@@ -199,11 +199,11 @@ class DisasterRecoveryServiceTest {
                 .findFirst()
                 .orElseThrow();
 
-        // Проверяем инверсию путей и кластеров
+        // Проверяем смену кластеров при сохранении путей
         assertEquals("dc2", createdReverseJob.getSourceClusterId());
         assertEquals("dc1", createdReverseJob.getTargetClusterId());
-        assertEquals("/backup/mirror/events", createdReverseJob.getSourcePath());
-        assertEquals("/data/production/events", createdReverseJob.getTargetPath());
+        assertEquals("/data/production/events", createdReverseJob.getSourcePath());
+        assertEquals("/backup/mirror/events", createdReverseJob.getTargetPath());
         assertEquals("QUEUED", createdReverseJob.getStatus());
         assertTrue(createdReverseJob.isScheduled());
         assertEquals("*/10 * * * *", createdReverseJob.getCronExpression());
@@ -236,8 +236,8 @@ class DisasterRecoveryServiceTest {
         JobEntity rev = captor.getValue();
         assertEquals("dc2", rev.getSourceClusterId());
         assertEquals("dc1", rev.getTargetClusterId());
-        assertEquals("/backup/warehouse/raw", rev.getSourcePath());
-        assertEquals("/data/warehouse/raw", rev.getTargetPath());
+        assertEquals("/data/warehouse/raw", rev.getSourcePath());
+        assertEquals("/backup/warehouse/raw", rev.getTargetPath());
     }
 
     @Test
@@ -254,8 +254,8 @@ class DisasterRecoveryServiceTest {
         reverseJob.setId("rev-8848");
         reverseJob.setSourceClusterId("dc2");
         reverseJob.setTargetClusterId("dc1");
-        reverseJob.setSourcePath("/backup/sales");
-        reverseJob.setTargetPath("/data/sales");
+        reverseJob.setSourcePath("/data/sales");
+        reverseJob.setTargetPath("/backup/sales");
         reverseJob.setMessage("Обратная репликация для задачи job-direct-1");
 
         when(jobRepository.findById("job-direct-1")).thenReturn(Optional.of(directJob));

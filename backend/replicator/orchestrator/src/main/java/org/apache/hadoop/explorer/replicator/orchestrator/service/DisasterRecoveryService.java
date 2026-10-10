@@ -197,7 +197,7 @@ public class DisasterRecoveryService {
                     .filter(rj -> !rj.getId().equals(j.getId())
                             && matchesCluster(rj.getSourceClusterId(), j.getTargetClusterId())
                             && matchesCluster(rj.getTargetClusterId(), j.getSourceClusterId())
-                            && isSameOrFlippedPath(rj.getSourcePath(), j.getTargetPath()))
+                            && matchesReversePath(rj, j))
                     .findFirst();
 
             boolean isReverseReplica = j.getId().startsWith("rev-")
@@ -397,16 +397,17 @@ public class DisasterRecoveryService {
             for (JobEntity direct : directJobs) {
                 // Проверяем, существует ли уже обратная задача
                 boolean alreadyExists = existingJobs.stream().anyMatch(ej ->
-                        matchesCluster(ej.getSourceClusterId(), fromClusterId)
+                        !ej.getId().equals(direct.getId())
+                                && matchesCluster(ej.getSourceClusterId(), fromClusterId)
                                 && matchesCluster(ej.getTargetClusterId(), toClusterId)
-                                && isSameOrFlippedPath(ej.getSourcePath(), direct.getTargetPath())
+                                && matchesReversePath(ej, direct)
                 );
 
                 if (!alreadyExists) {
                     JobEntity revJob = new JobEntity();
                     revJob.setId("rev-" + UUID.randomUUID().toString().substring(0, 8));
-                    revJob.setSourcePath(direct.getTargetPath());
-                    revJob.setTargetPath(direct.getSourcePath());
+                    revJob.setSourcePath(direct.getSourcePath());
+                    revJob.setTargetPath(direct.getTargetPath());
                     revJob.setSourceClusterId(fromClusterId);
                     revJob.setTargetClusterId(toClusterId);
                     revJob.setTotalBytes(direct.getTotalBytes());
@@ -501,8 +502,8 @@ public class DisasterRecoveryService {
 
         JobEntity revJob = new JobEntity();
         revJob.setId("rev-" + UUID.randomUUID().toString().substring(0, 8));
-        revJob.setSourcePath(direct.getTargetPath());
-        revJob.setTargetPath(direct.getSourcePath());
+        revJob.setSourcePath(direct.getSourcePath());
+        revJob.setTargetPath(direct.getTargetPath());
         revJob.setSourceClusterId(fromCluster);
         revJob.setTargetClusterId(toCluster);
         revJob.setTotalBytes(direct.getTotalBytes());
@@ -559,7 +560,7 @@ public class DisasterRecoveryService {
                         .filter(rj -> !rj.getId().equals(job.getId())
                                 && matchesCluster(rj.getSourceClusterId(), job.getTargetClusterId())
                                 && matchesCluster(rj.getTargetClusterId(), job.getSourceClusterId())
-                                && isSameOrFlippedPath(rj.getSourcePath(), job.getTargetPath()))
+                                && matchesReversePath(rj, job))
                         .findFirst();
 
                 if (reverse.isPresent()) {
@@ -613,6 +614,16 @@ public class DisasterRecoveryService {
         }
 
         throw new IllegalArgumentException("Задача с ID '" + jobId + "' не найдена");
+    }
+
+    private static boolean matchesReversePath(JobEntity rj, JobEntity direct) {
+        if (rj == null || direct == null) return false;
+        // Новый режим: пути идентичны прямой задаче (меняются только кластеры)
+        if (isSameOrFlippedPath(rj.getSourcePath(), direct.getSourcePath())) {
+            return true;
+        }
+        // Для совместимости со старыми задачами: пути инвертированы (source <-> target)
+        return isSameOrFlippedPath(rj.getSourcePath(), direct.getTargetPath());
     }
 
     private static boolean matchesCluster(String c1, String c2) {
