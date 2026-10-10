@@ -56,6 +56,19 @@ public class JobDto {
 
     public JobDto() {}
 
+    public JobDto(String id, String sourceClusterId, String targetClusterId,
+                  String sourcePath, String targetPath, String status,
+                  String executionPrincipal, Boolean runAsServiceAccount) {
+        this.id = id;
+        this.sourceClusterId = sourceClusterId;
+        this.targetClusterId = targetClusterId;
+        this.sourcePath = sourcePath;
+        this.targetPath = targetPath;
+        this.status = status;
+        this.executionPrincipal = executionPrincipal;
+        this.runAsServiceAccount = runAsServiceAccount;
+    }
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
 

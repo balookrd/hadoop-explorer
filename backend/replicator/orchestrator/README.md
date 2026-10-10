@@ -26,7 +26,8 @@
 
 3. **Планировщик и жизненный цикл задач (`ReplicationScheduler`, `JobService`)**:
    - Поддержка запуска по расписанию: интервальные пресеты (`@every_5m`, `@every_15m`, `@hourly`, `@daily`) и Cron-выражения (`UNIX` / `Spring`).
-   - Ведение истории запусков (`JobRunEntity`) и детализация файлов (`TaskEntity`).
+   - Ведение истории запусков (`JobRunEntity`) и детализация пофайловых задач (`TaskEntity`), включая обычные файлы (`FILE`) и бандлы упакованных мелких файлов (`BUNDLE_TAR`).
+   - Корректный учет числа упакованных объектов (`fileCount`) в бандлах при завершении задач (`transferredObjects` / `totalObjects`).
    - Автоматическая очистка устаревших запусков (`cleanupRetentionDays`).
    - Расчет метрик: процент выполнения, средняя скорость передачи (`MB/s`), время старта и завершения.
 
@@ -60,6 +61,11 @@ hadoop:
     agent-secret: "replicator-secure-agent-secret-key-12345"
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
+    bundle:
+      small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
+      bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
+      max-bundle-files: 500 # макс. файлов в одном бандле
+      bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
     datacenters:
       - id: "dc1"
         name: "Дата-Центр 1 (Primary DC)"

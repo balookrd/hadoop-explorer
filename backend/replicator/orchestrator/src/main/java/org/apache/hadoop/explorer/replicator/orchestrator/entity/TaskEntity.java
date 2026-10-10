@@ -64,6 +64,16 @@ public class TaskEntity {
     @Column(name = "last_failed_agent_id", length = 64)
     private String lastFailedAgentId;
 
+    @Column(name = "task_type", nullable = false, length = 32)
+    private String taskType = "FILE";
+
+    @Column(name = "file_count", nullable = false)
+    private int fileCount = 1;
+
+    @Lob
+    @Column(name = "bundle_manifest")
+    private String bundleManifest;
+
     @Column(name = "updated_at")
     private Instant updatedAt = Instant.now();
 
@@ -99,4 +109,13 @@ public class TaskEntity {
     public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
+
+    public int getFileCount() { return fileCount; }
+    public void setFileCount(int fileCount) { this.fileCount = fileCount; }
+
+    public String getBundleManifest() { return bundleManifest; }
+    public void setBundleManifest(String bundleManifest) { this.bundleManifest = bundleManifest; }
 }

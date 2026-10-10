@@ -80,11 +80,14 @@ public class TaskService {
 
         long totalBytes = 0;
         long skippedBytes = 0;
-        int skippedCount = 0;
+        int skippedObjectsCount = 0;
+        int totalObjectsCount = 0;
 
         List<TaskEntity> entities = new ArrayList<>(items.size());
         for (TaskCreateItem item : items) {
             totalBytes += item.getFileSize();
+            int count = item.getFileCount() > 0 ? item.getFileCount() : 1;
+            totalObjectsCount += count;
 
             TaskEntity task = new TaskEntity();
             task.setId(item.getId() != null ? item.getId() : UUID.randomUUID().toString());
@@ -93,6 +96,9 @@ public class TaskService {
             task.setSourcePath(item.getSourcePath());
             task.setTargetPath(item.getTargetPath());
             task.setFileSize(item.getFileSize());
+            task.setTaskType(item.getTaskType() != null ? item.getTaskType() : "FILE");
+            task.setFileCount(count);
+            task.setBundleManifest(item.getBundleManifest());
 
             int maxRetries = (item.getMaxRetries() != null) ? item.getMaxRetries() : properties.getMaxTaskRetries();
             task.setMaxRetries(maxRetries);
@@ -102,7 +108,7 @@ public class TaskService {
             if (item.isSkipped()) {
                 task.setStatus("SKIPPED");
                 skippedBytes += item.getFileSize();
-                skippedCount++;
+                skippedObjectsCount += count;
             } else {
                 task.setStatus("QUEUED");
             }
@@ -111,32 +117,32 @@ public class TaskService {
 
         taskRepository.saveAll(entities);
 
-        job.setTotalObjects(items.size());
+        job.setTotalObjects(totalObjectsCount);
         job.setTransferredObjects(0);
-        job.setSkippedObjects(skippedCount);
+        job.setSkippedObjects(skippedObjectsCount);
         job.setFailedObjects(0);
         job.setTotalBytes(totalBytes);
         job.setCopiedBytes(skippedBytes);
 
-        if (skippedCount == items.size()) {
+        if (skippedObjectsCount == totalObjectsCount && totalObjectsCount > 0) {
             // Все файлы уже актуальны
             job.setStatus("COMPLETED");
             job.setCompletedAt(Instant.now());
-            job.setMessage(String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", items.size()));
+            job.setMessage(String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", totalObjectsCount));
         } else {
             job.setStatus("RUNNING");
             if (job.getStartedAt() == null) {
                 job.setStartedAt(Instant.now());
             }
-            job.setMessage(String.format("Сформирован пул задач: %d к передаче, %d пропущено (всего %d объектов, %d байт)",
-                    items.size() - skippedCount, skippedCount, items.size(), totalBytes));
+            job.setMessage(String.format("Сформирован пул задач: %d объектов к передаче, %d пропущено (всего %d объектов в %d задачах, %d байт)",
+                    totalObjectsCount - skippedObjectsCount, skippedObjectsCount, totalObjectsCount, items.size(), totalBytes));
         }
 
         updateActiveRun(job);
         jobRepository.save(job);
 
-        log.info("Для job '{}' сформирован пул из {} задач (к передаче: {}, пропущено: {})",
-                jobId, items.size(), items.size() - skippedCount, skippedCount);
+        log.info("Для job '{}' сформирован пул из {} задач (всего объектов: {}, к передаче: {}, пропущено: {})",
+                jobId, items.size(), totalObjectsCount, totalObjectsCount - skippedObjectsCount, skippedObjectsCount);
         return true;
     }
 
@@ -209,7 +215,10 @@ public class TaskService {
                     job.isRunAsServiceAccount(),
                     task.getRetryCount(),
                     task.getMaxRetries(),
-                    task.getLastFailedAgentId()
+                    task.getLastFailedAgentId(),
+                    task.getTaskType(),
+                    task.getFileCount(),
+                    task.getBundleManifest()
             ));
         }
 
@@ -246,8 +255,9 @@ public class TaskService {
         // Обновляем родительскую задачу
         jobRepository.findById(task.getJobId()).ifPresent(job -> {
             long newCopied = job.getCopiedBytes() + req.getBytesTransferred();
+            int filesDone = req.getFilesCount() > 0 ? req.getFilesCount() : (task.getFileCount() > 0 ? task.getFileCount() : 1);
             job.setCopiedBytes(newCopied);
-            job.setTransferredObjects(job.getTransferredObjects() + 1);
+            job.setTransferredObjects(job.getTransferredObjects() + filesDone);
 
             long activeRemaining = taskRepository.countByJobIdAndStatusIn(job.getId(), List.of("QUEUED", "RUNNING"));
             if (activeRemaining == 0) {

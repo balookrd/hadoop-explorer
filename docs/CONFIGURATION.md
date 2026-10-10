@@ -909,7 +909,14 @@ topology:
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
 | `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |
-| `REPLICATOR_STAGING_DIR` | Буферная директория Staging для атомарного коммита | `/tmp/staging` |
+| `REPLICATOR_STAGING_DIR` | Буферная директория Staging для локального коммита (для HDFS используется прямой Zero-Staging) | `/tmp/staging` |
+| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) |
+| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) |
+| `REPLICATOR_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` |
+| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` |
+| `REPLICATOR_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для очистки осиротевших staging-файлов на HDFS | `true` |
+| `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов (минуты) | `15` |
+| `REPLICATOR_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они удаляются (минуты) | `30` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
 | `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
 | `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |

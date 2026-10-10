@@ -1,5 +1,8 @@
 package org.apache.hadoop.explorer.replicator.sender;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -8,16 +11,18 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.grpc.stub.StreamObserver;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
+import org.apache.hadoop.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.InputStream;
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 public class ReplicationSender {
 
     private static final Logger logger = LoggerFactory.getLogger(ReplicationSender.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final String workerId;
     private final OrchestratorClient orchestratorClient;
@@ -39,6 +45,9 @@ public class ReplicationSender {
     private final String clientCertChainPath;
     private final String clientPrivateKeyPath;
     private final boolean insecureSkipVerify;
+    private final long smallFileThresholdBytes;
+    private final long bundleTargetSizeBytes;
+    private final int maxBundleFiles;
 
     public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
@@ -50,6 +59,17 @@ public class ReplicationSender {
                              boolean tlsEnabled, String trustCertCollectionPath,
                              String clientCertChainPath, String clientPrivateKeyPath,
                              boolean insecureSkipVerify) {
+        this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, tlsEnabled,
+                trustCertCollectionPath, clientCertChainPath, clientPrivateKeyPath, insecureSkipVerify,
+                0L, 16 * 1024 * 1024L, 500);
+    }
+
+    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+                             LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
+                             boolean tlsEnabled, String trustCertCollectionPath,
+                             String clientCertChainPath, String clientPrivateKeyPath,
+                             boolean insecureSkipVerify,
+                             long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles) {
         this.workerId = workerId;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
@@ -60,6 +80,9 @@ public class ReplicationSender {
         this.clientCertChainPath = clientCertChainPath;
         this.clientPrivateKeyPath = clientPrivateKeyPath;
         this.insecureSkipVerify = insecureSkipVerify;
+        this.smallFileThresholdBytes = smallFileThresholdBytes;
+        this.bundleTargetSizeBytes = bundleTargetSizeBytes > 0 ? bundleTargetSizeBytes : 16 * 1024 * 1024L;
+        this.maxBundleFiles = maxBundleFiles > 0 ? maxBundleFiles : 500;
     }
 
     /**
@@ -154,6 +177,13 @@ public class ReplicationSender {
         try {
             channel = createManagedChannel(targetAddress);
             boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
+            // Pre-flight очистка старых staging-файлов предыдущей попытки этого задания
+            try {
+                fsManager.cleanStagingFiles(targetPath, jobId, 0L, job.getExecutionPrincipal(), asService);
+            } catch (Exception e) {
+                logger.debug("Предстартовая очистка staging файлов для job_id={}: {}", jobId, e.getMessage());
+            }
+
             boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), asService);
 
             List<TaskCreateItem> taskItems = new ArrayList<>();
@@ -184,19 +214,59 @@ public class ReplicationSender {
                     }
                 }
 
-                // In-memory diff и формирование пула подзадач
+                // In-memory diff и формирование пула подзадач с бандлингом мелких файлов
+                List<HadoopFsManager.FileItem> currentBundle = new ArrayList<>();
+                long currentBundleBytes = 0;
+
                 for (HadoopFsManager.FileItem item : items) {
                     Long remoteSize = remoteFileSizes.get(item.relativePath());
                     boolean skipped = (remoteSize != null && remoteSize == item.size() && item.size() > 0);
                     String subTargetPath = combinePaths(targetPath, item.relativePath());
 
-                    taskItems.add(new TaskCreateItem(
-                            UUID.randomUUID().toString(),
-                            item.fullPath(),
-                            subTargetPath,
-                            item.size(),
-                            skipped
-                    ));
+                    if (skipped) {
+                        taskItems.add(new TaskCreateItem(
+                                UUID.randomUUID().toString(),
+                                item.fullPath(),
+                                subTargetPath,
+                                item.size(),
+                                true,
+                                null,
+                                "FILE",
+                                1,
+                                null
+                        ));
+                        continue;
+                    }
+
+                    // Если файл >= порога мелких файлов или бандлинг отключен (порог <= 0)
+                    if (smallFileThresholdBytes <= 0 || item.size() >= smallFileThresholdBytes) {
+                        taskItems.add(new TaskCreateItem(
+                                UUID.randomUUID().toString(),
+                                item.fullPath(),
+                                subTargetPath,
+                                item.size(),
+                                false,
+                                null,
+                                "FILE",
+                                1,
+                                null
+                        ));
+                    } else {
+                        // Мелкий файл: добавляем в накапливаемый бандл
+                        currentBundle.add(item);
+                        currentBundleBytes += item.size();
+
+                        if (currentBundle.size() >= maxBundleFiles || currentBundleBytes >= bundleTargetSizeBytes) {
+                            taskItems.add(createBundleTaskItem(sourcePath, targetPath, currentBundle, currentBundleBytes));
+                            currentBundle = new ArrayList<>();
+                            currentBundleBytes = 0;
+                        }
+                    }
+                }
+
+                // Завершающий бандл (если остались файлы)
+                if (!currentBundle.isEmpty()) {
+                    taskItems.add(createBundleTaskItem(sourcePath, targetPath, currentBundle, currentBundleBytes));
                 }
             } else {
                 if (HadoopFsManager.isIgnoredPath(sourcePath)) {
@@ -240,6 +310,10 @@ public class ReplicationSender {
      * Исполнение конкретной пофайловой задачи воркером из распределенного пула.
      */
     public boolean transferTask(TaskItemDto task) {
+        if ("BUNDLE_TAR".equalsIgnoreCase(task.getTaskType())) {
+            return transferBundleTarTask(task);
+        }
+
         String taskId = task.getId();
         String jobId = task.getJobId();
         String sourcePath = task.getSourcePath();
@@ -284,10 +358,11 @@ public class ReplicationSender {
                                             long fileBytes, String executionPrincipal, Boolean runAsServiceAccount,
                                             ManagedChannel channel) {
         CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
+        StreamObserver<TransferFileRequest> requestObserver = null;
         try {
             DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
 
-            StreamObserver<TransferFileRequest> requestObserver = stub.transferFile(new StreamObserver<>() {
+            requestObserver = stub.transferFile(new StreamObserver<>() {
                 @Override
                 public void onNext(TransferFileResponse value) {
                     responseFuture.complete(value);
@@ -359,6 +434,11 @@ public class ReplicationSender {
             return response.getSuccess();
         } catch (Exception e) {
             logger.error("Ошибка при потоковой передаче задачи {}: {}", taskId, e.getMessage(), e);
+            if (requestObserver != null) {
+                try {
+                    requestObserver.onError(e);
+                } catch (Exception ignored) {}
+            }
             return false;
         }
     }
@@ -411,6 +491,13 @@ public class ReplicationSender {
         String jobId = job.getId();
         String sourceDir = job.getSourcePath();
         String targetDir = job.getTargetPath();
+
+        // Pre-flight очистка старых staging-файлов предыдущей попытки этого задания
+        try {
+            fsManager.cleanStagingFiles(targetDir, jobId, 0L, job.getExecutionPrincipal(), job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount());
+        } catch (Exception e) {
+            logger.debug("Предстартовая очистка staging файлов для job_id={}: {}", jobId, e.getMessage());
+        }
 
         if (HadoopFsManager.isIgnoredDirectoryPath(sourceDir)) {
             logger.info("Каталог {} пропущен согласно фильтру временных папок", sourceDir);
@@ -691,5 +778,270 @@ public class ReplicationSender {
                     .maxInboundMessageSize(64 * 1024 * 1024)
                     .build();
         }
+    }
+
+    private TaskCreateItem createBundleTaskItem(String baseSourcePath, String baseTargetPath,
+                                                List<HadoopFsManager.FileItem> bundleFiles, long totalBytes) {
+        List<BundleFileEntry> entries = new ArrayList<>(bundleFiles.size());
+        for (HadoopFsManager.FileItem item : bundleFiles) {
+            entries.add(new BundleFileEntry(item.fullPath(), item.relativePath(), item.size()));
+        }
+        String manifestJson = "";
+        try {
+            manifestJson = objectMapper.writeValueAsString(entries);
+        } catch (Exception e) {
+            logger.error("Ошибка сериализации bundleManifest: {}", e.getMessage());
+        }
+        return new TaskCreateItem(
+                UUID.randomUUID().toString(),
+                baseSourcePath,
+                baseTargetPath,
+                totalBytes,
+                false,
+                null,
+                "BUNDLE_TAR",
+                bundleFiles.size(),
+                manifestJson
+        );
+    }
+
+    /**
+     * Потоковая передача пакета мелких файлов в виде единого непрерывного TAR-архива на лету.
+     */
+    public boolean transferBundleTarTask(TaskItemDto task) {
+        String taskId = task.getId();
+        String jobId = task.getJobId();
+        String targetPath = task.getTargetPath();
+        long totalBytes = task.getFileSize();
+        int fileCount = task.getFileCount();
+        String targetAddress = task.getTargetAddress() != null ? task.getTargetAddress() : "localhost:50051";
+
+        logger.info("Воркер '{}' начинает потоковую передачу бандла TAR '{}': {} файлов ({} байт) в '{}' на {}",
+                workerId, taskId, fileCount, totalBytes, targetPath, targetAddress);
+
+        List<BundleFileEntry> entries;
+        try {
+            entries = objectMapper.readValue(task.getBundleManifest(), new TypeReference<List<BundleFileEntry>>() {});
+        } catch (Exception e) {
+            String err = "Ошибка десериализации bundleManifest для задачи " + taskId + ": " + e.getMessage();
+            logger.error(err);
+            orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, err));
+            return false;
+        }
+
+        ManagedChannel channel = null;
+        StreamObserver<TarStreamRequest> requestObserver = null;
+        try {
+            channel = createManagedChannel(targetAddress);
+            DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
+
+            CompletableFuture<TarStreamResponse> responseFuture = new CompletableFuture<>();
+
+            requestObserver = stub.transferTarStream(new StreamObserver<>() {
+                @Override
+                public void onNext(TarStreamResponse value) {
+                    responseFuture.complete(value);
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    responseFuture.completeExceptionally(t);
+                }
+
+                @Override
+                public void onCompleted() {
+                }
+            });
+
+            // 1. Метаданные бандла
+            boolean asService = task.getRunAsServiceAccount() != null && task.getRunAsServiceAccount();
+            String principal = task.getExecutionPrincipal() != null ? task.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL";
+
+            TarStreamMetadata metadata = TarStreamMetadata.newBuilder()
+                    .setJobId(jobId)
+                    .setTaskId(taskId)
+                    .setBaseTargetPath(targetPath)
+                    .setTotalFiles(entries.size())
+                    .setTotalBytes(totalBytes)
+                    .setRunAsServiceAccount(asService)
+                    .setExecutionPrincipal(principal)
+                    .build();
+
+            requestObserver.onNext(TarStreamRequest.newBuilder().setMetadata(metadata).build());
+
+            // 2. Потоковая упаковка TAR на лету в памяти с чанкованием, шейпингом и запросом токенов
+            TarChunkingOutputStream chunkingOut = new TarChunkingOutputStream(
+                    taskId,
+                    requestObserver,
+                    chunkSize,
+                    bandwidthLimiter,
+                    orchestratorClient,
+                    workerId
+            );
+
+            try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
+                tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
+                tarOut.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
+
+                for (BundleFileEntry entry : entries) {
+                    TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
+                    tarEntry.setSize(entry.getSize());
+                    tarOut.putArchiveEntry(tarEntry);
+
+                    try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
+                        IOUtils.copyBytes(in, tarOut, 32 * 1024, false);
+                    }
+                    tarOut.closeArchiveEntry();
+                }
+
+                tarOut.finish();
+                tarOut.flush();
+            }
+
+            chunkingOut.flush();
+            requestObserver.onCompleted();
+
+            TarStreamResponse resp = responseFuture.get(120, TimeUnit.SECONDS);
+            if (resp.getSuccess()) {
+                logger.info("Воркер '{}' успешно передал виртуальный TAR-стрим '{}': {} файлов ({} байт)",
+                        workerId, taskId, resp.getFilesCommitted(), resp.getBytesWritten());
+                orchestratorClient.completeTask(new CompleteTaskRequest(taskId, workerId, resp.getBytesWritten(), "OK", resp.getFilesCommitted()));
+                return true;
+            } else {
+                logger.error("Воркер '{}' получил ошибку передачи бандла '{}': {}", workerId, taskId, resp.getMessage());
+                orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, resp.getMessage()));
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("Исключение при передаче бандла TAR '{}': {}", taskId, e.getMessage(), e);
+            if (requestObserver != null) {
+                try {
+                    requestObserver.onError(e);
+                } catch (Exception ignored) {}
+            }
+            orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
+            return false;
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+                try {
+                    channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * Потоковый адаптер OutputStream, упаковывающий байты архива в gRPC чанки по 64 КБ с шейпингом.
+     */
+    public static class TarChunkingOutputStream extends OutputStream {
+        private final String taskId;
+        private final StreamObserver<TarStreamRequest> requestObserver;
+        private final int chunkSize;
+        private final LocalBandwidthLimiter bandwidthLimiter;
+        private final OrchestratorClient orchestratorClient;
+        private final String workerId;
+        private final byte[] buffer;
+        private int count = 0;
+        private long offset = 0;
+
+        public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
+                                       int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
+                                       OrchestratorClient orchestratorClient, String workerId) {
+            this.taskId = taskId;
+            this.requestObserver = requestObserver;
+            this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
+            this.bandwidthLimiter = bandwidthLimiter;
+            this.orchestratorClient = orchestratorClient;
+            this.workerId = workerId;
+            this.buffer = new byte[this.chunkSize];
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            buffer[count++] = (byte) b;
+            if (count >= chunkSize) {
+                flushBuffer();
+            }
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            int remaining = len;
+            int currentOff = off;
+            while (remaining > 0) {
+                int space = chunkSize - count;
+                int toCopy = Math.min(space, remaining);
+                System.arraycopy(b, currentOff, buffer, count, toCopy);
+                count += toCopy;
+                currentOff += toCopy;
+                remaining -= toCopy;
+                if (count >= chunkSize) {
+                    flushBuffer();
+                }
+            }
+        }
+
+        private void flushBuffer() throws IOException {
+            if (count == 0) return;
+            if (bandwidthLimiter != null) {
+                bandwidthLimiter.throttle(count);
+            }
+            if (orchestratorClient != null && workerId != null) {
+                double waitSec = orchestratorClient.requestNetworkTokens(
+                        new TokenRequest(workerId, count, null, null)
+                );
+                if (waitSec > 0) {
+                    try {
+                        Thread.sleep((long) (waitSec * 1000));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedIOException("Передача прервана во время ожидания токенов");
+                    }
+                }
+            }
+
+            TarStreamChunk chunk = TarStreamChunk.newBuilder()
+                    .setTaskId(taskId)
+                    .setOffset(offset)
+                    .setData(ByteString.copyFrom(buffer, 0, count))
+                    .build();
+
+            requestObserver.onNext(TarStreamRequest.newBuilder().setChunk(chunk).build());
+            offset += count;
+            count = 0;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            flushBuffer();
+        }
+    }
+
+    /**
+     * DTO описания файла внутри бандла.
+     */
+    public static class BundleFileEntry {
+        @JsonProperty("source_path")
+        private String sourcePath;
+        @JsonProperty("relative_path")
+        private String relativePath;
+        @JsonProperty("size")
+        private long size;
+
+        public BundleFileEntry() {}
+
+        public BundleFileEntry(String sourcePath, String relativePath, long size) {
+            this.sourcePath = sourcePath;
+            this.relativePath = relativePath;
+            this.size = size;
+        }
+
+        public String getSourcePath() { return sourcePath; }
+        public void setSourcePath(String sourcePath) { this.sourcePath = sourcePath; }
+        public String getRelativePath() { return relativePath; }
+        public void setRelativePath(String relativePath) { this.relativePath = relativePath; }
+        public long getSize() { return size; }
+        public void setSize(long size) { this.size = size; }
     }
 }

@@ -19,6 +19,10 @@ public class ReplicatorProperties {
     private int hmsBootstrapConcurrency = 8;
     private int hmsPartitionBatchSize = 1000;
     private int hmsLeaseTimeoutSeconds = 30;
+    private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
+    private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
+    private int maxBundleFiles = 500;
+    private int bundleCommitConcurrency = 8;
 
     private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
         new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
@@ -52,6 +56,14 @@ public class ReplicatorProperties {
     public void setHmsPartitionBatchSize(int hmsPartitionBatchSize) { this.hmsPartitionBatchSize = hmsPartitionBatchSize; }
     public int getHmsLeaseTimeoutSeconds() { return hmsLeaseTimeoutSeconds; }
     public void setHmsLeaseTimeoutSeconds(int hmsLeaseTimeoutSeconds) { this.hmsLeaseTimeoutSeconds = hmsLeaseTimeoutSeconds; }
+    public long getSmallFileThresholdBytes() { return smallFileThresholdBytes; }
+    public void setSmallFileThresholdBytes(long smallFileThresholdBytes) { this.smallFileThresholdBytes = smallFileThresholdBytes; }
+    public long getBundleTargetSizeBytes() { return bundleTargetSizeBytes; }
+    public void setBundleTargetSizeBytes(long bundleTargetSizeBytes) { this.bundleTargetSizeBytes = bundleTargetSizeBytes; }
+    public int getMaxBundleFiles() { return maxBundleFiles; }
+    public void setMaxBundleFiles(int maxBundleFiles) { this.maxBundleFiles = maxBundleFiles; }
+    public int getBundleCommitConcurrency() { return bundleCommitConcurrency; }
+    public void setBundleCommitConcurrency(int bundleCommitConcurrency) { this.bundleCommitConcurrency = bundleCommitConcurrency; }
     public List<DatacenterConfig> getDatacenters() { return datacenters; }
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }

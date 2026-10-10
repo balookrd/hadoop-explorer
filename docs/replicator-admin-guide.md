@@ -146,7 +146,14 @@ flowchart TD
 | `RECEIVER_PORT` | Порт входящего gRPC-сервера для приема чанков данных | `50051` | Опционально |
 | `AGENT_ADVERTISED_ADDRESS` | Внешний gRPC-адрес для саморегистрации в Оркестраторе (например, `agent-dc1:50051`) | Вычисляется автоматически (`hostname:50051`) | Опционально |
 | `AGENT_ENABLE_REGISTRATION` | Включение режима динамической саморегистрации с keepalive | `true` | Опционально |
-| `REPLICATOR_STAGING_DIR` | Локальная директория буфера для приема чанков перед коммитом | `/tmp/staging` | Опционально |
+| `REPLICATOR_STAGING_DIR` | Локальная директория буфера для приема чанков перед коммитом в локальную ФС (для HDFS используется прямой Zero-Staging в целевой HDFS) | `/tmp/staging` | Опционально |
+| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) | Опционально |
+| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) | Опционально |
+| `REPLICATOR_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` | Опционально |
+| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` | Опционально |
+| `REPLICATOR_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для периодической очистки осиротевших staging-файлов на HDFS | `true` | Опционально |
+| `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов фоновым демоном (минуты) | `15` | Опционально |
+| `REPLICATOR_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они считаются осиротевшими и удаляются (минуты) | `30` | Опционально |
 | `REPLICATOR_HDFS_NAMENODE` | Хост целевого NameNode для прямого HDFS-коммита через Java HDFS Client | Не задано (локальный commit) | Опционально |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач и keepalive-пингов (секунды) | `3.0` | Опционально |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит пропускной способности агента (МБ/с, Token Bucket). Предотвращает перегрузку сетевой карты и дисков при установке непосредственно на ноду Hadoop (DataNode / Edge Gateway). `0` или пусто — без ограничений | `0.0` (без ограничений) | Опционально |
@@ -1585,3 +1592,108 @@ docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smo
 - `POST /api/v1/hms/jobs/{id}/rebootstrap` — принудительный запуск повторной полной синхронизации без потери данных (`deleteData = false`).
 - `DELETE /api/v1/hms/jobs/{id}` — каскадное удаление задачи, дочерних HDFS саб-джоб и логов аудита.
 - `GET /api/v1/hms/jobs/{id}/events` — аудит обработанных DDL событий Hive с детализацией.
+
+---
+
+### 6.5 Батчинг мелких файлов (Small Files Bundling / Tar-Streaming) и Zero-Staging в HDFS
+
+В распределенных кластерах Hadoop директории со стриминговыми данными (Kafka Connect, Flume, Spark Streaming micro-batches, логи приложений, CDC витрины) содержат миллионы мелких файлов размером 5–50 КБ. Традиционная пофайловая репликация создает критический оверхед:
+1. **Перегрузка NameNode RPC**: для каждого мелкого файла выполняется серия вызовов `getFileInfo`, `create`, `close`, `rename`, создавая тысячи обращений в секунду.
+2. **Износ и задержки локального диска агента**: запись миллионов временных файлов в `/tmp/staging` на локальном SSD/HDD узла перед коммитом упирается в дисковый IOPS.
+3. **Раздувание очереди задач**: миллионы мелких записей в БД оркестратора замедляют планировщик.
+
+#### Архитектура решения (Zero-Staging Tar-Streaming)
+
+```mermaid
+flowchart LR
+    subgraph Sender["🚀 Исходный агент (Sender / DC1)"]
+        FS1[("HDFS Source<br/>(Мелкие файлы < 1MB)")]
+        TarOut["Виртуальный TarStream<br/>(TarArchiveOutputStream в памяти)"]
+        Shaper["Token Bucket<br/>шейпер (64KB chunks)"]
+        FS1 --> TarOut --> Shaper
+    end
+
+    subgraph Net["🌐 Сеть WAN (gRPC HTTP/2)"]
+        RPC["rpc TransferTarStream<br/>(stream TarStreamRequest)"]
+    end
+
+    subgraph Receiver["⚡ Принимающий агент (Receiver / DC2)"]
+        Piped["Потоковая труба<br/>(PipedInputStream/TarInputStream)"]
+        Pool["Пул потоков коммита<br/>(8 потоков, Zero-Staging)"]
+        FS2[("HDFS Target<br/>(Прямая запись без локального диска)")]
+        Piped --> Pool --> FS2
+    end
+
+    Shaper ==> RPC ==> Piped
+```
+
+#### Принцип работы
+1. **Автоматическая группировка в бандлы**: при анализе каталога агент разделяет файлы на крупные (`FILE`, $\ge 1$ МБ) и мелкие (`< 1` МБ). Мелкие файлы группируются в задачи типа `BUNDLE_TAR` с целевым размером пакета ~16 МБ (до 500 файлов в одной задаче).
+2. **Упаковка на лету без промежуточного диска**: отправляющий агент читает мелкие файлы из HDFS и потоково пакует их в `TarArchiveOutputStream`. Чанки gRPC стрима передаются с учетом лимитов Token Bucket.
+3. **Параллельная распаковка на лету прямо в HDFS (Zero-Staging)**: принимающий агент не сохраняет архив на локальный диск узла. Байт-поток gRPC направляется в `TarArchiveInputStream`, а распаковываемые файлы параллельно записываются напрямую в целевой HDFS (`fs.create()`) пулом рабочих потоков под Kerberos UGI `doAs`.
+4. **Прямой HDFS-staging для крупных файлов**: для одиночных файлов (`FILE`) локальный staging также заменен на временный файл прямо в HDFS (`targetPath + "._staging_" + jobId"`) с последующим атомарным `fs.rename()`. Локальный диск агента полностью исключен из тракта передачи данных.
+
+#### Рекомендации по настройке в Production
+
+| Параметр | Рекомендуемое значение | Обоснование |
+|---|---|---|
+| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | `1048576` (1 МБ) | Файлы меньше 1 МБ выгоднее паковать в бандлы для снижения числа gRPC RPC и транзакций NameNode. |
+| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) — `33554432` (32 МБ) | Оптимальный размер бандла для эффективного сетевого конвейера без перерасхода оперативной памяти. |
+| `REPLICATOR_MAX_BUNDLE_FILES` | `500` — `1000` | Предотвращает чрезмерно долгую обработку одной задачи при огромном количестве сверхмелких файлов (1–2 КБ). |
+| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | `8` — `16` | Количество потоков прямой записи в целевой HDFS для параллелизации сетевых задержек NameNode/DataNode. |
+
+---
+
+### 6.6 Автоматическая очистка временных staging-файлов на HDFS (Garbage Collection / Reaper)
+
+При передаче данных через WAN-каналы в условиях нестабильной сети (обрывы gRPC-сессий, `Connection reset`, истечение дедлайнов) или аварийных остановок агентов (`kill -9`, переполнение памяти OOM, перезагрузка хостов) временные staging-файлы (`targetPath + "._staging_" + taskId`) могут оставаться на целевой HDFS. Без регламентной очистки такие файлы накапливаются терабайтами, расходуя дисковую квоту HDFS и ресурсы NameNode.
+
+В Replicator реализована **4-уровневая отказоустойчивая система защиты от накопления мусора на HDFS**:
+
+```mermaid
+flowchart TD
+    subgraph Level1["1. Реактивная очистка gRPC-стрима (On-the-fly)"]
+        E1["Сбой соединения / onError / Exception"] --> C1["DataTransferServiceImpl.cleanup"]
+        C1 --> D1["Немедленный fs.delete(stagingPath) в HDFS"]
+    end
+
+    subgraph Level2["2. Предстартовая очистка перед запуском (Pre-flight Cleanup)"]
+        StartJob["Старт / Перезапуск задачи"] --> C2["cleanStagingFiles(targetDir, jobId)"]
+        C2 --> D2["Удаление незавершенных staging файлов предыдущего запуска"]
+    end
+
+    subgraph Level3["3. Фоновый периодический сборщик мусора (TTL Reaper)"]
+        Cron["Шедулер hdfs-staging-cleaner каждые 15 мин"] --> Scan["Сканирование knownTargetDirectories"]
+        Scan --> CheckTTL["Проверка modificationTime < now - TTL (30 мин)"]
+        CheckTTL --> D3["Удаление осиротевших staging-файлов"]
+    end
+
+    subgraph Level4["4. Фильтрация и защита от зацикливания (Filter Exclusion)"]
+        Manifest["HadoopFsManager.isIgnoredFile"] --> Filter["Исключение ._staging_*, .staging.*, _staging_*"]
+        Filter --> Diff["Staging-файлы не попадают в манифест и in-memory diff"]
+    end
+```
+
+#### Уровни архитектуры очистки:
+
+1. **Реактивная очистка в gRPC-стриме (`DataTransferServiceImpl.cleanup`)**:
+   - При получении сигнала ошибки gRPC (`StreamObserver.onError`), обрыве TCP-носителя (carrier) или непредвиденном исключении при финализации и атомарном rename:
+     - Для одиночных файлов (`transferFile`): немедленно вызывается удаление `stagingPath` с целевой HDFS под UGI пользователя (`fs.delete(stagingPath, false)`).
+     - Для пакетных TAR-стримов (`transferTarStream`): все зарегистрированные в `activeStagingPaths` временные файлы бандла параллельно и гарантированно удаляются из целевой HDFS.
+   - На стороне отправителя (`ReplicationSender`) в блоках перехвата исключений гарантирован вызов `requestObserver.onError(e)`, что немедленно триггерит реактивный `cleanup` на стороне приемника.
+
+2. **Предстартовая очистка при повторных запусках (Pre-flight Retry Cleanup)**:
+   - При ручном перезапуске задачи оператором или повторной попытке (retry) после сбоя перед началом фазы анализа (`analyzeAndCreateTaskPool`) и перед вызовом `transferDirectory`:
+     - Вызывается метод `HadoopFsManager.cleanStagingFiles(targetDir, jobId, 0, ...)`.
+     - Все временные файлы, оставшиеся с маркером `._staging_<jobId>`, удаляются до старта репликации, освобождая место и исключая коллизии.
+
+3. **Фоновый сборщик мусора по TTL (Periodic Orphaned Staging Reaper Daemon)**:
+   - В `ReplicatorAgent` работает фоновый демон `ScheduledExecutorService` с потоком `hdfs-staging-cleaner` (интервал по умолчанию `15` минут).
+   - Демон обращается к реестру известных целевых каталогов `DataTransferServiceImpl.getKnownTargetDirectories()` и запускает рекурсивную очистку по времени жизни `stagingTtlMinutes` (по умолчанию `30` минут).
+   - Если файл содержит маркер staging (`._staging_`, `.staging.`, `_staging_`) и время его модификации старше TTL, он классифицируется как брошенный («осиротевший» в результате внезапной гибели процесса агента) и удаляется.
+
+4. **Исключение из манифестов и защита от паразитной репликации (Filter Exclusion)**:
+   - В предикат `HadoopFsManager.isIgnoredFile` добавлена строгая проверка паттернов `._staging_`, `.staging.` и `_staging_`.
+   - Временные файлы никогда не включаются в удаленный манифест целевого каталога и не участвуют в вычислении дельты (`in-memory diff`). Это исключает ситуации, когда незавершенный staging-файл ошибочно признается самостоятельным объектом репликации.
+
+

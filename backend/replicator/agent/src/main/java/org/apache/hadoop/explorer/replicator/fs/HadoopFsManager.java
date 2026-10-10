@@ -17,11 +17,13 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 /**
@@ -561,6 +563,11 @@ public class HadoopFsManager {
             return true;
         }
 
+        // Staging-файлы Replicator (содержащие ._staging_ или _staging_)
+        if (lower.contains("._staging_") || lower.contains(".staging.") || lower.contains("_staging_")) {
+            return true;
+        }
+
         return false;
     }
 
@@ -729,6 +736,253 @@ public class HadoopFsManager {
 
     public String commitFile(String stagingFilePath, String targetPath, String executionPrincipal) throws Exception {
         return commitFile(stagingFilePath, targetPath, executionPrincipal, false);
+    }
+
+    /**
+     * Прямая запись байтов файла в HDFS или локальную ФС без создания временного staging-файла на локальном диске (Zero-Staging).
+     */
+    public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
+
+        if (targetIsHdfs) {
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                    Path hdfsTarget = new Path(targetPath);
+                    FileSystem fs = hdfsTarget.getFileSystem(conf);
+                    Path parentDir = hdfsTarget.getParent();
+                    if (parentDir != null && !fs.exists(parentDir)) {
+                        fs.mkdirs(parentDir);
+                    }
+                    try (OutputStream out = fs.create(hdfsTarget, true)) {
+                        out.write(content);
+                    }
+                    return null;
+                });
+                return;
+            } catch (Exception e) {
+                logger.warn("Не удалось записать напрямую в HDFS ({}), fallback на локальную ФС: {}", e.getMessage(), targetPath);
+            }
+        }
+
+        // Локальная файловая система
+        File destFile = new File(targetPath);
+        File parentDir = destFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        Files.write(destFile.toPath(), content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    /**
+     * Открытие потока вывода для записи файла напрямую в HDFS или локальную ФС.
+     */
+    public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
+
+        if (targetIsHdfs) {
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                return ugi.doAs((PrivilegedExceptionAction<OutputStream>) () -> {
+                    Path hdfsTarget = new Path(targetPath);
+                    FileSystem fs = hdfsTarget.getFileSystem(conf);
+                    Path parentDir = hdfsTarget.getParent();
+                    if (parentDir != null && !fs.exists(parentDir)) {
+                        fs.mkdirs(parentDir);
+                    }
+                    return fs.create(hdfsTarget, true);
+                });
+            } catch (Exception e) {
+                logger.warn("Не удалось открыть OutputStream в HDFS ({}), fallback на локальную ФС: {}", e.getMessage(), targetPath);
+            }
+        }
+
+        File destFile = new File(targetPath);
+        File parentDir = destFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        return new FileOutputStream(destFile);
+    }
+
+    /**
+     * Атомарное переименование файла в целевой ФС (HDFS или локальной).
+     */
+    public boolean renameFile(String srcPath, String dstPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        boolean targetIsHdfs = dstPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(dstPath));
+
+        if (targetIsHdfs) {
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                    Path src = new Path(srcPath);
+                    Path dst = new Path(dstPath);
+                    FileSystem fs = dst.getFileSystem(conf);
+                    Path parent = dst.getParent();
+                    if (parent != null && !fs.exists(parent)) {
+                        fs.mkdirs(parent);
+                    }
+                    if (fs.exists(dst)) {
+                        fs.delete(dst, false);
+                    }
+                    return fs.rename(src, dst);
+                });
+            } catch (Exception e) {
+                logger.warn("Не удалось выполнить rename в HDFS ({}), fallback на локальную ФС: {} -> {}", e.getMessage(), srcPath, dstPath);
+            }
+        }
+
+        File srcFile = new File(srcPath);
+        File dstFile = new File(dstPath);
+        if (dstFile.getParentFile() != null && !dstFile.getParentFile().exists()) {
+            dstFile.getParentFile().mkdirs();
+        }
+        try {
+            Files.move(srcFile.toPath(), dstFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            Files.copy(srcFile.toPath(), dstFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            srcFile.delete();
+            return true;
+        }
+    }
+
+    /**
+     * Удаление файла в HDFS или локальной ФС.
+     */
+    public boolean deletePath(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        boolean targetIsHdfs = pathStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(pathStr));
+        if (targetIsHdfs) {
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                    Path p = new Path(pathStr);
+                    FileSystem fs = p.getFileSystem(conf);
+                    return fs.delete(p, true);
+                });
+            } catch (Exception e) {
+                logger.debug("Не удалось удалить HDFS путь {}: {}", pathStr, e.getMessage());
+            }
+        }
+        try {
+            File f = new File(pathStr);
+            if (f.exists()) {
+                return f.delete();
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    public int cleanStagingFiles(String baseDirStr, String jobIdFilter, long olderThanMillis, String executionPrincipal, boolean runAsServiceAccount) {
+        if (baseDirStr == null || baseDirStr.isBlank()) {
+            return 0;
+        }
+
+        boolean targetIsHdfs = baseDirStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(baseDirStr));
+        long now = System.currentTimeMillis();
+        long cutoffTime = olderThanMillis > 0 ? (now - olderThanMillis) : Long.MAX_VALUE;
+
+        if (targetIsHdfs) {
+            try {
+                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+                return ugi.doAs((PrivilegedExceptionAction<Integer>) () -> {
+                    Path p = new Path(baseDirStr);
+                    FileSystem fs = p.getFileSystem(conf);
+                    if (!fs.exists(p)) {
+                        return 0;
+                    }
+                    int deleted = 0;
+                    if (!fs.getFileStatus(p).isDirectory()) {
+                        String name = p.getName();
+                        if (name.contains("._staging_") || name.contains("_staging_")) {
+                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                            boolean matchAge = olderThanMillis <= 0 || (fs.getFileStatus(p).getModificationTime() <= cutoffTime);
+                            if (matchJob && matchAge) {
+                                if (fs.delete(p, false)) deleted++;
+                            }
+                        }
+                        return deleted;
+                    }
+
+                    RemoteIterator<LocatedFileStatus> iter = fs.listFiles(p, true);
+                    while (iter.hasNext()) {
+                        LocatedFileStatus status = iter.next();
+                        String name = status.getPath().getName();
+                        if (name.contains("._staging_") || name.contains("_staging_")) {
+                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                            boolean matchAge = olderThanMillis <= 0 || (status.getModificationTime() <= cutoffTime);
+                            if (matchJob && matchAge) {
+                                try {
+                                    if (fs.delete(status.getPath(), false)) {
+                                        deleted++;
+                                        logger.info("Удален осиротевший staging-файл HDFS: {} (модифицирован {} мс назад)",
+                                                status.getPath(), (now - status.getModificationTime()));
+                                    }
+                                } catch (Exception e) {
+                                    logger.warn("Не удалось удалить staging-файл HDFS {}: {}", status.getPath(), e.getMessage());
+                                }
+                            }
+                        }
+                    }
+                    return deleted;
+                });
+            } catch (Exception e) {
+                logger.warn("Ошибка при очистке HDFS staging-файлов в {}: {}", baseDirStr, e.getMessage());
+            }
+        }
+
+        // Локальная файловая система
+        File baseFile = new File(baseDirStr);
+        if (!baseFile.exists()) {
+            return 0;
+        }
+
+        AtomicInteger deletedLocal = new AtomicInteger(0);
+        if (baseFile.isFile()) {
+            String name = baseFile.getName();
+            if (name.contains("._staging_") || name.contains("_staging_")) {
+                boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                boolean matchAge = olderThanMillis <= 0 || (baseFile.lastModified() <= cutoffTime);
+                if (matchJob && matchAge && baseFile.delete()) {
+                    deletedLocal.incrementAndGet();
+                }
+            }
+            return deletedLocal.get();
+        }
+
+        try {
+            Files.walkFileTree(baseFile.toPath(), new SimpleFileVisitor<java.nio.file.Path>() {
+                @Override
+                public FileVisitResult visitFile(java.nio.file.Path file, BasicFileAttributes attrs) {
+                    String name = file.getFileName().toString();
+                    if (name.contains("._staging_") || name.contains("_staging_")) {
+                        boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                        boolean matchAge = olderThanMillis <= 0 || (attrs.lastModifiedTime().toMillis() <= cutoffTime);
+                        if (matchJob && matchAge) {
+                            try {
+                                if (Files.deleteIfExists(file)) {
+                                    deletedLocal.incrementAndGet();
+                                    logger.info("Удален staging-файл в локальной ФС: {}", file);
+                                }
+                            } catch (IOException ignored) {}
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            logger.warn("Ошибка при обходе локальных staging-файлов в {}: {}", baseDirStr, e.getMessage());
+        }
+
+        return deletedLocal.get();
+    }
+
+    public int cleanStagingFiles(String baseDirStr, String jobIdFilter) {
+        return cleanStagingFiles(baseDirStr, jobIdFilter, 0L, null, true);
+    }
+
+    public int cleanStagingFiles(String baseDirStr, long olderThanMillis) {
+        return cleanStagingFiles(baseDirStr, null, olderThanMillis, null, true);
     }
 
     private boolean isLocalPath(String path) {

@@ -54,19 +54,38 @@ public class TaskItemDto {
     @JsonProperty("last_failed_agent_id")
     private String lastFailedAgentId;
 
+    @JsonProperty("task_type")
+    private String taskType = "FILE";
+
+    @JsonProperty("file_count")
+    private int fileCount = 1;
+
+    @JsonProperty("bundle_manifest")
+    private String bundleManifest;
+
     public TaskItemDto() {}
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
                        long fileSize, String status, String assignedAgentId, String checksum,
                        String targetAddress, String executionPrincipal, Boolean runAsServiceAccount) {
         this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
-                targetAddress, executionPrincipal, runAsServiceAccount, 0, 3, null);
+                targetAddress, executionPrincipal, runAsServiceAccount, 0, 3, null, "FILE", 1, null);
     }
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
                        long fileSize, String status, String assignedAgentId, String checksum,
                        String targetAddress, String executionPrincipal, Boolean runAsServiceAccount,
                        int retryCount, int maxRetries, String lastFailedAgentId) {
+        this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
+                targetAddress, executionPrincipal, runAsServiceAccount, retryCount, maxRetries, lastFailedAgentId,
+                "FILE", 1, null);
+    }
+
+    public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
+                       long fileSize, String status, String assignedAgentId, String checksum,
+                       String targetAddress, String executionPrincipal, Boolean runAsServiceAccount,
+                       int retryCount, int maxRetries, String lastFailedAgentId,
+                       String taskType, int fileCount, String bundleManifest) {
         this.id = id;
         this.jobId = jobId;
         this.runId = runId;
@@ -82,6 +101,9 @@ public class TaskItemDto {
         this.retryCount = retryCount;
         this.maxRetries = maxRetries;
         this.lastFailedAgentId = lastFailedAgentId;
+        this.taskType = taskType != null ? taskType : "FILE";
+        this.fileCount = fileCount > 0 ? fileCount : 1;
+        this.bundleManifest = bundleManifest;
     }
 
     public String getId() { return id; }
@@ -128,4 +150,13 @@ public class TaskItemDto {
 
     public String getLastFailedAgentId() { return lastFailedAgentId; }
     public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
+
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
+
+    public int getFileCount() { return fileCount; }
+    public void setFileCount(int fileCount) { this.fileCount = fileCount; }
+
+    public String getBundleManifest() { return bundleManifest; }
+    public void setBundleManifest(String bundleManifest) { this.bundleManifest = bundleManifest; }
 }

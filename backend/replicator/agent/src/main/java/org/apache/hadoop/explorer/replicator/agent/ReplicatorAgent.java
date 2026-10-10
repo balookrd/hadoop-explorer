@@ -51,7 +51,9 @@ public class ReplicatorAgent {
 
     private Server grpcServer;
     private ScheduledExecutorService heartbeatExecutor;
+    private ScheduledExecutorService stagingCleanupExecutor;
     private Thread senderThread;
+    private DataTransferServiceImpl receiverService;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger activeTransfers = new AtomicInteger(0);
@@ -79,7 +81,10 @@ public class ReplicatorAgent {
                 config.getGrpcTrustCertCollectionPath(),
                 config.getGrpcCertChainPath(),
                 config.getGrpcPrivateKeyPath(),
-                config.isGrpcInsecureSkipVerify()
+                config.isGrpcInsecureSkipVerify(),
+                config.getSmallFileThresholdBytes(),
+                config.getBundleTargetSizeBytes(),
+                config.getMaxBundleFiles()
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
@@ -141,18 +146,24 @@ public class ReplicatorAgent {
                 || "worker".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode())) {
             startSenderLoop();
         }
+
+        // 4. Фоновый сборщик мусора HDFS staging-файлов
+        if (config.isStagingCleanupEnabled()) {
+            startStagingCleaner();
+        }
     }
 
     private void startReceiverServer() throws IOException {
-        DataTransferServiceImpl service = new DataTransferServiceImpl(
+        this.receiverService = new DataTransferServiceImpl(
                 config.getStagingDir(),
                 fsManager,
                 bandwidthLimiter,
-                config.getKeytabPath()
+                config.getKeytabPath(),
+                config.getBundleCommitConcurrency()
         );
 
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
-                .addService(service)
+                .addService(receiverService)
                 .maxInboundMessageSize(64 * 1024 * 1024);
 
         if (hmsClient != null) {
@@ -406,6 +417,34 @@ public class ReplicatorAgent {
         return config.getFallbackTargetAddress();
     }
 
+    private void startStagingCleaner() {
+        this.stagingCleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "hdfs-staging-cleaner");
+            t.setDaemon(true);
+            return t;
+        });
+
+        long intervalMin = config.getStagingCleanupIntervalMinutes();
+        long ttlMillis = config.getStagingTtlMinutes() * 60 * 1000L;
+
+        stagingCleanupExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                if (receiverService != null) {
+                    int cleaned = receiverService.cleanOrphanedStaging(ttlMillis);
+                    if (cleaned > 0) {
+                        logger.info("[HdfsStagingCleaner] Периодическая очистка удалила {} осиротевших staging-файлов (TTL: {} мин)",
+                                cleaned, config.getStagingTtlMinutes());
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("[HdfsStagingCleaner] Ошибка во время периодической очистки: {}", e.getMessage());
+            }
+        }, 1, intervalMin, TimeUnit.MINUTES);
+
+        logger.info("Фоновый сборщик мусора HDFS Staging запущен (интервал: {} мин, TTL: {} мин)",
+                intervalMin, config.getStagingTtlMinutes());
+    }
+
     /**
      * Корректная остановка агента (Graceful Shutdown).
      */
@@ -421,6 +460,10 @@ public class ReplicatorAgent {
 
         if (heartbeatExecutor != null) {
             heartbeatExecutor.shutdownNow();
+        }
+
+        if (stagingCleanupExecutor != null) {
+            stagingCleanupExecutor.shutdownNow();
         }
 
         if (hmsTaskExecutor != null) {

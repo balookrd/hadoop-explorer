@@ -16,6 +16,9 @@ service DataTransferService {
 
   // Пакетное получение манифеста каталога для мгновенного in-memory diff между изолированными DC
   rpc GetDirectoryManifest (DirectoryManifestRequest) returns (DirectoryManifestResponse);
+
+  // Потоковая передача пакета мелких файлов в виде непрерывного виртуального TAR-архива
+  rpc TransferTarStream (stream TarStreamRequest) returns (TarStreamResponse);
 }
 
 // Запрос на передачу: либо метаданные файла, либо порция данных
@@ -90,6 +93,53 @@ message DirectoryManifestResponse {
   bool exists = 1;                       // Существует ли каталог
   repeated FileManifestEntry files = 2;  // Список файлов в каталоге на целевой стороне
 }
+
+// Запрос потоковой передачи пакета файлов: сначала метаданные архива, затем чанки байтов tar-потока
+message TarStreamRequest {
+  oneof payload {
+    TarStreamMetadata metadata = 1;
+    TarStreamChunk chunk = 2;
+  }
+}
+
+// Метаданные потокового архива
+message TarStreamMetadata {
+  string job_id = 1;                     // Идентификатор родительского задания
+  string task_id = 2;                    // Идентификатор подзадачи бандла
+  string base_target_path = 3;           // Базовый целевой каталог назначения в HDFS
+  int32 total_files = 4;                 // Количество файлов в потоковом архиве
+  int64 total_bytes = 5;                 // Суммарный неупакованный объем в байтах
+  bool run_as_service_account = 6;       // Выполнять от системной техучетки
+  string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
+}
+
+// Чанк бинарных данных tar-потока
+message TarStreamChunk {
+  string task_id = 1;                    // Идентификатор подзадачи бандла
+  int64 offset = 2;                      // Смещение чанка в потоке
+  bytes data = 3;                        // Порция бинарных данных архива
+  bool is_last_chunk = 4;                // Флаг завершения передачи архива
+}
+
+// Результат коммита конкретного файла из архива
+message TarFileCommitResult {
+  string relative_path = 1;              // Относительный путь файла в архиве
+  string target_path = 2;                // Итоговый путь в целевом HDFS
+  int64 bytes_written = 3;               // Фактически записано байт
+  bool success = 4;                      // Признак успешности записи
+  string error_message = 5;              // Ошибка при записи (если возникла)
+}
+
+// Ответ приемника по результатам распаковки и параллельного коммита бандла
+message TarStreamResponse {
+  string task_id = 1;                    // Идентификатор подзадачи бандла
+  bool success = 2;                      // Общий признак успешности
+  int32 files_committed = 3;             // Количество успешно сохраненных файлов
+  int64 bytes_written = 4;               // Суммарно записано байт
+  string message = 5;                    // Диагностическое сообщение
+  repeated TarFileCommitResult files = 6;// Детальные результаты по файлам
+}
+
 
 // ============================================================================
 // Сервис прямого конвейера метаданных Hive Metastore (Source Agent -> Target Agent)

@@ -112,6 +112,11 @@ class IgnoredTempFilesFilterTest {
         assertTrue(HadoopFsManager.isIgnoredFile("query.hive-staging-task.xml"));
         assertTrue(HadoopFsManager.isIgnoredFile("data.spark-staging"));
 
+        // Staging файлы Replicator (Zero-Staging временные файлы)
+        assertTrue(HadoopFsManager.isIgnoredFile("large_table.parquet._staging_job-123"));
+        assertTrue(HadoopFsManager.isIgnoredFile("data.csv._staging_task-456"));
+        assertTrue(HadoopFsManager.isIgnoredFile("event.json.staging.tmp"));
+
         // ВАЖНО: Легитимные файлы метаданных НЕ должны отсекаться!
         assertFalse(HadoopFsManager.isIgnoredFile("_SUCCESS"));
         assertFalse(HadoopFsManager.isIgnoredFile("_SUCCESS.crc"));

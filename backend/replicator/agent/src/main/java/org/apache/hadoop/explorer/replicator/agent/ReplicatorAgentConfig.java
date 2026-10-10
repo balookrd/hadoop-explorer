@@ -35,6 +35,13 @@ public class ReplicatorAgentConfig {
     private boolean orchestratorInsecureSkipVerify;
     private String hmsThriftUris;
     private String hiveVersion = "3.1.3";
+    private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
+    private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
+    private int maxBundleFiles = 500;
+    private int bundleCommitConcurrency = 8;
+    private boolean stagingCleanupEnabled = true;
+    private long stagingCleanupIntervalMinutes = 15;
+    private long stagingTtlMinutes = 30;
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -96,6 +103,15 @@ public class ReplicatorAgentConfig {
 
         config.hmsThriftUris = getEnv("HMS_THRIFT_URIS", getEnv("HIVE_METASTORE_URIS", null));
         config.hiveVersion = getEnv("HIVE_VERSION", "3.1.3");
+
+        config.smallFileThresholdBytes = Long.parseLong(getEnv("REPLICATOR_SMALL_FILE_THRESHOLD_BYTES", String.valueOf(1024 * 1024L)));
+        config.bundleTargetSizeBytes = Long.parseLong(getEnv("REPLICATOR_BUNDLE_TARGET_SIZE_BYTES", String.valueOf(16 * 1024 * 1024L)));
+        config.maxBundleFiles = Integer.parseInt(getEnv("REPLICATOR_MAX_BUNDLE_FILES", "500"));
+        config.bundleCommitConcurrency = Integer.parseInt(getEnv("REPLICATOR_BUNDLE_COMMIT_CONCURRENCY", "8"));
+
+        config.stagingCleanupEnabled = Boolean.parseBoolean(getEnv("REPLICATOR_STAGING_CLEANUP_ENABLED", "true"));
+        config.stagingCleanupIntervalMinutes = Long.parseLong(getEnv("REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES", "15"));
+        config.stagingTtlMinutes = Long.parseLong(getEnv("REPLICATOR_STAGING_TTL_MINUTES", "30"));
 
         return config;
     }
@@ -182,4 +198,25 @@ public class ReplicatorAgentConfig {
 
     public String getHiveVersion() { return hiveVersion; }
     public void setHiveVersion(String hiveVersion) { this.hiveVersion = hiveVersion; }
+
+    public long getSmallFileThresholdBytes() { return smallFileThresholdBytes; }
+    public void setSmallFileThresholdBytes(long smallFileThresholdBytes) { this.smallFileThresholdBytes = smallFileThresholdBytes; }
+
+    public long getBundleTargetSizeBytes() { return bundleTargetSizeBytes; }
+    public void setBundleTargetSizeBytes(long bundleTargetSizeBytes) { this.bundleTargetSizeBytes = bundleTargetSizeBytes; }
+
+    public int getMaxBundleFiles() { return maxBundleFiles; }
+    public void setMaxBundleFiles(int maxBundleFiles) { this.maxBundleFiles = maxBundleFiles; }
+
+    public int getBundleCommitConcurrency() { return bundleCommitConcurrency; }
+    public void setBundleCommitConcurrency(int bundleCommitConcurrency) { this.bundleCommitConcurrency = bundleCommitConcurrency; }
+
+    public boolean isStagingCleanupEnabled() { return stagingCleanupEnabled; }
+    public void setStagingCleanupEnabled(boolean stagingCleanupEnabled) { this.stagingCleanupEnabled = stagingCleanupEnabled; }
+
+    public long getStagingCleanupIntervalMinutes() { return stagingCleanupIntervalMinutes; }
+    public void setStagingCleanupIntervalMinutes(long stagingCleanupIntervalMinutes) { this.stagingCleanupIntervalMinutes = stagingCleanupIntervalMinutes; }
+
+    public long getStagingTtlMinutes() { return stagingTtlMinutes; }
+    public void setStagingTtlMinutes(long stagingTtlMinutes) { this.stagingTtlMinutes = stagingTtlMinutes; }
 }

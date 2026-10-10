@@ -20,8 +20,9 @@
 
 ## 2. Архитектура и компоненты
 
-- **`DataTransferServiceImpl`**: gRPC-сервер, реализующий контракт `replicator.proto` (`TransferFile` streaming RPC). Поддерживает прием данных блоками, потоковый расчет SHA-256 контрольной суммы и атомарный коммит файлов в HDFS или локальную ФС.
-- **`ReplicationSender`**: gRPC-клиент с поддержкой многоуровневого шейпинга пропускной способности. Читает файлы из HDFS и потоково передает их в удаленный gRPC Receiver.
+- **`DataTransferServiceImpl`**: gRPC-сервер, реализующий контракт `replicator.proto` (`TransferFile` и `TransferTarStream` streaming RPC). Поддерживает потоковый прием данных блоками, потоковый расчет SHA-256 контрольной суммы, потоковую распаковку виртуальных TAR-стримов (`TarArchiveInputStream`) на лету и прямой параллельный коммит файлов в HDFS пулом потоков (`bundleCommitConcurrency`) без промежуточной записи на локальный диск (**Zero-Staging архитектура**). Включает реактивную очистку (`cleanup`) недописанных staging-файлов при обрыве потока (`onError`).
+- **`ReplicationSender`**: gRPC-клиент с поддержкой многоуровневого шейпинга пропускной способности. Читает файлы из HDFS и потоково передает их в удаленный gRPC Receiver (одиночные файлы через `TransferFile`, сгруппированные мелкие файлы через виртуальный `TarArchiveOutputStream` и RPC `TransferTarStream`). Выполняет pre-flight очистку старых staging-файлов задания перед началом репликации.
+- **`HdfsStagingCleaner` / TTL Reaper**: Фоновый сборщик мусора агента, периодически сканирующий зарегистрированные целевые директории и удаляющий осиротевшие staging-файлы (`*._staging_*`), оставшиеся от аварийно упавших агентов (по порогу TTL).
 - **`LocalBandwidthLimiter`**: Локальный Token Bucket ограничитель полосы пропускания для предотвращения вытеснения рабочего трафика Spark/YARN на DataNode.
 - **`OrchestratorClient`**: Взаимодействие с REST API Оркестратора через `java.net.http.HttpClient` (регистрация в реестре, keepalive heartbeat, опрос очереди задач, запрос квот Token Bucket, обновление прогресса).
 - **`ReplicatorYarnClient` & `ReplicatorApplicationMaster`**: Автономная интеграция с Apache Hadoop YARN для развертывания пула агентов в контейнерах YARN по запросу.
@@ -86,7 +87,14 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 | `RECEIVER_HOST` | `0.0.0.0` | Сетевой адрес для прослушивания gRPC |
 | `RECEIVER_PORT` | `50051` | Порт gRPC сервиса приема файлов |
 | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` (без ограничений) | Локальный лимит скорости репликации в МБ/с |
-| `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов перед атомарным коммитом |
+| `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов для локальной ФС (при работе с HDFS используется прямой Zero-Staging `._staging_<jobId>` в HDFS) |
+| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | `1048576` (1 МБ) | Порог размера файла для группировки в виртуальные TAR-бандлы |
+| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) | Целевой совокупный объем файлов в одном бандле `BUNDLE_TAR` |
+| `REPLICATOR_MAX_BUNDLE_FILES` | `500` | Максимальное количество файлов в одном бандле `BUNDLE_TAR` |
+| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | `8` | Число параллельных потоков прямой записи распаковываемых файлов в HDFS |
+| `REPLICATOR_STAGING_CLEANUP_ENABLED` | `true` | Включение фонового сборщика мусора осиротевших staging-файлов |
+| `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | `15` | Интервал периодического сканирования и очистки staging-файлов (минуты) |
+| `REPLICATOR_STAGING_TTL_MINUTES` | `30` | Время жизни (TTL) staging-файлов, после которого они считаются осиротевшими и удаляются |
 | `HDFS_DEFAULT_FS` | `core-site.xml` | URI HDFS NameNode (например, `hdfs://namenode:8020`) |
 | `REPLICATOR_AGENT_SECRET` | `null` | Секретный токен авторизации (`X-Agent-Secret`) |
 | `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение защищенного TLS канала для gRPC |
