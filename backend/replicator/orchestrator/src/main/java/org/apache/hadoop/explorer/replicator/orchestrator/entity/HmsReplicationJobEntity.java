@@ -29,6 +29,12 @@ public class HmsReplicationJobEntity {
     @Column(name = "table_exclude_pattern")
     private String tableExcludePattern;
 
+    @Column(name = "drop_extraneous_tables", nullable = false)
+    private boolean dropExtraneousTables = false;
+
+    @Column(name = "drop_extraneous_partitions", nullable = false)
+    private boolean dropExtraneousPartitions = false;
+
     @Column(name = "status", nullable = false, length = 32)
     private String status = "BOOTSTRAPPING"; // BOOTSTRAPPING, ACTIVE, PAUSED, ERROR
 
@@ -115,4 +121,8 @@ public class HmsReplicationJobEntity {
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public Instant getLastSyncAt() { return lastSyncAt; }
     public void setLastSyncAt(Instant lastSyncAt) { this.lastSyncAt = lastSyncAt; }
+    public boolean isDropExtraneousTables() { return dropExtraneousTables; }
+    public void setDropExtraneousTables(boolean dropExtraneousTables) { this.dropExtraneousTables = dropExtraneousTables; }
+    public boolean isDropExtraneousPartitions() { return dropExtraneousPartitions; }
+    public void setDropExtraneousPartitions(boolean dropExtraneousPartitions) { this.dropExtraneousPartitions = dropExtraneousPartitions; }
 }

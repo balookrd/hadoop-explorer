@@ -11,6 +11,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.hms.service.HmsCoordin
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsEventLogRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,12 @@ public class HmsReplicationEndToEndTest {
 
     @Autowired
     private JobService jobService;
+
+    @BeforeEach
+    void setup() {
+        hmsJobRepository.deleteAll();
+        hmsClientPool.initDemoClients();
+    }
 
     @Test
     @DisplayName("Сквозной тест Bootstrap, изоляции саб-джоб, Non-ACID шлюза, HDFS Federation и CDC")

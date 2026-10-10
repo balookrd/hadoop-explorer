@@ -9,6 +9,7 @@ import java.util.List;
 
 @Repository
 public interface HmsEventLogRepository extends JpaRepository<HmsEventLogEntity, String> {
+    List<HmsEventLogEntity> findByHmsJobId(String hmsJobId);
     List<HmsEventLogEntity> findByHmsJobIdOrderByCreatedAtDesc(String hmsJobId, Pageable pageable);
     List<HmsEventLogEntity> findByHmsJobIdAndStatus(String hmsJobId, String status);
     long countByHmsJobId(String hmsJobId);

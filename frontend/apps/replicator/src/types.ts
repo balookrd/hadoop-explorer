@@ -119,6 +119,8 @@ export interface TopologyData {
   hdfs_limits: HdfsLimitItem[];
 }
 
+export type TopologyResponse = TopologyData;
+
 export interface AgentInfo {
   agent_id: string;
   cluster_id?: string;
@@ -143,6 +145,7 @@ export interface HmsReplicationJob {
   target_db_name: string;
   table_include_pattern?: string;
   table_exclude_pattern?: string;
+  table_pattern?: string;
   status: 'BOOTSTRAPPING' | 'ACTIVE' | 'PAUSED' | 'ERROR';
   bootstrap_event_id?: number;
   last_processed_event_id?: number;
@@ -152,6 +155,8 @@ export interface HmsReplicationJob {
   total_partitions: number;
   replicated_partitions: number;
   message?: string;
+  drop_extraneous_tables?: boolean;
+  drop_extraneous_partitions?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -179,4 +184,6 @@ export interface CreateHmsJobPayload {
   source_db: string;
   target_db?: string;
   table_pattern?: string;
+  drop_extraneous_tables?: boolean;
+  drop_extraneous_partitions?: boolean;
 }

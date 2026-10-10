@@ -12,15 +12,25 @@ import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsPartition
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.model.HmsTableDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.rewriter.HmsPathRewriter;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsEventLogRepository;
+import jakarta.annotation.PreDestroy;
+import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Service
 public class HmsCoordinatorService {
@@ -33,6 +43,8 @@ public class HmsCoordinatorService {
     private final TableSupportFilter tableFilter;
     private final HmsPathRewriter pathRewriter;
     private final JobService jobService;
+    private final ReplicatorProperties properties;
+    private final ExecutorService tableBootstrapExecutor;
 
     public HmsCoordinatorService(
             HmsReplicationJobRepository hmsJobRepository,
@@ -40,7 +52,8 @@ public class HmsCoordinatorService {
             HmsClientPool hmsClientPool,
             TableSupportFilter tableFilter,
             HmsPathRewriter pathRewriter,
-            JobService jobService
+            JobService jobService,
+            ReplicatorProperties properties
     ) {
         this.hmsJobRepository = hmsJobRepository;
         this.hmsEventLogRepository = hmsEventLogRepository;
@@ -48,6 +61,22 @@ public class HmsCoordinatorService {
         this.tableFilter = tableFilter;
         this.pathRewriter = pathRewriter;
         this.jobService = jobService;
+        this.properties = properties;
+
+        int concurrency = (properties != null && properties.getHmsBootstrapConcurrency() > 0)
+                ? properties.getHmsBootstrapConcurrency() : 8;
+        this.tableBootstrapExecutor = Executors.newFixedThreadPool(concurrency, r -> {
+            Thread t = new Thread(r, "hms-bootstrap-worker");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (tableBootstrapExecutor != null) {
+            tableBootstrapExecutor.shutdown();
+        }
     }
 
     /**
@@ -62,6 +91,24 @@ public class HmsCoordinatorService {
             String tablePattern,
             String author
     ) {
+        return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern, author, false, false);
+    }
+
+    /**
+     * Создание новой задачи репликации базы данных с явным указанием флагов сверки/удаления
+     * лишних объектов и запуск первичного Bootstrap.
+     */
+    @Transactional
+    public HmsReplicationJobEntity createAndStartReplication(
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDb,
+            String targetDb,
+            String tablePattern,
+            String author,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions
+    ) {
         String id = "hms-job-" + sourceDb + "-" + UUID.randomUUID().toString().substring(0, 8);
 
         HmsReplicationJobEntity entity = new HmsReplicationJobEntity();
@@ -72,6 +119,8 @@ public class HmsCoordinatorService {
         entity.setTargetDbName(targetDb != null ? targetDb : sourceDb);
         entity.setTableIncludePattern(tablePattern != null ? tablePattern : "*");
         entity.setCreatedBy(author != null ? author : "system_operator");
+        entity.setDropExtraneousTables(dropExtraneousTables);
+        entity.setDropExtraneousPartitions(dropExtraneousPartitions);
         entity.setStatus("BOOTSTRAPPING");
 
         hmsJobRepository.saveAndFlush(entity);
@@ -84,10 +133,12 @@ public class HmsCoordinatorService {
 
     /**
      * Выполнение полного начального Bootstrap (Initial Full Sync).
+     * Многопоточная обработка таблиц и чанкинг партиций с умной агрегацией саб-джоб HDFS.
      */
     public void executeBootstrap(HmsReplicationJobEntity job) {
-        log.info("Запуск первичного Bootstrap для задачи {} ({}.{})",
-                job.getId(), job.getSourceClusterId(), job.getSourceDbName());
+        log.info("Запуск масштабируемого первичного Bootstrap для задачи {} ({}.{}) с параллелизмом {}",
+                job.getId(), job.getSourceClusterId(), job.getSourceDbName(),
+                (properties != null ? properties.getHmsBootstrapConcurrency() : 8));
 
         HmsClient srcClient = hmsClientPool.getClient(job.getSourceClusterId());
         HmsClient dstClient = hmsClientPool.getClient(job.getTargetClusterId());
@@ -99,64 +150,183 @@ public class HmsCoordinatorService {
         // Создаем базу на приемнике, если отсутствует
         dstClient.createDatabase(job.getTargetDbName(), null);
 
-        List<String> tables = srcClient.getAllTables(job.getSourceDbName());
+        List<String> allSourceTables = srcClient.getAllTables(job.getSourceDbName());
+        List<String> tables = allSourceTables.stream()
+                .filter(t -> matchesPattern(t, job.getTableIncludePattern()))
+                .toList();
+
+        // Табличный Diff & Reconciliation:
+        // Если активирован флаг dropExtraneousTables, удаляем таблицы на приемнике,
+        // которых нет в источнике (и которые подпадают под паттерн репликации).
+        // ВАЖНО: deleteData ВСЕГДА false (данные на HDFS остаются нетронутыми).
+        if (job.isDropExtraneousTables()) {
+            List<String> dstExistingTables = dstClient.getAllTables(job.getTargetDbName());
+            Set<String> sourceTableSet = new HashSet<>(tables);
+            for (String dstTable : dstExistingTables) {
+                if (matchesPattern(dstTable, job.getTableIncludePattern()) && !sourceTableSet.contains(dstTable)) {
+                    log.warn("Reconciliation: обнаружена лишняя таблица на приемнике {}.{} (задача {}) — удаление из HMS",
+                            job.getTargetDbName(), dstTable, job.getId());
+                    dstClient.dropTable(job.getTargetDbName(), dstTable, false);
+                    recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_DROP_EXTRA_TABLE", dstTable, null,
+                            null, null, null, "DROPPED",
+                            "Лишняя таблица удалена при начальном согласовании (Reconciliation). Данные на HDFS сохранены.");
+                }
+            }
+        }
+
         job.setTotalTables(tables.size());
-        int replicatedTablesCount = 0;
-        int replicatedPartitionsCount = 0;
+        hmsJobRepository.saveAndFlush(job);
 
+        AtomicInteger replicatedTablesCount = new AtomicInteger(0);
+        AtomicInteger replicatedPartitionsCount = new AtomicInteger(0);
+        AtomicInteger totalPartitionsCount = new AtomicInteger(0);
+
+        List<CompletableFuture<Void>> tableFutures = new ArrayList<>();
         for (String tblName : tables) {
-            Optional<HmsTableDto> optTable = srcClient.getTable(job.getSourceDbName(), tblName);
-            if (optTable.isEmpty()) continue;
-            HmsTableDto table = optTable.get();
+            tableFutures.add(CompletableFuture.runAsync(() -> {
+                try {
+                    bootstrapSingleTable(job, srcClient, dstClient, highWaterMark, tblName,
+                            replicatedTablesCount, replicatedPartitionsCount, totalPartitionsCount);
+                } catch (Exception e) {
+                    log.error("Сбой репликации таблицы {}.{} в задаче {}: {}",
+                            job.getSourceDbName(), tblName, job.getId(), e.getMessage(), e);
+                    recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
+                            null, null, null, "FAILED", e.getMessage());
+                }
+            }, tableBootstrapExecutor));
+        }
 
-            // 1. Проверка поддержки типа таблицы (Non-ACID Gate)
-            var filterResult = tableFilter.evaluate(table);
-            if (!filterResult.supported()) {
-                log.info("Пропущена таблица {}.{}: {}", job.getSourceDbName(), tblName, filterResult.reason());
-                recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
-                        table.sdLocation(), null, null, "SKIPPED_ACID", filterResult.reason());
-                continue;
+        // Ожидаем завершения параллельного переноса всех таблиц
+        CompletableFuture.allOf(tableFutures.toArray(new CompletableFuture[0])).join();
+
+        job.setReplicatedTables(replicatedTablesCount.get());
+        job.setTotalPartitions(totalPartitionsCount.get());
+        job.setReplicatedPartitions(replicatedPartitionsCount.get());
+        job.setStatus("ACTIVE");
+        job.setLastSyncAt(Instant.now());
+        job.setMessage(String.format("Первичный Bootstrap успешно завершен (таблиц: %d/%d, партиций: %d). Репликация переведена в потоковый режим CDC.",
+                replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()));
+        hmsJobRepository.save(job);
+
+        log.info("Масштабируемый Bootstrap завершен для {}: таблиц={}/{}, партиций={}/{}",
+                job.getId(), replicatedTablesCount.get(), tables.size(),
+                replicatedPartitionsCount.get(), totalPartitionsCount.get());
+    }
+
+    /**
+     * Изолированная обработка отдельной таблицы в пуле потоков воркеров.
+     */
+    private void bootstrapSingleTable(
+            HmsReplicationJobEntity job,
+            HmsClient srcClient,
+            HmsClient dstClient,
+            long highWaterMark,
+            String tblName,
+            AtomicInteger replicatedTablesCount,
+            AtomicInteger replicatedPartitionsCount,
+            AtomicInteger totalPartitionsCount
+    ) {
+        Optional<HmsTableDto> optTable = srcClient.getTable(job.getSourceDbName(), tblName);
+        if (optTable.isEmpty()) return;
+        HmsTableDto table = optTable.get();
+
+        // 1. Проверка поддержки типа таблицы (Non-ACID Gate)
+        var filterResult = tableFilter.evaluate(table);
+        if (!filterResult.supported()) {
+            log.info("Пропущена таблица {}.{}: {}", job.getSourceDbName(), tblName, filterResult.reason());
+            recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
+                    table.sdLocation(), null, null, "SKIPPED_ACID", filterResult.reason());
+            return;
+        }
+
+        // 2. Трансляция пути корня HDFS таблицы с учетом федерации
+        var rewriteResult = pathRewriter.rewrite(
+                table.sdLocation(), job.getSourceClusterId(), job.getTargetClusterId()
+        );
+
+        // 3. Создание 1 корневой саб-джобы HDFS передачи данных таблицы!
+        JobResponse tableSubjob = createHdfsSubjob(job.getId(), rewriteResult.sourceUri(), rewriteResult.targetUri(),
+                rewriteResult.sourceClusterId(), rewriteResult.targetClusterId());
+
+        // 4. Очистка вендорных параметров HDP 3.1
+        Map<String, String> cleanParams = tableFilter.sanitizeParameters(table.parameters());
+
+        // 5. Создание или обновление таблицы на приемнике (Идемпотентный DDL: Create or Alter)
+        HmsTableDto targetTable = new HmsTableDto(
+                "hive",
+                job.getTargetDbName(),
+                tblName,
+                table.tableType(),
+                rewriteResult.targetUri(),
+                cleanParams,
+                table.partitionKeys(),
+                table.inputFormat(),
+                table.outputFormat(),
+                table.serdeLib()
+        );
+        Optional<HmsTableDto> existingTargetTable = dstClient.getTable(job.getTargetDbName(), tblName);
+        if (existingTargetTable.isPresent()) {
+            log.info("Таблица {}.{} уже существует на приемнике — сверка схемы через alterTable",
+                    job.getTargetDbName(), tblName);
+            dstClient.alterTable(targetTable);
+        } else {
+            dstClient.createTable(targetTable);
+        }
+
+        // 6. Обработка партиций с батчингом (Chunking) и умной агрегацией HDFS
+        if (table.isPartitioned()) {
+            List<HmsPartitionDto> allPartitions = srcClient.getPartitions(job.getSourceDbName(), tblName);
+            totalPartitionsCount.addAndGet(allPartitions.size());
+
+            // Reconciliation партиций:
+            // Если включен флаг dropExtraneousPartitions, сверяем партиции на приемнике
+            // и удаляем те, которых больше нет в источнике.
+            // ВАЖНО: deleteData ВСЕГДА false (файлы на HDFS не удаляются).
+            if (job.isDropExtraneousPartitions()) {
+                List<HmsPartitionDto> dstPartitions = dstClient.getPartitions(job.getTargetDbName(), tblName);
+                Set<List<String>> srcPartitionValues = allPartitions.stream()
+                        .map(HmsPartitionDto::values)
+                        .collect(Collectors.toSet());
+
+                for (HmsPartitionDto dstPart : dstPartitions) {
+                    if (!srcPartitionValues.contains(dstPart.values())) {
+                        String partName = dstPart.getPartitionName(table.partitionKeys());
+                        log.warn("Reconciliation: удаление лишней партиции на приемнике {}.{}/{} (задача {})",
+                                job.getTargetDbName(), tblName, partName, job.getId());
+                        dstClient.dropPartition(job.getTargetDbName(), tblName, dstPart.values(), false);
+                        recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_DROP_EXTRA_PARTITION", tblName, partName,
+                                null, null, null, "DROPPED",
+                                "Лишняя партиция удалена при начальном согласовании (Reconciliation). Данные на HDFS сохранены.");
+                    }
+                }
             }
 
-            // 2. Трансляция пути HDFS таблицы с учетом федерации
-            var rewriteResult = pathRewriter.rewrite(
-                    table.sdLocation(), job.getSourceClusterId(), job.getTargetClusterId()
-            );
+            int batchSize = (properties != null && properties.getHmsPartitionBatchSize() > 0)
+                    ? properties.getHmsPartitionBatchSize() : 1000;
+            String tableBaseLocation = table.sdLocation();
 
-            // 3. Создание скрытой саб-джобы HDFS передачи
-            JobResponse subjob = createHdfsSubjob(job.getId(), rewriteResult.sourceUri(), rewriteResult.targetUri(),
-                    rewriteResult.sourceClusterId(), rewriteResult.targetClusterId());
+            // Разбиваем партиции на порции для безопасной передачи по Thrift RPC
+            for (int i = 0; i < allPartitions.size(); i += batchSize) {
+                int toIndex = Math.min(i + batchSize, allPartitions.size());
+                List<HmsPartitionDto> batch = allPartitions.subList(i, toIndex);
 
-            // 4. Очистка вендорных параметров HDP 3.1
-            Map<String, String> cleanParams = tableFilter.sanitizeParameters(table.parameters());
+                List<HmsPartitionDto> targetPartitionsBatch = new ArrayList<>(batch.size());
 
-            // 5. Создание таблицы на приемнике (Apache Hive 3.1.3)
-            HmsTableDto targetTable = new HmsTableDto(
-                    "hive",
-                    job.getTargetDbName(),
-                    tblName,
-                    table.tableType(),
-                    rewriteResult.targetUri(),
-                    cleanParams,
-                    table.partitionKeys(),
-                    table.inputFormat(),
-                    table.outputFormat(),
-                    table.serdeLib()
-            );
-            dstClient.createTable(targetTable);
-
-            // 6. Если есть партиции - переносим каждую партицию с учетом её NameService
-            if (table.isPartitioned()) {
-                List<HmsPartitionDto> partitions = srcClient.getPartitions(job.getSourceDbName(), tblName);
-                List<HmsPartitionDto> targetPartitions = new ArrayList<>();
-
-                for (HmsPartitionDto part : partitions) {
+                for (HmsPartitionDto part : batch) {
                     var partRewrite = pathRewriter.rewrite(
                             part.location(), job.getSourceClusterId(), job.getTargetClusterId()
                     );
 
-                    JobResponse partSubjob = createHdfsSubjob(job.getId(), partRewrite.sourceUri(),
-                            partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId());
+                    // УМНАЯ АГРЕГАЦИЯ HDFS:
+                    // Если партиция вынесена за пределы корневого каталога таблицы (cold tier / другой NameService / кастомный путь),
+                    // создаем индивидуальную саб-джобу.
+                    // Если партиция в стандартном дереве таблицы, данные скопируются корневой саб-джобой таблицы!
+                    String partSubjobId = tableSubjob.id();
+                    if (!isLocationWithinTable(part.location(), tableBaseLocation)) {
+                        JobResponse partSubjob = createHdfsSubjob(job.getId(), partRewrite.sourceUri(),
+                                partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId());
+                        partSubjobId = partSubjob.id();
+                    }
 
                     HmsPartitionDto targetPart = new HmsPartitionDto(
                             "hive",
@@ -166,34 +336,50 @@ public class HmsCoordinatorService {
                             partRewrite.targetUri(),
                             part.parameters()
                     );
-                    targetPartitions.add(targetPart);
+                    targetPartitionsBatch.add(targetPart);
 
-                    String partName = part.getPartitionName(table.partitionKeys());
-                    recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_PARTITION", tblName, partName,
-                            partRewrite.sourceUri(), partRewrite.targetUri(), partSubjob.id(), "APPLIED", null);
-                    replicatedPartitionsCount++;
+                    // Если партиций немного (<= 100) или это вынесенная партиция — пишем детальное событие
+                    if (allPartitions.size() <= 100 || !isLocationWithinTable(part.location(), tableBaseLocation)) {
+                        String partName = part.getPartitionName(table.partitionKeys());
+                        recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_PARTITION", tblName, partName,
+                                partRewrite.sourceUri(), partRewrite.targetUri(), partSubjobId, "APPLIED", null);
+                    }
                 }
 
-                if (!targetPartitions.isEmpty()) {
-                    dstClient.addPartitions(job.getTargetDbName(), tblName, targetPartitions);
+                // Пакетная вставка в целевой HMS (Thrift RPC safe chunk)
+                if (!targetPartitionsBatch.isEmpty()) {
+                    dstClient.addPartitions(job.getTargetDbName(), tblName, targetPartitionsBatch);
                 }
+
+                // Для больших таблиц (> 100 партиций) пишем агрегированную запись на чанк, сохраняя производительность СУБД
+                if (allPartitions.size() > 100) {
+                    recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_PARTITION_CHUNK", tblName,
+                            String.format("Батч партиций [%d..%d] из %d", i + 1, toIndex, allPartitions.size()),
+                            null, null, tableSubjob.id(), "APPLIED",
+                            String.format("Пакетно реплицировано %d партиций", targetPartitionsBatch.size()));
+                }
+
+                replicatedPartitionsCount.addAndGet(batch.size());
             }
-
-            recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
-                    rewriteResult.sourceUri(), rewriteResult.targetUri(), subjob.id(), "APPLIED", null);
-            replicatedTablesCount++;
         }
 
-        job.setReplicatedTables(replicatedTablesCount);
-        job.setTotalPartitions(replicatedPartitionsCount);
-        job.setReplicatedPartitions(replicatedPartitionsCount);
-        job.setStatus("ACTIVE");
-        job.setLastSyncAt(Instant.now());
-        job.setMessage("Первичный Bootstrap успешно завершен. Репликация переведена в потоковый режим CDC.");
-        hmsJobRepository.save(job);
+        recordEvent(job.getId(), highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
+                rewriteResult.sourceUri(), rewriteResult.targetUri(), tableSubjob.id(), "APPLIED", null);
+        replicatedTablesCount.incrementAndGet();
 
-        log.info("Bootstrap завершен для {}: таблиц={}/{}, партиций={}",
-                job.getId(), replicatedTablesCount, tables.size(), replicatedPartitionsCount);
+        log.info("Таблица {}.{} успешно реплицирована в Bootstrap", job.getTargetDbName(), tblName);
+    }
+
+    /**
+     * Проверка, находится ли директория партиции внутри стандартного корня таблицы.
+     */
+    private boolean isLocationWithinTable(String partLocation, String tableBaseLocation) {
+        if (partLocation == null || tableBaseLocation == null) {
+            return false;
+        }
+        String cleanTable = tableBaseLocation.replaceAll("/+$", "");
+        String cleanPart = partLocation.replaceAll("/+$", "");
+        return cleanPart.startsWith(cleanTable + "/");
     }
 
     /**
@@ -355,5 +541,59 @@ public class HmsCoordinatorService {
         job.setStatus("BOOTSTRAPPING");
         hmsJobRepository.saveAndFlush(job);
         executeBootstrap(job);
+    }
+
+    /**
+     * Автоматическое восстановление задач, прерванных рестартом или сбоем оркестратора (Failover Crash Recovery).
+     * Обнаруживает задачи в статусе BOOTSTRAPPING и возобновляет их перенос.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void recoverInterruptedJobsOnStartup() {
+        List<HmsReplicationJobEntity> interrupted = hmsJobRepository.findByStatus("BOOTSTRAPPING");
+        if (interrupted.isEmpty()) {
+            return;
+        }
+        log.warn("Обнаружено {} прерванных задач(и) HMS репликации в статусе BOOTSTRAPPING после старта оркестратора. Запуск авто-восстановления...",
+                interrupted.size());
+        for (HmsReplicationJobEntity job : interrupted) {
+            log.info("Восстановление прерванной задачи Bootstrap: {} ({}.{})", job.getId(), job.getSourceClusterId(), job.getSourceDbName());
+            try {
+                executeBootstrap(job);
+            } catch (Exception e) {
+                log.error("Сбой авто-восстановления Bootstrap для {}: {}", job.getId(), e.getMessage(), e);
+                job.setStatus("FAILED");
+                job.setMessage("Сбой авто-восстановления после перезапуска оркестратора: " + e.getMessage());
+                hmsJobRepository.save(job);
+            }
+        }
+    }
+
+    /**
+     * Автоматический фоновый опрос CDC событий из NOTIFICATION_LOG для всех активных задач репликации.
+     */
+    @Scheduled(fixedDelayString = "${hadoop.replicator.hms-poll-interval-ms:5000}")
+    public void scheduledCdcPoll() {
+        List<HmsReplicationJobEntity> activeJobs = hmsJobRepository.findByStatus("ACTIVE");
+        for (HmsReplicationJobEntity job : activeJobs) {
+            try {
+                pollCdcEvents(job.getId());
+            } catch (Exception e) {
+                log.error("Ошибка фонового опроса CDC для HMS задачи {}: {}", job.getId(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Проверка соответствия имени таблицы шаблону (glob-маска со звёздочкой).
+     */
+    private boolean matchesPattern(String tableName, String pattern) {
+        if (pattern == null || pattern.isBlank() || pattern.equals("*")) {
+            return true;
+        }
+        String regex = pattern
+                .replace(".", "\\.")
+                .replace("*", ".*")
+                .replace("?", ".");
+        return tableName.matches(regex);
     }
 }

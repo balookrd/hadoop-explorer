@@ -27,7 +27,7 @@
     Info
   } from 'lucide-svelte';
   import { api } from '../api/client';
-  import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse } from '../types';
+  import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse, ClusterInfo } from '../types';
   import { StatusBadge } from '@hadoop-explorer/common';
 
   // Пропсы
@@ -62,6 +62,8 @@
     source_db: '',
     target_db: '',
     table_pattern: '*',
+    drop_extraneous_tables: false,
+    drop_extraneous_partitions: false,
   });
 
   // Модальное окно подтверждения удаления
@@ -81,17 +83,17 @@
 
   // Кластеры из топологии
   const activeTopology = $derived(topology || internalTopology);
-  const clusters = $derived(
+  const clusters = $derived<ClusterInfo[]>(
     activeTopology?.clusters && activeTopology.clusters.length > 0
       ? activeTopology.clusters
       : [
-          { id: 'dc1', name: 'HDFS DC1 Production', dc_id: 'dc1' },
-          { id: 'dc2', name: 'HDFS DC2 Disaster Recovery', dc_id: 'dc2' }
+          { id: 'dc1', name: 'HDFS DC1 Production', dc_id: 'dc1' } as ClusterInfo,
+          { id: 'dc2', name: 'HDFS DC2 Disaster Recovery', dc_id: 'dc2' } as ClusterInfo
         ]
   );
 
   function getClusterLabel(clusterId: string): string {
-    const found = clusters.find(c => c.id === clusterId || c.dc_id === clusterId);
+    const found = clusters.find((c: ClusterInfo) => c.id === clusterId || c.dc_id === clusterId);
     if (!found) return clusterId;
     return `${found.name} [${found.dc_id.toUpperCase()}]`;
   }
@@ -253,14 +255,16 @@
   }
 
   function openCreateModal() {
-    const dc1 = clusters.find(c => c.dc_id === 'dc1' || c.id === 'dc1');
-    const dc2 = clusters.find(c => c.dc_id === 'dc2' || c.id === 'dc2');
+    const dc1 = clusters.find((c: ClusterInfo) => c.dc_id === 'dc1' || c.id === 'dc1');
+    const dc2 = clusters.find((c: ClusterInfo) => c.dc_id === 'dc2' || c.id === 'dc2');
     newJob = {
       source_cluster_id: dc1 ? dc1.id : (clusters[0]?.id || 'dc1'),
       target_cluster_id: dc2 ? dc2.id : (clusters[1]?.id || 'dc2'),
       source_db: '',
       target_db: '',
       table_pattern: '*',
+      drop_extraneous_tables: false,
+      drop_extraneous_partitions: false,
     };
     isCreateModalOpen = true;
   }
@@ -566,6 +570,20 @@
                   {#if job.table_pattern && job.table_pattern !== '*'}
                     <div class="text-[9px] text-slate-400 font-mono mt-0.5">
                       фильтр: {job.table_pattern}
+                    </div>
+                  {/if}
+                  {#if job.drop_extraneous_tables || job.drop_extraneous_partitions}
+                    <div class="flex items-center gap-1 mt-1 flex-wrap">
+                      {#if job.drop_extraneous_tables}
+                        <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Включена сверка и очистка лишних таблиц на приемнике">
+                          Diff Таблицы
+                        </span>
+                      {/if}
+                      {#if job.drop_extraneous_partitions}
+                        <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Включена сверка и очистка лишних партиций на приемнике">
+                          Diff Партиции
+                        </span>
+                      {/if}
                     </div>
                   {/if}
                 </td>
@@ -1114,6 +1132,43 @@
             class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
         </div>
+
+        <!-- Опции двустороннего согласования схемы (Diff & Reconciliation) -->
+        <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div class="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider">
+            Сверка схемы и согласование (Diff & Reconciliation)
+          </div>
+          <label class="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              bind:checked={newJob.drop_extraneous_tables}
+              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200">
+                Удалять лишние таблицы на приемнике
+              </div>
+              <div class="text-[10px] text-slate-500">
+                Удаляет таблицы, отсутствующие в источнике (без удаления файлов в HDFS, deleteData=false).
+              </div>
+            </div>
+          </label>
+          <label class="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              bind:checked={newJob.drop_extraneous_partitions}
+              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200">
+                Удалять лишние партиции на приемнике
+              </div>
+              <div class="text-[10px] text-slate-500">
+                Сверяет партиции и удаляет сироты из целевого HMS (без удаления файлов в HDFS, deleteData=false).
+              </div>
+            </div>
+          </label>
+        </div>
       </div>
 
       <div class="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
@@ -1208,7 +1263,7 @@
     >
       <div class="flex items-start gap-3">
         <div class="p-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 shrink-0">
-          <RefreshCcw class="w-5 h-5 {isRebootstrapping ? 'animate-spin' : ''}" />
+          <RefreshCw class="w-5 h-5 {isRebootstrapping ? 'animate-spin' : ''}" />
         </div>
         <div>
           <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -1240,10 +1295,10 @@
           class="px-4 py-2 text-xs font-semibold rounded-xl bg-sky-600 hover:bg-sky-500 text-white transition cursor-pointer shadow-md shadow-sky-600/20 disabled:opacity-50 flex items-center gap-1.5"
         >
           {#if isRebootstrapping}
-            <RefreshCcw class="w-3.5 h-3.5 animate-spin" />
+            <RefreshCw class="w-3.5 h-3.5 animate-spin" />
             <span>Запуск...</span>
           {:else}
-            <RefreshCcw class="w-3.5 h-3.5" />
+            <RefreshCw class="w-3.5 h-3.5" />
             <span>Запустить Re-bootstrap</span>
           {/if}
         </button>

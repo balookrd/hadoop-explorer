@@ -15,6 +15,9 @@ public class ReplicatorProperties {
     private int agentOfflineTimeoutSeconds = 45;
     private int maxTaskRetries = 3;
     private int taskTimeoutSeconds = 60;
+    private long hmsPollIntervalMs = 5000L;
+    private int hmsBootstrapConcurrency = 8;
+    private int hmsPartitionBatchSize = 1000;
 
     private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
         new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
@@ -40,6 +43,12 @@ public class ReplicatorProperties {
     public void setMaxTaskRetries(int maxTaskRetries) { this.maxTaskRetries = maxTaskRetries; }
     public int getTaskTimeoutSeconds() { return taskTimeoutSeconds; }
     public void setTaskTimeoutSeconds(int taskTimeoutSeconds) { this.taskTimeoutSeconds = taskTimeoutSeconds; }
+    public long getHmsPollIntervalMs() { return hmsPollIntervalMs; }
+    public void setHmsPollIntervalMs(long hmsPollIntervalMs) { this.hmsPollIntervalMs = hmsPollIntervalMs; }
+    public int getHmsBootstrapConcurrency() { return hmsBootstrapConcurrency; }
+    public void setHmsBootstrapConcurrency(int hmsBootstrapConcurrency) { this.hmsBootstrapConcurrency = hmsBootstrapConcurrency; }
+    public int getHmsPartitionBatchSize() { return hmsPartitionBatchSize; }
+    public void setHmsPartitionBatchSize(int hmsPartitionBatchSize) { this.hmsPartitionBatchSize = hmsPartitionBatchSize; }
     public List<DatacenterConfig> getDatacenters() { return datacenters; }
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }

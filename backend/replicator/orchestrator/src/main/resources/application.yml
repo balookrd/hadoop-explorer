@@ -76,6 +76,9 @@ hadoop:
     agent-secret: "replicator-secure-agent-secret-key-12345"
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
+    hms-poll-interval-ms: 5000
+    hms-bootstrap-concurrency: 8
+    hms-partition-batch-size: 1000
     datacenters:
       - id: "dc1"
         name: "Дата-Центр 1 (Primary DC)"

@@ -52,7 +52,9 @@ public class HmsReplicationController {
             String target_cluster_id,
             String source_db,
             String target_db,
-            String table_pattern
+            String table_pattern,
+            Boolean drop_extraneous_tables,
+            Boolean drop_extraneous_partitions
     ) {}
 
     @PostMapping
@@ -60,13 +62,17 @@ public class HmsReplicationController {
             @RequestBody CreateHmsJobRequest req,
             Authentication auth
     ) {
+        boolean dropTables = req.drop_extraneous_tables() != null && req.drop_extraneous_tables();
+        boolean dropParts = req.drop_extraneous_partitions() != null && req.drop_extraneous_partitions();
         HmsReplicationJobEntity created = coordinatorService.createAndStartReplication(
                 req.source_cluster_id(),
                 req.target_cluster_id(),
                 req.source_db(),
                 req.target_db(),
                 req.table_pattern(),
-                getUsername(auth)
+                getUsername(auth),
+                dropTables,
+                dropParts
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
