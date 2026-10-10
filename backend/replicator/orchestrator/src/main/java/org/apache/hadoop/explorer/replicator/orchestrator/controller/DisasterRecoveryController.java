@@ -31,13 +31,14 @@ public class DisasterRecoveryController {
         return null;
     }
 
-    private void checkWriteAccess(Authentication auth) {
+    private void requireAdmin(Authentication auth) {
         UserSession session = getSession(auth);
-        if (session != null && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
-            throw new ResponseStatusException(
-                HttpStatus.FORBIDDEN, "Пользователь с ролью только для чтения (READER) не имеет права управлять аварийным переключением"
-            );
+        if (session != null && (session.isAdmin() || session.systemRole() == org.apache.hadoop.explorer.common.model.Role.ADMIN)) {
+            return;
         }
+        throw new ResponseStatusException(
+            HttpStatus.FORBIDDEN, "Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)"
+        );
     }
 
     @GetMapping("/status")
@@ -50,7 +51,7 @@ public class DisasterRecoveryController {
             @Valid @RequestBody DrEmergencyStopRequest req,
             Authentication auth
     ) {
-        checkWriteAccess(auth);
+        requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.emergencyStop(req, username));
@@ -61,7 +62,7 @@ public class DisasterRecoveryController {
             @Valid @RequestBody DrReverseRequest req,
             Authentication auth
     ) {
-        checkWriteAccess(auth);
+        requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.reverseReplication(req, username));
@@ -72,7 +73,7 @@ public class DisasterRecoveryController {
             @PathVariable String jobId,
             Authentication auth
     ) {
-        checkWriteAccess(auth);
+        requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.reverseSingleHdfsJob(jobId, username));
@@ -83,7 +84,7 @@ public class DisasterRecoveryController {
             @PathVariable String jobId,
             Authentication auth
     ) {
-        checkWriteAccess(auth);
+        requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.undoReverse(jobId, username));
@@ -94,7 +95,7 @@ public class DisasterRecoveryController {
             @PathVariable String jobId,
             Authentication auth
     ) {
-        checkWriteAccess(auth);
+        requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
         return ResponseEntity.ok(drService.undoReverse(jobId, username));

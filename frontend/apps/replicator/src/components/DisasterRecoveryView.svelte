@@ -92,7 +92,10 @@
   }
 
   async function executeEmergencyStop() {
-    if (isReader) return;
+    if (!isAdmin) {
+      showToast('Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)', 'error');
+      return;
+    }
     actionLoading = true;
     try {
       const resp = await api.emergencyStop({
@@ -116,7 +119,10 @@
   }
 
   async function executeReverseReplication() {
-    if (isReader) return;
+    if (!isAdmin) {
+      showToast('Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)', 'error');
+      return;
+    }
     if (reverseConfirmText.trim().toUpperCase() !== 'REVERSE') {
       showToast('Введите слово REVERSE для подтверждения операции', 'error');
       return;
@@ -147,7 +153,10 @@
   }
 
   async function reverseSingleJob(jobId: string) {
-    if (isReader) return;
+    if (!isAdmin) {
+      showToast('Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)', 'error');
+      return;
+    }
     actionLoading = true;
     try {
       const resp = await api.reverseSingleJob(jobId);
@@ -165,7 +174,10 @@
   }
 
   async function undoReverseRoute(jobId: string, isReverseJob = false) {
-    if (isReader) return;
+    if (!isAdmin) {
+      showToast('Управление разделом Disaster Recovery доступно только Администратору платформы (ADMIN)', 'error');
+      return;
+    }
     actionLoading = true;
     try {
       const resp = await api.undoReverse(jobId);
@@ -263,6 +275,11 @@
           <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
             DR Console
           </span>
+          {#if !isAdmin}
+            <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+              <Lock class="w-3 h-3" /> READ ONLY
+            </span>
+          {/if}
         </h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           Управление межкластерной непрерывностью бизнеса, аварийная изоляция и переключение репликации
@@ -280,7 +297,7 @@
         Обновить статус
       </button>
 
-      {#if !isReader}
+      {#if isAdmin}
         <button
           onclick={() => {
             emergencyClusterId = 'dc1';
@@ -308,6 +325,16 @@
       {/if}
     </div>
   </div>
+
+  {#if !isAdmin}
+    <!-- Информационная плашка для не-админов (Read-Only) -->
+    <div class="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-3 text-xs text-amber-800 dark:text-amber-200 font-medium">
+      <ShieldAlert class="w-5 h-5 text-amber-600 shrink-0" />
+      <div>
+        <span class="font-bold">Режим аудита и мониторинга:</span> Управление аварийным остановом (Kill-Switch), разворотом репликации и отзывом зеркал доступно только <strong>Администратору платформы (ADMIN)</strong>.
+      </div>
+    </div>
+  {/if}
 
   <!-- 2. Интерактивная архитектура топологии и потока данных (Data Flow Canvas) -->
   {#if drStatus}
@@ -390,7 +417,7 @@
               </div>
             </div>
 
-            {#if !isReader && dc1.status !== 'OFFLINE'}
+            {#if isAdmin && dc1.status !== 'OFFLINE'}
               <div class="mt-3 pt-2">
                 <button
                   onclick={() => {
@@ -502,7 +529,7 @@
               </div>
             </div>
 
-            {#if !isReader}
+            {#if isAdmin}
               <div class="mt-3 pt-2">
                 <button
                   onclick={() => {
@@ -694,7 +721,7 @@
                 </td>
 
                 <td class="py-2.5 px-3 text-right">
-                  {#if !isReader}
+                  {#if isAdmin}
                     <div class="inline-flex items-center gap-1.5 justify-end">
                       {#if !route.has_reverse_job && !route.is_reverse_replica && route.type === 'HDFS'}
                         <button
@@ -743,7 +770,7 @@
 </div>
 
 <!-- Модальное окно аварийного останова (Emergency Kill-Switch Modal) -->
-{#if showEmergencyModal}
+{#if isAdmin && showEmergencyModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-rose-300 dark:border-rose-800 shadow-2xl max-w-lg w-full p-6 space-y-4">
       <div class="flex items-center gap-3 text-rose-600 dark:text-rose-400">
@@ -839,7 +866,7 @@
 {/if}
 
 <!-- Модальное окно обратной репликации (Reverse Replication Modal) -->
-{#if showReverseModal}
+{#if isAdmin && showReverseModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-indigo-300 dark:border-indigo-800 shadow-2xl max-w-lg w-full p-6 space-y-4">
       <div class="flex items-center gap-3 text-indigo-600 dark:text-indigo-400">

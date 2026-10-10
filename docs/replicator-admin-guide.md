@@ -1711,10 +1711,10 @@ flowchart TD
 | Метод | Эндпоинт | Роли | Назначение |
 |---|---|---|---|
 | `GET` | `/api/v1/dr/status` | ALL | Сводная телеметрия: доступность DC1/DC2, активное направление, суммарный лаг дельты, статус изоляции (Fencing) |
-| `POST` | `/api/v1/dr/emergency-stop` | ADMIN, WRITER | Экстренная остановка (Kill-Switch) всех задач указанного источника, снятие расписания и сетевое ограждение |
-| `POST` | `/api/v1/dr/reverse` | ADMIN, WRITER | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS |
-| `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN, WRITER | Точечный разворот отдельной HDFS задачи в обратную сторону |
-| `POST` / `DELETE` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN, WRITER | Отзыв и удаление созданного обратного зеркала, разблокировка прямого маршрута репликации |
+| `POST` | `/api/v1/dr/emergency-stop` | ADMIN | Экстренная остановка (Kill-Switch) всех задач указанного источника, снятие расписания и сетевое ограждение |
+| `POST` | `/api/v1/dr/reverse` | ADMIN | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS |
+| `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN | Точечный разворот отдельной HDFS задачи в обратную сторону |
+| `POST` / `DELETE` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN | Отзыв и удаление созданного обратного зеркала, разблокировка прямого маршрута репликации |
 
 ### Примеры CLI вызовов:
 
