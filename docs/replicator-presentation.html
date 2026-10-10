@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Презентация: Hadoop gRPC Replicator — Архитектура и Демонстрация</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 30, 49, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-light: #818cf8;
+      --accent: #06b6d4;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, var(--bg) 60%);
+      color: var(--text);
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* Верхний бар навигации */
+    header {
+      height: 60px;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+    }
+
+    .brand img {
+      height: 30px;
+      filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
+    }
+
+    .brand-tag {
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      color: white;
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .slide-counter {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      min-width: 90px;
+      text-align: center;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--primary-light);
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5, #4338ca);
+      border: 1px solid #6366f1;
+      color: white;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+    }
+
+    /* Полоса прогресса */
+    .progress-bar-container {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      position: relative;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981);
+      width: 0%;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+    }
+
+    /* Контейнер слайдов */
+    main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      padding: 36px 48px;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateX(40px) scale(0.98);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(0) scale(1);
+    }
+
+    .slide.prev {
+      transform: translateX(-40px) scale(0.98);
+    }
+
+    /* Стили контента слайдов */
+    .slide-header {
+      margin-bottom: 24px;
+    }
+
+    .slide-subtitle {
+      color: var(--accent);
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .slide-title {
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      background: linear-gradient(135deg, #ffffff 60%, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .slide-desc {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-top: 6px;
+      max-width: 900px;
+      line-height: 1.5;
+    }
+
+    .slide-body {
+      flex: 1;
+      display: flex;
+      gap: 24px;
+    }
+
+    /* Сетка карточек */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      width: 100%;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      width: 100%;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(99, 102, 241, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
+    }
+
+    .card p, .card ul {
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: var(--text-muted);
+    }
+
+    .card ul {
+      list-style-type: none;
+    }
+
+    .card ul li {
+      position: relative;
+      padding-left: 18px;
+      margin-bottom: 8px;
+    }
+
+    .card ul li::before {
+      content: "•";
+      position: absolute;
+      left: 4px;
+      color: var(--primary-light);
+      font-weight: bold;
+    }
+
+    /* Таблицы */
+    .styled-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+    }
+
+    .styled-table th {
+      background: rgba(30, 41, 59, 0.8);
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .styled-table td {
+      padding: 12px 16px;
+      font-size: 0.88rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: #e2e8f0;
+      line-height: 1.45;
+    }
+
+    .styled-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .styled-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Визуализаторы скриншотов */
+    .screenshot-frame {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      cursor: zoom-in;
+    }
+
+    .screenshot-toolbar {
+      height: 28px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+
+    .screenshot-img {
+      width: 100%;
+      height: auto;
+      display: block;
+      transition: transform 0.2s ease;
+    }
+
+    .screenshot-caption {
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: rgba(15, 23, 42, 0.9);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      text-align: center;
+      font-style: italic;
+    }
+
+    /* Бейджи и теги */
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .badge-primary { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+    /* Архитектурные блоки */
+    .arch-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+    }
+
+    .arch-step {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px 20px;
+    }
+
+    .arch-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(6, 182, 212, 0.25));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      flex-shrink: 0;
+    }
+
+    /* Модальное окно Lightbox для зума картинок */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(10px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      cursor: zoom-out;
+    }
+    .lightbox.active {
+      display: flex;
+    }
+    .lightbox img {
+      max-width: 95vw;
+      max-height: 90vh;
+      border-radius: 10px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    /* Модалка навигации по всем слайдам */
+    .overview-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(9, 13, 22, 0.95);
+      backdrop-filter: blur(16px);
+      z-index: 200;
+      display: none;
+      flex-direction: column;
+      padding: 40px 60px;
+      overflow-y: auto;
+    }
+    .overview-modal.active {
+      display: flex;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+    .overview-item {
+      background: rgba(22, 30, 49, 0.8);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .overview-item:hover {
+      border-color: var(--primary-light);
+      background: rgba(30, 41, 59, 0.9);
+      transform: translateY(-2px);
+    }
+    .overview-item.current {
+      border-color: var(--accent);
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+    }
+
+    /* Горячие клавиши подсказка */
+    .key-hint {
+      display: inline-block;
+      padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-family: monospace;
+      color: #cbd5e1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Хедер презентации -->
+  <header>
+    <div class="brand">
+      <img src="../images/logo_white.png" alt="Hadoop Explorer" />
+      <span>Hadoop gRPC Replicator</span>
+      <span class="brand-tag">Team Presentation</span>
+    </div>
+
+    <div class="header-controls">
+      <button class="btn" onclick="toggleOverview()" title="Обзор всех слайдов (Клавиша O)">
+        ☰ Все слайды <span class="key-hint">O</span>
+      </button>
+      <div class="slide-counter" id="slideCounter">1 / 18</div>
+      <button class="btn" onclick="prevSlide()" title="Предыдущий слайд (←)">←</button>
+      <button class="btn btn-primary" onclick="nextSlide()" title="Следующий слайд (→)">Вперед →</button>
+      <button class="btn" onclick="toggleFullscreen()" title="Полноэкранный режим (Клавиша F)">⛶ <span class="key-hint">F</span></button>
+    </div>
+  </header>
+
+  <!-- Полоса прогресса -->
+  <div class="progress-bar-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <!-- Область слайдов -->
+  <main>
+
+    <!-- СЛАЙД 1: ТИТУЛЬНЫЙ -->
+    <div class="slide active" data-index="1">
+      <div class="slide-header">
+        <div class="slide-subtitle">Hadoop Explorer Platform • Инфраструктура данных</div>
+        <h1 class="slide-title">Hadoop gRPC Replicator</h1>
+        <p class="slide-desc">Корпоративная высокоскоростная межкластерная репликация HDFS и Hive Metastore с иерархическим шейпером WAN и защитой от Split-Brain в Disaster Recovery</p>
+      </div>
+      <div class="slide-body" style="align-items: center; justify-content: center;">
+        <div class="grid-3" style="max-width: 1100px;">
+          <div class="card" style="border-top: 3px solid #6366f1;">
+            <div class="card-title">🚀 Высокая производительность</div>
+            <p>Прямой потоковый протокол gRPC/HTTP/2 на Netty минуя MapReduce и YARN. Чанки 4 МБ, сжатие Zstd/LZ4 и Tar-Streaming мелких файлов.</p>
+          </div>
+          <div class="card" style="border-top: 3px solid #06b6d4;">
+            <div class="card-title">🌐 Иерархический WAN Шейпер</div>
+            <p>Hierarchical Token Bucket: строгий рантайм-контроль полосы Global ➔ DC-DC ➔ Cluster-to-Cluster с изменением квот менее чем за 1 секунду.</p>
+          </div>
+          <div class="card" style="border-top: 3px solid #10b981;">
+            <div class="card-title">🛡️ Защита от Split-Brain в DR</div>
+            <p>Failover Hub: аварийный Kill-Switch (сетевой барьер 0 МБ/с), безопасный откат Unfence без перезаписи резерва и 1-Click Reverse Replication.</p>
+          </div>
+          <div class="card" style="border-top: 3px solid #f59e0b;">
+            <div class="card-title">🏛️ Hive Metastore CDC</div>
+            <p>Потоковый захват DDL из `NOTIFICATION_LOG`, распределенный эксклюзивный лизинг Inotify HA, Non-ACID Gate и HDFS Federation NameService translation.</p>
+          </div>
+          <div class="card" style="border-top: 3px solid #ec4899;">
+            <div class="card-title">🔐 Enterprise Безопасность</div>
+            <p>Kerberos SPNEGO SSO, LDAP, изоляция контекстов, Proxy User doAs имперсонация с полным аудитом в Apache Ranger Audit Log.</p>
+          </div>
+          <div class="card" style="border-top: 3px solid #8b5cf6;">
+            <div class="card-title">💻 Реактивный Web UI</div>
+            <p>Svelte 5 SPA-консоль: интерактивные фильтры, моментальная скорость передачи (МБ/с), расчет ETA, аудит истории и темная тема.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 2: ПРОБЛЕМАТИКА DISTCP -->
+    <div class="slide" data-index="2">
+      <div class="slide-header">
+        <div class="slide-subtitle">Предпосылки и Мотивация</div>
+        <h1 class="slide-title">Почему Apache DistCp больше не решает задачи бизнеса?</h1>
+        <p class="slide-desc">Классический стек межкластерного копирования Hadoop (DistCp на базе MapReduce) морально устарел для распределенных Data Lake</p>
+      </div>
+      <div class="slide-body">
+        <table class="styled-table">
+          <thead>
+            <tr>
+              <th style="width: 25%;">Фактор деградации</th>
+              <th style="width: 37%;">Проблема классического DistCp (MapReduce)</th>
+              <th style="width: 38%;">Архитектурный ответ Hadoop Replicator</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Конкуренция за YARN слоты</strong></td>
+              <td>DistCp запускает тяжелый MR Job. В часы пик задачи репликации отбирают vCPU/RAM у боевых Spark/Flink пайплайнов или часами висят в очередях.</td>
+              <td><span class="badge badge-success">Zero YARN Footprint</span> Автономные легковесные gRPC-агенты на узлах DataNode. 100% ресурсов YARN остаются бизнесу.</td>
+            </tr>
+            <tr>
+              <td><strong>Неуправляемый WAN канал</strong></td>
+              <td>DistCp забивает сетевую магистраль между дата-центрами. Нет контроля суммарного пула или лимитов пар ЦОД; деградируют клиентские API.</td>
+              <td><span class="badge badge-primary">Hierarchical Token Bucket</span> Рантайм-шейпинг: Global + DC-DC + Cluster. Изменение квот применяется за &lt; 1 сек без перезапуска.</td>
+            </tr>
+            <tr>
+              <td><strong>Шторм мелких файлов (&lt; 1 MB)</strong></td>
+              <td>Миллионы мелких файлов вызывают перегрузку NameNode RPC и дисковый bottleneck из-за открытия сотен тысяч отдельных сетевых сессий.</td>
+              <td><span class="badge badge-primary">Tar-Streaming на лету</span> Виртуальная упаковка мелких файлов в поток с распаковкой прямо в память приемника. Zero-Staging.</td>
+            </tr>
+            <tr>
+              <td><strong>Метаданные Hive Metastore</strong></td>
+              <td>DistCp копирует только сырые файлы HDFS. Схемы таблиц и партиции требуют отдельных самописных скриптов выгрузки DDL.</td>
+              <td><span class="badge badge-warning">Потоковый HMS CDC</span> Автоматический захват событий изменения схемы из Hive `NOTIFICATION_LOG` и мгновенная репликация.</td>
+            </tr>
+            <tr>
+              <td><strong>Катастрофа при Split-Brain</strong></td>
+              <td>При аварии ЦОД нет сетевого ограждения. Случайный авто-запуск DistCp после восстановления затирает свежие данные, накопленные на резерве!</td>
+              <td><span class="badge badge-danger">DR Failover Hub</span> Сетевое ограждение 0 МБ/с (Kill-Switch), безопасный Unfence и 1-Click Reverse Replication (`DC2 ➔ DC1`).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 3: ВЫСОКОУРОВНЕВАЯ АРХИТЕКТУРА -->
+    <div class="slide" data-index="3">
+      <div class="slide-header">
+        <div class="slide-subtitle">Архитектура системы</div>
+        <h1 class="slide-title">Архитектура всей конструкции: Control Plane vs Data Plane</h1>
+        <p class="slide-desc">Оркестратор координирует процессы, а передача терабайт данных идет строго по прямой gRPC-магистрали между агентами дата-центров</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">⚙️ Control Plane (Orchestrator)</div>
+            <ul>
+              <li><strong>Технологии</strong>: Java 21, Spring Boot 3.3.4, Spring Data JPA.</li>
+              <li><strong>Порт</strong>: `8005` (REST API, SSE, статика Svelte 5).</li>
+              <li><strong>Планировщик</strong>: Встроенный Cron Scheduler (`ReplicationScheduler`) для периодических регламентных запусков.</li>
+              <li><strong>Координатор квот</strong>: Централизованный `TokenBucketThrottler` для раздачи лимитов полосы.</li>
+              <li><strong>Inotify Lease Coordinator</strong>: Распределенный эксклюзивный лизинг CDC схем для предотвращения дублирования потоков.</li>
+              <li><strong>State Machine аварийного переключения</strong>: Управление фазами Disaster Recovery и снимками Snapshot.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">⚡ Data Plane (Worker & Receiver Agents)</div>
+            <ul>
+              <li><strong>Технологии</strong>: Java 21, gRPC / Protobuf, Netty, Hadoop Client API.</li>
+              <li><strong>Порт gRPC</strong>: `50051` (mTLS / TLSv1.3 шифрование канала).</li>
+              <li><strong>Стриминг чанками</strong>: Передача файлов фиксированными блоками по 4 МБ со сквозным SHA-256.</li>
+              <li><strong>Прямой HDFS I/O</strong>: Чтение из локального HDFS источника и прямая запись в HDFS приемника через `dfs.data.transfer.protection`.</li>
+              <li><strong>HMS Thrift Connector</strong>: Локальное обращение к Hive Metastore по LAN (Thrift 9083).</li>
+              <li><strong>Автономность</strong>: Агенты продолжают передачу текущего чанка даже при кратковременном рестарте оркестратора.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 4: ТОПОЛОГИЯ И ШЕЙПЕР -->
+    <div class="slide" data-index="4">
+      <div class="slide-header">
+        <div class="slide-subtitle">Управление сетевыми квотами</div>
+        <h1 class="slide-title">Топология ЦОД и иерархический шейпер (Hierarchical Token Bucket)</h1>
+        <p class="slide-desc">Многоуровневый контроль пропускной способности WAN-каналов исключает деградацию бизнес-трафика компании</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 16px;">
+          <div class="card">
+            <div class="card-title">🎯 Формула расчета задержки чанка</div>
+            <p style="font-family: monospace; font-size: 1.05rem; color: #a5b4fc; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px;">
+              delay = max(delay_global, delay_dc_dc, delay_hdfs_hdfs)
+            </p>
+            <p style="margin-top: 8px;">Воркер проверяет наличие токенов на всех уровнях и засыпает на время, продиктованное самым узким местом маршрута.</p>
+          </div>
+          <div class="card">
+            <div class="card-title">⚡ Рантайм-применение за &lt; 1 секунды</div>
+            <p>При изменении лимита оператором в веб-консоли оркестратор обновляет бакеты в памяти. Все воркеры в обоих ЦОД подхватывают новую скорость без рестарта задач.</p>
+          </div>
+        </div>
+        <div style="flex: 1.3;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/04_topology_bandwidth.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/04_topology_bandwidth.png" class="screenshot-img" alt="Топология ЦОД и Полоса" />
+            <div class="screenshot-caption">Раздел «Топология ЦОД и Полоса»: настройка лимитов DC-DC, HDFS-HDFS и Global WAN Cap</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 5: АУТЕНТИФИКАЦИЯ И RBAC -->
+    <div class="slide" data-index="5">
+      <div class="slide-header">
+        <div class="slide-subtitle">Безопасность и Доступ</div>
+        <h1 class="slide-title">Единый вход (SPNEGO SSO / LDAP) и ролевая модель</h1>
+        <p class="slide-desc">Бесшовная интеграция в корпоративный домен безопасности платформы Hadoop Explorer</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 14px;">
+          <div class="card">
+            <div class="card-title">🔑 Способы аутентификации</div>
+            <ul>
+              <li><strong>Kerberos SPNEGO SSO</strong>: мгновенный вход в 1 клик по билету Active Directory / FreeIPA;</li>
+              <li><strong>LDAP / AD Form Login</strong>: авторизация по корпоративному логину и паролю;</li>
+              <li><strong>Демо-профили</strong>: быстрое тестирование ролевого разделения прав прямо с экрана входа.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">👥 Ролевая модель (RBAC)</div>
+            <ul>
+              <li><strong>ADMIN (`admin_user`)</strong>: полный контроль, Kill-Switch, лимиты, имперсонация doAs;</li>
+              <li><strong>WRITER (`de_user`)</strong>: создание и запуск своих задач репликации в рамках квот;</li>
+              <li><strong>READER (`analyst_user`)</strong>: режим наблюдателя (Read-Only) без права мутаций.</li>
+            </ul>
+          </div>
+        </div>
+        <div style="flex: 1.3;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/01_login_screen.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/01_login_screen.png" class="screenshot-img" alt="Экран аутентификации" />
+            <div class="screenshot-caption">Экран единой аутентификации LDAP & Kerberos SSO с профилями быстрого переключения ролей</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 6: HDFS DATA PLANE ОПТИМИЗАЦИИ -->
+    <div class="slide" data-index="6">
+      <div class="slide-header">
+        <div class="slide-subtitle">HDFS Data Plane</div>
+        <h1 class="slide-title">Протокол передачи данных, Zero-Staging и Tar-Streaming</h1>
+        <p class="slide-desc">Инженерные решения для надежной и быстрой передачи терабайтных объемов без мусора в хранилище</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">📦 Упаковка мелких файлов (Tar-Streaming)</div>
+            <p>Файлы размером &lt; 1 МБ объединяются в виртуальный TAR-поток на лету в оперативной памяти воркера:</p>
+            <ul>
+              <li>Передаются единым непрерывным gRPC-стримом;</li>
+              <li>Приемник на лету распаковывает стрим и пишет файлы прямо в HDFS;</li>
+              <li>Исключаются промежуточные файлы на локальных дисках серверов (Zero Local Disk I/O).</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🔒 Zero-Staging и Атомарная фиксация</div>
+            <p>Одиночные файлы пишутся сразу в целевой кластер HDFS:</p>
+            <ul>
+              <li>Запись во временный файл: `targetPath + "._staging_" + jobId`;</li>
+              <li>Потоковый расчет контрольной суммы SHA-256;</li>
+              <li>При совпадении хэша — мгновенный атомарный `fs.rename()`.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🗜️ Сжатие на лету (Wire Compression)</div>
+            <p>Встроенное почанковое сжатие трафика в канале WAN:</p>
+            <ul>
+              <li>Алгоритмы Zstandard (Zstd) и LZ4;</li>
+              <li>Экономия от 40% до 80% полосы на CSV, JSON, логах и дампах;</li>
+              <li>Автоматическое отключение для Parquet/ORC (чтобы не тратить CPU).</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🧹 4-уровневый HDFS Garbage Collector</div>
+            <p>Защита от накопления мусора в распределенном хранилище:</p>
+            <ul>
+              <li>Реактивная очистка при ошибках gRPC (`onError`);</li>
+              <li>Предстартовая очистка незавершенных staging-файлов;</li>
+              <li>Фоновый сборщик мусора каждые 15 минут удаляет файлы старше 30 мин;</li>
+              <li>Исключение staging-файлов из Diff-манифестов.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 7: ГЛАВНЫЙ ДАШБОРД И СОЗДАНИЕ ЗАДАЧ -->
+    <div class="slide" data-index="7">
+      <div class="slide-header">
+        <div class="slide-subtitle">Интерфейс оператора</div>
+        <h1 class="slide-title">Главная панель управления HDFS и создание задач</h1>
+        <p class="slide-desc">Интуитивный веб-интерфейс оператора со счетчиками статусов, расчетом ETA и Kerberos doAs</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/02_main_dashboard.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/02_main_dashboard.png" class="screenshot-img" alt="Главная панель" />
+            <div class="screenshot-caption">Главная панель HDFS Replication: счетчики статусов, поиск и таблица задач</div>
+          </div>
+        </div>
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/03_create_job_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/03_create_job_modal.png" class="screenshot-img" alt="Создание задачи" />
+            <div class="screenshot-caption">Мастер создания задачи: выбор путей, расписания Cron и Kerberos doAs</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 8: ИСТОРИЯ ЗАПУСКОВ И RETENTION -->
+    <div class="slide" data-index="8">
+      <div class="slide-header">
+        <div class="slide-subtitle">Аналитика и Аудит</div>
+        <h1 class="slide-title">История запусков задачи и политика хранения (Retention)</h1>
+        <p class="slide-desc">Полная прозрачность каждого периодического запуска с контролем объема базы данных</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 14px;">
+          <div class="card">
+            <div class="card-title">📜 Детальный журнал выполнений</div>
+            <ul>
+              <li><strong>Хронология</strong>: номер запуска (`#1`, `#2`...), статус и источник (Шедулер / Вручную);</li>
+              <li><strong>Тайминги</strong>: время старта, завершения и длительность с точностью до секунды;</li>
+              <li><strong>Метрики</strong>: переданный объем и эффективная скорость передачи (⚡ МБ/с).</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">⚙️ Управление глубиной хранения (Retention)</div>
+            <ul>
+              <li>Возможность задать лимит хранения (по умолчанию: 20 записей, до 500);</li>
+              <li>Кнопка «Применить лимит» мгновенно удаляет устаревшие записи из базы данных;</li>
+              <li>База данных оркестратора защищена от разрастания при ежеминутных джобах.</li>
+            </ul>
+          </div>
+        </div>
+        <div style="flex: 1.3;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/05_job_history_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/05_job_history_modal.png" class="screenshot-img" alt="История запусков" />
+            <div class="screenshot-caption">Модальное окно Job Runs History: сводные KPI, журнал запусков и динамический Retention</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 9: HIVE METASTORE CDC АРХИТЕКТУРА -->
+    <div class="slide" data-index="9">
+      <div class="slide-header">
+        <div class="slide-subtitle">Метаданные Data Lake</div>
+        <h1 class="slide-title">Репликация Hive Metastore: CDC и Inotify Lease HA</h1>
+        <p class="slide-desc">Непрерывная синхронизация баз и таблиц Hive без потери позиции и гонок между агентами</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">🏛️ Потоковый захват CDC (NotificationLog)</div>
+            <ul>
+              <li>Агент источника непрерывно опрашивает `NOTIFICATION_LOG` Hive Metastore;</li>
+              <li>События `CREATE_TABLE`, `ALTER_TABLE`, `ADD_PARTITION`, `DROP_PARTITION` пачками передаются по gRPC целевому агенту;</li>
+              <li>Целевой агент применяет DDL через локальный Thrift RPC с гарантией `deleteData = false`.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🔒 Распределенный лизинг (Inotify Lease HA)</div>
+            <ul>
+              <li>Каждая схема захватывается ровно одним агентом (`assigned_agent_id`, аренда на 60 сек);</li>
+              <li>Агент непрерывно продлевает аренду при отправке прогресса;</li>
+              <li>При сбое воркера другой агент мгновенно перехватывает стрим с сохраненного `last_processed_event_id`.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🌐 HDFS Federation NameService Translation</div>
+            <ul>
+              <li>Автоматическая трансляция URI в метаданных таблиц и партиций: `hdfs://ns-dc1/...` ➔ `hdfs://ns-dc2/...`;</li>
+              <li>Поддержка правил сопоставления федерации (`federation-mappings`).</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🛡️ Non-ACID Gate и Изоляция саб-джобов</div>
+            <ul>
+              <li>Transactional ACID таблицы безопасно пропускаются (`SKIPPED_ACID`);</li>
+              <li>Подзадачи переноса данных (`HMS_SUBJOB`) привязаны к схеме и не засоряют регламентный список HDFS.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 10: HMS REPLICATION ДАШБОРД -->
+    <div class="slide" data-index="10">
+      <div class="slide-header">
+        <div class="slide-subtitle">Интерфейс оператора</div>
+        <h1 class="slide-title">Раздел HMS Replication: мониторинг схем и Re-bootstrap</h1>
+        <p class="slide-desc">Управление непрерывной потоковой CDC-репликацией баз данных Hive</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/06_hms_replication_dashboard.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/06_hms_replication_dashboard.png" class="screenshot-img" alt="HMS дашборд" />
+            <div class="screenshot-caption">Панель HMS Replication: статус CDC-стримеров, Event Lag и список схем</div>
+          </div>
+        </div>
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/07_create_hms_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/07_create_hms_modal.png" class="screenshot-img" alt="Создание HMS" />
+            <div class="screenshot-caption">Мастер создания репликации схемы: выбор баз, фильтр таблиц и Reconciliation</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 11: SPLIT-BRAIN ПРОБЛЕМА -->
+    <div class="slide" data-index="11">
+      <div class="slide-header">
+        <div class="slide-subtitle">Disaster Recovery</div>
+        <h1 class="slide-title">Проблема Split-Brain и риск деструктивной перезаписи данных</h1>
+        <p class="slide-desc">Почему простое снятие сетевой блокировки без защитной логики уничтожает данные компании</p>
+      </div>
+      <div class="slide-body">
+        <div class="arch-flow">
+          <div class="arch-step" style="border-left: 4px solid #6366f1;">
+            <div class="arch-icon">1</div>
+            <div>
+              <div style="font-weight: 700;">Штатный режим: DC1 (Primary) ➔ DC2 (Standby)</div>
+              <div style="font-size: 0.88rem; color: var(--text-muted);">Данные непрерывно синхронизируются из основного дата-центра в резервный.</div>
+            </div>
+          </div>
+
+          <div class="arch-step" style="border-left: 4px solid #ef4444;">
+            <div class="arch-icon">2</div>
+            <div>
+              <div style="font-weight: 700; color: #fca5a5;">Авария DC1 и переключение нагрузки на DC2</div>
+              <div style="font-size: 0.88rem; color: var(--text-muted);">DC1 падает. Клиентский трафик и ETL переключаются на DC2. Бизнес пишет свежие данные прямо в DC2. DC1 отстает на всю дельту аварии!</div>
+            </div>
+          </div>
+
+          <div class="arch-step" style="border-left: 4px solid #f59e0b;">
+            <div class="arch-icon">3</div>
+            <div>
+              <div style="font-weight: 700; color: #fcd34d;">Оживание оборудования DC1 со старым срезом данных</div>
+              <div style="font-size: 0.88rem; color: var(--text-muted);">Питание и сеть в DC1 восстановились. Кластер возвращается в сеть, содержа УСТАРЕВШЕЕ состояние данных.</div>
+            </div>
+          </div>
+
+          <div class="arch-step" style="border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.1);">
+            <div class="arch-icon" style="color: #ef4444;">❌</div>
+            <div>
+              <div style="font-weight: 700; color: #f87171;">Катастрофа наивного снятия блокировки (Data Overwrite)</div>
+              <div style="font-size: 0.88rem; color: #cbd5e1;">Если старые прямые задачи `DC1 ➔ DC2` возобновятся автоматически, старый DC1 затрет или удалит свежие файлы на DC2!</div>
+            </div>
+          </div>
+
+          <div class="arch-step" style="border-left: 4px solid #10b981; background: rgba(16, 185, 129, 0.1);">
+            <div class="arch-icon" style="color: #10b981;">✅</div>
+            <div>
+              <div style="font-weight: 700; color: #6ee7b7;">Решение Hadoop Replicator: Сетевой Unfence + Freeze старых задач</div>
+              <div style="font-size: 0.88rem; color: #cbd5e1;">Сеть открывается только для управления, старые задачи остаются STOPPED, а поток разворачивается через Reverse Replication (`DC2 ➔ DC1`).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 12: 5-ФАЗНЫЙ РЕГЛАМЕНТ DR -->
+    <div class="slide" data-index="12">
+      <div class="slide-header">
+        <div class="slide-subtitle">Регламент непрерывности бизнеса</div>
+        <h1 class="slide-title">5-фазный регламент Disaster Recovery (RPO → 0, RTO &lt; 5 мин)</h1>
+        <p class="slide-desc">Четкий сквозной алгоритм действий системы и оператора на протяжении всего инцидента</p>
+      </div>
+      <div class="slide-body">
+        <table class="styled-table">
+          <thead>
+            <tr>
+              <th>Фаза регламента</th>
+              <th>Состояние DC1</th>
+              <th>Задачи DC1 ➔ DC2</th>
+              <th>Лимит канала</th>
+              <th>Действия оператора и системы</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Авария DC1 (Kill-Switch)</strong></td>
+              <td><span class="badge badge-danger">DOWN / FENCED</span></td>
+              <td>`STOPPED` (Cron OFF)</td>
+              <td><strong>0 МБ/с</strong></td>
+              <td>Кнопка <strong>🛑 Kill-Switch</strong>. Сетевой барьер 0 МБ/с, freeze задач, фиксация Snapshot состояния.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Работа на DR площадке</strong></td>
+              <td><span class="badge badge-danger">OFFLINE</span></td>
+              <td>`STOPPED`</td>
+              <td>0 МБ/с</td>
+              <td>Бизнес-приложения пишут в DC2. На панели накапливается Delta Lag (непереданные байты и DDL).</td>
+            </tr>
+            <tr>
+              <td><strong>3. Оживание DC1 (Unfence)</strong></td>
+              <td><span class="badge badge-warning">ALIVE (STANDBY)</span></td>
+              <td>`STOPPED` (Защищены!)</td>
+              <td><strong>100 МБ/с</strong></td>
+              <td>Кнопка <strong>🛡️ Снять изоляцию</strong>. Восстанавливается ТОЛЬКО сеть. Старые задачи НЕ запускаются!</td>
+            </tr>
+            <tr>
+              <td><strong>4. Догон дельты (Reverse)</strong></td>
+              <td><span class="badge badge-primary">RECEIVER</span></td>
+              <td>`STOPPED`</td>
+              <td>100 МБ/с</td>
+              <td>Кнопка <strong>🔄 Reverse Replication</strong>. Авто-генерация зеркал `rev-*` (`DC2 ➔ DC1`) до достижения RPO = 0.</td>
+            </tr>
+            <tr>
+              <td><strong>5. Возврат нагрузки (Failback)</strong></td>
+              <td><span class="badge badge-success">PRIMARY</span></td>
+              <td>`SCHEDULED`</td>
+              <td>100 МБ/с</td>
+              <td>Переключение трафика на DC1. Отзыв временных зеркал («Отозвать ↩»). Возобновление штатного цикла.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 13: DR HUB И ОГРАЖДЕНИЕ -->
+    <div class="slide" data-index="13">
+      <div class="slide-header">
+        <div class="slide-subtitle">Интерфейс Disaster Recovery</div>
+        <h1 class="slide-title">DR Hub, аварийный Kill-Switch и сетевое ограждение</h1>
+        <p class="slide-desc">Наглядный мониторинг топологии и изоляция упавшей площадки в один клик</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1.2;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/08_disaster_recovery_dashboard.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/08_disaster_recovery_dashboard.png" class="screenshot-img" alt="DR Hub" />
+            <div class="screenshot-caption">Консоль Disaster Recovery & Failover Hub: мониторинг статуса ЦОД и сетевого потока</div>
+          </div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 14px;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/09_emergency_kill_switch_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/09_emergency_kill_switch_modal.png" class="screenshot-img" alt="Kill-Switch" />
+            <div class="screenshot-caption">Модальное окно подтверждения аварийного останова (Kill-Switch)</div>
+          </div>
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/10_disaster_recovery_fenced_state.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/10_disaster_recovery_fenced_state.png" class="screenshot-img" alt="Fenced состояние" />
+            <div class="screenshot-caption">Индикация подавленного кластера: бейдж «ПОДАВЛЕН 🔒» и тревожный баннер</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 14: СНЯТИЕ ИЗОЛЯЦИИ И REVERSE REPLICATION -->
+    <div class="slide" data-index="14">
+      <div class="slide-header">
+        <div class="slide-subtitle">Интерфейс Disaster Recovery</div>
+        <h1 class="slide-title">Безопасное снятие изоляции (Unfence) и Reverse Replication</h1>
+        <p class="slide-desc">Защита от случайных действий и автоматическая генерация встречных задач синхронизации дельты</p>
+      </div>
+      <div class="slide-body">
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/11_rollback_unfence_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/11_rollback_unfence_modal.png" class="screenshot-img" alt="Unfence окно" />
+            <div class="screenshot-caption">Модальное окно Unfence: снятие сетевого барьера без возобновления старых задач</div>
+          </div>
+        </div>
+        <div style="flex: 1;">
+          <div class="screenshot-frame" onclick="openLightbox('images/replicator/12_reverse_replication_modal.png')">
+            <div class="screenshot-toolbar">
+              <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+            </div>
+            <img src="images/replicator/12_reverse_replication_modal.png" class="screenshot-img" alt="Reverse Replication" />
+            <div class="screenshot-caption">Мастер Reverse Replication: разворот потока данных DC2 ➔ DC1 с подтверждением</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 15: КОРПОРАТИВНАЯ БЕЗОПАСНОСТЬ И RANGER -->
+    <div class="slide" data-index="15">
+      <div class="slide-header">
+        <div class="slide-subtitle">Enterprise Security</div>
+        <h1 class="slide-title">Безопасность, Kerberos Context Isolation и Apache Ranger</h1>
+        <p class="slide-desc">Полное соблюдение корпоративных политик безопасности банковского и телеком-сектора</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">🔐 Kerberos Proxy User & doAs имперсонация</div>
+            <p>Воркер аутентифицируется через системный keytab техучетки `hdfs-replicator@REALM.LOCAL`, однако все операции в HDFS выполняются под UGI автора задачи:</p>
+            <p style="font-family: monospace; font-size: 0.85rem; color: #a5b4fc; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; margin: 8px 0;">
+              UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)
+            </p>
+            <p>Это гарантирует, что пользователь не сможет скопировать директории, к которым у него нет прямого доступа в Hadoop!</p>
+          </div>
+          <div class="card">
+            <div class="card-title">🛡️ Полный аудит в Apache Ranger</div>
+            <p>При проверке политик Ranger фиксирует реальное имя создателя задачи репликации:</p>
+            <ul>
+              <li><strong>Ranger Access Log</strong>: `ugi: ivan_ivanov (auth:PROXY via hdfs-replicator)`;</li>
+              <li>Прозрачный аудит действий для службы информационной безопасности;</li>
+              <li>Невозможность несанкционированного повышения привилегий.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🔒 Kerberos Data Transfer Protection</div>
+            <p>Защита канала передачи блоков DataNode по сети:</p>
+            <ul>
+              <li>Автоматическая конфигурация SASL защиты (`dfs.data.transfer.protection = integrity/privacy`);</li>
+              <li>Исключение сбоев `Connection reset` при передаче данных между Kerberized-узлами.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🌐 Сквозной TLSv1.3 / mTLS</div>
+            <ul>
+              <li>Шифрование управляющих REST API эндпоинтов по HTTPS;</li>
+              <li>Шифрование gRPC-магистрали между воркерами и приемниками;</li>
+              <li>Поддержка взаимной аутентификации по сертификатам (mTLS).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 16: СРАВНЕНИЕ С АЛЬТЕРНАТИВАМИ -->
+    <div class="slide" data-index="16">
+      <div class="slide-header">
+        <div class="slide-subtitle">Конкурентный анализ</div>
+        <h1 class="slide-title">Сравнение с альтернативными решениями на рынке</h1>
+        <p class="slide-desc">Почему Hadoop gRPC Replicator превосходит существующие Open Source и коммерческие аналоги</p>
+      </div>
+      <div class="slide-body">
+        <table class="styled-table">
+          <thead>
+            <tr>
+              <th>Возможность</th>
+              <th style="text-align: center;">Apache DistCp</th>
+              <th style="text-align: center;">Apache Falcon</th>
+              <th style="text-align: center;">WANdisco Fusion</th>
+              <th style="text-align: center; color: #a5b4fc;">Hadoop Replicator</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Нагрузка на YARN</strong></td>
+              <td style="text-align: center;">❌ Высокая (MapReduce)</td>
+              <td style="text-align: center;">❌ Высокая (Oozie/MR)</td>
+              <td style="text-align: center;">✅ Свой демон</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Zero YARN</span></td>
+            </tr>
+            <tr>
+              <td><strong>Иерархический шейпер полосы</strong></td>
+              <td style="text-align: center;">❌ Нет</td>
+              <td style="text-align: center;">❌ Нет</td>
+              <td style="text-align: center;">⚠️ Частичный</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ 3 уровня (&lt; 1c)</span></td>
+            </tr>
+            <tr>
+              <td><strong>Tar-Streaming мелких файлов</strong></td>
+              <td style="text-align: center;">⚠️ Лимитирован</td>
+              <td style="text-align: center;">❌ Нет</td>
+              <td style="text-align: center;">⚠️ Задержки</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Потоковый Tar</span></td>
+            </tr>
+            <tr>
+              <td><strong>CDC Hive Metastore</strong></td>
+              <td style="text-align: center;">❌ Нет</td>
+              <td style="text-align: center;">⚠️ Только DDL скрипты</td>
+              <td style="text-align: center;">⚠️ Сложный плагин</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Inotify Lease HA</span></td>
+            </tr>
+            <tr>
+              <td><strong>Защита от Split-Brain в DR</strong></td>
+              <td style="text-align: center;">❌ Ручная (Риск потери)</td>
+              <td style="text-align: center;">❌ Ручная</td>
+              <td style="text-align: center;">⚠️ Консенсус Paxos</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Fencing + Reverse</span></td>
+            </tr>
+            <tr>
+              <td><strong>Веб-интерфейс и мониторинг</strong></td>
+              <td style="text-align: center;">❌ Только YARN UI</td>
+              <td style="text-align: center;">❌ Устаревший UI</td>
+              <td style="text-align: center;">⚠️ Тяжелый портал</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Svelte 5 SPA</span></td>
+            </tr>
+            <tr>
+              <td><strong>Стоимость владения</strong></td>
+              <td style="text-align: center;">Бесплатно</td>
+              <td style="text-align: center;">Архив (EoL)</td>
+              <td style="text-align: center;">❌ $100k+ / год</td>
+              <td style="text-align: center;"><span class="badge badge-success">✅ Своя разработка</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 17: ЭКСПЛУАТАЦИЯ И ТЕСТЫ -->
+    <div class="slide" data-index="17">
+      <div class="slide-header">
+        <div class="slide-subtitle">DevOps & Production Readiness</div>
+        <h1 class="slide-title">Эксплуатация, мониторинг Prometheus и Smoke-тестирование</h1>
+        <p class="slide-desc">Полная прозрачность для инфраструктурных команд и дежурной смены</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-title">📊 Метрики Prometheus</div>
+            <p>Эндпоинт `:8005/actuator/prometheus`:</p>
+            <ul>
+              <li>`replication_bytes_total`</li>
+              <li>`active_workers`</li>
+              <li>`replication_transfer_rate_mb_s`</li>
+              <li>`hms_replication_event_lag`</li>
+              <li>`fenced_clusters_count`</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">💓 Health Checks</div>
+            <p>Стандарты облачного развертывания:</p>
+            <ul>
+              <li>`/actuator/health/liveness`</li>
+              <li>`/actuator/health/readiness`</li>
+              <li>Автоматическая интеграция с Kubernetes Ingress и HAProxy.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-title">🧪 Docker Smoke Tests</div>
+            <p>Скрипт `./demo/replicator/run-smoke-tests.sh`:</p>
+            <ul>
+              <li>Подъем 2 изолированных Hadoop ЦОД;</li>
+              <li>Верификация HDFS репликации;</li>
+              <li>Проверка Hive CDC при вставке партиций;</li>
+              <li>Контроль хэшей SHA-256.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- СЛАЙД 18: ИТОГИ И Q&A -->
+    <div class="slide" data-index="18">
+      <div class="slide-header">
+        <div class="slide-subtitle">Заключение</div>
+        <h1 class="slide-title">Итоги и готовность к демонстрации</h1>
+        <p class="slide-desc">Hadoop gRPC Replicator переводит управление межкластерной репликацией на новый уровень</p>
+      </div>
+      <div class="slide-body" style="align-items: center; justify-content: center;">
+        <div style="max-width: 900px; text-align: center; display: flex; flex-direction: column; gap: 24px;">
+          <div class="grid-2">
+            <div class="card" style="text-align: left;">
+              <div class="card-title">🎯 Бизнес-эффект</div>
+              <ul>
+                <li>Нулевое влияние репликации на YARN-очереди;</li>
+                <li>Защита критического корпоративного WAN-канала;</li>
+                <li>RPO ➔ 0 и RTO &lt; 5 минут при катастрофе ЦОД;</li>
+                <li>Полная синхронизация метаданных Hive.</li>
+              </ul>
+            </div>
+            <div class="card" style="text-align: left;">
+              <div class="card-title">🛠️ Инженерные преимущества</div>
+              <ul>
+                <li>Современный стек Java 21, Spring Boot 3, Netty;</li>
+                <li>Zero-Staging и Tar-Streaming мелких файлов;</li>
+                <li>Бесшовный откат с защитой от Split-Brain;</li>
+                <li>Простой и удобный интерфейс Svelte 5.</li>
+              </ul>
+            </div>
+          </div>
+          <div style="margin-top: 10px;">
+            <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Спасибо за внимание!</h2>
+            <p style="color: var(--text-muted); font-size: 1.1rem;">Готовы перейти к вопросам и демонстрации живого стенда</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Модальное окно для увеличенного просмотра скриншотов (Lightbox) -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <img id="lightboxImg" src="" alt="Screenshot Fullscreen" />
+  </div>
+
+  <!-- Модалка обзора всех слайдов (Overview) -->
+  <div class="overview-modal" id="overviewModal">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h2 style="font-size: 1.6rem;">Все слайды презентации</h2>
+      <button class="btn" onclick="toggleOverview()">✕ Закрыть (Esc)</button>
+    </div>
+    <div class="overview-grid" id="overviewGrid"></div>
+  </div>
+
+  <!-- Скрипт управления презентацией -->
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const totalSlides = slides.length;
+    let currentSlide = 1;
+
+    function updateSlide() {
+      slides.forEach((slide, idx) => {
+        const slideIndex = idx + 1;
+        slide.classList.remove('active', 'prev');
+        if (slideIndex === currentSlide) {
+          slide.classList.add('active');
+        } else if (slideIndex < currentSlide) {
+          slide.classList.add('prev');
+        }
+      });
+
+      // Счетчик
+      document.getElementById('slideCounter').textContent = `${currentSlide} / ${totalSlides}`;
+
+      // Полоса прогресса
+      const progress = ((currentSlide - 1) / (totalSlides - 1)) * 100;
+      document.getElementById('progressBar').style.width = `${progress}%`;
+
+      // Обновление состояния в overview
+      const overviewItems = document.querySelectorAll('.overview-item');
+      overviewItems.forEach((item, idx) => {
+        item.classList.toggle('current', idx + 1 === currentSlide);
+      });
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function goToSlide(n) {
+      if (n >= 1 && n <= totalSlides) {
+        currentSlide = n;
+        updateSlide();
+        closeOverview();
+      }
+    }
+
+    // Клавиатурная навигация
+    window.addEventListener('keydown', (e) => {
+      if (document.getElementById('lightbox').classList.contains('active')) {
+        if (e.key === 'Escape') closeLightbox();
+        return;
+      }
+
+      if (document.getElementById('overviewModal').classList.contains('active')) {
+        if (e.key === 'Escape' || e.key === 'o' || e.key === 'O') closeOverview();
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        prevSlide();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      } else if (e.key === 'o' || e.key === 'O') {
+        toggleOverview();
+      } else if (e.key === 'Home') {
+        currentSlide = 1;
+        updateSlide();
+      } else if (e.key === 'End') {
+        currentSlide = totalSlides;
+        updateSlide();
+      }
+    });
+
+    // Полноэкранный режим
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    // Lightbox
+    function openLightbox(src) {
+      const lb = document.getElementById('lightbox');
+      const img = document.getElementById('lightboxImg');
+      img.src = src;
+      lb.classList.add('active');
+    }
+
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.remove('active');
+    }
+
+    // Меню обзора слайдов
+    function toggleOverview() {
+      const modal = document.getElementById('overviewModal');
+      if (modal.classList.contains('active')) {
+        closeOverview();
+      } else {
+        openOverview();
+      }
+    }
+
+    function openOverview() {
+      document.getElementById('overviewModal').classList.add('active');
+    }
+
+    function closeOverview() {
+      document.getElementById('overviewModal').classList.remove('active');
+    }
+
+    // Инициализация сетки Overview
+    function initOverview() {
+      const grid = document.getElementById('overviewGrid');
+      grid.innerHTML = '';
+      slides.forEach((slide, idx) => {
+        const title = slide.querySelector('.slide-title')?.textContent || `Слайд ${idx + 1}`;
+        const subtitle = slide.querySelector('.slide-subtitle')?.textContent || '';
+        const item = document.createElement('div');
+        item.className = `overview-item ${idx + 1 === currentSlide ? 'current' : ''}`;
+        item.onclick = () => goToSlide(idx + 1);
+        item.innerHTML = `
+          <div style="font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase;">Слайд ${idx + 1}</div>
+          <div style="font-size: 0.95rem; font-weight: 700; margin: 4px 0; color: #fff;">${title}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">${subtitle}</div>
+        `;
+        grid.appendChild(item);
+      });
+    }
+
+    initOverview();
+    updateSlide();
+  </script>
+</body>
+</html>

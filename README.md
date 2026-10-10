@@ -30,6 +30,9 @@
   - [Администрирование SQL Explorer (docs/sql-admin-guide.md)](docs/sql-admin-guide.md)
   - [Администрирование Spark Explorer (docs/spark-admin-guide.md)](docs/spark-admin-guide.md)
   - [Администрирование Hadoop gRPC Replicator (docs/replicator-admin-guide.md)](docs/replicator-admin-guide.md)
+  - [Регламент Disaster Recovery и защита от Split-Brain (docs/replicator-disaster-recovery-guide.md)](docs/replicator-disaster-recovery-guide.md)
+  - [Отказоустойчивость и распределенный лизинг Replicator (docs/replicator-fault-tolerance.md)](docs/replicator-fault-tolerance.md)
+  - [📊 Презентация Replicator для команды (docs/replicator-presentation.md)](docs/replicator-presentation.md) ([Интерактивный слайддек](docs/replicator-presentation.html))
 - 📖 **Руководства пользователя**:
   - [Руководство пользователя YARN Explorer (docs/yarn-user-guide.md)](docs/yarn-user-guide.md)
   - [Автоматизированная доставка и применение через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
