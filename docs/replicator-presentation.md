@@ -4,7 +4,7 @@
 <div align="center">
   <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform" width="340" />
   <p><strong>Инженерный регламент архитектуры, сетевых протоколов, шейпинга и Disaster Recovery</strong></p>
-  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивная слайдовая презентация в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📋 <a href="#📑-содержание-инженерных-разделов"><strong>Навигация по разделам</strong></a></p>
+  <p>🖥️ <a href="replicator-presentation.html"><strong>Интерактивная слайдовая презентация в браузере (HTML)</strong></a> &nbsp;|&nbsp; 📄 <a href="replicator-presentation.pdf"><strong>Скачать PDF-документ</strong></a> &nbsp;|&nbsp; 📋 <a href="#📑-содержание-инженерных-разделов"><strong>Навигация по разделам</strong></a></p>
 </div>
 
 ---

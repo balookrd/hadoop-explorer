@@ -498,6 +498,9 @@ HTML_CONTENT = """<!DOCTYPE html>
     </div>
 
     <div class="header-controls">
+      <a href="replicator-presentation.pdf" class="btn" download title="Скачать PDF документ спецификации" style="text-decoration: none; color: inherit;">
+        <span>📥 PDF</span>
+      </a>
       <button class="btn" onclick="toggleOverview()" title="Сетка слайдов (Клавиша O)">
         <span>📑 Обзор</span>
       </button>
