@@ -1076,7 +1076,7 @@
           </label>
           <input
             type="text"
-            placeholder="например: Отключение электропитания ЦОД1 / Разрыв оптического ввода"
+            placeholder="например: Отключение электропитания ЦОД-1 / Разрыв оптического ввода"
             bind:value={emergencyReason}
             class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs focus:ring-1 focus:ring-rose-500"
           />
@@ -1318,7 +1318,7 @@
                 Снять сетевое ограждение (Unfence Network)
               </div>
               <div class="text-[10px] text-slate-500 leading-relaxed">
-                Восстанавливает лимиты шейпера между датацентрами с 0 МБ/с до штатных значений (100 МБ/с) для возможности управления и приема дельты.
+                Восстанавливает лимиты шейпера между дата-центрами с 0 МБ/с до штатных значений (100 МБ/с) для возможности управления и приема дельты.
               </div>
             </div>
           </label>

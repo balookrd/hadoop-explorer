@@ -2177,7 +2177,7 @@
               />
               <span class="flex items-center gap-1.5">
                 <Calendar class="w-3.5 h-3.5 text-indigo-500" />
-                Запуск по расписанию (Шедулер)
+                Запуск по расписанию (Cron)
               </span>
             </label>
 
@@ -2412,7 +2412,7 @@
                       {#if run.trigger_type === 'SCHEDULED'}
                         <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           <Calendar class="w-3 h-3" />
-                          Шедулер
+                          По расписанию
                         </span>
                       {:else}
                         <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">

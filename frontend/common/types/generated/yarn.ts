@@ -413,7 +413,7 @@ export interface paths {
         };
         /**
          * Get Deploy Status
-         * @description Получение актуального статуса выполнения задачи деплоя в AWX.
+         * @description Получение актуального статуса выполнения задачи развертывания в AWX.
          *     Доступно: READER и выше.
          */
         get: operations["get_deploy_status_api_v1_change_requests__cr_id__deploy_status_get"];

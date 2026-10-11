@@ -559,7 +559,7 @@
                   {/if}
                   {#if warningsCount > 0}
                     <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
-                      {warningsCount} преудпр.
+                      {warningsCount} предупр.
                     </span>
                   {/if}
                   {#if infosCount > 0}
