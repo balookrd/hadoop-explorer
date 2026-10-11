@@ -181,7 +181,7 @@
 ### 4.6 Корректное завершение (Graceful Shutdown)
 Все микросервисы платформы на Spring Boot 3 поддерживают штатное завершение работы (`server.shutdown=graceful`):
 - Перехват сигналов завершения подов Kubernetes (`SIGTERM`, `SIGINT`).
-- Дожидание завершения выполняющихся запросов (таймаут `spring.lifecycle.timeout-per-shutdown-phase`).
+- Ожидание завершения выполняющихся запросов (таймаут `spring.lifecycle.timeout-per-shutdown-phase`).
 - Корректная остановка фоновых пулов задач и потоков (`ExecutorService.shutdown()`).
 - Закрытие пулов соединений с базами данных (HikariCP pool close) и освобождение сетевых ресурсов.
 
@@ -431,7 +431,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
    - Упаковка скомпилированного Spring Boot Fat JAR (`backend/<service>/target/*.jar` или `backend/replicator/*/target/*.jar`) и статических бандлов Svelte 5 SPA.
    - Запуск под непривилегированным пользователем `appuser (UID 10001)`.
    - Оптимизированные параметры памяти JVM (`-Xms256m -Xmx1024m`).
-2. **Структурированное JSON-логирование в продакшне**:
+2. **Структурированное JSON-логирование в production-окружении**:
    - Настройка Logback с JSON/Logstash-энкодером для стандартизированного вывода логов в формате JSON (совместимость с ELK, Vector, FluentBit, Grafana Loki).
    - Автоматическое включение `timestamp`, `level`, `logger`, `requestId`, `message` и контекстных MDC-метаданных.
 3. **Kubernetes (Helm)**:
