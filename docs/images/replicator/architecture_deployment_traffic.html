@@ -11,7 +11,7 @@
       background: #090d16;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       color: #f8fafc;
-      padding: 24px 32px;
+      padding: 20px 28px;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -23,11 +23,11 @@
       justify-content: space-between;
       align-items: flex-end;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding-bottom: 14px;
-      margin-bottom: 18px;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
     }
     .header-left h1 {
-      font-size: 1.6rem;
+      font-size: 1.55rem;
       font-weight: 800;
       color: #fff;
       display: flex;
@@ -37,36 +37,37 @@
     .header-left h1 span.tag {
       background: linear-gradient(135deg, #4f46e5, #06b6d4);
       color: #fff;
-      font-size: 0.75rem;
-      padding: 4px 10px;
+      font-size: 0.72rem;
+      padding: 3px 10px;
       border-radius: 999px;
       font-weight: 700;
       text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     .header-left p {
       color: #94a3b8;
-      font-size: 0.88rem;
-      margin-top: 4px;
+      font-size: 0.84rem;
+      margin-top: 3px;
     }
 
     /* Легенда потоков */
     .legend {
       display: flex;
-      gap: 16px;
-      background: rgba(30, 41, 59, 0.6);
-      padding: 8px 16px;
+      gap: 14px;
+      background: rgba(30, 41, 59, 0.65);
+      padding: 6px 14px;
       border-radius: 10px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      font-size: 0.78rem;
+      font-size: 0.74rem;
     }
     .legend-item {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       font-weight: 600;
     }
     .legend-line {
-      width: 22px;
+      width: 20px;
       height: 4px;
       border-radius: 2px;
     }
@@ -75,41 +76,67 @@
     .leg-local { background: #f59e0b; }
     .leg-dr { background: #ef4444; }
 
-    /* Основная сетка */
+    /* Верхняя плашка клиентов */
+    .clients-bar {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 8px 16px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.78rem;
+    }
+    .clients-tags {
+      display: flex;
+      gap: 8px;
+    }
+    .client-tag {
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.72rem;
+    }
+
+    /* Основная сетка топологии */
     .canvas {
       flex: 1;
       display: grid;
       grid-template-columns: 310px 1fr 140px 1fr;
-      gap: 18px;
+      gap: 16px;
       align-items: stretch;
       position: relative;
     }
 
     /* Панели зон */
     .zone {
-      background: rgba(22, 30, 49, 0.65);
+      background: rgba(22, 30, 49, 0.7);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 14px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 14px;
       display: flex;
       flex-direction: column;
       position: relative;
     }
     .zone-title {
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 700;
       color: #cbd5e1;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      padding-bottom: 8px;
+      padding-bottom: 6px;
     }
     .zone-badge {
-      font-size: 0.68rem;
-      padding: 2px 8px;
-      border-radius: 6px;
+      font-size: 0.65rem;
+      padding: 2px 7px;
+      border-radius: 5px;
       font-weight: 700;
     }
     .badge-core { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); }
@@ -118,25 +145,22 @@
 
     /* Компоненты внутри зон */
     .node-box {
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin-bottom: 12px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
       position: relative;
       transition: all 0.2s ease;
-    }
-    .node-box:hover {
-      border-color: rgba(99, 102, 241, 0.5);
     }
     .node-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
     .node-name {
-      font-size: 0.88rem;
+      font-size: 0.84rem;
       font-weight: 700;
       color: #fff;
       display: flex;
@@ -144,37 +168,51 @@
       gap: 6px;
     }
     .node-port {
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-family: monospace;
       color: #38bdf8;
       background: rgba(6, 182, 212, 0.15);
-      padding: 2px 6px;
+      padding: 1px 5px;
       border-radius: 4px;
       border: 1px solid rgba(6, 182, 212, 0.3);
     }
     .node-desc {
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       color: #94a3b8;
-      line-height: 1.4;
+      line-height: 1.35;
     }
     .node-list {
-      margin-top: 6px;
+      margin-top: 5px;
       list-style: none;
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: #cbd5e1;
     }
     .node-list li {
-      margin-bottom: 3px;
+      margin-bottom: 2px;
       position: relative;
-      padding-left: 12px;
+      padding-left: 11px;
     }
     .node-list li::before {
       content: "›";
       position: absolute;
-      left: 2px;
+      left: 1px;
       color: #818cf8;
       font-weight: bold;
     }
+
+    .install-tag {
+      display: inline-block;
+      font-size: 0.64rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .tag-install-orch { background: rgba(99, 102, 241, 0.25); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.5); }
+    .tag-install-agent { background: rgba(16, 185, 129, 0.25); color: #a7f3d0; border: 1px solid rgba(16, 185, 129, 0.5); }
+    .tag-native-hadoop { background: rgba(245, 158, 11, 0.2); color: #fde68a; border: 1px solid rgba(245, 158, 11, 0.4); }
 
     /* МежЦОДная магистраль WAN */
     .wan-corridor {
@@ -182,32 +220,32 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(15, 23, 42, 0.5);
+      background: rgba(15, 23, 42, 0.6);
       border: 1px dashed rgba(255, 255, 255, 0.15);
-      border-radius: 14px;
-      padding: 12px 8px;
+      border-radius: 12px;
+      padding: 10px 6px;
       text-align: center;
       position: relative;
     }
     .wan-title {
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       font-weight: 800;
       color: #38bdf8;
       letter-spacing: 0.05em;
       text-transform: uppercase;
       writing-mode: vertical-rl;
       transform: rotate(180deg);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .wan-badge {
       background: rgba(16, 185, 129, 0.15);
       border: 1px solid rgba(16, 185, 129, 0.4);
       color: #34d399;
-      font-size: 0.68rem;
+      font-size: 0.66rem;
       font-weight: 700;
       padding: 4px 6px;
       border-radius: 6px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       width: 100%;
       text-align: center;
     }
@@ -215,35 +253,33 @@
       background: rgba(239, 68, 68, 0.15);
       border: 1px solid rgba(239, 68, 68, 0.4);
       color: #fca5a5;
-      font-size: 0.65rem;
+      font-size: 0.64rem;
       font-weight: 700;
       padding: 4px;
       border-radius: 6px;
-      margin-top: 8px;
+      margin-top: 6px;
       width: 100%;
     }
 
     /* Подвал со сводкой правил фаервола */
     .footer-summary {
-      margin-top: 14px;
-      background: rgba(15, 23, 42, 0.7);
+      margin-top: 12px;
+      background: rgba(15, 23, 42, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 10px;
-      padding: 10px 18px;
+      border-radius: 9px;
+      padding: 8px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.8rem;
+      font-size: 0.76rem;
       color: #94a3b8;
     }
     .summary-item {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
     }
-    .summary-item strong {
-      color: #fff;
-    }
+    .summary-item strong { color: #fff; }
   </style>
 </head>
 <body>
@@ -253,94 +289,106 @@
     <div class="header-left">
       <h1>
         Hadoop gRPC Replicator
-        <span class="tag">Архитектура развертывания и потоки трафика</span>
+        <span class="tag">Архитектура развертывания и сетевые потоки</span>
       </h1>
-      <p>Куда устанавливаются компоненты платформы, какие порты открываются в фаерволе и как физически передаются данные HDFS и Hive</p>
+      <p>Физическое размещение компонентов («Что где располагается»), порты фаервола и направления сетевых потоков</p>
     </div>
     <div class="legend">
       <div class="legend-item"><span class="legend-line leg-control"></span> Управление REST / SSE (:8005)</div>
       <div class="legend-item"><span class="legend-line leg-data"></span> Прямой gRPC WAN Data Stream (:50051)</div>
-      <div class="legend-item"><span class="legend-line leg-local"></span> Локальный LAN Hadoop (:9000, :9866, :9083)</div>
+      <div class="legend-item"><span class="legend-line leg-local"></span> Локальный LAN Hadoop (:8020, :9866, :9083)</div>
       <div class="legend-item"><span class="legend-line leg-dr"></span> Reverse Stream в аварии (:50051)</div>
+    </div>
+  </div>
+
+  <!-- Плашка клиентов -->
+  <div class="clients-bar">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span><strong>👥 Потребители данных / Клиентские сервисы:</strong></span>
+      <div class="clients-tags">
+        <span class="client-tag">Apache Spark</span>
+        <span class="client-tag">Trino SQL</span>
+        <span class="client-tag">Airflow ETL</span>
+        <span class="client-tag">Hive LLAP</span>
+        <span class="client-tag">BI Dashboards</span>
+      </div>
+    </div>
+    <div style="color: #cbd5e1; font-size: 0.74rem;">
+      📍 Штатно читают/пишут в <strong>ЦОД-1</strong> &nbsp;|&nbsp; При аварии переключаются (VIP/DNS) на <strong>ЦОД-2</strong>
     </div>
   </div>
 
   <!-- Основная архитектурная карта -->
   <div class="canvas">
 
-    <!-- ЗОНА 1: УРОВЕНЬ УПРАВЛЕНИЯ И ПОЛЬЗОВАТЕЛИ -->
+    <!-- ЗОНА 1: УРОВЕНЬ УПРАВЛЕНИЯ И ОРКЕСТРАТОР -->
     <div class="zone">
       <div class="zone-title">
-        <span>1. Management / Control Plane</span>
-        <span class="zone-badge badge-core">Dedicated Node / K8s</span>
+        <span>1. Management Zone (Control Plane)</span>
+        <span class="zone-badge badge-core">Dedicated VM / K8s</span>
       </div>
 
       <!-- Браузер оператора -->
       <div class="node-box" style="border-left: 3px solid #818cf8;">
+        <span class="install-tag tag-install-orch">Клиентский доступ</span>
         <div class="node-header">
-          <span class="node-name">💻 Браузер оператора / DE</span>
-          <span class="node-port">HTTPS / 8005</span>
+          <span class="node-name">💻 Web Console / UI</span>
+          <span class="node-port">HTTPS :8005</span>
         </div>
-        <div class="node-desc">Инженер данных, Администратор кластера, Дежурная смена ИТ.</div>
-        <ul class="node-list">
-          <li>Svelte 5 SPA интерфейс (Runes)</li>
-          <li>Вход через Kerberos SPNEGO SSO / LDAP</li>
-          <li>Управление задачами, скоростью и DR</li>
-        </ul>
+        <div class="node-desc">Svelte 5 SPA. Вход через Kerberos SPNEGO SSO в 1 клик или LDAP. Управление задачами, скоростью и DR.</div>
       </div>
 
       <!-- Orchestrator Сервер -->
-      <div class="node-box" style="border-left: 3px solid #6366f1; background: rgba(30, 41, 59, 0.7);">
+      <div class="node-box" style="border-left: 3px solid #6366f1; background: rgba(30, 41, 59, 0.75);">
+        <span class="install-tag tag-install-orch">УСТАНАВЛИВАЕТСЯ: Orchestrator JAR</span>
         <div class="node-header">
           <span class="node-name">⚙️ Replicator Orchestrator</span>
           <span class="node-port">:8005 HTTP/REST</span>
         </div>
         <div class="node-desc">Java 21 LTS / Spring Boot 3.3.4 (Чистый координатор).</div>
         <ul class="node-list">
-          <li><strong>Cron Scheduler</strong>: планирование задач</li>
-          <li><strong>Agent Registry</strong>: учет адресов воркеров</li>
-          <li><strong>Token Bucket</strong>: выдача квот полосы</li>
-          <li><strong>Inotify Lease HA</strong>: координатор схем HMS</li>
+          <li><strong>Cron Scheduler</strong>: планирование периодических задач</li>
+          <li><strong>Agent Registry</strong>: учет адресов и heartbeat воркеров</li>
+          <li><strong>Token Bucket</strong>: выдача квот полосы пропускания</li>
+          <li><strong>Inotify Lease HA</strong>: координатор распределенной аренды HMS</li>
           <li><strong>Disaster Recovery Hub</strong>: Kill-Switch & Unfence</li>
         </ul>
       </div>
 
       <!-- База данных метаданных -->
       <div class="node-box" style="border-left: 3px solid #a855f7;">
+        <span class="install-tag tag-install-orch">Хранилище состояния</span>
         <div class="node-header">
           <span class="node-name">🗄️ Metadata Storage</span>
-          <span class="node-port">:5432 / File</span>
+          <span class="node-port">:5432 PostgreSQL / H2</span>
         </div>
-        <div class="node-desc">PostgreSQL / H2 база данных задач оркестратора.</div>
-        <ul class="node-list">
-          <li>Спецификации задач (Jobs) и подзадач (Tasks)</li>
-          <li>Хронология запусков (Job Runs History)</li>
-          <li>Снимки состояний (DR Snapshots)</li>
-        </ul>
+        <div class="node-desc">Спецификации задач (Jobs), подзадач (Tasks), история Job Runs и DR снимки.</div>
       </div>
 
-      <div style="margin-top: auto; font-size: 0.72rem; color: #94a3b8; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 6px; border-left: 2px solid #ef4444;">
-        ⚠️ <strong>Критический факт</strong>: Оркестратор НЕ прокачивает байты файлов через себя! Он работает строго как Control Plane.
+      <div style="margin-top: auto; font-size: 0.7rem; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 7px; border-radius: 6px; border-left: 2px solid #ef4444;">
+        ⚠️ <strong>Инвариант</strong>: Оркестратор НЕ прокачивает файлы через себя! Работает строго как Control Plane.
       </div>
     </div>
 
     <!-- ЗОНА 2: ДАТА-ЦЕНТР 1 (SOURCE - МОСКВА) -->
     <div class="zone">
       <div class="zone-title">
-        <span>2. ЦОД-1 (Primary — Москва)</span>
-        <span class="zone-badge badge-dc1">DC1 Cluster • LAN 25G</span>
+        <span>2. ЦОД-1 Primary (Москва)</span>
+        <span class="zone-badge badge-dc1">DC1 Cluster • LAN 10/25G</span>
       </div>
 
       <!-- Replicator Agent DC1 -->
       <div class="node-box" style="border-left: 3px solid #10b981; background: rgba(16, 185, 129, 0.08);">
+        <span class="install-tag tag-install-agent">УСТАНАВЛИВАЕТСЯ: Agent Daemon</span>
         <div class="node-header">
           <span class="node-name">🟢 Replicator Agent (DC1)</span>
           <span class="node-port">:50051 gRPC</span>
         </div>
-        <div class="node-desc">Устанавливается на узлы DataNode или Edge/Gateway. Нативный Java 21 Netty демон.</div>
+        <div class="node-desc">На узлах DataNode (Colocated) или Edge Gateway. Java 21 Netty демон.</div>
         <ul class="node-list">
-          <li><strong>Worker Loop</strong>: разбор пула задач из оркестратора</li>
-          <li><strong>Tar-Streaming</strong>: упаковка файлов &lt; 1 МБ на лету в RAM</li>
+          <li><strong>Worker Loop</strong>: разбор пула подзадач из оркестратора</li>
+          <li><strong>Fast Diff</strong>: in-memory diff по манифесту каталога</li>
+          <li><strong>Tar-Streaming</strong>: упаковка мелких файлов &lt; 1 МБ в RAM</li>
           <li><strong>Chunked Sender</strong>: стриминг блоков 4 МБ со сжатием Zstd</li>
           <li><strong>HMS CDC Streamer</strong>: опрос NOTIFICATION_LOG Hive</li>
           <li><strong>Rate Limiter</strong>: шейпинг по токенам Token Bucket</li>
@@ -349,29 +397,32 @@
 
       <!-- NameNode DC1 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">🏛️ HDFS NameNode (DC1)</span>
-          <span class="node-port">:9000 RPC / :9870</span>
+          <span class="node-port">:8020/:9000 RPC</span>
         </div>
-        <div class="node-desc">Манифесты каталогов, метаданные блоков, снимки Snapshot-Diff.</div>
+        <div class="node-desc">Листинг каталогов, метаданные блоков, снимки Snapshot-Diff.</div>
       </div>
 
       <!-- DataNodes DC1 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">💾 HDFS DataNodes (DC1)</span>
           <span class="node-port">:9866 DTP / SASL</span>
         </div>
-        <div class="node-desc">Прямое вычитывание блоков данных от имени UGI Proxy User `doAs`.</div>
+        <div class="node-desc">Прямое вычитывание блоков от имени UGI автора задачи (`doAs`).</div>
       </div>
 
       <!-- Hive Metastore & KDC DC1 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">🐝 Hive Metastore & KDC</span>
-          <span class="node-port">:9083 Thrift / :88 KDC</span>
+          <span class="node-port">:9083 Thrift / :88</span>
         </div>
-        <div class="node-desc">Thrift API, чтение DDL журнала; Kerberos keytab аутентификация.</div>
+        <div class="node-desc">Thrift API вычитка NOTIFICATION_LOG; Kerberos keytab авторизация.</div>
       </div>
     </div>
 
@@ -379,22 +430,22 @@
     <div class="wan-corridor">
       <div class="wan-title">Магистраль WAN</div>
       <div class="wan-badge">
-        🌐 WAN Канал<br/>1–10 Gbps
+        🌐 WAN Канал<br/>1–10 Gbps<br/>(MTU 9000)
       </div>
-      <div style="font-size: 0.68rem; color: #cbd5e1; margin: 8px 0;">
-        Потоки gRPC<br/>
+      <div style="font-size: 0.66rem; color: #cbd5e1; margin: 6px 0;">
+        Прямой gRPC WAN:<br/>
         <strong>DC1 ➔ DC2</strong><br/>
         (mTLS, 4MB Chunks)
       </div>
       <div class="wan-firewall">
         🛡️ Firewall Port:<br/>
         <strong>TCP :50051</strong><br/>
-        (Только gRPC)
+        (Единственный порт)
       </div>
-      <div style="margin-top: 12px; font-size: 0.65rem; color: #ef4444; border-top: 1px dashed rgba(239,68,68,0.4); padding-top: 6px;">
+      <div style="margin-top: 10px; font-size: 0.63rem; color: #ef4444; border-top: 1px dashed rgba(239,68,68,0.4); padding-top: 5px;">
         🛑 Kill-Switch:<br/>Лимит 0 МБ/с
       </div>
-      <div style="margin-top: 8px; font-size: 0.65rem; color: #38bdf8;">
+      <div style="margin-top: 6px; font-size: 0.63rem; color: #38bdf8;">
         🔄 Reverse:<br/>DC2 ➔ DC1
       </div>
     </div>
@@ -402,37 +453,40 @@
     <!-- ЗОНА 4: ДАТА-ЦЕНТР 2 (TARGET/DR - САНКТ-ПЕТЕРБУРГ) -->
     <div class="zone">
       <div class="zone-title">
-        <span>3. ЦОД-2 (Standby / DR — Санкт-Петербург)</span>
-        <span class="zone-badge badge-dc2">DC2 Cluster • LAN 25G</span>
+        <span>3. ЦОД-2 Standby / DR (Санкт-Петербург)</span>
+        <span class="zone-badge badge-dc2">DC2 Cluster • LAN 10/25G</span>
       </div>
 
       <!-- Replicator Agent DC2 -->
       <div class="node-box" style="border-left: 3px solid #06b6d4; background: rgba(6, 182, 212, 0.08);">
+        <span class="install-tag tag-install-agent">УСТАНАВЛИВАЕТСЯ: Agent Daemon</span>
         <div class="node-header">
           <span class="node-name">🔵 Replicator Agent (DC2)</span>
           <span class="node-port">:50051 gRPC</span>
         </div>
-        <div class="node-desc">Устанавливается на узлы DataNode или Edge/Gateway. Нативный Java 21 Netty демон.</div>
+        <div class="node-desc">На узлах DataNode или Edge Gateway. Java 21 Netty демон (приемник).</div>
         <ul class="node-list">
-          <li><strong>Receiver Service</strong>: прием 4 МБ чанков, хэш SHA-256</li>
-          <li><strong>Tar Stream Extractor</strong>: распаковка стрима прямо в HDFS</li>
+          <li><strong>Receiver Service</strong>: прием 4 МБ чанков, расчет хеша SHA-256</li>
+          <li><strong>Tar Stream Extractor</strong>: распаковка мелких файлов прямо в HDFS</li>
           <li><strong>Zero-Staging Writer</strong>: запись в `._staging_` + атомарный rename</li>
           <li><strong>HMS DDL Applier</strong>: применение DDL (deleteData=false)</li>
-          <li><strong>HDFS Garbage Reaper</strong>: очистка сирот каждые 15 мин</li>
+          <li><strong>Staging Reaper</strong>: очистка сирот `._staging_*` старше 24ч</li>
         </ul>
       </div>
 
       <!-- NameNode DC2 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">🏛️ HDFS NameNode (DC2)</span>
-          <span class="node-port">:9000 RPC / :9870</span>
+          <span class="node-port">:8020/:9000 RPC</span>
         </div>
-        <div class="node-desc">Создание staging файлов, атомарное переименование в целевой путь.</div>
+        <div class="node-desc">Создание staging файлов, атомарный rename в чистовой путь.</div>
       </div>
 
       <!-- DataNodes DC2 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">💾 HDFS DataNodes (DC2)</span>
           <span class="node-port">:9866 DTP / SASL</span>
@@ -442,9 +496,10 @@
 
       <!-- Hive Metastore & KDC DC2 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
         <div class="node-header">
           <span class="node-name">🐝 Hive Metastore & KDC</span>
-          <span class="node-port">:9083 Thrift / :88 KDC</span>
+          <span class="node-port">:9083 Thrift / :88</span>
         </div>
         <div class="node-desc">Накатывание схем и партиций; Kerberos keytab авторизация.</div>
       </div>
@@ -460,11 +515,11 @@
     </div>
     <div class="summary-item">
       <span>🟢 <strong>Data Plane WAN</strong>:</span>
-      <span>Agent DC1 ➔ Agent DC2 (:50051 gRPC / HTTP/2, mTLS) — Прямая передача данных без захода в Оркестратор</span>
+      <span>Agent DC1 ➔ Agent DC2 (:50051 gRPC mTLS) — Прямая передача данных без захода в Оркестратор</span>
     </div>
     <div class="summary-item">
       <span>🟠 <strong>Hadoop LAN</strong>:</span>
-      <span>Агенты обращаются к локальным NameNode (:9000), DataNodes (:9866) и HMS (:9083) строго внутри своего ЦОД</span>
+      <span>Агенты обращаются к NameNode (:8020), DataNodes (:9866) и HMS (:9083) строго внутри своего ЦОД</span>
     </div>
   </div>
 

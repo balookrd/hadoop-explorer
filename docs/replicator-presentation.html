@@ -514,18 +514,36 @@
   <main id="slideDeck">
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 1: СИСТЕМНАЯ СПЕЦИФИКАЦИЯ -->
+    <!-- ========================================== -->
+    <!-- СЛАЙД 1: ГЕНЕРАЛЬНАЯ АРХИТЕКТУРНАЯ СХЕМА -->
     <!-- ========================================== -->
     <div class="slide active" id="slide-1">
       <div class="slide-header">
-        <div class="slide-subtitle">Архитектурная спецификация • DevOps / Архитектура / SRE</div>
-        <h1 class="slide-title">Hadoop gRPC Replicator: Системная архитектура</h1>
-        <p class="slide-desc">Физическая модель компонентов, интерфейсы взаимодействия, сетевой шейпинг и регламент Disaster Recovery</p>
+        <div class="slide-subtitle">Генеральная архитектурная схема • Топология и размещение компонентов</div>
+        <h1 class="slide-title">Hadoop gRPC Replicator: Что где располагается</h1>
+        <p class="slide-desc">Физическое размещение Orchestrator, Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes и сквозной gRPC WAN канал :50051</p>
+      </div>
+      <div class="slide-body">
+        <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
+          <img src="images/replicator/architecture_deployment_traffic.png" alt="Генеральная архитектурная схема развертывания и сетевых потоков">
+          <div class="arch-zoom-hint">🔍 Нажмите на схему для полноэкранного зума</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 2: СПЕЦИФИКАЦИЯ КОМПОНЕНТОВ -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-2">
+      <div class="slide-header">
+        <div class="slide-subtitle">Спецификация компонентов и контуров • DevOps / Архитектура / SRE</div>
+        <h1 class="slide-title">Компоненты платформы, роли хостов и инварианты</h1>
+        <p class="slide-desc">Разделение обязанностей между Control Plane, Data Plane (DC1 / DC2) и хранилищем метаданных</p>
       </div>
       <div class="slide-body">
         <div class="grid-3">
           <div class="card card-accent-indigo">
-            <div class="card-title">⚙️ Control Plane (Orchestrator)</div>
+            <div class="card-title">⚙️ Control Plane (Orchestrator Host)</div>
             <ul class="card-list">
               <li><strong>Стек:</strong> Java 21 LTS, Spring Boot 3.3.4, Spring Data JPA.</li>
               <li><strong>Порт:</strong> <code>TCP :8005</code> (REST API, SSE Event Bus, Svelte 5 SPA).</li>
@@ -535,7 +553,7 @@
             </ul>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">🚀 Data Plane (Replicator Agents)</div>
+            <div class="card-title">🚀 Data Plane (DC1 Primary Nodes)</div>
             <ul class="card-list">
               <li><strong>Стек:</strong> Java 21 LTS, Netty 4.1 gRPC Daemon (Full-Duplex).</li>
               <li><strong>Порт приемника:</strong> <code>TCP :50051</code> (gRPC HTTP/2, mTLS v1.3).</li>
@@ -545,31 +563,14 @@
             </ul>
           </div>
           <div class="card card-accent-cyan">
-            <div class="card-title">🛡️ Сетевая топология и DR</div>
+            <div class="card-title">🛡️ Standby & Storage (DC2 Receiver & DB)</div>
             <ul class="card-list">
               <li><strong>МежЦОДный фаервол:</strong> Ровно 1 открытый порт — <code>TCP :50051</code>.</li>
-              <li><strong>Шейпер полосы:</strong> Hierarchical Token Bucket на Netty буферах (без iptables).</li>
+              <li><strong>Zero-Staging транзакции:</strong> запись в <code>._staging_*</code> + атомарный rename в NameNode.</li>
               <li><strong>Авария DC1 (Fencing):</strong> Сброс WAN в 0 МБ/с, остановка задач, защита от Split-Brain.</li>
               <li><strong>Восстановление:</strong> Unfence без автозапуска + 1-Click Reverse Replication (DC2 ➔ DC1).</li>
             </ul>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- СЛАЙД 2: ГЕНЕРАЛЬНАЯ АРХИТЕКТУРНАЯ СХЕМА -->
-    <!-- ========================================== -->
-    <div class="slide" id="slide-2">
-      <div class="slide-header">
-        <div class="slide-subtitle">Генеральная схема развертывания</div>
-        <h1 class="slide-title">Физическое размещение и сетевые потоки (Data & Control Flows)</h1>
-        <p class="slide-desc">Сетевые сегменты Management, DC1 Primary, WAN магистраль и DC2 Standby/DR с портами и протоколами</p>
-      </div>
-      <div class="slide-body">
-        <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
-          <img src="images/replicator/architecture_deployment_traffic.png" alt="Генеральная архитектурная схема">
-          <div class="arch-zoom-hint">🔍 Нажмите на схему для полноэкранного зума</div>
         </div>
       </div>
     </div>
