@@ -45,7 +45,7 @@
    - [Управление топологией и лимитами в рантайме](#83-управление-топологией-и-лимитами-в-рантайме)
    - [История запусков задачи и статистика](#85-история-запусков-задачи-и-статистика-job-runs-history--retention)
    - [Репликация Hive Metastore (Раздел «HMS Replication»)](#86-репликация-hive-metastore-раздел-hms-replication)
-   - [Консоль аварийного переключения (Раздел «Disaster Recovery & Failover»)]()
+   - [Консоль аварийного переключения (Раздел «Disaster Recovery & Failover»)](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/replicator-user-guide.md#87-%D0%BA%D0%BE%D0%BD%D1%81%D0%BE%D0%BB%D1%8C-%D0%B0%D0%B2%D0%B0%D1%80%D0%B8%D0%B9%D0%BD%D0%BE%D0%B3%D0%BE-%D0%BF%D0%B5%D1%80%D0%B5%D0%BA%D0%BB%D1%8E%D1%87%D0%B5%D0%BD%D0%B8%D1%8F-disaster-recovery--failover-hub)
 9. [Мониторинг и метрики Prometheus](#9-мониторинг-и-метрики-prometheus)
 10. [Диагностика и устранение неполадок (Troubleshooting & FAQ)](#10-диагностика-и-устранение-неполадок-troubleshooting--faq)
 

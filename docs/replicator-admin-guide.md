@@ -567,7 +567,7 @@ sudo systemctl daemon-reload
 # На сервере Оркестратора:
 sudo systemctl enable --now replicator-orchestrator
 curl -s http://127.0.0.1:8005/health
-# {"status":"ok","timestamp":"..."}
+# {"status":"UP","database":"UP","service":"hadoop-grpc-replicator-orchestrator","uptime_seconds":...}
 
 # На серверах Агентов (DC1 и DC2):
 sudo systemctl enable --now replicator-agent
@@ -841,7 +841,7 @@ sudo systemctl status replicator-agent
 
 | Флаг CLI | Переменная окружения | По умолчанию | Описание |
 |---|---|---|---|
-| `-i, --agent-id` | `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в реестре Оркестратора. |
+| `-id, --agent-id` | `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в реестре Оркестратора. |
 | `-c, --cluster-id` | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера (должен соответствовать топологии в Оркестраторе). |
 | `-o, --orchestrator` | `ORCHESTRATOR_URL` | `http://localhost:8005` | URL REST API Оркестратора для регистрации и получения задач. |
 | `-m, --mode` | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс: прием и передача), `sender` (только чтение и отправка), `receiver` (только прием и запись). |
@@ -944,7 +944,7 @@ JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
 | Флаг CLI | Обязательный | По умолчанию | Описание |
 |---|---|---|---|
 | `-j, --jar <path>` | **Да** | — | Абсолютный путь к Shaded JAR файлу агента на машине отправки. Этот файл автоматически загружается в HDFS staging директорию для раздачи на ноды. |
-| `-c, --cluster_id <id>` | **Да** | `demo-cluster` | Идентификатор кластера HDFS, задачи которого будут обрабатывать созданные контейнеры. Должен совпадать с `cluster_id` в настройках Оркестратора. |
+| `-c, --cluster_id <id>` | Нет | `demo-cluster` | Идентификатор кластера HDFS, задачи которого будут обрабатывать созданные контейнеры. Должен совпадать с `cluster_id` в настройках Оркестратора. |
 | `-o, --orchestrator <url>` | Нет | `http://localhost:8005` | URL REST API Оркестратора, к которому будут подключаться запущенные контейнеры. |
 | `-n, --num_containers <n>` | Нет | `1` | Количество рабочих контейнеров (агентов репликации), выделяемых в кластере. |
 | `-m, --memory <mb>` | Нет | `1024` | Объем оперативной памяти на один рабочий контейнер (в мегабайтах). |
@@ -1137,7 +1137,7 @@ Replicator Orchestrator спроектирован для обеспечения
 
 ##### Пример создания задачи с включенным Diff & Reconciliation через REST API:
 ```bash
-curl -X POST http://orchestrator:8005/api/replicator/hms \
+curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <JWT_TOKEN>" \
   -d '{
@@ -1654,6 +1654,9 @@ java -jar -Dspring.profiles.active=prod \
 8. **[Commit Rename]**: Проверка работы Inotify фильтрации staging-путей (`.staging`, `_temporary`) и надежной фиксации коммита только по завершающему `RenameEvent`.
 
 #### REST API управления кластерами для тестов и интеграций (`/api/v1/hms/clusters`):
+> [!NOTE]
+> Данный тестовый контроллер активен только при явном включении свойства `replicator.hms.mock-cluster-api.enabled: true` в конфигурации Оркестратора (по умолчанию отключен).
+
 - `POST /api/v1/hms/clusters/{clusterId}/databases` — создание базы данных в метасторе кластера.
 - `POST /api/v1/hms/clusters/{clusterId}/tables` — создание таблицы с генерацией схемы, опциональных файлов данных и CDC-события `CREATE_TABLE`.
 - `GET /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}` — получение метаданных таблицы из метастора указанного кластера.
@@ -1786,7 +1789,8 @@ flowchart TD
 | `POST` | `/api/v1/dr/emergency-stop/rollback` | ADMIN | Откат аварийной изоляции (Kill-Switch): снятие сетевого ограждения, возобновление задач HDFS и очередей HMS |
 | `POST` | `/api/v1/dr/reverse` | ADMIN | Автоматическая генерация зеркальных задач обратной репликации (`from_cluster_id ➔ to_cluster_id`) для HDFS и HMS (инвертируются кластеры и пути передачи данных) |
 | `POST` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN | Точечный разворот отдельной HDFS задачи в обратную сторону с инверсией кластеров и путей (`sourcePath ⇄ targetPath`) |
-| `POST` / `DELETE` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN | Отзыв и удаление созданного обратного зеркала, разблокировка прямого маршрута репликации |
+| `POST` | `/api/v1/dr/jobs/{jobId}/undo-reverse` | ADMIN | Отзыв созданного обратного зеркала, разблокировка прямого маршрута репликации |
+| `DELETE` | `/api/v1/dr/jobs/{jobId}/reverse` | ADMIN | Удаление обратного зеркала и разблокировка прямого маршрута (алиас к `undo-reverse`) |
 
 ### Примеры CLI вызовов:
 

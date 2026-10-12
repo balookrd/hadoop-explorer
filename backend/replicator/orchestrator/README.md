@@ -61,11 +61,10 @@ hadoop:
     agent-secret: "replicator-secure-agent-secret-key-12345"
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
-    bundle:
-      small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
-      bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
-      max-bundle-files: 500 # макс. файлов в одном бандле
-      bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
+    small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
+    bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
+    max-bundle-files: 500 # макс. файлов в одном бандле
+    bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
     datacenters:
       - id: "dc1"
         name: "Дата-Центр 1 (Primary DC)"
@@ -119,18 +118,37 @@ make test-java
 
 | Метод | Путь | Описание | Доступ |
 |---|---|---|---|
-| `GET` | `/health` | Проверка жизнеспособности сервиса | Публичный |
+| `GET` | `/health`, `/api/v1/health` | Проверка жизнеспособности сервиса | Публичный |
+| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Публичный |
 | `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator | Публичный |
 | `POST` | `/api/v1/auth/login` | Аутентификация пользователя (JWT Cookie) | Публичный |
 | `POST` | `/api/v1/agents/register` | Регистрация gRPC агента | `X-Agent-Secret` |
 | `POST` | `/api/v1/agents/heartbeat` | Heartbeat агента и метрики загрузки | `X-Agent-Secret` |
 | `GET` | `/api/v1/agents` | Список активных агентов репликации | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/tokens/request` | Запрос квоты полосы пропускания (HTB) | `X-Agent-Secret` |
+| `POST` | `/api/v1/tokens/request` | Запрос квоты полосы пропускания (Hierarchical Token Bucket) | `X-Agent-Secret` |
 | `GET` | `/api/v1/jobs` | Список задач репликации | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/jobs` | Создание новой задачи репликации | JWT (`ADMIN` / `WRITER`) |
 | `GET` | `/api/v1/jobs/{id}` | Детальная информация по задаче | JWT (`USER` / `ADMIN`) |
+| `PUT` | `/api/v1/jobs/{id}` | Редактирование параметров задачи | JWT (`ADMIN` / `WRITER`) |
 | `PATCH` | `/api/v1/jobs/{id}` | Обновление статуса и прогресса | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/jobs/{id}/start` | Запуск задачи репликации | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/jobs/{id}/stop` | Остановка выполнения задачи | JWT (`ADMIN` / `WRITER`) |
 | `POST` | `/api/v1/jobs/{id}/cancel` | Отмена выполнения задачи | JWT (`ADMIN` / `WRITER`) |
 | `DELETE` | `/api/v1/jobs/{id}` | Удаление задачи | JWT (`ADMIN`) |
 | `GET` | `/api/v1/jobs/{id}/runs` | История запусков задачи | JWT (`USER` / `ADMIN`) |
-| `GET` | `/api/v1/topology` | Топология дата-центров и кластеров | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/tasks/claim` | Забор пофайловых задач агентом из распределенной очереди | `X-Agent-Secret` |
+| `POST` | `/api/v1/tasks/{id}/complete` | Подтверждение успешного завершения задачи | `X-Agent-Secret` |
+| `POST` | `/api/v1/tasks/{id}/fail` | Регистрация ошибки исполнения задачи | `X-Agent-Secret` |
+| `GET` | `/api/v1/streaming/lease/status` | Статус распределенного лидерства потокового слушателя Inotify | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/streaming/lease/renew` | Продление лизинга активного стримера | `X-Agent-Secret` |
+| `GET` | `/api/v1/dr/status` | Телеметрия Disaster Recovery и лаг непереданных данных | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/dr/emergency-stop` | Экстренная остановка (Kill-Switch) и сетевое ограждение (Fencing) | JWT (`ADMIN`) |
+| `POST` | `/api/v1/dr/emergency-stop/rollback` | Откат аварийной изоляции и безопасное снятие ограждения | JWT (`ADMIN`) |
+| `POST` | `/api/v1/dr/reverse` | Генерация зеркальных задач обратной репликации (`DC2 ➔ DC1`) | JWT (`ADMIN`) |
+| `POST` | `/api/v1/dr/jobs/{id}/undo-reverse` | Отзыв обратного зеркала и возобновление штатного цикла | JWT (`ADMIN`) |
+| `GET` | `/api/v1/hms/jobs` | Список задач репликации Hive Metastore | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/hms/jobs` | Создание новой задачи репликации схемы HMS | JWT (`ADMIN` / `WRITER`) |
+| `GET` | `/api/v1/topology` | Топология дата-центров, кластеров и активные лимиты | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/limits/global` | Динамическое изменение глобального лимита WAN полосы | JWT (`ADMIN`) |
+| `POST` | `/api/v1/limits/dc-dc` | Динамическое изменение лимита магистрали между ЦОД | JWT (`ADMIN`) |
+| `POST` | `/api/v1/limits/hdfs-hdfs` | Динамическое изменение лимита между кластерами HDFS | JWT (`ADMIN`) |

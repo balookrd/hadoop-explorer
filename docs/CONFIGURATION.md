@@ -816,10 +816,10 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ---
 
-### 7.9 Эталонный конфигурационный файл config.yaml
+### 7.9 Эталонный фрагмент конфигурации топологии (application.yml)
 
 ```yaml
-# backend/replicator/config/config.yaml
+# backend/replicator/orchestrator/src/main/resources/application.yml (секция hadoop.replicator)
 
 topology:
   datacenters:
@@ -891,20 +891,17 @@ topology:
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
-| `CONFIG_PATH` / `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH` | Путь к конфигурационному YAML файлу | `config/config.yaml` |
-| `REPLICATOR_CONFIG_PATH` | Путь к конфигурации топологии репликатора | `backend/replicator/config/config.yaml` |
-| `REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `52428800` (50 МБ/с) |
-| `REPLICATOR_SERVICE_PRINCIPAL` | Системный принципал Kerberos для репликации | `hdfs-replicator@REALM.LOCAL` |
-| `REPLICATOR_DATABASE_URL` | Строка подключения к БД репликатора | `sqlite:///data/replicator.db` |
-| `REPLICATOR_AGENT_SECRET` | Общий секретный токен аутентификации агентов репликации (`X-Agent-Secret`) | — (в prod обязателен) |
-| `REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Принудительная блокировка регистрации неизвестных кластеров (Cluster Whitelist) | `false` (в prod автоматически `true`) |
-| `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-01` (или `$WORKER_ID`) |
-| `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `demo-cluster` |
-| `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`) | `all` |
+| `SPRING_CONFIG_ADDITIONAL_LOCATION` | Дополнительный путь к конфигурационному файлу Spring Boot (`application.yml`) | — |
+| `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `104857600` (100 МБ/с) |
+| `SPRING_DATASOURCE_URL` | Строка подключения JDBC к БД Оркестратора (H2/PostgreSQL) | `jdbc:h2:mem:replicator` |
+| `HADOOP_REPLICATOR_AGENT_SECRET` | Общий секретный токен аутентификации агентов репликации (`X-Agent-Secret`) | `"replicator-secure-agent-secret-key-12345"` |
+| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Блокировка регистрации неизвестных кластеров (Cluster Whitelist) | `false` |
+| `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-<uuid>` |
+| `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `null` |
+| `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`, `streamer`) | `all` |
 | `AGENT_ENABLE_REGISTRATION` | Включение динамической авторегистрации агента на Оркестраторе | `true` |
 | `AGENT_ADVERTISED_ADDRESS` | Сетевой gRPC адрес, анонсируемый агентом удаленным узлам | `$HOSTNAME:$RECEIVER_PORT` |
-| `AGENT_HEARTBEAT_INTERVAL_SEC` | Период отправки keepalive heartbeat-сигнала Оркестратору (секунды) | `5.0` |
-| `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе (секунды) | `3.0` |
+| `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе и отправки heartbeat (секунды) | `3.0` |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный Token Bucket лимит скорости агента (МБ/с) для защиты DataNode/сети | `0.0` (без ограничений) |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
@@ -1004,20 +1001,19 @@ replicator:
     replicaCount: 1
     port: 8005
     config:
-      globalLimitBytesPerSec: 125829120  # 120 МБ/с
-      databaseUrl: "sqlite:////app/data/replicator.db"
-      servicePrincipal: "hdfs-replicator@REALM.LOCAL"
+      globalLimitBytesPerSec: 104857600  # 100 МБ/с
+      databaseUrl: "jdbc:postgresql://postgres.hadoop.svc:5432/replicator"
   agent:
     replicaCount: 2  # Горизонтальное масштабирование дуплексных агентов (Sender + Receiver)
     port: 50051
     clusterId: "demo-cluster"
     mode: "all"
     stagingDir: "/tmp/staging"
-    pollIntervalSec: 2.0
+    pollIntervalSec: 3.0
 ```
 
 ### 9.1 Рекомендации по High-Availability в продакшне
-1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`config.database.url: jdbc:postgresql://...`). Локальная SQLite поддерживает только 1 реплику. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
+1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`SPRING_DATASOURCE_URL: jdbc:postgresql://...`). Встроенная БД H2 предназначена для локальной разработки и демо-стендов. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
 2. **PodDisruptionBudget (PDB)**: Шаблоны чартов автоматически активируют `PodDisruptionBudget` при запуске более 1 реплики (`replicaCount > 1`), предотвращая одновременный drain всех реплик узлами k8s.
 3. **NetworkPolicy**: Включена по умолчанию (`networkPolicy.enabled: true`) для изоляции сетевого взаимодействия и разрешения ingress-трафика только от Ingress-контроллера.
 4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000 / 8005) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
@@ -1041,10 +1037,12 @@ replicator:
 | `hadoop_auth_attempts_total` | Counter | `app`, `provider`, `status` | Попытки аутентификации (`ldap`, `kerberos`, `mock`) и результат |
 | `hadoop_rate_limit_blocks_total` | Counter | `app` | Блокировки по Rate Limiter (HTTP 429) |
 | `hadoop_exceptions_total` | Counter | `app`, `exception_type` | Непредвиденные исключения 500 с `incident_id` (CWE-209) |
-| `replicator_bytes_transferred_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`) |
-| `replicator_jobs_total` | Counter | `status`, `mode` | Количество задач репликации по статусам и типу запуска |
-| `replicator_active_workers` | Gauge | — | Число активных фоновых воркеров передачи данных |
-| `replicator_throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
+| `replication_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
+| `replication_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска |
+| `active_workers` | Gauge | — | Число активных онлайн-воркеров репликации |
+| `throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
+| `hms_replication_jobs_total` | Gauge | `status` | Количество задач репликации Hive Metastore |
+| `dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active) |
 
 ### 10.2 Настройка сбора метрик в Prometheus (Scrape Config)
 

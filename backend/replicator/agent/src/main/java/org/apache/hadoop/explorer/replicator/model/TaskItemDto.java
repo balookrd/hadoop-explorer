@@ -63,13 +63,19 @@ public class TaskItemDto {
     @JsonProperty("bundle_manifest")
     private String bundleManifest;
 
+    @JsonProperty("source_cluster_id")
+    private String sourceClusterId;
+
+    @JsonProperty("target_cluster_id")
+    private String targetClusterId;
+
     public TaskItemDto() {}
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
                        long fileSize, String status, String assignedAgentId, String checksum,
                        String targetAddress, String executionPrincipal, Boolean runAsServiceAccount) {
         this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
-                targetAddress, executionPrincipal, runAsServiceAccount, 0, 3, null, "FILE", 1, null);
+                targetAddress, executionPrincipal, runAsServiceAccount, 0, 3, null, "FILE", 1, null, null, null);
     }
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
@@ -78,7 +84,7 @@ public class TaskItemDto {
                        int retryCount, int maxRetries, String lastFailedAgentId) {
         this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
                 targetAddress, executionPrincipal, runAsServiceAccount, retryCount, maxRetries, lastFailedAgentId,
-                "FILE", 1, null);
+                "FILE", 1, null, null, null);
     }
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
@@ -86,6 +92,17 @@ public class TaskItemDto {
                        String targetAddress, String executionPrincipal, Boolean runAsServiceAccount,
                        int retryCount, int maxRetries, String lastFailedAgentId,
                        String taskType, int fileCount, String bundleManifest) {
+        this(id, jobId, runId, sourcePath, targetPath, fileSize, status, assignedAgentId, checksum,
+                targetAddress, executionPrincipal, runAsServiceAccount, retryCount, maxRetries, lastFailedAgentId,
+                taskType, fileCount, bundleManifest, null, null);
+    }
+
+    public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
+                       long fileSize, String status, String assignedAgentId, String checksum,
+                       String targetAddress, String executionPrincipal, Boolean runAsServiceAccount,
+                       int retryCount, int maxRetries, String lastFailedAgentId,
+                       String taskType, int fileCount, String bundleManifest,
+                       String sourceClusterId, String targetClusterId) {
         this.id = id;
         this.jobId = jobId;
         this.runId = runId;
@@ -104,6 +121,8 @@ public class TaskItemDto {
         this.taskType = taskType != null ? taskType : "FILE";
         this.fileCount = fileCount > 0 ? fileCount : 1;
         this.bundleManifest = bundleManifest;
+        this.sourceClusterId = sourceClusterId;
+        this.targetClusterId = targetClusterId;
     }
 
     public String getId() { return id; }
@@ -159,4 +178,10 @@ public class TaskItemDto {
 
     public String getBundleManifest() { return bundleManifest; }
     public void setBundleManifest(String bundleManifest) { this.bundleManifest = bundleManifest; }
+
+    public String getSourceClusterId() { return sourceClusterId; }
+    public void setSourceClusterId(String sourceClusterId) { this.sourceClusterId = sourceClusterId; }
+
+    public String getTargetClusterId() { return targetClusterId; }
+    public void setTargetClusterId(String targetClusterId) { this.targetClusterId = targetClusterId; }
 }

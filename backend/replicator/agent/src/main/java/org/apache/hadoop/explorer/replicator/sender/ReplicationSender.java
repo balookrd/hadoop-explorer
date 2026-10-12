@@ -360,7 +360,8 @@ public class ReplicationSender {
             channel = createManagedChannel(targetAddress);
 
             boolean success = streamTaskFileToChannel(taskId, jobId, sourcePath, targetPath, fileSize,
-                    task.getExecutionPrincipal(), task.getRunAsServiceAccount(), channel);
+                    task.getExecutionPrincipal(), task.getRunAsServiceAccount(),
+                    task.getSourceClusterId(), task.getTargetClusterId(), channel);
 
             if (success) {
                 totalBytesTransferred.addAndGet(fileSize);
@@ -390,6 +391,7 @@ public class ReplicationSender {
 
     private boolean streamTaskFileToChannel(String taskId, String jobId, String sourcePath, String targetPath,
                                             long fileBytes, String executionPrincipal, Boolean runAsServiceAccount,
+                                            String sourceClusterId, String targetClusterId,
                                             ManagedChannel channel) {
         CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
         StreamObserver<TransferFileRequest> requestObserver = null;
@@ -447,9 +449,9 @@ public class ReplicationSender {
                         bandwidthLimiter.throttle(wireBytes);
                     }
 
-                    // Глобальный шейпинг токенов оркестратора
+                    // Шейпинг токенов оркестратора (Hierarchical Token Bucket)
                     double waitSec = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, wireBytes, null, null)
+                            new TokenRequest(workerId, wireBytes, sourceClusterId, targetClusterId)
                     );
                     if (waitSec > 0) {
                         try {
@@ -938,7 +940,9 @@ public class ReplicationSender {
                     orchestratorClient,
                     workerId,
                     tarCodec,
-                    compressionLevel
+                    compressionLevel,
+                    task.getSourceClusterId(),
+                    task.getTargetClusterId()
             );
 
             try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
@@ -1010,6 +1014,8 @@ public class ReplicationSender {
         private final String workerId;
         private final CompressionCodec codec;
         private final int compressionLevel;
+        private final String sourceClusterId;
+        private final String targetClusterId;
         private final byte[] buffer;
         private int count = 0;
         private long offset = 0;
@@ -1018,13 +1024,22 @@ public class ReplicationSender {
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
                                        OrchestratorClient orchestratorClient, String workerId) {
             this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
-                    CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL);
+                    CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL, null, null);
         }
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
                                        OrchestratorClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel) {
+            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
+                    codec, compressionLevel, null, null);
+        }
+
+        public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
+                                       int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
+                                       OrchestratorClient orchestratorClient, String workerId,
+                                       CompressionCodec codec, int compressionLevel,
+                                       String sourceClusterId, String targetClusterId) {
             this.taskId = taskId;
             this.requestObserver = requestObserver;
             this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
@@ -1033,6 +1048,8 @@ public class ReplicationSender {
             this.workerId = workerId;
             this.codec = codec != null ? codec : CompressionCodec.COMPRESSION_NONE;
             this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
+            this.sourceClusterId = sourceClusterId;
+            this.targetClusterId = targetClusterId;
             this.buffer = new byte[this.chunkSize];
         }
 
@@ -1074,7 +1091,7 @@ public class ReplicationSender {
             }
             if (orchestratorClient != null && workerId != null) {
                 double waitSec = orchestratorClient.requestNetworkTokens(
-                        new TokenRequest(workerId, wireBytes, null, null)
+                        new TokenRequest(workerId, wireBytes, sourceClusterId, targetClusterId)
                 );
                 if (waitSec > 0) {
                     try {

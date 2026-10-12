@@ -230,7 +230,9 @@ public class TaskService {
                     task.getLastFailedAgentId(),
                     task.getTaskType(),
                     task.getFileCount(),
-                    task.getBundleManifest()
+                    task.getBundleManifest(),
+                    job.getSourceClusterId(),
+                    job.getTargetClusterId()
             ));
         }
 
