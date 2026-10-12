@@ -35,6 +35,8 @@ public class AgentRegistry {
         private Double maxBandwidthMbS;
         private AgentStatus status;
         private Instant lastHeartbeat;
+        private long transferredBytes;
+        private long transferErrors;
 
         public AgentEntry(String agentId, String clusterId, String host, int grpcPort, String grpcAddress, String mode, Double maxBandwidthMbS) {
             this.agentId = agentId;
@@ -47,6 +49,8 @@ public class AgentRegistry {
             this.maxBandwidthMbS = maxBandwidthMbS;
             this.status = AgentStatus.ONLINE;
             this.lastHeartbeat = Instant.now();
+            this.transferredBytes = 0L;
+            this.transferErrors = 0L;
         }
 
         public String getAgentId() { return agentId; }
@@ -64,6 +68,10 @@ public class AgentRegistry {
         public void setStatus(AgentStatus status) { this.status = status; }
         public Instant getLastHeartbeat() { return lastHeartbeat; }
         public void setLastHeartbeat(Instant lastHeartbeat) { this.lastHeartbeat = lastHeartbeat; }
+        public long getTransferredBytes() { return transferredBytes; }
+        public void setTransferredBytes(long transferredBytes) { this.transferredBytes = transferredBytes; }
+        public long getTransferErrors() { return transferErrors; }
+        public void setTransferErrors(long transferErrors) { this.transferErrors = transferErrors; }
     }
 
     private final ReplicatorProperties properties;
@@ -172,6 +180,15 @@ public class AgentRegistry {
         entry.setLastHeartbeat(Instant.now());
         entry.setStatus(AgentStatus.ONLINE);
         entry.setActiveTransfers(request.getActiveTransfers());
+        if (request.getTransferredBytes() > 0) {
+            entry.setTransferredBytes(request.getTransferredBytes());
+        }
+        if (request.getTransferErrors() > 0) {
+            entry.setTransferErrors(request.getTransferErrors());
+        }
+        if (request.getBandwidthLimitMbS() != null) {
+            entry.setMaxBandwidthMbS(request.getBandwidthLimitMbS());
+        }
         return true;
     }
 
@@ -211,7 +228,9 @@ public class AgentRegistry {
                 a.getActiveTransfers(),
                 a.getMaxBandwidthMbS(),
                 ageSec,
-                a.getLastHeartbeat().toString()
+                a.getLastHeartbeat().toString(),
+                a.getTransferredBytes(),
+                a.getTransferErrors()
             ));
         }
         return list;

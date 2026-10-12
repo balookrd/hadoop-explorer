@@ -401,10 +401,12 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 - **Spark**: `spark_sessions_active_gauge`, `spark_statements_total`, `spark_statement_duration_seconds`.
 - **SQL**: `sql_queries_total`, `sql_query_duration_seconds`.
 - **HDFS**: `hdfs_operations_total`, `hdfs_bytes_transferred_total`.
-- **Replicator**: `replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`, `replication_file_size_bytes`.
+- **Replicator**: `replication_bytes_total`, `active_workers`, `replication_jobs_total`, `throttling_delay_seconds_total`, `replication_file_size_bytes`, `replication_tasks_total`, `hms_replication_jobs_total`, `dr_cluster_fenced`, `replicator_agent_status`, `replicator_agent_active_threads`, `replicator_agent_bytes_total`, `replicator_agent_transfer_errors_total`, `replicator_agent_heartbeat_delay_seconds`.
 - Готовые provisioning-дашборды Grafana в `monitoring/grafana/dashboards/`:
   - `hadoop_explorer_overview.json` — сводный дашборд здоровья и Golden Signals всех 5 сервисов платформы.
-  - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархический шейпинг Token Bucket Throttler и статусы задач.
+  - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархический шейпинг Token Bucket Throttler, статусы HDFS/HMS задач, DR Fencing и KPI.
+  - `hadoop_replicator_agents.json` — телеметрия и мониторинг флота gRPC-агентов (статусы узлов, параллельные воркеры, передача байт, частота heartbeat и ошибки).
+  - `hadoop_replicator_hms_dr.json` — мониторинг репликации Hive Metastore (Bootstrap/CDC), трансляции путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
   - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и мониторинг отказов.
   - `yarn_explorer_queues.json` — планировщик Capacity Scheduler, утилизация очередей и статус Circuit Breaker.
   - `spark_sql_explorer_analytics.json` — интерактивная аналитика Livy Spark и запросов Trino/Hive.

@@ -12,9 +12,12 @@ import java.util.Map;
 public class TokenController {
 
     private final TokenBucketThrottler throttler;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService;
 
-    public TokenController(TokenBucketThrottler throttler) {
+    public TokenController(TokenBucketThrottler throttler,
+                           org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService) {
         this.throttler = throttler;
+        this.metricsService = metricsService;
     }
 
     @PostMapping("/api/v1/tokens/request")
@@ -24,6 +27,9 @@ public class TokenController {
             req.getSourceClusterId(),
             req.getTargetClusterId()
         );
+        if (waitSeconds > 0) {
+            metricsService.recordThrottlingWait(waitSeconds);
+        }
         return ResponseEntity.ok(new TokenResponse(waitSeconds));
     }
 

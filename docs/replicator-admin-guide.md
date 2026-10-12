@@ -1508,19 +1508,54 @@ spec:
 ## 5. Мониторинг и Troubleshooting
 
 ### 5.1 Метрики Prometheus (`GET http://orchestrator:8005/metrics`)
-- `replication_bytes_total{status="COMPLETED"}` — суммарный объем успешно переданных байт данных.
-- `active_workers` — количество зарегистрированных активных воркеров в пуле.
-- `replication_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED"}` — количество задач репликации по статусам.
-- `throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (шейпинг).
+Оркестратор экспортирует полный спектр метрик передачи данных, пула задач, очередей, токен-бакета, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
-### 5.2 Дашборд Grafana (`hadoop_replicator_overview.json`)
-Для системы репликации подготовлен официальный дашборд Grafana [`monitoring/grafana/dashboards/hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
-- 🌊 **Throughput во времени**: мгновенная и средняя скорость передачи чанков по gRPC (MB/s).
-- ⚖️ **Token Bucket Throttling**: задержки воркеров из-за исчерпания сетевых квот WAN/ЦОД.
-- 👥 **Флот воркеров**: число активных передающих агентов (`active_workers`).
-- 📋 **Статусы задач**: распределение RUNNING, QUEUED, SCHEDULED, COMPLETED, FAILED.
-- 📦 **Размеры файлов**: гистограмма размеров реплицируемых файлов.
-- 🩺 **Ресурсы процесса**: использование CPU и памяти (RSS) оркестратором.
+#### Метрики HDFS-репликации и задач
+- `replication_bytes_total{status="COMPLETED|IN_PROGRESS"}` — суммарный объем успешно переданных или находящихся в процессе передачи байт данных.
+- `active_workers` — количество зарегистрированных активных воркеров в пуле.
+- `replication_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска.
+- `replication_tasks_total{status="QUEUED|IN_PROGRESS|COMPLETED|FAILED|SKIPPED"}` — количество пофайловых сабтасок распределенного пула передачи.
+- `throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
+- `replication_file_size_bytes` — бакеты распределения размеров файлов.
+
+#### Метрики Hive Metastore и Disaster Recovery
+- `hms_replication_jobs_total{status="PENDING|RUNNING|COMPLETED|FAILED|CDC_STREAMING"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
+- `dr_cluster_fenced` — флаг сетевого ограждения и аварийной изоляции кластера при активном Kill-Switch (`0` = нормальный режим / Active, `1` = изолирован / Fenced Read-Only).
+
+#### Метрики флота gRPC-агентов (Keepalive Telemetry)
+- `replicator_agent_status{agent_id="...", cluster_id="...", dc_id="...", status="ONLINE|OFFLINE"}` — статус доступности агента (`1` при совпадении статуса, `0` в противном случае).
+- `replicator_agent_active_threads{agent_id="..."}` — текущее количество активных рабочих потоков передачи у агента.
+- `replicator_agent_bytes_total{agent_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии).
+- `replicator_agent_transfer_errors_total{agent_id="..."}` — суммарное число ошибок передачи файлов на стороне агента.
+- `replicator_agent_heartbeat_delay_seconds{agent_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента.
+
+### 5.2 Дашборды Grafana
+
+Для системы репликации подготовлены три специализированных дашборда Grafana с автопровиженингом:
+
+#### 1. Сводный обзор платформы репликации (`hadoop_replicator_overview.json`)
+Файл: [`monitoring/grafana/dashboards/hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
+- 🚀 **KPI репликации и статус флота**: мгновенная скорость передачи (Throughput Bps), суммарный объем данных, активные воркеры, задержка шейпера, активные задачи HDFS и задачи по расписанию, онлайн агенты, ошибки передачи, пофайловые задачи в очереди/работе, активные HMS-задачи и Fencing-статус кластера.
+- 🌊 **Сетевой поток и пропускная способность**: динамика сетевой скорости WAN (MB/s) и кумулятивный объем переданных данных во времени.
+- ⚖️ **Иерархический шейпинг Token Bucket**: задержки воркеров из-за исчерпания квот полосы на уровнях WAN, ЦОД и HDFS.
+- 📋 **Жизненный цикл задач и планировщик**: круговые диаграммы статусов заданий (Job Statuses), режимов запуска (Manual vs Scheduled Cron), распределения пофайловых задач (File Tasks) и статусов HMS-репликации.
+- 📦 **Размеры файлов и системные ресурсы**: распределение размеров файлов, потребление CPU и памяти (RSS) оркестратором.
+
+#### 2. Флот агентов и воркеры передачи данных (`hadoop_replicator_agents.json`)
+Файл: [`monitoring/grafana/dashboards/hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
+- 👥 **Состояние флота воркеров**: общее число агентов онлайн/офлайн, суммарная активность потоков, общий объем байт и ошибок по всем агентам.
+- ⚡ **Активность потоков по агентам**: временной график загрузки воркеров параллельной передачи данных (`replicator_agent_active_threads`).
+- 🌊 **Скорость передачи и накопленный объем**: динамика скорости передачи (Bps) и кумулятивный график байт по каждому агенту (`replicator_agent_bytes_total`).
+- 🩺 **Задержки Heartbeat и ошибки передачи**: мониторинг времени отклика keepalive (`replicator_agent_heartbeat_delay_seconds`) с порогом 30с и динамика ошибок передачи файлов (`rate(replicator_agent_transfer_errors_total)`).
+- 📋 **Инвентарная таблица узлов**: подробная сводка по каждому агенту (ID, ЦОД, Кластер, Статус, Потоки, Байт передано, Ошибки, Задержка Heartbeat).
+
+#### 3. HMS Репликация и Disaster Recovery (`hadoop_replicator_hms_dr.json`)
+Файл: [`monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
+- 🛡️ **KPI отказоустойчивости (DR & Failover)**: статус Kill-Switch и сетевого ограждения Fencing (`dr_cluster_fenced`), активные CDC стримы, завершенные и упавшие задачи HMS.
+- 🛑 **Мониторинг Kill-Switch и Split-Brain Fencing**: временной график активации изоляции кластеров (0 = Normal, 1 = Fenced/RO).
+- 🧬 **Жизненный цикл задач HMS**: круговая диаграмма распределения статусов схем метаданных и таймлайн выполнения задач во времени.
+- ⚡ **Потоковый CDC и события Thrift**: динамика активных CDC потоков репликации `NOTIFICATION_LOG`.
+- 📊 **Таблицы аудита**: инвентарь задач HMS (схема, тип, статус, CDC события) и журнал состояния площадок DR.
 
 ### 5.3 Решение инцидентов (FAQ)
 

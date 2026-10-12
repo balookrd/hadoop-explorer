@@ -25,7 +25,9 @@
       "icon": "sync",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["replicator"],
+      "tags": [
+        "replicator"
+      ],
       "targetBlank": false,
       "title": "🔄 gRPC Replicator",
       "type": "link",
@@ -36,7 +38,9 @@
       "icon": "folder",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["hdfs"],
+      "tags": [
+        "hdfs"
+      ],
       "targetBlank": false,
       "title": "📁 HDFS Operations",
       "type": "link",
@@ -47,7 +51,9 @@
       "icon": "bolt",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["yarn"],
+      "tags": [
+        "yarn"
+      ],
       "targetBlank": false,
       "title": "⚡ YARN Queues",
       "type": "link",
@@ -58,11 +64,42 @@
       "icon": "database",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["spark"],
+      "tags": [
+        "spark"
+      ],
       "targetBlank": false,
       "title": "📊 Spark & SQL Analytics",
       "type": "link",
       "url": "/d/spark_sql_explorer_analytics"
+    },
+    {
+      "asDropdown": false,
+      "icon": "server",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "replicator",
+        "agents"
+      ],
+      "targetBlank": false,
+      "title": "🤖 Replicator Agents",
+      "type": "link",
+      "url": "/d/hadoop-replicator-agents"
+    },
+    {
+      "asDropdown": false,
+      "icon": "shield",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "replicator",
+        "dr",
+        "hms"
+      ],
+      "targetBlank": false,
+      "title": "🛡️ Replicator HMS & DR",
+      "type": "link",
+      "url": "/d/hadoop-replicator-hms-dr"
     }
   ],
   "liveNow": false,

@@ -671,10 +671,38 @@ topology:
 
 | Метрика | Тип | Описание |
 |---|---|---|
-| `replication_bytes_total{status}` | Counter | Общий объем переданных байт данных |
-| `active_workers` | Gauge | Количество активных воркеров передачи |
-| `replication_jobs_total{status, mode}` | Counter | Количество задач по статусам и типу учетной записи |
-| `throttling_delay_seconds_total` | Counter | Суммарное время задержки воркеров из-за Token Bucket шейпера |
+| `replication_bytes_total{status}` | Counter | Общий объем переданных байт данных (`COMPLETED`, `IN_PROGRESS`) |
+| `active_workers` | Gauge | Количество зарегистрированных воркеров в пуле |
+| `replication_jobs_total{status, mode}` | Counter | Количество задач репликации по статусам и типу запуска (`manual`, `scheduled`) |
+| `replication_tasks_total{status}` | Counter | Количество пофайловых задач в распределенном пуле передачи (`QUEUED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `SKIPPED`) |
+| `throttling_delay_seconds_total` | Counter | Суммарное время задержки воркеров из-за иерархического Token Bucket шейпера |
+| `hms_replication_jobs_total{status}` | Counter | Количество задач репликации схем Hive Metastore (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CDC_STREAMING`) |
+| `dr_cluster_fenced` | Gauge | Статус изоляции кластера (Fencing / Kill-Switch: `0` = Active, `1` = Fenced/RO) |
+| `replicator_agent_status{agent_id, cluster_id, dc_id, status}` | Gauge | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
+| `replicator_agent_active_threads{agent_id}` | Gauge | Число активных параллельных потоков воркера агента |
+| `replicator_agent_bytes_total{agent_id}` | Counter | Объем байт данных, фактически переданных агентом |
+| `replicator_agent_transfer_errors_total{agent_id}` | Counter | Количество ошибок передачи файлов на стороне агента |
+| `replicator_agent_heartbeat_delay_seconds{agent_id}` | Gauge | Задержка в секундах с момента последнего keepalive от агента |
+
+### 9.1 Официальные дашборды Grafana
+
+Для комплексного наблюдения за платформой репликации поставляются три готовых дашборда:
+1. **[Hadoop gRPC Replicator — Overview](../monitoring/grafana/dashboards/hadoop_replicator_overview.json)**:
+   - Общая сводка и Golden Signals межкластерного обмена;
+   - Мгновенная и средняя скорость WAN, кумулятивный объем трафика;
+   - Мониторинг очередей пофайловых задач HDFS и статусов репликации HMS;
+   - Задержки иерархического шейпера Token Bucket Throttler;
+   - Индикаторы сетевого ограждения Disaster Recovery.
+2. **[Hadoop gRPC Replicator — Agents Fleet](../monitoring/grafana/dashboards/hadoop_replicator_agents.json)**:
+   - Детальный статус каждого узла агента gRPC в ЦОД (Online/Offline);
+   - Распределение потоков параллельной передачи файлов (`active_threads`);
+   - Скорость и объемы байт в разрезе конкретных агентов;
+   - Задержки heartbeat и динамика сетевых ошибок передачи.
+3. **[Hadoop gRPC Replicator — HMS Replication & Disaster Recovery](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json)**:
+   - Мониторинг фоновой и потоковой репликации метаданных Hive Metastore (CDC);
+   - Статус Kill-Switch и сетевого ограждения Fencing при инцидентах;
+   - Жизненный цикл схем и таблиц;
+   - Инвентарные таблицы аудита и переходов площадок DR.
 
 ---
 

@@ -286,6 +286,9 @@ public class ReplicatorAgent {
                         activeTransfers.get(),
                         config.getMode()
                 );
+                hbReq.setTransferredBytes(sender != null ? sender.getTotalBytesTransferred() : 0L);
+                hbReq.setTransferErrors(sender != null ? sender.getTotalTransferErrors() : 0L);
+                hbReq.setBandwidthLimitMbS(config.getMaxBandwidthMbS());
                 orchestratorClient.heartbeat(hbReq);
             } catch (Exception e) {
                 logger.debug("Ошибка отправки heartbeat: {}", e.getMessage());

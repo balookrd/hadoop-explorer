@@ -51,6 +51,11 @@ public class ReplicationSender {
     private final int maxBundleFiles;
     private final CompressionCodec defaultCompressionCodec;
     private final int compressionLevel;
+    private final java.util.concurrent.atomic.AtomicLong totalBytesTransferred = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong totalTransferErrors = new java.util.concurrent.atomic.AtomicLong(0);
+
+    public long getTotalBytesTransferred() { return totalBytesTransferred.get(); }
+    public long getTotalTransferErrors() { return totalTransferErrors.get(); }
 
     public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
@@ -358,15 +363,18 @@ public class ReplicationSender {
                     task.getExecutionPrincipal(), task.getRunAsServiceAccount(), channel);
 
             if (success) {
+                totalBytesTransferred.addAndGet(fileSize);
                 logger.info("Воркер '{}' успешно передал файл задачи '{}': {} ({} байт)", workerId, taskId, sourcePath, fileSize);
                 orchestratorClient.completeTask(new CompleteTaskRequest(taskId, workerId, fileSize, "OK"));
                 return true;
             } else {
+                totalTransferErrors.incrementAndGet();
                 logger.error("Воркер '{}' не смог передать файл задачи '{}': {}", workerId, taskId, sourcePath);
                 orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, "Ошибка передачи чанков на приемник"));
                 return false;
             }
         } catch (Exception e) {
+            totalTransferErrors.incrementAndGet();
             logger.error("Исключение при передаче задачи '{}': {}", taskId, e.getMessage(), e);
             orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
             return false;

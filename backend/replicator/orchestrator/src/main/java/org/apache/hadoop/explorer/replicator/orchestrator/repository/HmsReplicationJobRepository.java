@@ -10,5 +10,6 @@ import java.util.Optional;
 @Repository
 public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicationJobEntity, String> {
     List<HmsReplicationJobEntity> findByStatus(String status);
+    long countByStatus(String status);
     Optional<HmsReplicationJobEntity> findBySourceClusterIdAndSourceDbName(String sourceClusterId, String sourceDbName);
 }

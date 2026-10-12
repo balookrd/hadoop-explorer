@@ -29,6 +29,15 @@ public class AgentHeartbeatRequest {
     @JsonProperty("mode")
     private String mode;
 
+    @JsonProperty("transferred_bytes")
+    private long transferredBytes = 0;
+
+    @JsonProperty("transfer_errors")
+    private long transferErrors = 0;
+
+    @JsonProperty("bandwidth_limit_mb_s")
+    private Double bandwidthLimitMbS;
+
     public AgentHeartbeatRequest() {}
 
     public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers) {
@@ -46,6 +55,15 @@ public class AgentHeartbeatRequest {
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
+
+    public long getTransferredBytes() { return transferredBytes; }
+    public void setTransferredBytes(long transferredBytes) { this.transferredBytes = transferredBytes; }
+
+    public long getTransferErrors() { return transferErrors; }
+    public void setTransferErrors(long transferErrors) { this.transferErrors = transferErrors; }
+
+    public Double getBandwidthLimitMbS() { return bandwidthLimitMbS; }
+    public void setBandwidthLimitMbS(Double bandwidthLimitMbS) { this.bandwidthLimitMbS = bandwidthLimitMbS; }
 
     public String getAgentId() { return agentId; }
     public void setAgentId(String agentId) { this.agentId = agentId; }
