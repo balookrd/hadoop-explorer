@@ -41,9 +41,14 @@ async function run() {
   await page.screenshot({ path: path.join(imagesDir, '01_login_screen.png'), fullPage: false });
   console.log('   ✅ 01_login_screen.png сохранен');
 
-  // Вход в систему под admin_user
+  // Вход в систему под admin_user (первая вкладка — HMS Replication)
   console.log('🔑 Авторизация под admin_user...');
   await page.getByRole('button', { name: /Войти в систему/i }).click();
+  await page.waitForSelector('text=Всего схем', { timeout: 10000 });
+  await page.waitForTimeout(1000);
+
+  // Переход на вкладку «HDFS Replication» (вторая вкладка)
+  await page.locator('nav button:has-text("HDFS Replication")').click();
   await page.waitForSelector('text=Всего задач', { timeout: 10000 });
   await page.waitForTimeout(1000);
 
@@ -197,10 +202,6 @@ async function run() {
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(imagesDir, '12_reverse_replication_modal.png'), fullPage: false });
   console.log('   ✅ 12_reverse_replication_modal.png сохранен');
-
-  // Закрываем модалку через кнопку «Отмена»
-  await page.locator('.fixed button:has-text("Отмена")').click({ force: true });
-  await page.waitForTimeout(500);
 
   // Закрываем модалку через кнопку «Отмена»
   await page.locator('.fixed button:has-text("Отмена")').click({ force: true });

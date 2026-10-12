@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -86,6 +87,42 @@ public class HmsReplicationJobEntity {
     @Column(name = "last_failed_agent_id", length = 64)
     private String lastFailedAgentId;
 
+    @Transient
+    @JsonProperty("started_at")
+    private Instant startedAt;
+
+    @Transient
+    @JsonProperty("completed_at")
+    private Instant completedAt;
+
+    @Transient
+    @JsonProperty("estimated_completion_at")
+    private Instant estimatedCompletionAt;
+
+    @Transient
+    @JsonProperty("average_speed_mb_s")
+    private Double averageSpeedMbS;
+
+    @Transient
+    @JsonProperty("total_bytes")
+    private Long totalBytes;
+
+    @Transient
+    @JsonProperty("copied_bytes")
+    private Long copiedBytes;
+
+    @Transient
+    @JsonProperty("progress_percent")
+    private Double progressPercent;
+
+    @Transient
+    @JsonProperty("subtasks_count")
+    private Integer subtasksCount;
+
+    @Transient
+    @JsonProperty("active_subtasks_count")
+    private Integer activeSubtasksCount;
+
     public HmsReplicationJobEntity() {}
 
     @PreUpdate
@@ -145,4 +182,23 @@ public class HmsReplicationJobEntity {
     public void setLeaseExpiresAt(Instant leaseExpiresAt) { this.leaseExpiresAt = leaseExpiresAt; }
     public String getLastFailedAgentId() { return lastFailedAgentId; }
     public void setLastFailedAgentId(String lastFailedAgentId) { this.lastFailedAgentId = lastFailedAgentId; }
+
+    public Instant getStartedAt() { return startedAt; }
+    public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
+    public Instant getCompletedAt() { return completedAt; }
+    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+    public Instant getEstimatedCompletionAt() { return estimatedCompletionAt; }
+    public void setEstimatedCompletionAt(Instant estimatedCompletionAt) { this.estimatedCompletionAt = estimatedCompletionAt; }
+    public Double getAverageSpeedMbS() { return averageSpeedMbS; }
+    public void setAverageSpeedMbS(Double averageSpeedMbS) { this.averageSpeedMbS = averageSpeedMbS; }
+    public Long getTotalBytes() { return totalBytes; }
+    public void setTotalBytes(Long totalBytes) { this.totalBytes = totalBytes; }
+    public Long getCopiedBytes() { return copiedBytes; }
+    public void setCopiedBytes(Long copiedBytes) { this.copiedBytes = copiedBytes; }
+    public Double getProgressPercent() { return progressPercent; }
+    public void setProgressPercent(Double progressPercent) { this.progressPercent = progressPercent; }
+    public Integer getSubtasksCount() { return subtasksCount; }
+    public void setSubtasksCount(Integer subtasksCount) { this.subtasksCount = subtasksCount; }
+    public Integer getActiveSubtasksCount() { return activeSubtasksCount; }
+    public void setActiveSubtasksCount(Integer activeSubtasksCount) { this.activeSubtasksCount = activeSubtasksCount; }
 }

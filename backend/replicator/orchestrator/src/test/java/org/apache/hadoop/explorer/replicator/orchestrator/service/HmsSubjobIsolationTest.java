@@ -34,6 +34,9 @@ public class HmsSubjobIsolationTest {
     @Autowired
     private HmsEventLogRepository hmsEventLogRepository;
 
+    @Autowired
+    private org.apache.hadoop.explorer.replicator.orchestrator.hms.service.HmsCoordinatorService coordinatorService;
+
     @Test
     @DisplayName("HMS подзадачи исключены из общего списка регламентных задач HDFS, но доступны по parentJobId")
     void testHmsSubjobExclusionFromStandardList() {
@@ -126,5 +129,69 @@ public class HmsSubjobIsolationTest {
         List<HmsEventLogEntity> pending = hmsEventLogRepository.findByHmsJobIdAndStatus(jobId, "PENDING_DATA");
         assertEquals(1, pending.size());
         assertEquals("ADD_PARTITION", pending.get(0).getEventType());
+    }
+
+    @Test
+    @DisplayName("Проверка расчета общей скорости, стартового времени и ETA первичной синхронизации по сабтаскам")
+    void testHmsBootstrapSubtasksMetricsEnrichment() {
+        String parentHmsJobId = "hms-job-bootstrap-" + UUID.randomUUID();
+
+        HmsReplicationJobEntity hmsJob = new HmsReplicationJobEntity();
+        hmsJob.setId(parentHmsJobId);
+        hmsJob.setSourceClusterId("dc1");
+        hmsJob.setTargetClusterId("dc2");
+        hmsJob.setSourceDbName("analytics");
+        hmsJob.setTargetDbName("analytics_backup");
+        hmsJob.setStatus("BOOTSTRAPPING");
+        hmsJob.setTotalTables(3);
+        hmsJob.setReplicatedTables(1);
+        hmsJobRepository.save(hmsJob);
+
+        java.time.Instant now = java.time.Instant.now();
+        java.time.Instant start1 = now.minusSeconds(20);
+        java.time.Instant start2 = now.minusSeconds(10);
+
+        // Сабтаска 1 (завершена, 10 МБ)
+        CreateJobRequest sub1Req = new CreateJobRequest(
+                "/tmp/tbl1", "/tmp/tbl1_dst", "dc1", "dc2",
+                10485760L, "hdfs@REALM.LOCAL", true, false,
+                null, 20, "HMS_SUBJOB", parentHmsJobId
+        );
+        JobResponse sub1 = jobService.createJob(sub1Req, "system");
+        var ent1 = jobRepository.findById(sub1.id()).get();
+        ent1.setStartedAt(start1);
+        ent1.setCompletedAt(now.minusSeconds(5));
+        ent1.setStatus("COMPLETED");
+        ent1.setCopiedBytes(10485760L);
+        jobRepository.save(ent1);
+
+        // Сабтаска 2 (выполняется, 20 МБ, скопировано 10 МБ)
+        CreateJobRequest sub2Req = new CreateJobRequest(
+                "/tmp/tbl2", "/tmp/tbl2_dst", "dc1", "dc2",
+                20971520L, "hdfs@REALM.LOCAL", true, false,
+                null, 20, "HMS_SUBJOB", parentHmsJobId
+        );
+        JobResponse sub2 = jobService.createJob(sub2Req, "system");
+        var ent2 = jobRepository.findById(sub2.id()).get();
+        ent2.setStartedAt(start2);
+        ent2.setStatus("RUNNING");
+        ent2.setCopiedBytes(10485760L);
+        jobRepository.save(ent2);
+
+        // Обогащаем задачу метриками
+        coordinatorService.enrichWithSubtasksMetrics(hmsJob);
+
+        assertNotNull(hmsJob.getStartedAt(), "Стартовое время должно быть рассчитано");
+        assertEquals(start1, hmsJob.getStartedAt(), "Стартовое время должно быть минимальным временем среди сабтасок");
+        assertEquals(31457280L, hmsJob.getTotalBytes(), "Общий объем байт должен суммироваться по сабтаскам");
+        assertEquals(20971520L, hmsJob.getCopiedBytes(), "Скопированный объем байт должен суммироваться");
+        assertEquals(2, hmsJob.getSubtasksCount());
+        assertEquals(1, hmsJob.getActiveSubtasksCount());
+
+        assertNotNull(hmsJob.getAverageSpeedMbS(), "Общая средняя скорость должна быть вычислена");
+        assertTrue(hmsJob.getAverageSpeedMbS() > 0, "Скорость репликации должна быть больше 0");
+
+        assertNotNull(hmsJob.getEstimatedCompletionAt(), "Расчетное время окончания (ETA) должно быть вычислено");
+        assertTrue(hmsJob.getEstimatedCompletionAt().isAfter(now), "ETA должно быть в будущем");
     }
 }

@@ -170,6 +170,15 @@ export interface HmsReplicationJob {
   created_at: string;
   updated_at: string;
   last_sync_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  estimated_completion_at?: string;
+  average_speed_mb_s?: number;
+  total_bytes?: number;
+  copied_bytes?: number;
+  progress_percent?: number;
+  subtasks_count?: number;
+  active_subtasks_count?: number;
 }
 
 export interface HmsEventLog {

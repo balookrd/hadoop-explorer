@@ -857,7 +857,7 @@
             onclick={() => (routeTypeFilter = 'HMS')}
             class="px-2.5 py-1 rounded font-semibold transition cursor-pointer {routeTypeFilter === 'HMS' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-400'}"
           >
-            HMS Metastore
+            HMS
           </button>
         </div>
 

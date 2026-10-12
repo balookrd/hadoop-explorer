@@ -83,7 +83,7 @@ services:
     container_name: hive-server-1
     hostname: hive-server
     restart: unless-stopped
-    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive /home/hive && chmod 777 /tmp/hive /home/hive; until (echo > /dev/tcp/hdfs-cluster-1/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-1/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-1 (9000) & Metastore-1 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
+    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive; chmod 777 /tmp/hive || true; until (echo > /dev/tcp/hdfs-cluster-1/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-1/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-1 (9000) & Metastore-1 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
     environment:
       SERVICE_NAME: hiveserver2
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf
@@ -117,7 +117,7 @@ services:
     container_name: hive-server-2
     hostname: hive-server-2
     restart: unless-stopped
-    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive /home/hive && chmod 777 /tmp/hive /home/hive; until (echo > /dev/tcp/hdfs-cluster-2/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-2/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-2 (9000) & Metastore-2 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
+    entrypoint: ["bash", "-c", "rm -f /opt/hive/conf/hiveserver2.pid /tmp/hive/*.pid; mkdir -p /tmp/hive; chmod 777 /tmp/hive || true; until (echo > /dev/tcp/hdfs-cluster-2/9000) >/dev/null 2>&1 && (echo > /dev/tcp/hive-metastore-2/9083) >/dev/null 2>&1; do echo 'Waiting for HDFS-2 (9000) & Metastore-2 (9083)...'; sleep 2; done; exec /entrypoint.sh"]
     environment:
       SERVICE_NAME: hiveserver2
       HIVE_CUSTOM_CONF_DIR: /opt/hive/custom-conf

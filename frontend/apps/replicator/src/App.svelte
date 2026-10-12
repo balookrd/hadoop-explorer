@@ -51,24 +51,24 @@
   let authErrorMessage = $state<string | null>(null);
   let isLoginModalOpen = $state(false);
 
-  function getInitialTab(): 'jobs' | 'hms' | 'topology' | 'dr' {
+  function getInitialTab(): 'hms' | 'jobs' | 'topology' | 'dr' {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'jobs' || hash === 'hms' || hash === 'topology' || hash === 'dr') {
+      if (hash === 'hms' || hash === 'jobs' || hash === 'topology' || hash === 'dr') {
         return hash;
       }
       const saved = localStorage.getItem('replicator_active_tab');
-      if (saved === 'jobs' || saved === 'hms' || saved === 'topology' || saved === 'dr') {
-        return saved;
+      if (saved === 'hms' || saved === 'jobs' || saved === 'topology' || saved === 'dr') {
+        return saved as 'hms' | 'jobs' | 'topology' | 'dr';
       }
     }
-    return 'jobs';
+    return 'hms';
   }
 
   // Табы приложения с сохранением состояния при перезагрузке
-  let activeTab = $state<'jobs' | 'hms' | 'topology' | 'dr'>(getInitialTab());
+  let activeTab = $state<'hms' | 'jobs' | 'topology' | 'dr'>(getInitialTab());
 
-  function setActiveTab(tab: 'jobs' | 'hms' | 'topology' | 'dr') {
+  function setActiveTab(tab: 'hms' | 'jobs' | 'topology' | 'dr') {
     activeTab = tab;
     if (typeof window !== 'undefined') {
       localStorage.setItem('replicator_active_tab', tab);
@@ -770,16 +770,16 @@
   <!-- Навигационные вкладки -->
   <nav class="flex items-center gap-1 bg-slate-100 dark:bg-slate-950/80 p-1 rounded-lg border border-slate-200 dark:border-slate-800">
     <button
-      onclick={() => setActiveTab('jobs')}
-      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'jobs' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
-    >
-      HDFS Replication
-    </button>
-    <button
       onclick={() => setActiveTab('hms')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'hms' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       HMS Replication
+    </button>
+    <button
+      onclick={() => setActiveTab('jobs')}
+      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'jobs' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
+    >
+      HDFS Replication
     </button>
     <button
       onclick={() => setActiveTab('topology')}
@@ -843,8 +843,14 @@
       />
     {/if}
 
-    <!-- КОНТЕНТ ВКЛАДКИ 1: ЗАДАЧИ РЕПЛИКАЦИИ -->
-    {#if activeTab === 'jobs'}
+    <!-- КОНТЕНТ ВКЛАДКИ 1: РЕПЛИКАЦИЯ HIVE METASTORE (HMS REPLICATION) -->
+    {#if activeTab === 'hms'}
+      <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
+        <HmsReplicationView {topology} {user} />
+      </main>
+
+    <!-- КОНТЕНТ ВКЛАДКИ 2: ЗАДАЧИ РЕПЛИКАЦИИ HDFS -->
+    {:else if activeTab === 'jobs'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
         <!-- Верхняя панель: Статистика и Кнопка создания -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1340,13 +1346,7 @@
         </div>
       </main>
 
-    <!-- КОНТЕНТ ВКЛАДКИ: РЕПЛИКАЦИЯ HIVE METASTORE (HMS REPLICATION) -->
-    {:else if activeTab === 'hms'}
-      <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
-        <HmsReplicationView {topology} {user} />
-      </main>
-
-    <!-- КОНТЕНТ ВКЛАДКИ: ТОПОЛОГИЯ ЦОД И ПОЛОСА ПРОПУСКАНИЯ -->
+    <!-- КОНТЕНТ ВКЛАДКИ 3: ТОПОЛОГИЯ ЦОД И ПОЛОСА ПРОПУСКАНИЯ -->
     {:else if activeTab === 'topology'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
         <!-- Заголовок и статус -->
@@ -1731,7 +1731,7 @@
         </div>
       </main>
 
-    <!-- КОНТЕНТ ВКЛАДКИ: DISASTER RECOVERY & FAILOVER (DR CONSOLE) -->
+    <!-- КОНТЕНТ ВКЛАДКИ 4: DISASTER RECOVERY & FAILOVER (DR CONSOLE) -->
     {:else if activeTab === 'dr'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
         <DisasterRecoveryView {user} />

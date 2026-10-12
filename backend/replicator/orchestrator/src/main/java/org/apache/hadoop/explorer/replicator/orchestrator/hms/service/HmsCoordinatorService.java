@@ -8,6 +8,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsReplicationJ
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsEventLogRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.JobResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -559,5 +560,98 @@ public class HmsCoordinatorService {
         String n1 = c1.toLowerCase().replace("-", "").replace("_", "");
         String n2 = c2.toLowerCase().replace("-", "").replace("_", "");
         return n1.equals(n2) || n1.contains(n2) || n2.contains(n1);
+    }
+
+    /**
+     * Обогащение одной задачи HMS метриками первичной синхронизации (скорость, время старта, расчетное окончание).
+     */
+    public void enrichWithSubtasksMetrics(HmsReplicationJobEntity job) {
+        if (job == null) return;
+        List<JobResponse> subtasks = jobService.listSubjobsByParentId(job.getId());
+        enrichJobWithSubtasks(job, subtasks);
+    }
+
+    /**
+     * Обогащение списка задач HMS метриками первичной синхронизации.
+     */
+    public void enrichAllWithSubtasksMetrics(List<HmsReplicationJobEntity> jobs) {
+        if (jobs == null || jobs.isEmpty()) return;
+        for (HmsReplicationJobEntity job : jobs) {
+            enrichWithSubtasksMetrics(job);
+        }
+    }
+
+    private void enrichJobWithSubtasks(HmsReplicationJobEntity job, List<JobResponse> subtasks) {
+        if (subtasks != null && !subtasks.isEmpty()) {
+            long totalBytes = 0;
+            long copiedBytes = 0;
+            Instant minStartedAt = null;
+            Instant maxCompletedAt = null;
+            int activeCount = 0;
+            double speedSum = 0;
+            int speedCount = 0;
+
+            for (JobResponse sub : subtasks) {
+                totalBytes += sub.totalBytes();
+                copiedBytes += sub.copiedBytes();
+                String st = sub.status();
+                if ("RUNNING".equalsIgnoreCase(st) || "QUEUED".equalsIgnoreCase(st)) {
+                    activeCount++;
+                }
+                Instant subStart = sub.startedAt() != null ? sub.startedAt() : sub.createdAt();
+                if (subStart != null) {
+                    if (minStartedAt == null || subStart.isBefore(minStartedAt)) {
+                        minStartedAt = subStart;
+                    }
+                }
+                if (sub.completedAt() != null) {
+                    if (maxCompletedAt == null || sub.completedAt().isAfter(maxCompletedAt)) {
+                        maxCompletedAt = sub.completedAt();
+                    }
+                }
+                if (sub.averageSpeedMbS() != null && sub.averageSpeedMbS() > 0) {
+                    speedSum += sub.averageSpeedMbS();
+                    speedCount++;
+                }
+            }
+
+            if (minStartedAt == null) {
+                minStartedAt = job.getCreatedAt();
+            }
+            job.setStartedAt(minStartedAt);
+            job.setTotalBytes(totalBytes);
+            job.setCopiedBytes(copiedBytes);
+            job.setSubtasksCount(subtasks.size());
+            job.setActiveSubtasksCount(activeCount);
+
+            double progress = totalBytes > 0
+                    ? Math.min(100.0, Math.round(((double) copiedBytes / totalBytes) * 10000.0) / 100.0)
+                    : (job.getTotalTables() > 0 ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0);
+            job.setProgressPercent(progress);
+
+            Instant end = (activeCount == 0 && maxCompletedAt != null) ? maxCompletedAt : Instant.now();
+            long elapsedSec = Math.max(1, end.getEpochSecond() - minStartedAt.getEpochSecond());
+            Double avgSpeed = null;
+            if (copiedBytes > 0 && elapsedSec > 0) {
+                double mbS = ((double) copiedBytes / (1024.0 * 1024.0)) / elapsedSec;
+                avgSpeed = Math.round(mbS * 100.0) / 100.0;
+            } else if (speedCount > 0) {
+                avgSpeed = Math.round((speedSum / speedCount) * 100.0) / 100.0;
+            }
+            job.setAverageSpeedMbS(avgSpeed);
+
+            if (activeCount == 0 && maxCompletedAt != null && progress >= 100.0) {
+                job.setCompletedAt(maxCompletedAt);
+                job.setEstimatedCompletionAt(maxCompletedAt);
+            } else if (avgSpeed != null && avgSpeed > 0 && totalBytes > copiedBytes) {
+                long remainingBytes = totalBytes - copiedBytes;
+                double remainingSec = (double) remainingBytes / (avgSpeed * 1024.0 * 1024.0);
+                job.setEstimatedCompletionAt(Instant.now().plusSeconds((long) Math.ceil(remainingSec)));
+            }
+        } else if ("BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
+            job.setStartedAt(job.getCreatedAt());
+            double progress = job.getTotalTables() > 0 ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0;
+            job.setProgressPercent(progress);
+        }
     }
 }

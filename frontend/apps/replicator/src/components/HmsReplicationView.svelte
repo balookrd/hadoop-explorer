@@ -24,7 +24,8 @@
     Layers,
     Server,
     HardDrive,
-    Info
+    Info,
+    CheckCircle
   } from 'lucide-svelte';
   import { api } from '../api/client';
   import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse, ClusterInfo, CreateHmsJobPayload } from '../types';
@@ -351,6 +352,121 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
+  // Расчет агрегированных метрик первичной синхронизации (скорость, старт, ETA) по сабтаскам
+  function getBootstrapMetrics(job: HmsReplicationJob, subtasksList?: Job[]) {
+    let startedAt = job.started_at;
+    let completedAt = job.completed_at;
+    let totalBytes = job.total_bytes ?? 0;
+    let copiedBytes = job.copied_bytes ?? 0;
+    let avgSpeedMbS = job.average_speed_mb_s;
+    let estimatedCompletionAt = job.estimated_completion_at;
+    let subtasksCount = job.subtasks_count ?? 0;
+    let activeSubtasksCount = job.active_subtasks_count ?? 0;
+
+    // Если передан детальный список сабтасок (в модалке или раскрытом инлайн-блоке)
+    if (subtasksList && subtasksList.length > 0) {
+      subtasksCount = subtasksList.length;
+      activeSubtasksCount = 0;
+      totalBytes = 0;
+      copiedBytes = 0;
+      let minStart: number | null = null;
+      let maxEnd: number | null = null;
+      let speedSum = 0;
+      let speedCount = 0;
+
+      for (const sub of subtasksList) {
+        totalBytes += sub.total_bytes || 0;
+        copiedBytes += sub.copied_bytes || 0;
+        if (sub.status === 'RUNNING' || sub.status === 'QUEUED') {
+          activeSubtasksCount++;
+        }
+        const sTime = sub.started_at || sub.created_at;
+        if (sTime) {
+          const t = new Date(sTime).getTime();
+          if (!isNaN(t) && (minStart === null || t < minStart)) minStart = t;
+        }
+        if (sub.completed_at) {
+          const t = new Date(sub.completed_at).getTime();
+          if (!isNaN(t) && (maxEnd === null || t > maxEnd)) maxEnd = t;
+        }
+        const sp = sub.average_speed_mb_s ?? sub.transfer_speed_mb_s;
+        if (sp && sp > 0) {
+          speedSum += sp;
+          speedCount++;
+        }
+      }
+
+      if (minStart !== null) {
+        startedAt = new Date(minStart).toISOString();
+      }
+      if (maxEnd !== null && activeSubtasksCount === 0) {
+        completedAt = new Date(maxEnd).toISOString();
+      }
+
+      if (minStart !== null && copiedBytes > 0) {
+        const endTs = (activeSubtasksCount === 0 && maxEnd !== null) ? maxEnd : Date.now();
+        const elapsedSec = (endTs - minStart) / 1000;
+        if (elapsedSec > 0) {
+          avgSpeedMbS = (copiedBytes / (1024 * 1024)) / elapsedSec;
+        }
+      } else if (speedCount > 0) {
+        avgSpeedMbS = speedSum / speedCount;
+      }
+
+      if (activeSubtasksCount === 0 && maxEnd !== null && totalBytes > 0 && copiedBytes >= totalBytes) {
+        estimatedCompletionAt = new Date(maxEnd).toISOString();
+      } else if (avgSpeedMbS && avgSpeedMbS > 0 && totalBytes > copiedBytes) {
+        const remainingBytes = totalBytes - copiedBytes;
+        const remainingSec = remainingBytes / (avgSpeedMbS * 1024 * 1024);
+        estimatedCompletionAt = new Date(Date.now() + remainingSec * 1000).toISOString();
+      }
+    }
+
+    if (!startedAt) {
+      startedAt = job.created_at;
+    }
+
+    const percent = totalBytes > 0
+      ? Math.min(100, Math.round((copiedBytes / totalBytes) * 100))
+      : (job.total_tables > 0 ? Math.min(100, Math.round(((job.replicated_tables || 0) / job.total_tables) * 100)) : 0);
+
+    return {
+      startedAt,
+      completedAt,
+      estimatedCompletionAt,
+      avgSpeedMbS,
+      totalBytes,
+      copiedBytes,
+      percent,
+      subtasksCount,
+      activeSubtasksCount,
+    };
+  }
+
+  function formatBootstrapSpeed(metrics: ReturnType<typeof getBootstrapMetrics>, isRunning: boolean): string {
+    if (metrics.avgSpeedMbS !== undefined && metrics.avgSpeedMbS !== null && metrics.avgSpeedMbS > 0) {
+      return `${metrics.avgSpeedMbS.toFixed(1)} МБ/с`;
+    }
+    return isRunning ? '0.0 МБ/с' : '—';
+  }
+
+  function formatBootstrapEta(metrics: ReturnType<typeof getBootstrapMetrics>, isRunning: boolean): string {
+    if (!isRunning && metrics.completedAt) {
+      return `Финиш: ${formatTime(metrics.completedAt)}`;
+    }
+    if (metrics.percent >= 100 && metrics.completedAt) {
+      return `Финиш: ${formatTime(metrics.completedAt)}`;
+    }
+    if (metrics.estimatedCompletionAt) {
+      const etaTime = formatTime(metrics.estimatedCompletionAt);
+      const diffMs = new Date(metrics.estimatedCompletionAt).getTime() - Date.now();
+      const diffMin = Math.round(diffMs / 60000);
+      const remainingStr = diffMin > 0 ? `~${diffMin} мин` : diffMs > 0 ? '< 1 мин' : 'завершение';
+      return `~${etaTime} (${remainingStr})`;
+    }
+    return isRunning ? 'Оценка времени...' : '—';
+  }
+
   onMount(async () => {
     loadJobs();
     if (!topology) {
@@ -577,6 +693,7 @@
             </tr>
           {:else}
             {#each filteredJobs as job (job.id)}
+              {@const metrics = getBootstrapMetrics(job)}
               <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-850/50 transition-colors">
                 <!-- Схема и ID -->
                 <td class="py-3.5 px-4 font-mono">
@@ -669,11 +786,66 @@
 
                 <!-- Статус -->
                 <td class="py-3.5 px-4">
-                  <StatusBadge
-                    status={job.status === 'ACTIVE' ? 'running' : job.status === 'BOOTSTRAPPING' ? 'warning' : 'cancelled'}
-                    text={job.status}
-                  />
-                  {#if job.message}
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <StatusBadge
+                      status={job.status === 'ACTIVE' ? 'running' : job.status === 'BOOTSTRAPPING' ? 'warning' : 'cancelled'}
+                      text={job.status}
+                    />
+                    {#if job.status === 'BOOTSTRAPPING'}
+                      <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
+                        {metrics.percent}%
+                      </span>
+                    {/if}
+                  </div>
+
+                  {#if job.status === 'BOOTSTRAPPING'}
+                    <div class="mt-2 space-y-1.5 min-w-[200px]">
+                      <!-- Прогресс-бар объема данных -->
+                      <div class="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          class="bg-amber-500 h-full rounded-full transition-all duration-300"
+                          style="width: {metrics.percent}%"
+                        ></div>
+                      </div>
+                      {#if metrics.totalBytes > 0}
+                        <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between">
+                          <span>{formatBytes(metrics.copiedBytes)}</span>
+                          <span>{formatBytes(metrics.totalBytes)}</span>
+                        </div>
+                      {/if}
+
+                      <!-- Метрики: Скорость (в среднем по сабтаскам), Старт, Окончание (ETA) -->
+                      <div class="pt-1.5 space-y-1 text-[10px] border-t border-slate-200/60 dark:border-slate-800/60">
+                        <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                          <span class="text-slate-400 flex items-center gap-1">
+                            <Zap class="w-2.5 h-2.5 text-sky-500" />
+                            <span>Ср. скорость:</span>
+                          </span>
+                          <span class="font-mono font-semibold text-sky-600 dark:text-sky-400" title="Общая скорость репликации в среднем по всем сабтаскам">
+                            {formatBootstrapSpeed(metrics, true)}
+                          </span>
+                        </div>
+                        <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                          <span class="text-slate-400 flex items-center gap-1">
+                            <Clock class="w-2.5 h-2.5 text-slate-400" />
+                            <span>Старт:</span>
+                          </span>
+                          <span class="font-mono text-slate-700 dark:text-slate-300">
+                            {formatTime(metrics.startedAt)}
+                          </span>
+                        </div>
+                        <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                          <span class="text-slate-400 flex items-center gap-1">
+                            <CheckCircle class="w-2.5 h-2.5 text-emerald-500" />
+                            <span>Окончание:</span>
+                          </span>
+                          <span class="font-mono font-semibold text-emerald-600 dark:text-emerald-400" title="Расчетное время окончания (ETA)">
+                            {formatBootstrapEta(metrics, true)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  {:else if job.message}
                     <div class="text-[10px] text-slate-500 truncate max-w-[210px] mt-0.5" title={job.message}>
                       {job.message}
                     </div>
@@ -755,6 +927,7 @@
               <!-- РАСКРЫВАЮЩИЙСЯ ИНЛАЙН-БЛОК ПОД СТРОКОЙ ТАБЛИЦЫ -->
               <!-- РАСКРЫВАЮЩИЙСЯ ИНЛАЙН-БЛОК ПОД СТРОКОЙ ТАБЛИЦЫ (ДВА СТОЛБИКА: HMS И HDFS) -->
               {#if expandedJobId === job.id}
+                {@const bMetrics = getBootstrapMetrics(job, subtasks)}
                 <tr class="bg-slate-50/70 dark:bg-slate-950/50">
                   <td colspan="6" class="p-4 border-t border-slate-100 dark:border-slate-800/80">
                     <div class="space-y-3">
@@ -776,6 +949,78 @@
                           </button>
                         </div>
                       </div>
+
+                      <!-- СВОДНЫЕ МЕТРИКИ ПЕРВИЧНОЙ СИНХРОНИЗАЦИИ (BOOTSTRAP SYNC) -->
+                      {#if job.status === 'BOOTSTRAPPING' || bMetrics.subtasksCount > 0}
+                        <div class="p-3 bg-gradient-to-r from-amber-50/80 via-sky-50/60 to-indigo-50/80 dark:from-amber-950/30 dark:via-sky-950/30 dark:to-indigo-950/30 rounded-2xl border border-amber-200/80 dark:border-amber-800/80 space-y-2">
+                          <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
+                              <Zap class="w-4 h-4 text-amber-500" />
+                              <span>Метрики первичной синхронизации (Bootstrap Sync)</span>
+                              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-bold">
+                                {bMetrics.percent}%
+                              </span>
+                            </div>
+                            <div class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                              Подзадач: <strong class="text-slate-700 dark:text-slate-300">{bMetrics.subtasksCount}</strong>
+                              {#if bMetrics.activeSubtasksCount > 0}
+                                <span class="text-amber-600 font-semibold">(активно: {bMetrics.activeSubtasksCount})</span>
+                              {/if}
+                            </div>
+                          </div>
+
+                          <!-- Прогресс-бар -->
+                          <div class="w-full bg-slate-200/80 dark:bg-slate-700/80 h-2 rounded-full overflow-hidden">
+                            <div
+                              class="bg-amber-500 h-full rounded-full transition-all duration-300"
+                              style="width: {bMetrics.percent}%"
+                            ></div>
+                          </div>
+
+                          <!-- 4 карточки: Скорость репликации (в среднем), Время старта, Расчетное окончание (ETA), Объем данных -->
+                          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                            <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                              <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                                <Zap class="w-3 h-3 text-sky-500" />
+                                <span>Ср. скорость:</span>
+                              </div>
+                              <div class="font-mono font-bold text-sky-600 dark:text-sky-400 text-xs mt-0.5" title="Общая скорость репликации в среднем по всем сабтаскам">
+                                {formatBootstrapSpeed(bMetrics, job.status === 'BOOTSTRAPPING')}
+                              </div>
+                            </div>
+
+                            <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                              <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                                <Clock class="w-3 h-3 text-slate-400" />
+                                <span>Стартовое время:</span>
+                              </div>
+                              <div class="font-mono font-semibold text-slate-700 dark:text-slate-300 text-xs mt-0.5">
+                                {formatTime(bMetrics.startedAt)}
+                              </div>
+                            </div>
+
+                            <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                              <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                                <CheckCircle class="w-3 h-3 text-emerald-500" />
+                                <span>Расчетное окончание:</span>
+                              </div>
+                              <div class="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5" title="Расчетное время окончания (ETA)">
+                                {formatBootstrapEta(bMetrics, job.status === 'BOOTSTRAPPING')}
+                              </div>
+                            </div>
+
+                            <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                              <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                                <HardDrive class="w-3 h-3 text-indigo-500" />
+                                <span>Объем данных:</span>
+                              </div>
+                              <div class="font-mono text-slate-700 dark:text-slate-300 text-xs mt-0.5">
+                                {formatBytes(bMetrics.copiedBytes)} / {formatBytes(bMetrics.totalBytes)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      {/if}
 
                       <!-- ДВА СТОЛБИКА: СЛЕВА HMS СОБЫТИЯ, СПРАВА HDFS ПОДЗАДАЧИ -->
                       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1065,6 +1310,78 @@
             </table>
           {/if}
         {:else}
+          {@const mMetrics = getBootstrapMetrics(modalJob, subtasks)}
+          {#if modalJob.status === 'BOOTSTRAPPING' || mMetrics.subtasksCount > 0}
+            <div class="p-3 bg-gradient-to-r from-amber-50/80 via-sky-50/60 to-indigo-50/80 dark:from-amber-950/30 dark:via-sky-950/30 dark:to-indigo-950/30 border-b border-slate-200 dark:border-slate-800 space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
+                  <Zap class="w-4 h-4 text-amber-500" />
+                  <span>Метрики первичной синхронизации (Bootstrap Sync)</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-bold">
+                    {mMetrics.percent}%
+                  </span>
+                </div>
+                <div class="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                  Сабтасок всего: <strong class="text-slate-700 dark:text-slate-300">{mMetrics.subtasksCount}</strong>
+                  {#if mMetrics.activeSubtasksCount > 0}
+                    <span class="text-amber-600 font-semibold">(активно: {mMetrics.activeSubtasksCount})</span>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- Прогресс-бар -->
+              <div class="w-full bg-slate-200/80 dark:bg-slate-700/80 h-2 rounded-full overflow-hidden">
+                <div
+                  class="bg-amber-500 h-full rounded-full transition-all duration-300"
+                  style="width: {mMetrics.percent}%"
+                ></div>
+              </div>
+
+              <!-- 4 карточки: Скорость репликации (в среднем), Время старта, Расчетное окончание (ETA), Объем данных -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    <Zap class="w-3 h-3 text-sky-500" />
+                    <span>Ср. скорость:</span>
+                  </div>
+                  <div class="font-mono font-bold text-sky-600 dark:text-sky-400 text-xs mt-0.5" title="Общая скорость репликации в среднем по всем сабтаскам">
+                    {formatBootstrapSpeed(mMetrics, modalJob.status === 'BOOTSTRAPPING')}
+                  </div>
+                </div>
+
+                <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    <Clock class="w-3 h-3 text-slate-400" />
+                    <span>Стартовое время:</span>
+                  </div>
+                  <div class="font-mono font-semibold text-slate-700 dark:text-slate-300 text-xs mt-0.5">
+                    {formatTime(mMetrics.startedAt)}
+                  </div>
+                </div>
+
+                <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    <CheckCircle class="w-3 h-3 text-emerald-500" />
+                    <span>Расчетное окончание:</span>
+                  </div>
+                  <div class="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5" title="Расчетное время окончания (ETA)">
+                    {formatBootstrapEta(mMetrics, modalJob.status === 'BOOTSTRAPPING')}
+                  </div>
+                </div>
+
+                <div class="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    <HardDrive class="w-3 h-3 text-indigo-500" />
+                    <span>Объем данных:</span>
+                  </div>
+                  <div class="font-mono text-slate-700 dark:text-slate-300 text-xs mt-0.5">
+                    {formatBytes(mMetrics.copiedBytes)} / {formatBytes(mMetrics.totalBytes)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {/if}
+
           {#if subtasks.length === 0}
             <div class="py-12 text-center text-slate-400 text-xs">
               Вложенных подзадач передачи HDFS пока нет.

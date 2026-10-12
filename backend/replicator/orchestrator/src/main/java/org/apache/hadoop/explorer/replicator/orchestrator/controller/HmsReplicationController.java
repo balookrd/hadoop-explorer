@@ -105,7 +105,9 @@ public class HmsReplicationController {
 
     @GetMapping
     public ResponseEntity<List<HmsReplicationJobEntity>> listJobs() {
-        return ResponseEntity.ok(jobRepository.findAll());
+        List<HmsReplicationJobEntity> jobs = jobRepository.findAll();
+        coordinatorService.enrichAllWithSubtasksMetrics(jobs);
+        return ResponseEntity.ok(jobs);
     }
 
     @GetMapping("/pending")
@@ -128,7 +130,10 @@ public class HmsReplicationController {
     @GetMapping("/{id}")
     public ResponseEntity<HmsReplicationJobEntity> getJob(@PathVariable String id) {
         return jobRepository.findById(id)
-                .map(ResponseEntity::ok)
+                .map(job -> {
+                    coordinatorService.enrichWithSubtasksMetrics(job);
+                    return ResponseEntity.ok(job);
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
