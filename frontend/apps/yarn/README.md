@@ -11,19 +11,20 @@ frontend/apps/yarn/src/
 ├── api/                         # Клиент взаимодействия с REST API бэкенда
 │   └── client.ts                # HTTP клиент (Fetch + Bearer JWT, перехват 401)
 ├── components/                  # UI компоненты
-│   ├── QueueTreeTable.svelte    # Главная древовидная таблица иерархии очередей
-│   ├── QueueRow.svelte          # Строка очереди: емкость, лимиты, Policy, RAM/vCPU
+│   ├── QueueTreeTable.svelte    # Главная древовидная таблица иерархии очередей и ресурсов
 │   ├── QueueEditDrawer.svelte   # Боковая панель детального редактирования очереди
 │   ├── AddQueueModal.svelte     # Модальное окно добавления дочерней очереди
 │   ├── DiffPanel.svelte         # Панель Unified Diff (Live vs Draft)
 │   ├── XmlExportModal.svelte    # Модальное окно экспорта capacity-scheduler.xml
 │   ├── QueueMappingsModal.svelte# Конструктор правил сопоставления очередей
 │   ├── ChangeRequestsDrawer.svelte # Центр согласования заявок (Approval & AWX Deployment)
-│   └── CapacityBar.svelte       # Компонент визуализации прогресс-бара ресурсов
+│   ├── ClusterMetricsBar.svelte # Верхняя панель агрегированных метрик кластера
+│   ├── ResourceBalanceCard.svelte # Карточка валидации баланса 100% емкости
+│   ├── PartitionSelector.svelte # Селектор разделов кластера (Node Labels)
+│   └── SubmitChangeRequestModal.svelte # Модальное окно создания заявки Change Request
 │   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/                       # Утилиты форматирования и вычислений
-│   ├── formatters.ts            # Форматирование MB/GB/TB, ядер vCPU и процентов
-│   └── tree.ts                  # Построение дерева очередей и пересчет емкости
+│   └── resourceUtils.ts         # Форматирование MB/GB/TB, ядер vCPU, пересчет квот и расчет баланса
 ├── types.ts                     # TypeScript интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)
 ├── App.svelte                   # Корневой компонент приложения с роутингом состояний
 └── main.ts                      # Входная точка Svelte приложения
@@ -80,7 +81,7 @@ npm install
 ```bash
 cd apps/yarn && npm run dev
 ```
-Фронтенд запустится на `http://localhost:5173` с автоматическим проксированием запросов `/api` на бэкенд (`http://localhost:8001`).
+Фронтенд запустится на `http://localhost:5173` с автоматическим проксированием запросов `/api` на бэкенд (`http://localhost:8000`).
 
 ### 3. Проверка типов и линтинг
 ```bash
@@ -97,4 +98,4 @@ npx vitest run apps/yarn/tests
 ```bash
 npm run build
 ```
-Скомпилированные статические файлы сохраняются в директорию `frontend/dist`, которая раздается FastAPI бэкендом в production-режиме.
+Скомпилированные статические файлы сохраняются в директорию `dist` и упаковываются в Spring Boot Fat JAR (`backend/yarn/src/main/resources/static`) для раздачи в production-режиме.

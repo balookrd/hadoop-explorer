@@ -130,6 +130,14 @@ public class CommonSecurityProperties {
             this.secretKey = secretKey;
         }
 
+        public String getSecret() {
+            return secretKey;
+        }
+
+        public void setSecret(String secret) {
+            this.secretKey = secret;
+        }
+
         public String getAlgorithm() {
             return algorithm;
         }

@@ -77,21 +77,25 @@ java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar
 
 | Метод | URI | Описание | Доступ |
 |---|---|---|---|
-| `GET` | `/health` / `/actuator/health` | Liveness / Readiness health-check | Публичный |
+| `GET` | `/health` / `/healthz` | Liveness / Readiness health-check | Публичный |
 | `GET` | `/metrics` / `/actuator/prometheus` | Экспорт Prometheus метрик и Circuit Breaker | Публичный |
 | `POST`| `/api/v1/auth/login` | Вход пользователя (генерация JWT Cookie) | Публичный |
 | `POST`| `/api/v1/auth/sso` | Kerberos SPNEGO SSO аутентификация | Публичный |
 | `GET` | `/api/v1/auth/me` | Данные текущего пользователя и роли по кластерам | Аутентифицирован |
 | `POST`| `/api/v1/auth/logout` | Отзыв токена и завершение сессии | Аутентифицирован |
 | `GET` | `/api/v1/clusters` | Список кластеров YARN и роли пользователя | Аутентифицирован |
-| `GET` | `/api/v1/clusters/{id}/queues` | Актуальное дерево очередей Capacity Scheduler | Аутентифицирован |
-| `GET` | `/api/v1/clusters/{id}/metrics` | Метрики кластера (vCores, RAM, Applications) | Аутентифицирован |
-| `POST`| `/api/v1/clusters/{id}/queues/validate` | Валидация черновика дерева очередей (правило 100%) | WRITER / ADMIN |
-| `POST`| `/api/v1/clusters/{id}/queues/diff` | Расчет diff изменений между live и draft | WRITER / ADMIN |
-| `GET` | `/api/v1/change-requests` | Список заявок на изменение (фильтр по кластеру) | Аутентифицирован |
+| `GET` | `/api/v1/clusters/{id}/queues` | Дерево очередей Capacity Scheduler, метрики и баланс | Аутентифицирован |
+| `POST`| `/api/v1/clusters/{id}/validate` | Валидация черновика дерева очередей (правило 100%) | WRITER / ADMIN |
+| `POST`| `/api/v1/clusters/{id}/diff` | Расчет diff изменений между live и draft | WRITER / ADMIN |
+| `POST`| `/api/v1/clusters/{id}/generate-xml` | Генерация XML-конфигурации для ручного применения | ADMIN кластера |
+| `POST`| `/api/v1/clusters/{id}/deploy-xml` | Прямой деплой произвольного XML через AWX | ADMIN кластера |
+| `GET` | `/api/v1/change-requests` | Список заявок на изменение (фильтр по cluster_id, status) | Аутентифицирован |
+| `GET` | `/api/v1/change-requests/pending-count` | Количество заявок на согласовании (pending) | Аутентифицирован |
 | `POST`| `/api/v1/change-requests` | Создание новой заявки на согласование очередей | WRITER / ADMIN |
-| `GET` | `/api/v1/change-requests/{id}` | Детали заявки с предпросмотром XML и diff | Аутентифицирован |
+| `GET` | `/api/v1/change-requests/{id}` | Детали заявки с diff изменений | Аутентифицирован |
+| `GET` | `/api/v1/change-requests/{id}/preview-xml` (`/xml`) | Предпросмотр XML-конфигурации заявки | Аутентифицирован |
 | `POST`| `/api/v1/change-requests/{id}/approve` | Согласование заявки (Four-Eyes Principle) | ADMIN кластера |
 | `POST`| `/api/v1/change-requests/{id}/reject` | Отклонение заявки с указанием причины | ADMIN кластера |
-| `POST`| `/api/v1/change-requests/{id}/cancel` | Отзыв заявки автором | Автор заявки |
+| `POST`| `/api/v1/change-requests/{id}/cancel` | Отзыв заявки автором или администратором | Автор / ADMIN |
 | `POST`| `/api/v1/change-requests/{id}/deploy` | Деплой согласованной заявки через Ansible AWX | ADMIN кластера |
+| `GET` | `/api/v1/change-requests/{id}/deploy-status` | Статус деплоя заявки и вывод Ansible AWX | Аутентифицирован |

@@ -107,7 +107,7 @@ public class ChangeRequestController {
         return ResponseEntity.ok(cancelled);
     }
 
-    @GetMapping("/{id}/xml")
+    @GetMapping({"/{id}/xml", "/{id}/preview-xml"})
     public ResponseEntity<Map<String, Object>> previewChangeRequestXml(
             @PathVariable Long id,
             Authentication auth
@@ -115,6 +115,16 @@ public class ChangeRequestController {
         UserSession user = SecurityUtils.getUserSession(auth);
         Map<String, Object> preview = changeRequestService.previewChangeRequestXml(id, user);
         return ResponseEntity.ok(preview);
+    }
+
+    @GetMapping("/{id}/deploy-status")
+    public ResponseEntity<DeployResponse> getDeployStatus(
+            @PathVariable Long id,
+            Authentication auth
+    ) {
+        UserSession user = SecurityUtils.getUserSession(auth);
+        DeployResponse resp = changeRequestService.getDeployStatus(id, user);
+        return ResponseEntity.ok(resp);
     }
 
     @PostMapping("/{id}/deploy")

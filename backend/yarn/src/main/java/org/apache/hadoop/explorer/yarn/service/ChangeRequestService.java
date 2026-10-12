@@ -157,7 +157,10 @@ public class ChangeRequestService {
             }
             count = total;
         }
-        return Map.of("count", count);
+        return Map.of(
+                "count", count,
+                "pending_count", count
+        );
     }
 
     @Transactional(readOnly = true)
@@ -345,6 +348,31 @@ public class ChangeRequestService {
         repository.save(entity);
 
         return deployResp;
+    }
+
+    @Transactional(readOnly = true)
+    public DeployResponse getDeployStatus(Long id, UserSession user) {
+        ChangeRequestEntity entity = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Заявка #" + id + " не найдена"));
+
+        ClusterConfig cluster = findClusterOrThrow(entity.getClusterId());
+        checkClusterPermission(user, cluster, Role.READER);
+
+        String deployedAtStr = entity.getDeployedAt() != null
+                ? DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC).format(entity.getDeployedAt())
+                : null;
+
+        String stdout = "AWX Job #" + (entity.getAwxJobId() != null ? entity.getAwxJobId() : "N/A") +
+                " status: " + (entity.getDeploymentStatus() != null ? entity.getDeploymentStatus() : "NOT_DEPLOYED");
+
+        return DeployResponse.builder()
+                .crId(entity.getId())
+                .awxJobId(entity.getAwxJobId())
+                .status(entity.getDeploymentStatus() != null ? entity.getDeploymentStatus() : "NOT_DEPLOYED")
+                .message("Status: " + entity.getDeploymentStatus())
+                .deployedAt(deployedAtStr)
+                .stdout(stdout)
+                .build();
     }
 
     private List<QueueDraftItem> mergeQueues(QueueNode liveRoot, List<QueueDraftItem> changes) {

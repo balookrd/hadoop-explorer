@@ -12,7 +12,7 @@
 ### 1.1 Назначение сервиса
 **YARN Explorer** — компонент платформы Hadoop Explorer, обеспечивающий:
 - Интерактивное визуальное управление очередями **Capacity Scheduler** (балансировка долей гарантированных и максимальных ресурсов, дочерние очереди).
-- Многокластерный мониторинг приложений YARN в режиме реального времени.
+- Визуальный мониторинг утилизации ресурсов кластера (vCores, RAM) и очередей в режиме реального времени.
 - Автоматический **Failover при High Availability (RM HA)** между активным и резервным ResourceManager.
 - Процесс согласования изменений **Change Requests (принцип Four-Eyes)** с аудитом.
 - Автоматизированную доставку и применение `capacity-scheduler.xml` на кластер через **Ansible AWX / Tower API**.
@@ -348,16 +348,14 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - APP_NAME=yarn
-      - WEB_CONCURRENCY=2
-      - CONFIG_PATH=/app/config/config.yaml
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - AWX_TOKEN=${AWX_TOKEN}
+      - YARN_AWX_TOKEN=${AWX_TOKEN}
       - KRB5_KEYTAB=/etc/security/keytabs/yarn-explorer.keytab
       - KRB5_PRINCIPAL=HTTP/yarn.company.local@COMPANY.LOCAL
     volumes:
-      - ./config.yaml:/app/config/config.yaml:ro
+      - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
       - /etc/security/keytabs/yarn-explorer.keytab:/etc/security/keytabs/yarn-explorer.keytab:ro
       - yarn-storage:/app/data
@@ -525,10 +523,11 @@ config:
     clusters:
       - id: "prod-yarn"
         name: "Hadoop Production"
-        active_rm_url: "http://rm01.hadoop.company.local:8088"
-        standby_rm_url: "http://rm02.hadoop.company.local:8088"
-        kerberos_enabled: true
-        principal: "yarn/yarn.company.local@COMPANY.LOCAL"
+        resource-manager-urls:
+          - "http://rm01.hadoop.company.local:8088"
+          - "http://rm02.hadoop.company.local:8088"
+        kerberos-enabled: true
+        kerberos-principal: "yarn/yarn.company.local@COMPANY.LOCAL"
 
 podDisruptionBudget:
   minAvailable: 1
@@ -572,17 +571,17 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 | Симптом / Ошибка | Возможная причина | Решение |
 |---|---|---|
-| `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверить состояние RM HA: сервис автоматически переключится на standby. Проверьте `active_rm_url` и `standby_rm_url` в конфиге. |
+| `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверить состояние RM HA: сервис автоматически переключится на standby. Проверьте список `resource-manager-urls` в конфиге. |
 | `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверить права доступа (`chmod 400`), соответствие principal и наличие файла `kinit -kt /path/to.keytab principal@REALM`. |
 | `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверить пароль сервисной учетной записи через `ldapsearch -H ldaps://... -D "..." -W`. |
-| `Database is locked (sqlite3.OperationalError)` | Несколько воркеров/подов пишут в один SQLite | При масштабировании на 2+ реплики обязательно переключите `database.url` на **PostgreSQL**. |
-| `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `AWX_TOKEN` в секретах. |
+| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | При масштабировании на 2+ реплики обязательно переключите `spring.datasource.url` на промышленный **PostgreSQL**. |
+| `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
 
 ---
 
 ## 6. Резервное копирование и восстановление (Disaster Recovery)
 
-- **Конфигурация**: Рекомендуется хранить все `values.yaml` и `config.yaml` в Git-репозитории инфраструктуры (GitOps / ArgoCD / Flux).
+- **Конфигурация**: Рекомендуется хранить все `values.yaml` и `application.yml` в Git-репозитории инфраструктуры (GitOps / ArgoCD / Flux).
 - **База данных PostgreSQL**:
   ```bash
   # Создание резервной копии
@@ -591,9 +590,10 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
   # Восстановление
   psql -h pg-host -U yarn_user yarn_explorer < yarn_explorer_backup_2026-10-08.sql
   ```
-- **Локальная SQLite (Standalone)**:
+- **Локальная embedded H2 (Standalone)**:
   ```bash
-  sqlite3 /var/lib/hadoop-explorer/yarn/data/yarn_explorer.db ".backup '/backup/yarn_explorer_$(date +%F).db'"
+  # Создание копии файла базы данных
+  cp /var/lib/hadoop-explorer/yarn/data/yarn_explorer.mv.db /backup/yarn_explorer_$(date +%F).mv.db
   ```
 
 ---
@@ -603,7 +603,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
 
 ### 7.1 Преимущества Java 21 реализации
-1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API / RPC активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
+1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
 2. **Capacity Scheduler Engine**: встроенная валидация веток и правила 100% емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
 3. **Change Requests & Four-Eyes Principle**: встроенный жизненный цикл согласования изменений с запретом самосогласования заявок автором (HTTP 403 Forbidden).
 4. **Интеграция с Ansible AWX**: автоматический триггер Job Template через REST API для Zero-Downtime обновления очередей (`yarn rmadmin -refreshQueues`).
@@ -630,11 +630,11 @@ make test-java
 ```bash
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8000 \
-  -Dhadoop.security.auth.mode=kerberos \
+  -Dhadoop.security.auth-mode=kerberos \
   -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
-  -Dawx.base-url="https://awx.company.local" \
-  -Dawx.token="secret-awx-token" \
-  -Dawx.job-template-id=42 \
+  -Dyarn.awx.base-url="https://awx.company.local" \
+  -Dyarn.awx.token="secret-awx-token" \
+  -Dyarn.awx.default-job-template-id=42 \
   backend/yarn/target/yarn-explorer-java-1.0.0.jar
 ```
 

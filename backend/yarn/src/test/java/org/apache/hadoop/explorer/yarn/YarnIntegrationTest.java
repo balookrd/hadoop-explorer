@@ -173,7 +173,8 @@ class YarnIntegrationTest {
         mockMvc.perform(get("/api/v1/change-requests/pending-count")
                         .header("Authorization", "Bearer " + writerToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.count", greaterThanOrEqualTo(1)));
+                .andExpect(jsonPath("$.count", greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.pending_count", greaterThanOrEqualTo(1)));
 
         // 3. Four-Eyes принцип: если writer попытается сам себя одобрить (или если author==reviewer)
         // Для демонстрации: попробуем одобрить через автора (writer_user)
@@ -193,8 +194,13 @@ class YarnIntegrationTest {
                 .andExpect(jsonPath("$.reviewer").value("admin_user"))
                 .andExpect(jsonPath("$.xml_content").exists());
 
-        // 5. Предпросмотр XML
+        // 5. Предпросмотр XML (проверка обоих путей: /xml и /preview-xml)
         mockMvc.perform(get("/api/v1/change-requests/" + crId + "/xml")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.xml_content", containsString("<configuration>")));
+
+        mockMvc.perform(get("/api/v1/change-requests/" + crId + "/preview-xml")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.xml_content", containsString("<configuration>")));
@@ -206,5 +212,13 @@ class YarnIntegrationTest {
                 .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.awx_job_id").exists())
                 .andExpect(jsonPath("$.stdout", containsString("PLAY RECAP")));
+
+        // 7. Проверка статуса деплоя через /deploy-status
+        mockMvc.perform(get("/api/v1/change-requests/" + crId + "/deploy-status")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.awx_job_id").exists())
+                .andExpect(jsonPath("$.stdout").exists());
     }
 }

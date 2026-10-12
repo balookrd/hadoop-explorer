@@ -16,10 +16,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -69,9 +71,11 @@ public class AwxClientService {
                 String launchUrl = awx.getBaseUrl().replaceAll("/+$", "") +
                         "/api/v2/job_templates/" + jobTemplateId + "/launch/";
 
+                String b64Xml = Base64.getEncoder().encodeToString(xmlContent.getBytes(StandardCharsets.UTF_8));
                 Map<String, Object> payload = Map.of(
                         "extra_vars", Map.of(
                                 "cluster_id", cluster.getId(),
+                                "capacity_scheduler_xml_b64", b64Xml,
                                 "capacity_scheduler_xml", xmlContent,
                                 "deploy_comment", comment != null ? comment : ""
                         )

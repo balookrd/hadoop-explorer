@@ -218,10 +218,10 @@ yarn:
 ```
 
 ### Переменные окружения для производственного запуска:
-- `AWX_ENABLED=true`
-- `AWX_BASE_URL=https://awx.prod.company.local`
-- `AWX_TOKEN=xxxxxx`
-- `AWX_JOB_TEMPLATE_ID=101`
+- `YARN_AWX_ENABLED=true` (или `AWX_ENABLED=true`)
+- `YARN_AWX_BASE_URL=https://awx.prod.company.local` (или `AWX_BASE_URL`)
+- `YARN_AWX_TOKEN=xxxxxx` (или `AWX_TOKEN`)
+- `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID=101` (или `AWX_DEFAULT_JOB_TEMPLATE_ID`)
 
 ---
 

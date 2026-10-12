@@ -306,14 +306,14 @@ clusters:
 ```
 
 #### Соответствующие переменные окружения:
-| Переменная | Пример значения | Описание |
+| Переменная (Spring Boot Relaxed Binding) | Пример значения | Описание |
 |---|---|---|
-| `AWX_ENABLED` | `true` | Активация модуля автоматизации AWX |
-| `AWX_BASE_URL` | `https://awx.company.local` | Базовый URL сервера AWX |
-| `AWX_TOKEN` | `BearerSecretToken...` | Токен доступа к REST API AWX |
-| `AWX_VERIFY_SSL` | `true` | Проверка TLS сертификата сервера AWX |
-| `AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
-| `AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
+| `YARN_AWX_ENABLED` (или `AWX_ENABLED`) | `true` | Активация модуля автоматизации AWX |
+| `YARN_AWX_BASE_URL` (или `AWX_BASE_URL`) | `https://awx.company.local` | Базовый URL сервера AWX |
+| `YARN_AWX_TOKEN` (или `AWX_TOKEN`) | `BearerSecretToken...` | Токен доступа к REST API AWX |
+| `YARN_AWX_VERIFY_SSL` (или `AWX_VERIFY_SSL`) | `true` | Проверка TLS сертификата сервера AWX |
+| `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
+| `YARN_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
 
 > 📖 **Пошаговая инструкция по развертыванию роли Ansible, настройке шаблона AWX и процессу Rollback приведена в [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).**
 > 📖 **Сценарии применения в интерфейсе Change Requests описаны в [docs/yarn-user-guide.md](yarn-user-guide.md).**
@@ -1037,12 +1037,25 @@ replicator:
 | `hadoop_auth_attempts_total` | Counter | `app`, `provider`, `status` | Попытки аутентификации (`ldap`, `kerberos`, `mock`) и результат |
 | `hadoop_rate_limit_blocks_total` | Counter | `app` | Блокировки по Rate Limiter (HTTP 429) |
 | `hadoop_exceptions_total` | Counter | `app`, `exception_type` | Непредвиденные исключения 500 с `incident_id` (CWE-209) |
-| `replication_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
-| `replication_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска |
-| `active_workers` | Gauge | — | Число активных онлайн-воркеров репликации |
-| `throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
-| `hms_replication_jobs_total` | Gauge | `status` | Количество задач репликации Hive Metastore |
-| `dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active) |
+| `replicator_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`; legacy alias: `replication_bytes_total`) |
+| `replicator_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска (legacy alias: `replication_jobs_total`) |
+| `replicator_tasks_total` | Gauge | `status` | Количество пофайловых задач в распределенном пуле (legacy alias: `replication_tasks_total`) |
+| `replicator_active_workers` | Gauge | — | Число активных онлайн-воркеров репликации (legacy alias: `active_workers`) |
+| `replicator_active_agents` | Gauge | `status` | Число доступных агентов репликации (`online`, `total`; legacy alias: `active_agents`) |
+| `replicator_throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket; legacy alias: `throttling_delay_seconds_total`) |
+| `replicator_file_size_bytes` | Histogram | `le` | Распределение размеров файлов репликации (legacy alias: `replication_file_size_bytes`) |
+| `replicator_hms_jobs_total` | Gauge | `status` | Количество задач репликации Hive Metastore (legacy alias: `hms_replication_jobs_total`) |
+| `replicator_hms_tables_total` | Gauge | `type` | Количество таблиц HMS (`total`, `replicated`; legacy alias: `hms_replication_tables_total`) |
+| `replicator_hms_partitions_total` | Gauge | `type` | Количество партиций HMS (`total`, `replicated`; legacy alias: `hms_replication_partitions_total`) |
+| `replicator_hms_speed_bytes_per_second` | Gauge | — | Скорость первичной синхронизации HMS (legacy alias: `hms_replication_speed_bytes_per_second`) |
+| `replicator_dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active; legacy alias: `dr_cluster_fenced`) |
+| `replicator_dr_reverse_jobs_total` | Gauge | `status` | Количество задач обратной репликации Failover (legacy alias: `dr_reverse_jobs_total`) |
+| `replicator_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность узла агента (`1` при совпадении статуса, `0` иначе; legacy alias: `agent_status`) |
+| `replicator_agent_active_transfers` | Gauge | `agent_id`, `cluster_id`, `mode` | Текущее количество параллельных передач на агенте (legacy alias: `agent_active_transfers`) |
+| `replicator_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байт, переданных агентом (legacy alias: `agent_transferred_bytes_total`) |
+| `replicator_agent_errors_total` | Counter | `agent_id`, `cluster_id` | Количество ошибок передачи данных агента (legacy alias: `agent_errors_total`, `replicator_agent_transfer_errors_total`) |
+| `replicator_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента (legacy alias: `agent_heartbeat_age_seconds`) |
+| `replicator_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с (legacy alias: `agent_max_bandwidth_mb_s`) |
 
 ### 10.2 Настройка сбора метрик в Prometheus (Scrape Config)
 
