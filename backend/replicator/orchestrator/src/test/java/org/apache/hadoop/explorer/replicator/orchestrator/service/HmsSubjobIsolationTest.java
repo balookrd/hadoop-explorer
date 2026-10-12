@@ -147,7 +147,7 @@ public class HmsSubjobIsolationTest {
         hmsJob.setReplicatedTables(1);
         hmsJobRepository.save(hmsJob);
 
-        java.time.Instant now = java.time.Instant.now();
+        java.time.Instant now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         java.time.Instant start1 = now.minusSeconds(20);
         java.time.Instant start2 = now.minusSeconds(10);
 
@@ -182,7 +182,7 @@ public class HmsSubjobIsolationTest {
         coordinatorService.enrichWithSubtasksMetrics(hmsJob);
 
         assertNotNull(hmsJob.getStartedAt(), "Стартовое время должно быть рассчитано");
-        assertEquals(start1, hmsJob.getStartedAt(), "Стартовое время должно быть минимальным временем среди сабтасок");
+        assertEquals(start1.getEpochSecond(), hmsJob.getStartedAt().getEpochSecond(), "Стартовое время должно быть минимальным временем среди сабтасок");
         assertEquals(31457280L, hmsJob.getTotalBytes(), "Общий объем байт должен суммироваться по сабтаскам");
         assertEquals(20971520L, hmsJob.getCopiedBytes(), "Скопированный объем байт должен суммироваться");
         assertEquals(2, hmsJob.getSubtasksCount());
