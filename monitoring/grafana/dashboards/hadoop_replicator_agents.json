@@ -121,7 +121,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or count(agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or vector(0)",
+          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\"})",
           "legendFormat": "Всего агентов",
           "range": true,
           "refId": "A"
@@ -187,7 +187,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count((replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"(?i)online\"} or agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=\"online\"}) == 1) or vector(0)",
+          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=\"online\"} == 1)",
           "legendFormat": "Онлайн",
           "range": true,
           "refId": "A"
@@ -253,7 +253,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count((replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"(?i)offline|stale\"} or agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"offline|stale\"}) == 1) or vector(0)",
+          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"offline|stale\"} == 1)",
           "legendFormat": "Оффлайн",
           "range": true,
           "refId": "A"
@@ -319,7 +319,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or sum(agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or vector(0)",
+          "expr": "sum(replicator_agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"})",
           "legendFormat": "Активные трансферы",
           "range": true,
           "refId": "A"
@@ -381,7 +381,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or sum(agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or vector(0)",
+          "expr": "sum(replicator_agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"})",
           "legendFormat": "Передано данных",
           "range": true,
           "refId": "A"
@@ -447,7 +447,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or sum(agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}) or vector(0)",
+          "expr": "sum(replicator_agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"})",
           "legendFormat": "Ошибки",
           "range": true,
           "refId": "A"
@@ -554,7 +554,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"(?i)online\"} or agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=\"online\"}",
+          "expr": "replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=\"online\"}",
           "legendFormat": "{{agent_id}} ({{cluster_id}}, mode={{mode}})",
           "range": true,
           "refId": "A"
@@ -661,7 +661,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"} or agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
+          "expr": "replicator_agent_active_transfers{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
           "legendFormat": "{{agent_id}} ({{cluster_id}})",
           "range": true,
           "refId": "A"
@@ -756,7 +756,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval]) or rate(agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval])",
+          "expr": "rate(replicator_agent_transferred_bytes_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval])",
           "legendFormat": "{{agent_id}} ({{cluster_id}})",
           "range": true,
           "refId": "A"
@@ -862,7 +862,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_agent_max_bandwidth_mb_s{cluster_id=~\"$cluster\", agent_id=~\"$agent\"} or agent_max_bandwidth_mb_s{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
+          "expr": "replicator_agent_max_bandwidth_mb_s{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
           "legendFormat": "{{agent_id}} limit",
           "range": true,
           "refId": "A"
@@ -931,7 +931,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_agent_heartbeat_age_seconds{cluster_id=~\"$cluster\", agent_id=~\"$agent\"} or agent_heartbeat_age_seconds{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
+          "expr": "replicator_agent_heartbeat_age_seconds{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}",
           "legendFormat": "{{agent_id}}",
           "range": true,
           "refId": "A"
@@ -1042,7 +1042,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval]) or rate(agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval])",
+          "expr": "rate(replicator_agent_errors_total{cluster_id=~\"$cluster\", agent_id=~\"$agent\"}[$__rate_interval])",
           "legendFormat": "{{agent_id}} ошибки/сек",
           "range": true,
           "refId": "A"

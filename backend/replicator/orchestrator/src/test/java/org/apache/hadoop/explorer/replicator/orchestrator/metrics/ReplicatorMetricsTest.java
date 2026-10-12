@@ -13,6 +13,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -55,6 +56,7 @@ public class ReplicatorMetricsTest {
                 .andExpect(content().string(containsString("replicator_bytes_total")))
                 .andExpect(content().string(containsString("replicator_jobs_total")))
                 .andExpect(content().string(containsString("replicator_active_workers")))
+                .andExpect(content().string(containsString("replicator_active_agents")))
                 .andExpect(content().string(containsString("replicator_throttling_delay_seconds_total")))
                 .andExpect(content().string(containsString("replicator_hms_jobs_total")))
                 .andExpect(content().string(containsString("replicator_dr_cluster_fenced")))
@@ -63,19 +65,19 @@ public class ReplicatorMetricsTest {
                 .andExpect(content().string(containsString("replicator_agent_active_transfers{agent_id=\"agent-metrics-node1\"")))
                 .andExpect(content().string(containsString("replicator_agent_transferred_bytes_total{agent_id=\"agent-metrics-node1\"")))
                 .andExpect(content().string(containsString("replicator_agent_errors_total{agent_id=\"agent-metrics-node1\"")))
-                .andExpect(content().string(containsString("replicator_agent_transfer_errors_total{agent_id=\"agent-metrics-node1\"")))
                 .andExpect(content().string(containsString("replicator_agent_max_bandwidth_mb_s{agent_id=\"agent-metrics-node1\"")))
-                // Проверяем сохранение legacy-алиасов для 100% обратной совместимости
-                .andExpect(content().string(containsString("replication_bytes_total")))
-                .andExpect(content().string(containsString("replication_jobs_total")))
-                .andExpect(content().string(containsString("active_workers")))
-                .andExpect(content().string(containsString("throttling_delay_seconds_total")))
-                .andExpect(content().string(containsString("hms_replication_jobs_total")))
-                .andExpect(content().string(containsString("dr_cluster_fenced")))
-                .andExpect(content().string(containsString("agent_status{agent_id=\"agent-metrics-node1\"")))
-                .andExpect(content().string(containsString("agent_active_transfers{agent_id=\"agent-metrics-node1\"")))
-                .andExpect(content().string(containsString("agent_transferred_bytes_total{agent_id=\"agent-metrics-node1\"")))
-                .andExpect(content().string(containsString("agent_errors_total{agent_id=\"agent-metrics-node1\"")))
-                .andExpect(content().string(containsString("agent_max_bandwidth_mb_s{agent_id=\"agent-metrics-node1\"")));
+                // Убеждаемся в отсутствии устаревших legacy-алиасов
+                .andExpect(content().string(not(containsString("# HELP replication_bytes_total"))))
+                .andExpect(content().string(not(containsString("# HELP replication_jobs_total"))))
+                .andExpect(content().string(not(containsString("# HELP replication_tasks_total"))))
+                .andExpect(content().string(not(containsString("# HELP active_workers"))))
+                .andExpect(content().string(not(containsString("# HELP active_agents"))))
+                .andExpect(content().string(not(containsString("# HELP throttling_delay_seconds_total"))))
+                .andExpect(content().string(not(containsString("# HELP hms_replication_jobs_total"))))
+                .andExpect(content().string(not(containsString("# HELP dr_cluster_fenced"))))
+                .andExpect(content().string(not(containsString("# HELP agent_status"))))
+                .andExpect(content().string(not(containsString("# HELP agent_active_transfers"))))
+                .andExpect(content().string(not(containsString("# HELP agent_transferred_bytes_total"))))
+                .andExpect(content().string(not(containsString("# HELP agent_errors_total"))));
     }
 }

@@ -121,7 +121,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_hms_jobs_total) or sum(hms_replication_jobs_total) or vector(0)",
+          "expr": "sum(replicator_hms_jobs_total)",
           "legendFormat": "Всего схем HMS",
           "range": true,
           "refId": "A"
@@ -187,7 +187,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_jobs_total{status=\"BOOTSTRAPPING\"} or hms_replication_jobs_total{status=\"BOOTSTRAPPING\"} or vector(0)",
+          "expr": "replicator_hms_jobs_total{status=\"BOOTSTRAPPING\"}",
           "legendFormat": "Bootstrap",
           "range": true,
           "refId": "A"
@@ -249,7 +249,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_jobs_total{status=\"STREAMING\"} or hms_replication_jobs_total{status=\"STREAMING\"} or vector(0)",
+          "expr": "replicator_hms_jobs_total{status=\"STREAMING\"}",
           "legendFormat": "CDC Streaming",
           "range": true,
           "refId": "A"
@@ -315,7 +315,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_speed_bytes_per_second or hms_replication_speed_bytes_per_second or vector(0)",
+          "expr": "replicator_hms_speed_bytes_per_second",
           "legendFormat": "Скорость Bootstrap",
           "range": true,
           "refId": "A"
@@ -381,7 +381,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_cluster_fenced{cluster_id=\"dc1\"} or dr_cluster_fenced{cluster_id=\"dc1\"} or vector(0)",
+          "expr": "replicator_dr_cluster_fenced{cluster_id=\"dc1\"}",
           "legendFormat": "DC1 Fenced",
           "range": true,
           "refId": "A"
@@ -447,7 +447,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_cluster_fenced{cluster_id=\"dc2\"} or dr_cluster_fenced{cluster_id=\"dc2\"} or vector(0)",
+          "expr": "replicator_dr_cluster_fenced{cluster_id=\"dc2\"}",
           "legendFormat": "DC2 Fenced",
           "range": true,
           "refId": "A"
@@ -530,7 +530,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((replicator_hms_tables_total{type=\"replicated\"} or hms_replication_tables_total{type=\"replicated\"} or vector(0)) / (replicator_hms_tables_total{type=\"total\"} or hms_replication_tables_total{type=\"total\"} or vector(1))) * 100",
+          "expr": "(replicator_hms_tables_total{type=\"replicated\"} / replicator_hms_tables_total{type=\"total\"}) * 100",
           "legendFormat": "Прогресс таблиц",
           "range": true,
           "refId": "A"
@@ -601,7 +601,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((replicator_hms_partitions_total{type=\"replicated\"} or hms_replication_partitions_total{type=\"replicated\"} or vector(0)) / (replicator_hms_partitions_total{type=\"total\"} or hms_replication_partitions_total{type=\"total\"} or vector(1))) * 100",
+          "expr": "(replicator_hms_partitions_total{type=\"replicated\"} / replicator_hms_partitions_total{type=\"total\"}) * 100",
           "legendFormat": "Прогресс партиций",
           "range": true,
           "refId": "A"
@@ -696,7 +696,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_speed_bytes_per_second or hms_replication_speed_bytes_per_second or vector(0)",
+          "expr": "replicator_hms_speed_bytes_per_second",
           "legendFormat": "Скорость передачи данных таблиц",
           "range": true,
           "refId": "A"
@@ -802,7 +802,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_jobs_total or hms_replication_jobs_total",
+          "expr": "replicator_hms_jobs_total",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -896,7 +896,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_tables_total or hms_replication_tables_total",
+          "expr": "replicator_hms_tables_total",
           "legendFormat": "Таблицы ({{type}})",
           "range": true,
           "refId": "A"
@@ -907,7 +907,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_partitions_total or hms_replication_partitions_total",
+          "expr": "replicator_hms_partitions_total",
           "legendFormat": "Партиции ({{type}})",
           "range": true,
           "refId": "B"
@@ -1017,7 +1017,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_cluster_fenced or dr_cluster_fenced",
+          "expr": "replicator_dr_cluster_fenced",
           "legendFormat": "{{cluster_id}} (1=Fenced, 0=Active)",
           "range": true,
           "refId": "A"
@@ -1111,7 +1111,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_reverse_jobs_total or dr_reverse_jobs_total",
+          "expr": "replicator_dr_reverse_jobs_total",
           "legendFormat": "Обратная репликация ({{status}})",
           "range": true,
           "refId": "A"

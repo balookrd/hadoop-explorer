@@ -1174,7 +1174,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_bytes_total[$interval])) or sum(rate(replication_bytes_total[$interval])) or vector(0)",
+          "expr": "sum(rate(replicator_bytes_total[$interval]))",
           "legendFormat": "Скорость",
           "range": true,
           "refId": "A"
@@ -1240,7 +1240,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "replicator_active_workers or active_workers or vector(0)",
+          "expr": "replicator_active_workers",
           "legendFormat": "Воркеры",
           "range": true,
           "refId": "A"
@@ -1310,7 +1310,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$interval])) or sum(rate(throttling_delay_seconds_total[$interval])) or vector(0)",
+          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$interval]))",
           "legendFormat": "Задержка",
           "range": true,
           "refId": "A"
@@ -1372,7 +1372,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"}) or sum(replicator_jobs_total{mode=\"scheduled\"}) or sum(replication_jobs_total{status=\"SCHEDULED\"}) or sum(replication_jobs_total{mode=\"scheduled\"}) or vector(0)",
+          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"})",
           "legendFormat": "Запланировано",
           "range": true,
           "refId": "A"
@@ -1447,7 +1447,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(replicator_bytes_total[$interval])) or sum by (status) (rate(replication_bytes_total[$interval]))",
+          "expr": "sum by (status) (rate(replicator_bytes_total[$interval]))",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1513,7 +1513,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total) or sum by (status) (replication_jobs_total)",
+          "expr": "sum by (status) (replicator_jobs_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"

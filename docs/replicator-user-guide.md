@@ -676,30 +676,29 @@ topology:
 
 Сервис экспортирует метрики на эндпоинте `/metrics` (порт 8005):
 
-| Каноническая метрика | Legacy-алиас | Тип | Описание |
-|---|---|---|---|
-| `replicator_bytes_total{status}` | `replication_bytes_total` | Counter | Общий объем переданных байт данных (`COMPLETED`, `IN_PROGRESS`) |
-| `replicator_jobs_total{status, mode}` | `replication_jobs_total` | Counter | Количество задач репликации по статусам и типу запуска (`manual`, `scheduled`) |
-| `replicator_tasks_total{status}` | `replication_tasks_total` | Counter | Распределенный пул пофайловых задач (`QUEUED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `SKIPPED`) |
-| `replicator_active_workers` | `active_workers` | Gauge | Количество зарегистрированных воркеров в пуле |
-| `replicator_active_agents` | — | Gauge | Число активных gRPC-агентов, доступных для передачи |
-| `replicator_file_size_bytes` | `replication_file_size_bytes` | Histogram | Распределение размеров реплицируемых файлов (бакеты 1M, 10M, 100M, 1G, 10G) |
-| `replicator_throttling_delay_seconds_total` | `throttling_delay_seconds_total` | Counter | Суммарная задержка воркеров из-за иерархического Token Bucket шейпера |
-| `replicator_throttling_delay_seconds` | `throttling_delay_seconds` | Gauge | Текущее время ожидания токенов шейпера полосы пропускания |
-| `replicator_throttling_global_limit_bytes_per_sec` | — | Gauge | Глобальный лимит пропускной способности WAN-канала в байтах/сек |
-| `replicator_hms_jobs_total{status}` | `hms_replication_jobs_total` | Counter | Задачи репликации Hive Metastore (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CDC_STREAMING`) |
-| `replicator_hms_tables_total{status}` | — | Counter | Количество обработанных таблиц HMS по статусам репликации |
-| `replicator_hms_partitions_total{status}` | — | Counter | Количество обработанных партиций HMS по статусам репликации |
-| `replicator_hms_speed_bytes_per_second` | — | Gauge | Текущая скорость передачи данных HMS-репликации (байт/сек) |
-| `replicator_dr_cluster_fenced{cluster_id}` | `dr_cluster_fenced` | Gauge | Статус изоляции кластера (Fencing / Kill-Switch: `0` = Active, `1` = Fenced/RO) |
-| `replicator_dr_reverse_jobs_total` | — | Counter | Количество созданных задач обратной синхронизации (Reverse Sync / Failback) |
-| `replicator_agent_status{agent_id, cluster_id, dc_id, status}` | `agent_status` | Gauge | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
-| `replicator_agent_active_transfers{agent_id}` | `agent_active_transfers` | Gauge | Число активных параллельных потоков передачи файлов на агенте |
-| `replicator_agent_transferred_bytes_total{agent_id}` | `agent_transferred_bytes_total` | Counter | Объем байт данных, фактически переданных агентом |
-| `replicator_agent_errors_total{agent_id}` | `agent_errors_total` | Counter | Количество ошибок передачи файлов на стороне агента |
-| `replicator_agent_transfer_errors_total{agent_id}` | — | Counter | Алиас счетчика ошибок агента (для дашбордов Grafana) |
-| `replicator_agent_heartbeat_age_seconds{agent_id}` | `agent_heartbeat_age_seconds` | Gauge | Задержка в секундах с момента последнего keepalive от агента |
-| `replicator_agent_max_bandwidth_mb_s{agent_id}` | `agent_max_bandwidth_mb_s` | Gauge | Локальный лимит полосы пропускания агента (МБ/с) |
+| Метрика | Тип | Описание |
+|---|---|---|
+| `replicator_bytes_total{status}` | Counter | Общий объем переданных байт данных (`COMPLETED`, `IN_PROGRESS`, `FAILED`) |
+| `replicator_jobs_total{status, mode}` | Gauge | Количество задач репликации по статусам и типу запуска (`manual`, `scheduled`) |
+| `replicator_tasks_total{status}` | Gauge | Распределенный пул пофайловых задач (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`) |
+| `replicator_active_workers` | Gauge | Количество зарегистрированных воркеров в пуле |
+| `replicator_active_agents{status}` | Gauge | Число доступных gRPC-агентов (`online`, `total`) |
+| `replicator_file_size_bytes` | Histogram | Распределение размеров реплицируемых файлов |
+| `replicator_throttling_delay_seconds_total` | Counter | Суммарная задержка воркеров из-за иерархического Token Bucket шейпера |
+| `replicator_throttling_delay_seconds` | Gauge | Текущее накопленное время ожидания токенов шейпера полосы пропускания |
+| `replicator_throttling_global_limit_bytes_per_sec` | Gauge | Глобальный лимит пропускной способности WAN-канала в байтах/сек |
+| `replicator_hms_jobs_total{status}` | Gauge | Задачи репликации Hive Metastore (`BOOTSTRAPPING`, `STREAMING`, `WAITING_FOR_AGENTS`, `COMPLETED`, `FAILED`) |
+| `replicator_hms_tables_total{type}` | Gauge | Количество таблиц HMS (`total`, `replicated`) |
+| `replicator_hms_partitions_total{type}` | Gauge | Количество партиций таблиц HMS (`total`, `replicated`) |
+| `replicator_hms_speed_bytes_per_second` | Gauge | Текущая скорость передачи данных HMS-репликации (байт/сек) |
+| `replicator_dr_cluster_fenced{cluster_id}` | Gauge | Статус изоляции кластера (Fencing / Kill-Switch: `0` = Active, `1` = Fenced/RO) |
+| `replicator_dr_reverse_jobs_total{status}` | Gauge | Количество задач обратной синхронизации (Reverse Sync / Failback) |
+| `replicator_agent_status{agent_id, cluster_id, mode, status}` | Gauge | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
+| `replicator_agent_active_transfers{agent_id, cluster_id, mode}` | Gauge | Число активных параллельных потоков передачи файлов на агенте |
+| `replicator_agent_transferred_bytes_total{agent_id, cluster_id}` | Counter | Объем байт данных, фактически переданных агентом |
+| `replicator_agent_errors_total{agent_id, cluster_id}` | Counter | Количество ошибок передачи файлов на стороне агента |
+| `replicator_agent_heartbeat_age_seconds{agent_id, cluster_id}` | Gauge | Задержка в секундах с момента последнего keepalive от агента |
+| `replicator_agent_max_bandwidth_mb_s{agent_id, cluster_id}` | Gauge | Локальный лимит полосы пропускания HTB агента (МБ/с) |
 
 ### 9.1 Официальные дашборды Grafana
 
@@ -731,7 +730,7 @@ topology:
 
 ### Вопрос: Скорость репликации ниже ожидаемой
 - **Причина**: Срабатывает одно из звеньев иерархического шейпера (DC-DC limit, HDFS-HDFS limit или Global pool).
-- **Решение**: Проверьте счетчик `throttling_delay_seconds_total` в `/metrics` и при необходимости увеличьте лимит на вкладке «Топология ЦОД и Полоса».
+- **Решение**: Проверьте счетчик `replicator_throttling_delay_seconds_total` в `/metrics` и при необходимости увеличьте лимит на вкладке «Топология ЦОД и Полоса».
 
 ### Вопрос: Ошибка аутентификации Kerberos (GSSException)
 - **Причина**: Истек или не найден keytab для системного принципала.

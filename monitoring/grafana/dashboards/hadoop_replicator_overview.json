@@ -164,7 +164,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_bytes_total{status=\"IN_PROGRESS\"}[$__rate_interval])) or sum(rate(replicator_bytes_total[$__rate_interval])) or sum(rate(replication_bytes_total{status=\"IN_PROGRESS\"}[$__rate_interval])) or vector(0)",
+          "expr": "sum(rate(replicator_bytes_total{status=\"IN_PROGRESS\"}[$__rate_interval]))",
           "legendFormat": "Скорость",
           "range": true,
           "refId": "A"
@@ -226,7 +226,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_bytes_total{status=\"COMPLETED\"}) or sum(replicator_bytes_total) or sum(replication_bytes_total{status=\"COMPLETED\"}) or vector(0)",
+          "expr": "sum(replicator_bytes_total{status=\"COMPLETED\"})",
           "legendFormat": "Объем",
           "range": true,
           "refId": "A"
@@ -292,7 +292,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_active_workers or active_workers or vector(0)",
+          "expr": "replicator_active_workers",
           "legendFormat": "Воркеры",
           "range": true,
           "refId": "A"
@@ -362,7 +362,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$__rate_interval])) or sum(rate(throttling_delay_seconds_total[$__rate_interval])) or vector(0)",
+          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$__rate_interval]))",
           "legendFormat": "Задержка",
           "range": true,
           "refId": "A"
@@ -424,7 +424,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=~\"RUNNING|QUEUED|IN_PROGRESS\"}) or sum(replication_jobs_total{status=~\"RUNNING|QUEUED|IN_PROGRESS\"}) or vector(0)",
+          "expr": "sum(replicator_jobs_total{status=~\"RUNNING|QUEUED\"})",
           "legendFormat": "Активные задачи",
           "range": true,
           "refId": "A"
@@ -486,7 +486,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"}) or sum(replicator_jobs_total{mode=\"scheduled\"}) or sum(replication_jobs_total{status=\"SCHEDULED\"}) or vector(0)",
+          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"})",
           "legendFormat": "Запланировано",
           "range": true,
           "refId": "A"
@@ -516,7 +516,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_status{status=~\"(?i)online\"}) or count(replicator_agent_status) or count(agent_status) or vector(0)",
+          "expr": "sum(replicator_agent_status{status=\"online\"})",
           "legendFormat": "Онлайн",
           "range": true,
           "refId": "A"
@@ -582,7 +582,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_errors_total) or sum(replicator_agent_transfer_errors_total) or sum(agent_errors_total) or vector(0)",
+          "expr": "sum(replicator_agent_errors_total)",
           "legendFormat": "Ошибок",
           "range": true,
           "refId": "A"
@@ -648,7 +648,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_tasks_total{status=\"QUEUED\"}) or sum(replication_tasks_total{status=\"QUEUED\"}) or vector(0)",
+          "expr": "sum(replicator_tasks_total{status=\"QUEUED\"})",
           "legendFormat": "В очереди",
           "range": true,
           "refId": "A"
@@ -718,7 +718,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_tasks_total{status=~\"RUNNING|IN_PROGRESS\"}) or sum(replication_tasks_total{status=~\"RUNNING|IN_PROGRESS\"}) or vector(0)",
+          "expr": "sum(replicator_tasks_total{status=\"RUNNING\"})",
           "legendFormat": "В процессе",
           "range": true,
           "refId": "A"
@@ -784,7 +784,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_hms_jobs_total{status=~\"RUNNING|STREAMING|CDC_STREAMING|BOOTSTRAPPING\"}) or sum(hms_replication_jobs_total{status=~\"RUNNING|STREAMING|CDC_STREAMING|BOOTSTRAPPING\"}) or vector(0)",
+          "expr": "sum(replicator_hms_jobs_total{status=~\"RUNNING|STREAMING|BOOTSTRAPPING\"})",
           "legendFormat": "HMS активны",
           "range": true,
           "refId": "A"
@@ -850,7 +850,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_cluster_fenced or dr_cluster_fenced or vector(0)",
+          "expr": "replicator_dr_cluster_fenced",
           "legendFormat": "Fencing",
           "range": true,
           "refId": "A"
@@ -1006,7 +1006,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(replicator_bytes_total[$__rate_interval])) or sum by (status) (rate(replication_bytes_total[$__rate_interval]))",
+          "expr": "sum by (status) (rate(replicator_bytes_total[$__rate_interval]))",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1096,7 +1096,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_bytes_total) or sum by (status) (replication_bytes_total)",
+          "expr": "sum by (status) (replicator_bytes_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1208,7 +1208,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_throttling_delay_seconds_total[$__rate_interval]) or rate(throttling_delay_seconds_total[$__rate_interval])",
+          "expr": "rate(replicator_throttling_delay_seconds_total[$__rate_interval])",
           "legendFormat": "Суммарная задержка троттлинга (с/с)",
           "range": true,
           "refId": "A"
@@ -1278,7 +1278,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_throttling_delay_seconds_total[1m]) or rate(throttling_delay_seconds_total[1m]) or vector(0)",
+          "expr": "rate(replicator_throttling_delay_seconds_total[1m])",
           "legendFormat": "Текущая задержка",
           "range": true,
           "refId": "A"
@@ -1439,7 +1439,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total) or sum by (status) (replication_jobs_total)",
+          "expr": "sum by (status) (replicator_jobs_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1543,7 +1543,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (mode) (replicator_jobs_total) or sum by (mode) (replication_jobs_total)",
+          "expr": "sum by (mode) (replicator_jobs_total)",
           "legendFormat": "{{mode}}",
           "range": true,
           "refId": "A"
@@ -1573,7 +1573,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_tasks_total) or sum by (status) (replication_tasks_total)",
+          "expr": "sum by (status) (replicator_tasks_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1700,7 +1700,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_hms_jobs_total) or sum by (status) (hms_replication_jobs_total)",
+          "expr": "sum by (status) (replicator_hms_jobs_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1901,7 +1901,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (le) (rate(replicator_file_size_bytes_bucket[$__rate_interval])) or sum by (le) (rate(replication_file_size_bytes_bucket[$__rate_interval]))",
+          "expr": "sum by (le) (rate(replicator_file_size_bytes_bucket[$__rate_interval]))",
           "legendFormat": "<= {{le}} байт",
           "range": true,
           "refId": "A"
@@ -2010,7 +2010,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "process_resident_memory_bytes{job=~\"hadoop-replicator|replicator\"} or process_resident_memory_bytes or vector(0)",
+          "expr": "process_resident_memory_bytes{job=~\"hadoop-replicator|replicator\"}",
           "legendFormat": "Memory RSS",
           "range": true,
           "refId": "A"
@@ -2021,7 +2021,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(process_cpu_seconds_total{job=~\"hadoop-replicator|replicator\"}[$__rate_interval]) * 100 or rate(process_cpu_seconds_total[$__rate_interval]) * 100 or vector(0)",
+          "expr": "rate(process_cpu_seconds_total{job=~\"hadoop-replicator|replicator\"}[$__rate_interval]) * 100",
           "legendFormat": "CPU Usage",
           "range": true,
           "refId": "B"

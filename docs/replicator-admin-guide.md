@@ -1511,31 +1511,31 @@ spec:
 Оркестратор экспортирует полный спектр метрик передачи данных, пула задач, очередей, токен-бакета, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
 #### Метрики HDFS-репликации и задач
-- `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байт данных (legacy alias: `replication_bytes_total`).
-- `replicator_active_workers` — количество зарегистрированных активных воркеров в пуле (legacy alias: `active_workers`).
-- `replicator_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации (legacy alias: `active_agents`).
-- `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска (legacy alias: `replication_jobs_total`).
-- `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых сабтасок распределенного пула передачи (legacy alias: `replication_tasks_total`).
-- `replicator_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket; legacy alias: `throttling_delay_seconds_total`).
-- `replicator_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket (legacy alias: `throttling_delay_seconds`).
-- `replicator_throttling_global_limit_bytes_per_sec` — текущий глобальный лимит пропускной способности репликации (legacy alias: `throttling_global_limit_bytes_per_sec`).
-- `replicator_file_size_bytes` — бакеты распределения размеров файлов репликации (histogram; legacy alias: `replication_file_size_bytes`).
+- `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байт данных.
+- `replicator_active_workers` — количество зарегистрированных активных воркеров в пуле.
+- `replicator_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации.
+- `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска.
+- `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых сабтасок распределенного пула передачи.
+- `replicator_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
+- `replicator_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket.
+- `replicator_throttling_global_limit_bytes_per_sec` — текущий глобальный лимит пропускной способности репликации.
+- `replicator_file_size_bytes` — бакеты распределения размеров файлов репликации (histogram).
 
 #### Метрики Hive Metastore и Disaster Recovery
-- `replicator_hms_jobs_total{status="BOOTSTRAPPING|STREAMING|WAITING_FOR_AGENTS|COMPLETED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC; legacy alias: `hms_replication_jobs_total`).
-- `replicator_hms_tables_total{type="total|replicated"}` — количество таблиц в схемах HMS (legacy alias: `hms_replication_tables_total`).
-- `replicator_hms_partitions_total{type="total|replicated"}` — количество партиций таблиц HMS (legacy alias: `hms_replication_partitions_total`).
-- `replicator_hms_speed_bytes_per_second` — средняя скорость первичной синхронизации HMS (legacy alias: `hms_replication_speed_bytes_per_second`).
-- `replicator_dr_cluster_fenced{cluster_id="dc1|dc2"}` — флаг сетевого ограждения и аварийной изоляции кластера при активном Kill-Switch (`0` = нормальный режим / Active, `1` = изолирован / Fenced Read-Only; legacy alias: `dr_cluster_fenced`).
-- `replicator_dr_reverse_jobs_total{status="RUNNING|COMPLETED"}` — количество задач обратной репликации при аварийном переключении Failover (legacy alias: `dr_reverse_jobs_total`).
+- `replicator_hms_jobs_total{status="BOOTSTRAPPING|STREAMING|WAITING_FOR_AGENTS|COMPLETED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
+- `replicator_hms_tables_total{type="total|replicated"}` — количество таблиц в схемах HMS.
+- `replicator_hms_partitions_total{type="total|replicated"}` — количество партиций таблиц HMS.
+- `replicator_hms_speed_bytes_per_second` — средняя скорость первичной синхронизации HMS.
+- `replicator_dr_cluster_fenced{cluster_id="dc1|dc2"}` — флаг сетевого ограждения и аварийной изоляции кластера при активном Kill-Switch (`0` = нормальный режим / Active, `1` = изолирован / Fenced Read-Only).
+- `replicator_dr_reverse_jobs_total{status="RUNNING|COMPLETED"}` — количество задач обратной репликации при аварийном переключении Failover.
 
 #### Метрики флота gRPC-агентов (Fleet Telemetry)
-- `replicator_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline"}` — статус доступности агента (`1` при совпадении статуса, `0` в противном случае; legacy alias: `agent_status`).
-- `replicator_agent_active_transfers{agent_id="...", cluster_id="...", mode="..."}` — текущее количество активных рабочих передач у агента (legacy alias: `agent_active_transfers`).
-- `replicator_agent_transferred_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии; legacy alias: `agent_transferred_bytes_total`).
-- `replicator_agent_errors_total{agent_id="...", cluster_id="..."}` — суммарное число ошибок передачи файлов на стороне агента (legacy alias: `agent_errors_total`, `replicator_agent_transfer_errors_total`).
-- `replicator_agent_heartbeat_age_seconds{agent_id="...", cluster_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента (legacy alias: `agent_heartbeat_age_seconds`).
-- `replicator_agent_max_bandwidth_mb_s{agent_id="...", cluster_id="..."}` — выделенный локальный лимит полосы пропускания HTB агента в МБ/с (legacy alias: `agent_max_bandwidth_mb_s`).
+- `replicator_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline"}` — статус доступности агента (`1` при совпадении статуса, `0` в противном случае).
+- `replicator_agent_active_transfers{agent_id="...", cluster_id="...", mode="..."}` — текущее количество активных рабочих передач у агента.
+- `replicator_agent_transferred_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии).
+- `replicator_agent_errors_total{agent_id="...", cluster_id="..."}` — суммарное число ошибок передачи файлов на стороне агента.
+- `replicator_agent_heartbeat_age_seconds{agent_id="...", cluster_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента.
+- `replicator_agent_max_bandwidth_mb_s{agent_id="...", cluster_id="..."}` — выделенный локальный лимит полосы пропускания HTB агента в МБ/с.
 
 ### 5.2 Дашборды Grafana
 
@@ -1559,7 +1559,7 @@ spec:
 
 #### 3. HMS Репликация и Disaster Recovery (`hadoop_replicator_hms_dr.json`)
 Файл: [`monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
-- 🛡️ **KPI отказоустойчивости (DR & Failover)**: статус Kill-Switch и сетевого ограждения Fencing (`dr_cluster_fenced`), активные CDC стримы, завершенные и упавшие задачи HMS.
+- 🛡️ **KPI отказоустойчивости (DR & Failover)**: статус Kill-Switch и сетевого ограждения Fencing (`replicator_dr_cluster_fenced`), активные CDC стримы, завершенные и упавшие задачи HMS.
 - 🛑 **Мониторинг Kill-Switch и Split-Brain Fencing**: временной график активации изоляции кластеров (0 = Normal, 1 = Fenced/RO).
 - 🧬 **Жизненный цикл задач HMS**: круговая диаграмма распределения статусов схем метаданных и таймлайн выполнения задач во времени.
 - ⚡ **Потоковый CDC и события Thrift**: динамика активных CDC потоков репликации `NOTIFICATION_LOG`.
