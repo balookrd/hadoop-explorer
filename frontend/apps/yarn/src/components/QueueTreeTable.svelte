@@ -152,6 +152,7 @@
           (draftItem?.partitions && draftItem.partitions[selectedPartition]) ||
           (row.node.partitions && row.node.partitions[selectedPartition])
         )}
+        {@const isFallbackPartition = !hasDirectPartition && selectedPartition !== 'DEFAULT'}
 
         {@const part = isNew
           ? (draftItem?.partitions[selectedPartition] || Object.values(draftItem?.partitions || {})[0])
@@ -190,7 +191,7 @@
         {@const isModeChanged = Boolean(draftItem && draftItem.resource_mode && draftItem.resource_mode !== liveMode)}
 
         <tr
-          class="border-b border-slate-100 dark:border-slate-800/60 hover:bg-sky-50/40 dark:hover:bg-sky-950/20 transition {isDraft ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''} {draftItem?.action === 'create' ? 'bg-emerald-50/40 dark:bg-emerald-950/20' : ''} {draftItem?.action === 'delete' ? 'bg-red-50/40 dark:bg-red-950/20 opacity-60' : ''}"
+          class="border-b border-slate-100 dark:border-slate-800/60 hover:bg-sky-50/40 dark:hover:bg-sky-950/20 transition {isDraft ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''} {draftItem?.action === 'create' ? 'bg-emerald-50/40 dark:bg-emerald-950/20' : ''} {draftItem?.action === 'delete' ? 'bg-red-50/40 dark:bg-red-950/20 opacity-60' : ''} {isFallbackPartition ? 'opacity-70 bg-slate-50/30 dark:bg-slate-900/20' : ''}"
         >
           <!-- Queue Name -->
           <td class="px-4 py-2" style="padding-left: {16 + row.level * 20}px">
@@ -221,8 +222,12 @@
               {/if}
 
               <span
-                class="font-semibold text-slate-800 dark:text-slate-200 cursor-help whitespace-nowrap"
-                title="Путь очереди: {row.node.path}"
+                class="cursor-help whitespace-nowrap {
+                  isFallbackPartition
+                    ? 'line-through text-slate-400 dark:text-slate-500 font-normal decoration-slate-400/80'
+                    : 'font-semibold text-slate-800 dark:text-slate-200'
+                }"
+                title="{row.node.path}{isFallbackPartition ? ` (не настроена в разделе ${selectedPartition}, действуют базовые квоты DEFAULT)` : ''}"
               >
                 {row.node.name}
               </span>
@@ -249,10 +254,10 @@
                 </div>
               {/if}
 
-              <!-- Configured Partitions Badges -->
+              <!-- Configured Partitions Badges (без избыточного DEFAULT) -->
               {#if configuredPartitions.some(p => p !== 'DEFAULT')}
-                <div class="flex items-center gap-1 shrink-0" title="Настроенные разделы (Partitions): {configuredPartitions.join(', ')}">
-                  {#each configuredPartitions as partName}
+                <div class="flex items-center gap-1 shrink-0" title="Настроенные разделы (Partitions): {configuredPartitions.filter(p => p !== 'DEFAULT').join(', ')}">
+                  {#each configuredPartitions.filter(p => p !== 'DEFAULT') as partName}
                     <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold whitespace-nowrap {
                       partName === selectedPartition
                         ? 'bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-400'
@@ -262,12 +267,6 @@
                     </span>
                   {/each}
                 </div>
-              {/if}
-
-              {#if !hasDirectPartition && selectedPartition !== 'DEFAULT'}
-                <span class="text-[9px] px-1.5 py-0.2 rounded text-slate-400 dark:text-slate-500 font-sans italic bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 whitespace-nowrap shrink-0" title="Для раздела {selectedPartition} нет индивидуальных квот, действуют квоты из раздела DEFAULT">
-                  fallback DEFAULT
-                </span>
               {/if}
             </div>
           </td>
@@ -345,7 +344,7 @@
                     <span class="font-bold text-slate-900 dark:text-slate-100">{draftCap.toFixed(1)}%</span>
                     <span class="text-[10px] {deltaClass(liveCap, draftCap)} font-mono">({formatDelta(liveCap, draftCap)})</span>
                   {:else}
-                    <span class="text-slate-900 dark:text-slate-100 font-semibold">{liveCap.toFixed(1)}%</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-900 dark:text-slate-100 font-semibold'}">{liveCap.toFixed(1)}%</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -370,7 +369,7 @@
                       </span>
                     {/if}
                   {:else}
-                    <span class="text-slate-900 dark:text-slate-100 font-semibold">{formatMemory(liveMemMb)}</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-900 dark:text-slate-100 font-semibold'}">{formatMemory(liveMemMb)}</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -399,7 +398,7 @@
                     <span class="font-bold text-slate-900 dark:text-slate-100">{draftVcore.toFixed(1)}%</span>
                     <span class="text-[10px] {deltaClass(liveVcore, draftVcore)} font-mono">({formatDelta(liveVcore, draftVcore)})</span>
                   {:else}
-                    <span class="text-slate-900 dark:text-slate-100 font-semibold">{liveVcore.toFixed(1)}%</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-900 dark:text-slate-100 font-semibold'}">{liveVcore.toFixed(1)}%</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -424,7 +423,7 @@
                       </span>
                     {/if}
                   {:else}
-                    <span class="text-slate-900 dark:text-slate-100 font-semibold">{formatVcores(liveVcoresVal)}</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-900 dark:text-slate-100 font-semibold'}">{formatVcores(liveVcoresVal)}</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -453,7 +452,7 @@
                     <span class="font-bold text-slate-900 dark:text-slate-100">{draftMaxCap.toFixed(1)}%</span>
                     <span class="text-[10px] {deltaClass(liveMaxCap, draftMaxCap)} font-mono">({formatDelta(liveMaxCap, draftMaxCap)})</span>
                   {:else}
-                    <span class="text-slate-700 dark:text-slate-300 font-medium">{liveMaxCap.toFixed(1)}%</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-700 dark:text-slate-300 font-medium'}">{liveMaxCap.toFixed(1)}%</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -478,7 +477,7 @@
                       </span>
                     {/if}
                   {:else}
-                    <span class="text-slate-700 dark:text-slate-300 font-medium">{formatMemory(liveMaxMemMb)}</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-700 dark:text-slate-300 font-medium'}">{formatMemory(liveMaxMemMb)}</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -507,7 +506,7 @@
                     <span class="font-bold text-slate-900 dark:text-slate-100">{draftMaxVcore.toFixed(1)}%</span>
                     <span class="text-[10px] {deltaClass(liveMaxVcore, draftMaxVcore)} font-mono">({formatDelta(liveMaxVcore, draftMaxVcore)})</span>
                   {:else}
-                    <span class="text-slate-700 dark:text-slate-300 font-medium">{liveMaxVcore.toFixed(1)}%</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-700 dark:text-slate-300 font-medium'}">{liveMaxVcore.toFixed(1)}%</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">
@@ -532,7 +531,7 @@
                       </span>
                     {/if}
                   {:else}
-                    <span class="text-slate-700 dark:text-slate-300 font-medium">{formatVcores(liveMaxVcoresVal)}</span>
+                    <span class="{isFallbackPartition ? 'text-slate-400 dark:text-slate-500 font-normal' : 'text-slate-700 dark:text-slate-300 font-medium'}">{formatVcores(liveMaxVcoresVal)}</span>
                   {/if}
                 </div>
                 <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans flex items-center justify-end gap-1 whitespace-nowrap leading-tight mt-0.5">

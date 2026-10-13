@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { QueueNode, DraftQueueItem, PartitionResourceConfig } from '../types';
-  import { X, RotateCcw, Save, HardDrive, Cpu, Link, Unlink, Percent, Hash, AlertCircle, Users, Layers } from 'lucide-svelte';
+  import { X, RotateCcw, Save, HardDrive, Cpu, Link, Unlink, Percent, Hash, AlertCircle, Users, Layers, Info, CheckCircle2, Trash2 } from 'lucide-svelte';
   import { formatMemory, formatVcores, mbToGb, gbToMb } from '../utils/resourceUtils';
 
   let {
@@ -72,8 +72,65 @@
   let activePartition = $state('');
   let stagedPartitions = $state<Record<string, PartitionResourceConfig>>({});
 
+  function isPartitionConfigured(partName: string): boolean {
+    if (partName === 'DEFAULT') return true;
+    return Boolean(stagedPartitions[partName]);
+  }
+
+  function enablePartition(partName: string) {
+    if (!queue) return;
+    const basePart = stagedPartitions['DEFAULT'] || (queue.partitions && queue.partitions['DEFAULT']) || Object.values(queue.partitions || {})[0];
+    const initialCap = basePart ? (basePart.memory_percent ?? basePart.capacity) : 0;
+    const initialMax = basePart ? (basePart.max_memory_percent ?? basePart.max_capacity) : 100;
+    const newConfig: PartitionResourceConfig = {
+      partition_name: partName,
+      capacity: initialCap,
+      max_capacity: initialMax,
+      is_elastic: initialMax > initialCap,
+      elasticity_ratio: initialCap > 0 ? Math.round((initialMax / initialCap) * 100) / 100 : 1,
+      memory_mb: Math.round(totalMem * (initialCap / 100)),
+      vcores: Math.round(totalCores * (initialCap / 100)),
+      max_memory_mb: Math.round(totalMem * (initialMax / 100)),
+      max_vcores: Math.round(totalCores * (initialMax / 100)),
+      memory_percent: initialCap,
+      vcore_percent: initialCap,
+      max_memory_percent: initialMax,
+      max_vcore_percent: initialMax,
+      absolute_resources: {
+        memory_mb: Math.round(totalMem * (initialCap / 100)),
+        vcores: Math.round(totalCores * (initialCap / 100)),
+      },
+      absolute_max_resources: {
+        memory_mb: Math.round(totalMem * (initialMax / 100)),
+        vcores: Math.round(totalCores * (initialMax / 100)),
+      }
+    };
+    stagedPartitions = { ...stagedPartitions, [partName]: newConfig };
+    if (!editAccessibleLabels.includes(partName) && !editAccessibleLabels.includes('*')) {
+      editAccessibleLabels = [...editAccessibleLabels, partName];
+    }
+    initForm(false);
+  }
+
+  function disablePartition(partName: string) {
+    if (!queue || partName === 'DEFAULT') return;
+    const next = { ...stagedPartitions };
+    delete next[partName];
+    stagedPartitions = next;
+    initForm(false);
+  }
+
+  function ensureActivePartitionConfigured() {
+    if (activePartition !== 'DEFAULT' && !stagedPartitions[activePartition]) {
+      enablePartition(activePartition);
+    }
+  }
+
   function saveCurrentPartitionToStaged() {
     if (!queue) return;
+    if (activePartition !== 'DEFAULT' && !stagedPartitions[activePartition]) {
+      return;
+    }
     const currentPartConfig: PartitionResourceConfig = {
       partition_name: activePartition,
       capacity: editRamPercent,
@@ -189,6 +246,7 @@
 
   // Обновление RAM %
   function updateRamPercent(val: number) {
+    ensureActivePartitionConfigured();
     editRamPercent = val;
     editRamMb = Math.round(totalMem * (val / 100));
     editRamGb = mbToGb(editRamMb);
@@ -209,6 +267,7 @@
 
   // Обновление RAM GB
   function updateRamGb(gb: number) {
+    ensureActivePartitionConfigured();
     editRamGb = gb;
     editRamMb = gbToMb(gb);
     editRamPercent = totalMem > 0 ? Math.round((editRamMb / totalMem) * 1000) / 10 : 0;
@@ -229,6 +288,7 @@
 
   // Обновление vCPU %
   function updateVcorePercent(val: number) {
+    ensureActivePartitionConfigured();
     editVcorePercent = val;
     editVcores = Math.round(totalCores * (val / 100));
     if (isLinked) {
@@ -249,6 +309,7 @@
 
   // Обновление vCPU Cores
   function updateVcores(cores: number) {
+    ensureActivePartitionConfigured();
     editVcores = cores;
     editVcorePercent = totalCores > 0 ? Math.round((cores / totalCores) * 1000) / 10 : 0;
     if (isLinked) {
@@ -269,6 +330,7 @@
 
   // Обновление Max RAM %
   function updateMaxRamPercent(val: number) {
+    ensureActivePartitionConfigured();
     editMaxRamPercent = val;
     editMaxRamMb = Math.round(totalMem * (val / 100));
     editMaxRamGb = mbToGb(editMaxRamMb);
@@ -280,6 +342,7 @@
 
   // Обновление Max RAM GB
   function updateMaxRamGb(gb: number) {
+    ensureActivePartitionConfigured();
     editMaxRamGb = gb;
     editMaxRamMb = gbToMb(gb);
     editMaxRamPercent = totalMem > 0 ? Math.round((editMaxRamMb / totalMem) * 1000) / 10 : 0;
@@ -291,6 +354,7 @@
 
   // Обновление Max vCPU %
   function updateMaxVcorePercent(val: number) {
+    ensureActivePartitionConfigured();
     editMaxVcorePercent = val;
     editMaxVcores = Math.round(totalCores * (val / 100));
     if (isLinked) {
@@ -302,6 +366,7 @@
 
   // Обновление Max vCPU Cores
   function updateMaxVcores(cores: number) {
+    ensureActivePartitionConfigured();
     editMaxVcores = cores;
     editMaxVcorePercent = totalCores > 0 ? Math.round((cores / totalCores) * 1000) / 10 : 0;
     if (isLinked) {
@@ -470,26 +535,85 @@
     {/if}
 
     <!-- Partition Selector for Queue Resources -->
-    <div class="px-5 py-2 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
-      <div class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-        <Layers class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-        <span class="font-medium">Раздел для настройки:</span>
+    <div class="px-5 py-2.5 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 space-y-2">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+          <Layers class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span class="font-medium">Раздел для настройки:</span>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+          {#each availablePartitions as partName}
+            {@const isConfigured = isPartitionConfigured(partName)}
+            <button
+              type="button"
+              onclick={() => switchPartition(partName)}
+              class="px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer border flex items-center gap-1.5 {
+                activePartition === partName
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
+                  : isConfigured
+                    ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold'
+                    : 'bg-slate-100/70 dark:bg-slate-950/60 text-slate-400 dark:text-slate-500 border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-200/50 font-normal'
+              }"
+              title={
+                partName === 'DEFAULT'
+                  ? 'Базовый неразмеченный раздел кластера (всегда настроен)'
+                  : isConfigured
+                    ? `Раздел ${partName} настроен для очереди ${queue.name}`
+                    : `Раздел ${partName} не настроен для очереди ${queue.name} (наследуются квоты DEFAULT)`
+              }
+            >
+              <span class="w-1.5 h-1.5 rounded-full {
+                partName === 'DEFAULT' || isConfigured
+                  ? (activePartition === partName ? 'bg-white' : 'bg-emerald-500 dark:bg-emerald-400')
+                  : 'bg-slate-300 dark:bg-slate-600'
+              }"></span>
+              <span>{partName}</span>
+              {#if !isConfigured && partName !== 'DEFAULT'}
+                <span class="text-[9px] opacity-75 font-sans">(нет квот)</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
       </div>
-      <div class="flex items-center gap-1 flex-wrap">
-        {#each availablePartitions as partName}
-          <button
-            type="button"
-            onclick={() => switchPartition(partName)}
-            class="px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer border {
-              activePartition === partName
-                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium'
-            }"
-          >
-            {partName}
-          </button>
-        {/each}
-      </div>
+
+      <!-- Статус активного раздела -->
+      {#if activePartition !== 'DEFAULT'}
+        {@const isConfigured = isPartitionConfigured(activePartition)}
+        {#if !isConfigured}
+          <div class="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-2.5 text-xs">
+            <div class="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+              <Info class="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p class="font-medium">Раздел <strong>{activePartition}</strong> не настроен для этой очереди.</p>
+                <p class="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">Действуют базовые квоты из <code>DEFAULT</code>. Вы можете включить индивидуальные квоты памяти и ядер.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onclick={() => enablePartition(activePartition)}
+              class="shrink-0 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition shadow-xs cursor-pointer"
+            >
+              + Настроить раздел
+            </button>
+          </div>
+        {:else}
+          <div class="px-2.5 py-1.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200">
+            <span class="flex items-center gap-1.5">
+              <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Индивидуальные квоты для <strong>{activePartition}</strong> настроены</span>
+            </span>
+            <button
+              type="button"
+              onclick={() => disablePartition(activePartition)}
+              class="text-[11px] text-red-600 hover:text-red-700 dark:text-red-400 hover:underline cursor-pointer flex items-center gap-1"
+              title="Удалить квоты раздела и вернуть наследование из DEFAULT"
+            >
+              <Trash2 class="w-3 h-3" />
+              <span>Сбросить квоты</span>
+            </button>
+          </div>
+        {/if}
+      {/if}
     </div>
 
     <!-- Mode Switcher & Tools -->
