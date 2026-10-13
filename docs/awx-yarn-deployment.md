@@ -85,7 +85,7 @@ ansible/
 
 ### Ключевые особенности роли `yarn_capacity_scheduler`:
 1. **Безопасная передача содержимого**: XML передается через переменную `capacity_scheduler_xml_b64` в формате **Base64**. Это полностью исключает искажение кавычек, переносов строк и специальных символов JSON.
-2. **Pre-flight проверка**: Валидация структуры XML выполняется на стороне Runner перед любым изменением файлов на кластере.
+2. **Pre-flight-проверка**: Валидация структуры XML выполняется на стороне Runner перед любым изменением файлов на кластере.
 3. **Автоматический Rollback**: В случае ошибки команды `yarn rmadmin -refreshQueues` блок `rescue` автоматически возвращает файлы из резервной копии на всех серверах RM и повторно вызывает `refreshQueues`.
 
 ---
@@ -96,7 +96,7 @@ ansible/
 1. В боковом меню перейдите в **Administration → Credentials → Add**.
 2. **Name**: `YARN RM Deployer Key`
 3. **Credential Type**: `Machine`
-4. **Username**: `deployer` (пользователь с доступом по SSH на ноды RM).
+4. **Username**: `deployer` (пользователь с доступом по SSH на узлы RM).
 5. **SSH Private Key**: Закрытый ключ пользователя `deployer`.
 
 ### Шаг 2: Создание Inventory (Инвентарь)
@@ -192,7 +192,7 @@ yarn:
     # Токен доступа (рекомендуется передавать через переменную окружения AWX_TOKEN)
     token: "Ваш_Секретный_AWX_Токен"
     verify-ssl: true
-    # Дефолтный ID шаблона запуска в AWX
+    # Идентификатор (ID) шаблона запуска в AWX по умолчанию
     default-job-template-id: 101
     # Интервал опроса статуса выполнения задачи в секундах
     poll-interval-seconds: 2
@@ -209,7 +209,7 @@ yarn:
       # Индивидуальные параметры AWX для конкретного кластера:
       awx:
         enabled: true
-        job-template-id: 101 # Переопределяет default_job_template_id
+        job-template-id: 101 # Переопределяет default-job-template-id
       acl:
         roles:
           admin:
@@ -293,7 +293,7 @@ Content-Type: application/json
 
 ---
 
-## 7. Траблшутинг и диагностика
+## 7. Устранение неполадок и диагностика
 
 1. **Ошибка `Mandatory variable 'capacity_scheduler_xml_b64' is missing`**:
    * Проверьте, что в настройках Job Template в AWX включена опция **Prompt on launch** для поля **Variables**.
@@ -303,7 +303,7 @@ Content-Type: application/json
 3. **Ошибка `User yarn cannot run rmadmin -refreshQueues`**:
    * Проверьте список администраторов в `yarn-site.xml` (`yarn.admin.acl`).
 4. **Таймаут ожидания в API (`HTTP 504`)**:
-   * Если кластер насчитывает сотни узлов или сеть перегружена, увеличьте параметр `timeout_seconds` в `config.yaml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
+   * Если кластер насчитывает сотни узлов или сеть перегружена, увеличьте параметр `timeout-seconds` в `application.yml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
 
 ---
 

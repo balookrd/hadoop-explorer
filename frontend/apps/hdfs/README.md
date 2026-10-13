@@ -10,13 +10,13 @@
 frontend/apps/hdfs/
 ├── src/
 │   ├── lib/
-│   │   ├── api/                 # Клиент API (Fetch обертка, CSRF заголовки)
-│   │   ├── components/          # UI компоненты (FileList, Breadcrumbs, Modals)
+│   │   ├── api/                 # Клиент API (Fetch-обертка, CSRF-заголовки)
+│   │   ├── components/          # UI-компоненты (FileList, Breadcrumbs, Modals)
 │   │   │   └── Modals/          # Модальные окна (Upload, Mkdir, Delete, Preview, CrossClusterCopy)
 │   │   ├── stores/              # Реактивные состояния Svelte 5 (authStore, explorerStore)
-│   │   ├── types/               # TypeScript интерфейсы HDFS и пользователя
+│   │   ├── types/               # TypeScript-интерфейсы HDFS и пользователя
 │   │   └── utils/               # Утилиты форматирования размеров файлов и дат
-│   │   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
+│   │   (Компоненты Header с метками ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
 │   ├── App.svelte               # Корневой компонент интерфейса
 │   ├── app.css                  # Подключение Tailwind CSS v4 и theme.css
 │   └── main.ts                  # Точка входа приложения
@@ -25,7 +25,7 @@ frontend/apps/hdfs/
 │   ├── action_toolbar.test.ts   # Тесты тулбара (загрузка, папки, поиск, статистика)
 │   ├── batch_action_bar.test.ts # Тесты панели пакетных действий
 │   ├── file_list.test.ts        # Тесты таблицы файлов, сортировки и состояний
-│   └── modals.test.ts           # Тесты модалок Mkdir, Delete, Rename
+│   └── modals.test.ts           # Тесты модальных окон Mkdir, Delete, Rename
 ├── index.html                   # Базовый HTML-шаблон
 ├── package.json                 # Зависимости (@tailwindcss/vite, lucide-svelte, svelte)
 ├── tsconfig.json                # Конфигурация TypeScript
@@ -37,11 +37,11 @@ frontend/apps/hdfs/
 ## 🛡️ Безопасность фронтенда
 
 1. **Защита от XSS (Cross-Site Scripting)**:
-   - Сессионные токены не сохраняются в небезопасном `localStorage` и передаются через защищенные `HttpOnly` cookie.
+   - Сессионные токены не сохраняются в небезопасном `localStorage` и передаются через защищенные cookie-файлы `HttpOnly`.
 2. **Защита от CSRF**:
    - Каждый исходящий запрос автоматически снабжается заголовком `X-Requested-With: XMLHttpRequest` в API-клиенте.
 3. **Безопасный предпросмотр**:
-   - Предпросмотр содержимого файлов отображается как безопасный форматированный текст/таблица без интерпретации HTML (`sanitize`).
+   - Содержимое файлов при предпросмотре отображается в виде безопасного форматированного текста или таблицы без интерпретации HTML (с санитизацией).
 
 ---
 
@@ -69,7 +69,7 @@ npm run check
 npx vitest run apps/hdfs/tests
 ```
 
-### 5. Сборка production бандла
+### 5. Сборка production-бандла
 ```bash
 npm run build
 ```

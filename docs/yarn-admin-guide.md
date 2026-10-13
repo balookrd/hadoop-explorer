@@ -11,12 +11,12 @@
 
 ### 1.1 Назначение сервиса
 **YARN Explorer** — компонент платформы Hadoop Explorer, обеспечивающий:
-- Интерактивное визуальное управление очередями **Capacity Scheduler** (балансировка долей гарантированных и максимальных ресурсов, дочерние очереди).
-- Визуальный мониторинг утилизации ресурсов кластера (vCores, RAM) и очередей в режиме реального времени.
-- Автоматический **Failover при High Availability (RM HA)** между активным и резервным ResourceManager.
-- Процесс согласования изменений **Change Requests (принцип Four-Eyes)** с аудитом.
-- Автоматизированную доставку и применение `capacity-scheduler.xml` на кластер через **Ansible AWX / Tower API**.
-- Корпоративную аутентификацию по протоколам **LDAP / Active Directory** и **Kerberos SPNEGO SSO**.
+- интерактивное визуальное управление очередями **Capacity Scheduler** (балансировка долей гарантированных и максимальных ресурсов, дочерние очереди);
+- визуальный мониторинг утилизации ресурсов кластера (vCores, RAM) и очередей в режиме реального времени;
+- автоматическое переключение при сбое (Failover в режиме RM HA) между активным и резервным узлами ResourceManager;
+- согласование изменений по процессу **Change Requests** (принцип Four-Eyes) с аудитом;
+- автоматизированную доставку и применение `capacity-scheduler.xml` на кластер через **Ansible AWX / Tower API**;
+- корпоративную аутентификацию по протоколам **LDAP / Active Directory** и **Kerberos SPNEGO SSO**.
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
@@ -38,7 +38,7 @@
 - **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
 - **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
 - > [!IMPORTANT]
-  > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
+  > При установке из готовых релизов на целевых серверах Git, Apache Maven, Node.js и npm **не требуются**.
 
 #### Только для сборки из исходников (Build Environment):
 - JDK: `21 LTS`
@@ -231,7 +231,7 @@ sudo chmod 600 /etc/hadoop-explorer/yarn/application.yml
 sudo chown appuser:appuser /etc/hadoop-explorer/yarn/application.yml
 ```
 
-### Шаг 5: Создание systemd сервиса
+### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/yarn-explorer.service`:
 ```ini
 [Unit]
@@ -272,7 +272,7 @@ sudo systemctl start yarn-explorer
 # Проверка статуса
 sudo systemctl status yarn-explorer
 
-# Проверка healthcheck эндпоинта
+# Проверка healthcheck-эндпоинта
 curl -I http://127.0.0.1:8000/healthz
 # HTTP/1.1 200 OK
 
@@ -296,7 +296,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 # Атомарное переключение симлинка:
 ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
 
-# Перезапуск сервиса (занимает 2–3 сек):
+# Перезапуск сервиса (занимает 2–3 секунды):
 sudo systemctl restart yarn-explorer
 ```
 
@@ -437,7 +437,7 @@ kubectl create configmap krb5-config \
 
 #### Шаг 2: Файл параметров `custom-values.yaml`
 ```yaml
-# Количество реплик. При внешней PostgreSQL БД можно масштабировать до 2-5 реплик.
+# Количество реплик. При внешней БД PostgreSQL можно масштабировать до 2–5 реплик.
 replicaCount: 2
 
 image:
@@ -571,9 +571,9 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 | Симптом / Ошибка | Возможная причина | Решение |
 |---|---|---|
-| `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверить состояние RM HA: сервис автоматически переключится на standby. Проверьте список `resource-manager-urls` в конфиге. |
-| `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверить права доступа (`chmod 400`), соответствие principal и наличие файла `kinit -kt /path/to.keytab principal@REALM`. |
-| `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверить пароль сервисной учетной записи через `ldapsearch -H ldaps://... -D "..." -W`. |
+| `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверьте состояние RM HA: сервис автоматически переключится на standby-узел. Проверьте список `resource-manager-urls` в конфигурационном файле `application.yml`. |
+| `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверьте права доступа к keytab (`chmod 400`), корректность `principal` и наличие файла keytab, а также проверьте получение тикета командой `kinit -kt /path/to.keytab principal@REALM`. |
+| `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверьте пароль сервисной учетной записи (параметр `bind-password`) через `ldapsearch -H ldaps://... -D "..." -W`. |
 | Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | При масштабировании на 2+ реплики обязательно переключите `spring.datasource.url` на промышленный **PostgreSQL**. |
 | `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
 
@@ -602,7 +602,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
 
-### 7.1 Преимущества Java 21 реализации
+### 7.1 Преимущества реализации на Java 21
 1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
 2. **Capacity Scheduler Engine**: встроенная валидация веток и правила 100% емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
 3. **Change Requests & Four-Eyes Principle**: встроенный жизненный цикл согласования изменений с запретом самосогласования заявок автором (HTTP 403 Forbidden).
@@ -621,7 +621,7 @@ mvn test -f backend/yarn/pom.xml
 make build-yarn
 # Результат: backend/yarn/target/yarn-explorer-java-1.0.0.jar
 
-# Полная валидация всех Java компонентов платформы
+# Полная валидация всех Java-компонентов платформы
 make test-java
 ```
 

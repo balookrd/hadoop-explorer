@@ -11,8 +11,8 @@
 
 ### 1.1 Назначение сервиса
 **HDFS Explorer** — высокопроизводительный веб-менеджер файловой системы Apache Hadoop (HDFS), обеспечивающий:
-- Навигацию по каталогам, загрузку, выгрузку, удаление и перемещение файлов через **нативный клиент Hadoop FileSystem (RPC)** с поддержкой WebHDFS как fallback.
-- Автоматический **Failover при NameNode High Availability (HA)** с перехватом `StandbyException`.
+- Навигацию по каталогам, загрузку, выгрузку, удаление и перемещение файлов через **нативный клиент Hadoop FileSystem (RPC)** с поддержкой WebHDFS в качестве резервного механизма (fallback).
+- Автоматическое **отказоустойчивое переключение (Failover) при NameNode High Availability (HA)** с перехватом `StandbyException`.
 - Корпоративную сквозную аутентификацию **Kerberos SPNEGO SSO** с поддержкой Impersonation (`doAs`).
 - Интерактивный предпросмотр структурированных и текстовых форматов данных (**Parquet, ORC, CSV, TSV, JSON, XML, YAML, SQL, Logs**).
 - Отображение прав доступа **POSIX Permissions** (`rwxr-xr-x`) и атрибутов владения (`owner:group`).
@@ -22,8 +22,8 @@
 | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|
 | `8001` (или `8000`, `8002`) | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5) и REST API |
-| `8020` / `9000` | TCP (Hadoop IPC) | Outbound | NameNode RPC протокол (`fs.defaultFS`, метаданные, Active/Standby HA) |
-| `9866` / `50010` | TCP (DataTransfer) | Outbound | DataNode сокет-протокол передачи блоков данных (чтение/запись) |
+| `8020` / `9000` | TCP (Hadoop IPC) | Outbound | NameNode RPC-протокол (`fs.defaultFS`, метаданные, Active/Standby HA) |
+| `9866` / `50010` | TCP (DataTransfer) | Outbound | сокетный протокол передачи блоков данных DataNode (чтение/запись) |
 | `9870` / `50070` | HTTP/HTTPS | Outbound | WebHDFS REST API NameNode (опциональный fallback) |
 | `9864` / `50075` | HTTP/HTTPS | Outbound | DataNode WebHDFS streaming (опциональный fallback) |
 | `14000` | HTTP/HTTPS | Outbound | HttpFS Gateway (альтернатива WebHDFS) |
@@ -39,7 +39,7 @@
 - **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
 - **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
 - **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
-- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра` при частом чтении Parquet/ORC), RAM: `1 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
+- **Ресурсы на реплику**: CPU: `1 ядро` (рекомендуется `2 ядра` при частом чтении Parquet/ORC), RAM: `1 ГБ` (рекомендуется `2 ГБ`), Диск: `5–10 ГБ`.
 - > [!IMPORTANT]
   > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
 
@@ -50,7 +50,7 @@
 
 ### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
 - **GitHub Releases (`v${VERSION}`)**:
-  - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA, WebHDFS клиентом, просмотрщиком Parquet/ORC и драйверами БД;
+  - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat-JAR со встроенным веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
 - **GitHub Container Registry (GHCR)**:
   - `ghcr.io/company/hadoop-explorer/hdfs:${VERSION}`
@@ -103,7 +103,7 @@ sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log
 
 #### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
 
-В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+В готовый бинарный JAR уже включены скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
 
 ```bash
 sudo -u appuser -i
@@ -142,7 +142,7 @@ cd ..
 # Копирование статики фронтенда в ресурсы Spring Boot
 cp -r frontend/apps/hdfs/dist/* backend/hdfs/src/main/resources/static/
 
-# Сборка исполняемого Spring Boot fat JAR
+# Сборка исполняемого Spring Boot fat-JAR
 mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
@@ -161,7 +161,7 @@ spring:
   datasource:
     url: jdbc:h2:file:/var/lib/hadoop-explorer/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
-    # Для PostgreSQL кластера:
+    # Для PostgreSQL-кластера:
     # url: jdbc:postgresql://pg.company.local:5432/hdfs_explorer
     # username: hdfs_user
     # password: DbPassword123
@@ -228,7 +228,7 @@ sudo chmod 600 /etc/hadoop-explorer/hdfs/application.yml
 sudo chown appuser:appuser /etc/hadoop-explorer/hdfs/application.yml
 ```
 
-### Шаг 5: Создание systemd сервиса
+### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/hdfs-explorer.service`:
 ```ini
 [Unit]
@@ -285,10 +285,10 @@ curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${N
 curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
-# Атомарное переключение симлинка:
+# Атомарное переключение символической ссылки (симлинка):
 ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/hdfs/bin/hdfs-explorer.jar
 
-# Перезапуск сервиса (занимает 2–3 сек):
+# Перезапуск сервиса (занимает 2–3 с):
 sudo systemctl restart hdfs-explorer
 ```
 
@@ -525,7 +525,9 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ### 5.2 Решение инцидентов (FAQ)
 
-| `Payload Too Large (HTTP 413)` | Ограничение Ingress на размер загрузки | Увеличьте аннотацию `nginx.ingress.kubernetes.io/proxy-body-size: "1024m"`. |
+| Ошибка / Симптом | Причина | Решение |
+|---|---|---|
+| `Payload Too Large (HTTP 413)` | Ограничение Ingress на размер загрузки | Увеличьте значение аннотации `nginx.ingress.kubernetes.io/proxy-body-size: "1024m"`. |
 
 ---
 
@@ -533,8 +535,8 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 Бэкенд **HDFS Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs`), используя официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
-### 6.1 Преимущества Java 21 реализации
-1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.
+### 6.1 Преимущества реализации на Java 21
+1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC-протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.
 2. **Встроенный High Availability Failover**: поддержка автоматического переключения между Active/Standby NameNode через `ConfiguredFailoverProxyProvider`.
 3. **Нативный Kerberos GSS-API**: строгая изоляция контекстов и прозрачная doAs-имперсонация пользователя (`UserGroupInformation.createProxyUser`), гарантирующая полное соответствие политикам Apache Ranger.
 4. **Общее ядро безопасности `common-security-starter`**: единая сессионная модель (L1 Caffeine + L2 JDBC), CSRF Guard, Bucket4j Rate Limiting и AOP-аудит `@Audited`.
@@ -547,11 +549,11 @@ make test-hdfs
 # или
 mvn test -f backend/hdfs/pom.xml
 
-# Сборка исполняемого fat JAR
+# Сборка исполняемого fat-JAR
 make build-hdfs
 # Результат: backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
 
-# Полная валидация всех Java компонентов платформы
+# Полная валидация всех Java-компонентов платформы
 make test-java
 ```
 

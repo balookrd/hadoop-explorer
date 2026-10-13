@@ -61,7 +61,7 @@
 1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой Four-Eyes, а также автоматизированной доставкой и горячим применением (`yarn rmadmin -refreshQueues`) через **Ansible AWX** с автоматическим откатом (Rollback).
 2. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
 3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
-4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, визуальный DAG ETL конструктор с топологической валидацией циклов.
+4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, визуальный DAG/ETL-конструктор с топологической валидацией циклов.
 5. **Hadoop gRPC Replicator** — высокоскоростная межкластерная репликация HDFS (DC1 → DC2) с глобальным ограничением полосы пропускания (Hierarchical Token Bucket Throttler), бинарным gRPC-стримингом, атомарным staging/rename, инкрементальным Snapshot Diff, Kerberos-изоляцией (включая выполнение от системной техучетки) и метриками Prometheus.
 
 Каждое приложение реализовано на базе **Java 21 LTS** и **Spring Boot 3.3.4**, собирается в **независимый легковесный Docker-контейнер**, развертывается автономно или в составе единого **Umbrella Helm Chart**, а также запускается в собственном **раздельном демо-стенде**.
@@ -152,11 +152,11 @@ hadoop-explorer/
 - **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), поддержкой Sliding Sessions, автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
 - **Унифицированный UI/UX на Svelte 5 (Runes) & Tailwind CSS 4**:
   - Быстрая **виртуализация списков файлов** (`FileList.svelte`) с O(1) DOM-узлов для директорий любого объема.
-  - **Интерактивное изменение размера областей (Resizable Split Panes)** с перетаскиванием мыши и сохранением пропорций для боковых панелей каталогов, редактора кода и результатов в SQL и Spark Explorer.
+  - **Интерактивное изменение размера областей (Resizable Split Panes)** с перетаскиванием мышью и сохранением пропорций для боковых панелей каталогов, редактора кода и результатов в SQL и Spark Explorer.
   - **Lazy Loading (Code-Splitting)** всех тяжелых модальных окон и диалоговых панелей через асинхронные импорты.
   - **Унифицированное закрытие модальных окон** по клику вне диалога (Backdrop Overlay) и по нажатию клавиши `Escape`.
 - **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
-- **`components/`**: Переиспользуемые Svelte 5 компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и всплывающих уведомлений (`NotificationToast`).
+- **`components/`**: Переиспользуемые Svelte 5-компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и всплывающих уведомлений (`NotificationToast`).
 
 ---
 
@@ -188,7 +188,7 @@ hadoop-explorer/
 - **Безопасность и сбои**:
   - `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}` — аудит попыток аутентификации.
   - `hadoop_rate_limit_blocks_total{app="..."}` — количество заблокированных по частоте запросов (429).
-  - `hadoop_exceptions_total{app="...", exception_type="..."}` — учет непредвиденных 500 ошибок (CWE-209 защита).
+  - `hadoop_exceptions_total{app="...", exception_type="..."}` — учет непредвиденных ошибок HTTP 500 (защита от CWE-209).
 
 ### 2. Готовые дашборды для Grafana
 В репозитории подготовлен production-grade дашборд для визуализации состояния всей платформы:
@@ -278,7 +278,7 @@ mvn test
 
 В репозитории настроен автоматический CI/CD на базе GitHub Actions:
 - **Nightly Release** (`.github/workflows/nightly-release.yml`): при каждом коммите в ветку `main` автоматически прогоняет тесты, собирает JAR-пакеты, генерирует список изменений (`git-cliff`) и публикует pre-release с тегом `nightly`, прикрепляя все JAR-архивы и `SHA256SUMS.txt`.
-- **CI** (`.github/workflows/ci.yml`): на Pull Request и в ветках выполняет полную валидацию, модульные/интеграционные тесты и тестовую сборку пакетов.
+- **CI** (`.github/workflows/ci.yml`): при создании Pull Request и push в ветки выполняет полную валидацию, модульные/интеграционные тесты и тестовую сборку пакетов.
 - **Tag Release** (`.github/workflows/tag-release.yml`): при пуше тега `v*` выполняет релизную сборку и создает стабильный релиз на GitHub.
 - **Cleanup Artifacts** (`.github/workflows/cleanup-artifacts.yml`): ежедневная очистка устаревших артефактов Actions по расписанию.
 
@@ -288,7 +288,7 @@ mvn test
 
 Все образы базируются на легковесном образе `eclipse-temurin:21-jre-jammy`:
 1. Установка системных библиотек Kerberos (`krb5-user`).
-2. Копирование собранного Spring Boot Fat JAR и фронтенд статики.
+2. Копирование собранного Spring Boot Fat JAR и фронтенд-статики.
 3. Запуск под непривилегированным пользователем `appuser (UID 10001)`.
 
 ```bash
@@ -373,22 +373,22 @@ make helm-lint
 
 ## 🧪 Тестирование платформы
 
-Все тесты (**347 тестов**: 255 бэкенд + 92 Frontend UI Vitest) успешно проходят комплексную проверку:
-- **Frontend UI & Static Suite**: 92 теста Vitest + строгий `svelte-check` (статическая верификация контрактов и типов во всех 5 SPA, компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
-- **YARN Explorer**: 28 тестов (13 Java 21 + 15 Frontend UI: Capacity Scheduler валидация, балансировка, Draft Diff, XML Generation, RM HA failover, метрики кластера, Change Requests, Four-Eyes Principle, AWX деплой, аудит, L1 кэш токенов, Healthz, Circuit Breaker).
+Все тесты (**350 тестов**: 255 бэкенд + 95 Frontend UI Vitest) успешно проходят комплексную проверку:
+- **Frontend UI & Static Suite**: 95 тестов Vitest + строгий `svelte-check` (статическая верификация контрактов и типов во всех 5 SPA, компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
+- **YARN Explorer**: 28 тестов (13 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
 - **HDFS Explorer**: 44 теста (16 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
-- **SQL Explorer**: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
-- **Spark Explorer**: 24 теста (Livy клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
-- **Hadoop gRPC Replicator**: 38 тестов (Protobuf gRPC контракт, Hierarchical Token Bucket, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, Snapshot Diff парсер, Prometheus метрики, Cron Scheduler демон, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой, настраиваемая глубина истории `history_retention_runs` с авто-прунингом, RBAC изоляция задач, матрица доступности действий жизненного цикла, фильтрация по статусам и авторам).
+- **SQL Explorer**: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- **Spark Explorer**: 24 теста (Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic-валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
+- **Hadoop gRPC Replicator**: 38 тестов (Protobuf gRPC контракт, Hierarchical Token Bucket, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, статус `SCHEDULED` для периодических задач, полная история запусков `JobRun` со статистикой, настраиваемая глубина истории `history_retention_runs` с автопрунингом, RBAC-изоляция задач, матрица доступности действий жизненного цикла, фильтрация по статусам и авторам).
 
 ```bash
-# Запуск всех 347 тестов платформы (Backend + Frontend UI)
+# Запуск всех 350 тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
-make test-ui        # svelte-check по 5 SPA + 92 теста Vitest
+make test-ui        # svelte-check по 5 SPA + 95 тестов Vitest
 make frontend-check # проверка типов svelte-check
-make frontend-test  # юнит и компонентные тесты Vitest (92 теста)
+make frontend-test  # юнит и компонентные тесты Vitest (95 тестов)
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Тестирование бэкенда (Java 21 / Spring Boot 3):

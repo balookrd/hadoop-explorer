@@ -9,8 +9,8 @@
 ```
 frontend/apps/yarn/src/
 ├── api/                         # Клиент взаимодействия с REST API бэкенда
-│   └── client.ts                # HTTP клиент (Fetch + Bearer JWT, перехват 401)
-├── components/                  # UI компоненты
+│   └── client.ts                # HTTP-клиент (Fetch + Bearer JWT, перехват 401)
+├── components/                  # UI-компоненты
 │   ├── QueueTreeTable.svelte    # Главная древовидная таблица иерархии очередей и ресурсов
 │   ├── QueueEditDrawer.svelte   # Боковая панель детального редактирования очереди
 │   ├── AddQueueModal.svelte     # Модальное окно добавления дочерней очереди
@@ -25,12 +25,12 @@ frontend/apps/yarn/src/
 │   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
 ├── utils/                       # Утилиты форматирования и вычислений
 │   └── resourceUtils.ts         # Форматирование MB/GB/TB, ядер vCPU, пересчет квот и расчет баланса
-├── types.ts                     # TypeScript интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)
+├── types.ts                     # TypeScript-интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)
 ├── App.svelte                   # Корневой компонент приложения с роутингом состояний
-└── main.ts                      # Входная точка Svelte приложения
+└── main.ts                      # Точка входа Svelte-приложения
 frontend/apps/yarn/tests/        # Модульные и компонентные тесты (Vitest + Testing Library)
-├── cluster_metrics_bar.test.ts  # Тесты метрик кластера (память, ядра, ноды, контейнеры)
-├── partition_selector.test.ts   # Тесты селектора партиций нод
+├── cluster_metrics_bar.test.ts  # Тесты метрик кластера (память, ядра, узлы, контейнеры)
+├── partition_selector.test.ts   # Тесты селектора разделов (партиций) узлов
 ├── resource_balance_card.test.ts# Тесты балансировки долей и перераспределения
 ├── diff_panel.test.ts           # Тесты Unified Diff (Live vs Draft)
 └── modals.test.ts               # Тесты модальных окон AddQueueModal и XmlExportModal
@@ -42,7 +42,7 @@ frontend/apps/yarn/tests/        # Модульные и компонентны�
 
 1. **Реактивность Svelte 5 (Runes)**:
    - Использование `$state` для состояния очередей, черновиков (drafts) и активного кластера.
-   - Использование `$derived` для мгновенного пересчета суммарной емкости веток, RAM/vCPU и баланса инварианта 100%.
+   - Использование `$derived` для мгновенного пересчета суммарной емкости веток, RAM/vCPU и соблюдения инварианта баланса 100%.
 2. **Двусторонний автопересчет ресурсов**:
    - Переключение между процентами (%) и абсолютными физическими значениями (GB / vCores).
    - Связанный режим (**Linked Mode**): синхронное изменение памяти и вычислительных ядер.
@@ -62,7 +62,7 @@ frontend/apps/yarn/tests/        # Модульные и компонентны�
    - Постоянное отображение активного раздела в тулбаре и в заголовках колонок ресурсов таблицы.
    - Индикация сконфигурированных разделов очередей (`node.partitions`) и fallback-режима в `QueueTreeTable`.
    - Селектор настраиваемого раздела и независимое редактирование квот для каждого раздела прямо в `QueueEditDrawer`.
-   - Полное отслеживание изменений ресурсов по всем разделам, доступных меток (`accessible-node-labels`) и дефолтных меток (`default-node-label-expression`) в окне «Changes Review» (`DiffPanel`).
+   - Полное отслеживание изменений ресурсов по всем разделам, а также разрешенных меток (`accessible-node-labels`) и меток по умолчанию (`default-node-label-expression`) в окне «Changes Review» (`DiffPanel`).
 
 > 📖 **Руководство пользователя интерфейса**: [docs/yarn-user-guide.md](../../../docs/yarn-user-guide.md)  
 > 📖 **Техническое описание архитектуры доставки**: [docs/awx-yarn-deployment.md](../../../docs/awx-yarn-deployment.md)
