@@ -49,9 +49,9 @@
 graph LR
     User(["Пользователь / Аналитик"]) -->|"HTTPS / SSO"| Frontend["HDFS Explorer UI\nSvelte 5 + TailwindCSS"]
     Frontend -->|"REST API + JWT / Kerberos"| Gateway["HDFS Backend Gateway\nJava 21 / Spring Boot 3"]
-    Gateway -->|"WebHDFS + doAs impersonation"| NameNodeActive["NameNode Active"]
-    Gateway -.->|"Failover Switch"| NameNodeStandby["NameNode Standby"]
-    Gateway -->|"Streaming Read/Write"| DataNodes[("DataNodes Cluster")]
+    Gateway -->|"HDFS RPC + doAs impersonation"| NameNodeActive["NameNode Active"]
+    Gateway -.->|"HA Failover Switch"| NameNodeStandby["NameNode Standby"]
+    Gateway -->|"DataNode Data Transfer (RPC/Socket)"| DataNodes[("DataNodes Cluster")]
 ```
 
 ### Основные функциональные возможности:
@@ -61,8 +61,8 @@ graph LR
 - **👁️ Интеллектуальный предпросмотр файлов:** Автоматическое распознавание форматов CSV, TSV, JSON, XML, YAML, SQL, Python, Logs, а также колоночных форматов Apache Parquet и ORC без необходимости полного скачивания файла на локальный компьютер.
 - **📁 Пакетная загрузка и распаковка:** Поддержка Drag & Drop для файлов, рекурсивная загрузка целых локальных каталогов, а также потоковая загрузка ZIP-архивов с автоматической распаковкой на стороне кластера.
 - **📦 Скачивание каталогов «на лету»:** Генерация и потоковая отдача ZIP-архива с содержимым любой директории HDFS без создания временных файлов на диске сервера.
-- **🔄 Межкластерная репликация (Cross-Cluster Transfer):** Прямое копирование данных между кластерами в один клик.
-- **🔒 Корпоративная безопасность:** Аутентификация через Kerberos SPNEGO SSO / LDAP, ролевая модель доступа (RBAC), разграничение прав на уровне кластеров (Read-Only / Full-Access) и прозрачная трансляция учетных записей через механизм безопасного делегирования **WebHDFS `doAs` impersonation**.
+- **🔄 Межкластерная передача данных (Cross-Cluster Transfer):** Прямое потоковое копирование данных между кластерами в один клик через шлюз.
+- **🔒 Корпоративная безопасность:** Аутентификация через Kerberos SPNEGO SSO / LDAP, ролевая модель доступа (RBAC), разграничение прав на уровне кластеров (Read-Only / Full-Access) и прозрачная трансляция учетных записей через механизм безопасного делегирования **Hadoop UGI `doAs` impersonation**.
 
 ---
 
@@ -76,29 +76,29 @@ sequenceDiagram
     actor U as "Пользователь"
     participant UI as "HDFS Explorer UI"
     participant BE as "HDFS Backend Gateway (Java 21)"
-    participant NN as "HDFS NameNode (WebHDFS)"
-    participant DN as "HDFS DataNodes"
+    participant NN as "HDFS NameNode (RPC 8020/9000)"
+    participant DN as "HDFS DataNodes (DataTransfer 9866)"
 
     U->>UI: Переход в каталог /data
     UI->>BE: GET /api/v1/clusters/{cluster_id}/files?path=/data
-    BE->>NN: GET /webhdfs/v1/data?op=LISTSTATUS&doAs=username
-    NN-->>BE: 200 OK (FileStatuses JSON)
+    BE->>NN: RPC ClientProtocol.getListing("/data", doAs=username)
+    NN-->>BE: DirectoryListing (HdfsFileStatus[])
     BE-->>UI: DirectoryListingResponse (files, metadata, can_write)
     UI-->>U: Рендеринг таблицы файлов
 
     U->>UI: Запрос предпросмотра metrics.csv
-    UI->>BE: GET /api/v1/clusters/{cluster_id}/preview?path=/data/metrics.csv
-    BE->>NN: GET /webhdfs/v1/data/metrics.csv?op=OPEN&length=1048576&doAs=username
-    NN-->>BE: 307 Temporary Redirect to DataNode
-    BE->>DN: GET /webhdfs/v1/... from DataNode
-    DN-->>BE: Бинарный поток данных
-    BE->>BE: Парсинг структуры (CSV / Parquet / Text)
+    UI->>BE: GET /api/v1/clusters/{cluster_id}/files/preview?path=/data/metrics.csv
+    BE->>NN: RPC ClientProtocol.getBlockLocations("/data/metrics.csv", 0, 1048576)
+    NN-->>BE: LocatedBlocks (адреса DataNode с блоками)
+    BE->>DN: Сокетное соединение к DataNode (DataTransferProtocol / BlockReader)
+    DN-->>BE: Бинарный поток данных блока
+    BE->>BE: Парсинг структуры (CSV / Parquet / ORC / Text)
     BE-->>UI: FilePreviewResponse (таблица / текст)
     UI-->>U: Модальное окно предпросмотра
 ```
 
 > [!NOTE]
-> Серверный шлюз автоматически обрабатывает HTTP 307 редиректы от NameNode к DataNode, сохраняя Kerberos-билеты и параметры делегирования `doAs`, что исключает необходимость прямого сетевого доступа клиентских рабочих станций к сегменту DataNode.
+> Серверный шлюз использует нативный клиент Apache Hadoop (`NativeHdfsClient`) с поддержкой Kerberos doAs-имперсонации (`UserGroupInformation.createProxyUser`) и HA Failover через `ConfiguredFailoverProxyProvider`. Запросы метаданных передаются по нативному бинарному RPC протоколу (порты 8020/9000), а чтение блоков данных идет напрямую через сокет-протокол передачи данных DataNode (порт 9866), что исключает необходимость настройки и накладные расходы промежуточных HTTP REST шлюзов.
 
 ---
 
@@ -133,7 +133,7 @@ HDFS Explorer поддерживает два основных механизм�
 | **Domain Users** (`domain users`) | ✅ Базовый доступ | ⚠️ По квоте / домашняя папка | ⚠️ Только в `/user/{username}` | ❌ Запрещено |
 
 > [!IMPORTANT]
-> **Принцип WebHDFS `doAs` Impersonation**: Все операции с файловой системой на кластере выполняются не от имени системного демона HDFS Explorer, а строго от имени текущего авторизованного пользователя. Все стандартные права POSIX (`rwxr-xr-x`) и списки контроля доступа (HDFS ACLs) применяются на уровне NameNode в полном объеме.
+> **Принцип Hadoop UGI `doAs` Impersonation**: Все операции с файловой системой на кластере выполняются не от имени системного демона HDFS Explorer, а строго от имени текущего авторизованного пользователя. Все стандартные права POSIX (`rwxr-xr-x`) и списки контроля доступа (HDFS ACLs) применяются на уровне NameNode в полном объеме.
 
 ---
 
@@ -364,7 +364,7 @@ HDFS Explorer поддерживает множественный выбор ф�
 ### Архитектурные оптимизации производительности:
 - **Виртуализация DOM-дерева:** рендерится только видимая часть строк таблицы, что обеспечивает плавную прокрутку со скоростью 60 FPS для каталогов с миллионами записей.
 - **Потоковая передача (Stream Chunks):** предварительный просмотр и скачивание осуществляются чанками без аллокации избыточной оперативной памяти на сервере.
-- **HTTP/2 & Keep-Alive:** мультиплексирование сетевых соединений к WebHDFS минимизирует накладные расходы на TLS/Kerberos рукопожатия.
+- **Пул RPC-соединений & Keep-Alive:** мультиплексирование TCP/RPC соединений Hadoop IPC минимизирует накладные расходы на Kerberos-рукопожатия.
 
 ---
 

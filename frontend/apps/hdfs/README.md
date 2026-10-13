@@ -1,6 +1,6 @@
 # Frontend: HDFS Web Explorer
 
-Фронтенд веб-портала **HDFS Web Explorer**, разработанный на базе **Svelte 5** (Runes), **Vite 8** и **Tailwind CSS v4**. Обеспечивает отзывчивый интерфейс для навигации по файловой структуре Apache Hadoop HDFS, загрузки, скачивания и быстрого предпросмотра файлов аналитических форматов (Parquet, ORC, Avro).
+Фронтенд веб-портала **HDFS Web Explorer**, разработанный на базе **Svelte 5** (Runes), **Vite 8** и **Tailwind CSS v4**. Обеспечивает отзывчивый интерфейс для навигации по файловой структуре Apache Hadoop HDFS, загрузки, скачивания и быстрого предпросмотра файлов аналитических форматов (Parquet, ORC, CSV, TSV).
 
 ---
 
@@ -12,7 +12,7 @@ frontend/apps/hdfs/
 │   ├── lib/
 │   │   ├── api/                 # Клиент API (Fetch обертка, CSRF заголовки)
 │   │   ├── components/          # UI компоненты (FileList, Breadcrumbs, Modals)
-│   │   │   └── Modals/          # Модальные окна (Upload, Mkdir, Delete, Preview)
+│   │   │   └── Modals/          # Модальные окна (Upload, Mkdir, Delete, Preview, CrossClusterCopy)
 │   │   ├── stores/              # Реактивные состояния Svelte 5 (authStore, explorerStore)
 │   │   ├── types/               # TypeScript интерфейсы HDFS и пользователя
 │   │   └── utils/               # Утилиты форматирования размеров файлов и дат
@@ -22,14 +22,14 @@ frontend/apps/hdfs/
 │   └── main.ts                  # Точка входа приложения
 ├── tests/                       # Модульные и компонентные тесты (Vitest + Testing Library)
 │   ├── breadcrumbs.test.ts      # Тесты хлебных крошек и навигации
-│   ├── action_toolbar.test.ts   # Тесты тулбара (загрузка, папки, поиск, квоты)
+│   ├── action_toolbar.test.ts   # Тесты тулбара (загрузка, папки, поиск, статистика)
 │   ├── batch_action_bar.test.ts # Тесты панели пакетных действий
 │   ├── file_list.test.ts        # Тесты таблицы файлов, сортировки и состояний
 │   └── modals.test.ts           # Тесты модалок Mkdir, Delete, Rename
 ├── index.html                   # Базовый HTML-шаблон
 ├── package.json                 # Зависимости (@tailwindcss/vite, lucide-svelte, svelte)
 ├── tsconfig.json                # Конфигурация TypeScript
-└── vite.config.ts               # Конфигурация сборщика Vite и dev-прокси на backend:8002
+└── vite.config.ts               # Конфигурация сборщика Vite и dev-прокси на backend:8000
 ```
 
 ---

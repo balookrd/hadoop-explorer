@@ -113,8 +113,7 @@ make test-java
 
 | Метод | Путь | Описание | Доступ |
 |---|---|---|---|
-| `GET` | `/health` / `/actuator/health` | Проверка работоспособности сервиса | Публичный |
-| `GET` | `/metrics` / `/actuator/prometheus` | Экспорт метрик Prometheus | Публичный |
+| `GET` | `/health` / `/healthz` / `/actuator/health` | Проверка работоспособности сервиса | Публичный |
 | `POST` | `/api/v1/auth/login` | Вход пользователя (получение JWT Cookie) | Публичный |
 | `POST` | `/api/v1/auth/sso` | Kerberos SPNEGO SSO вход | Публичный |
 | `GET` | `/api/v1/auth/me` | Профиль текущего пользователя и его роли | Аутентифицирован |
@@ -133,5 +132,3 @@ make test-java
 | `DELETE`| `/api/v1/clusters/{id}/files/delete` | Удаление файла или каталога | Запись |
 | `POST` | `/api/v1/clusters/{id}/files/batch-delete` | Пакетное удаление списка путей | Запись |
 | `POST` | `/api/v1/clusters/{id}/files/batch-download` | Пакетное скачивание в едином ZIP | Аутентифицирован |
-| `GET` | `/api/v1/clusters/{id}/files/acl` | Просмотр ACL прав доступа | Аутентифицирован |
-| `GET` | `/api/v1/clusters/{id}/files/quota` | Просмотр квот пространства и namespace | Аутентифицирован |

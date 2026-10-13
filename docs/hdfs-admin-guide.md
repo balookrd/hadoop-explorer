@@ -11,27 +11,27 @@
 
 ### 1.1 Назначение сервиса
 **HDFS Explorer** — высокопроизводительный веб-менеджер файловой системы Apache Hadoop (HDFS), обеспечивающий:
-- Навигацию по каталогам, загрузку, выгрузку, удаление и перемещение файлов через **WebHDFS / HttpFS REST API**.
+- Навигацию по каталогам, загрузку, выгрузку, удаление и перемещение файлов через **нативный клиент Hadoop FileSystem (RPC)** с поддержкой WebHDFS как fallback.
 - Автоматический **Failover при NameNode High Availability (HA)** с перехватом `StandbyException`.
 - Корпоративную сквозную аутентификацию **Kerberos SPNEGO SSO** с поддержкой Impersonation (`doAs`).
-- Интерактивный предпросмотр структурированных форматов данных (**Parquet, ORC, Avro, CSV, TSV, JSON**).
-- Управление HDFS квотами (`Name Quota`, `Space Quota`, `Storage Type Quota`).
-- Межкластерное копирование (**Cross-Cluster Copy**).
-- Управление правами доступа **POSIX Permissions** и расширенными **HDFS ACL**.
+- Интерактивный предпросмотр структурированных и текстовых форматов данных (**Parquet, ORC, CSV, TSV, JSON, XML, YAML, SQL, Logs**).
+- Отображение прав доступа **POSIX Permissions** (`rwxr-xr-x`) и атрибутов владения (`owner:group`).
+- Межкластерное потоковое копирование (**Cross-Cluster Copy**).
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|
-| `8000` (или `8002`) | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5) и REST API |
-| `9870` / `50070` | HTTP/HTTPS | Outbound | WebHDFS REST API NameNode (Active/Standby) |
-| `9864` / `50075` | HTTP/HTTPS | Outbound | DataNode WebHDFS streaming (при операциях чтения/записи) |
+| `8001` (или `8000`, `8002`) | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5) и REST API |
+| `8020` / `9000` | TCP (Hadoop IPC) | Outbound | NameNode RPC протокол (`fs.defaultFS`, метаданные, Active/Standby HA) |
+| `9866` / `50010` | TCP (DataTransfer) | Outbound | DataNode сокет-протокол передачи блоков данных (чтение/запись) |
+| `9870` / `50070` | HTTP/HTTPS | Outbound | WebHDFS REST API NameNode (опциональный fallback) |
+| `9864` / `50075` | HTTP/HTTPS | Outbound | DataNode WebHDFS streaming (опциональный fallback) |
 | `14000` | HTTP/HTTPS | Outbound | HttpFS Gateway (альтернатива WebHDFS) |
-| `9083` | TCP (Thrift) | Outbound | Hive Metastore (опционально, для схемы таблиц) |
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Сервер каталогов аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
-- **Диагностика доступности (Healthcheck)**: `GET /healthz`
-- **Метрики Prometheus**: `GET /metrics`
+- **Диагностика доступности (Healthcheck)**: `GET /health` или `GET /healthz`
+- **Метрики Spring Boot**: `GET /actuator/prometheus` (при включенном Actuator)
 
 ### 1.3 Системные требования
 
@@ -339,17 +339,13 @@ services:
     ports:
       - "8002:8000"
     environment:
-      - APP_NAME=hdfs
-      - WEB_CONCURRENCY=2
-      - CONFIG_PATH=/app/config/config.yaml
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - KRB5_KEYTAB=/etc/security/keytabs/hdfs-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/hdfs.company.local@COMPANY.LOCAL
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - KRB5_CONFIG=/etc/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/krb5.conf
     volumes:
-      - ./config.yaml:/app/config/config.yaml:ro
+      - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
-      - /etc/security/keytabs/hdfs-explorer.keytab:/etc/security/keytabs/hdfs-explorer.keytab:ro
+      - /etc/security/keytabs:/etc/security/keytabs:ro
       - hdfs-storage:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
@@ -490,17 +486,19 @@ extraVolumeMounts:
 
 config:
   database:
-    url: "postgresql://hdfs_user:DbPass123@postgres-ha.database.svc.cluster.local:5432/hdfs_explorer"
+    url: "jdbc:postgresql://postgres-ha.database.svc.cluster.local:5432/hdfs_explorer"
 
   hdfs:
     clusters:
       - id: "prod-hdfs"
         name: "Production Cluster"
-        active_namenode_url: "http://nn01.hadoop.company.local:9870"
-        standby_namenode_url: "http://nn02.hadoop.company.local:9870"
-        auth_type: "kerberos"
-        principal: "hdfs/hdfs.company.local@COMPANY.LOCAL"
-        impersonation_enabled: true
+        hdfs-rpc-urls:
+          - "hdfs://nn01.hadoop.company.local:8020"
+          - "hdfs://nn02.hadoop.company.local:8020"
+        webhdfs-urls:
+          - "http://nn01.hadoop.company.local:9870/webhdfs/v1"
+        auth-type: "kerberos"
+        service-principal: "hdfs/hdfs.company.local@COMPANY.LOCAL"
 
 podDisruptionBudget:
   minAvailable: 1
