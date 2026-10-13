@@ -312,6 +312,6 @@ Content-Type: application/json
 - 📖 [Руководство пользователя: YARN Queue Explorer](yarn-user-guide.md) — пользовательский интерфейс, процесс согласования Change Requests и работа с окном экспорта XML.
 - 🏛️ [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — общая системная архитектура, подсистемы безопасности и отказоустойчивости.
 - ⚙️ [Руководство по конфигурации платформы](CONFIGURATION.md) — параметры настройки секции `awx:`, переменные окружения и RBAC.
-- 🛠️ [README бэкенд-сервиса YARN Explorer](../backend/yarn/README.md) — спецификация REST API эндпоинтов деплоя и запуска тестов.
+- 🛠️ [README бэкенд-сервиса YARN Explorer](../backend/yarn/README.md) — спецификация REST API-эндпоинтов для деплоя и запуска тестов.
 - 📦 [README модуля Ansible Automation](../ansible/README.md) — структура каталога плейбуков и Ansible-ролей.
 - 🏠 [Главная страница репозитория](../README.md) — общий обзор монорепозитория Hadoop Explorer Platform.

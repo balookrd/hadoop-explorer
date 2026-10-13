@@ -40,7 +40,7 @@ config:
     url: "jdbc:postgresql://postgres-cluster.database.svc.cluster.local:5432/sql_explorer?user=hadoop_explorer"
 
 secrets:
-  # Пароль базы данных, автоматически инжектируемый в Deployment
+  # Пароль базы данных, автоматически внедряемый в Deployment
   databasePassword: "your_strong_password"
 
 # Включение PodDisruptionBudget (включается автоматически при replicaCount > 1)
@@ -79,7 +79,7 @@ docker run -d \
   -e SPRING_DATASOURCE_PASSWORD="secret" \
   -e JWT_SECRET_KEY="your-production-secret-key" \
   -p 8003:8003 \
-  balookrd/sql-explorer:latest
+  hadoop-explorer/sql:latest
 ```
 
 ---

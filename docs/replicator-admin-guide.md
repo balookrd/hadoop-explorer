@@ -7,13 +7,13 @@
 4. **Kubernetes** (Промышленное развертывание в K8s)
 
 > [!NOTE]
-> Архитектура высокой доступности (HA), распределенного лизинга и матрица отказоустойчивости всех компонентов подробно описана в документе: [Руководство по отказоустойчивости (replicator-fault-tolerance.md)](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/replicator-fault-tolerance.md).
+> Архитектура высокой доступности (HA), распределенного лизинга и матрица отказоустойчивости всех компонентов подробно описана в документе: [Руководство по отказоустойчивости (replicator-fault-tolerance.md)](replicator-fault-tolerance.md).
 
 ---
 
 ## 1. Архитектура и сетевая топология
 
-#### 1.1 Архитектура и компоненты системы
+### 1.1 Архитектура и компоненты системы
 Hadoop gRPC Replicator построен на базе симметричных универсальных агентов **Replicator Agent (`Full-Duplex`)**:
 Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Это обеспечивает полноценную двунаправленную репликацию (`DC1 ⇄ DC2`, DR failback) в рамках единого сервиса.
 
@@ -894,7 +894,7 @@ sequenceDiagram
         NM->>AM: Проверка жизнеспособности воркеров
         alt Падение NodeManager / контейнера
             AM->>RM: Повторный запрос контейнера у ResourceManager
-            Orch->>Orch: Автоматический failover зависших задач на других агентов
+            Orch->>Orch: Автоматический failover зависших задач на другие агенты
         end
     end
     Admin->>RM: yarn application -kill <appId>
@@ -943,7 +943,7 @@ JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
 
 | Флаг CLI | Обязательный | По умолчанию | Описание |
 |---|---|---|---|
-| `-j, --jar <path>` | **Да** | — | Абсолютный путь к Shaded JAR файлу агента на машине отправки. Этот файл автоматически загружается в HDFS staging директорию для раздачи на ноды. |
+| `-j, --jar <path>` | **Да** | — | Абсолютный путь к Shaded JAR-файлу агента на машине отправки. Этот файл автоматически загружается в HDFS staging-директорию для раздачи на узлы. |
 | `-c, --cluster_id <id>` | Нет | `demo-cluster` | Идентификатор кластера HDFS, задачи которого будут обрабатывать созданные контейнеры. Должен совпадать с `cluster_id` в настройках Оркестратора. |
 | `-o, --orchestrator <url>` | Нет | `http://localhost:8005` | URL REST API Оркестратора, к которому будут подключаться запущенные контейнеры. |
 | `-n, --num_containers <n>` | Нет | `1` | Количество рабочих контейнеров (агентов репликации), выделяемых в кластере. |
@@ -1066,7 +1066,7 @@ Replicator Orchestrator спроектирован для обеспечения
    - **Replicator Agent (Data & Metadata Worker)**: исполняет задачи репликации в локальном сетевом периметре своего ЦОД. Source Agent вычитывает метаданные из локального Hive Metastore по LAN Thrift (порт 9083), Target Agent применяет DDL в целевой Hive Metastore по локальному LAN Thrift, а обмен между агентами по WAN происходит напрямую по защищенному gRPC-контракту `HmsTransferService` (порт 50051).
 
 2. **Автоматическое восстановление прерванного начального переноса схем (Bootstrap Recovery)**:
-   - Если Оркестратор был перезапущен в момент выполнения первичной синхронизации схемы базы данных (статус `BOOTSTRAPPING`), жизненный цикл Spring Boot ([`ApplicationReadyEvent`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/backend/replicator/orchestrator/src/main/java/org/apache/hadoop/explorer/replicator/orchestrator/hms/service/HmsCoordinatorService.java)) автоматически обнаруживает прерванные задачи.
+   - Если Оркестратор был перезапущен в момент выполнения первичной синхронизации схемы базы данных (статус `BOOTSTRAPPING`), жизненный цикл Spring Boot ([`ApplicationReadyEvent`](../backend/replicator/orchestrator/src/main/java/org/apache/hadoop/explorer/replicator/orchestrator/hms/service/HmsCoordinatorService.java)) автоматически обнаруживает прерванные задачи.
    - Метод `recoverInterruptedJobsOnStartup()` повторно диспетчеризует задачу доступным агентам (`QUEUED` или `WAITING_FOR_AGENTS`). Подключившийся Source Agent возобновляет процедуру Bootstrap через `HmsTaskExecutor`.
 
 3. **Непрерывный автономный CDC-опрос Hive Metastore воркером агента**:
@@ -1085,7 +1085,7 @@ Replicator Orchestrator спроектирован для обеспечения
    - Подключившиеся агенты забирают задачи из очереди через `claimTasks()`.
    - Встроенная проверка контрольных сумм блоков и файлов (CRC32C / Block Checksum) в приемнике `DataTransferServiceImpl` обеспечивает дедупликацию: файлы, которые уже были полностью переданы до сбоя, не пересылаются повторно по WAN.
 
-5. **Планировщик регламентных расписаний (`ReplicationScheduler`)**:
+6. **Планировщик регламентных расписаний (`ReplicationScheduler`)**:
    - Регламентные cron-задачи (`@every_5m`, `@hourly`) с параметром `is_scheduled=true` проверяются каждые 5 секунд.
    - При старте Оркестратора планировщик мгновенно сканирует задачи, у которых `next_run_at <= now()`, и ставит их в очередь на исполнение.
 
@@ -1151,7 +1151,7 @@ curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
   }'
 ```
 
-#### 2.7.3 Межкластерная трансляция путей HDFS (HmsPathRewriter) и изоляция потока метаданных
+#### 2.7.4 Межкластерная трансляция путей HDFS (HmsPathRewriter) и изоляция потока метаданных
 
 При репликации таблиц и партиций Hive между независимыми кластерами и центрами обработки данных физические пути к данным HDFS (`sdLocation` таблицы, партиций и каталога базы данных) должны быть корректно транслированы из пространства имен источника в пространство имен приемника (например, `hdfs://hdfs-cluster-1:9000/warehouse/...` ➔ `hdfs://hdfs-cluster-2:9000/warehouse/...`).
 
@@ -1511,11 +1511,11 @@ spec:
 Оркестратор экспортирует полный спектр метрик передачи данных, пула задач, очередей, токен-бакета, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
 #### Метрики HDFS-репликации и задач
-- `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байт данных.
+- `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байтов данных.
 - `replicator_active_workers` — количество зарегистрированных активных воркеров в пуле.
 - `replicator_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации.
 - `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска.
-- `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых сабтасок распределенного пула передачи.
+- `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых подзадач распределенного пула передачи.
 - `replicator_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
 - `replicator_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket.
 - `replicator_throttling_global_limit_bytes_per_sec` — текущий глобальный лимит пропускной способности репликации.
@@ -1719,7 +1719,7 @@ flowchart LR
 1. **Автоматическая группировка в бандлы**: при анализе каталога агент разделяет файлы на крупные (`FILE`, $\ge 1$ МБ) и мелкие (`< 1` МБ). Мелкие файлы группируются в задачи типа `BUNDLE_TAR` с целевым размером пакета ~16 МБ (до 500 файлов в одной задаче).
 2. **Упаковка на лету без промежуточного диска**: отправляющий агент читает мелкие файлы из HDFS и потоково пакует их в `TarArchiveOutputStream`. Чанки gRPC стрима передаются с учетом лимитов Token Bucket.
 3. **Параллельная распаковка на лету прямо в HDFS (Zero-Staging)**: принимающий агент не сохраняет архив на локальный диск узла. Байт-поток gRPC направляется в `TarArchiveInputStream`, а распаковываемые файлы параллельно записываются напрямую в целевой HDFS (`fs.create()`) пулом рабочих потоков под Kerberos UGI `doAs`.
-4. **Прямой HDFS-staging для крупных файлов**: для одиночных файлов (`FILE`) локальный staging также заменен на временный файл прямо в HDFS (`targetPath + "._staging_" + jobId"`) с последующим атомарным `fs.rename()`. Локальный диск агента полностью исключен из тракта передачи данных.
+4. **Прямой HDFS-staging для крупных файлов**: для одиночных файлов (`FILE`) локальный staging также заменен на временный файл прямо в HDFS (`targetPath + "._staging_" + jobId`) с последующим атомарным `fs.rename()`. Локальный диск агента полностью исключен из тракта передачи данных.
 
 #### Рекомендации по настройке в Production
 
@@ -1786,7 +1786,7 @@ flowchart TD
 
 ---
 
-## 14. REST API аварийного переключения и обратной репликации (Disaster Recovery & Failover API)
+## 7. REST API аварийного переключения и обратной репликации (Disaster Recovery & Failover API)
 
 Для автоматизации сценариев Disaster Recovery (DR) и интеграции с внешними системами оркестрации (Ansible, AWX, Terraform) Оркестратор предоставляет специализированный программный интерфейс `/api/v1/dr/*`:
 
@@ -1828,7 +1828,7 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 
 > [!TIP]
 > Полный пошаговый регламент действий, архитектура сетевого ограждения и предотвращения Split-Brain подробно описаны в документе:
-> [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (replicator-disaster-recovery-guide.md)](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/replicator-disaster-recovery-guide.md).
+> [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md).
 
 
 

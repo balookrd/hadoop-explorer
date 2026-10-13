@@ -38,7 +38,7 @@
 - **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
 - **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
 - > [!IMPORTANT]
-  > При установке из готовых релизов на целевых серверах Git, Apache Maven, Node.js и npm **не требуются**.
+  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
 
 #### Только для сборки из исходников (Build Environment):
 - JDK: `21 LTS`
@@ -604,7 +604,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ### 7.1 Преимущества реализации на Java 21
 1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
-2. **Capacity Scheduler Engine**: встроенная валидация веток и правила 100% емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
+2. **Capacity Scheduler Engine**: встроенная валидация веток и правило 100%-й емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
 3. **Change Requests & Four-Eyes Principle**: встроенный жизненный цикл согласования изменений с запретом самосогласования заявок автором (HTTP 403 Forbidden).
 4. **Интеграция с Ansible AWX**: автоматический триггер Job Template через REST API для Zero-Downtime обновления очередей (`yarn rmadmin -refreshQueues`).
 5. **Общее ядро безопасности `common-security-starter`**: единая модель аутентификации (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter и AOP-аудит `@Audited`.

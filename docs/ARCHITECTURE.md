@@ -291,20 +291,20 @@
   - **Поддержка HiveServer2**: сквозное тестирование и работа с Apache Hive 4.0.0 через Beeline по протоколу Kerberos/JDBC (создание баз, таблиц, партиций, выборка данных).
 - **Мониторинг, Web UI и Управление задачами**:
   - Экспорт метрик Prometheus (`/actuator/prometheus`) на `:8005`.
-  - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модалкой аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
+  - Встроенный высококонтрастный веб-интерфейс в дизайн-системе HDFS Explorer с модальным окном аутентификации, селектором кластеров и ЦОД, и управлением полосой в рантайме.
   - Полнофункциональное управление задачами (REST API и Web UI): запуск/перезапуск (`POST /api/v1/jobs/{id}/start`), остановка/отмена (`POST /api/v1/jobs/{id}/stop`), редактирование параметров на лету (`PUT /api/v1/jobs/{id}`) и удаление (`DELETE /api/v1/jobs/{id}`) с каскадной очисткой подзадач.
-  - Двухфазная распределенная репликация (Distributed Task Pool): фаза анализа с регистрацией пула сабтасок (`/api/v1/jobs/{id}/tasks/batch`) и параллельная фаза воркеров (`claimTasks`). Подзадачи полностью инкапсулированы внутри родительской задачи `Job`; родительское задание переходит в терминальный статус (`COMPLETED`/`FAILED`) строго после закрытия всех сабтасок с накоплением счетчиков объектов (`total_objects`, `transferred_objects`, `skipped_objects`, `failed_objects`), объемов и средней скорости.
+  - Двухфазная распределенная репликация (Distributed Task Pool): фаза анализа с регистрацией пула подзадач (`/api/v1/jobs/{id}/tasks/batch`) и параллельная фаза воркеров (`claimTasks`). Подзадачи полностью инкапсулированы внутри родительской задачи `Job`; родительское задание переходит в терминальный статус (`COMPLETED`/`FAILED`) строго после закрытия всех подзадач с накоплением счетчиков объектов (`total_objects`, `transferred_objects`, `skipped_objects`, `failed_objects`), объемов и средней скорости.
 - **Репликация Hive Metastore (HMS Replication)**:
   - Выделенный **Раздел «HMS Replication»** для межкластерной синхронизации метаданных баз и таблиц (HDP 3.1 ➔ Apache Hive 3.1.3).
   - **Строгое разделение Control Plane и Metadata Plane**:
     - **Orchestrator (Control Plane)**: чистый координатор без прямых обращений в HDFS и без Thrift RPC соединений. Управляет задачами в БД, проверяет реестр `AgentRegistry`, при отсутствии пары агентов переводит задачу в `WAITING_FOR_AGENTS` (без попыток локального выполнения), принимает отчеты о прогрессе и логирует DDL-события через REST API.
     - **Replicator Agent (Data & Metadata Plane)**: агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по LAN Thrift 9083, Target Agent применяет DDL в целевой HMS по локальному LAN Thrift, а обмен между агентами по WAN идет напрямую по защищенному gRPC-контракту `HmsTransferService` (порт 50051).
-  - **Масштабируемый многопоточный Bootstrap и чанкинг**: параллельный обход таблиц схемы пулом воркеров агента, чанкинг партиций (по 1000 шт) для предотвращения `MaxMessageSize exceeded` в Thrift RPC и создания ровно 1 корневой саб-джобы HDFS передачи файлов корня таблицы.
+  - **Масштабируемый многопоточный Bootstrap и чанкинг**: параллельный обход таблиц схемы пулом воркеров агента, чанкинг партиций (по 1000 шт) для предотвращения `MaxMessageSize exceeded` в Thrift RPC и создания ровно одной корневой HDFS-подзадачи для передачи файлов корня таблицы.
   - **Агрегация метрик первичной синхронизации (Bootstrap Sync Analytics)**: Оркестратор динамически агрегирует метрики всех вложенных HDFS-подзадач (`HMS_SUBJOB`), вычисляя суммарные переданные байты, начальный момент старта, совокупную среднюю скорость передачи данных (`copied_bytes / elapsed_sec`, МБ/с) и предиктивное расчетное время окончания (ETA), передавая эти данные через REST API и отображая их в реальном времени в интерфейсе.
   - **Двусторонний Diff & Reconciliation**: идемпотентный DDL (`Create or Alter`) и безопасное удаление устаревших объектов (`drop_extraneous_tables`, `drop_extraneous_partitions`) со строгой гарантией `deleteData = false` (файлы на HDFS не удаляются).
   - **Изоляция подзадач**: задачи переноса HDFS для партиций создаются со статусом `job_type = 'HMS_SUBJOB'` и полностью скрыты из регламентного раздела «HDFS Replication».
   - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
-  - **HDFS Federation и URI Translation**: трехуровневая трансляция физических путей HDFS (`HmsPathRewriter`) через `TARGET_HDFS_DEFAULT_FS`, сопоставление NameService/Cluster ID через `federation-mappings` и интеллектуальные эвристики имен кластеров, обеспечивающие корректную перелинковку `sdLocation` на целевой кластер и генерацию межкластерных HDFS саб-джобов.
+  - **HDFS Federation и URI Translation**: трехуровневая трансляция физических путей HDFS (`HmsPathRewriter`) через `TARGET_HDFS_DEFAULT_FS`, сопоставление NameService/Cluster ID через `federation-mappings` и интеллектуальные эвристики имен кластеров, обеспечивающие корректную перелинковку `sdLocation` на целевой кластер и генерацию межкластерных HDFS-подзадач.
   - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, репортуя прогресс в Оркестратор.
   - **Распределенный эксклюзивный лизинг (Distributed Lease & Failover)**:
     - Каждая активная схема и CDC-поток захватываются ровно одним агентом-источником (`assigned_agent_id`, `lease_expires_at`), что исключает гонки и дублирование CDC-потоков при работе пула агентов в кластере.
@@ -330,7 +330,7 @@
   - `LoginModal.svelte` — стандартизированный диалог аутентификации с поддержкой Kerberos SPNEGO SSO, входа по учетной записи LDAP и быстрого переключения mock-пользователей.
   - `Modal.svelte` — базовый переиспользуемый компонент диалогового окна с backdrop-blur, закрытием по Escape/клику вне окна и доступностью.
   - `sqlSplitter.ts` — общий парсер и анализатор SQL-скриптов с поддержкой строковых литералов, комментариев и выполнения запроса под курсором (`getStatementAtCursor`).
-  - `useResizable.svelte.ts` — Svelte 5 runes хелперы для плавного Drag & Drop изменения размеров сплиттеров (сайдбары и редакторы кода).
+  - `useResizable.svelte.ts` — runes-хелперы в Svelte 5 для плавного Drag & Drop изменения размеров сплиттеров (сайдбары и редакторы кода).
 - **Унифицированный API-клиент (`BaseApiClient`)**:
   - Все клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) унаследованы от общего `BaseApiClient` из `@hadoop-explorer/common`.
   - Централизованная обработка HTTP 401 с прозрачной попыткой Kerberos SSO (`/auth/sso`), защита от CSRF (`X-Requested-With`), `credentials: 'include'` и поддержка Sliding Sessions.
@@ -340,52 +340,44 @@
 
 ---
 
-### 3.10 Асимметричные JWT (RS256/ES256), ротация ключей и JWKS (RFC 7517)
-В `backend/common-security-starter` реализован `JwtKeyManager`:
-- Поддержка асимметричной подписи токенов RSA (`RS256`) и ECDSA (`ES256`) с автоматическим добавлением идентификатора ключа `kid` в JWT header.
-- Бесшовная ротация ключей: сохранение истории публичных ключей для непрерывной валидации ранее выпущенных токенов при выпуске нового активного ключа подписи.
-- Эндпоинты `GET /api/v1/auth/jwks.json` и `GET /.well-known/jwks.json`, экспортирующие набор открытых ключей в стандартном формате RFC 7517 для интеграции с внешними API Gateway, Service Mesh и OAuth2/OIDC сервисами.
+## 6. Оптимизации производительности и потоковой передачи данных
 
----
-
-## 4. Оптимизации производительности и потоковой передачи данных
-
-### 4.1 Высокопроизводительный пул соединений с поддержкой HTTP/2
+### 6.1 Высокопроизводительный пул соединений с поддержкой HTTP/2
 Инфраструктура HTTP-клиентов на базе нативного Java 21 `HttpClient` и пулов соединений:
 - Поддержка мультиплексирования HTTP/2 с автоматическим graceful fallback на HTTP/1.1 при неподдерживаемых бэкендах.
 - Пул соединений с тонкой настройкой таймаутов подключения, чтения и keepalive-сессий.
 - Снижение latency и накладных расходов на TLS/TCP handshakes при частых опросах кластерных API (YARN RM, WebHDFS, Livy).
 
-### 4.2 SSE-стриминг состояния сессий и запросов
+### 6.2 SSE-стриминг состояния сессий и запросов
 В сервисах SQL и Spark реализована потоковая доставка обновлений по протоколу Server-Sent Events:
 - `GET /api/v1/sessions/{session_id}/stream` (Spark) и `GET /api/v1/queries/{query_id}/stream` (SQL).
 - Устраняет необходимость агрессивного HTTP-поллинга со стороны фронтенда, снижая нагрузку на сеть и серверные ресурсы.
 
-### 4.3 Zero-Copy частичное чтение и превью Parquet / ORC файлов
+### 6.3 Zero-Copy частичное чтение и превью Parquet / ORC файлов
 Сервис HDFS Explorer реализует потоковый адаптер `_SeekableFooterStream`:
 - Извлекает метаданные схемы и статистику из хвостовой части файла (Footer) за один запрос без скачивания всего объема данных.
 - При запросе сэмпла строк для усеченных файлов выполняет прямое чтение `Row Group 0` (Parquet) или `Stripe 0` (ORC), возвращая репрезентативную выборку данных за миллисекунды даже для файлов размером в сотни гигабайт.
 
-### 4.4 Пакетные операции HDFS Explorer
+### 6.4 Пакетные операции HDFS Explorer
 Для оптимизации массовых файловых манипуляций добавлены пакетные API:
 - `POST /api/v1/clusters/{cluster_id}/files/batch-delete`: параллельное удаление множества файлов и директорий с детализированным отчетом об успехах и ошибках.
 - `POST /api/v1/clusters/{cluster_id}/files/batch-download`: потоковая упаковка выбранного набора файлов и каталогов в единый ZIP-архив на лету без предварительного сохранения на диск сервера.
 
-### 4.5 Условное ETag-кэширование (HTTP 304 Not Modified)
+### 6.5 Условное ETag-кэширование (HTTP 304 Not Modified)
 Spring Boot фильтр `ShallowEtagHeaderFilter`:
-- Автоматически рассчитывает слабые ETag-хэши (`W/"..."`) для всех безопасных GET/HEAD ответов API.
+- Автоматически рассчитывает слабые ETag-хеши (`W/"..."`) для всех безопасных GET/HEAD ответов API.
 - Обрабатывает входящий заголовок `If-None-Match`, возвращая легковесный `HTTP 304 Not Modified` без тела ответа при неизменности данных (каталоги метаданных Hive, неизменные очереди YARN, списки кластеров).
 
-### 4.6 Визуальный конструктор и планировщик Spark DAG-пайплайнов
+### 6.6 Визуальный конструктор и планировщик Spark DAG-пайплайнов
 В Spark Explorer интегрирован движок и UI визуального конструирования пайплайнов (`backend.spark.app.models.pipeline`, `PipelineBuilder.svelte`):
 - Поддержка гетерогенных узлов графа: PySpark скрипты, Spark SQL запросы, задачи Spark Submit.
 - Строгая топологическая валидация DAG по алгоритму Кана (Kahn's Algorithm) для гарантированного исключения циклических зависимостей (ошибка `422 Unprocessable Content`).
 - Асинхронное исполнение узлов и пошаговый мониторинг статусов выполнения в реальном времени.
 
-### 4.7 Дисковый кэш аналитических результатов и автоматическая ротация по TTL (`data/results/`)
+### 6.7 Дисковый кэш аналитических результатов и автоматическая ротация по TTL (`data/results/`)
 Для снижения нагрузки на кластерные движки (Trino, Hive, Livy) результаты выполнения запросов сохраняются в сжатом виде (gzip JSON: `{id}.json.gz`) в единой корневой директории `data/results/`:
 - **SQL Explorer**: кэширует выборки строк и схемы колонок для мгновенной пагинации, переключения вкладок редактора и экспорта в CSV/JSON.
-- **Spark Explorer**: кэширует спарсенные табличные результаты вычислений statements в сессиях Livy.
+- **Spark Explorer**: кэширует разобранные табличные результаты вычислений statements в сессиях Livy.
 - **Автоматическая ротация (TTL Cleanup)**:
   - Оба сервиса реализуют метод `cleanup_expired_results()`, анализирующий время последней модификации файлов (`mtime`).
   - Файлы старше `RESULTS_TTL_SECONDS` (по умолчанию 7 дней / `604800` с) автоматически удаляются.
@@ -393,15 +385,15 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 
 ---
 
-## 5. Наблюдаемость и мониторинг (Observability)
+## 7. Наблюдаемость и мониторинг (Observability)
 
-### 5.1 Распределенная трассировка OpenTelemetry & W3C Trace Context
+### 7.1 Распределенная трассировка OpenTelemetry & W3C Trace Context
 Модуль `backend.common.core.tracing`:
 - Полноценная поддержка спецификации W3C Trace Context (`traceparent` формата `00-<trace_id>-<span_id>-01`).
 - `OpenTelemetryMiddleware` автоматически связывает спаны с контекстным `X-Request-ID` и пробрасывает заголовки трассировки клиентам и дочерним микросервисам платформы.
 - Контекстный менеджер `tracer.span(...)` для профилирования межсервисных вызовов к кластерам Hadoop, YARN, Trino и Livy.
 
-### 5.2 Специализированные Prometheus метрики и Grafana дашборды
+### 7.2 Специализированные Prometheus метрики и Grafana дашборды
 В дополнение к базовым HTTP Golden Signals реализован расширенный сбор метрик в `MetricsRegistry`:
 - **YARN**: `yarn_queues_active_gauge`, `yarn_change_requests_total`.
 - **Spark**: `spark_sessions_active_gauge`, `spark_statements_total`, `spark_statement_duration_seconds`.
@@ -411,7 +403,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 - Готовые provisioning-дашборды Grafana в `monitoring/grafana/dashboards/`:
   - `hadoop_explorer_overview.json` — сводный дашборд здоровья и Golden Signals всех 5 сервисов платформы.
   - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархический шейпинг Token Bucket Throttler, статусы HDFS/HMS задач, DR Fencing и KPI.
-  - `hadoop_replicator_agents.json` — телеметрия и мониторинг флота gRPC-агентов (статусы узлов, параллельные воркеры, передача байт, частота heartbeat и ошибки).
+  - `hadoop_replicator_agents.json` — телеметрия и мониторинг флота gRPC-агентов (статусы узлов, параллельные воркеры, передача байтов, частота heartbeat и ошибки).
   - `hadoop_replicator_hms_dr.json` — мониторинг репликации Hive Metastore (Bootstrap/CDC), трансляции путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
   - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и мониторинг отказов.
   - `yarn_explorer_queues.json` — планировщик Capacity Scheduler, утилизация очередей и статус Circuit Breaker.
@@ -419,23 +411,23 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 
 ---
 
-## 6. Модель персистентности данных (Storage Layer)
+## 8. Модель персистентности данных (Storage Layer)
 
 Платформа поддерживает три варианта персистентности:
 1. **SQLite (JDBC)**: режим по умолчанию для автономного запуска и локальных демо-стендов (`jdbc:sqlite:data/<service>.db`).
 2. **PostgreSQL (JDBC / HikariCP)**: рекомендуемый промышленный стандарт для продакшн-окружений (`jdbc:postgresql://...`). Обеспечивает единое хранилище сессий, воркспейсов и заявок YARN при горизонтальном масштабировании подов с поддержкой блокировок на уровне строк (`SELECT FOR UPDATE`).
 3. **H2 Database (In-Memory)**: режим для быстрого прогона модульных и интеграционных тестов (`jdbc:h2:mem:...`).
 
-### 6.1 Инициализация и версионирование схемы БД (`schema.sql` / JPA)
+### 8.1 Инициализация и версионирование схемы БД (`schema.sql` / JPA)
 Управление схемой реляционной базы данных автоматизировано средствами Spring Boot и JPA:
 - Автоматическая инициализация DDL-схемы для таблиц сессий (`sessions`), воркспейсов (`workspaces`), сохраненных запросов (`saved_queries`), истории вычислений и аудита.
 - Автоматическая поддержка H2, SQLite и PostgreSQL без расхождения схемы данных.
 
 ---
 
-## 7. Модель развертывания и надежность (Reliability)
+## 9. Модель развертывания и надежность (Reliability)
 
-1. **Docker образы на базе Eclipse Temurin 21 JRE**:
+1. **Docker-образы на базе Eclipse Temurin 21 JRE**:
    - Минимальный защищенный runtime-образ `eclipse-temurin:21-jre-jammy` с системными утилитами Kerberos (`krb5-user`) и `curl` для healthcheck.
    - Упаковка скомпилированного Spring Boot Fat JAR (`backend/<service>/target/*.jar` или `backend/replicator/*/target/*.jar`) и статических бандлов Svelte 5 SPA.
    - Запуск под непривилегированным пользователем `appuser (UID 10001)`.
@@ -455,16 +447,16 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 
 ---
 
-## 8. Пользовательский интерфейс и дизайн-система
+## 10. Пользовательский интерфейс и дизайн-система
 
-### 8.1 Тёмная тема (Dark Mode)
+### 10.1 Тёмная тема (Dark Mode)
 - Модуль `themeStore` (`frontend/common/stores/theme.svelte.ts`) на реактивных рунах Svelte 5 управляет темами (`light`, `dark`, `system`) с персистентностью в `localStorage` и поддержкой `prefers-color-scheme`.
 - Переключатель темы (Sun / Moon) встроен в `Header.svelte` всех 4 фронтенд-приложений.
 - Дизайн адаптирован на базе семантических утилит Tailwind CSS (`dark:bg-slate-950`, `dark:border-slate-800`, `dark:text-slate-100`).
 
 ---
 
-## 9. Обеспечение качества и тестовая инфраструктура (Quality Assurance & Testing)
+## 11. Обеспечение качества и тестовая инфраструктура (Quality Assurance & Testing)
 
 Платформа следует подходу пирамиды тестирования с разделением на изолированные модульные, компонентные, интеграционные и сквозные E2E-тесты:
 
@@ -486,26 +478,26 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
                   └───────────────────────┘
 ```
 
-### 9.1 Метрики тестового покрытия платформы (Java 21 + Svelte 5 Vitest)
+### 11.1 Метрики тестового покрытия платформы (Java 21 + Svelte 5 Vitest)
 
 | Сервис / Уровень | Стек и покрытие | Ключевые аспекты покрытия |
 |---|---|---|
 | **Common Security Starter** | **20 тестов (Java 21)** | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC H2/Postgres), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
-| **YARN Explorer** | **13 тестов (Java 21)** | Capacity Scheduler валидация, балансировка долей веток 100%, Draft Diff, XML Generation и санитизация, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (Four-Eyes Principle), AWX REST клиент, аудит, L1 кэш токенов, Circuit Breaker |
+| **YARN Explorer** | **13 тестов (Java 21)** | Capacity Scheduler валидация, балансировка долей веток 100%, Draft Diff, XML Generation и санитизация, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (Four-Eyes Principle), AWX REST-клиент, аудит, L1 кэш токенов, Circuit Breaker |
 | **HDFS Explorer** | **16 тестов (Java 21)** | NameNode HA Failover при `StandbyException`, Kerberos Proxy User doAs имперсонация, API операций, Parquet/ORC Preview со schema footer reader, MockHdfsClient, Circuit Breaker, Rate Limiter |
-| **SQL Explorer** | **10 тестов (Java 21)** | Catalog API валидация и эндпоинты, Trino/Hive движки, MockStorage, AI ассистент, токены, CSRF, ролевой доступ к кластерам, User Workspace |
-| **Spark Explorer** | **12 тестов (Java 21)** | REST клиент Apache Livy, DAG валидация циклов (алгоритм Кана), MockSparkEngine, User Workspace, ролевой доступ, сессии и выполнение statements |
+| **SQL Explorer** | **10 тестов (Java 21)** | Catalog API валидация и эндпоинты, Trino/Hive движки, MockStorage, AI-ассистент, токены, CSRF, ролевой доступ к кластерам, User Workspace |
+| **Spark Explorer** | **12 тестов (Java 21)** | REST-клиент Apache Livy, DAG-валидация циклов (алгоритм Кана), MockSparkEngine, User Workspace, ролевой доступ, сессии и выполнение statements |
 | **Hadoop gRPC Replicator** | **38 тестов (Java 21)** | Hierarchical Token Bucket, gRPC контракты DataTransferService & HmsTransferService, Source-to-Target HMS Pipe, Distributed Lease & Failover, Orchestrator Control Plane, Prometheus метрики, Cron Scheduler |
-| **Frontend UI Suite** | **92 теста (Vitest)** | Компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), строгая проверка типов `svelte-check` |
+| **Frontend UI Suite** | **95 тестов (Vitest)** | Компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), строгая проверка типов `svelte-check` |
 
-### 9.2 Тестирование отказоустойчивости (Resilience Testing)
+### 11.2 Тестирование отказоустойчивости (Resilience Testing)
 1. **Circuit Breaker State Machine**:
    - Верификация переходов состояний: `CLOSED` → регистрация серии сбоев → `OPEN` (мгновенный Fast-Fail без нагрузки на упавший кластер) → ожидание `recovery_timeout` → `HALF_OPEN` → успешные пробные вызовы → возврат в `CLOSED`.
 2. **High Availability Failover**:
    - Автоматическое обнаружение и переключение на активные узлы при возврате `StandbyException` от NameNode или `haState: STANDBY` от ResourceManager.
    - Полноценная обработка сетевых сбоев (таймауты, сбои связи) с переключением на резервные URL.
 
-### 9.3 Тестирование безопасности (Security Assurance)
+### 11.3 Тестирование безопасности (Security Assurance)
 1. **CSRF & Origin Verification**:
    - Проверка Fail-Closed режима для cookie-сессий, валидация заголовков `Origin`, `Referer`, `Host` и `X-Requested-With`.
 2. **SSRF & CWE-200 Protection**:
@@ -515,14 +507,14 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 4. **Принцип Four-Eyes**:
    - Запрет согласования заявок YARN их автором.
 
-### 9.4 Автоматизация проверок (CI/CD Quality Gates)
+### 11.4 Автоматизация проверок (CI/CD Quality Gates)
 - `make test` — запуск всех тестов платформы (`./scripts/run-tests.sh all`).
 - `make test-java` — прогон всех Java тестов (`mvn test`).
 - `make test-ui` — прогон тестов фронтенда (`npm run test:ui`).
 
 ---
 
-## 10. Документация по промышленному развертыванию (DevOps Runbooks)
+## 12. Документация по промышленному развертыванию (DevOps Runbooks)
 
 Для каждого микросервиса платформы разработано детальное руководство администратора по установке в режимах **Standalone (systemd)**, **Docker & Docker Compose** и **Kubernetes (Helm)**:
 

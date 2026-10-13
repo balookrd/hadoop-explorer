@@ -40,7 +40,7 @@
 - **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
 - **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1.5 ГБ` (рек. `2–4 ГБ`), Диск: `5–10 ГБ`.
 - > [!IMPORTANT]
-  > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
+  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
 
 #### Только для сборки из исходников (Build Environment):
 - JDK: `21 LTS`
@@ -225,7 +225,7 @@ sudo chmod 600 /etc/hadoop-explorer/sql/config.yaml
 sudo chown appuser:appuser /etc/hadoop-explorer/sql/config.yaml
 ```
 
-### Шаг 5: Создание systemd сервиса
+### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/sql-explorer.service`:
 ```ini
 [Unit]
@@ -507,6 +507,6 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=sql-explorer
 
 | Ошибка | Причина | Решение |
 |---|---|---|
-| `TrinoQueryError: Query exceeded maximum execution time` | Слишком тяжелый запрос превысил тайм-аут | Увеличьте `timeout_seconds` в `config.yaml` или используйте партиционирование в предложении `WHERE`. |
+| `TrinoQueryError: Query exceeded maximum execution time` | Слишком тяжелый запрос превысил таймаут | Увеличьте `timeout_seconds` в `config.yaml` или используйте партиционирование в предложении `WHERE`. |
 | `Cannot connect to Hive Metastore thrift://...:9083` | Служба Hive Metastore недоступна или заблокирован сетевой порт | Проверьте статус службы `systemctl status hive-metastore` и сетевой доступ `nc -zv hive-metastore 9083`. |
 | `AI Service Unavailable` | Локальный сервер Ollama/vLLM не отвечает | Проверьте доступность контейнера Ollama: `curl http://ollama:11434/api/tags`. |

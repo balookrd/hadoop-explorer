@@ -14,7 +14,7 @@
 - Управление жизненным циклом сессий **Apache Livy REST API** (создание, мониторинг состояния, отмена statement, логирование вывода).
 - Поддержка языков **PySpark** и **Spark Scala**.
 - Автоматическая остановка простаивающих сессий (`idle_timeout`) и остановка при завершении сеанса пользователя (`auto_stop_on_logout`).
-- Профилирование и выделение ресурсов в YARN очередях (`driver_memory`, `executor_memory`, `executor_cores`, `num_executors`).
+- Профилирование и выделение ресурсов в YARN-очередях (`driver_memory`, `executor_memory`, `executor_cores`, `num_executors`).
 - Интеграция с **Spark History Server** для аудита завершенных вычислений.
 - Персистентное рабочее пространство пользователя (**SparkUserWorkspace**): интерактивные блокноты, сохраненные пайплайны и история выполнения.
 
@@ -40,7 +40,7 @@
 - **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
 - **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1.5 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
 - > [!IMPORTANT]
-  > При установке из готовых релизов Git, Apache Maven, Node.js и npm на целевых серверах **НЕ требуются**.
+  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
 
 #### Только для сборки из исходников (Build Environment):
 - JDK: `21 LTS`
@@ -222,7 +222,7 @@ sudo chmod 600 /etc/hadoop-explorer/spark/config.yaml
 sudo chown appuser:appuser /etc/hadoop-explorer/spark/config.yaml
 ```
 
-### Шаг 5: Создание systemd сервиса
+### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/spark-explorer.service`:
 ```ini
 [Unit]

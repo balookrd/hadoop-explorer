@@ -21,7 +21,7 @@
    - [Хранилище сессий, токенов и Rate Limiting (Tri-Storage & L1 Cache)](#25-хранилище-сессий-токенов-и-rate-limiting-tri-storage--l1-cache)
    - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#26-отказоустойчивость-circuit-breaker-distributed-lock-и-graceful-shutdown)
 3. [Настройка YARN Explorer](#3-настройка-yarn-explorer)
-   - [YARN кластеры и партиции](#31-yarn-кластеры-и-партиции)
+   - [YARN-кластеры и партиции](#31-yarn-кластеры-и-партиции)
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
    - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
 4. [Настройка HDFS Explorer](#4-настройка-hdfs-explorer)
@@ -134,7 +134,7 @@ ldap:
 
 ### 2.3 Аутентификация: Kerberos SPNEGO SSO
 
-Позволяет пользователям прозрачно авторизовываться в веб-интерфейсе через системный Kerberos-тикет (заголовок `Authorization: Negotiate <ticket>`):
+Позволяет пользователям бесшовно аутентифицироваться в веб-интерфейсе через системный Kerberos-тикет (заголовок `Authorization: Negotiate <ticket>`):
 
 ```yaml
 kerberos_sso:                   # или auth.kerberos
@@ -155,7 +155,7 @@ auth:
   writer_groups: ["data-engineers", "yarn-operators", "etl-developers"]
 ```
 
-**Резолюция ролей**:
+**Определение ролей**:
 - Пользователи из `admin_users` или состоящие в любой группе из `admin_groups` получают роль **`ADMIN`** (краткий UI-бейдж `ADM`).
 - Пользователи, входящие в группы из `writer_groups`, получают роль **`WRITER`** (краткий UI-бейдж `RW`).
 - Все остальные аутентифицированные пользователи получают роль **`READER`** (краткий UI-бейдж `RO`).
@@ -171,7 +171,7 @@ auth:
 
 Поддерживаемые бэкенды:
 - **SQLite WAL** (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — встроенное хранилище по умолчанию с режимом Write-Ahead Logging.
-- **PostgreSQL** (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — рекомендуется для High Availability и мульти-инстанс развертываний в Kubernetes.
+- **PostgreSQL** (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — рекомендуется для High Availability и мультиинстанс-развертываний в Kubernetes.
 - **Redis** (`redis://redis-host:6379/0`) — опционально для распределенного L2 кэширования и распределенных блокировок (`DistributedLock`).
 
 ```yaml
@@ -187,7 +187,7 @@ database:
 
 - **Circuit Breaker & Prometheus Metrics**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются. Метрики экспортируются через Actuator `/actuator/prometheus` (или `/metrics`).
 - **Retry с экспоненциальным Backoff**: автоматический повтор при возникновении транзиентных ошибок соединения и сокетов (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`) со случайным джиттером.
-- **Global Exception Handlers (`@ControllerAdvice`)**: перехват всех необработанных исключений 500 сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incidentId` и возвратом стандартизированного ответа.
+- **Global Exception Handlers (`@ControllerAdvice`)**: перехват всех необработанных исключений 500 с сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incidentId` и возвратом стандартизированного ответа.
 - **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
 - **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolTaskExecutor`, отменой фоновых задач и закрытием соединений с базами данных и сетевыми клиентами.
 
@@ -230,14 +230,14 @@ hadoop:
 
 Файл конфигурации: `backend/yarn/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
-### 3.1 YARN кластеры и партиции
+### 3.1 YARN-кластеры и партиции
 
 ```yaml
 yarn:
   clusters:
     - id: "prod-yarn"
       name: "Production Hadoop Cluster"
-      description: "Основной YARN кластер (120 узлов)"
+      description: "Основной YARN-кластер (120 узлов)"
       resource-manager-urls:
         - "http://rm1.prod.company.local:8088"
         - "http://rm2.prod.company.local:8088" # High Availability failover
@@ -588,7 +588,7 @@ Spark Explorer сохраняет состояние сессий, активн�
    - Реализует централизованный потокобезопасный многоуровневый Token Bucket Throttler (выдача сетевых квот агентам).
    - Запускает встроенный планировщик периодических задач (Cron Scheduler).
    - Экспортирует метрики для Prometheus (`/actuator/prometheus`).
-2. **Replicator Agent** (Java 21 / gRPC сервис `:50051`):
+2. **Replicator Agent** (Java 21 / gRPC-сервис `:50051`):
    - Полнодуплексный агент (`agent`), развертываемый в каждом дата-центре (например, DC1 и DC2).
    - Включает встроенный Receiver (gRPC streaming на HTTP/2, проверка SHA-256, атомарный commit в HDFS) и Sender (опрос задач `QUEUED`, запрос токенов у Оркестратора, потоковая передача).
    - Прямая работа с HDFS через нативный `HadoopFsManager` с поддержкой Kerberos UGI и doAs-имперсонации для Apache Ranger.
@@ -653,7 +653,7 @@ topology:
 Для защиты корпоративных каналов WAN от перегрузки используется иерархический Token Bucket шейпер:
 1. **Глобальный лимит (Global WAN Cap)**: верхняя граница совокупной скорости передачи по всей платформе.
 2. **Лимиты между ЦОД (DC-DC WAN Limits)**: емкость магистрального физического канала связи между площадками.
-3. **Лимиты между парами HDFS кластеров (HDFS-HDFS Limits)**: логическая квота полосы под конкретное направление синхронизации.
+3. **Лимиты между парами HDFS-кластеров (HDFS-HDFS Limits)**: логическая квота полосы под конкретное направление синхронизации.
 
 Значение `0.0` означает работу без ограничений («Без лимита / Unlimited»).
 
@@ -666,7 +666,7 @@ topology:
       limit_mb_per_sec: 100.0   # Магистраль Москва <-> СПб: 100 МБ/с
       description: "Магистральный канал между DC1 и DC2"
 
-  # 4. Лимиты полосы между конкретными парами HDFS кластеров в МБ/с
+  # 4. Лимиты полосы между конкретными парами HDFS-кластеров в МБ/с
   hdfs_limits:
     - source_cluster: "demo-cluster"
       target_cluster: "backup-cluster"
@@ -680,7 +680,7 @@ topology:
 
     - source_cluster: "demo-cluster"
       target_cluster: "analytics-cluster"
-      limit_mb_per_sec: 80.0    # ВнутриЦОДный обмен
+      limit_mb_per_sec: 80.0    # Внутрицодовый обмен
       description: "Локальный обмен между Prod и Analytics внутри DC1"
 
   # 5. Глобальный лимит оркестратора (Global WAN Pool)
@@ -765,10 +765,10 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 **Принцип атомарности коммита (Atomic Commit & Zero-Staging)**:
 1. Передающий агент нарезает файлы на потоковые чанки размером 4 МБ (или объединяет мелкие файлы в виртуальный TAR-поток).
-2. Принимающий агент сохраняет входящие чанки во временный файл непосредственно в целевом каталоге HDFS (`targetPath + "._staging_" + jobId"` или `taskId`), исключая промежуточный локальный диск.
+2. Принимающий агент сохраняет входящие чанки во временный файл непосредственно в целевом каталоге HDFS (`targetPath + "._staging_" + jobId` или `taskId`), исключая промежуточный локальный диск.
 3. После завершения стриминга вычисляется и сверяется совокупная контрольная сумма SHA-256 файла.
-4. При совпадении хэша файл атомарно переименовывается (`HadoopFsManager.renameFile` / `FileSystem.rename`) в целевой путь HDFS/FS внутри того же каталога.
-5. При ошибке сети или расхождении хэша временный staging-файл автоматически удаляется с целевой HDFS (реактивная очистка `cleanup()` и фоновый TTL Reaper).
+4. При совпадении хеша файл атомарно переименовывается (`HadoopFsManager.renameFile` / `FileSystem.rename`) в целевой путь HDFS/FS внутри того же каталога.
+5. При ошибке сети или расхождении хеша временный staging-файл автоматически удаляется с целевой HDFS (реактивная очистка `cleanup()` и фоновый TTL Reaper).
 
 ---
 
@@ -808,7 +808,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 При установке Replicator Agent непосредственно на узлы Hadoop (DataNode Co-location) или общие Edge Nodes для защиты от деградации сетевых карт и дисковых массивов настраивается локальный шейпинг:
 - **Переменная `AGENT_MAX_BANDWIDTH_MB_S`**: задает предел полосы пропускания конкретного экземпляра агента в МБ/с (по умолчанию `0` — без ограничений).
-- **Алгоритм**: асинхронный Token Bucket (`LocalBandwidthLimiter`) с поддержкой burst-буфера 0.5с.
+- **Алгоритм**: асинхронный Token Bucket (`LocalBandwidthLimiter`) с поддержкой burst-буфера 0.5 с.
 - **Двусторонний троттлинг**:
   1. *Sender*: задержка при вызове `request_network_tokens()` перед отправкой каждого блока в сокет gRPC;
   2. *Receiver*: пауза при чтении чанков в `TransferFile()`, активирующая штатное TCP Window Backpressure по HTTP/2 и притормаживающая удаленного отправителя.
@@ -840,7 +840,7 @@ topology:
       webhdfs_url: "http://localhost:9870/webhdfs/v1"
       default_path: "/data/production"
       is_read_only: false
-      description: "Основной HDFS кластер оперативных данных в DC1"
+      description: "Основной HDFS-кластер оперативных данных в DC1"
 
     - id: "analytics-cluster"
       name: "HDFS Analytics (Secondary DataLake)"
@@ -848,7 +848,7 @@ topology:
       webhdfs_url: "http://localhost:9872/webhdfs/v1"
       default_path: "/data/analytics"
       is_read_only: false
-      description: "Аналитический HDFS кластер в DC1"
+      description: "Аналитический HDFS-кластер в DC1"
 
     - id: "backup-cluster"
       name: "HDFS DR (Backup DataLake)"
@@ -1052,7 +1052,7 @@ replicator:
 | `replicator_dr_reverse_jobs_total` | Gauge | `status` | Количество задач обратной репликации Failover |
 | `replicator_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
 | `replicator_agent_active_transfers` | Gauge | `agent_id`, `cluster_id`, `mode` | Текущее количество параллельных передач на агенте |
-| `replicator_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байт, переданных агентом |
+| `replicator_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байтов, переданных агентом |
 | `replicator_agent_errors_total` | Counter | `agent_id`, `cluster_id` | Количество ошибок передачи данных агента |
 | `replicator_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента |
 | `replicator_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с |
@@ -1095,7 +1095,7 @@ spec:
 В директории [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) доступны 5 специализированных дашбордов для промышленного мониторинга:
 
 1. **Сводный обзор платформы**: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — Golden Signals (RPS, Latency p95/p99, 5xx rate), Circuit Breaker, Retries, безопасность (Auth, Rate Limiting) и общая активность репликации.
-2. **Межкластерная репликация**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
+2. **Межкластерная репликация**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC-воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
 3. **Файловые операции HDFS**: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, скорость загрузки/скачивания (Upload vs Download), отказы операций.
 4. **Очереди YARN**: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, запросы на изменение квот, состояние HA ResourceManager.
 5. **Аналитика Spark & SQL**: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.

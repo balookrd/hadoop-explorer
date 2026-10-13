@@ -44,7 +44,7 @@
    - **Устанавливается**: `hadoop-grpc-replicator-orchestrator.jar` (Spring Boot 3.3.4, Java 21, `TCP :8005`).
    - Предоставляет REST API и Web-консоль управления на порту `:8005` (Kerberos SPNEGO SSO, LDAP, RBAC).
    - Хранилище состояния: PostgreSQL 14+ или H2 (`TCP :5432` / embedded).
-   - Общается с агентами обоих ЦОД по протоколу HTTP/REST (регистрация агентов, heartbeat каждые 5с, выдача квот подзадач, распределенный арбитраж Inotify Lease HA).
+   - Общается с агентами обоих ЦОДов (обоих дата-центров) по протоколу HTTP/REST (регистрация агентов, heartbeat каждые 5 с, выдача квот подзадач, распределенный арбитраж Inotify Lease HA).
    - **⚠️ Архитектурный инвариант**: Оркестратор **НЕ прокачивает байты файлов через себя**, работая исключительно как координатор метаданных.
 3. **Контур ЦОД-1 Primary (Москва)**:
    - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (Java 21, Netty 4.1).
@@ -58,11 +58,11 @@
    - **Единственный порт в межсетевом экране**: **`TCP :50051` (gRPC / HTTP/2, mTLS v1.3, MTU 9000)**.
    - Трафик данных идет **напрямую peer-to-peer от Agent DC1 к Agent DC2**, минуя оркестратор и кластерные порты Hadoop.
    - Скорость канала жестко регулируется сетевым шейпером Token Bucket (например, потолок 100 МБ/с).
-   - В аварии активен сетевой Kill-Switch: сброс полосы в 0 МБ/с для предотвращения эффекта Split-Brain.
+   - При аварии активен сетевой Kill-Switch: сброс полосы в 0 МБ/с для предотвращения эффекта Split-Brain.
 5. **Контур ЦОД-2 Standby / DR (Санкт-Петербург)**:
    - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` в режиме приемника (`receiver`).
    - Слушают входящий порт `TCP :50051`.
-   - Принимают чанки данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы `._staging_<jobId>` локального HDFS (`TCP :9866`).
+   - Принимают чанки данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы `._staging_<jobId>` локальной HDFS (`TCP :9866`).
    - При успешной проверке контрольной суммы вызывают атомарный `fs.rename()` в целевой путь через NameNode DC2 (`TCP :8020`).
    - Принимают Hive DDL-пакеты, переписывают URI путей NameService и накатывают схему в локальный Hive Metastore DC2 (`TCP :9083`) с флагом `deleteData=false`.
 
@@ -122,7 +122,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 | `-c`, `--cluster-id` | `CLUSTER_ID` | `default` | ID обслуживаемого HDFS-кластера (`dc1` или `dc2`) |
 | `-m`, `--mode` | `AGENT_MODE` | `all` | Режим работы демона: `all` (sender+receiver), `sender`, `receiver` |
 | `-o`, `--orchestrator`| `ORCHESTRATOR_URL` | `http://localhost:8005` | URL управляющего оркестратора для регистрации и heartbeat |
-| `-p`, `--port` | `AGENT_RECEIVER_PORT`| `50051` | Порт локального gRPC Netty сервера для приема входящего WAN трафика |
+| `-p`, `--port` | `AGENT_RECEIVER_PORT`| `50051` | Порт локального gRPC Netty-сервера для приема входящего WAN трафика |
 | `-b`, `--bandwidth` | `AGENT_MAX_BANDWIDTH`| `0` (unlimited) | Локальный лимит пропускной способности агента в МБ/с |
 | `-s`, `--staging-dir` | `AGENT_STAGING_DIR` | `/tmp/staging` | Локальный каталог временных метаданных staging |
 | `-z`, `--compression` | `WIRE_COMPRESSION` | `zstd` | Алгоритм сжатия потока в канале WAN: `zstd`, `lz4`, `none` |
@@ -149,14 +149,14 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 | **WAN (МежЦОД)** | `Agent DC1` | `Agent DC2` | **TCP / gRPC (mTLS v1.3)** | **50051** | Прямой стриминг чанков HDFS и пакетов DDL Hive CDC |
 | **WAN (МежЦОД)** | `Agent DC2` | `Agent DC1` | **TCP / gRPC (mTLS v1.3)** | **50051** | Обратный поток при Reverse Replication в сценарии DR |
 | **Corporate LAN**| Браузер оператора| `Orchestrator` | TCP / HTTPS (TLS 1.3) | **8005** | Доступ к Web UI Svelte 5, REST API, SSE подпискам |
-| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Heartbeat (каждые 5с), Claim подзадач, Lease продление |
+| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Heartbeat (каждые 5 с), Claim подзадач, Lease продление |
 | **DC LAN (Primary)**| `Agent DC1` | `NameNode DC1` | TCP / Hadoop RPC | **8020 / 9000** | Листинг каталогов, получение блочных манифестов |
 | **DC LAN (Primary)**| `Agent DC1` | `DataNodes DC1`| TCP / SASL DTP | **9866** | Блочное чтение данных под Kerberos UGI (`doAs`) |
 | **DC LAN (Primary)**| `Agent DC1` | `Hive Metastore 1`| TCP / Thrift RPC | **9083** | Опрос журнала `NOTIFICATION_LOG` Hive Metastore |
 | **DC LAN (Standby)**| `Agent DC2` | `NameNode DC2` | TCP / Hadoop RPC | **8020 / 9000** | Создание каталогов, атомарный `fs.rename()` |
-| **DC LAN (Standby)**| `Agent DC2` | `DataNodes DC2`| TCP / SASL DTP | **9866** | Запись блоков данных в целевой HDFS |
-| **DC LAN (Standby)**| `Agent DC2` | `Hive Metastore 2`| TCP / Thrift RPC | **9083** | Применение DDL изменений схемы (`deleteData=false`) |
-| **DC LAN (Оба ЦОД)**| Агенты DC1/DC2 | `Kerberos KDC` | TCP/UDP / Kerberos | **88** | Получение TGT билетов по системному keytab |
+| **DC LAN (Standby)**| `Agent DC2` | `DataNodes DC2`| TCP / SASL DTP | **9866** | Запись блоков данных в целевую HDFS |
+| **DC LAN (Standby)**| `Agent DC2` | `Hive Metastore 2`| TCP / Thrift RPC | **9083** | Применение DDL-изменений схемы (`deleteData=false`) |
+| **DC LAN (Оба ЦОДа)**| Агенты DC1/DC2 | `Kerberos KDC` | TCP/UDP / Kerberos | **88** | Получение TGT-билетов по системному keytab |
 
 ### Сетевые рекомендации
 - **Jumbo Frames (MTU 9000)**: Настоятельно рекомендуется включить MTU 9000 на межЦОДной оптической магистрали для уменьшения оверхеда прерываний сетевой карты при передаче 4 МБ чанков.
@@ -222,7 +222,7 @@ sequenceDiagram
 
 ### Архитектура пирамиды лимитов
 
-Сетевой шейпинг реализован на базе иерархического алгоритма **Hierarchical Token Bucket (HTB)** без использования системного `tc/iptables`, работающего на уровне Netty буферов приложений:
+Сетевой шейпинг реализован на базе иерархического алгоритма **Hierarchical Token Bucket (HTB)** без использования системного `tc/iptables` и функционирует на уровне буферов Netty в приложении:
 
 ```
 [Глобальный лимит платформы (Global Limit)] = 200 МБ/с
@@ -303,7 +303,7 @@ sequenceDiagram
 ```
 [Пользователь / ETL Job: ivan_de]
         │
-        ▼ (Создание задачи в UI / REST API с JWT токеном)
+        ▼ (Создание задачи в UI / REST API с JWT-токеном)
 [Replicator Orchestrator]
         │
         ▼ (Выдача задания агенту: author="ivan_de", run_as_service=false)
@@ -331,7 +331,7 @@ sequenceDiagram
 2. **Сохранение метаданных безопасности POSIX**:
    - При передаче файла в `FileMetadata` упаковываются оригинальный битовый режим прав доступа (`file_mode`), владелец (`owner`) и группа (`group`).
    - На целевой стороне агент восстанавливает оригинальные права через вызовы `fs.setPermission()` и `fs.setOwner()`.
-3. **mTLS шифрование межЦОДного канала**:
+3. **mTLS-шифрование межЦОДного канала**:
    - Канал `TCP :50051` защищен протоколом взаимной TLS-аутентификации (mTLS v1.3).
    - Агент DC1 проверяет сертификат Агента DC2, а Агент DC2 разрешает подключения только от клиентов с валидным сертификатом доверенного корпоративного CA.
 
@@ -355,7 +355,7 @@ sequenceDiagram
          -H "Authorization: Bearer ${JWT_TOKEN}"
 
 [3. СИСТЕМНЫЕ ДЕЙСТВИЯ ПЛАТФОРМЫ ПОД КАПОТОМ]
-  ├── Лимит WAN полосы в Token Bucket Шейпере принудительно сбрасывается в 0 МБ/с.
+  ├── Лимит WAN-полосы в Token Bucket Шейпере принудительно сбрасывается в 0 МБ/с.
   ├── Все активные входящие/исходящие gRPC стримы отменяются (Status.CANCELLED).
   ├── Все прямые задачи репликации переходят в статус STOPPED.
   └── Фоновый планировщик Cron Schedules принудительно деактивируется.
@@ -367,7 +367,7 @@ sequenceDiagram
 
 ### Защита от Split-Brain: почему Kill-Switch обязателен
 
-Если упавший ЦОД-1 внезапно оживет при отсутствии сетевого ограждения, старые фоновые задачи репликации могли бы начать перетирать свежие файлы, записанные клиентами на ЦОД-2 во время аварии. Kill-Switch выставляет жесткий барьер (0 МБ/с + деактивация задач), исключая любую возможность рассинхронизации или повреждения данных.
+Если упавший ЦОД-1 внезапно оживет при отсутствии сетевого ограждения, старые фоновые задачи репликации могут начать перетирать свежие файлы, записанные клиентами на ЦОД-2 во время аварии. Kill-Switch выставляет жесткий барьер (0 МБ/с + деактивация задач), исключая любую возможность рассинхронизации или повреждения данных.
 
 ---
 
@@ -459,11 +459,11 @@ sequenceDiagram
 
 | Название метрики | Тип | Лейблы | Описание |
 | :--- | :--- | :--- | :--- |
-| `replicator_throughput_bytes_total` | Counter | `dc`, `cluster_id` | Суммарный объем переданных байт по WAN каналу |
+| `replicator_throughput_bytes_total` | Counter | `dc`, `cluster_id` | Суммарный объем переданных байтов по WAN-каналу |
 | `replicator_throughput_bytes_per_second` | Gauge | `dc`, `cluster_id` | Текущая мгновенная скорость передачи данных |
 | `replicator_task_duration_seconds` | Histogram | `status`, `job_id` | Длительность выполнения задач и подзадач |
 | `replicator_hms_lag_events` | Gauge | `db_name` | Количество необработанных событий в NOTIFICATION_LOG |
-| `replicator_active_streams_count` | Gauge | `direction` | Количество одновременно открытых gRPC потоков |
+| `replicator_active_streams_count` | Gauge | `direction` | Количество одновременно открытых gRPC-потоков |
 | `replicator_staging_orphans_count` | Gauge | `cluster_id` | Количество обнаруженных осиротевших файлов staging |
 | `replicator_agent_heartbeat_timestamp`| Gauge | `agent_id`, `dc` | Временная метка последнего успешного heartbeat |
 
@@ -510,16 +510,16 @@ groups:
 | **Agent Colocated** | 4 vCPU | 8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с DataNode Hadoop |
 | **Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps | 200 GB SSD под системные журналы |
 
-### Тюнинг ядра Linux для 10G/40G WAN каналов (`/etc/sysctl.conf`)
+### Тюнинг ядра Linux для 10G/40G WAN-каналов (`/etc/sysctl.conf`)
 
 ```ini
-# Увеличение максимального размера сетевых буферов TCP для исключения дропов пакетов
+# Увеличение максимального размера сетевых буферов TCP для исключения потери пакетов
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
 net.core.rmem_default = 33554432
 net.core.wmem_default = 33554432
 
-# Авто-тюнинг TCP окон (min, default, max)
+# Автотюнинг TCP-окон (min, default, max)
 net.ipv4.tcp_rmem = 4096 87380 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
 
@@ -544,11 +544,11 @@ fs.file-max = 2097152
 ### Диагностика типовых инцидентов (Troubleshooting FAQ)
 
 1. **Ошибка `GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)`**:
-   - *Причина*: Истек TGT тикет технической учетной записи демона.
+   - *Причина*: Истек TGT-тикет технической учетной записи демона.
    - *Решение*: Проверить валидность keytab через `klist -kt /etc/security/keytabs/hdfs.headless.keytab`. Агент автоматически обновляет тикет за 10 минут до истечения срока действия.
 2. **Ошибка `org.apache.hadoop.ipc.RemoteException: Cannot create file ... NameNode is in safe mode`**:
    - *Причина*: Целевой кластер находится в безопасном режиме (SafeMode) после рестарта.
    - *Решение*: Дождаться выхода кластера из SafeMode (`hdfs dfsadmin -safemode wait`) или выполнить `hdfs dfsadmin -safemode leave`.
-3. **Зависание gRPC потоков при наличии Stateful Firewall**:
-   - *Причина*: Межсетевой экран сбрасывает неактивные TCP соединения по таймауту TCP Keepalive.
+3. **Зависание gRPC-потоков при наличии Stateful Firewall**:
+   - *Причина*: Межсетевой экран сбрасывает неактивные TCP-соединения по таймауту TCP Keepalive.
    - *Решение*: В конфигурации Netty включены gRPC Keepalive: `keepAliveTime(30, TimeUnit.SECONDS)`, `keepAliveTimeout(10, TimeUnit.SECONDS)`.
