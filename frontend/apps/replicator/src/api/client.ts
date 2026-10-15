@@ -251,6 +251,58 @@ export class ReplicatorApiClient extends BaseApiClient {
       method: 'POST',
     });
   }
+
+  // --- Kafka Replicator ---
+
+  async getKafkaDiscoveryClusters(): Promise<any[]> {
+    return this.request<any[]>('/replicator/kafka/discovery/clusters');
+  }
+
+  async getKafkaDiscoveryTopics(dc = 'dc1', search?: string): Promise<any[]> {
+    const q = search ? `&search=${encodeURIComponent(search)}` : '';
+    return this.request<any[]>(`/replicator/kafka/discovery/topics?dc=${encodeURIComponent(dc)}${q}`);
+  }
+
+  async getKafkaDiscoveryGroups(dc = 'dc1', search?: string): Promise<any[]> {
+    const q = search ? `&search=${encodeURIComponent(search)}` : '';
+    return this.request<any[]>(`/replicator/kafka/discovery/groups?dc=${encodeURIComponent(dc)}${q}`);
+  }
+
+  async getKafkaJobs(): Promise<any[]> {
+    return this.request<any[]>('/replicator/kafka/jobs');
+  }
+
+  async createKafkaJob(payload: any): Promise<any> {
+    return this.request<any>('/replicator/kafka/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async pauseKafkaJob(id: string): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeKafkaJob(id: string): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteKafkaJob(id: string): Promise<void> {
+    await this.request<void>(`/replicator/kafka/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async triggerKafkaFailover(id: string): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/failover`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new ReplicatorApiClient();
+

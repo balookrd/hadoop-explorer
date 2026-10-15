@@ -783,17 +783,16 @@
       HDFS Replication
     </button>
     <button
+      onclick={() => setActiveTab('kafka')}
+      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'kafka' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
+    >
+      Kafka Replication
+    </button>
+    <button
       onclick={() => setActiveTab('topology')}
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'topology' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       Топология ЦОД и Полоса
-    </button>
-    <button
-      onclick={() => setActiveTab('kafka')}
-      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5 {activeTab === 'kafka' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
-    >
-      <span class="w-1.5 h-1.5 rounded-full {activeTab === 'kafka' ? 'bg-white' : 'bg-emerald-500'}"></span>
-      Kafka Replicator
     </button>
     <button
       onclick={() => setActiveTab('dr')}
