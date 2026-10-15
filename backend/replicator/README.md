@@ -138,6 +138,13 @@
       - `EditJobModal.svelte`: модальное окно редактирования параметров активных и периодических задач.
       - `JobHistoryModal.svelte`: модальное окно с детальной историей всех запусков (`JobRun`), статистикой переданных объемов и настройкой лимита retention.
 
+21. **Тонкая настройка надежности, метрики отмен gRPC и сегментация Actuator (P3 Reliability & Security Segmentation)**:
+    - **Graceful остановка gRPC каналов пула**: в методе жизненного цикла `ReplicatorAgent.stop()` внедрен явный вызов `sender.close()`, гарантирующий корректное закрытие всех активных каналов пула `channelPool` и высвобождение сокетов и сетевых ресурсов до остановки фонового демона.
+    - **Мониторинг отмен и обрывов gRPC-стримов**: в `AgentMetrics` добавлен счетчик Micrometer `replicator.grpc.transfers.cancelled` (`cancelledTransfersCounter`). Вызовы интегрированы в обработчики клиентской отмены (`serverCallStreamObserver.setOnCancelHandler(...)`) при передаче одиночных файлов (`transferFile`) и потоковых TAR-архивов (`transferTarStream`), обеспечивая прозрачную телеметрию нестабильных WAN-каналов.
+    - **Сегментация Spring Boot Actuator**: эндпоинты Actuator оркестратора строго разграничены по уровню доступа:
+      - Публичные (`permitAll()`): эндпоинты проверки жизнеспособности (`/actuator/health/**`), базовой информации (`/actuator/info`) и Prometheus-скрейпинга метрик (`/actuator/prometheus`).
+      - Защищенные (`hasRole("ADMIN")`): административные и диагностические эндпоинты (`/actuator/metrics/**`, `/actuator/env`, `/actuator/beans`, `/actuator/mappings` и др.), блокирующие несанкционированный доступ к внутренней структуре и метаданным оркестратора.
+
 ---
 
 ## 2. Быстрый запуск

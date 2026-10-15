@@ -251,4 +251,53 @@ class OrchestratorIntegrationTest {
             .andExpect(jsonPath("$.created_by").value("writer_user"))
             .andExpect(jsonPath("$.execution_principal").value("writer_user@REALM.LOCAL"));
     }
+
+    @Test
+    @DisplayName("Сегментация Spring Boot Actuator: публичные health/info/prometheus и защита остальных эндпоинтов для ADMIN")
+    void actuatorEndpointsSegmentationSecurityTest() throws Exception {
+        // 1. Публичные эндпоинты Actuator доступны без токена (не 401/403)
+        mockMvc.perform(get("/actuator/health"))
+            .andExpect(result -> {
+                int status = result.getResponse().getStatus();
+                assertTrue(status == 200 || status == 503, "Health endpoint must be public (received status: " + status + ")");
+            });
+
+        mockMvc.perform(get("/actuator/info"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+            .andExpect(status().isOk());
+
+        // 2. Чувствительные эндпоинты Actuator (например, /actuator/metrics) блокируются для анонимных запросов
+        mockMvc.perform(get("/actuator/metrics"))
+            .andExpect(status().isUnauthorized());
+
+        // 3. Запрос с правами обычного пользователя (WRITER) получает 403 Forbidden
+        LoginRequest writerLogin = new LoginRequest("writer_user", "password123");
+        MvcResult writerLoginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(writerLogin)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie writerCookie = writerLoginResult.getResponse().getCookie("access_token");
+        assertNotNull(writerCookie);
+
+        mockMvc.perform(get("/actuator/metrics").cookie(writerCookie))
+            .andExpect(status().isForbidden());
+
+        // 4. Запрос с правами администратора (ADMIN) успешно получает доступ к /actuator/metrics
+        LoginRequest adminLogin = new LoginRequest("admin", "secret");
+        MvcResult adminLoginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(adminLogin)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie adminCookie = adminLoginResult.getResponse().getCookie("access_token");
+        assertNotNull(adminCookie);
+
+        mockMvc.perform(get("/actuator/metrics").cookie(adminCookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.names").isArray());
+    }
 }
+

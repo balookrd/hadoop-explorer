@@ -385,6 +385,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (responseObserver instanceof ServerCallStreamObserver<TransferFileResponse> serverCallStreamObserver) {
             serverCallStreamObserver.setOnCancelHandler(() -> {
                 logger.warn("Клиент прервал (CANCELLED) gRPC вызов передачи файла");
+                org.apache.hadoop.explorer.replicator.metrics.AgentMetrics.getInstance().recordTransferCancelled();
                 observer.cleanup();
             });
         }
@@ -678,6 +679,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (responseObserver instanceof ServerCallStreamObserver<TarStreamResponse> serverCallStreamObserver) {
             serverCallStreamObserver.setOnCancelHandler(() -> {
                 logger.warn("Клиент прервал (CANCELLED) gRPC вызов виртуального TAR-стрима");
+                org.apache.hadoop.explorer.replicator.metrics.AgentMetrics.getInstance().recordTransferCancelled();
                 observer.cleanup();
             });
         }

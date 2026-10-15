@@ -577,6 +577,10 @@ public class ReplicatorAgent {
             logger.info("gRPC Receiver сервер остановлен");
         }
 
+        if (sender != null) {
+            sender.close();
+        }
+
         if (inotifyListener != null) {
             inotifyListener.stop();
         }

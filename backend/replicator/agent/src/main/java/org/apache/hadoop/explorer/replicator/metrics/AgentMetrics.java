@@ -53,6 +53,10 @@ public class AgentMetrics {
     private final Counter orphansCleanedCounter;
     private final AtomicLong totalOrphansCleaned = new AtomicLong(0);
 
+    // --- 4. Отмены gRPC стримов ---
+    private final Counter cancelledTransfersCounter;
+    private final AtomicLong totalCancelledTransfers = new AtomicLong(0);
+
     public AgentMetrics() {
         this(new SimpleMeterRegistry());
     }
@@ -107,6 +111,10 @@ public class AgentMetrics {
 
         this.orphansCleanedCounter = Counter.builder("replicator.staging.orphans.cleaned")
                 .description("Количество удаленных осиротевших staging-файлов сборщиком мусора")
+                .register(this.registry);
+
+        this.cancelledTransfersCounter = Counter.builder("replicator.grpc.transfers.cancelled")
+                .description("Количество отмененных клиентом или прерванных gRPC передач данных")
                 .register(this.registry);
     }
 
@@ -224,6 +232,15 @@ public class AgentMetrics {
         return totalOrphansCleaned.get();
     }
 
+    public void recordTransferCancelled() {
+        totalCancelledTransfers.incrementAndGet();
+        cancelledTransfersCounter.increment();
+    }
+
+    public long getTotalCancelledTransfers() {
+        return totalCancelledTransfers.get();
+    }
+
     public void reset() {
         totalRawBytes.set(0);
         totalCompressedBytes.set(0);
@@ -235,5 +252,6 @@ public class AgentMetrics {
         activeStagingFiles.set(0);
         activeStagingBytes.set(0);
         totalOrphansCleaned.set(0);
+        totalCancelledTransfers.set(0);
     }
 }

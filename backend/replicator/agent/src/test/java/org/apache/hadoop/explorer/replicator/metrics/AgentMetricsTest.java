@@ -126,4 +126,22 @@ class AgentMetricsTest {
         assertEquals(0, metrics.getActiveStagingFiles());
         assertEquals(0L, metrics.getActiveStagingBytes());
     }
+
+    @Test
+    @DisplayName("Отмены gRPC вызовов: корректный инкремент счетчика отмененных передач")
+    void testCancelledTransfersMetrics() {
+        assertEquals(0L, metrics.getTotalCancelledTransfers());
+
+        metrics.recordTransferCancelled();
+        metrics.recordTransferCancelled();
+
+        assertEquals(2L, metrics.getTotalCancelledTransfers());
+
+        Counter cancelledCounter = metrics.getRegistry().find("replicator.grpc.transfers.cancelled").counter();
+        assertNotNull(cancelledCounter);
+        assertEquals(2.0, cancelledCounter.count(), 1e-6);
+
+        metrics.reset();
+        assertEquals(0L, metrics.getTotalCancelledTransfers());
+    }
 }

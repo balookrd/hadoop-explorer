@@ -62,12 +62,16 @@ public class ReplicatorOrchestratorApplication {
                     "/health",
                     "/healthz",
                     "/metrics",
-                    "/actuator/**",
+                    "/actuator/health",
+                    "/actuator/health/**",
+                    "/actuator/info",
+                    "/actuator/prometheus",
                     "/error",
                     "/api/v1/auth/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**"
                 ).permitAll()
+                .requestMatchers("/actuator/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(agentSecretFilter, UsernamePasswordAuthenticationFilter.class)
