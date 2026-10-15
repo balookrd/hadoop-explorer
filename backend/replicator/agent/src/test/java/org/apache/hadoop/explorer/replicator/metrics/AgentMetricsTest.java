@@ -17,8 +17,8 @@ class AgentMetricsTest {
 
     @BeforeEach
     void setUp() {
+        AgentMetrics.resetInstanceForTest();
         metrics = AgentMetrics.getInstance();
-        metrics.reset();
     }
 
     @Test

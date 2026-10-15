@@ -21,10 +21,14 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class AgentMetrics {
 
-    private static final AgentMetrics INSTANCE = new AgentMetrics();
+    private static volatile AgentMetrics INSTANCE = new AgentMetrics();
 
     public static AgentMetrics getInstance() {
         return INSTANCE;
+    }
+
+    public static synchronized void resetInstanceForTest() {
+        INSTANCE = new AgentMetrics();
     }
 
     private final MeterRegistry registry;
