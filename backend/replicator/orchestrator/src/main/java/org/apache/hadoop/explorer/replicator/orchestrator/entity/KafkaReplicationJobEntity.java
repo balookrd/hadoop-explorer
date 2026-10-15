@@ -83,6 +83,18 @@ public class KafkaReplicationJobEntity {
     @Column(name = "target_service_name", length = 64)
     private String targetServiceName = "kafka";
 
+    @Column(name = "source_bootstrap_servers", length = 256)
+    private String sourceBootstrapServers;
+
+    @Column(name = "target_bootstrap_servers", length = 256)
+    private String targetBootstrapServers;
+
+    @Column(name = "auto_create_topics")
+    private boolean autoCreateTopics = true;
+
+    @Column(name = "topic_provisioning_summary", length = 1024)
+    private String topicProvisioningSummary;
+
     @Column(name = "status", nullable = false, length = 32)
     private String status = "ACTIVE"; // ACTIVE, PAUSED, ERROR, STOPPED
 
@@ -315,4 +327,16 @@ public class KafkaReplicationJobEntity {
 
     public boolean isTargetSrKerberosEnabled() { return targetSrKerberosEnabled; }
     public void setTargetSrKerberosEnabled(boolean targetSrKerberosEnabled) { this.targetSrKerberosEnabled = targetSrKerberosEnabled; }
+
+    public String getSourceBootstrapServers() { return sourceBootstrapServers; }
+    public void setSourceBootstrapServers(String sourceBootstrapServers) { this.sourceBootstrapServers = sourceBootstrapServers; }
+
+    public String getTargetBootstrapServers() { return targetBootstrapServers; }
+    public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public boolean isAutoCreateTopics() { return autoCreateTopics; }
+    public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }
+
+    public String getTopicProvisioningSummary() { return topicProvisioningSummary; }
+    public void setTopicProvisioningSummary(String topicProvisioningSummary) { this.topicProvisioningSummary = topicProvisioningSummary; }
 }

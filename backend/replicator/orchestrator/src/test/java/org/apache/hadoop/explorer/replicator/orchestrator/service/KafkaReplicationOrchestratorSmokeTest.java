@@ -87,12 +87,17 @@ public class KafkaReplicationOrchestratorSmokeTest {
 
         // Проверка флагов Kerberos и SPNEGO в DTO
         assertTrue(createdJob.isSourceKerberosEnabled());
+        assertTrue(createdJob.isSourceKerberosEnabled());
         assertTrue(createdJob.isTargetKerberosEnabled());
         assertTrue(createdJob.isSourceSrKerberosEnabled());
         assertTrue(createdJob.isTargetSrKerberosEnabled());
         assertEquals("HORTONWORKS", createdJob.getSourceSrType());
         assertEquals("CONFLUENT", createdJob.getTargetSrType());
         assertEquals(2, createdJob.getTopics().size());
+        assertTrue(createdJob.isAutoCreateTopics(), "auto_create_topics по умолчанию true");
+        assertNotNull(createdJob.getSourceBootstrapServers());
+        assertNotNull(createdJob.getTargetBootstrapServers());
+        assertNotNull(createdJob.getTopicProvisioningSummary());
 
         // 3. Проверка персистентности в JPA Entity репозитории
         Optional<KafkaReplicationJobEntity> entityOpt = repository.findById(createdJob.getId());
@@ -102,9 +107,15 @@ public class KafkaReplicationOrchestratorSmokeTest {
         assertEquals("DC2", entity.getTargetDc());
         assertTrue(entity.isSourceSrKerberosEnabled(), "JPA колонка source_sr_kerberos_enabled должна быть true");
         assertTrue(entity.isTargetSrKerberosEnabled(), "JPA колонка target_sr_kerberos_enabled должна быть true");
+        assertTrue(entity.isAutoCreateTopics(), "JPA колонка auto_create_topics должна быть true");
         assertEquals("HORTONWORKS", entity.getSourceSrType());
         assertEquals("CONFLUENT", entity.getTargetSrType());
         assertTrue(entity.getTopicsJson().contains("orders-avro"));
+
+        // 3.1. Проверка вызова REST эндпоинта предварительной проверки топиков
+        var provisionResp = controller.provisionTopics(createdJob.getId());
+        assertEquals(HttpStatus.OK, provisionResp.getStatusCode());
+        assertNotNull(provisionResp.getBody());
 
         // 4. Проверка получения списка задач
         List<KafkaReplicationJobDto> jobs = controller.listJobs();

@@ -43,6 +43,8 @@ public class ReplicatorAgentConfig {
     private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
     private int maxBundleFiles = 500;
     private int bundleCommitConcurrency = 8;
+    private int maxConcurrentTarStreams = 16;
+    private int tarPipeBufferBytes = 2 * 1024 * 1024;
     private boolean stagingCleanupEnabled = true;
     private long stagingCleanupIntervalMinutes = 15;
     private long stagingTtlMinutes = 30;
@@ -126,6 +128,8 @@ public class ReplicatorAgentConfig {
         config.bundleTargetSizeBytes = Long.parseLong(getEnv("REPLICATOR_BUNDLE_TARGET_SIZE_BYTES", String.valueOf(16 * 1024 * 1024L)));
         config.maxBundleFiles = Integer.parseInt(getEnv("REPLICATOR_MAX_BUNDLE_FILES", "500"));
         config.bundleCommitConcurrency = Integer.parseInt(getEnv("REPLICATOR_BUNDLE_COMMIT_CONCURRENCY", "8"));
+        config.maxConcurrentTarStreams = Integer.parseInt(getEnv("REPLICATOR_MAX_CONCURRENT_TAR_STREAMS", "16"));
+        config.tarPipeBufferBytes = Integer.parseInt(getEnv("REPLICATOR_TAR_PIPE_BUFFER_BYTES", String.valueOf(2 * 1024 * 1024)));
 
         config.stagingCleanupEnabled = Boolean.parseBoolean(getEnv("REPLICATOR_STAGING_CLEANUP_ENABLED", "true"));
         config.stagingCleanupIntervalMinutes = Long.parseLong(getEnv("REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES", "15"));
@@ -289,4 +293,10 @@ public class ReplicatorAgentConfig {
 
     public int getOrchestratorMaxPendingTasksThreshold() { return orchestratorMaxPendingTasksThreshold; }
     public void setOrchestratorMaxPendingTasksThreshold(int orchestratorMaxPendingTasksThreshold) { this.orchestratorMaxPendingTasksThreshold = orchestratorMaxPendingTasksThreshold; }
+
+    public int getMaxConcurrentTarStreams() { return maxConcurrentTarStreams; }
+    public void setMaxConcurrentTarStreams(int maxConcurrentTarStreams) { this.maxConcurrentTarStreams = maxConcurrentTarStreams; }
+
+    public int getTarPipeBufferBytes() { return tarPipeBufferBytes; }
+    public void setTarPipeBufferBytes(int tarPipeBufferBytes) { this.tarPipeBufferBytes = tarPipeBufferBytes; }
 }

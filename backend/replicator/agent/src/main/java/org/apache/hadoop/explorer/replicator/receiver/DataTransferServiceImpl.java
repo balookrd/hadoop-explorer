@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -37,14 +38,29 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final String keytabPath;
     private final ExecutorService bundleCommitExecutor;
     private final Set<String> knownTargetDirectories = ConcurrentHashMap.newKeySet();
+    private final int bundleCommitConcurrency;
+    private final int maxConcurrentTarStreams;
+    private final int tarPipeBufferBytes;
+    private final Semaphore tarStreamSemaphore;
 
-    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency) {
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
+            int tarPipeBufferBytes
+    ) {
         this.stagingDir = stagingDir != null ? stagingDir : "/tmp/staging";
         this.fsManager = fsManager;
         this.bandwidthLimiter = bandwidthLimiter;
         this.keytabPath = keytabPath;
-        int threads = bundleCommitConcurrency > 0 ? bundleCommitConcurrency : 8;
-        this.bundleCommitExecutor = Executors.newFixedThreadPool(threads, r -> {
+        this.bundleCommitConcurrency = bundleCommitConcurrency > 0 ? bundleCommitConcurrency : 8;
+        this.maxConcurrentTarStreams = maxConcurrentTarStreams > 0 ? maxConcurrentTarStreams : 16;
+        this.tarPipeBufferBytes = tarPipeBufferBytes > 0 ? tarPipeBufferBytes : 2 * 1024 * 1024;
+        this.tarStreamSemaphore = new Semaphore(this.maxConcurrentTarStreams, true);
+        this.bundleCommitExecutor = Executors.newFixedThreadPool(this.bundleCommitConcurrency, r -> {
             Thread t = new Thread(r, "bundle-hdfs-committer");
             t.setDaemon(true);
             return t;
@@ -54,6 +70,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (!dir.exists()) {
             dir.mkdirs();
         }
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024);
     }
 
     public void recordTargetDirectory(String path) {
@@ -91,6 +111,22 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
     public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter) {
         this(stagingDir, fsManager, bandwidthLimiter, null, 8);
+    }
+
+    public int getMaxConcurrentTarStreams() {
+        return maxConcurrentTarStreams;
+    }
+
+    public int getTarPipeBufferBytes() {
+        return tarPipeBufferBytes;
+    }
+
+    public int getAvailableTarStreamSlots() {
+        return tarStreamSemaphore.availablePermits();
+    }
+
+    public int getActiveTarStreamsCount() {
+        return maxConcurrentTarStreams - tarStreamSemaphore.availablePermits();
     }
 
     @Override
@@ -356,6 +392,15 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private long bytesReceived = 0;
             private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
             private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
+            private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
+
+            private void releasePermit() {
+                if (permitAcquired.compareAndSet(true, false)) {
+                    tarStreamSemaphore.release();
+                    logger.debug("Освобожден слот семафора TAR-распаковки (доступно: {}/{})",
+                            tarStreamSemaphore.availablePermits(), maxConcurrentTarStreams);
+                }
+            }
 
             @Override
             public void onNext(TarStreamRequest request) {
@@ -364,11 +409,38 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     if (request.hasMetadata()) {
                         metadata = request.getMetadata();
                         recordTargetDirectory(metadata.getBaseTargetPath());
+
+                        // Ограничение пула памяти: захват слота семафора для TAR-распаковки
+                        boolean acquired = false;
+                        try {
+                            acquired = tarStreamSemaphore.tryAcquire(60, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            logger.warn("Прервано ожидание слота памяти TAR-распаковки для task_id={}", metadata.getTaskId());
+                        }
+
+                        if (!acquired) {
+                            String errMsg = "Пул памяти TAR-распаковки перегружен: превышен лимит параллельных потоков ("
+                                    + maxConcurrentTarStreams + ") или тайм-аут ожидания слота";
+                            logger.error(errMsg + " для task_id={}", metadata.getTaskId());
+                            responseObserver.onNext(TarStreamResponse.newBuilder()
+                                    .setTaskId(metadata.getTaskId())
+                                    .setSuccess(false)
+                                    .setMessage(errMsg)
+                                    .build());
+                            responseObserver.onCompleted();
+                            return;
+                        }
+                        permitAcquired.set(true);
+
                         pipedOut = new PipedOutputStream();
-                        pipedIn = new PipedInputStream(pipedOut, 4 * 1024 * 1024);
+                        pipedIn = new PipedInputStream(pipedOut, tarPipeBufferBytes);
 
                         final TarStreamMetadata meta = metadata;
                         final InputStream inStream = pipedIn;
+
+                        // Ограничение параллелизма in-flight коммитов файлов одного бандла для сдерживания памяти
+                        final Semaphore fileCommitLimiter = new Semaphore(Math.max(2, bundleCommitConcurrency * 2));
 
                         // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS
                         unpackFuture = CompletableFuture.supplyAsync(() -> {
@@ -395,6 +467,14 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     activeStagingSizes.put(stagingPath, (long) fileData.length);
                                     AgentMetrics.getInstance().recordStagingFileStart();
                                     AgentMetrics.getInstance().recordStagingBytes(fileData.length);
+
+                                    // Захватываем разрешение на коммит файла (сдерживает чтение из tarIn и pipe buffer)
+                                    try {
+                                        fileCommitLimiter.acquire();
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new IOException("Прервано ожидание слота коммита файла: " + relPath, ie);
+                                    }
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         try {
@@ -440,6 +520,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                     .setSuccess(false)
                                                     .setErrorMessage(e.getMessage() != null ? e.getMessage() : "Unknown I/O error")
                                                     .build());
+                                        } finally {
+                                            fileCommitLimiter.release();
                                         }
                                     }, bundleCommitExecutor);
                                     commitFutures.add(fut);
@@ -469,14 +551,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                             }
                         });
 
-                        logger.info("Начат прием виртуального TAR-стрима task_id={}, job_id={}, файлов={}, суммарный объем={}",
-                                metadata.getTaskId(), metadata.getJobId(), metadata.getTotalFiles(), metadata.getTotalBytes());
+                        logger.info("Начат прием виртуального TAR-стрима task_id={}, job_id={}, файлов={}, суммарный объем={} (буфер: {} КБ, активно слотов: {}/{})",
+                                metadata.getTaskId(), metadata.getJobId(), metadata.getTotalFiles(), metadata.getTotalBytes(),
+                                tarPipeBufferBytes / 1024, maxConcurrentTarStreams - tarStreamSemaphore.availablePermits(), maxConcurrentTarStreams);
                     }
                     // 2. Чанк данных архива
                     else if (request.hasChunk()) {
                         TarStreamChunk chunk = request.getChunk();
                         if (pipedOut == null || metadata == null) {
                             logger.error("Чанк TAR получен до метаданных task_id={}", chunk.getTaskId());
+                            cleanup();
                             responseObserver.onNext(TarStreamResponse.newBuilder()
                                     .setTaskId(chunk.getTaskId())
                                     .setSuccess(false)
@@ -516,8 +600,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             @Override
             public void onCompleted() {
                 if (metadata == null || pipedOut == null || unpackFuture == null) {
+                    cleanup();
                     responseObserver.onNext(TarStreamResponse.newBuilder()
-                            .setTaskId("unknown")
+                            .setTaskId(metadata != null ? metadata.getTaskId() : "unknown")
                             .setSuccess(false)
                             .setMessage("Пустой поток: метаданные бандла не были получены")
                             .build());
@@ -535,17 +620,19 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     responseObserver.onCompleted();
                 } catch (Exception e) {
                     logger.error("Ошибка ожидания распаковки TAR-стрима task_id={}: {}", metadata.getTaskId(), e.getMessage(), e);
-                    cleanup();
                     responseObserver.onNext(TarStreamResponse.newBuilder()
                             .setTaskId(metadata.getTaskId())
                             .setSuccess(false)
                             .setMessage("Ошибка распаковки бандла: " + e.getMessage())
                             .build());
                     responseObserver.onCompleted();
+                } finally {
+                    cleanup();
                 }
             }
 
             private void cleanup() {
+                releasePermit();
                 if (pipedOut != null) {
                     try {
                         pipedOut.close();

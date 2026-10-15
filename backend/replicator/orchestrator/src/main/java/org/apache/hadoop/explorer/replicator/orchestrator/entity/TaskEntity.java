@@ -13,7 +13,8 @@ import java.time.Instant;
     indexes = {
         @Index(name = "idx_task_job_id", columnList = "job_id"),
         @Index(name = "idx_task_status", columnList = "status"),
-        @Index(name = "idx_task_job_status", columnList = "job_id, status")
+        @Index(name = "idx_task_job_status", columnList = "job_id, status"),
+        @Index(name = "idx_task_status_job_id", columnList = "status, job_id")
     }
 )
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

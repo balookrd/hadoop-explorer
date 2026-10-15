@@ -67,6 +67,12 @@ public class KafkaReplicationController {
         return ResponseEntity.ok(Map.of("id", id, "action", "FAILOVER_TRIGGERED", "status", "SUCCESS"));
     }
 
+    @PostMapping("/jobs/{id}/provision-topics")
+    public ResponseEntity<org.apache.hadoop.explorer.replicator.orchestrator.kafka.TopicProvisioningResult> provisionTopics(@PathVariable String id) {
+        var result = service.provisionTopicsForJob(id);
+        return ResponseEntity.ok(result);
+    }
+
     /**
      * Возвращает список сконфигурированных кластеров Kafka / ЦОД для выбора в UI.
      */

@@ -1,0 +1,233 @@
+package org.apache.hadoop.explorer.replicator.orchestrator.kafka;
+
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.service.KafkaReplicationOrchestratorService;
+import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicPartitionInfo;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.util.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Модульные и интеграционные тесты для механизма автосоздания топиков Kafka
+ * с проверкой и сохранением топологии партиционирования.
+ */
+public class KafkaTopicProvisionerTest {
+
+    private KafkaAdminClientFactory adminClientFactory;
+    private AdminClient sourceAdmin;
+    private AdminClient targetAdmin;
+    private KafkaTopicProvisioner provisioner;
+
+    private Node node1;
+    private Node node2;
+
+    @BeforeEach
+    void setUp() {
+        adminClientFactory = mock(KafkaAdminClientFactory.class);
+        sourceAdmin = mock(AdminClient.class);
+        targetAdmin = mock(AdminClient.class);
+
+        when(adminClientFactory.createAdminClient(eq("source:9092"), anyBoolean(), any(), any(), any()))
+                .thenReturn(sourceAdmin);
+        when(adminClientFactory.createAdminClient(eq("target:9092"), anyBoolean(), any(), any(), any()))
+                .thenReturn(targetAdmin);
+
+        provisioner = new KafkaTopicProvisioner(adminClientFactory);
+
+        node1 = new Node(1, "broker-1", 9092);
+        node2 = new Node(2, "broker-2", 9092);
+    }
+
+    private TopicDescription createTopicDescription(String topicName, int partitionCount, int replicationFactor) {
+        List<TopicPartitionInfo> partitions = new ArrayList<>();
+        List<Node> replicas = replicationFactor > 1 ? List.of(node1, node2) : List.of(node1);
+        for (int p = 0; p < partitionCount; p++) {
+            partitions.add(new TopicPartitionInfo(p, node1, replicas, replicas));
+        }
+        return new TopicDescription(topicName, false, partitions);
+    }
+
+    @Test
+    @DisplayName("Автосоздание топика: создание отсутствующего топика с сохранением партиций и фактора репликации")
+    void shouldCreateMissingTopicWithOriginalPartitionsAndReplicationFactor() throws Exception {
+        String topic = "orders-stream";
+
+        // Описание на источнике: 6 партиций, RF = 2
+        TopicDescription srcDesc = createTopicDescription(topic, 6, 2);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        // Список топиков на таргете: пустой (топик отсутствует)
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Collections.emptySet()));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+
+        // Мок создания топика
+        CreateTopicsResult tgtCreateResult = mock(CreateTopicsResult.class);
+        when(tgtCreateResult.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(targetAdmin.createTopics(anyCollection())).thenReturn(tgtCreateResult);
+
+        TopicProvisioningResult result = provisioner.provisionTopics(
+                "source:9092", false, null, null, null,
+                "target:9092", false, null, null, null,
+                List.of(topic), true
+        );
+
+        assertTrue(result.success());
+        assertEquals(1, result.createdTopics().size());
+        assertTrue(result.createdTopics().get(0).contains("orders-stream"));
+        assertTrue(result.createdTopics().get(0).contains("партиций: 6"));
+        assertTrue(result.createdTopics().get(0).contains("RF: 2"));
+
+        // Проверяем захваченный NewTopic
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<NewTopic>> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(targetAdmin).createTopics(captor.capture());
+
+        Collection<NewTopic> created = captor.getValue();
+        assertEquals(1, created.size());
+        NewTopic newTopic = created.iterator().next();
+        assertEquals("orders-stream", newTopic.name());
+        assertEquals(6, newTopic.numPartitions());
+        assertEquals(2, newTopic.replicationFactor());
+    }
+
+    @Test
+    @DisplayName("Расширение партиций: увеличение числа партиций целевого топика при несовпадении")
+    void shouldExpandTargetPartitionsWhenTargetHasFewerPartitions() throws Exception {
+        String topic = "payments-v1";
+
+        // Исходный топик имеет 8 партиций
+        TopicDescription srcDesc = createTopicDescription(topic, 8, 2);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        // Целевой топик уже существует
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Set.of(topic)));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+
+        // На таргете только 3 партиции
+        TopicDescription tgtDesc = createTopicDescription(topic, 3, 2);
+        DescribeTopicsResult tgtDescResult = mock(DescribeTopicsResult.class);
+        when(tgtDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, tgtDesc)));
+        when(targetAdmin.describeTopics(anyCollection())).thenReturn(tgtDescResult);
+
+        // Мок создания партиций
+        CreatePartitionsResult tgtPartResult = mock(CreatePartitionsResult.class);
+        when(tgtPartResult.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(targetAdmin.createPartitions(anyMap())).thenReturn(tgtPartResult);
+
+        TopicProvisioningResult result = provisioner.provisionTopics(
+                "source:9092", false, null, null, null,
+                "target:9092", false, null, null, null,
+                List.of(topic), true
+        );
+
+        assertTrue(result.success());
+        assertEquals(1, result.expandedTopics().size());
+        assertTrue(result.expandedTopics().get(0).contains("3 -> 8"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, NewPartitions>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(targetAdmin).createPartitions(captor.capture());
+
+        Map<String, NewPartitions> map = captor.getValue();
+        assertTrue(map.containsKey(topic));
+        assertEquals(8, map.get(topic).totalCount());
+    }
+
+    @Test
+    @DisplayName("Идентичные топики: совпадение партиций не вызывает модификаций")
+    void shouldMatchAlreadySynchronizedTopicWithoutChanges() throws Exception {
+        String topic = "telemetry-raw";
+
+        TopicDescription srcDesc = createTopicDescription(topic, 4, 1);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Set.of(topic)));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+
+        TopicDescription tgtDesc = createTopicDescription(topic, 4, 1);
+        DescribeTopicsResult tgtDescResult = mock(DescribeTopicsResult.class);
+        when(tgtDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, tgtDesc)));
+        when(targetAdmin.describeTopics(anyCollection())).thenReturn(tgtDescResult);
+
+        TopicProvisioningResult result = provisioner.provisionTopics(
+                "source:9092", false, null, null, null,
+                "target:9092", false, null, null, null,
+                List.of(topic), true
+        );
+
+        assertTrue(result.success());
+        assertEquals(1, result.matchedTopics().size());
+        assertTrue(result.matchedTopics().get(0).contains("партиций: 4"));
+        verify(targetAdmin, never()).createTopics(anyCollection());
+        verify(targetAdmin, never()).createPartitions(anyMap());
+    }
+
+    @Test
+    @DisplayName("Интеграция с KafkaReplicationOrchestratorService: сквозной провижининг при создании задачи")
+    void shouldTriggerProvisioningInsideOrchestratorServiceOnJobCreate() {
+        KafkaReplicationJobRepository repo = mock(KafkaReplicationJobRepository.class);
+        when(repo.save(any(KafkaReplicationJobEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Настройка мок брокеров
+        String topic = "events-kafka";
+        TopicDescription srcDesc = createTopicDescription(topic, 12, 3);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Collections.emptySet()));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+
+        CreateTopicsResult tgtCreateResult = mock(CreateTopicsResult.class);
+        when(tgtCreateResult.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(targetAdmin.createTopics(anyCollection())).thenReturn(tgtCreateResult);
+
+        KafkaReplicationOrchestratorService service = new KafkaReplicationOrchestratorService(repo, provisioner);
+
+        CreateKafkaJobRequest req = new CreateKafkaJobRequest();
+        req.setName("auto-topic-job");
+        req.setSourceDc("DC1");
+        req.setTargetDc("DC2");
+        req.setSourceBootstrapServers("source:9092");
+        req.setTargetBootstrapServers("target:9092");
+        req.setDirection("UNIDIRECTIONAL");
+        req.setAutoCreateTopics(true);
+        req.setTopics(List.of(new CreateKafkaJobRequest.TopicSetting(topic, "AUTO_DETECT")));
+
+        KafkaReplicationJobDto dto = service.createJob(req);
+
+        assertNotNull(dto);
+        assertEquals("auto-topic-job", dto.getName());
+        assertTrue(dto.isAutoCreateTopics());
+        assertEquals("source:9092", dto.getSourceBootstrapServers());
+        assertEquals("target:9092", dto.getTargetBootstrapServers());
+        assertNotNull(dto.getTopicProvisioningSummary());
+        assertTrue(dto.getTopicProvisioningSummary().contains("events-kafka"));
+        assertTrue(dto.getTopicProvisioningSummary().contains("партиций: 12"));
+
+        verify(targetAdmin).createTopics(anyCollection());
+    }
+}

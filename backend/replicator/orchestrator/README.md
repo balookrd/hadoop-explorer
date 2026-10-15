@@ -27,6 +27,7 @@
 3. **Планировщик и жизненный цикл задач (`ReplicationScheduler`, `JobService`)**:
    - Поддержка запуска по расписанию: интервальные пресеты (`@every_5m`, `@every_15m`, `@hourly`, `@daily`) и Cron-выражения (`UNIX` / `Spring`).
    - Ведение истории запусков (`JobRunEntity`) и детализация пофайловых задач (`TaskEntity`), включая обычные файлы (`FILE`) и бандлы упакованных мелких файлов (`BUNDLE_TAR`).
+   - Оптимизация распределенной очереди (`claimTasks`): составной индекс `(status, job_id)` в таблице `replication_tasks` для мгновенной выборки доступных задач при миллионных объемах пофайлового пула.
    - Корректный учет числа упакованных объектов (`fileCount`) в бандлах при завершении задач (`transferredObjects` / `totalObjects`).
    - Автоматическая очистка устаревших запусков (`cleanupRetentionDays`).
    - Расчет метрик: процент выполнения, средняя скорость передачи (`MB/s`), время старта и завершения.
@@ -42,6 +43,13 @@
    - Метрики эффективности сжатия на лету: `replicator_compression_raw_bytes_total`, `replicator_compression_compressed_bytes_total`, `replicator_compression_ratio`.
    - Гистограмма задержек gRPC передачи чанков с SLA-бакетами от 1 мс до 5 с: `replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`, а также `replicator_grpc_chunk_transfer_latency_avg_ms` и `max_ms`.
    - Мониторинг очереди и буфера Staging на целевых кластерах: `replicator_staging_queue_size`, `replicator_staging_active_files`, `replicator_staging_active_bytes`, `replicator_staging_orphans_cleaned_total`.
+
+6. **Оркестрация и автосоздание Kafka-топиков (`KafkaTopicProvisioner`, `KafkaReplicationOrchestratorService`)**:
+   - Автоматическая предварительная проверка наличия топиков на целевом кластере Kafka перед запуском репликации.
+   - Создание отсутствующих топиков с полным сохранением топологии партиционирования исходного топика (`numPartitions`, фактор репликации `replicationFactor`).
+   - Автоматическое расширение партиций (`createPartitions`) на целевом брокере, если топик уже существовал, но имел меньшее число партиций, исключая рассинхронизацию ключей и партиций.
+   - Поддержка двунаправленной (`BIDIRECTIONAL`) и однонаправленной (`UNIDIRECTIONAL`) репликации.
+   - Безопасная работа через `KafkaAdminClientFactory` с изолированным in-memory JAAS Kerberos контекстом и graceful fallback при временной недоступности брокера.
 
 ---
 
@@ -168,3 +176,14 @@ make test-java
 | `POST` | `/api/v1/limits/global` | Динамическое изменение глобального лимита WAN полосы | JWT (`ADMIN`) |
 | `POST` | `/api/v1/limits/dc-dc` | Динамическое изменение лимита магистрали между ЦОД | JWT (`ADMIN`) |
 | `POST` | `/api/v1/limits/hdfs-hdfs` | Динамическое изменение лимита между кластерами HDFS | JWT (`ADMIN`) |
+| `GET` | `/api/v1/replicator/kafka/jobs` | Список задач межкластерной репликации Kafka | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/replicator/kafka/jobs` | Регистрация задачи репликации Kafka с автосозданием топиков | JWT (`ADMIN` / `WRITER`) |
+| `GET` | `/api/v1/replicator/kafka/jobs/{id}` | Детали задачи репликации Kafka | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/replicator/kafka/jobs/{id}/provision-topics` | Предварительная проверка и автосоздание/расширение топиков | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/replicator/kafka/jobs/{id}/pause` | Приостановка репликации Kafka | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/replicator/kafka/jobs/{id}/resume` | Возобновление репликации Kafka | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/replicator/kafka/jobs/{id}/failover` | Инициирование Failover консьюмеров | JWT (`ADMIN`) |
+| `DELETE` | `/api/v1/replicator/kafka/jobs/{id}` | Удаление задачи репликации Kafka | JWT (`ADMIN`) |
+| `GET` | `/api/v1/replicator/kafka/discovery/clusters` | Обнаружение доступных кластеров Kafka в ЦОД | JWT (`USER` / `ADMIN`) |
+| `GET` | `/api/v1/replicator/kafka/discovery/topics` | Обнаружение топиков для автокомплита в UI | JWT (`USER` / `ADMIN`) |
+| `GET` | `/api/v1/replicator/kafka/discovery/groups` | Обнаружение консьюмер-групп в ЦОД | JWT (`USER` / `ADMIN`) |

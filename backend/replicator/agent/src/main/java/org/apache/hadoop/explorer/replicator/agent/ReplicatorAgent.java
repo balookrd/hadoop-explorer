@@ -202,7 +202,9 @@ public class ReplicatorAgent {
                 fsManager,
                 bandwidthLimiter,
                 config.getKeytabPath(),
-                config.getBundleCommitConcurrency()
+                config.getBundleCommitConcurrency(),
+                config.getMaxConcurrentTarStreams(),
+                config.getTarPipeBufferBytes()
         );
 
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))

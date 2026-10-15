@@ -31,6 +31,10 @@ public class CreateKafkaJobRequest {
     private String targetKeytabPath;
     private String targetServiceName = "kafka";
 
+    private String sourceBootstrapServers;
+    private String targetBootstrapServers;
+    private boolean autoCreateTopics = true;
+
     public static class TopicSetting {
         private String topic;
         private String payloadMode = "AUTO_DETECT"; // PASSTHROUGH, AUTO_DETECT, SCHEMA_REGISTRY
@@ -194,4 +198,13 @@ public class CreateKafkaJobRequest {
 
     public boolean isTargetSrKerberosEnabled() { return targetSrKerberosEnabled; }
     public void setTargetSrKerberosEnabled(boolean targetSrKerberosEnabled) { this.targetSrKerberosEnabled = targetSrKerberosEnabled; }
+
+    public String getSourceBootstrapServers() { return sourceBootstrapServers; }
+    public void setSourceBootstrapServers(String sourceBootstrapServers) { this.sourceBootstrapServers = sourceBootstrapServers; }
+
+    public String getTargetBootstrapServers() { return targetBootstrapServers; }
+    public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public boolean isAutoCreateTopics() { return autoCreateTopics; }
+    public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }
 }

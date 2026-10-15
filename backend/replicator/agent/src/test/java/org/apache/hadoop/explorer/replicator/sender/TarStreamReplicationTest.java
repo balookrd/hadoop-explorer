@@ -4,6 +4,7 @@ import io.grpc.Server;
 import io.grpc.inprocess.InProcessServerBuilder;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
+import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
@@ -281,6 +282,56 @@ public class TarStreamReplicationTest {
             File targetSmall = new File(tempTargetDir, "small_" + i + ".txt");
             assertTrue(targetSmall.exists());
         }
+    }
+
+    @Test
+    public void testTarStreamSemaphoreLimiter() throws Exception {
+        DataTransferServiceImpl service = new DataTransferServiceImpl(
+                tempStagingDir.getAbsolutePath(),
+                fsManager,
+                null,
+                null,
+                4,
+                2,
+                1024 * 1024
+        );
+
+        assertEquals(2, service.getMaxConcurrentTarStreams());
+        assertEquals(2, service.getAvailableTarStreamSlots());
+        assertEquals(0, service.getActiveTarStreamsCount());
+        assertEquals(1024 * 1024, service.getTarPipeBufferBytes());
+
+        TarStreamMetadata meta1 = TarStreamMetadata.newBuilder()
+                .setJobId("job-sem-1")
+                .setTaskId("task-sem-1")
+                .setBaseTargetPath(tempTargetDir.getAbsolutePath())
+                .setTotalFiles(1)
+                .setTotalBytes(100)
+                .build();
+
+        List<TarStreamResponse> responses = new CopyOnWriteArrayList<>();
+        io.grpc.stub.StreamObserver<TarStreamResponse> respObserver = new io.grpc.stub.StreamObserver<>() {
+            @Override
+            public void onNext(TarStreamResponse value) {
+                responses.add(value);
+            }
+            @Override
+            public void onError(Throwable t) {}
+            @Override
+            public void onCompleted() {}
+        };
+
+        io.grpc.stub.StreamObserver<TarStreamRequest> stream1 = service.transferTarStream(respObserver);
+        stream1.onNext(TarStreamRequest.newBuilder().setMetadata(meta1).build());
+
+        assertEquals(1, service.getAvailableTarStreamSlots());
+        assertEquals(1, service.getActiveTarStreamsCount());
+
+        stream1.onCompleted();
+
+        // После завершения поток освобождает слот семафора
+        assertEquals(2, service.getAvailableTarStreamSlots());
+        assertEquals(0, service.getActiveTarStreamsCount());
     }
 
     private void deleteRecursively(File file) {

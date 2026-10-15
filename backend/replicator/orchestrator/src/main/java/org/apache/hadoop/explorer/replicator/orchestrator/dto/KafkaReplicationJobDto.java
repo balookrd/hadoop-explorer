@@ -35,6 +35,11 @@ public class KafkaReplicationJobDto {
     private String targetKeytabPath;
     private String targetServiceName;
 
+    private String sourceBootstrapServers;
+    private String targetBootstrapServers;
+    private boolean autoCreateTopics = true;
+    private String topicProvisioningSummary;
+
     private String status;
     private Long messagesReplicated;
     private Long bytesReplicated;
@@ -137,4 +142,16 @@ public class KafkaReplicationJobDto {
 
     public boolean isTargetSrKerberosEnabled() { return targetSrKerberosEnabled; }
     public void setTargetSrKerberosEnabled(boolean targetSrKerberosEnabled) { this.targetSrKerberosEnabled = targetSrKerberosEnabled; }
+
+    public String getSourceBootstrapServers() { return sourceBootstrapServers; }
+    public void setSourceBootstrapServers(String sourceBootstrapServers) { this.sourceBootstrapServers = sourceBootstrapServers; }
+
+    public String getTargetBootstrapServers() { return targetBootstrapServers; }
+    public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public boolean isAutoCreateTopics() { return autoCreateTopics; }
+    public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }
+
+    public String getTopicProvisioningSummary() { return topicProvisioningSummary; }
+    public void setTopicProvisioningSummary(String topicProvisioningSummary) { this.topicProvisioningSummary = topicProvisioningSummary; }
 }
