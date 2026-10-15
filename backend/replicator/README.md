@@ -128,6 +128,16 @@
     - **Надежность Disaster Recovery**: активные снимки аварийного останова (`EmergencySnapshot`) перенесены из оперативной памяти в базу данных (`DrSnapshotEntity`, `DrSnapshotRepository`) с автоматическим восстановлением при старте сервиса (`@PostConstruct`).
     - **Перехват отмен gRPC и очистка Staging**: в `DataTransferServiceImpl` зарегистрирован `serverCallStreamObserver.setOnCancelHandler(...)`, выполняющий мгновенную очистку staging-файлов в HDFS и освобождение семафоров при клиентской отмене или разрыве соединения.
 
+20. **Качество кода, безопасность памяти и декомпозиция фронтенда (P2 Code Quality & Architecture)**:
+    - **Ограниченный LRU-кэш схем (`BoundedLruCache`)**: в `CachedSchemaRegistryResolver` все неограниченные in-memory кэши (`ConcurrentHashMap`) заменены на потокобезопасные `BoundedLruCache` с лимитом 10 000 записей и политикой LRU-вытеснения. Сетевые I/O запросы в удаленный Schema Registry вынесены из-под блокировок бакетов карты, что устранило риски исчерпания памяти и взаимоблокировок (Deadlock) при параллельной регистрации схем.
+    - **Пакетная вставка и обновление в БД (Hibernate JDBC Batching)**: в конфигурацию `application.yml` оркестратора добавлены параметры `hibernate.jdbc.batch_size: 500`, `order_inserts: true`, `order_updates: true` и `batch_versioned_data: true`, сокращающие число сетевых обращений к СУБД при создании и обновлении сотен подзадач репликации в сотни раз.
+    - **Модульная декомпозиция SPA фронтенда (`App.svelte`)**: монолитный компонент `App.svelte` (~2560 строк) декомпозирован на независимые, легко сопровождаемые модули в директории `frontend/apps/replicator/src/components/`:
+      - `JobsTableView.svelte`: таблица HDFS-задач, карточки статистики, динамические фильтры статуса/автора, полнотекстовый поиск и управление жизненным циклом (Play/Stop/Edit/Delete/History).
+      - `TopologyView.svelte`: визуализация дата-центров, привязка кластеров, троттлинг WAN и Keepalive телеметрия агентов (latency, compression ratio, staging buffers).
+      - `CreateJobModal.svelte`: модальное окно создания задач с валидацией путей, выбором кластеров, режимов синхронизации (Manual/Scheduled/Inotify) и глубины хранения.
+      - `EditJobModal.svelte`: модальное окно редактирования параметров активных и периодических задач.
+      - `JobHistoryModal.svelte`: модальное окно с детальной историей всех запусков (`JobRun`), статистикой переданных объемов и настройкой лимита retention.
+
 ---
 
 ## 2. Быстрый запуск

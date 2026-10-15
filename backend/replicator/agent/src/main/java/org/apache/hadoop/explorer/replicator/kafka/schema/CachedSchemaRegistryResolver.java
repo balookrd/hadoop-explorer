@@ -21,30 +21,99 @@ public class CachedSchemaRegistryResolver implements SchemaIdResolver {
     private final HwxRegistryClient sourceHwxClient;
     private final HwxRegistryClient targetHwxClient;
 
+    public static final int DEFAULT_MAX_CACHE_ENTRIES = 10_000;
+
+    /**
+     * Потокобезопасный LRU кэш с ограничением максимального количества записей.
+     */
+    public static class BoundedLruCache<K, V> {
+        private final int maxSize;
+        private final Map<K, V> map;
+        private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
+        public BoundedLruCache(int maxSize) {
+            this.maxSize = maxSize > 0 ? maxSize : DEFAULT_MAX_CACHE_ENTRIES;
+            this.map = new java.util.LinkedHashMap<>(this.maxSize, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+                    return size() > BoundedLruCache.this.maxSize;
+                }
+            };
+        }
+
+        public V get(K key) {
+            lock.lock();
+            try {
+                return map.get(key);
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public void put(K key, V value) {
+            lock.lock();
+            try {
+                map.put(key, value);
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public int size() {
+            lock.lock();
+            try {
+                return map.size();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public void clear() {
+            lock.lock();
+            try {
+                map.clear();
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
     // Кэш сопоставления: HWX Version ID (Long) -> Confluent Schema ID (Int)
-    private final Map<Long, Integer> hwxToConfluentCache = new ConcurrentHashMap<>();
+    private final BoundedLruCache<Long, Integer> hwxToConfluentCache;
     // Кэш сопоставления: Confluent Schema ID (Int) -> HWX Version ID (Long)
-    private final Map<Integer, Long> confluentToHwxCache = new ConcurrentHashMap<>();
+    private final BoundedLruCache<Integer, Long> confluentToHwxCache;
     // Кэш сопоставления между двумя независимыми инстансами Confluent: Source ID -> Target ID
-    private final Map<Integer, Integer> confluentToConfluentCache = new ConcurrentHashMap<>();
+    private final BoundedLruCache<Integer, Integer> confluentToConfluentCache;
     // Кэш сопоставления между двумя независимыми инстансами HWX: Source ID -> Target ID
-    private final Map<Long, Long> hwxToHwxCache = new ConcurrentHashMap<>();
+    private final BoundedLruCache<Long, Long> hwxToHwxCache;
 
     public CachedSchemaRegistryResolver(ConfluentRegistryClient sourceConfluentClient,
                                         ConfluentRegistryClient targetConfluentClient,
                                         HwxRegistryClient sourceHwxClient,
                                         HwxRegistryClient targetHwxClient) {
+        this(sourceConfluentClient, targetConfluentClient, sourceHwxClient, targetHwxClient, DEFAULT_MAX_CACHE_ENTRIES);
+    }
+
+    public CachedSchemaRegistryResolver(ConfluentRegistryClient sourceConfluentClient,
+                                        ConfluentRegistryClient targetConfluentClient,
+                                        HwxRegistryClient sourceHwxClient,
+                                        HwxRegistryClient targetHwxClient,
+                                        int maxCacheEntries) {
         this.sourceConfluentClient = sourceConfluentClient;
         this.targetConfluentClient = targetConfluentClient;
         this.sourceHwxClient = sourceHwxClient;
         this.targetHwxClient = targetHwxClient;
+        this.hwxToConfluentCache = new BoundedLruCache<>(maxCacheEntries);
+        this.confluentToHwxCache = new BoundedLruCache<>(maxCacheEntries);
+        this.confluentToConfluentCache = new BoundedLruCache<>(maxCacheEntries);
+        this.hwxToHwxCache = new BoundedLruCache<>(maxCacheEntries);
     }
 
     /**
      * Конструктор для ручного добавления статических маппингов (например, в тестах или изолированных контурах).
      */
     public CachedSchemaRegistryResolver() {
-        this(null, null, null, null);
+        this(null, null, null, null, DEFAULT_MAX_CACHE_ENTRIES);
     }
 
     public void putConfluentToConfluent(int sourceId, int targetId) {
@@ -62,84 +131,104 @@ public class CachedSchemaRegistryResolver implements SchemaIdResolver {
 
     @Override
     public int resolveConfluentToConfluent(String topic, int sourceId) {
-        return confluentToConfluentCache.computeIfAbsent(sourceId, id -> {
-            if (sourceConfluentClient == null || targetConfluentClient == null) {
-                return id; // fallback на исходный ID при отсутствии клиентов
-            }
-            try {
-                String subject = topic + "-value";
-                String schemaText = sourceConfluentClient.getSchemaById(id);
-                int registeredTargetId = targetConfluentClient.registerSchema(subject, schemaText);
-                log.info("Автоматически зарегистрирована схема Confluent->Confluent для топика {}: Source ID {} -> Target ID {}",
-                        topic, id, registeredTargetId);
-                return registeredTargetId;
-            } catch (Exception e) {
-                log.error("Ошибка синхронизации схемы Confluent->Confluent для ID {}: {}", id, e.getMessage());
-                return id;
-            }
-        });
+        Integer cached = confluentToConfluentCache.get(sourceId);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (sourceConfluentClient == null || targetConfluentClient == null) {
+            return sourceId; // fallback на исходный ID при отсутствии клиентов
+        }
+
+        try {
+            String subject = topic + "-value";
+            String schemaText = sourceConfluentClient.getSchemaById(sourceId);
+            int registeredTargetId = targetConfluentClient.registerSchema(subject, schemaText);
+            log.info("Автоматически зарегистрирована схема Confluent->Confluent для топика {}: Source ID {} -> Target ID {}",
+                    topic, sourceId, registeredTargetId);
+            confluentToConfluentCache.put(sourceId, registeredTargetId);
+            return registeredTargetId;
+        } catch (Exception e) {
+            log.error("Ошибка синхронизации схемы Confluent->Confluent для ID {}: {}", sourceId, e.getMessage());
+            return sourceId;
+        }
     }
 
     @Override
     public int resolveHwxToConfluent(String topic, long hwxVersionId) {
-        return hwxToConfluentCache.computeIfAbsent(hwxVersionId, id -> {
-            if (sourceHwxClient == null || targetConfluentClient == null) {
-                return (int) (id & 0x7FFFFFFF); // fallback
-            }
-            try {
-                String subject = topic + "-value";
-                String schemaText = sourceHwxClient.getSchemaByVersionId(id);
-                int targetId = targetConfluentClient.registerSchema(subject, schemaText);
-                log.info("Автоматически зарегистрирована схема HWX->Confluent для топика {}: HWX Version ID {} -> Confluent ID {}",
-                        topic, id, targetId);
-                confluentToHwxCache.put(targetId, id);
-                return targetId;
-            } catch (Exception e) {
-                log.error("Ошибка трансляции схемы HWX->Confluent для HWX Version ID {}: {}", id, e.getMessage());
-                return (int) (id & 0x7FFFFFFF);
-            }
-        });
+        Integer cached = hwxToConfluentCache.get(hwxVersionId);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (sourceHwxClient == null || targetConfluentClient == null) {
+            return (int) (hwxVersionId & 0x7FFFFFFF); // fallback
+        }
+
+        try {
+            String subject = topic + "-value";
+            String schemaText = sourceHwxClient.getSchemaByVersionId(hwxVersionId);
+            int targetId = targetConfluentClient.registerSchema(subject, schemaText);
+            log.info("Автоматически зарегистрирована схема HWX->Confluent для топика {}: HWX Version ID {} -> Confluent ID {}",
+                    topic, hwxVersionId, targetId);
+            hwxToConfluentCache.put(hwxVersionId, targetId);
+            confluentToHwxCache.put(targetId, hwxVersionId);
+            return targetId;
+        } catch (Exception e) {
+            log.error("Ошибка трансляции схемы HWX->Confluent для HWX Version ID {}: {}", hwxVersionId, e.getMessage());
+            return (int) (hwxVersionId & 0x7FFFFFFF);
+        }
     }
 
     @Override
     public long resolveConfluentToHwx(String topic, int confluentId) {
-        return confluentToHwxCache.computeIfAbsent(confluentId, id -> {
-            if (sourceConfluentClient == null || targetHwxClient == null) {
-                return (long) id;
-            }
-            try {
-                String schemaName = topic + "-value";
-                String schemaText = sourceConfluentClient.getSchemaById(id);
-                long hwxVersionId = targetHwxClient.registerSchemaVersion(schemaName, schemaText);
-                log.info("Автоматически зарегистрирована схема Confluent->HWX для топика {}: Confluent ID {} -> HWX Version ID {}",
-                        topic, id, hwxVersionId);
-                hwxToConfluentCache.put(hwxVersionId, id);
-                return hwxVersionId;
-            } catch (Exception e) {
-                log.error("Ошибка трансляции схемы Confluent->HWX для Confluent ID {}: {}", id, e.getMessage());
-                return (long) id;
-            }
-        });
+        Long cached = confluentToHwxCache.get(confluentId);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (sourceConfluentClient == null || targetHwxClient == null) {
+            return (long) confluentId;
+        }
+
+        try {
+            String schemaName = topic + "-value";
+            String schemaText = sourceConfluentClient.getSchemaById(confluentId);
+            long hwxVersionId = targetHwxClient.registerSchemaVersion(schemaName, schemaText);
+            log.info("Автоматически зарегистрирована схема Confluent->HWX для топика {}: Confluent ID {} -> HWX Version ID {}",
+                    topic, confluentId, hwxVersionId);
+            confluentToHwxCache.put(confluentId, hwxVersionId);
+            hwxToConfluentCache.put(hwxVersionId, confluentId);
+            return hwxVersionId;
+        } catch (Exception e) {
+            log.error("Ошибка трансляции схемы Confluent->HWX для Confluent ID {}: {}", confluentId, e.getMessage());
+            return (long) confluentId;
+        }
     }
 
     @Override
     public long resolveHwxToHwx(String topic, long sourceHwxId) {
-        return hwxToHwxCache.computeIfAbsent(sourceHwxId, id -> {
-            if (sourceHwxClient == null || targetHwxClient == null) {
-                return id;
-            }
-            try {
-                String schemaName = topic + "-value";
-                String schemaText = sourceHwxClient.getSchemaByVersionId(id);
-                long targetVersionId = targetHwxClient.registerSchemaVersion(schemaName, schemaText);
-                log.info("Автоматически зарегистрирована схема HWX->HWX для топика {}: Source ID {} -> Target ID {}",
-                        topic, id, targetVersionId);
-                return targetVersionId;
-            } catch (Exception e) {
-                log.error("Ошибка синхронизации схемы HWX->HWX для ID {}: {}", id, e.getMessage());
-                return id;
-            }
-        });
+        Long cached = hwxToHwxCache.get(sourceHwxId);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (sourceHwxClient == null || targetHwxClient == null) {
+            return sourceHwxId;
+        }
+
+        try {
+            String schemaName = topic + "-value";
+            String schemaText = sourceHwxClient.getSchemaByVersionId(sourceHwxId);
+            long targetVersionId = targetHwxClient.registerSchemaVersion(schemaName, schemaText);
+            log.info("Автоматически зарегистрирована схема HWX->HWX для топика {}: Source ID {} -> Target ID {}",
+                    topic, sourceHwxId, targetVersionId);
+            hwxToHwxCache.put(sourceHwxId, targetVersionId);
+            return targetVersionId;
+        } catch (Exception e) {
+            log.error("Ошибка синхронизации схемы HWX->HWX для ID {}: {}", sourceHwxId, e.getMessage());
+            return sourceHwxId;
+        }
     }
 
     /**
