@@ -165,6 +165,13 @@ public class ReplicatorProperties {
         private long debounceDelayMs = 1500L;
         private boolean autoReconciliationOnGap = true;
         private long maxTxidLagAlert = 50000L;
+        private int maxPendingTasksThreshold = 5000;
+        private int inotifyQueueCapacity = 10000;
+        private double inotifyHighWatermark = 0.8;
+        private double inotifyLowWatermark = 0.3;
+        private int inotifyMaxBatchSize = 500;
+        private long inotifyFlushIntervalMs = 200L;
+        private long inotifyBackpressureMaxDelayMs = 5000L;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -178,5 +185,19 @@ public class ReplicatorProperties {
         public void setAutoReconciliationOnGap(boolean autoReconciliationOnGap) { this.autoReconciliationOnGap = autoReconciliationOnGap; }
         public long getMaxTxidLagAlert() { return maxTxidLagAlert; }
         public void setMaxTxidLagAlert(long maxTxidLagAlert) { this.maxTxidLagAlert = maxTxidLagAlert; }
+        public int getMaxPendingTasksThreshold() { return maxPendingTasksThreshold; }
+        public void setMaxPendingTasksThreshold(int maxPendingTasksThreshold) { this.maxPendingTasksThreshold = maxPendingTasksThreshold; }
+        public int getInotifyQueueCapacity() { return inotifyQueueCapacity; }
+        public void setInotifyQueueCapacity(int inotifyQueueCapacity) { this.inotifyQueueCapacity = inotifyQueueCapacity; }
+        public double getInotifyHighWatermark() { return inotifyHighWatermark; }
+        public void setInotifyHighWatermark(double inotifyHighWatermark) { this.inotifyHighWatermark = inotifyHighWatermark; }
+        public double getInotifyLowWatermark() { return inotifyLowWatermark; }
+        public void setInotifyLowWatermark(double inotifyLowWatermark) { this.inotifyLowWatermark = inotifyLowWatermark; }
+        public int getInotifyMaxBatchSize() { return inotifyMaxBatchSize; }
+        public void setInotifyMaxBatchSize(int inotifyMaxBatchSize) { this.inotifyMaxBatchSize = inotifyMaxBatchSize; }
+        public long getInotifyFlushIntervalMs() { return inotifyFlushIntervalMs; }
+        public void setInotifyFlushIntervalMs(long inotifyFlushIntervalMs) { this.inotifyFlushIntervalMs = inotifyFlushIntervalMs; }
+        public long getInotifyBackpressureMaxDelayMs() { return inotifyBackpressureMaxDelayMs; }
+        public void setInotifyBackpressureMaxDelayMs(long inotifyBackpressureMaxDelayMs) { this.inotifyBackpressureMaxDelayMs = inotifyBackpressureMaxDelayMs; }
     }
 }

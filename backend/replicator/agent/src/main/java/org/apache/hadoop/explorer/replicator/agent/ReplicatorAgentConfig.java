@@ -48,6 +48,13 @@ public class ReplicatorAgentConfig {
     private long stagingTtlMinutes = 30;
     private org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec = org.apache.hadoop.explorer.replicator.generated.CompressionCodec.COMPRESSION_ZSTD;
     private int wireCompressionLevel = 3;
+    private int inotifyQueueCapacity = 10000;
+    private double inotifyHighWatermark = 0.8;
+    private double inotifyLowWatermark = 0.3;
+    private int inotifyMaxBatchSize = 500;
+    private long inotifyFlushIntervalMs = 200L;
+    private long inotifyBackpressureMaxDelayMs = 5000L;
+    private int orchestratorMaxPendingTasksThreshold = 5000;
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -128,6 +135,14 @@ public class ReplicatorAgentConfig {
                 getEnv("REPLICATOR_WIRE_COMPRESSION", getEnv("WIRE_COMPRESSION", "zstd"))
         );
         config.wireCompressionLevel = Integer.parseInt(getEnv("REPLICATOR_WIRE_COMPRESSION_LEVEL", "3"));
+
+        config.inotifyQueueCapacity = Integer.parseInt(getEnv("INOTIFY_QUEUE_CAPACITY", "10000"));
+        config.inotifyHighWatermark = Double.parseDouble(getEnv("INOTIFY_HIGH_WATERMARK", "0.8"));
+        config.inotifyLowWatermark = Double.parseDouble(getEnv("INOTIFY_LOW_WATERMARK", "0.3"));
+        config.inotifyMaxBatchSize = Integer.parseInt(getEnv("INOTIFY_MAX_BATCH_SIZE", "500"));
+        config.inotifyFlushIntervalMs = Long.parseLong(getEnv("INOTIFY_FLUSH_INTERVAL_MS", "200"));
+        config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
+        config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
 
         return config;
     }
@@ -253,4 +268,25 @@ public class ReplicatorAgentConfig {
 
     public String getHmsKerberosPrincipal() { return hmsKerberosPrincipal; }
     public void setHmsKerberosPrincipal(String hmsKerberosPrincipal) { this.hmsKerberosPrincipal = hmsKerberosPrincipal; }
+
+    public int getInotifyQueueCapacity() { return inotifyQueueCapacity; }
+    public void setInotifyQueueCapacity(int inotifyQueueCapacity) { this.inotifyQueueCapacity = inotifyQueueCapacity; }
+
+    public double getInotifyHighWatermark() { return inotifyHighWatermark; }
+    public void setInotifyHighWatermark(double inotifyHighWatermark) { this.inotifyHighWatermark = inotifyHighWatermark; }
+
+    public double getInotifyLowWatermark() { return inotifyLowWatermark; }
+    public void setInotifyLowWatermark(double inotifyLowWatermark) { this.inotifyLowWatermark = inotifyLowWatermark; }
+
+    public int getInotifyMaxBatchSize() { return inotifyMaxBatchSize; }
+    public void setInotifyMaxBatchSize(int inotifyMaxBatchSize) { this.inotifyMaxBatchSize = inotifyMaxBatchSize; }
+
+    public long getInotifyFlushIntervalMs() { return inotifyFlushIntervalMs; }
+    public void setInotifyFlushIntervalMs(long inotifyFlushIntervalMs) { this.inotifyFlushIntervalMs = inotifyFlushIntervalMs; }
+
+    public long getInotifyBackpressureMaxDelayMs() { return inotifyBackpressureMaxDelayMs; }
+    public void setInotifyBackpressureMaxDelayMs(long inotifyBackpressureMaxDelayMs) { this.inotifyBackpressureMaxDelayMs = inotifyBackpressureMaxDelayMs; }
+
+    public int getOrchestratorMaxPendingTasksThreshold() { return orchestratorMaxPendingTasksThreshold; }
+    public void setOrchestratorMaxPendingTasksThreshold(int orchestratorMaxPendingTasksThreshold) { this.orchestratorMaxPendingTasksThreshold = orchestratorMaxPendingTasksThreshold; }
 }

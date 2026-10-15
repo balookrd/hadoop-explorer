@@ -17,6 +17,10 @@ public class StreamingLeaseRenewResponse {
     private boolean redundancyWarning;
     @JsonProperty("last_committed_txid")
     private long lastCommittedTxid;
+    @JsonProperty("queue_saturated")
+    private boolean queueSaturated;
+    @JsonProperty("pending_tasks_count")
+    private long pendingTasksCount;
 
     public StreamingLeaseRenewResponse() {}
 
@@ -37,4 +41,10 @@ public class StreamingLeaseRenewResponse {
 
     public long getLastCommittedTxid() { return lastCommittedTxid; }
     public void setLastCommittedTxid(long lastCommittedTxid) { this.lastCommittedTxid = lastCommittedTxid; }
+
+    public boolean isQueueSaturated() { return queueSaturated; }
+    public void setQueueSaturated(boolean queueSaturated) { this.queueSaturated = queueSaturated; }
+
+    public long getPendingTasksCount() { return pendingTasksCount; }
+    public void setPendingTasksCount(long pendingTasksCount) { this.pendingTasksCount = pendingTasksCount; }
 }

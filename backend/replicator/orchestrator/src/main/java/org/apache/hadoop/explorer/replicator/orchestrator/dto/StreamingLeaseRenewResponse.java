@@ -12,5 +12,19 @@ public record StreamingLeaseRenewResponse(
     Instant leaseExpiresAt,
     int registeredStreamersCount,
     boolean redundancyWarning,  // true, если активных стримеров в кластере < 2
-    long lastCommittedTxid
-) {}
+    long lastCommittedTxid,
+    boolean queueSaturated,     // true, если пул невыполненных задач оркестратора насыщен
+    long pendingTasksCount      // количество ожидающих задач в очереди оркестратора
+) {
+    public StreamingLeaseRenewResponse(
+            String status,
+            long epoch,
+            String activeAgentId,
+            Instant leaseExpiresAt,
+            int registeredStreamersCount,
+            boolean redundancyWarning,
+            long lastCommittedTxid
+    ) {
+        this(status, epoch, activeAgentId, leaseExpiresAt, registeredStreamersCount, redundancyWarning, lastCommittedTxid, false, 0L);
+    }
+}

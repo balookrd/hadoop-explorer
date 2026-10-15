@@ -10,6 +10,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobReposito
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +35,22 @@ public class StreamingLeaseCoordinator {
     private final JobRepository jobRepository;
     private final AgentRegistry agentRegistry;
     private final ReplicatorProperties properties;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository taskRepository;
+
+    @Autowired
+    public StreamingLeaseCoordinator(
+            StreamingLeaseRepository leaseRepository,
+            JobRepository jobRepository,
+            AgentRegistry agentRegistry,
+            ReplicatorProperties properties,
+            org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository taskRepository
+    ) {
+        this.leaseRepository = leaseRepository;
+        this.jobRepository = jobRepository;
+        this.agentRegistry = agentRegistry;
+        this.properties = properties != null ? properties : new ReplicatorProperties();
+        this.taskRepository = taskRepository;
+    }
 
     public StreamingLeaseCoordinator(
             StreamingLeaseRepository leaseRepository,
@@ -41,10 +58,29 @@ public class StreamingLeaseCoordinator {
             AgentRegistry agentRegistry,
             ReplicatorProperties properties
     ) {
-        this.leaseRepository = leaseRepository;
-        this.jobRepository = jobRepository;
-        this.agentRegistry = agentRegistry;
-        this.properties = properties != null ? properties : new ReplicatorProperties();
+        this(leaseRepository, jobRepository, agentRegistry, properties, null);
+    }
+
+    private boolean isClusterQueueSaturated(String clusterId, long pendingTasks) {
+        int threshold = properties.getStreaming() != null ? properties.getStreaming().getMaxPendingTasksThreshold() : 5000;
+        if (threshold <= 0) threshold = 5000;
+        return pendingTasks >= threshold;
+    }
+
+    private long calculateClusterPendingTasks(String clusterId) {
+        if (taskRepository == null) return 0L;
+        if (clusterId == null || clusterId.isBlank()) {
+            return taskRepository.countByStatus("QUEUED");
+        }
+        List<JobEntity> clusterJobs = jobRepository.findAll().stream()
+                .filter(j -> clusterId.equalsIgnoreCase(j.getSourceClusterId())
+                        || clusterId.equalsIgnoreCase(j.getTargetClusterId()))
+                .toList();
+        long total = 0;
+        for (JobEntity j : clusterJobs) {
+            total += taskRepository.countByJobIdAndStatus(j.getId(), "QUEUED");
+        }
+        return total;
     }
 
     /**
@@ -139,6 +175,9 @@ public class StreamingLeaseCoordinator {
             }
         }
 
+        long pendingTasks = calculateClusterPendingTasks(clusterId);
+        boolean queueSaturated = isClusterQueueSaturated(clusterId, pendingTasks);
+
         return new StreamingLeaseRenewResponse(
                 status,
                 lease.getEpoch(),
@@ -146,7 +185,9 @@ public class StreamingLeaseCoordinator {
                 lease.getExpiresAt(),
                 streamersCount,
                 redundancyWarning,
-                maxTxid
+                maxTxid,
+                queueSaturated,
+                pendingTasks
         );
     }
 
@@ -178,6 +219,9 @@ public class StreamingLeaseCoordinator {
             }
         }
 
+        long pendingTasks = calculateClusterPendingTasks(targetCluster);
+        boolean queueSaturated = isClusterQueueSaturated(targetCluster, pendingTasks);
+
         return Optional.of(new StreamingLeaseRenewResponse(
                 isActive ? "ACTIVE" : "EXPIRED",
                 lease.getEpoch(),
@@ -185,7 +229,9 @@ public class StreamingLeaseCoordinator {
                 lease.getExpiresAt(),
                 streamersCount,
                 streamersCount < 2,
-                maxTxid
+                maxTxid,
+                queueSaturated,
+                pendingTasks
         ));
     }
 

@@ -65,6 +65,15 @@ hadoop:
     bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
     max-bundle-files: 500 # макс. файлов в одном бандле
     bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
+    streaming:
+      enabled: true
+      max-pending-tasks-threshold: 5000 # порог неразобранных задач для Backpressure
+      inotify-queue-capacity: 10000 # емкость очереди Inotify-задач
+      inotify-high-watermark: 0.8 # верхний порог гистерезиса (80%)
+      inotify-low-watermark: 0.3 # нижний порог гистерезиса (30%)
+      inotify-max-batch-size: 500 # макс. размер микробатча
+      inotify-flush-interval-ms: 1000 # интервал периодического сброса (мс)
+      inotify-backpressure-max-delay-ms: 5000 # макс. задержка опроса при Backpressure (мс)
     datacenters:
       - id: "dc1"
         name: "Дата-Центр 1 (Primary DC)"
@@ -139,6 +148,7 @@ make test-java
 | `POST` | `/api/v1/tasks/claim` | Забор пофайловых задач агентом из распределенной очереди | `X-Agent-Secret` |
 | `POST` | `/api/v1/tasks/{id}/complete` | Подтверждение успешного завершения задачи | `X-Agent-Secret` |
 | `POST` | `/api/v1/tasks/{id}/fail` | Регистрация ошибки исполнения задачи | `X-Agent-Secret` |
+| `GET` | `/api/v1/tasks/queue-status` | Проверка насыщения очереди пула задач (Backpressure) | `X-Agent-Secret` / JWT |
 | `GET` | `/api/v1/streaming/lease/status` | Статус распределенного лидерства потокового слушателя Inotify | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/streaming/lease/renew` | Продление лизинга активного стримера | `X-Agent-Secret` |
 | `GET` | `/api/v1/dr/status` | Телеметрия Disaster Recovery и лаг непереданных данных | JWT (`USER` / `ADMIN`) |

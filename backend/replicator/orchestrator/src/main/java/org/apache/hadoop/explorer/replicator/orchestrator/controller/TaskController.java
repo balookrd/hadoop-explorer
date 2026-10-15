@@ -33,13 +33,33 @@ public class TaskController {
         request.setJobId(jobId);
         boolean ok = taskService.batchCreateTasks(jobId, request);
         if (ok) {
+            long queuedCount = taskService.getQueuedTasksCount(jobId);
+            boolean saturated = taskService.isQueueSaturated(jobId, null);
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "success", true,
                     "job_id", jobId,
-                    "tasks_count", request.getTasks() != null ? request.getTasks().size() : 0
+                    "tasks_count", request.getTasks() != null ? request.getTasks().size() : 0,
+                    "queued_count", queuedCount,
+                    "saturated", saturated
             ));
         }
         return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Задание не найдено"));
+    }
+
+    /**
+     * Проверка статуса наполненности очереди задач и насыщения (Backpressure).
+     */
+    @GetMapping({"/api/v1/tasks/queue-status", "/tasks/queue-status"})
+    public ResponseEntity<Map<String, Object>> getQueueStatus(
+            @RequestParam(required = false) String jobId,
+            @RequestParam(required = false) String clusterId
+    ) {
+        long queuedCount = taskService.getQueuedTasksCount(jobId);
+        boolean saturated = taskService.isQueueSaturated(jobId, clusterId);
+        return ResponseEntity.ok(Map.of(
+                "queued_count", queuedCount,
+                "saturated", saturated
+        ));
     }
 
     /**

@@ -62,21 +62,26 @@ public class TaskService {
         }
 
         JobEntity job = jobOpt.get();
+        boolean isStreaming = "STREAMING_INOTIFY".equalsIgnoreCase(job.getSyncMode());
         List<TaskCreateItem> items = req.getTasks();
         if (items == null || items.isEmpty()) {
-            log.info("Пул задач для job '{}' пуст. Завершение задания.", jobId);
-            job.setStatus("COMPLETED");
-            job.setTotalBytes(0L);
-            job.setCopiedBytes(0L);
-            job.setCompletedAt(Instant.now());
-            job.setMessage("Каталог пуст, файлов для передачи нет");
-            updateActiveRun(job);
-            jobRepository.save(job);
+            if (!isStreaming) {
+                log.info("Пул задач для job '{}' пуст. Завершение задания.", jobId);
+                job.setStatus("COMPLETED");
+                job.setTotalBytes(0L);
+                job.setCopiedBytes(0L);
+                job.setCompletedAt(Instant.now());
+                job.setMessage("Каталог пуст, файлов для передачи нет");
+                updateActiveRun(job);
+                jobRepository.save(job);
+            }
             return true;
         }
 
-        // Очищаем предыдущие таски для этой джобы (если был перезапуск)
-        taskRepository.deleteByJobId(jobId);
+        if (!isStreaming) {
+            // Очищаем предыдущие таски для этой джобы (если был перезапуск обычной пакетной джобы)
+            taskRepository.deleteByJobId(jobId);
+        }
 
         long totalBytes = 0;
         long skippedBytes = 0;
@@ -117,25 +122,42 @@ public class TaskService {
 
         taskRepository.saveAll(entities);
 
-        job.setTotalObjects(totalObjectsCount);
-        job.setTransferredObjects(0);
-        job.setSkippedObjects(skippedObjectsCount);
-        job.setFailedObjects(0);
-        job.setTotalBytes(totalBytes);
-        job.setCopiedBytes(skippedBytes);
+        if (isStreaming) {
+            int currentTotal = job.getTotalObjects();
+            long currentBytes = job.getTotalBytes();
+            int currentSkipped = job.getSkippedObjects();
+            long currentCopied = job.getCopiedBytes();
 
-        if (skippedObjectsCount == totalObjectsCount && totalObjectsCount > 0) {
-            // Все файлы уже актуальны
-            job.setStatus("COMPLETED");
-            job.setCompletedAt(Instant.now());
-            job.setMessage(String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", totalObjectsCount));
-        } else {
-            job.setStatus("RUNNING");
+            job.setTotalObjects(currentTotal + totalObjectsCount);
+            job.setTotalBytes(currentBytes + totalBytes);
+            job.setSkippedObjects(currentSkipped + skippedObjectsCount);
+            job.setCopiedBytes(currentCopied + skippedBytes);
+            job.setStatus("STREAMING");
             if (job.getStartedAt() == null) {
                 job.setStartedAt(Instant.now());
             }
-            job.setMessage(String.format("Сформирован пул задач: %d объектов к передаче, %d пропущено (всего %d объектов в %d задачах, %d байт)",
-                    totalObjectsCount - skippedObjectsCount, skippedObjectsCount, totalObjectsCount, items.size(), totalBytes));
+            job.setMessage(String.format("Inotify поток активен: добавлено %d объектов (%d байт)", totalObjectsCount, totalBytes));
+        } else {
+            job.setTotalObjects(totalObjectsCount);
+            job.setTransferredObjects(0);
+            job.setSkippedObjects(skippedObjectsCount);
+            job.setFailedObjects(0);
+            job.setTotalBytes(totalBytes);
+            job.setCopiedBytes(skippedBytes);
+
+            if (skippedObjectsCount == totalObjectsCount && totalObjectsCount > 0) {
+                // Все файлы уже актуальны
+                job.setStatus("COMPLETED");
+                job.setCompletedAt(Instant.now());
+                job.setMessage(String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", totalObjectsCount));
+            } else {
+                job.setStatus("RUNNING");
+                if (job.getStartedAt() == null) {
+                    job.setStartedAt(Instant.now());
+                }
+                job.setMessage(String.format("Сформирован пул задач: %d объектов к передаче, %d пропущено (всего %d объектов в %d задачах, %d байт)",
+                        totalObjectsCount - skippedObjectsCount, skippedObjectsCount, totalObjectsCount, items.size(), totalBytes));
+            }
         }
 
         updateActiveRun(job);
@@ -144,6 +166,62 @@ public class TaskService {
         log.info("Для job '{}' сформирован пул из {} задач (всего объектов: {}, к передаче: {}, пропущено: {})",
                 jobId, items.size(), totalObjectsCount, totalObjectsCount - skippedObjectsCount, skippedObjectsCount);
         return true;
+    }
+
+    /**
+     * Проверяет, переполнен ли пул задач оркестратора (Backpressure).
+     */
+    public boolean isQueueSaturated(String jobId, String clusterId) {
+        int threshold = properties.getStreaming() != null ? properties.getStreaming().getMaxPendingTasksThreshold() : 5000;
+        if (threshold <= 0) threshold = 5000;
+
+        if (jobId != null && !jobId.isBlank()) {
+            long count = taskRepository.countByJobIdAndStatus(jobId, "QUEUED");
+            return count >= threshold;
+        }
+
+        if (clusterId != null && !clusterId.isBlank()) {
+            return getPendingTasksCountForCluster(clusterId) >= threshold;
+        }
+
+        long queuedTotal = taskRepository.countByStatus("QUEUED");
+        return queuedTotal >= threshold;
+    }
+
+    public boolean isQueueSaturated(String clusterId) {
+        return isQueueSaturated(null, clusterId);
+    }
+
+    public boolean isQueueSaturated() {
+        return isQueueSaturated(null, null);
+    }
+
+    /**
+     * Возвращает текущее количество задач в статусе QUEUED.
+     */
+    public long getQueuedTasksCount(String jobId) {
+        if (jobId != null && !jobId.isBlank()) {
+            return taskRepository.countByJobIdAndStatus(jobId, "QUEUED");
+        }
+        return taskRepository.countByStatus("QUEUED");
+    }
+
+    /**
+     * Возвращает количество ожидающих задач для кластера.
+     */
+    public long getPendingTasksCountForCluster(String clusterId) {
+        if (clusterId == null || clusterId.isBlank()) {
+            return taskRepository.countByStatus("QUEUED");
+        }
+        List<JobEntity> clusterJobs = jobRepository.findAll().stream()
+                .filter(j -> clusterId.equalsIgnoreCase(j.getSourceClusterId())
+                        || clusterId.equalsIgnoreCase(j.getTargetClusterId()))
+                .toList();
+        long total = 0;
+        for (JobEntity j : clusterJobs) {
+            total += taskRepository.countByJobIdAndStatus(j.getId(), "QUEUED");
+        }
+        return total;
     }
 
     /**

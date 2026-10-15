@@ -109,6 +109,12 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 | `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs-replicator@REALM`) |
 | `REPLICATOR_WIRE_COMPRESSION` | `zstd` | Кодек потокового сжатия трафика на лету: `zstd` (Zstandard), `lz4` (LZ4), `none` (отключено) |
 | `REPLICATOR_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22, по умолчанию 3 — оптимальный баланс CPU/WAN) |
+| `INOTIFY_QUEUE_CAPACITY` | `10000` | Максимальная емкость локальной очереди `InotifyBatchProcessor` |
+| `INOTIFY_HIGH_WATERMARK` | `0.8` | Верхний порог заполнения очереди для включения Backpressure ($\ge 80\%$) |
+| `INOTIFY_LOW_WATERMARK` | `0.3` | Нижний порог заполнения очереди для снятия Backpressure ($\le 30\%$) |
+| `INOTIFY_MAX_BATCH_SIZE` | `500` | Максимальный размер микробатча Inotify-задач к отправке в Оркестратор |
+| `INOTIFY_FLUSH_INTERVAL_MS` | `1000` | Интервал периодического сброса накопившегося батча (мс) |
+| `INOTIFY_BACKPRESSURE_MAX_DELAY_MS` | `5000` | Максимальная задержка цикла опроса `stream.poll()` при насыщении (мс) |
 
 ---
 

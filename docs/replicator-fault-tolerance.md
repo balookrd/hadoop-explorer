@@ -142,7 +142,58 @@ sequenceDiagram
   * Стример проверяет: `isIgnoredPath(srcPath) == true` и `isIgnoredPath(dstPath) == false`.
   * Стример фиксирует факт **финального коммита** и мгновенно ставит `dstPath` в очередь репликации как готовый файл.
 
-### 3.6. Мультикластерная топология в одном ЦОД: изоляция стримеров по `cluster_id`
+### 3.6. Адаптивный Backpressure и защита от шторма Inotify-событий (Flow Control & Hysteresis)
+
+При пакетной генерации данных (например, завершение тяжелого Spark-пайплайна или массовое удаление устаревших партиций данных) HDFS генерирует колоссальный поток Inotify-транзакций (сотни тысяч событий в секунду). Без регулирования скорости вычитывания стример рискует перегрузить собственную память (OOM) или вызвать переполнение пула задач Оркестратора.
+
+Для предотвращения деградации системы реализован **двухуровневый адаптивный Backpressure с гистерезисом**:
+
+```mermaid
+flowchart TD
+    subgraph HDFS ["HDFS NameNode"]
+        EditLog["EditLog Inotify Stream"]
+    end
+
+    subgraph Streamer ["Inotify Streamer (Agent)"]
+        PollLoop["Цикл опроса stream.poll()<br/>(adaptive delay: 100ms - 5000ms)"]
+        Queue["Внутренняя очередь InotifyBatchProcessor<br/>(LinkedBlockingQueue: capacity=10,000)"]
+        Hysteresis{"Размер очереди<br/>High: ≥80% | Low: ≤30%"}
+        BatchSender["Micro-Batching & Deduplication<br/>(до 500 задач / 1 сек)"]
+    end
+
+    subgraph Orchestrator ["Orchestrator HA"]
+        TaskPool[("Пул задач (PostgreSQL)<br/>maxPendingTasksThreshold = 5,000")]
+        LeaseEndpoint["Lease Renewal & Status<br/>queueSaturated flag"]
+    end
+
+    EditLog -->|poll| PollLoop
+    PollLoop -->|offer| Queue
+    Queue --> Hysteresis
+    Hysteresis -->|Local Saturation| PollLoop
+    Queue -->|drain| BatchSender
+    BatchSender -->|POST batchCreateTasks| TaskPool
+    TaskPool -->|HTTP response: saturated=true/false| BatchSender
+    TaskPool -->|Heartbeat / Lease response| LeaseEndpoint
+    LeaseEndpoint -->|queueSaturated=true| PollLoop
+```
+
+#### Принципы регулирования:
+1. **Локальный буфер и микробатчинг (`InotifyBatchProcessor`)**:
+   - Очередь задач строго ограничена (`inotifyQueueCapacity = 10 000`).
+   - События группируются в микробатчи до `inotifyMaxBatchSize = 500` задач либо сбрасываются по таймеру `inotifyFlushIntervalMs = 1 000 мс`.
+   - На уровне батча выполняется автоматическая дедупликация повторных событий для одного и того же пути HDFS.
+2. **Гистерезис локального насыщения (High/Low Watermark)**:
+   - При заполнении локальной очереди $\ge 80\%$ (`inotifyHighWatermark = 0.8`) процессор взводит флаг насыщения `queueSaturated = true`.
+   - Снятие флага насыщения происходит только при падении глубины очереди $\le 30\%$ (`inotifyLowWatermark = 0.3`). Такой гистерезис устраняет дребезг (chattering) и частые переключения частоты опроса.
+3. **Обратная связь от Оркестратора (Orchestrator Feedback)**:
+   - Оркестратор непрерывно отслеживает количество неразобранных задач в статусе `QUEUED` для каждого кластера.
+   - Если количество задач превышает `maxPendingTasksThreshold` (по умолчанию 5 000), ответы `batchCreateTasks`, `renewLease` и `GET /api/v1/tasks/queue-status` возвращают `queueSaturated = true`.
+4. **Адаптивная задержка цикла опроса (`HdfsInotifyListener`)**:
+   - При обнаружении насыщения (локального буфера или Оркестратора) задержка между вызовами `stream.poll()` прогрессивно увеличивается с шагом 500 мс вплоть до `inotifyBackpressureMaxDelayMs = 5 000 мс`.
+   - Перед засыпанием стример выполняет принудительный `flush()` накопившихся событий, освобождая память.
+   - При нормализации нагрузки задержка плавно снижается до базовых 100 мс.
+
+### 3.7. Мультикластерная топология в одном ЦОД: изоляция стримеров по `cluster_id`
 
 В корпоративной инфраструктуре в границах одного дата-центра (например, `dc1`) регулярно сосуществуют несколько независимых HDFS-кластеров: в частности, `prod-core` (транзакционный data lake), `analytics` (витрины данных) и `archive` (холодный архив).
 

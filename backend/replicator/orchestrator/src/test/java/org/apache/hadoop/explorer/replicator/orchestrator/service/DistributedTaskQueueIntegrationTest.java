@@ -287,4 +287,55 @@ class DistributedTaskQueueIntegrationTest {
         assertEquals("COMPLETED", finishedJob.getStatus());
         assertEquals(0, finishedJob.getFailedObjects());
     }
+
+    @Test
+    @DisplayName("Streaming Inotify: пошаговое накопление задач в очереди без затирания и backpressure насыщение")
+    void testStreamingInotifyBatchTaskAccumulationAndSaturation() {
+        String jobId = "job-streaming-accumulate-" + UUID.randomUUID();
+
+        JobEntity job = new JobEntity();
+        job.setId(jobId);
+        job.setSourcePath("/streaming/source");
+        job.setTargetPath("/streaming/backup");
+        job.setSourceClusterId("dc-stream-1");
+        job.setTargetClusterId("dc-stream-2");
+        job.setSyncMode("STREAMING_INOTIFY");
+        job.setStatus("RUNNING");
+        jobRepository.saveAndFlush(job);
+
+        // 1. Первый стриминг батч
+        TaskCreateItem item1 = new TaskCreateItem("s-task-1", "/streaming/source/f1.txt", "/streaming/backup/f1.txt", 100L, false);
+        TaskCreateItem item2 = new TaskCreateItem("s-task-2", "/streaming/source/f2.txt", "/streaming/backup/f2.txt", 200L, false);
+        boolean batch1Ok = taskService.batchCreateTasks(jobId, new BatchCreateTasksRequest(jobId, List.of(item1, item2)));
+        assertTrue(batch1Ok);
+
+        assertEquals(2, taskRepository.countByJobId(jobId));
+        assertEquals(2, taskService.getPendingTasksCountForCluster("dc-stream-1"));
+
+        // 2. Второй стриминг батч (не должен удалять s-task-1 и s-task-2!)
+        TaskCreateItem item3 = new TaskCreateItem("s-task-3", "/streaming/source/f3.txt", "/streaming/backup/f3.txt", 300L, false);
+        TaskCreateItem item4 = new TaskCreateItem("s-task-4", "/streaming/source/f4.txt", "/streaming/backup/f4.txt", 400L, false);
+        boolean batch2Ok = taskService.batchCreateTasks(jobId, new BatchCreateTasksRequest(jobId, List.of(item3, item4)));
+        assertTrue(batch2Ok);
+
+        // Все 4 задачи должны присутствовать в БД
+        assertEquals(4, taskRepository.countByJobId(jobId));
+        assertTrue(taskRepository.findById("s-task-1").isPresent());
+        assertTrue(taskRepository.findById("s-task-2").isPresent());
+        assertTrue(taskRepository.findById("s-task-3").isPresent());
+        assertTrue(taskRepository.findById("s-task-4").isPresent());
+        assertEquals(4, taskService.getPendingTasksCountForCluster("dc-stream-1"));
+
+        // 3. Проверка насыщения очереди (Backpressure)
+        int origThreshold = properties.getStreaming().getMaxPendingTasksThreshold();
+        try {
+            properties.getStreaming().setMaxPendingTasksThreshold(3);
+            assertTrue(taskService.isQueueSaturated("dc-stream-1"), "Очередь должна быть насыщена при 4 задачах и пороге 3");
+
+            properties.getStreaming().setMaxPendingTasksThreshold(10);
+            assertFalse(taskService.isQueueSaturated("dc-stream-1"), "Очередь не насыщена при пороге 10");
+        } finally {
+            properties.getStreaming().setMaxPendingTasksThreshold(origThreshold);
+        }
+    }
 }

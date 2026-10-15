@@ -21,9 +21,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Слушатель потоковых событий HDFS Inotify (Near-Zero RPO).
- * Интегрирован с распределенным Active-Standby лизингом, перехватом пропусков (MissingEventsException)
- * и автоматической фильтрацией промежуточных staging-путей.
+ * Слушатель потоковых событий HDFS Inotify (Near-Zero RPO) с поддержкой адаптивного Backpressure.
+ *
+ * <p>Возможности:
+ * <ul>
+ *   <li>Active-Standby лизинг с эпохами (fencing token) для защиты от Split-Brain.</li>
+ *   <li>Динамический Backpressure: адаптивное регулирование задержки poll() при насыщении очередей процессора или пула задач оркестратора.</li>
+ *   <li>Пакетная обработка событий с дедупликацией и сбросом пачками через InotifyBatchProcessor.</li>
+ *   <li>Перехват MissingEventsException с авто-запуском Reconciliation Scan.</li>
+ * </ul>
  */
 public class HdfsInotifyListener {
 
@@ -42,15 +48,41 @@ public class HdfsInotifyListener {
     private volatile long currentTxid = 0L;
     private volatile long currentEpoch = 0L;
 
+    // Параметры адаптивного Backpressure
+    private volatile boolean orchestratorSaturated = false;
+    private volatile boolean backpressureActive = false;
+    private volatile long currentPollDelayMs = 0L;
+    private final long minPollDelayMs = 0L;
+    private final long maxPollDelayMs;
+    private final long backpressureStepMs = 500L;
+
     public HdfsInotifyListener(
             ReplicatorAgentConfig config,
             OrchestratorClient orchestratorClient,
             HadoopFsManager fsManager
     ) {
+        this(config, orchestratorClient, fsManager, new InotifyBatchProcessor(
+                fsManager,
+                orchestratorClient,
+                config.getInotifyQueueCapacity(),
+                config.getInotifyHighWatermark(),
+                config.getInotifyLowWatermark(),
+                config.getInotifyMaxBatchSize(),
+                config.getInotifyFlushIntervalMs()
+        ));
+    }
+
+    public HdfsInotifyListener(
+            ReplicatorAgentConfig config,
+            OrchestratorClient orchestratorClient,
+            HadoopFsManager fsManager,
+            InotifyBatchProcessor batchProcessor
+    ) {
         this.config = config;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
-        this.batchProcessor = new InotifyBatchProcessor(fsManager, orchestratorClient);
+        this.batchProcessor = batchProcessor;
+        this.maxPollDelayMs = Math.max(500L, config.getInotifyBackpressureMaxDelayMs());
     }
 
     public boolean isActive() {
@@ -69,6 +101,25 @@ public class HdfsInotifyListener {
         return batchProcessor;
     }
 
+    public boolean isBackpressureActive() {
+        return backpressureActive;
+    }
+
+    public long getCurrentPollDelayMs() {
+        return currentPollDelayMs;
+    }
+
+    public boolean isOrchestratorSaturated() {
+        return orchestratorSaturated;
+    }
+
+    public void setOrchestratorSaturated(boolean saturated) {
+        this.orchestratorSaturated = saturated;
+        if (this.batchProcessor != null) {
+            this.batchProcessor.setOrchestratorSaturated(saturated);
+        }
+    }
+
     /**
      * Запуск потоков Active-Standby координации и Inotify стриминга.
      */
@@ -78,10 +129,10 @@ public class HdfsInotifyListener {
         }
         running.set(true);
 
-        log.info("[Inotify Streamer] Запуск сервиса стримера: agentId='{}', clusterId='{}'",
-                config.getAgentId(), config.getClusterId());
+        log.info("[Inotify Streamer] Запуск сервиса стримера: agentId='{}', clusterId='{}', maxBackpressureDelay={}ms",
+                config.getAgentId(), config.getClusterId(), maxPollDelayMs);
 
-        // 1. Поток поддержания распределенного лизинга (Heartbeat & Failover)
+        // 1. Поток поддержания распределенного лизинга (Heartbeat, Failover & Saturation)
         leaseThread = new Thread(this::runLeaseLoop, "streamer-lease-loop");
         leaseThread.setDaemon(true);
         leaseThread.start();
@@ -104,11 +155,14 @@ public class HdfsInotifyListener {
         if (listenerThread != null) {
             listenerThread.interrupt();
         }
+        if (batchProcessor != null) {
+            batchProcessor.close();
+        }
         log.info("[Inotify Streamer] Сервис стримера остановлен");
     }
 
     /**
-     * Фоновый цикл продления аренды и отслеживания роли Active / Standby.
+     * Фоновый цикл продления аренды и отслеживания роли Active / Standby и насыщения оркестратора.
      */
     private void runLeaseLoop() {
         while (running.get()) {
@@ -118,6 +172,12 @@ public class HdfsInotifyListener {
                 );
 
                 if (resp != null) {
+                    // Отслеживание насыщения оркестратора
+                    this.orchestratorSaturated = resp.isQueueSaturated();
+                    if (this.batchProcessor != null) {
+                        this.batchProcessor.setOrchestratorSaturated(this.orchestratorSaturated);
+                    }
+
                     if ("DISABLED".equalsIgnoreCase(resp.getStatus())) {
                         log.debug("[Streamer Lease] Стриминг выключен на оркестраторе");
                         active.set(false);
@@ -159,7 +219,7 @@ public class HdfsInotifyListener {
     }
 
     /**
-     * Основной цикл чтения HDFS Inotify событий.
+     * Основной цикл чтения HDFS Inotify событий с адаптивным Backpressure сдерживанием.
      * Активен только при active == true.
      */
     private void runInotifyLoop() {
@@ -176,6 +236,50 @@ public class HdfsInotifyListener {
                     break;
                 }
                 continue;
+            }
+
+            // =================================================================
+            // Регулятор Backpressure: оценка локального и удаленного насыщения
+            // =================================================================
+            boolean localSaturated = (batchProcessor != null && batchProcessor.isQueueSaturated());
+            boolean isSaturated = localSaturated || orchestratorSaturated;
+
+            if (isSaturated) {
+                if (!backpressureActive) {
+                    backpressureActive = true;
+                    log.warn("[Inotify Backpressure] ВНИМАНИЕ: Активировано адаптивное сдерживание стримера (локальная очередь: {}/{}, оркестратор перегружен: {}). Замедление опроса poll()...",
+                            batchProcessor != null ? batchProcessor.getQueueSize() : 0,
+                            batchProcessor != null ? batchProcessor.getQueueCapacity() : 0,
+                            orchestratorSaturated);
+                }
+
+                // Ступенчатое увеличение задержки poll()
+                currentPollDelayMs = Math.min(maxPollDelayMs, Math.max(500L, currentPollDelayMs + backpressureStepMs));
+                log.debug("[Inotify Backpressure] Задержка опроса poll(): {} мс (очередь процессора: {}/{})",
+                        currentPollDelayMs,
+                        batchProcessor != null ? batchProcessor.getQueueSize() : 0,
+                        batchProcessor != null ? batchProcessor.getQueueCapacity() : 0);
+
+                // Сбрасываем накопившиеся задачи в процессоре
+                if (batchProcessor != null) {
+                    batchProcessor.flush();
+                }
+
+                try {
+                    Thread.sleep(currentPollDelayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else {
+                if (backpressureActive) {
+                    currentPollDelayMs = Math.max(minPollDelayMs, currentPollDelayMs - backpressureStepMs);
+                    if (currentPollDelayMs <= minPollDelayMs) {
+                        backpressureActive = false;
+                        log.info("[Inotify Backpressure] Очереди разгрузились (размер буфера: {}). Восстановлен штатный режим опроса poll().",
+                                batchProcessor != null ? batchProcessor.getQueueSize() : 0);
+                    }
+                }
             }
 
             try {
@@ -208,6 +312,7 @@ public class HdfsInotifyListener {
                             for (var event : batch.getEvents()) {
                                 batchProcessor.processEvent(event, txid, lag, jobs);
                             }
+                            batchProcessor.flush();
                         }
                     }
                 } else {
@@ -252,7 +357,6 @@ public class HdfsInotifyListener {
 
             for (JobDto job : jobs) {
                 log.info("[Inotify Reconciliation] Сверка задачи '{}' (каталог '{}')", job.getId(), job.getSourcePath());
-                // Воркеры подхватят разницу
             }
         } catch (Exception e) {
             log.error("[Inotify Reconciliation Error] Ошибка при сверке: {}", e.getMessage(), e);

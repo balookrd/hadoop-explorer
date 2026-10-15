@@ -171,4 +171,92 @@ class InotifyProcessingTest {
         verify(orchestratorClient).batchCreateTasks(any(BatchCreateTasksRequest.class));
         verify(orchestratorClient).updateJobStreamingTxid("job-streaming-1", 160L, 0L);
     }
+
+    @Test
+    @DisplayName("Backpressure: Проверка порогов насыщения (High/Low Watermark) и гистерезиса очереди")
+    void testQueueSaturationAndHysteresis() {
+        // Создаем процессор с емкостью 10, highWatermark = 0.8 (8 элементов), lowWatermark = 0.3 (3 элемента), flushIntervalMs = 999999 (ручной flush)
+        try (InotifyBatchProcessor testProcessor = new InotifyBatchProcessor(fsManager, orchestratorClient, 10, 0.8, 0.3, 10, 999999L)) {
+            assertFalse(testProcessor.isQueueSaturated(), "Изначально очередь не насыщена");
+            assertEquals(0, testProcessor.getQueueSize());
+
+            // Добавляем 7 событий (70% емкости) -> насыщение еще не должно сработать
+            for (int i = 1; i <= 7; i++) {
+                Event.CloseEvent ev = new Event.CloseEvent(
+                        "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/file-" + i + ".parquet",
+                        1024L, 100L + i
+                );
+                testProcessor.processEvent(ev, 100L + i, 0L, List.of(streamingJob));
+            }
+            assertEquals(7, testProcessor.getQueueSize());
+            assertFalse(testProcessor.isQueueSaturated(), "При 7/10 (70%) насыщение не активно (< 80%)");
+
+            // Добавляем 8-е событие -> достигнут порог highWatermark (80%)
+            Event.CloseEvent ev8 = new Event.CloseEvent(
+                    "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/file-8.parquet",
+                    1024L, 108L
+            );
+            testProcessor.processEvent(ev8, 108L, 0L, List.of(streamingJob));
+            assertEquals(8, testProcessor.getQueueSize());
+            assertTrue(testProcessor.isQueueSaturated(), "При 8/10 (80%) активируется Backpressure");
+
+            // Проверка гистерезиса: при частичном сбросе (например, до 5 элементов) saturation остается true
+            // Так как очередь опускается ниже 8, но все еще выше lowWatermark (3)
+            testProcessor.flush();
+            assertEquals(0, testProcessor.getQueueSize());
+            assertFalse(testProcessor.isQueueSaturated(), "После полного сброса Backpressure отключается");
+        }
+    }
+
+    @Test
+    @DisplayName("Micro-batching & Deduplication: События объединяются в пачки, а дубликаты путей схлопываются")
+    void testMicroBatchingAndDeduplication() {
+        try (InotifyBatchProcessor testProcessor = new InotifyBatchProcessor(fsManager, orchestratorClient, 100, 0.8, 0.3, 50, 999999L)) {
+            // Одно и то же имя файла модифицируется 3 раза
+            String repeatedFile = "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/part-0.parquet";
+            for (int i = 1; i <= 3; i++) {
+                Event.CloseEvent ev = new Event.CloseEvent(repeatedFile, 1000L * i, 200L + i);
+                testProcessor.processEvent(ev, 200L + i, 10L - i, List.of(streamingJob));
+            }
+
+            // Добавляем еще один уникальный файл
+            String otherFile = "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/part-1.parquet";
+            Event.CloseEvent evOther = new Event.CloseEvent(otherFile, 2048L, 205L);
+            testProcessor.processEvent(evOther, 205L, 0L, List.of(streamingJob));
+
+            // До вызова flush() оркестратор не должен был вызываться повторно
+            assertEquals(4, testProcessor.getQueueSize());
+
+            int flushed = testProcessor.flush();
+            // 4 события для 2 уникальных файлов дедуплицируются в 2 задачи
+            assertEquals(2, flushed, "Дедупликация должна оставить 2 уникальные задачи репликации");
+            assertEquals(0, testProcessor.getQueueSize());
+        }
+    }
+
+    @Test
+    @DisplayName("Queue Overflow: При заполнении до 100% новые события корректно отклоняются")
+    void testQueueCapacityLimitOverflow() {
+        // Емкость 3 элемента
+        try (InotifyBatchProcessor testProcessor = new InotifyBatchProcessor(fsManager, orchestratorClient, 3, 0.8, 0.3, 10, 999999L)) {
+            for (int i = 1; i <= 3; i++) {
+                Event.CloseEvent ev = new Event.CloseEvent(
+                        "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/file-" + i + ".parquet",
+                        1024L, 300L + i
+                );
+                int queued = testProcessor.processEvent(ev, 300L + i, 0L, List.of(streamingJob));
+                assertEquals(1, queued);
+            }
+
+            assertTrue(testProcessor.isQueueFull(), "Очередь должна быть заполнена");
+
+            // 4-й элемент не должен приниматься
+            Event.CloseEvent evOverflow = new Event.CloseEvent(
+                    "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/file-overflow.parquet",
+                    1024L, 304L
+            );
+            int queuedOverflow = testProcessor.processEvent(evOverflow, 304L, 0L, List.of(streamingJob));
+            assertEquals(0, queuedOverflow, "Переполненная очередь должна отклонить задачу (Backpressure Drop/Wait)");
+        }
+    }
 }
