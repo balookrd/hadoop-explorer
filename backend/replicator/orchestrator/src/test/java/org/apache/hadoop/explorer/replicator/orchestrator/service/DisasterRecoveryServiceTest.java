@@ -291,4 +291,49 @@ class DisasterRecoveryServiceTest {
         verify(jobRunRepository).deleteByJobId("rev-9999");
         verify(jobRepository).deleteById("rev-9999");
     }
+
+    @Test
+    @DisplayName("P4: reverseReplication должен останавливать активные прямые задачи HDFS (Fencing)")
+    void shouldStopActiveDirectJobsDuringReverseReplication() {
+        JobEntity directJob = new JobEntity();
+        directJob.setId("job-active-direct");
+        directJob.setSourceClusterId("dc1");
+        directJob.setTargetClusterId("dc2");
+        directJob.setSourcePath("/data/tables");
+        directJob.setTargetPath("/backup/tables");
+        directJob.setStatus("RUNNING");
+        directJob.setScheduled(true);
+
+        when(jobRepository.findAll()).thenReturn(List.of(directJob));
+
+        DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, false, true);
+        DrActionResponse resp = drService.reverseReplication(req, "admin_user");
+
+        assertTrue(resp.success());
+        assertEquals("STOPPED", directJob.getStatus(), "Прямая задача должна быть остановлена");
+        assertFalse(directJob.isScheduled(), "Расписание прямой задачи должно быть отключено");
+        verify(jobRepository, atLeastOnce()).save(directJob);
+    }
+
+    @Test
+    @DisplayName("P4: reverseReplication не должен матчить кластеры по fuzzy-подстроке (dc1 != dc10)")
+    void shouldNotMatchClustersFuzzy() {
+        JobEntity otherJob = new JobEntity();
+        otherJob.setId("job-dc10");
+        otherJob.setSourceClusterId("dc10");
+        otherJob.setTargetClusterId("dc2");
+        otherJob.setSourcePath("/data/dc10");
+        otherJob.setTargetPath("/backup/dc10");
+        otherJob.setStatus("RUNNING");
+
+        when(jobRepository.findAll()).thenReturn(List.of(otherJob));
+
+        DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, false, true);
+        DrActionResponse resp = drService.reverseReplication(req, "admin_user");
+
+        assertTrue(resp.success());
+        assertEquals(0, resp.reversedHdfsJobs(), "Не должно создаваться реверсов для несовпадающего кластера dc10");
+        assertEquals("RUNNING", otherJob.getStatus(), "Статус dc10 не должен меняться");
+    }
 }
+

@@ -47,6 +47,8 @@ public class HdfsInotifyListener {
     private Thread leaseThread;
     private volatile long currentTxid = 0L;
     private volatile long currentEpoch = 0L;
+    private volatile long lastSuccessfulLeaseRenewTimeMs = System.currentTimeMillis();
+    private static final long LEASE_EXPIRATION_SAFETY_TIMEOUT_MS = 10_000L;
 
     // Параметры адаптивного Backpressure
     private volatile boolean orchestratorSaturated = false;
@@ -172,6 +174,7 @@ public class HdfsInotifyListener {
                 );
 
                 if (resp != null) {
+                    this.lastSuccessfulLeaseRenewTimeMs = System.currentTimeMillis();
                     // Отслеживание насыщения оркестратора
                     this.orchestratorSaturated = resp.isQueueSaturated();
                     if (this.batchProcessor != null) {
@@ -207,6 +210,7 @@ public class HdfsInotifyListener {
                 }
             } catch (Exception e) {
                 log.debug("[Streamer Lease Error] Ошибка проверки лизинга: {}", e.getMessage());
+                handleLeaseCheckFailure();
             }
 
             try {
@@ -363,10 +367,24 @@ public class HdfsInotifyListener {
         }
     }
 
+    void handleLeaseCheckFailure() {
+        if (active.get() && (System.currentTimeMillis() - lastSuccessfulLeaseRenewTimeMs > LEASE_EXPIRATION_SAFETY_TIMEOUT_MS)) {
+            log.warn("[Streamer Self-Fencing] Потеря связи с оркестратором на {} мс (> {} мс). Аварийный переход в STANDBY",
+                    System.currentTimeMillis() - lastSuccessfulLeaseRenewTimeMs, LEASE_EXPIRATION_SAFETY_TIMEOUT_MS);
+            active.set(false);
+        }
+    }
+
+    void setActiveForTesting(boolean activeState, long lastRenewTimeMs) {
+        this.active.set(activeState);
+        this.lastSuccessfulLeaseRenewTimeMs = lastRenewTimeMs;
+    }
+
     private static boolean matchesCluster(String jobCluster, String agentCluster) {
-        if (jobCluster == null || agentCluster == null) return true;
-        return jobCluster.equalsIgnoreCase(agentCluster)
-                || jobCluster.contains(agentCluster)
-                || agentCluster.contains(jobCluster);
+        if (jobCluster == null || agentCluster == null) return false;
+        if (jobCluster.equalsIgnoreCase(agentCluster)) return true;
+        String c1n = jobCluster.toLowerCase().replace("-", "").replace("_", "");
+        String c2n = agentCluster.toLowerCase().replace("-", "").replace("_", "");
+        return c1n.equals(c2n);
     }
 }

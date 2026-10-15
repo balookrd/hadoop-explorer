@@ -105,6 +105,19 @@ public class TokenBucketThrottler {
             }
         }
 
+        public void updateLimit(double newLimitBytesPerSec) {
+            lock.lock();
+            try {
+                if (Math.abs(this.limitBytesPerSec - newLimitBytesPerSec) > 1e-6) {
+                    this.limitBytesPerSec = newLimitBytesPerSec;
+                    this.capacity = newLimitBytesPerSec * burstSeconds;
+                    this.tokens = Math.min(this.tokens, this.capacity);
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
         public double getLimitBytesPerSec() { return limitBytesPerSec; }
         public String getName() { return name; }
     }
@@ -117,6 +130,10 @@ public class TokenBucketThrottler {
     public TokenBucketThrottler(ReplicatorProperties properties, TopologyRegistry topology) {
         this.topology = topology;
         this.globalBucket = new SingleBucket("global", properties.getGlobalLimitBytesPerSec(), 1.0);
+    }
+
+    public void updateGlobalLimit(long newLimitBytesPerSec) {
+        globalBucket.updateLimit(newLimitBytesPerSec);
     }
 
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster) {
@@ -143,6 +160,7 @@ public class TokenBucketThrottler {
             if (dcKey != null && topology.getDcLimit(srcCluster, dstCluster).isPresent()) {
                 long limit = topology.getDcLimit(srcCluster, dstCluster).get();
                 dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0));
+                dcBucket.updateLimit(limit);
                 waitDc = dcBucket.calculateWait(requestedBytes, nowNanos);
             }
 
@@ -152,6 +170,7 @@ public class TokenBucketThrottler {
             if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
                 long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
                 hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0));
+                hdfsBucket.updateLimit(limit);
                 waitHdfs = hdfsBucket.calculateWait(requestedBytes, nowNanos);
             }
 
@@ -185,5 +204,13 @@ public class TokenBucketThrottler {
 
     public double getGlobalLimit() {
         return globalBucket.getLimitBytesPerSec();
+    }
+
+    public Map<String, SingleBucket> getDcBuckets() {
+        return java.util.Collections.unmodifiableMap(dcBuckets);
+    }
+
+    public Map<String, SingleBucket> getHdfsBuckets() {
+        return java.util.Collections.unmodifiableMap(hdfsBuckets);
     }
 }

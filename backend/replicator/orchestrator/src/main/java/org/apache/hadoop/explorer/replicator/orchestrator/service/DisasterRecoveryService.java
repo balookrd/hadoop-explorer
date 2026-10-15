@@ -652,6 +652,21 @@ public class DisasterRecoveryService {
                     .toList();
 
             for (JobEntity direct : directJobs) {
+                boolean wasScheduled = direct.isScheduled();
+
+                // Fencing: гарантированная остановка прямой задачи во избежание встречной циклической записи
+                if ("RUNNING".equalsIgnoreCase(direct.getStatus())
+                        || "QUEUED".equalsIgnoreCase(direct.getStatus())
+                        || "ACTIVE".equalsIgnoreCase(direct.getStatus())
+                        || direct.isScheduled()) {
+                    log.info("[Disaster Recovery Fencing] Остановка прямой HDFS задачи {} ({}) перед созданием реверса",
+                            direct.getId(), direct.getStatus());
+                    direct.setStatus("STOPPED");
+                    direct.setScheduled(false);
+                    direct.setUpdatedAt(now);
+                    jobRepository.save(direct);
+                }
+
                 // Проверяем, существует ли уже обратная задача
                 boolean alreadyExists = existingJobs.stream().anyMatch(ej ->
                         !ej.getId().equals(direct.getId())
@@ -670,7 +685,7 @@ public class DisasterRecoveryService {
                     revJob.setTotalBytes(direct.getTotalBytes());
                     revJob.setCopiedBytes(0L);
                     revJob.setStatus(Boolean.TRUE.equals(req.autoStart()) ? "QUEUED" : "SCHEDULED");
-                    revJob.setScheduled(direct.isScheduled());
+                    revJob.setScheduled(wasScheduled);
                     revJob.setCronExpression(direct.getCronExpression());
                     revJob.setExecutionPrincipal(direct.getExecutionPrincipal());
                     revJob.setRunAsServiceAccount(direct.isRunAsServiceAccount());
@@ -712,6 +727,15 @@ public class DisasterRecoveryService {
                     .toList();
 
             for (HmsReplicationJobEntity direct : directHms) {
+                // Fencing: остановка прямой HMS задачи во избежание встречной перезаписи схем
+                if ("RUNNING".equalsIgnoreCase(direct.getStatus()) || "ACTIVE".equalsIgnoreCase(direct.getStatus()) || "QUEUED".equalsIgnoreCase(direct.getStatus())) {
+                    log.info("[Disaster Recovery Fencing] Остановка прямой HMS задачи {} ({}) перед созданием реверса",
+                            direct.getId(), direct.getStatus());
+                    direct.setStatus("STOPPED");
+                    direct.setUpdatedAt(now);
+                    hmsReplicationJobRepository.save(direct);
+                }
+
                 boolean alreadyExists = existingHms.stream().anyMatch(eh ->
                         matchesCluster(eh.getSourceClusterId(), fromClusterId)
                                 && matchesCluster(eh.getTargetClusterId(), toClusterId)
@@ -887,11 +911,11 @@ public class DisasterRecoveryService {
     }
 
     private static boolean matchesCluster(String c1, String c2) {
-        if (c1 == null || c2 == null) return true;
+        if (c1 == null || c2 == null) return false;
         if (c1.equalsIgnoreCase(c2)) return true;
         String c1n = c1.toLowerCase().replace("-", "").replace("_", "");
         String c2n = c2.toLowerCase().replace("-", "").replace("_", "");
-        return c1n.equals(c2n) || c1n.contains(c2n) || c2n.contains(c1n);
+        return c1n.equals(c2n);
     }
 
     private static boolean matchesDc(String clusterOrDc, String dc) {

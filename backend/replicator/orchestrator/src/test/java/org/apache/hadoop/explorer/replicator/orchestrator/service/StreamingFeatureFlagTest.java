@@ -148,4 +148,25 @@ class StreamingFeatureFlagTest {
         boolean acquiredAfterRelease = secondNode.tryLock(lockName, Duration.ofSeconds(10));
         assertTrue(acquiredAfterRelease, "После освобождения второй инстанс должен захватить блокировку");
     }
+
+    @Test
+    @DisplayName("P4: runWithLock должен выполнять действие и корректно освобождать блокировку с heartbeat renewal")
+    void shouldExecuteRunWithLockAndRelease() {
+        String lockName = "test_run_with_lock";
+        java.util.concurrent.atomic.AtomicBoolean actionExecuted = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        lockService.runWithLock(lockName, Duration.ofSeconds(2), () -> {
+            actionExecuted.set(true);
+            // Во время выполнения action блокировка удерживается
+            DistributedLockService secondNode = new DistributedLockService(lockRepository);
+            assertFalse(secondNode.tryLock(lockName, Duration.ofSeconds(2)));
+        });
+
+        assertTrue(actionExecuted.get());
+
+        // После завершения runWithLock блокировка должна быть освобождена
+        DistributedLockService secondNode = new DistributedLockService(lockRepository);
+        assertTrue(secondNode.tryLock(lockName, Duration.ofSeconds(2)));
+        secondNode.releaseLock(lockName);
+    }
 }

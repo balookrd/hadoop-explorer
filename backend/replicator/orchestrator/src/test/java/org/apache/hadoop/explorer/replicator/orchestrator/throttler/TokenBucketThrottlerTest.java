@@ -84,4 +84,30 @@ class TokenBucketThrottlerTest {
         assertTrue(finished, "Все параллельные запросы токенов должны завершиться без зависаний");
         assertEquals(0, errorCount.get(), "Не должно быть ошибок при конкурентном запросе токенов");
     }
+
+    @Test
+    @DisplayName("P4: Динамическое обновление лимитов DC на лету в TokenBucketThrottler")
+    void shouldDynamicallyUpdateDcLimitsOnTheFly() {
+        ReplicatorProperties props = new ReplicatorProperties();
+        props.setGlobalLimitBytesPerSec(100_000_000); // 100 MB/s
+
+        TopologyRegistry topology = new TopologyRegistry(props);
+        topology.setDcLimit("dc1", "dc2", 10_000_000); // 10 MB/s начальный лимит
+
+        TokenBucketThrottler throttler = new TokenBucketThrottler(props, topology);
+
+        // Первый запрос: бакет создается с 10 МБ/с
+        throttler.requestTokens(1000, "dc1", "dc2");
+
+        // Меняем лимит в топологии на 50 МБ/с
+        topology.setDcLimit("dc1", "dc2", 50_000_000);
+
+        // Следующий запрос должен обновить существующий бакет
+        throttler.requestTokens(1000, "dc1", "dc2");
+
+        // Проверяем, что в dcBuckets обновился limitBytesPerSec
+        TokenBucketThrottler.SingleBucket bucket = throttler.getDcBuckets().get("dc1->dc2");
+        assertNotNull(bucket);
+        assertEquals(50_000_000.0, bucket.getLimitBytesPerSec(), 1e-6);
+    }
 }

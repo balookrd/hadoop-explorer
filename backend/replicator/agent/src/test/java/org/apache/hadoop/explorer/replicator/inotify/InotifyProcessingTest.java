@@ -259,4 +259,25 @@ class InotifyProcessingTest {
             assertEquals(0, queuedOverflow, "Переполненная очередь должна отклонить задачу (Backpressure Drop/Wait)");
         }
     }
+
+    @Test
+    @DisplayName("P4: HdfsInotifyListener должен совершать self-fencing при потере связи с оркестратором")
+    void testStreamerSelfFencingOnOrchestratorConnectionLoss() {
+        org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig config =
+                new org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig();
+        config.setClusterId("dc1");
+        config.setAgentId("streamer-node1");
+
+        HdfsInotifyListener listener = new HdfsInotifyListener(config, orchestratorClient, fsManager);
+        assertFalse(listener.isActive());
+
+        // Симулируем активное состояние стримера с успешным лизингом 15 секунд назад
+        long staleTime = System.currentTimeMillis() - 15_000L;
+        listener.setActiveForTesting(true, staleTime);
+        assertTrue(listener.isActive());
+
+        // При сбое связи с оркестратором стример должен перевести себя в STANDBY (self-fencing)
+        listener.handleLeaseCheckFailure();
+        assertFalse(listener.isActive(), "Стример должен совершить self-fencing и сбросить active в false");
+    }
 }

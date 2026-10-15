@@ -241,7 +241,10 @@ public class StreamingLeaseCoordinator {
     }
 
     private static boolean matchesCluster(String c1, String c2) {
-        if (c1 == null || c2 == null) return true;
-        return c1.equalsIgnoreCase(c2) || c1.contains(c2) || c2.contains(c1);
+        if (c1 == null || c2 == null) return false;
+        if (c1.equalsIgnoreCase(c2)) return true;
+        String c1n = c1.toLowerCase().replace("-", "").replace("_", "");
+        String c2n = c2.toLowerCase().replace("-", "").replace("_", "");
+        return c1n.equals(c2n);
     }
 }

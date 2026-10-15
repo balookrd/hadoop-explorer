@@ -75,13 +75,38 @@ public class DistributedLockService {
     }
 
     /**
-     * Выполнение действия строго под защитой распределенной блокировки.
+     * Выполнение действия строго под защитой распределенной блокировки
+     * с автоматическим фоновым продлением аренды (Heartbeat Renewal) на виртуальном потоке.
      */
     public void runWithLock(String lockName, Duration duration, Runnable action) {
         if (tryLock(lockName, duration)) {
+            java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
+            Thread renewerThread = null;
+            if (duration.toMillis() > 1000) {
+                renewerThread = Thread.ofVirtual().name("lock-renew-" + lockName).start(() -> {
+                    long sleepMs = Math.max(500, duration.toMillis() / 2);
+                    while (active.get()) {
+                        try {
+                            Thread.sleep(sleepMs);
+                            if (active.get()) {
+                                tryLock(lockName, duration);
+                            }
+                        } catch (InterruptedException e) {
+                            break;
+                        } catch (Exception e) {
+                            log.debug("[DistributedLock] Ошибка автопродления блокировки {}: {}", lockName, e.getMessage());
+                        }
+                    }
+                });
+            }
+
             try {
                 action.run();
             } finally {
+                active.set(false);
+                if (renewerThread != null) {
+                    renewerThread.interrupt();
+                }
                 releaseLock(lockName);
             }
         } else {
