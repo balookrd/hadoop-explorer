@@ -19,6 +19,7 @@ import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
 import org.apache.hadoop.explorer.replicator.model.*;
+import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.apache.hadoop.io.IOUtils;
 import org.slf4j.Logger;
@@ -27,12 +28,15 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * gRPC Клиент передачи файлов чанками с многоуровневым контролем полосы (Sender).
+ * Поддерживает пул постоянных gRPC каналов (ManagedChannel pool) и пакетирование сетевых токенов.
  */
-public class ReplicationSender {
+public class ReplicationSender implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(ReplicationSender.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,8 +56,15 @@ public class ReplicationSender {
     private final int maxBundleFiles;
     private final CompressionCodec defaultCompressionCodec;
     private final int compressionLevel;
-    private final java.util.concurrent.atomic.AtomicLong totalBytesTransferred = new java.util.concurrent.atomic.AtomicLong(0);
-    private final java.util.concurrent.atomic.AtomicLong totalTransferErrors = new java.util.concurrent.atomic.AtomicLong(0);
+    private final AtomicLong totalBytesTransferred = new AtomicLong(0);
+    private final AtomicLong totalTransferErrors = new AtomicLong(0);
+
+    // Пул постоянных gRPC каналов с поддержкой HTTP/2 keepalive
+    private final ConcurrentHashMap<String, ManagedChannel> channelPool = new ConcurrentHashMap<>();
+
+    // Локальный буфер сетевых токенов (Hierarchical Token Bucket batching)
+    private final ConcurrentHashMap<String, AtomicLong> tokenBatchLease = new ConcurrentHashMap<>();
+    private static final long DEFAULT_TOKEN_BATCH_BYTES = 2 * 1024 * 1024L; // 2 MB на батч
 
     public long getTotalBytesTransferred() { return totalBytesTransferred.get(); }
     public long getTotalTransferErrors() { return totalTransferErrors.get(); }
@@ -164,28 +175,19 @@ public class ReplicationSender {
 
         ManagedChannel channel;
         try {
-            channel = createManagedChannel(targetAddress);
+            channel = getOrCreateChannel(targetAddress);
         } catch (Exception e) {
-            String err = "Не удалось создать gRPC соединение к " + targetAddress + ": " + e.getMessage();
+            String err = "Не удалось получить gRPC соединение к " + targetAddress + ": " + e.getMessage();
             logger.error(err, e);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
         }
 
-        try {
-            boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
-            if (isDir) {
-                return transferDirectory(job, channel);
-            } else {
-                return transferSingleFileWithSync(job, channel);
-            }
-        } finally {
-            if (channel != null) {
-                channel.shutdown();
-                try {
-                    channel.awaitTermination(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-            }
+        boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount());
+        if (isDir) {
+            return transferDirectory(job, channel);
+        } else {
+            return transferSingleFileWithSync(job, channel);
         }
     }
 
@@ -208,7 +210,7 @@ public class ReplicationSender {
 
         ManagedChannel channel = null;
         try {
-            channel = createManagedChannel(targetAddress);
+            channel = getOrCreateChannel(targetAddress);
             // Pre-flight очистка старых staging-файлов предыдущей попытки этого задания
             try {
                 fsManager.cleanStagingFiles(targetPath, jobId, 0L, job.getExecutionPrincipal(), asService);
@@ -328,13 +330,6 @@ public class ReplicationSender {
             logger.error(err, e);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
-        } finally {
-            if (channel != null) {
-                channel.shutdown();
-                try {
-                    channel.awaitTermination(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-            }
         }
     }
 
@@ -358,7 +353,7 @@ public class ReplicationSender {
 
         ManagedChannel channel = null;
         try {
-            channel = createManagedChannel(targetAddress);
+            channel = getOrCreateChannel(targetAddress);
 
             boolean success = streamTaskFileToChannel(taskId, jobId, sourcePath, targetPath, fileSize,
                     task.getExecutionPrincipal(), task.getRunAsServiceAccount(),
@@ -376,17 +371,11 @@ public class ReplicationSender {
                 return false;
             }
         } catch (Exception e) {
+            evictChannel(targetAddress);
             totalTransferErrors.incrementAndGet();
             logger.error("Исключение при передаче задачи '{}': {}", taskId, e.getMessage(), e);
             orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
             return false;
-        } finally {
-            if (channel != null) {
-                channel.shutdown();
-                try {
-                    channel.awaitTermination(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-            }
         }
     }
 
@@ -451,18 +440,8 @@ public class ReplicationSender {
                         bandwidthLimiter.throttle(wireBytes);
                     }
 
-                    // Шейпинг токенов оркестратора (Hierarchical Token Bucket)
-                    double waitSec = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, wireBytes, sourceClusterId, targetClusterId)
-                    );
-                    if (waitSec > 0) {
-                        try {
-                            Thread.sleep((long) (waitSec * 1000));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
+                    // Пакетный шейпинг токенов оркестратора (Hierarchical Token Bucket)
+                    acquireNetworkTokens(wireBytes, sourceClusterId, targetClusterId);
 
                     FileChunk chunk = FileChunk.newBuilder()
                             .setJobId(jobId)
@@ -718,18 +697,8 @@ public class ReplicationSender {
                         bandwidthLimiter.throttle(wireBytes);
                     }
 
-                    // Глобальный шейпинг
-                    double waitSec = orchestratorClient.requestNetworkTokens(
-                            new TokenRequest(workerId, wireBytes, job.getSourceClusterId(), job.getTargetClusterId())
-                    );
-                    if (waitSec > 0) {
-                        try {
-                            Thread.sleep((long) (waitSec * 1000));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
+                    // Пакетный шейпинг токенов оркестратора (Hierarchical Token Bucket)
+                    acquireNetworkTokens(wireBytes, job.getSourceClusterId(), job.getTargetClusterId());
 
                     FileChunk chunk = FileChunk.newBuilder()
                             .setJobId(jobId)
@@ -788,13 +757,116 @@ public class ReplicationSender {
     }
 
     private static String combinePaths(String base, String relative) {
-        String b = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-        String r = relative.startsWith("/") ? relative.substring(1) : relative;
-        return b + "/" + r;
+        return DataTransferServiceImpl.combinePaths(base, relative);
     }
 
     /**
-     * Создает gRPC ManagedChannel с учетом параметров TLS / plaintext.
+     * Пакетный запрос токенов оркестратора (Hierarchical Token Bucket).
+     * Существенно сокращает количество HTTP-запросов к оркестратору за счет локального лизинга порциями по 2 МБ.
+     */
+    public void acquireNetworkTokens(long wireBytes, String sourceClusterId, String targetClusterId) {
+        acquireNetworkTokens(this.tokenBatchLease, this.orchestratorClient, this.workerId, wireBytes, sourceClusterId, targetClusterId);
+    }
+
+    public static void acquireNetworkTokens(ConcurrentHashMap<String, AtomicLong> tokenLeaseMap,
+                                            OrchestratorClient orchestratorClient,
+                                            String workerId,
+                                            long wireBytes,
+                                            String sourceClusterId,
+                                            String targetClusterId) {
+        if (wireBytes <= 0 || orchestratorClient == null || workerId == null) {
+            return;
+        }
+        ConcurrentHashMap<String, AtomicLong> leases = tokenLeaseMap != null ? tokenLeaseMap : new ConcurrentHashMap<>();
+        String routeKey = (sourceClusterId != null ? sourceClusterId : "") + "->" + (targetClusterId != null ? targetClusterId : "");
+        AtomicLong lease = leases.computeIfAbsent(routeKey, k -> new AtomicLong(0));
+
+        while (true) {
+            long current = lease.get();
+            if (current >= wireBytes) {
+                if (lease.compareAndSet(current, current - wireBytes)) {
+                    return; // Взято из локального пакета без вызова HTTP
+                }
+            } else {
+                long requestBytes = Math.max(wireBytes, DEFAULT_TOKEN_BATCH_BYTES);
+                double waitSec = orchestratorClient.requestNetworkTokens(
+                        new TokenRequest(workerId, requestBytes, sourceClusterId, targetClusterId)
+                );
+                if (waitSec > 0) {
+                    try {
+                        Thread.sleep((long) (waitSec * 1000));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                long remainingToAdd = requestBytes - wireBytes;
+                if (remainingToAdd > 0) {
+                    lease.addAndGet(remainingToAdd);
+                }
+                return;
+            }
+        }
+    }
+
+    /**
+     * Возвращает существующий или создает новый переиспользуемый gRPC ManagedChannel из пула соединений.
+     */
+    public ManagedChannel getOrCreateChannel(String targetAddress) throws javax.net.ssl.SSLException {
+        String key = targetAddress != null ? targetAddress.trim() : "localhost:50051";
+        ManagedChannel channel = channelPool.get(key);
+        if (channel != null && !channel.isShutdown() && !channel.isTerminated()) {
+            return channel;
+        }
+        synchronized (channelPool) {
+            channel = channelPool.get(key);
+            if (channel != null && !channel.isShutdown() && !channel.isTerminated()) {
+                return channel;
+            }
+            ManagedChannel newChannel = createManagedChannel(key);
+            channelPool.put(key, newChannel);
+            return newChannel;
+        }
+    }
+
+    /**
+     * Исключение сбойного канала из пула при возникновении сетевых ошибок.
+     */
+    public void evictChannel(String targetAddress) {
+        if (targetAddress == null) return;
+        ManagedChannel channel = channelPool.remove(targetAddress.trim());
+        if (channel != null && !channel.isShutdown()) {
+            channel.shutdown();
+            try {
+                channel.awaitTermination(1, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+    }
+
+    @Override
+    public void close() {
+        shutdownChannels();
+    }
+
+    /**
+     * Корректное закрытие всех активных соединений в пуле каналов при остановке воркера.
+     */
+    public void shutdownChannels() {
+        for (Map.Entry<String, ManagedChannel> entry : channelPool.entrySet()) {
+            ManagedChannel ch = entry.getValue();
+            if (ch != null && !ch.isShutdown()) {
+                ch.shutdown();
+                try {
+                    ch.awaitTermination(2, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+        channelPool.clear();
+        tokenBatchLease.clear();
+    }
+
+    /**
+     * Создает gRPC ManagedChannel с учетом параметров TLS / plaintext и HTTP/2 keepalive.
      */
     private ManagedChannel createManagedChannel(String targetAddress) throws javax.net.ssl.SSLException {
         String cleanAddress = targetAddress;
@@ -838,11 +910,17 @@ public class ReplicationSender {
             return NettyChannelBuilder.forTarget(cleanAddress)
                     .sslContext(sslBuilder.build())
                     .maxInboundMessageSize(64 * 1024 * 1024)
+                    .keepAliveTime(30, TimeUnit.SECONDS)
+                    .keepAliveTimeout(10, TimeUnit.SECONDS)
+                    .keepAliveWithoutCalls(true)
                     .build();
         } else {
             return NettyChannelBuilder.forTarget(cleanAddress)
                     .usePlaintext()
                     .maxInboundMessageSize(64 * 1024 * 1024)
+                    .keepAliveTime(30, TimeUnit.SECONDS)
+                    .keepAliveTimeout(10, TimeUnit.SECONDS)
+                    .keepAliveWithoutCalls(true)
                     .build();
         }
     }
@@ -899,7 +977,7 @@ public class ReplicationSender {
         ManagedChannel channel = null;
         StreamObserver<TarStreamRequest> requestObserver = null;
         try {
-            channel = createManagedChannel(targetAddress);
+            channel = getOrCreateChannel(targetAddress);
             DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
 
             CompletableFuture<TarStreamResponse> responseFuture = new CompletableFuture<>();
@@ -951,7 +1029,8 @@ public class ReplicationSender {
                     tarCodec,
                     compressionLevel,
                     task.getSourceClusterId(),
-                    task.getTargetClusterId()
+                    task.getTargetClusterId(),
+                    tokenBatchLease
             );
 
             try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
@@ -993,6 +1072,7 @@ public class ReplicationSender {
                 return false;
             }
         } catch (Exception e) {
+            evictChannel(targetAddress);
             logger.error("Исключение при передаче бандла TAR '{}': {}", taskId, e.getMessage(), e);
             if (requestObserver != null) {
                 try {
@@ -1001,13 +1081,6 @@ public class ReplicationSender {
             }
             orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
             return false;
-        } finally {
-            if (channel != null) {
-                channel.shutdown();
-                try {
-                    channel.awaitTermination(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-            }
         }
     }
 
@@ -1025,6 +1098,7 @@ public class ReplicationSender {
         private final int compressionLevel;
         private final String sourceClusterId;
         private final String targetClusterId;
+        private final ConcurrentHashMap<String, AtomicLong> tokenBatchLease;
         private final byte[] buffer;
         private int count = 0;
         private long offset = 0;
@@ -1049,6 +1123,16 @@ public class ReplicationSender {
                                        OrchestratorClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel,
                                        String sourceClusterId, String targetClusterId) {
+            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
+                    codec, compressionLevel, sourceClusterId, targetClusterId, null);
+        }
+
+        public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
+                                       int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
+                                       OrchestratorClient orchestratorClient, String workerId,
+                                       CompressionCodec codec, int compressionLevel,
+                                       String sourceClusterId, String targetClusterId,
+                                       ConcurrentHashMap<String, AtomicLong> tokenBatchLease) {
             this.taskId = taskId;
             this.requestObserver = requestObserver;
             this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
@@ -1059,6 +1143,7 @@ public class ReplicationSender {
             this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
             this.sourceClusterId = sourceClusterId;
             this.targetClusterId = targetClusterId;
+            this.tokenBatchLease = tokenBatchLease != null ? tokenBatchLease : new ConcurrentHashMap<>();
             this.buffer = new byte[this.chunkSize];
         }
 
@@ -1100,17 +1185,8 @@ public class ReplicationSender {
                 bandwidthLimiter.throttle(wireBytes);
             }
             if (orchestratorClient != null && workerId != null) {
-                double waitSec = orchestratorClient.requestNetworkTokens(
-                        new TokenRequest(workerId, wireBytes, sourceClusterId, targetClusterId)
-                );
-                if (waitSec > 0) {
-                    try {
-                        Thread.sleep((long) (waitSec * 1000));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new InterruptedIOException("Передача прервана во время ожидания токенов");
-                    }
-                }
+                acquireNetworkTokens(this.tokenBatchLease, this.orchestratorClient, this.workerId,
+                        wireBytes, this.sourceClusterId, this.targetClusterId);
             }
 
             TarStreamChunk chunk = TarStreamChunk.newBuilder()

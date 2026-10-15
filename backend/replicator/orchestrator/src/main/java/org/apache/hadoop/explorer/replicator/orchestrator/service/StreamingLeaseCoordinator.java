@@ -72,15 +72,7 @@ public class StreamingLeaseCoordinator {
         if (clusterId == null || clusterId.isBlank()) {
             return taskRepository.countByStatus("QUEUED");
         }
-        List<JobEntity> clusterJobs = jobRepository.findAll().stream()
-                .filter(j -> clusterId.equalsIgnoreCase(j.getSourceClusterId())
-                        || clusterId.equalsIgnoreCase(j.getTargetClusterId()))
-                .toList();
-        long total = 0;
-        for (JobEntity j : clusterJobs) {
-            total += taskRepository.countByJobIdAndStatus(j.getId(), "QUEUED");
-        }
-        return total;
+        return taskRepository.countPendingTasksByClusterId(clusterId, "QUEUED");
     }
 
     /**

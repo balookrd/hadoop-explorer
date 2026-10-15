@@ -111,6 +111,23 @@
     - Высокоточный замер задержек передачи gRPC-чанков: таймер Micrometer с SLA-бакетами от 1 мс до 5 с (`replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`), средняя (`replicator_grpc_chunk_transfer_latency_avg_ms`) и пиковая задержки (`replicator_grpc_chunk_transfer_latency_max_ms`).
     - Мониторинг очереди и буфера Staging на стороне приемника: количество активных незавершенных файлов (`replicator_staging_queue_size`, `replicator_staging_active_files`), совокупный объем в байтах (`replicator_staging_active_bytes`) и число удаленных сборщиком мусора файлов-сирот (`replicator_staging_orphans_cleaned_total`).
 
+18. **Безопасность и целостность данных (Security Hardening)**:
+    - **Защита API и устранение Auth Bypass**: все служебные и управляющие REST эндпоинты защищены обязательной аутентификацией (`anyRequest().authenticated()`). Фоновые демоны агентов аутентифицируются через `AgentSecretAuthenticationFilter` по заголовку `X-Agent-Secret`.
+    - **Защита от Timing Attack**: сравнение секретов агентов (`AgentRegistry.verifySecret`, `AgentSecretAuthenticationFilter`) переведено на constant-time (`MessageDigest.isEqual`).
+    - **Защита от эскалации привилегий doAs (`execution_principal`)**: непривилегированные пользователи не могут подменить целевого Kerberos-пользователя; `execution_principal` принудительно фиксируется за автором запроса.
+    - **Защита от Zip Slip и Path Traversal**: строгая нормализация путей в `combinePaths` и распаковщике TAR-стримов с блокировкой любых выходов за пределы целевого каталога (`..`). Блокировка удаления корневой директории `/` в HDFS.
+    - **Защита от Decompression Bomb (CWE-400)**: ограничение максимального размера распаковываемого чанка (`MAX_UNCOMPRESSED_CHUNK_SIZE = 64MB`) предотвращает исчерпание памяти (OOM) при декомпрессии.
+    - **Защита хостовой файловой системы**: в `HadoopFsManager` удален небезопасный откат на чтение локальной ФС хоста и внедрен шлюз `validatePathSafety`, блокирующий доступ к системным путям ОС (`/etc`, `/proc`, `/sys`, `/dev`, `/root`, `/var/run`, `/boot`).
+    - **Гарантированная доставка событий Inotify**: обработка событий переведена на транзакционный ack с backpressure, предотвращая потерю прогресса `txid` при сетевых сбоях.
+
+19. **Высокая производительность и масштабируемость (P1 Performance & Concurrency)**:
+    - **Пул gRPC соединений (`ManagedChannel` pool)**: в `ReplicationSender` внедрен постоянный пул gRPC каналов с поддержкой HTTP/2 keepalive (`keepAliveTime: 30s`, `keepAliveTimeout: 10s`), graceful shutdown и эвикцией сбойных каналов при сетевых ошибках (`evictChannel`), устраняя постоянные накладные расходы на TCP и TLS рукопожатия.
+    - **Пакетирование сетевых токенов (Batch Token Leasing)**: воркеры запрашивают сетевые токены у оркестратора порциями по 2 МБ на маршрут (`source -> target`), экономя до 97% HTTP round-trip запросов при передаче файлов и TAR-бандлов.
+    - **Ликвидация N+1 SQL-запросов**: в `TaskRepository` добавлен прямой JPQL-запрос `countPendingTasksByClusterId`, устранивший сканирование всей таблицы `JobEntity` в `StreamingLeaseCoordinator` и `TaskService`. В забор задач (`claimTasks`) внедрена пагинация `PageRequest` и локальный кэш родительских задач `JobEntity`.
+    - **Виртуальные потоки (Virtual Threads / Project Loom)**: в оркестраторе активирован режим `spring.threads.virtual.enabled: true`. В `TokenBucketThrottler` примитивы `synchronized` заменены на `ReentrantLock`, предотвращая блокировку несущих потоков (Carrier Thread Pinning) на Java 21 LTS.
+    - **Надежность Disaster Recovery**: активные снимки аварийного останова (`EmergencySnapshot`) перенесены из оперативной памяти в базу данных (`DrSnapshotEntity`, `DrSnapshotRepository`) с автоматическим восстановлением при старте сервиса (`@PostConstruct`).
+    - **Перехват отмен gRPC и очистка Staging**: в `DataTransferServiceImpl` зарегистрирован `serverCallStreamObserver.setOnCancelHandler(...)`, выполняющий мгновенную очистку staging-файлов в HDFS и освобождение семафоров при клиентской отмене или разрыве соединения.
+
 ---
 
 ## 2. Быстрый запуск

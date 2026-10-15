@@ -70,8 +70,7 @@ public class ReplicatorYarnClient {
             client.run(jarPath, numContainers, memoryMb, vcores, queue, orchestratorUrl, clusterId);
 
         } catch (Exception e) {
-            System.err.println("Ошибка сабмита Replicator Agent в YARN: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Ошибка сабмита Replicator Agent в YARN: {}", e.getMessage(), e);
             System.exit(1);
         }
     }

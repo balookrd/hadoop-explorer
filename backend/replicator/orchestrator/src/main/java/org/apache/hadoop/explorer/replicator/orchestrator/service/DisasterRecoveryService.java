@@ -17,8 +17,16 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepos
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import jakarta.annotation.PostConstruct;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.DrSnapshotEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.DrSnapshotRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,17 +41,25 @@ public class DisasterRecoveryService {
     private static final Logger log = LoggerFactory.getLogger(DisasterRecoveryService.class);
 
     public static class EmergencySnapshot {
-        private final String clusterId;
-        private final String operator;
-        private final String reason;
-        private final Instant timestamp;
-        private final boolean networkFenced;
-        private final Map<String, Long> previousDcLimits = new HashMap<>();
-        private final List<String> stoppedHdfsJobIds = new ArrayList<>();
-        private final Map<String, Boolean> previousHdfsScheduled = new HashMap<>();
-        private final List<String> pausedHmsJobIds = new ArrayList<>();
+        private String clusterId;
+        private String operator;
+        private String reason;
+        private Instant timestamp;
+        private boolean networkFenced;
+        private Map<String, Long> previousDcLimits = new HashMap<>();
+        private List<String> stoppedHdfsJobIds = new ArrayList<>();
+        private Map<String, Boolean> previousHdfsScheduled = new HashMap<>();
+        private List<String> pausedHmsJobIds = new ArrayList<>();
 
-        public EmergencySnapshot(String clusterId, String operator, String reason, Instant timestamp, boolean networkFenced) {
+        public EmergencySnapshot() {}
+
+        @JsonCreator
+        public EmergencySnapshot(
+                @JsonProperty("clusterId") String clusterId,
+                @JsonProperty("operator") String operator,
+                @JsonProperty("reason") String reason,
+                @JsonProperty("timestamp") Instant timestamp,
+                @JsonProperty("networkFenced") boolean networkFenced) {
             this.clusterId = clusterId;
             this.operator = operator;
             this.reason = reason;
@@ -52,14 +68,23 @@ public class DisasterRecoveryService {
         }
 
         public String getClusterId() { return clusterId; }
+        public void setClusterId(String clusterId) { this.clusterId = clusterId; }
         public String getOperator() { return operator; }
+        public void setOperator(String operator) { this.operator = operator; }
         public String getReason() { return reason; }
+        public void setReason(String reason) { this.reason = reason; }
         public Instant getTimestamp() { return timestamp; }
+        public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
         public boolean isNetworkFenced() { return networkFenced; }
+        public void setNetworkFenced(boolean networkFenced) { this.networkFenced = networkFenced; }
         public Map<String, Long> getPreviousDcLimits() { return previousDcLimits; }
+        public void setPreviousDcLimits(Map<String, Long> previousDcLimits) { this.previousDcLimits = previousDcLimits; }
         public List<String> getStoppedHdfsJobIds() { return stoppedHdfsJobIds; }
+        public void setStoppedHdfsJobIds(List<String> stoppedHdfsJobIds) { this.stoppedHdfsJobIds = stoppedHdfsJobIds; }
         public Map<String, Boolean> getPreviousHdfsScheduled() { return previousHdfsScheduled; }
+        public void setPreviousHdfsScheduled(Map<String, Boolean> previousHdfsScheduled) { this.previousHdfsScheduled = previousHdfsScheduled; }
         public List<String> getPausedHmsJobIds() { return pausedHmsJobIds; }
+        public void setPausedHmsJobIds(List<String> pausedHmsJobIds) { this.pausedHmsJobIds = pausedHmsJobIds; }
     }
 
     private final Map<String, EmergencySnapshot> activeSnapshots = new ConcurrentHashMap<>();
@@ -72,6 +97,8 @@ public class DisasterRecoveryService {
     private final TopologyRegistry topologyRegistry;
     private final TokenBucketThrottler throttler;
     private final HmsCoordinatorService hmsCoordinatorService;
+    private final DrSnapshotRepository drSnapshotRepository;
+    private final ObjectMapper objectMapper;
 
     public DisasterRecoveryService(
             JobRepository jobRepository,
@@ -83,6 +110,22 @@ public class DisasterRecoveryService {
             TokenBucketThrottler throttler,
             HmsCoordinatorService hmsCoordinatorService
     ) {
+        this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null);
+    }
+
+    @Autowired
+    public DisasterRecoveryService(
+            JobRepository jobRepository,
+            JobRunRepository jobRunRepository,
+            TaskRepository taskRepository,
+            HmsReplicationJobRepository hmsReplicationJobRepository,
+            AgentRegistry agentRegistry,
+            TopologyRegistry topologyRegistry,
+            TokenBucketThrottler throttler,
+            HmsCoordinatorService hmsCoordinatorService,
+            @Autowired(required = false) DrSnapshotRepository drSnapshotRepository
+    ) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.taskRepository = taskRepository;
@@ -91,6 +134,27 @@ public class DisasterRecoveryService {
         this.topologyRegistry = topologyRegistry;
         this.throttler = throttler;
         this.hmsCoordinatorService = hmsCoordinatorService;
+        this.drSnapshotRepository = drSnapshotRepository;
+        this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    }
+
+    @PostConstruct
+    public void loadPersistedSnapshots() {
+        if (drSnapshotRepository == null) return;
+        try {
+            List<DrSnapshotEntity> entities = drSnapshotRepository.findAll();
+            for (DrSnapshotEntity entity : entities) {
+                if (entity.getSnapshotJson() != null && !entity.getSnapshotJson().isBlank()) {
+                    EmergencySnapshot snapshot = objectMapper.readValue(entity.getSnapshotJson(), EmergencySnapshot.class);
+                    activeSnapshots.put(entity.getId(), snapshot);
+                }
+            }
+            if (!entities.isEmpty()) {
+                log.info("[Disaster Recovery] Восстановлено {} активных DR-снимков из базы данных", entities.size());
+            }
+        } catch (Exception e) {
+            log.warn("[Disaster Recovery] Не удалось восстановить DR-снимки из БД: {}", e.getMessage());
+        }
     }
 
     /**
@@ -438,6 +502,22 @@ public class DisasterRecoveryService {
 
         // Регистрируем снимок для отката
         activeSnapshots.put(clusterId.toLowerCase(), snapshot);
+        if (drSnapshotRepository != null) {
+            try {
+                String json = objectMapper.writeValueAsString(snapshot);
+                drSnapshotRepository.save(new DrSnapshotEntity(
+                        clusterId.toLowerCase(),
+                        clusterId,
+                        operator,
+                        req.reason(),
+                        snapshot.getTimestamp(),
+                        snapshot.isNetworkFenced(),
+                        json
+                ));
+            } catch (Exception e) {
+                log.warn("[Disaster Recovery] Не удалось сохранить DR-снимок в БД: {}", e.getMessage());
+            }
+        }
 
         String msg = String.format("Аварийный останов выполнен: остановлено %d HDFS задач и %d HMS задач для кластера '%s'",
                 stoppedHdfs, stoppedHms, clusterId);
@@ -453,11 +533,21 @@ public class DisasterRecoveryService {
         String clusterId = req.clusterId();
         String operator = username != null ? username : "operator";
         EmergencySnapshot snapshot = activeSnapshots.remove(clusterId.toLowerCase());
+        if (drSnapshotRepository != null) {
+            try {
+                drSnapshotRepository.deleteById(clusterId.toLowerCase());
+            } catch (Exception ignored) {}
+        }
         if (snapshot == null && !activeSnapshots.isEmpty()) {
             // Если в мапе сохранен снимок под другим регистром или кластером
             var entry = activeSnapshots.entrySet().iterator().next();
             snapshot = entry.getValue();
             activeSnapshots.remove(entry.getKey());
+            if (drSnapshotRepository != null) {
+                try {
+                    drSnapshotRepository.deleteById(entry.getKey());
+                } catch (Exception ignored) {}
+            }
         }
 
         int restoredLimits = 0;

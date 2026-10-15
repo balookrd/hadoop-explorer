@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.replicator.receiver;
 
 import com.google.protobuf.ByteString;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -216,7 +217,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
     @Override
     public StreamObserver<TransferFileRequest> transferFile(StreamObserver<TransferFileResponse> responseObserver) {
-        return new StreamObserver<>() {
+        class TransferFileObserver implements StreamObserver<TransferFileRequest> {
 
             private FileMetadata metadata = null;
             private String stagingPath = null;
@@ -364,7 +365,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 }
             }
 
-            private void cleanup() {
+            void cleanup() {
                 if (stagingTracked.compareAndSet(true, false)) {
                     AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
                 }
@@ -378,12 +379,21 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     fsManager.deletePath(stagingPath, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
                 }
             }
-        };
+        }
+
+        TransferFileObserver observer = new TransferFileObserver();
+        if (responseObserver instanceof ServerCallStreamObserver<TransferFileResponse> serverCallStreamObserver) {
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                logger.warn("Клиент прервал (CANCELLED) gRPC вызов передачи файла");
+                observer.cleanup();
+            });
+        }
+        return observer;
     }
 
     @Override
     public StreamObserver<TarStreamRequest> transferTarStream(StreamObserver<TarStreamResponse> responseObserver) {
-        return new StreamObserver<>() {
+        class TarStreamObserver implements StreamObserver<TarStreamRequest> {
 
             private TarStreamMetadata metadata = null;
             private PipedOutputStream pipedOut = null;
@@ -631,7 +641,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 }
             }
 
-            private void cleanup() {
+            void cleanup() {
                 releasePermit();
                 if (pipedOut != null) {
                     try {
@@ -662,7 +672,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 activeStagingPaths.clear();
                 activeStagingSizes.clear();
             }
-        };
+        }
+
+        TarStreamObserver observer = new TarStreamObserver();
+        if (responseObserver instanceof ServerCallStreamObserver<TarStreamResponse> serverCallStreamObserver) {
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                logger.warn("Клиент прервал (CANCELLED) gRPC вызов виртуального TAR-стрима");
+                observer.cleanup();
+            });
+        }
+        return observer;
     }
 
     @Override
@@ -696,6 +715,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         logger.info("[gRPC Receiver] Запрос удаления пути: '{}' (recursive={}, job_id={})", path, request.getRecursive(), request.getJobId());
 
         try {
+            if (path == null || path.trim().isEmpty() || path.trim().equals("/") || path.trim().equals("/user")
+                    || path.trim().equals("/tmp") || path.trim().equals("/etc") || path.trim().equals("/system")) {
+                throw new SecurityException("Запрещено удаление системного или корневого каталога: " + path);
+            }
             boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
             responseObserver.onNext(DeletePathResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -715,11 +738,24 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     }
 
     public static String combinePaths(String base, String rel) {
-        if (base == null || base.isEmpty()) return rel;
+        if (base == null || base.isEmpty()) base = "/";
         if (rel == null || rel.isEmpty()) return base;
-        String cleanBase = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-        String cleanRel = rel.startsWith("/") ? rel.substring(1) : rel;
-        return cleanBase + "/" + cleanRel;
+
+        // Защита от Path Traversal / Zip Slip (CWE-22):
+        String cleanRel = rel.replace('\\', '/').replaceAll("^/+", "");
+        java.nio.file.Path basePath = java.nio.file.Paths.get(base).normalize();
+        java.nio.file.Path resolvedPath = basePath.resolve(cleanRel).normalize();
+
+        if (!resolvedPath.startsWith(basePath)) {
+            throw new SecurityException("Попытка Path Traversal (Zip Slip) обнаружена в TAR-записи: '"
+                    + rel + "' пытается выйти за пределы базовой директории '" + base + "'");
+        }
+
+        String result = resolvedPath.toString().replace('\\', '/');
+        if (base.startsWith("/") && !result.startsWith("/")) {
+            result = "/" + result;
+        }
+        return result;
     }
 
     private static String bytesToHex(byte[] bytes) {

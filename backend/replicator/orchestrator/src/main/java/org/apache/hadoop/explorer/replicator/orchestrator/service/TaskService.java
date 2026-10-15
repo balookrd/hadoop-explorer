@@ -12,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskReposit
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -213,15 +214,7 @@ public class TaskService {
         if (clusterId == null || clusterId.isBlank()) {
             return taskRepository.countByStatus("QUEUED");
         }
-        List<JobEntity> clusterJobs = jobRepository.findAll().stream()
-                .filter(j -> clusterId.equalsIgnoreCase(j.getSourceClusterId())
-                        || clusterId.equalsIgnoreCase(j.getTargetClusterId()))
-                .toList();
-        long total = 0;
-        for (JobEntity j : clusterJobs) {
-            total += taskRepository.countByJobIdAndStatus(j.getId(), "QUEUED");
-        }
-        return total;
+        return taskRepository.countPendingTasksByClusterId(clusterId, "QUEUED");
     }
 
     /**
@@ -245,24 +238,24 @@ public class TaskService {
             );
         }
 
-        // Находим все задачи со статусом QUEUED
-        List<TaskEntity> queuedTasks = taskRepository.findByStatus("QUEUED");
+        // Запрашиваем ограниченную пачку кандидатов QUEUED с пагинацией для предотвращения OOM
+        int batchSize = Math.max(limit * 3, 20);
+        List<TaskEntity> queuedTasks = taskRepository.findByStatus("QUEUED", PageRequest.of(0, batchSize));
         if (queuedTasks.isEmpty()) {
             return Collections.emptyList();
         }
 
-        List<TaskItemDto> claimed = new ArrayList<>();
+        Map<String, JobEntity> cachedJobs = new HashMap<>();
+        List<TaskItemDto> claimed = new ArrayList<>(limit);
         for (TaskEntity task : queuedTasks) {
             if (claimed.size() >= limit) {
                 break;
             }
 
-            Optional<JobEntity> jobOpt = jobRepository.findById(task.getJobId());
-            if (jobOpt.isEmpty()) {
+            JobEntity job = cachedJobs.computeIfAbsent(task.getJobId(), id -> jobRepository.findById(id).orElse(null));
+            if (job == null) {
                 continue;
             }
-
-            JobEntity job = jobOpt.get();
             if (!"RUNNING".equalsIgnoreCase(job.getStatus())) {
                 continue;
             }

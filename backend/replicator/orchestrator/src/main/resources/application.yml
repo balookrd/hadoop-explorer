@@ -17,6 +17,9 @@ management:
         enabled: true
 
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: hadoop-grpc-replicator-orchestrator
   datasource:

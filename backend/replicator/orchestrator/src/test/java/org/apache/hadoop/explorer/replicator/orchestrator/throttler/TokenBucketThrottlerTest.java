@@ -43,4 +43,45 @@ class TokenBucketThrottlerTest {
         throttler.setGlobalLimit(20_000_000);
         assertEquals(20_000_000.0, throttler.getGlobalLimit());
     }
+
+    @Test
+    @DisplayName("P1: Параллельный запрос токенов из нескольких потоков без дедлоков и гонок")
+    void shouldHandleConcurrentRequestsSafely() throws InterruptedException {
+        ReplicatorProperties props = new ReplicatorProperties();
+        props.setGlobalLimitBytesPerSec(100_000_000); // 100 MB/s
+
+        TopologyRegistry topology = new TopologyRegistry(props);
+        TokenBucketThrottler throttler = new TokenBucketThrottler(props, topology);
+
+        int threadCount = 20;
+        int requestsPerThread = 50;
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(threadCount);
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(threadCount);
+        java.util.concurrent.atomic.AtomicInteger errorCount = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        for (int i = 0; i < threadCount; i++) {
+            final String src = (i % 2 == 0) ? "dc1" : "dc2";
+            final String dst = (i % 2 == 0) ? "dc2" : "dc1";
+            executor.submit(() -> {
+                try {
+                    for (int j = 0; j < requestsPerThread; j++) {
+                        double wait = throttler.requestTokens(10_000, src, dst);
+                        if (wait < 0) {
+                            errorCount.incrementAndGet();
+                        }
+                    }
+                } catch (Exception e) {
+                    errorCount.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        boolean finished = latch.await(10, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdownNow();
+
+        assertTrue(finished, "Все параллельные запросы токенов должны завершиться без зависаний");
+        assertEquals(0, errorCount.get(), "Не должно быть ошибок при конкурентном запросе токенов");
+    }
 }
