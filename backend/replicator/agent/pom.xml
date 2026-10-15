@@ -190,6 +190,13 @@
             <version>${logback.version}</version>
         </dependency>
 
+        <!-- Metrics (Micrometer Core) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>1.13.4</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

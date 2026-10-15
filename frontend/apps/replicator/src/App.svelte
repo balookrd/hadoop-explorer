@@ -1723,6 +1723,51 @@
                         {agent.heartbeat_age_seconds < 5 ? 'только что' : `${agent.heartbeat_age_seconds}с назад`}
                       </span>
                     </div>
+
+                    <!-- Enterprise телеметрия Micrometer (Сжатие, Latency, Staging) -->
+                    <div class="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/80 space-y-1">
+                      <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span class="text-slate-400">Сжатие (Wire):</span>
+                        <span class="font-mono flex items-center gap-1">
+                          <span class="px-1 py-0.2 rounded text-[10px] font-bold {agent.compression_ratio && agent.compression_ratio > 1.2 ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}">
+                            x{agent.compression_ratio ? agent.compression_ratio.toFixed(2) : '1.00'}
+                          </span>
+                          {#if (agent.compression_raw_bytes || 0) > 0}
+                            <span class="text-[10px] text-slate-400">
+                              ({formatBytes(agent.compression_compressed_bytes || 0)} / {formatBytes(agent.compression_raw_bytes || 0)})
+                            </span>
+                          {/if}
+                        </span>
+                      </div>
+                      <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span class="text-slate-400">Задержка gRPC:</span>
+                        <span class="font-mono">
+                          {#if agent.chunk_latency_avg_ms !== undefined && agent.chunk_latency_avg_ms > 0}
+                            <span class="text-sky-600 dark:text-sky-400 font-semibold">{agent.chunk_latency_avg_ms.toFixed(1)} мс</span>
+                            <span class="text-[10px] text-slate-400">(пик {agent.chunk_latency_max_ms?.toFixed(1) || '0'} мс)</span>
+                          {:else}
+                            <span class="text-slate-400">—</span>
+                          {/if}
+                        </span>
+                      </div>
+                      <div class="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span class="text-slate-400">Staging буфер:</span>
+                        <span class="font-mono">
+                          {#if (agent.staging_active_files || 0) > 0 || (agent.staging_active_bytes || 0) > 0}
+                            <span class="text-amber-600 dark:text-amber-400 font-semibold">{agent.staging_active_files || 0} файлов</span>
+                            <span class="text-[10px] text-slate-400">({formatBytes(agent.staging_active_bytes || 0)})</span>
+                          {:else}
+                            <span class="text-slate-400">0 файлов</span>
+                          {/if}
+                        </span>
+                      </div>
+                      {#if (agent.staging_orphans_cleaned || 0) > 0}
+                        <div class="flex items-center justify-between text-[10px] text-emerald-600 dark:text-emerald-400">
+                          <span>Reaper очистил сирот:</span>
+                          <span class="font-mono font-semibold">{agent.staging_orphans_cleaned} файлов</span>
+                        </div>
+                      {/if}
+                    </div>
                   </div>
                 </div>
               {/each}

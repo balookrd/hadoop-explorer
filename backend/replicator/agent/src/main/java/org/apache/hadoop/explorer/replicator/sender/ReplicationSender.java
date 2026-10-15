@@ -17,6 +17,7 @@ import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
+import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.apache.hadoop.io.IOUtils;
@@ -443,6 +444,7 @@ public class ReplicationSender {
                             buffer, 0, bytesRead, effectiveCodec, compressionLevel
                     );
                     int wireBytes = payload.bytes().length;
+                    AgentMetrics.getInstance().recordCompression(payload.appliedCodec().name(), bytesRead, wireBytes);
 
                     // Локальный шейпинг полосы WAN по фактическому объему сжатых данных
                     if (bandwidthLimiter != null) {
@@ -471,7 +473,10 @@ public class ReplicationSender {
                             .setUncompressedSize(bytesRead)
                             .build();
 
+                    long chunkSendStart = System.nanoTime();
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
+                    AgentMetrics.getInstance().recordChunkTransferLatency(System.nanoTime() - chunkSendStart);
+
                     offset += bytesRead;
                 }
 
@@ -706,6 +711,7 @@ public class ReplicationSender {
                             buffer, 0, bytesRead, effectiveCodec, compressionLevel
                     );
                     int wireBytes = payload.bytes().length;
+                    AgentMetrics.getInstance().recordCompression(payload.appliedCodec().name(), bytesRead, wireBytes);
 
                     // Локальный шейпинг полосы WAN по фактическому объему сжатых данных
                     if (bandwidthLimiter != null) {
@@ -734,7 +740,10 @@ public class ReplicationSender {
                             .setUncompressedSize(bytesRead)
                             .build();
 
+                    long chunkSendStart = System.nanoTime();
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
+                    AgentMetrics.getInstance().recordChunkTransferLatency(System.nanoTime() - chunkSendStart);
+
                     offset += bytesRead;
 
                     if (offset - lastProgressUpdate >= 1024 * 1024 || isLast) {
@@ -1085,6 +1094,7 @@ public class ReplicationSender {
                     buffer, 0, count, codec, compressionLevel
             );
             int wireBytes = payload.bytes().length;
+            AgentMetrics.getInstance().recordCompression(payload.appliedCodec().name(), count, wireBytes);
 
             if (bandwidthLimiter != null) {
                 bandwidthLimiter.throttle(wireBytes);
@@ -1111,7 +1121,10 @@ public class ReplicationSender {
                     .setUncompressedSize(count)
                     .build();
 
+            long chunkSendStart = System.nanoTime();
             requestObserver.onNext(TarStreamRequest.newBuilder().setChunk(chunk).build());
+            AgentMetrics.getInstance().recordChunkTransferLatency(System.nanoTime() - chunkSendStart);
+
             offset += count;
             count = 0;
         }

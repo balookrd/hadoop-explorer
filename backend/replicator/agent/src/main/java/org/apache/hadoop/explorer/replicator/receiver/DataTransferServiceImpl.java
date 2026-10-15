@@ -7,6 +7,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
+import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.apache.hadoop.io.IOUtils;
 import org.slf4j.Logger;
@@ -17,6 +18,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,6 +74,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             } catch (Exception e) {
                 logger.warn("Ошибка очистки осиротевших staging-файлов в {}: {}", dir, e.getMessage());
             }
+        }
+        if (totalDeleted > 0) {
+            AgentMetrics.getInstance().recordStagingOrphansCleaned(totalDeleted);
         }
         return totalDeleted;
     }
@@ -182,6 +187,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private OutputStream outputStream = null;
             private long bytesWritten = 0;
             private MessageDigest sha256Digest = null;
+            private final java.util.concurrent.atomic.AtomicBoolean stagingTracked = new java.util.concurrent.atomic.AtomicBoolean(false);
 
             {
                 try {
@@ -207,6 +213,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                 metadata.getExecutionPrincipal(),
                                 metadata.getRunAsServiceAccount()
                         );
+                        AgentMetrics.getInstance().recordStagingFileStart();
+                        stagingTracked.set(true);
                         logger.info("Начат прямой прием файла job_id={}: '{}' -> '{}' (staging: '{}')",
                                 metadata.getJobId(), metadata.getSourcePath(), metadata.getTargetPath(), stagingPath);
                     }
@@ -241,6 +249,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                 sha256Digest.update(bytes);
                             }
                             bytesWritten += bytes.length;
+                            AgentMetrics.getInstance().recordStagingBytes(bytes.length);
                         }
                     }
                 } catch (Exception e) {
@@ -288,6 +297,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         throw new IOException("Не удалось выполнить renameFile: " + stagingPath + " -> " + metadata.getTargetPath());
                     }
 
+                    if (stagingTracked.compareAndSet(true, false)) {
+                        AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
+                    }
+
                     logger.info("Файл успешно принят и закоммичен в HDFS: job_id={}, байт={}, sha256={}, path='{}'",
                             metadata.getJobId(), bytesWritten, checksum, metadata.getTargetPath());
 
@@ -316,6 +329,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             }
 
             private void cleanup() {
+                if (stagingTracked.compareAndSet(true, false)) {
+                    AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
+                }
                 if (outputStream != null) {
                     try {
                         outputStream.close();
@@ -339,6 +355,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private CompletableFuture<TarStreamResponse> unpackFuture = null;
             private long bytesReceived = 0;
             private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
+            private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
 
             @Override
             public void onNext(TarStreamRequest request) {
@@ -375,6 +392,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
                                     String stagingPath = targetPath + "._staging_" + meta.getTaskId();
                                     activeStagingPaths.add(stagingPath);
+                                    activeStagingSizes.put(stagingPath, (long) fileData.length);
+                                    AgentMetrics.getInstance().recordStagingFileStart();
+                                    AgentMetrics.getInstance().recordStagingBytes(fileData.length);
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         try {
@@ -391,6 +411,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                     meta.getRunAsServiceAccount()
                                             );
                                             activeStagingPaths.remove(stagingPath);
+                                            Long sz = activeStagingSizes.remove(stagingPath);
+                                            if (sz != null) {
+                                                AgentMetrics.getInstance().recordStagingFileComplete(sz);
+                                            }
                                             committedCount.incrementAndGet();
                                             totalBytesWritten.addAndGet(fileData.length);
                                             results.add(TarFileCommitResult.newBuilder()
@@ -405,6 +429,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                 fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                             } catch (Exception ignored) {}
                                             activeStagingPaths.remove(stagingPath);
+                                            Long sz = activeStagingSizes.remove(stagingPath);
+                                            if (sz != null) {
+                                                AgentMetrics.getInstance().recordStagingFileComplete(sz);
+                                            }
                                             results.add(TarFileCommitResult.newBuilder()
                                                     .setRelativePath(relPath)
                                                     .setTargetPath(targetPath)
@@ -539,8 +567,13 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         }
                         logger.debug("Очищен незавершенный staging-файл бандла: {}", staging);
                     } catch (Exception ignored) {}
+                    Long sz = activeStagingSizes.remove(staging);
+                    if (sz != null) {
+                        AgentMetrics.getInstance().recordStagingFileComplete(sz);
+                    }
                 }
                 activeStagingPaths.clear();
+                activeStagingSizes.clear();
             }
         };
     }

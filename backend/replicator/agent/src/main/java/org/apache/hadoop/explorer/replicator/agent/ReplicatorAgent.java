@@ -9,6 +9,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.*;
+import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
 import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.sender.ReplicationSender;
 import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
@@ -289,6 +290,18 @@ public class ReplicatorAgent {
                 hbReq.setTransferredBytes(sender != null ? sender.getTotalBytesTransferred() : 0L);
                 hbReq.setTransferErrors(sender != null ? sender.getTotalTransferErrors() : 0L);
                 hbReq.setBandwidthLimitMbS(config.getMaxBandwidthMbS());
+
+                AgentMetrics metrics = AgentMetrics.getInstance();
+                hbReq.setCompressionRawBytes(metrics.getTotalRawBytes());
+                hbReq.setCompressionCompressedBytes(metrics.getTotalCompressedBytes());
+                hbReq.setCompressionRatio(metrics.getCompressionRatio());
+                hbReq.setChunkLatencyAvgMs(metrics.getChunkLatencyAvgMs());
+                hbReq.setChunkLatencyMaxMs(metrics.getChunkLatencyMaxMs());
+                hbReq.setChunkTransferCount(metrics.getChunkTransferCount());
+                hbReq.setStagingActiveFiles(metrics.getActiveStagingFiles());
+                hbReq.setStagingActiveBytes(metrics.getActiveStagingBytes());
+                hbReq.setStagingOrphansCleaned(metrics.getTotalOrphansCleaned());
+
                 orchestratorClient.heartbeat(hbReq);
             } catch (Exception e) {
                 logger.debug("Ошибка отправки heartbeat: {}", e.getMessage());

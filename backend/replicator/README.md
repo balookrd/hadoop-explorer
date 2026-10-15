@@ -106,6 +106,11 @@
     - Обратная связь от Оркестратора (`queueSaturated` при превышении порога неразобранных задач в пуле `maxPendingTasksThreshold`, по умолчанию 5 000).
     - Прогрессивное регулирование задержки опроса `stream.poll()` агентом от 100 мс до 5 000 мс с принудительным `flush()` накопившихся событий.
 
+17. **Enterprise-мониторинг Micrometer и Prometheus**:
+    - Комплексный учет эффективности сжатия трафика: счетчики исходных (`replicator_compression_raw_bytes_total`) и сжатых сетевых байт (`replicator_compression_compressed_bytes_total`), вычисление реального коэффициента сжатия (`replicator_compression_ratio`).
+    - Высокоточный замер задержек передачи gRPC-чанков: таймер Micrometer с SLA-бакетами от 1 мс до 5 с (`replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`), средняя (`replicator_grpc_chunk_transfer_latency_avg_ms`) и пиковая задержки (`replicator_grpc_chunk_transfer_latency_max_ms`).
+    - Мониторинг очереди и буфера Staging на стороне приемника: количество активных незавершенных файлов (`replicator_staging_queue_size`, `replicator_staging_active_files`), совокупный объем в байтах (`replicator_staging_active_bytes`) и число удаленных сборщиком мусора файлов-сирот (`replicator_staging_orphans_cleaned_total`).
+
 ---
 
 ## 2. Быстрый запуск

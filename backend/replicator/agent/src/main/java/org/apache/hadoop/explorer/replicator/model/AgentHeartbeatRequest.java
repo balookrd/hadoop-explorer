@@ -38,6 +38,33 @@ public class AgentHeartbeatRequest {
     @JsonProperty("bandwidth_limit_mb_s")
     private Double bandwidthLimitMbS;
 
+    @JsonProperty("compression_raw_bytes")
+    private long compressionRawBytes = 0;
+
+    @JsonProperty("compression_compressed_bytes")
+    private long compressionCompressedBytes = 0;
+
+    @JsonProperty("compression_ratio")
+    private Double compressionRatio = 1.0;
+
+    @JsonProperty("chunk_latency_avg_ms")
+    private Double chunkLatencyAvgMs = 0.0;
+
+    @JsonProperty("chunk_latency_max_ms")
+    private Double chunkLatencyMaxMs = 0.0;
+
+    @JsonProperty("chunk_transfer_count")
+    private long chunkTransferCount = 0;
+
+    @JsonProperty("staging_active_files")
+    private int stagingActiveFiles = 0;
+
+    @JsonProperty("staging_active_bytes")
+    private long stagingActiveBytes = 0;
+
+    @JsonProperty("staging_orphans_cleaned")
+    private long stagingOrphansCleaned = 0;
+
     public AgentHeartbeatRequest() {}
 
     public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers) {
@@ -79,4 +106,31 @@ public class AgentHeartbeatRequest {
 
     public int getActiveTransfers() { return activeTransfers; }
     public void setActiveTransfers(int activeTransfers) { this.activeTransfers = activeTransfers; }
+
+    public long getCompressionRawBytes() { return compressionRawBytes; }
+    public void setCompressionRawBytes(long compressionRawBytes) { this.compressionRawBytes = compressionRawBytes; }
+
+    public long getCompressionCompressedBytes() { return compressionCompressedBytes; }
+    public void setCompressionCompressedBytes(long compressionCompressedBytes) { this.compressionCompressedBytes = compressionCompressedBytes; }
+
+    public Double getCompressionRatio() { return compressionRatio; }
+    public void setCompressionRatio(Double compressionRatio) { this.compressionRatio = compressionRatio; }
+
+    public Double getChunkLatencyAvgMs() { return chunkLatencyAvgMs; }
+    public void setChunkLatencyAvgMs(Double chunkLatencyAvgMs) { this.chunkLatencyAvgMs = chunkLatencyAvgMs; }
+
+    public Double getChunkLatencyMaxMs() { return chunkLatencyMaxMs; }
+    public void setChunkLatencyMaxMs(Double chunkLatencyMaxMs) { this.chunkLatencyMaxMs = chunkLatencyMaxMs; }
+
+    public long getChunkTransferCount() { return chunkTransferCount; }
+    public void setChunkTransferCount(long chunkTransferCount) { this.chunkTransferCount = chunkTransferCount; }
+
+    public int getStagingActiveFiles() { return stagingActiveFiles; }
+    public void setStagingActiveFiles(int stagingActiveFiles) { this.stagingActiveFiles = stagingActiveFiles; }
+
+    public long getStagingActiveBytes() { return stagingActiveBytes; }
+    public void setStagingActiveBytes(long stagingActiveBytes) { this.stagingActiveBytes = stagingActiveBytes; }
+
+    public long getStagingOrphansCleaned() { return stagingOrphansCleaned; }
+    public void setStagingOrphansCleaned(long stagingOrphansCleaned) { this.stagingOrphansCleaned = stagingOrphansCleaned; }
 }

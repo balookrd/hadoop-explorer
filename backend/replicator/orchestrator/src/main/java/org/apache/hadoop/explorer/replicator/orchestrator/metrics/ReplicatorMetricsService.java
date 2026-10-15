@@ -297,6 +297,124 @@ public class ReplicatorMetricsService {
             sb.append(String.format(Locale.US, "replicator_agent_errors_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.transferErrors()));
         }
+
+        // 7. Сжатие трафика (Wire Compression): replicator_compression_*
+        long totalRaw = 0;
+        long totalComp = 0;
+        for (var a : agents) {
+            totalRaw += a.compressionRawBytes();
+            totalComp += a.compressionCompressedBytes();
+        }
+        double globalRatio = (totalRaw > 0 && totalComp > 0) ? ((double) totalRaw / Math.max(1, totalComp)) : 1.0;
+
+        sb.append("# HELP replicator_compression_raw_bytes_total Суммарный объем исходных данных до сжатия в байтах\n");
+        sb.append("# TYPE replicator_compression_raw_bytes_total counter\n");
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_compression_raw_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.compressionRawBytes()));
+        }
+
+        sb.append("# HELP replicator_compression_compressed_bytes_total Суммарный объем сжатых данных в канале передачи в байтах\n");
+        sb.append("# TYPE replicator_compression_compressed_bytes_total counter\n");
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_compression_compressed_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.compressionCompressedBytes()));
+        }
+
+        sb.append("# HELP replicator_compression_ratio Эффективный коэффициент сжатия трафика репликации (raw_bytes / compressed_bytes)\n");
+        sb.append("# TYPE replicator_compression_ratio gauge\n");
+        sb.append(String.format(Locale.US, "replicator_compression_ratio{cluster_id=\"all\"} %.2f\n", globalRatio));
+        for (var a : agents) {
+            double ratio = a.compressionRatio() > 0 ? a.compressionRatio() : 1.0;
+            sb.append(String.format(Locale.US, "replicator_compression_ratio{agent_id=\"%s\",cluster_id=\"%s\"} %.2f\n",
+                    escape(a.agentId()), escape(a.clusterId()), ratio));
+        }
+
+        // 8. Задержка передачи gRPC чанков: replicator_grpc_chunk_transfer_latency_*
+        long totalChunks = 0;
+        double sumLatencySec = 0.0;
+        for (var a : agents) {
+            totalChunks += a.chunkTransferCount();
+            sumLatencySec += (a.chunkLatencyAvgMs() * a.chunkTransferCount()) / 1000.0;
+        }
+
+        sb.append("# HELP replicator_grpc_chunk_transfer_latency_avg_ms Средняя задержка передачи чанка данных через gRPC (мс)\n");
+        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_avg_ms gauge\n");
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_avg_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.chunkLatencyAvgMs()));
+        }
+
+        sb.append("# HELP replicator_grpc_chunk_transfer_latency_max_ms Максимальная задержка передачи чанка данных через gRPC (мс)\n");
+        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_max_ms gauge\n");
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_max_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.chunkLatencyMaxMs()));
+        }
+
+        sb.append("# HELP replicator_grpc_chunk_transfer_latency_seconds Гистограмма задержки передачи чанка данных через gRPC канал\n");
+        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_seconds histogram\n");
+        double[] slaBuckets = {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0};
+        for (double b : slaBuckets) {
+            long bucketCount = 0;
+            for (var a : agents) {
+                if (a.chunkTransferCount() > 0) {
+                    double avgSec = a.chunkLatencyAvgMs() / 1000.0;
+                    if (avgSec <= b) {
+                        bucketCount += a.chunkTransferCount();
+                    }
+                }
+            }
+            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_bucket{le=\"%s\"} %d\n",
+                    formatBucket(b), bucketCount));
+        }
+        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_bucket{le=\"+Inf\"} %d\n", totalChunks));
+        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_sum %.4f\n", sumLatencySec));
+        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_count %d\n", totalChunks));
+
+        // 9. Очередь и файлы Staging: replicator_staging_*
+        int totalStagingFiles = 0;
+        long totalStagingBytes = 0;
+        long totalOrphans = 0;
+        for (var a : agents) {
+            totalStagingFiles += a.stagingActiveFiles();
+            totalStagingBytes += a.stagingActiveBytes();
+            totalOrphans += a.stagingOrphansCleaned();
+        }
+
+        sb.append("# HELP replicator_staging_queue_size Совокупное количество активных staging-файлов в процессе репликации\n");
+        sb.append("# TYPE replicator_staging_queue_size gauge\n");
+        sb.append(String.format(Locale.US, "replicator_staging_queue_size %d\n", totalStagingFiles));
+
+        sb.append("# HELP replicator_staging_active_files Количество активных файлов в процессе staging по агентам\n");
+        sb.append("# TYPE replicator_staging_active_files gauge\n");
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_staging_active_files{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.stagingActiveFiles()));
+        }
+
+        sb.append("# HELP replicator_staging_active_bytes Текущий совокупный объем данных в staging-буфере в байтах\n");
+        sb.append("# TYPE replicator_staging_active_bytes gauge\n");
+        sb.append(String.format(Locale.US, "replicator_staging_active_bytes %d\n", totalStagingBytes));
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_staging_active_bytes{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.stagingActiveBytes()));
+        }
+
+        sb.append("# HELP replicator_staging_orphans_cleaned_total Количество удаленных осиротевших staging-файлов сборщиком мусора\n");
+        sb.append("# TYPE replicator_staging_orphans_cleaned_total counter\n");
+        sb.append(String.format(Locale.US, "replicator_staging_orphans_cleaned_total %d\n", totalOrphans));
+        for (var a : agents) {
+            sb.append(String.format(Locale.US, "replicator_staging_orphans_cleaned_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+                    escape(a.agentId()), escape(a.clusterId()), a.stagingOrphansCleaned()));
+        }
+    }
+
+    private String formatBucket(double b) {
+        if (b == (long) b) {
+            return String.format(Locale.US, "%.1f", b);
+        }
+        return String.valueOf(b);
     }
 
     private double calculateBytesByStatus(String status) {

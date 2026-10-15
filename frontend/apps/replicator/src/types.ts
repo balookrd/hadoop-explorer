@@ -143,6 +143,17 @@ export interface AgentInfo {
   heartbeat_age_seconds: number;
   version: string;
   max_bandwidth_mb_s?: number | null;
+  transferred_bytes?: number;
+  transfer_errors?: number;
+  compression_raw_bytes?: number;
+  compression_compressed_bytes?: number;
+  compression_ratio?: number;
+  chunk_latency_avg_ms?: number;
+  chunk_latency_max_ms?: number;
+  chunk_transfer_count?: number;
+  staging_active_files?: number;
+  staging_active_bytes?: number;
+  staging_orphans_cleaned?: number;
 }
 
 export interface HmsReplicationJob {

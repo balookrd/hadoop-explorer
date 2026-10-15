@@ -37,6 +37,12 @@
    - Защита от CSRF-атак на мутирующие запросы API.
    - Встроенный аудит критических операций `@Audited` и Rate Limiter (Token Bucket per IP).
 
+5. **Enterprise-мониторинг Prometheus и Micrometer (`ReplicatorMetricsService`)**:
+   - Единый гармонизированный эндпоинт `/metrics` для сбора метрик скрейпером Prometheus.
+   - Метрики эффективности сжатия на лету: `replicator_compression_raw_bytes_total`, `replicator_compression_compressed_bytes_total`, `replicator_compression_ratio`.
+   - Гистограмма задержек gRPC передачи чанков с SLA-бакетами от 1 мс до 5 с: `replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`, а также `replicator_grpc_chunk_transfer_latency_avg_ms` и `max_ms`.
+   - Мониторинг очереди и буфера Staging на целевых кластерах: `replicator_staging_queue_size`, `replicator_staging_active_files`, `replicator_staging_active_bytes`, `replicator_staging_orphans_cleaned_total`.
+
 ---
 
 ## 2. Конфигурация (`application.yml`)

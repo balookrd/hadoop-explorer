@@ -37,6 +37,15 @@ public class AgentRegistry {
         private Instant lastHeartbeat;
         private long transferredBytes;
         private long transferErrors;
+        private long compressionRawBytes = 0L;
+        private long compressionCompressedBytes = 0L;
+        private double compressionRatio = 1.0;
+        private double chunkLatencyAvgMs = 0.0;
+        private double chunkLatencyMaxMs = 0.0;
+        private long chunkTransferCount = 0L;
+        private int stagingActiveFiles = 0;
+        private long stagingActiveBytes = 0L;
+        private long stagingOrphansCleaned = 0L;
 
         public AgentEntry(String agentId, String clusterId, String host, int grpcPort, String grpcAddress, String mode, Double maxBandwidthMbS) {
             this.agentId = agentId;
@@ -51,6 +60,15 @@ public class AgentRegistry {
             this.lastHeartbeat = Instant.now();
             this.transferredBytes = 0L;
             this.transferErrors = 0L;
+            this.compressionRawBytes = 0L;
+            this.compressionCompressedBytes = 0L;
+            this.compressionRatio = 1.0;
+            this.chunkLatencyAvgMs = 0.0;
+            this.chunkLatencyMaxMs = 0.0;
+            this.chunkTransferCount = 0L;
+            this.stagingActiveFiles = 0;
+            this.stagingActiveBytes = 0L;
+            this.stagingOrphansCleaned = 0L;
         }
 
         public String getAgentId() { return agentId; }
@@ -72,6 +90,24 @@ public class AgentRegistry {
         public void setTransferredBytes(long transferredBytes) { this.transferredBytes = transferredBytes; }
         public long getTransferErrors() { return transferErrors; }
         public void setTransferErrors(long transferErrors) { this.transferErrors = transferErrors; }
+        public long getCompressionRawBytes() { return compressionRawBytes; }
+        public void setCompressionRawBytes(long compressionRawBytes) { this.compressionRawBytes = compressionRawBytes; }
+        public long getCompressionCompressedBytes() { return compressionCompressedBytes; }
+        public void setCompressionCompressedBytes(long compressionCompressedBytes) { this.compressionCompressedBytes = compressionCompressedBytes; }
+        public double getCompressionRatio() { return compressionRatio; }
+        public void setCompressionRatio(double compressionRatio) { this.compressionRatio = compressionRatio; }
+        public double getChunkLatencyAvgMs() { return chunkLatencyAvgMs; }
+        public void setChunkLatencyAvgMs(double chunkLatencyAvgMs) { this.chunkLatencyAvgMs = chunkLatencyAvgMs; }
+        public double getChunkLatencyMaxMs() { return chunkLatencyMaxMs; }
+        public void setChunkLatencyMaxMs(double chunkLatencyMaxMs) { this.chunkLatencyMaxMs = chunkLatencyMaxMs; }
+        public long getChunkTransferCount() { return chunkTransferCount; }
+        public void setChunkTransferCount(long chunkTransferCount) { this.chunkTransferCount = chunkTransferCount; }
+        public int getStagingActiveFiles() { return stagingActiveFiles; }
+        public void setStagingActiveFiles(int stagingActiveFiles) { this.stagingActiveFiles = stagingActiveFiles; }
+        public long getStagingActiveBytes() { return stagingActiveBytes; }
+        public void setStagingActiveBytes(long stagingActiveBytes) { this.stagingActiveBytes = stagingActiveBytes; }
+        public long getStagingOrphansCleaned() { return stagingOrphansCleaned; }
+        public void setStagingOrphansCleaned(long stagingOrphansCleaned) { this.stagingOrphansCleaned = stagingOrphansCleaned; }
     }
 
     private final ReplicatorProperties properties;
@@ -189,6 +225,29 @@ public class AgentRegistry {
         if (request.getBandwidthLimitMbS() != null) {
             entry.setMaxBandwidthMbS(request.getBandwidthLimitMbS());
         }
+        if (request.getCompressionRawBytes() > 0) {
+            entry.setCompressionRawBytes(request.getCompressionRawBytes());
+        }
+        if (request.getCompressionCompressedBytes() > 0) {
+            entry.setCompressionCompressedBytes(request.getCompressionCompressedBytes());
+        }
+        if (request.getCompressionRatio() != null && request.getCompressionRatio() > 0) {
+            entry.setCompressionRatio(request.getCompressionRatio());
+        }
+        if (request.getChunkLatencyAvgMs() != null) {
+            entry.setChunkLatencyAvgMs(request.getChunkLatencyAvgMs());
+        }
+        if (request.getChunkLatencyMaxMs() != null) {
+            entry.setChunkLatencyMaxMs(request.getChunkLatencyMaxMs());
+        }
+        if (request.getChunkTransferCount() > 0) {
+            entry.setChunkTransferCount(request.getChunkTransferCount());
+        }
+        entry.setStagingActiveFiles(request.getStagingActiveFiles());
+        entry.setStagingActiveBytes(request.getStagingActiveBytes());
+        if (request.getStagingOrphansCleaned() > 0) {
+            entry.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
+        }
         return true;
     }
 
@@ -230,7 +289,16 @@ public class AgentRegistry {
                 ageSec,
                 a.getLastHeartbeat().toString(),
                 a.getTransferredBytes(),
-                a.getTransferErrors()
+                a.getTransferErrors(),
+                a.getCompressionRawBytes(),
+                a.getCompressionCompressedBytes(),
+                a.getCompressionRatio(),
+                a.getChunkLatencyAvgMs(),
+                a.getChunkLatencyMaxMs(),
+                a.getChunkTransferCount(),
+                a.getStagingActiveFiles(),
+                a.getStagingActiveBytes(),
+                a.getStagingOrphansCleaned()
             ));
         }
         return list;

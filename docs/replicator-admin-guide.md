@@ -1537,6 +1537,22 @@ spec:
 - `replicator_agent_heartbeat_age_seconds{agent_id="...", cluster_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента.
 - `replicator_agent_max_bandwidth_mb_s{agent_id="...", cluster_id="..."}` — выделенный локальный лимит полосы пропускания HTB агента в МБ/с.
 
+#### Метрики сжатия трафика на лету (Wire Compression)
+- `replicator_compression_raw_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем исходных несжатых данных в байтах.
+- `replicator_compression_compressed_bytes_total{agent_id="...", cluster_id="..."}` — объем фактически переданных по сети сжатых данных (Zstd/LZ4) в байтах.
+- `replicator_compression_ratio{cluster_id="all|..."}` — эффективный коэффициент сжатия сетевого потока (`raw_bytes / compressed_bytes`).
+
+#### Метрики задержек передачи gRPC-чанков (Transfer Latency)
+- `replicator_grpc_chunk_transfer_latency_avg_ms{agent_id="...", cluster_id="..."}` — средняя задержка передачи чанка данных через gRPC-канал (мс).
+- `replicator_grpc_chunk_transfer_latency_max_ms{agent_id="...", cluster_id="..."}` — максимальная зарегистрированная задержка передачи чанка (мс).
+- `replicator_grpc_chunk_transfer_latency_seconds_bucket{le="..."}` — гистограмма времени передачи чанков со стандартными SLA-бакетами (от `0.001` до `5.0` с) и счетчиками `_sum`, `_count`.
+
+#### Метрики буфера Staging на приемнике (Staging Queue & Memory)
+- `replicator_staging_queue_size` — общее количество активных файлов в процессе промежуточной сборки на целевых кластерах.
+- `replicator_staging_active_files{agent_id="...", cluster_id="..."}` — количество файлов в staging-буфере по каждому агенту.
+- `replicator_staging_active_bytes{agent_id="...", cluster_id="..."}` — совокупный текущий объем данных в staging-буфере в байтах.
+- `replicator_staging_orphans_cleaned_total{agent_id="...", cluster_id="..."}` — количество осиротевших staging-файлов, удаленных сборщиком мусора (HDFS Reaper).
+
 ### 5.2 Дашборды Grafana
 
 Для системы репликации подготовлены три специализированных дашборда Grafana с автопровиженингом:
@@ -1544,6 +1560,7 @@ spec:
 #### 1. Сводный обзор платформы репликации (`hadoop_replicator_overview.json`)
 Файл: [`monitoring/grafana/dashboards/hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
 - 🚀 **KPI репликации и статус флота**: мгновенная скорость передачи (Throughput Bps), суммарный объем данных, активные воркеры, задержка шейпера, активные задачи HDFS и задачи по расписанию, онлайн агенты, ошибки передачи, пофайловые задачи в очереди/работе, активные HMS-задачи и Fencing-статус кластера.
+- 📦 **Enterprise-оптимизация (Wire Compression, Latency & Staging Buffer)**: эффективный коэффициент сжатия WAN, экономия полосы за счет сжатия, распределение исходного и сжатого трафика (Raw vs Compressed Bps), средняя и максимальная задержка передачи gRPC-чанков во времени, размер очереди staging, объем буфера на приемниках и частота очистки осиротевших файлов HDFS Reaper.
 - 🌊 **Сетевой поток и пропускная способность**: динамика сетевой скорости WAN (MB/s) и кумулятивный объем переданных данных во времени.
 - ⚖️ **Иерархический шейпинг Token Bucket**: задержки воркеров из-за исчерпания квот полосы на уровнях WAN, ЦОД и HDFS.
 - 📋 **Жизненный цикл задач и планировщик**: круговые диаграммы статусов заданий (Job Statuses), режимов запуска (Manual vs Scheduled Cron), распределения пофайловых задач (File Tasks) и статусов HMS-репликации.
@@ -1552,6 +1569,9 @@ spec:
 #### 2. Флот агентов и воркеры передачи данных (`hadoop_replicator_agents.json`)
 Файл: [`monitoring/grafana/dashboards/hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
 - 👥 **Состояние флота воркеров**: общее число агентов онлайн/офлайн, суммарная активность потоков, общий объем байт и ошибок по всем агентам.
+- 📦 **Сжатие трафика и сетевая эффективность по агентам (Wire Compression)**: коэффициенты компрессии по агентам и раздельные графики исходного и сжатого сетевого трафика.
+- ⏱️ **Задержки передачи gRPC-чанков по агентам (Chunk Transfer Latency & SLA)**: метрики текущей средней и пиковой задержки передачи чанка (мс) и их динамика во времени.
+- 🗄️ **Состояние Staging-буфера на приемниках (Staging Buffer & Cleanup)**: число активных файлов staging, суммарный объем буфера (Bytes) по агентам-приемникам и удаление осиротевших файлов сборщиком мусора Reaper.
 - ⚡ **Активность параллельных передач по агентам**: временной график загрузки воркеров параллельной передачи данных (`replicator_agent_active_transfers`).
 - 🌊 **Скорость передачи и накопленный объем**: динамика скорости передачи (Bps) и кумулятивный график байт по каждому агенту (`replicator_agent_transferred_bytes_total`).
 - 🩺 **Задержки Heartbeat и ошибки передачи**: мониторинг возраста последнего keepalive (`replicator_agent_heartbeat_age_seconds`) с порогом 30с и динамика ошибок передачи файлов (`rate(replicator_agent_errors_total)`).
