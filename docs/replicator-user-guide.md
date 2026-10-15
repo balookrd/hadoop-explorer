@@ -46,6 +46,7 @@
    - [История запусков задачи и статистика](#85-история-запусков-задачи-и-статистика-job-runs-history--retention)
    - [Репликация Hive Metastore (Раздел «HMS Replication»)](#86-репликация-hive-metastore-раздел-hms-replication)
    - [Консоль аварийного переключения (Раздел «Disaster Recovery & Failover»)](replicator-user-guide.md#87-консоль-аварийного-переключения-disaster-recovery--failover-hub)
+   - [Репликация Kafka (Раздел «Kafka Replicator»)](#88-репликация-kafka-раздел-kafka-replicator)
 9. [Мониторинг и метрики Prometheus](#9-мониторинг-и-метрики-prometheus)
 10. [Диагностика и устранение неполадок (Troubleshooting & FAQ)](#10-диагностика-и-устранение-неполадок-troubleshooting--faq)
 
@@ -669,6 +670,37 @@ topology:
      - Вместо скрытия управления у исходной задачи активируется янтарная кнопка **«Отозвать ↩»**, а у сгенерированного зеркала — кнопка **«Удалить зеркало ✕»**;
      - Нажатие **«Отозвать ↩»** удаляет созданную зеркальную задачу, снимает блокировку прямого маршрута и возвращает кнопку «Развернуть ⇄» в исходное состояние;
      - При ошибках передачи (например, временной недоступности NameNode `dc1`) статус `FAILED` сопровождается подробной диагностической подсказкой с реальным текстом ошибки агента.
+
+### 8.8. Репликация Kafka (Раздел «Kafka Replicator»)
+
+Раздел **Kafka Replicator** предназначен для высокопроизводительной межцодовой синхронизации очередей Apache Kafka через защищенный единый gRPC WAN-канал с контролем полосы пропускания (Hierarchical Token Bucket).
+
+1. **Двунаправленная репликация (Active-Active) с одинаковыми именами топиков**:
+   - Поддерживается одновременная запись в топик с одним и тем же именем в обоих дата-центрах (например, `orders-v1`).
+   - Исключение бесконечных циклов («эхо») обеспечивается встроенным фильтром `LoopPreventionFilter` с отслеживанием заголовков `X-Repl-Origin` и `X-Repl-Hop`.
+2. **Синхронизация смещений Consumer Groups**:
+   - Смещения непрерывно сопоставляются по временным меткам сообщений (`offsetsForTimes`).
+   - Реализован защитный гейт: коммит смещений блокируется, если консьюмер-группа активна в целевом ДЦ (`state == STABLE`), исключая перезапись актуального прогресса.
+3. **Кросс-регистрация и трансляция Schema Registry**:
+   - Автоматическая синхронизация схем при отсутствии инфраструктурного связывания реестров.
+   - Поддерживается Zero-Copy Wire Transcoding:
+     - **Confluent $\longleftrightarrow$ Confluent**: in-place подмена 4-байтного Schema ID при несовпадении локальных реестров;
+     - **Hortonworks $\longleftrightarrow$ Confluent**: преобразование заголовка 9 байт $\longleftrightarrow$ 5 байт без десериализации Avro payload;
+     - **Hortonworks $\longleftrightarrow$ Hortonworks**: in-place подмена 8-байтного Version ID.
+4. **Поддержка гетерогенных топиков (Passthrough / Auto-detect)**:
+   - Топики без Schema Registry (чистый JSON, Plain Text, Protobuf без реестра, Raw bytes) передаются напрямую (1-в-1 байты) без обращения к реестрам схем.
+   - Корректная обработка Tombstone (`null payload`) для `compact`-топиков.
+5. **Изолированный демон `kafka-replicator-agent`**:
+   - Запускается как отдельный процесс или контейнер, изолируя streaming-нагрузку Kafka от пакетной репликации HDFS.
+6. **Поддержка керберизованной Kafka (Kerberos SASL GSSAPI)**:
+   - Встроенная аутентификация через `SASL_PLAINTEXT` и `SASL_SSL` с автоматическим обновлением билетов Kerberos по keytab.
+   - Изолированный JAAS-контекст через свойство `sasl.jaas.config` на базе `com.sun.security.auth.module.Krb5LoginModule` без зависимости от глобального файла `jaas.conf`.
+   - Поддержка кастомных Principal (`kafka-replicator@REALM`) и Kerberos Service Name (`kafka`).
+7. **Поддержка керберизованного Schema Registry (Kerberos SPNEGO / HTTP Negotiate)**:
+   - Защищенное взаимодействие REST-клиентов со Schema Registry (Confluent и Hortonworks / Cloudera) по стандарту RFC 4559 Negotiate.
+   - Динамическая генерация GSS-API тикетов для Service Principal вида `HTTP/<registry-host>@REALM` с автоматическим обновлением сессии по keytab.
+   - Превентивная подстановка заголовка `Authorization: Negotiate <token>` и обработка 401 challenge с повторной генерацией билета при ротации.
+   - Управление SPNEGO через веб-интерфейс создания задач и параметры CLI демона (`--sr-kerberos-enabled`, `--sr-service-name`).
 
 ---
 

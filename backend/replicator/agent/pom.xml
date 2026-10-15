@@ -29,9 +29,17 @@
         <mockito.version>5.13.0</mockito.version>
         <zstd-jni.version>1.5.6-4</zstd-jni.version>
         <lz4-java.version>1.8.0</lz4-java.version>
+        <kafka.version>3.7.1</kafka.version>
     </properties>
 
     <dependencies>
+        <!-- Apache Kafka Client -->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <version>${kafka.version}</version>
+        </dependency>
+
         <!-- gRPC & Protobuf -->
         <dependency>
             <groupId>io.grpc</groupId>

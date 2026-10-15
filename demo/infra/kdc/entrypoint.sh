@@ -20,6 +20,7 @@ cat <<EOF > /etc/krb5.conf
     default_tkt_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
     default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
     permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
+    default_ccache_name = FILE:/tmp/krb5cc_%{uid}
 
 [realms]
     ${REALM} = {
@@ -56,6 +57,10 @@ cat <<EOF > /etc/krb5.conf
     hive-metastore-1 = ${REALM}
     hive-metastore-2 = ${REALM}
     trino-coordinator = ${REALM}
+    kafka-cluster-1 = ${REALM}
+    kafka-cluster-2 = ${REALM}
+    schema-registry-1 = ${REALM}
+    schema-registry-2 = ${REALM}
 EOF
 
 # Копируем krb5.conf в shared директории
@@ -159,7 +164,19 @@ add_principal "yarn/localhost@${REALM}" ""
 add_principal "yarn-explorer@${REALM}" "password123"
 add_principal "yarn@${REALM}" "password123"
 
-# 5. Пользователи
+# 5. Kafka & Schema Registry принципалы
+add_principal "kafka/kafka-cluster-1@${REALM}" ""
+add_principal "kafka/kafka-cluster-1.demo-platform-net@${REALM}" ""
+add_principal "kafka/localhost@${REALM}" ""
+add_principal "kafka/kafka-cluster-2@${REALM}" ""
+add_principal "kafka/kafka-cluster-2.demo-platform-net@${REALM}" ""
+add_principal "HTTP/schema-registry-1@${REALM}" ""
+add_principal "HTTP/schema-registry-1.demo-platform-net@${REALM}" ""
+add_principal "HTTP/schema-registry-2@${REALM}" ""
+add_principal "HTTP/schema-registry-2.demo-platform-net@${REALM}" ""
+add_principal "kafka-replicator@${REALM}" "password123"
+
+# 6. Пользователи
 add_principal "admin@${REALM}" "password123"
 add_principal "admin_user@${REALM}" "password123"
 add_principal "engineer@${REALM}" "password123"
@@ -180,6 +197,13 @@ add_to_keytab() {
         kadmin.local -q "ktadd -norandkey -k $keytab $princ" 2>/dev/null || true
     done
 }
+
+# Kafka & Schema Registry
+add_to_keytab "$KEYTAB_DIR/kafka-cluster-1.keytab" kafka/kafka-cluster-1@${REALM} kafka/kafka-cluster-1.demo-platform-net@${REALM} kafka/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/kafka-cluster-2.keytab" kafka/kafka-cluster-2@${REALM} kafka/kafka-cluster-2.demo-platform-net@${REALM} kafka/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/schema-registry-1.keytab" HTTP/schema-registry-1@${REALM} HTTP/schema-registry-1.demo-platform-net@${REALM} HTTP/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/schema-registry-2.keytab" HTTP/schema-registry-2@${REALM} HTTP/schema-registry-2.demo-platform-net@${REALM} HTTP/localhost@${REALM}
+add_to_keytab "$KEYTAB_DIR/kafka-replicator.keytab" kafka-replicator@${REALM}
 
 # HDFS Explorer & Clusters
 add_to_keytab "$KEYTAB_DIR/hdfs-explorer.keytab" hdfs-explorer/hdfs-explorer@${REALM} hdfs-explorer@${REALM} HTTP/hdfs-explorer@${REALM} HTTP/localhost@${REALM}

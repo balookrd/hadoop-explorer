@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package replicator.kafka;
+
+option java_multiple_files = true;
+option java_package = "org.apache.hadoop.explorer.replicator.kafka.generated";
+option java_outer_classname = "KafkaReplicatorProto";
+
+// Сервис передачи потоковых данных и синхронизации Kafka между дата-центрами
+service KafkaDataTransferService {
+  // Двунаправленный потоковый RPC для стриминга батчей записей Kafka с обратным подтверждением (Ack)
+  rpc StreamBatches (stream KafkaBatchRequest) returns (stream KafkaBatchAck);
+
+  // Синхронизация смещений консьюмер-групп (Consumer Group Offsets)
+  rpc SyncConsumerOffsets (OffsetSyncRequest) returns (OffsetSyncResponse);
+
+  // Синхронизация и предрегистрация схемы между независимыми Schema Registry
+  rpc SyncSchemaMetadata (SchemaSyncRequest) returns (SchemaSyncResponse);
+
+  // Пульс проверки связи и замера сетевой задержки (RTT / Latency)
+  rpc Heartbeat (KafkaPing) returns (KafkaPong);
+}
+
+// Формат полезной нагрузки топика
+enum PayloadFormat {
+  PAYLOAD_PASSTHROUGH = 0;   // Прямой проброс байт без Schema Registry (JSON, Raw, String)
+  PAYLOAD_AUTO_DETECT = 1;   // Автоматическое определение по сигнатуре (Magic Byte Sniffing)
+  PAYLOAD_CONFLUENT_AVRO = 2; // Avro с заголовком Confluent (Magic 0x00 + 4 байта ID)
+  PAYLOAD_HWX_AVRO = 3;       // Avro с заголовком Hortonworks (Protocol 0x02/0x03 + 8 байт ID)
+}
+
+// Заголовок сообщения Kafka (Header key-value)
+message KafkaRecordHeader {
+  string key = 1;
+  bytes value = 2;
+}
+
+// Единичная запись Kafka
+message KafkaRecord {
+  int32 partition = 1;
+  int64 original_offset = 2;
+  int64 timestamp = 3;
+  bytes key = 4;
+  optional bytes payload = 5;          // null для Tombstone-записей удаления
+  bool is_tombstone = 6;              // Явный флаг Tombstone
+  repeated KafkaRecordHeader headers = 7;
+  int64 schema_id = 8;                // Извлеченный или транслированный Schema ID (если есть)
+}
+
+// Пакет записей для репликации через gRPC
+message KafkaBatchRequest {
+  string batch_id = 1;
+  string source_dc = 2;
+  string target_dc = 3;
+  string topic = 4;
+  PayloadFormat payload_format = 5;
+  repeated KafkaRecord records = 6;
+  int64 send_timestamp_ms = 7;
+  uint32 crc32 = 8;
+}
+
+// Подтверждение получения и коммита пакета в целевом кластере
+message KafkaBatchAck {
+  string batch_id = 1;
+  string topic = 2;
+  bool success = 3;
+  int32 committed_records = 4;
+  int64 max_target_offset = 5;
+  string error_message = 6;
+  int64 receive_timestamp_ms = 7;
+}
+
+// Смещение конкретной партиции топика
+message TopicPartitionOffset {
+  string topic = 1;
+  int32 partition = 2;
+  int64 source_offset = 3;
+  int64 timestamp = 4;
+  int64 target_offset = 5;
+}
+
+// Запрос на синхронизацию оффсетов консьюмер-группы
+message OffsetSyncRequest {
+  string group_id = 1;
+  string source_dc = 2;
+  string target_dc = 3;
+  repeated TopicPartitionOffset offsets = 4;
+  bool force_commit = 5; // Принудительный коммит (например, при аварийном переключении Failover)
+}
+
+// Ответ синхронизации оффсетов
+message OffsetSyncResponse {
+  string group_id = 1;
+  bool success = 2;
+  bool bypassed_active_group = 3; // True, если коммит пропущен из-за активных консьюмеров в целевом ДЦ
+  repeated TopicPartitionOffset applied_offsets = 4;
+  string error_message = 5;
+}
+
+// Запрос на синхронизацию схемы
+message SchemaSyncRequest {
+  string subject = 1;
+  string schema_type = 2;              // AVRO, PROTOBUF, JSON
+  string schema_text = 3;              // Полный JSON/текст схемы
+  int64 source_schema_id = 4;
+  string source_registry_type = 5;     // CONFLUENT или HORTONWORKS
+  string target_registry_type = 6;     // CONFLUENT или HORTONWORKS
+}
+
+// Ответ регистрации схемы
+message SchemaSyncResponse {
+  string subject = 1;
+  bool success = 2;
+  int64 target_schema_id = 3;
+  string error_message = 4;
+}
+
+// Пульс проверки связи
+message KafkaPing {
+  string sender_id = 1;
+  int64 timestamp_ms = 2;
+}
+
+// Ответ на пульс
+message KafkaPong {
+  string receiver_id = 1;
+  int64 ping_timestamp_ms = 2;
+  int64 pong_timestamp_ms = 3;
+}

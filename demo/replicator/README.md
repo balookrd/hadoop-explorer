@@ -99,6 +99,26 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smoke-test
 ```
 
+### ⚡ Запуск E2E Smoke-тестов Kafka Replicator (Kerberos SASL & SPNEGO SR):
+```bash
+# 1. Запуск керберизованных кластеров Kafka и Schema Registry (DC1 и DC2)
+docker compose -f demo/infra/docker-compose.infra.yml up -d kdc
+docker compose -f demo/replicator/docker-compose.kafka.yml up -d
+
+# 2. Выполнение полного E2E Smoke-теста Data Plane & Control Plane:
+./demo/replicator/run-kafka-smoke-tests.sh
+```
+
+Smoke-тест Kafka проверяет:
+1. **Kerberos SASL GSSAPI**: аутентификация клиентов и межброкерного взаимодействия через KDC (`COMPANY.LOCAL`).
+2. **Schema Registry SPNEGO Negotiate**: HTTP-авторизация в Hortonworks и Confluent реестрах схем по билетам Kerberos.
+3. **Zero-Copy Wire Transcoding**: горячее преобразование 9-байтового HWX-заголовка в 5-байтовый Confluent-заголовок без десериализации Avro payload.
+4. **Passthrough для Raw JSON/Text**: прямой байтовый проброс сообщений без схемы.
+5. **Поддержка Tombstone (`null payload`)**: корректное удаление ключей в compact-топиках.
+6. **Защита от циклов (Loop Prevention)**: фильтрация дубликатов по заголовку `X-Repl-Origin`.
+7. **Защитный гейт синхронизации смещений**: блокировка перезаписи оффсетов для активных Consumer Groups в целевом ДЦ.
+
+
 ---
 
 ## 🗺️ Топология стенда

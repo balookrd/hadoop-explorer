@@ -44,6 +44,7 @@
   } from 'lucide-svelte';
   import HmsReplicationView from './components/HmsReplicationView.svelte';
   import DisasterRecoveryView from './components/DisasterRecoveryView.svelte';
+  import KafkaReplicationView from './components/KafkaReplicationView.svelte';
 
   // Состояние аутентификации
   let authLoading = $state(true);
@@ -51,24 +52,24 @@
   let authErrorMessage = $state<string | null>(null);
   let isLoginModalOpen = $state(false);
 
-  function getInitialTab(): 'hms' | 'jobs' | 'topology' | 'dr' {
+  function getInitialTab(): 'hms' | 'jobs' | 'topology' | 'dr' | 'kafka' {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'hms' || hash === 'jobs' || hash === 'topology' || hash === 'dr') {
+      if (hash === 'hms' || hash === 'jobs' || hash === 'topology' || hash === 'dr' || hash === 'kafka') {
         return hash;
       }
       const saved = localStorage.getItem('replicator_active_tab');
-      if (saved === 'hms' || saved === 'jobs' || saved === 'topology' || saved === 'dr') {
-        return saved as 'hms' | 'jobs' | 'topology' | 'dr';
+      if (saved === 'hms' || saved === 'jobs' || saved === 'topology' || saved === 'dr' || saved === 'kafka') {
+        return saved as 'hms' | 'jobs' | 'topology' | 'dr' | 'kafka';
       }
     }
     return 'hms';
   }
 
   // Табы приложения с сохранением состояния при перезагрузке
-  let activeTab = $state<'hms' | 'jobs' | 'topology' | 'dr'>(getInitialTab());
+  let activeTab = $state<'hms' | 'jobs' | 'topology' | 'dr' | 'kafka'>(getInitialTab());
 
-  function setActiveTab(tab: 'hms' | 'jobs' | 'topology' | 'dr') {
+  function setActiveTab(tab: 'hms' | 'jobs' | 'topology' | 'dr' | 'kafka') {
     activeTab = tab;
     if (typeof window !== 'undefined') {
       localStorage.setItem('replicator_active_tab', tab);
@@ -786,6 +787,13 @@
       class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer {activeTab === 'topology' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
     >
       Топология ЦОД и Полоса
+    </button>
+    <button
+      onclick={() => setActiveTab('kafka')}
+      class="px-2.5 sm:px-3 py-1 rounded text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5 {activeTab === 'kafka' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}"
+    >
+      <span class="w-1.5 h-1.5 rounded-full {activeTab === 'kafka' ? 'bg-white' : 'bg-emerald-500'}"></span>
+      Kafka Replicator
     </button>
     <button
       onclick={() => setActiveTab('dr')}
@@ -1780,6 +1788,12 @@
     {:else if activeTab === 'dr'}
       <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
         <DisasterRecoveryView {user} />
+      </main>
+
+    <!-- КОНТЕНТ ВКЛАДКИ 5: KAFKA REPLICATION -->
+    {:else if activeTab === 'kafka'}
+      <main class="flex-1 w-full px-4 sm:px-6 py-5 space-y-6 pb-20">
+        <KafkaReplicationView />
       </main>
     {/if}
   </div>

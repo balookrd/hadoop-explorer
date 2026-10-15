@@ -1,0 +1,194 @@
+name: hadoop-replicator-kafka-demo
+
+services:
+  # ==============================================================================
+  # 1. Primary Kafka Broker (DC1) - Керберизованный KRaft брокер (SASL_PLAINTEXT GSSAPI)
+  # ==============================================================================
+  kafka-cluster-1:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-cluster-1
+    hostname: kafka-cluster-1
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-cluster-1:9091"
+      KAFKA_LISTENERS: "SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9091,EXTERNAL_SASL://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "SASL_PLAINTEXT://kafka-cluster-1.demo-platform-net:9092,EXTERNAL_SASL://localhost:9093"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "SASL_PLAINTEXT:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL_SASL:SASL_PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "SASL_PLAINTEXT"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: GSSAPI
+      KAFKA_SASL_ENABLED_MECHANISMS: GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OPTS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/kafka/kafka_jaas.conf"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      KRB5CCNAME: "FILE:/tmp/krb5cc_1000"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - ./kafka-dc1-jaas.conf:/etc/kafka/kafka_jaas.conf:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - kafka-cluster-1
+          - kafka-cluster-1.demo-platform-net
+
+  # ==============================================================================
+  # 2. DR Kafka Broker (DC2) - Керберизованный KRaft брокер (SASL_PLAINTEXT GSSAPI)
+  # ==============================================================================
+  kafka-cluster-2:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-cluster-2
+    hostname: kafka-cluster-2
+    restart: unless-stopped
+    ports:
+      - "9095:9095"
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "2@kafka-cluster-2:9091"
+      KAFKA_LISTENERS: "SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9091,EXTERNAL_SASL://0.0.0.0:9095"
+      KAFKA_ADVERTISED_LISTENERS: "SASL_PLAINTEXT://kafka-cluster-2.demo-platform-net:9092,EXTERNAL_SASL://localhost:9095"
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "SASL_PLAINTEXT:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL_SASL:SASL_PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "SASL_PLAINTEXT"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: GSSAPI
+      KAFKA_SASL_ENABLED_MECHANISMS: GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      CLUSTER_ID: "RkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OPTS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/kafka/kafka_jaas.conf"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      KRB5CCNAME: "FILE:/tmp/krb5cc_1000"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - ./kafka-dc2-jaas.conf:/etc/kafka/kafka_jaas.conf:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - kafka-cluster-2
+          - kafka-cluster-2.demo-platform-net
+
+  # ==============================================================================
+  # 3. Schema Registry 1 (DC1 - Hortonworks Wire Protocol Emulation / SPNEGO)
+  # ==============================================================================
+  schema-registry-1:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: schema-registry-1
+    hostname: schema-registry-1
+    restart: unless-stopped
+    depends_on:
+      - kafka-cluster-1
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry-1
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: SASL_PLAINTEXT://kafka-cluster-1.demo-platform-net:9092
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SASL_PLAINTEXT
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: GSSAPI
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_KERBEROS_SERVICE_NAME: kafka
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/schema-registry/sr_jaas.conf"
+      SCHEMA_REGISTRY_OPTS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/schema-registry/sr_jaas.conf"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      KRB5CCNAME: "FILE:/tmp/krb5cc_1000"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - ./sr-dc1-jaas.conf:/etc/schema-registry/sr_jaas.conf:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - schema-registry-1
+          - schema-registry-1.demo-platform-net
+
+  # ==============================================================================
+  # 4. Schema Registry 2 (DC2 - Confluent Wire Protocol / SPNEGO)
+  # ==============================================================================
+  schema-registry-2:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: schema-registry-2
+    hostname: schema-registry-2
+    restart: unless-stopped
+    depends_on:
+      - kafka-cluster-2
+    ports:
+      - "8082:8082"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry-2
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: SASL_PLAINTEXT://kafka-cluster-2.demo-platform-net:9092
+
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SASL_PLAINTEXT
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: GSSAPI
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_KERBEROS_SERVICE_NAME: kafka
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8082
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/schema-registry/sr_jaas.conf"
+      SCHEMA_REGISTRY_OPTS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Djava.security.auth.login.config=/etc/schema-registry/sr_jaas.conf"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      KRB5CCNAME: "FILE:/tmp/krb5cc_1000"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - ./sr-dc2-jaas.conf:/etc/schema-registry/sr_jaas.conf:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - schema-registry-2
+          - schema-registry-2.demo-platform-net
+
+  # ==============================================================================
+  # 5. Replicator Orchestrator (Control Plane & REST API)
+  # ==============================================================================
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-orchestrator
+    container_name: replicator-orchestrator
+    hostname: orchestrator
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600"
+      HADOOP_REPLICATOR_AGENT_SECRET: ""
+      SPRING_DATASOURCE_URL: "jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL"
+      SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.H2Dialect"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+      REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "true"
+      HADOOP_STREAMING_ENABLED: "false"
+      HADOOP_REPLICATOR_STREAMING_ENABLED: "false"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    depends_on:
+      - kafka-cluster-1
+      - kafka-cluster-2
+    networks:
+      demo-platform-net:
+        aliases:
+          - orchestrator
+
+volumes:
+  demo-shared-keytabs:
+    external: true
+  demo-shared-krb5:
+    external: true
+
+networks:
+  demo-platform-net:
+    external: true
