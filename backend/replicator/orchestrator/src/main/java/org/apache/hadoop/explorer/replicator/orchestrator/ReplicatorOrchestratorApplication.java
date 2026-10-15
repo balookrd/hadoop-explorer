@@ -30,6 +30,7 @@ public class ReplicatorOrchestratorApplication {
     public SecurityFilterChain replicatorSecurityFilterChain(
         HttpSecurity http,
         CommonAuthFilter authFilter,
+        org.apache.hadoop.explorer.replicator.orchestrator.security.AgentSecretAuthenticationFilter agentSecretFilter,
         CommonSecurityErrorHandlers errorHandlers,
         CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
@@ -64,22 +65,12 @@ public class ReplicatorOrchestratorApplication {
                     "/actuator/**",
                     "/error",
                     "/api/v1/auth/**",
-                    "/api/v1/agents/**",
-                    "/api/v1/workers/**",
-                    "/api/v1/tokens/request",
-                    "/api/v1/jobs/**",
-                    "/jobs/**",
-                    "/api/v1/tasks/**",
-                    "/tasks/**",
-                    "/api/v1/hms/**",
-                    "/api/v1/streaming/**",
-                    "/api/v1/topology/**",
-                    "/topology/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )
+            .addFilterBefore(agentSecretFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

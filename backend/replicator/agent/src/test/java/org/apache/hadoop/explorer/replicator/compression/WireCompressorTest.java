@@ -136,4 +136,19 @@ class WireCompressorTest {
         assertEquals(CompressionCodec.COMPRESSION_NONE, WireCompressor.parseCodec("off"));
         assertEquals(CompressionCodec.COMPRESSION_ZSTD, WireCompressor.parseCodec(null));
     }
+
+    @Test
+    @DisplayName("Decompression Bomb: отклонение чанков, превышающих MAX_UNCOMPRESSED_CHUNK_SIZE (64MB)")
+    void testDecompressionBombProtection() {
+        byte[] dummyCompressed = new byte[]{1, 2, 3, 4};
+        int oversized = 65 * 1024 * 1024; // 65 MB
+
+        assertThrows(SecurityException.class, () -> {
+            WireCompressor.decompress(dummyCompressed, CompressionCodec.COMPRESSION_ZSTD, oversized);
+        });
+
+        assertThrows(SecurityException.class, () -> {
+            WireCompressor.decompress(dummyCompressed, CompressionCodec.COMPRESSION_LZ4, oversized);
+        });
+    }
 }

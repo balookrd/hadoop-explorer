@@ -68,19 +68,24 @@ public class HmsReplicationController {
             Authentication auth
     ) {
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация для создания задачи HMS репликации"
+            );
+        }
+        if (session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.FORBIDDEN, "Пользователь с правами только для чтения (READER) не имеет права создавать задачи"
+            );
+        }
+
+        String username = session.username();
         String executionPrincipal;
 
-        if (session != null) {
-            if (session.isAdmin() && req.execution_principal() != null && !req.execution_principal().isBlank()) {
-                executionPrincipal = req.execution_principal().trim();
-            } else {
-                executionPrincipal = session.username();
-            }
+        if (session.isAdmin() && req.execution_principal() != null && !req.execution_principal().isBlank()) {
+            executionPrincipal = req.execution_principal().trim();
         } else {
-            executionPrincipal = (req.execution_principal() != null && !req.execution_principal().isBlank())
-                    ? req.execution_principal().trim()
-                    : username;
+            executionPrincipal = session.username();
         }
 
         if (executionPrincipal != null && !executionPrincipal.contains("@")) {

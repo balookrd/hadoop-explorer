@@ -160,9 +160,21 @@ public class InotifyBatchProcessor implements AutoCloseable {
      */
     private boolean offerTask(String jobId, TaskCreateItem item, long txid, long lag) {
         if (currentQueueSize.get() >= maxQueueCapacity) {
-            log.warn("[Inotify Queue Overflow] Внутренняя очередь переполнена ({}/{}). Задача для '{}' отклонена.",
-                    currentQueueSize.get(), maxQueueCapacity, item.getSourcePath());
             updateSaturationState();
+            log.warn("[Inotify Queue Overflow] Внутренняя очередь насыщена ({}/{}). Ожидание слота для '{}'...",
+                    currentQueueSize.get(), maxQueueCapacity, item.getSourcePath());
+            try {
+                boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag), 500, TimeUnit.MILLISECONDS);
+                if (offered) {
+                    currentQueueSize.incrementAndGet();
+                    updateSaturationState();
+                    return true;
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            log.error("[Inotify Drop Warning] Очередь переполнена ({}), задача для '{}' отклонена после ожидания",
+                    maxQueueCapacity, item.getSourcePath());
             return false;
         }
 
@@ -286,27 +298,55 @@ public class InotifyBatchProcessor implements AutoCloseable {
                     .toList();
 
             // Отправка порциями до maxBatchSize
+            boolean allChunksOk = true;
+            List<QueuedInotifyTask> failedTasks = new ArrayList<>();
             for (int i = 0; i < items.size(); i += maxBatchSize) {
                 int end = Math.min(i + maxBatchSize, items.size());
                 List<TaskCreateItem> chunk = items.subList(i, end);
+                boolean chunkOk = false;
                 try {
                     boolean ok = orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, chunk));
                     if (ok) {
                         totalFlushed += chunk.size();
+                        chunkOk = true;
                     } else {
                         log.warn("[Inotify Flush] Оркестратор вернул ошибку при создании пачки из {} задач для job '{}'", chunk.size(), jobId);
                     }
                 } catch (Exception e) {
                     log.error("[Inotify Flush Error] Сбой отправки пакета задач в оркестратор: {}", e.getMessage(), e);
                 }
+
+                if (!chunkOk) {
+                    allChunksOk = false;
+                    for (int j = i; j < end; j++) {
+                        TaskCreateItem it = items.get(j);
+                        QueuedInotifyTask originalTask = dedupMap.get(it.getSourcePath());
+                        if (originalTask != null) {
+                            failedTasks.add(originalTask);
+                        }
+                    }
+                }
             }
 
-            if (maxTxid > 0) {
+            // Возврат неотправленных задач обратно в очередь для предотвращения потери данных
+            if (!failedTasks.isEmpty()) {
+                log.warn("[Inotify Reliability] Возврат {} неотправленных задач обратно в очередь буфера для повтора", failedTasks.size());
+                for (QueuedInotifyTask failed : failedTasks) {
+                    taskQueue.offer(failed);
+                    currentQueueSize.incrementAndGet();
+                }
+                updateSaturationState();
+            }
+
+            // Продвигаем txid только если ВСЕ пачки задач успешно сохранены в оркестраторе
+            if (maxTxid > 0 && allChunksOk) {
                 try {
                     orchestratorClient.updateJobStreamingTxid(jobId, maxTxid, lastLag);
                 } catch (Exception e) {
                     log.debug("[Inotify Flush] Ошибка обновления txid для задачи {}: {}", jobId, e.getMessage());
                 }
+            } else if (!allChunksOk) {
+                log.warn("[Inotify Consistency] Смещение txid для job '{}' задержано до успешной повторной отправки пачки задач", jobId);
             }
         }
 

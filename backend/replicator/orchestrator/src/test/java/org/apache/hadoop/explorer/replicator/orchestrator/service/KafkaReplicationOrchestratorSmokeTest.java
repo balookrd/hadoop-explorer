@@ -5,12 +5,17 @@ import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequ
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository;
+import org.apache.hadoop.explorer.common.model.Role;
+import org.apache.hadoop.explorer.common.model.UserSession;
+import org.apache.hadoop.explorer.common.security.CommonAuthenticationToken;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +45,15 @@ public class KafkaReplicationOrchestratorSmokeTest {
 
     @Autowired
     private KafkaReplicationJobRepository repository;
+
+    @BeforeEach
+    void setUpSecurity() {
+        UserSession adminSession = new UserSession(
+                "kafka_admin", "Kafka Admin", "admin@kafka.local",
+                List.of("kafka-admins"), "TEST", true, Role.ADMIN
+        );
+        SecurityContextHolder.getContext().setAuthentication(new CommonAuthenticationToken(adminSession));
+    }
 
     @Test
     @DisplayName("Smoke Test: Создание и управление жизненным циклом задачи Kafka-репликации с Kerberos/SPNEGO")

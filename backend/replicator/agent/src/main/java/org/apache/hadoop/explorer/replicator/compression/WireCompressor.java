@@ -165,6 +165,8 @@ public class WireCompressor {
         return new CompressedPayload(raw, CompressionCodec.COMPRESSION_NONE, length);
     }
 
+    public static final int MAX_UNCOMPRESSED_CHUNK_SIZE = 64 * 1024 * 1024; // 64 МБ
+
     /**
      * Распаковывает полученный чанк данных.
      *
@@ -179,6 +181,12 @@ public class WireCompressor {
         }
         if (uncompressedSize <= 0) {
             return compressedData;
+        }
+
+        // Защита от Decompression Bomb (CWE-400): предотвращение выделения гигантских объемов Heap памяти
+        if (uncompressedSize > MAX_UNCOMPRESSED_CHUNK_SIZE) {
+            throw new SecurityException("Decompression Bomb защита: распакованный размер (" + uncompressedSize
+                    + " байт) превышает максимально допустимый предел чанка (" + MAX_UNCOMPRESSED_CHUNK_SIZE + " байт)");
         }
 
         try {

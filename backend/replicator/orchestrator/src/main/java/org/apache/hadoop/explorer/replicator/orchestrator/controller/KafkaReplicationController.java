@@ -7,18 +7,41 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.apache.hadoop.explorer.common.model.Role;
+import org.apache.hadoop.explorer.common.model.UserSession;
+import org.apache.hadoop.explorer.common.security.CommonAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.server.ResponseStatusException;
+
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/replicator/kafka")
-@CrossOrigin(origins = "*")
 public class KafkaReplicationController {
 
     private final KafkaReplicationOrchestratorService service;
 
     public KafkaReplicationController(KafkaReplicationOrchestratorService service) {
         this.service = service;
+    }
+
+    private UserSession getSession() {
+        Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth instanceof CommonAuthenticationToken tokenAuth) {
+            return tokenAuth.getUserSession();
+        }
+        return null;
+    }
+
+    private void requireWriterOrAdmin() {
+        UserSession session = getSession();
+        if (session == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Требуется аутентификация");
+        }
+        if (session.systemRole() == Role.READER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Пользователь с ролью READER не имеет права модифицировать задачи Kafka");
+        }
     }
 
     @GetMapping("/jobs")
@@ -35,12 +58,14 @@ public class KafkaReplicationController {
 
     @PostMapping("/jobs")
     public ResponseEntity<KafkaReplicationJobDto> createJob(@RequestBody CreateKafkaJobRequest request) {
+        requireWriterOrAdmin();
         KafkaReplicationJobDto created = service.createJob(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PostMapping("/jobs/{id}/pause")
     public ResponseEntity<Map<String, Object>> pauseJob(@PathVariable String id) {
+        requireWriterOrAdmin();
         boolean ok = service.pauseJob(id);
         if (!ok) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(Map.of("id", id, "status", "PAUSED"));
@@ -48,6 +73,7 @@ public class KafkaReplicationController {
 
     @PostMapping("/jobs/{id}/resume")
     public ResponseEntity<Map<String, Object>> resumeJob(@PathVariable String id) {
+        requireWriterOrAdmin();
         boolean ok = service.resumeJob(id);
         if (!ok) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(Map.of("id", id, "status", "ACTIVE"));
@@ -55,6 +81,7 @@ public class KafkaReplicationController {
 
     @DeleteMapping("/jobs/{id}")
     public ResponseEntity<Void> deleteJob(@PathVariable String id) {
+        requireWriterOrAdmin();
         boolean ok = service.deleteJob(id);
         if (!ok) return ResponseEntity.notFound().build();
         return ResponseEntity.noContent().build();
@@ -62,6 +89,7 @@ public class KafkaReplicationController {
 
     @PostMapping("/jobs/{id}/failover")
     public ResponseEntity<Map<String, Object>> triggerFailover(@PathVariable String id) {
+        requireWriterOrAdmin();
         boolean ok = service.triggerFailover(id);
         if (!ok) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(Map.of("id", id, "action", "FAILOVER_TRIGGERED", "status", "SUCCESS"));
@@ -69,6 +97,7 @@ public class KafkaReplicationController {
 
     @PostMapping("/jobs/{id}/provision-topics")
     public ResponseEntity<org.apache.hadoop.explorer.replicator.orchestrator.kafka.TopicProvisioningResult> provisionTopics(@PathVariable String id) {
+        requireWriterOrAdmin();
         var result = service.provisionTopicsForJob(id);
         return ResponseEntity.ok(result);
     }

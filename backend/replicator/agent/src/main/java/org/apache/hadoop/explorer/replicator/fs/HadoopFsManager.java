@@ -23,6 +23,7 @@ import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -174,10 +175,33 @@ public class HadoopFsManager {
         return UserGroupInformation.createProxyUser(impersonateUser, baseUgi);
     }
 
+    private static final Set<String> FORBIDDEN_OS_PREFIXES = Set.of(
+            "/etc", "/proc", "/sys", "/dev", "/root", "/var/run", "/boot"
+    );
+
+    /**
+     * Валидация безопасности пути для предотвращения Path Traversal и доступа к системным файлам ОС.
+     */
+    public static void validatePathSafety(String pathStr) {
+        if (pathStr == null || pathStr.isBlank()) {
+            throw new IllegalArgumentException("Путь не может быть пустым");
+        }
+        String normalized = pathStr.replace('\\', '/').trim();
+        if (normalized.contains("..")) {
+            throw new SecurityException("Попытка Path Traversal ('..') в пути: " + pathStr);
+        }
+        for (String forbidden : FORBIDDEN_OS_PREFIXES) {
+            if (normalized.equalsIgnoreCase(forbidden) || normalized.toLowerCase().startsWith(forbidden + "/")) {
+                throw new SecurityException("Доступ к системным путям ОС запрещен политикой безопасности: " + pathStr);
+            }
+        }
+    }
+
     /**
      * Открывает InputStream для чтения файла с учетом Kerberos контекста и doAs имперсонации.
      */
     public InputStream openInputStream(String pathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        validatePathSafety(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             if (!file.exists()) {
@@ -195,10 +219,6 @@ public class HadoopFsManager {
                 Path path = new Path(pathStr);
                 FileSystem fs = path.getFileSystem(conf);
                 if (!fs.exists(path)) {
-                    File fallback = new File(pathStr);
-                    if (fallback.exists()) {
-                        return new FileInputStream(fallback);
-                    }
                     throw new FileNotFoundException("Файл не найден в HDFS: " + pathStr);
                 }
                 return fs.open(path);
@@ -220,11 +240,13 @@ public class HadoopFsManager {
      * Получает размер файла в байтах.
      */
     public long getFileSize(String pathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        validatePathSafety(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             if (file.exists()) {
                 return file.length();
             }
+            return 0L;
         }
 
         try {
@@ -235,15 +257,9 @@ public class HadoopFsManager {
                 if (fs.exists(path)) {
                     return fs.getFileStatus(path).getLen();
                 }
-                File fallback = new File(pathStr);
-                if (fallback.exists()) {
-                    return fallback.length();
-                }
                 return 0L;
             });
         } catch (Exception e) {
-            File fallback = new File(pathStr);
-            if (fallback.exists()) return fallback.length();
             return 0L;
         }
     }
@@ -256,6 +272,7 @@ public class HadoopFsManager {
      * Проверяет существование файла или каталога с учетом Kerberos UGI.
      */
     public boolean exists(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        validatePathSafety(pathStr);
         if (isLocalPath(pathStr)) {
             return new File(pathStr).exists();
         }
@@ -264,10 +281,10 @@ public class HadoopFsManager {
             return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
                 Path path = new Path(pathStr);
                 FileSystem fs = path.getFileSystem(conf);
-                return fs.exists(path) || new File(pathStr).exists();
+                return fs.exists(path);
             });
         } catch (Exception e) {
-            return new File(pathStr).exists();
+            return false;
         }
     }
 
@@ -281,10 +298,8 @@ public class HadoopFsManager {
     public record FileItem(String relativePath, String fullPath, long size, long modificationTime) {
     }
 
-    /**
-     * Проверяет, является ли путь директорией.
-     */
     public boolean isDirectory(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        validatePathSafety(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             return file.exists() && file.isDirectory();
@@ -298,12 +313,10 @@ public class HadoopFsManager {
                 if (fs.exists(path)) {
                     return fs.getFileStatus(path).isDirectory();
                 }
-                File fallback = new File(pathStr);
-                return fallback.exists() && fallback.isDirectory();
+                return false;
             });
         } catch (Exception e) {
-            File fallback = new File(pathStr);
-            return fallback.exists() && fallback.isDirectory();
+            return false;
         }
     }
 
@@ -315,6 +328,7 @@ public class HadoopFsManager {
      * Получает время последней модификации файла в миллисекундах.
      */
     public long getFileModificationTime(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
+        validatePathSafety(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             return file.exists() ? file.lastModified() : 0L;
@@ -328,12 +342,10 @@ public class HadoopFsManager {
                 if (fs.exists(path)) {
                     return fs.getFileStatus(path).getModificationTime();
                 }
-                File fallback = new File(pathStr);
-                return fallback.exists() ? fallback.lastModified() : 0L;
+                return 0L;
             });
         } catch (Exception e) {
-            File fallback = new File(pathStr);
-            return fallback.exists() ? fallback.lastModified() : 0L;
+            return 0L;
         }
     }
 
@@ -341,6 +353,7 @@ public class HadoopFsManager {
      * Рекурсивно собирает все регулярные файлы внутри директории (или одиночный файл, если путь указывает на файл).
      */
     public List<FileItem> listFilesRecursively(String basePathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        validatePathSafety(basePathStr);
         if (isLocalPath(basePathStr)) {
             return listLocalFilesRecursively(basePathStr);
         }
@@ -353,10 +366,6 @@ public class HadoopFsManager {
                 FileSystem fs = basePath.getFileSystem(conf);
 
                 if (!fs.exists(basePath)) {
-                    File fallback = new File(basePathStr);
-                    if (fallback.exists()) {
-                        return listLocalFilesRecursively(basePathStr);
-                    }
                     return items;
                 }
 
@@ -388,10 +397,6 @@ public class HadoopFsManager {
             Thread.currentThread().interrupt();
             throw new IOException("Прервано рекурсивное сканирование HDFS каталога: " + e.getMessage(), e);
         } catch (Exception e) {
-            File fallback = new File(basePathStr);
-            if (fallback.exists()) {
-                return listLocalFilesRecursively(basePathStr);
-            }
             if (e instanceof IOException ioException) throw ioException;
             throw new IOException("Ошибка обхода каталога HDFS " + basePathStr + ": " + e.getMessage(), e);
         }

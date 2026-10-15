@@ -357,7 +357,12 @@ public class AgentRegistry {
     public void verifySecret(String secretHeader) {
         String expected = properties.getAgentSecret();
         if (expected == null || expected.isBlank()) return;
-        if (secretHeader == null || !expected.equals(secretHeader.trim())) {
+        if (secretHeader == null) {
+            throw new SecurityException("Отсутствует X-Agent-Secret токен агента");
+        }
+        byte[] expectedBytes = expected.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] actualBytes = secretHeader.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (!java.security.MessageDigest.isEqual(expectedBytes, actualBytes)) {
             throw new SecurityException("Неверный X-Agent-Secret токен агента");
         }
     }

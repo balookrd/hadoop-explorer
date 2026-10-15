@@ -36,7 +36,9 @@ public class JobController {
     private void checkJobAccess(String jobId, Authentication auth) {
         UserSession session = getSession(auth);
         if (session == null) {
-            return; // Системный вызов / фоновый агент
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
+            );
         }
         if (session.isAdmin()) {
             return; // Администратор может управлять любыми задачами
@@ -65,47 +67,46 @@ public class JobController {
     @PostMapping
     public ResponseEntity<JobResponse> createJob(@Valid @RequestBody CreateJobRequest req, Authentication auth) {
         UserSession session = getSession(auth);
-        if (session != null && !session.isAdmin() && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация для создания задачи репликации"
+            );
+        }
+        if (session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с правами только для чтения (READER) не имеет права создавать задачи"
             );
         }
 
-        String username = session != null ? session.username() : "writer_user";
-        String executionPrincipal = req.executionPrincipal();
+        String username = session.username();
+        String executionPrincipal;
 
-        if (session != null) {
-            if (session.isAdmin()) {
-                if (executionPrincipal != null && !executionPrincipal.isBlank()) {
-                    executionPrincipal = executionPrincipal.trim();
-                } else {
-                    executionPrincipal = session.username();
-                }
+        if (session.isAdmin()) {
+            if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
+                executionPrincipal = req.executionPrincipal().trim();
             } else {
                 executionPrincipal = session.username();
             }
-            if (executionPrincipal != null && !executionPrincipal.contains("@")) {
-                executionPrincipal = executionPrincipal + "@REALM.LOCAL";
-            }
-            req = new CreateJobRequest(
-                req.sourcePath(),
-                req.targetPath(),
-                req.sourceClusterId(),
-                req.targetClusterId(),
-                req.totalBytes(),
-                executionPrincipal,
-                req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false,
-                req.isScheduled(),
-                req.cronExpression(),
-                req.historyRetentionRuns(),
-                req.jobType(),
-                req.parentJobId()
-            );
-        } else if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
-            String p = req.executionPrincipal().trim();
-            int at = p.indexOf('@');
-            username = (at > 0) ? p.substring(0, at) : p;
+        } else {
+            executionPrincipal = session.username();
         }
+        if (executionPrincipal != null && !executionPrincipal.contains("@")) {
+            executionPrincipal = executionPrincipal + "@REALM.LOCAL";
+        }
+        req = new CreateJobRequest(
+            req.sourcePath(),
+            req.targetPath(),
+            req.sourceClusterId(),
+            req.targetClusterId(),
+            req.totalBytes(),
+            executionPrincipal,
+            session.isAdmin() && req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false,
+            req.isScheduled(),
+            req.cronExpression(),
+            req.historyRetentionRuns(),
+            req.jobType(),
+            req.parentJobId()
+        );
 
         JobResponse created = jobService.createJob(req, username);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -120,7 +121,7 @@ public class JobController {
     ) {
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : null;
-        boolean isAdmin = session == null || session.isAdmin();
+        boolean isAdmin = session != null && session.isAdmin();
         boolean isReader = session != null && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER;
         boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
         return ResponseEntity.ok(jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs));
