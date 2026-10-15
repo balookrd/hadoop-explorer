@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Установка базовых утилит
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    krb5-user \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -14,6 +15,7 @@ RUN mkdir -p /tmp/staging /tmp/data /app/data
 # Копирование собранного Shaded Fat JAR Java Replicator Agent
 COPY backend/replicator/agent/target/replicator-agent-1.0.0-all.jar /app/replicator-agent.jar
 
-EXPOSE 50051
+EXPOSE 50051 50052 50053
+
 
 ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent.jar"]

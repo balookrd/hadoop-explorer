@@ -183,7 +183,104 @@ services:
         aliases:
           - orchestrator
 
+  # ==============================================================================
+  # 6. Kafka Replicator Agent (DC1 Worker Daemon)
+  # ==============================================================================
+  kafka-agent-dc1:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: kafka-replicator-agent-dc1
+    hostname: kafka-agent-dc1
+    restart: unless-stopped
+    depends_on:
+      - kafka-cluster-1
+    ports:
+      - "50052:50052"
+    environment:
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+    command:
+      - "--port"
+      - "50052"
+      - "--dc-id"
+      - "DC1"
+      - "--bootstrap-servers"
+      - "kafka-cluster-1.demo-platform-net:9092"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+      - "--sr-kerberos-enabled"
+      - "--sr-service-name"
+      - "HTTP"
+    networks:
+      demo-platform-net:
+        aliases:
+          - kafka-agent-dc1
+          - kafka-agent-dc1.demo-platform-net
+
+  # ==============================================================================
+  # 7. Kafka Replicator Agent (DC2 Worker Daemon)
+  # ==============================================================================
+  kafka-agent-dc2:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.replicator-agent
+    container_name: kafka-replicator-agent-dc2
+    hostname: kafka-agent-dc2
+    restart: unless-stopped
+    depends_on:
+      - kafka-cluster-2
+    ports:
+      - "50053:50053"
+    environment:
+      KRB5_CONFIG: "/shared/conf/krb5.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
+    volumes:
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/shared/conf:ro
+    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+    command:
+      - "--port"
+      - "50053"
+      - "--dc-id"
+      - "DC2"
+      - "--bootstrap-servers"
+      - "kafka-cluster-2.demo-platform-net:9092"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+      - "--sr-kerberos-enabled"
+      - "--sr-service-name"
+      - "HTTP"
+    networks:
+      demo-platform-net:
+        aliases:
+          - kafka-agent-dc2
+          - kafka-agent-dc2.demo-platform-net
+
 volumes:
+
   demo-shared-keytabs:
     external: true
   demo-shared-krb5:
