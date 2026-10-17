@@ -108,6 +108,8 @@ public class KafkaReplicationOrchestratorSmokeTest {
         assertEquals("HORTONWORKS", createdJob.getSourceSrType());
         assertEquals("CONFLUENT", createdJob.getTargetSrType());
         assertEquals(2, createdJob.getTopics().size());
+        assertEquals(8, createdJob.getConsumerThreads());
+        assertEquals(2000, createdJob.getBatchSize());
         assertTrue(createdJob.isAutoCreateTopics(), "auto_create_topics по умолчанию true");
         assertNotNull(createdJob.getSourceBootstrapServers());
         assertNotNull(createdJob.getTargetBootstrapServers());
@@ -124,6 +126,8 @@ public class KafkaReplicationOrchestratorSmokeTest {
         assertTrue(entity.isAutoCreateTopics(), "JPA колонка auto_create_topics должна быть true");
         assertEquals("HORTONWORKS", entity.getSourceSrType());
         assertEquals("CONFLUENT", entity.getTargetSrType());
+        assertEquals(8, entity.getConsumerThreads());
+        assertEquals(2000, entity.getBatchSize());
         assertTrue(entity.getTopicsJson().contains("orders-avro"));
 
         // 3.1. Проверка вызова REST эндпоинта предварительной проверки топиков

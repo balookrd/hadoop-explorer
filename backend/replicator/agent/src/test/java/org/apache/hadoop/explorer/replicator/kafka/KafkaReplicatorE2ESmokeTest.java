@@ -185,6 +185,15 @@ class KafkaReplicatorE2ESmokeTest {
                 new RecordMetadata(new TopicPartition("target-topic", 0), 0, 0, System.currentTimeMillis(), 0, 0)
         );
         when(mockKafkaProducer.send(any(ProducerRecord.class))).thenReturn(successFuture);
+        when(mockKafkaProducer.send(any(ProducerRecord.class), any(org.apache.kafka.clients.producer.Callback.class)))
+                .thenAnswer(invocation -> {
+                    org.apache.kafka.clients.producer.Callback cb = invocation.getArgument(1);
+                    RecordMetadata rm = new RecordMetadata(new TopicPartition("target-topic", 0), 0, 0, System.currentTimeMillis(), 0, 0);
+                    if (cb != null) {
+                        cb.onCompletion(rm, null);
+                    }
+                    return CompletableFuture.completedFuture(rm);
+                });
 
         mockAdminClient = mock(AdminClient.class);
         mockResolverConsumer = mock(KafkaConsumer.class);
@@ -335,7 +344,7 @@ class KafkaReplicatorE2ESmokeTest {
 
         // Проверяем, что в целевой брокер записались все 3 сообщения, включая Tombstone
         ArgumentCaptor<ProducerRecord<byte[], byte[]>> recordCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
-        verify(mockKafkaProducer, atLeast(3)).send(recordCaptor.capture());
+        verify(mockKafkaProducer, atLeast(3)).send(recordCaptor.capture(), any());
 
         List<ProducerRecord<byte[], byte[]>> capturedRecords = recordCaptor.getAllValues();
         assertTrue(capturedRecords.stream().anyMatch(r -> r.value() == null), "Tombstone должен записаться как null value");

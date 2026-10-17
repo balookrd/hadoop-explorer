@@ -12,15 +12,17 @@ import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Future;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Высокопроизводительный продюсер для атомарной фиксации батчей реплицированных записей в локальной Kafka.
+ * Высокопроизводительный продюсер для асинхронной и неблокирующей фиксации батчей
+ * реплицированных записей в локальной Kafka с минимальной задержкой.
  */
 public class KafkaBatchProducer {
 
@@ -33,81 +35,130 @@ public class KafkaBatchProducer {
     }
 
     /**
-     * Записывает батч KafkaRecord в локальный кластер с сохранением номеров партиций,
-     * ключей, временных меток и Tombstone-маркеров.
+     * Асинхронно записывает батч KafkaRecord в локальный кластер с сохранением номеров партиций,
+     * ключей, временных меток и Tombstone-маркеров без блокировки вызывающего потока.
      *
      * @param batch входящий пакет записей из gRPC
-     * @return подтверждение фиксации пакета (Ack)
+     * @return CompletableFuture с подтверждением фиксации пакета (Ack)
      */
-    public KafkaBatchAck writeBatch(KafkaBatchRequest batch) {
+    public CompletableFuture<KafkaBatchAck> writeBatchAsync(KafkaBatchRequest batch) {
         String topic = batch.getTopic();
         List<KafkaRecord> records = batch.getRecordsList();
         long receiveTime = System.currentTimeMillis();
 
         if (records.isEmpty()) {
-            return KafkaBatchAck.newBuilder()
-                    .setBatchId(batch.getBatchId())
-                    .setTopic(topic)
-                    .setSuccess(true)
-                    .setCommittedRecords(0)
-                    .setReceiveTimestampMs(receiveTime)
-                    .build();
+            return CompletableFuture.completedFuture(
+                    KafkaBatchAck.newBuilder()
+                            .setBatchId(batch.getBatchId())
+                            .setTopic(topic)
+                            .setSuccess(true)
+                            .setCommittedRecords(0)
+                            .setReceiveTimestampMs(receiveTime)
+                            .build()
+            );
         }
 
-        try {
-            List<Future<RecordMetadata>> futures = new ArrayList<>(records.size());
-            long maxOffset = -1;
+        CompletableFuture<KafkaBatchAck> resultFuture = new CompletableFuture<>();
+        int totalRecords = records.size();
+        AtomicInteger remainingCount = new AtomicInteger(totalRecords);
+        AtomicInteger committedCount = new AtomicInteger(0);
+        AtomicLong maxOffset = new AtomicLong(-1);
+        AtomicReference<Throwable> firstError = new AtomicReference<>(null);
 
-            for (KafkaRecord r : records) {
-                byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
-                byte[] val = r.getIsTombstone() || !r.hasPayload() ? null : r.getPayload().toByteArray();
-                Integer partition = r.getPartition() >= 0 ? r.getPartition() : null;
-                Long timestamp = r.getTimestamp() > 0 ? r.getTimestamp() : null;
+        for (KafkaRecord r : records) {
+            byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
+            byte[] val = r.getIsTombstone() || !r.hasPayload() ? null : r.getPayload().toByteArray();
+            Integer partition = r.getPartition() >= 0 ? r.getPartition() : null;
+            Long timestamp = r.getTimestamp() > 0 ? r.getTimestamp() : null;
 
-                ProducerRecord<byte[], byte[]> prodRecord = new ProducerRecord<>(
-                        topic,
-                        partition,
-                        timestamp,
-                        key,
-                        val
-                );
+            ProducerRecord<byte[], byte[]> prodRecord = new ProducerRecord<>(
+                    topic,
+                    partition,
+                    timestamp,
+                    key,
+                    val
+            );
 
-                // Добавляем заголовки
-                for (KafkaRecordHeader h : r.getHeadersList()) {
-                    prodRecord.headers().add(new RecordHeader(
-                            h.getKey(),
-                            h.getValue().toByteArray()
-                    ));
-                }
-
-                futures.add(producer.send(prodRecord));
+            // Добавляем заголовки
+            for (KafkaRecordHeader h : r.getHeadersList()) {
+                prodRecord.headers().add(new RecordHeader(
+                        h.getKey(),
+                        h.getValue().toByteArray()
+                ));
             }
 
-            // Дожидаемся фиксации всех сообщений батча в брокере
-            for (Future<RecordMetadata> f : futures) {
-                RecordMetadata rm = f.get(10, TimeUnit.SECONDS);
-                if (rm.offset() > maxOffset) {
-                    maxOffset = rm.offset();
+            try {
+                producer.send(prodRecord, (rm, ex) -> {
+                    if (ex != null) {
+                        firstError.compareAndSet(null, ex);
+                        log.error("Ошибка при отправке записи в топик {}: {}", topic, ex.getMessage());
+                    } else if (rm != null) {
+                        committedCount.incrementAndGet();
+                        maxOffset.accumulateAndGet(rm.offset(), Math::max);
+                    }
+
+                    if (remainingCount.decrementAndGet() == 0) {
+                        finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
+                    }
+                });
+            } catch (Exception e) {
+                firstError.compareAndSet(null, e);
+                log.error("Синхронное исключение producer.send() для топика {}: {}", topic, e.getMessage());
+                if (remainingCount.decrementAndGet() == 0) {
+                    finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
                 }
             }
+        }
 
-            return KafkaBatchAck.newBuilder()
-                    .setBatchId(batch.getBatchId())
-                    .setTopic(topic)
-                    .setSuccess(true)
-                    .setCommittedRecords(records.size())
-                    .setMaxTargetOffset(maxOffset)
-                    .setReceiveTimestampMs(receiveTime)
-                    .build();
+        return resultFuture;
+    }
 
-        } catch (Exception e) {
-            log.error("Ошибка фиксации пакета {} в топике {}: {}", batch.getBatchId(), topic, e.getMessage(), e);
-            return KafkaBatchAck.newBuilder()
+    private void finishAck(CompletableFuture<KafkaBatchAck> resultFuture,
+                           KafkaBatchRequest batch,
+                           String topic,
+                           long receiveTime,
+                           int committed,
+                           long maxOffset,
+                           Throwable error) {
+        if (error != null) {
+            resultFuture.complete(KafkaBatchAck.newBuilder()
                     .setBatchId(batch.getBatchId())
                     .setTopic(topic)
                     .setSuccess(false)
-                    .setErrorMessage(e.getMessage())
+                    .setCommittedRecords(committed)
+                    .setMaxTargetOffset(maxOffset)
+                    .setErrorMessage(error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName())
                     .setReceiveTimestampMs(receiveTime)
+                    .build());
+        } else {
+            resultFuture.complete(KafkaBatchAck.newBuilder()
+                    .setBatchId(batch.getBatchId())
+                    .setTopic(topic)
+                    .setSuccess(true)
+                    .setCommittedRecords(committed)
+                    .setMaxTargetOffset(maxOffset)
+                    .setReceiveTimestampMs(receiveTime)
+                    .build());
+        }
+    }
+
+    /**
+     * Синхронная фиксация батча (обертка для обратной совместимости).
+     *
+     * @param batch входящий пакет записей из gRPC
+     * @return подтверждение фиксации пакета (Ack)
+     */
+    public KafkaBatchAck writeBatch(KafkaBatchRequest batch) {
+        try {
+            return writeBatchAsync(batch).get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("Таймаут или сбой ожидания фиксации пакета {} в топике {}: {}", batch.getBatchId(), batch.getTopic(), e.getMessage());
+            return KafkaBatchAck.newBuilder()
+                    .setBatchId(batch.getBatchId())
+                    .setTopic(batch.getTopic())
+                    .setSuccess(false)
+                    .setErrorMessage(e.getMessage())
+                    .setReceiveTimestampMs(System.currentTimeMillis())
                     .build();
         }
     }

@@ -58,6 +58,8 @@ public class KafkaReplicationOrchestratorService {
         entity.setDirection(request.getDirection() != null ? request.getDirection() : "BIDIRECTIONAL");
         entity.setBandwidthLimitMb(request.getBandwidthLimitMb());
         entity.setOffsetSyncIntervalSec(request.getOffsetSyncIntervalSec());
+        entity.setConsumerThreads(request.getConsumerThreads() != null ? request.getConsumerThreads() : 8);
+        entity.setBatchSize(request.getBatchSize() != null ? request.getBatchSize() : 2000);
         entity.setSchemaTranscodingEnabled(request.isSchemaTranscodingEnabled());
         entity.setSourceSrType(request.getSourceSrType());
         entity.setTargetSrType(request.getTargetSrType());
@@ -194,6 +196,8 @@ public class KafkaReplicationOrchestratorService {
         dto.setDirection(entity.getDirection());
         dto.setBandwidthLimitMb(entity.getBandwidthLimitMb());
         dto.setOffsetSyncIntervalSec(entity.getOffsetSyncIntervalSec());
+        dto.setConsumerThreads(entity.getConsumerThreads());
+        dto.setBatchSize(entity.getBatchSize());
         dto.setSchemaTranscodingEnabled(entity.isSchemaTranscodingEnabled());
         dto.setSourceSrType(entity.getSourceSrType());
         dto.setTargetSrType(entity.getTargetSrType());

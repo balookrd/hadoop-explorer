@@ -44,6 +44,8 @@
     targetSrKerberosEnabled?: boolean;
     bandwidthLimitMb: number;
     offsetSyncIntervalSec: number;
+    consumerThreads?: number;
+    batchSize?: number;
     sourceKerberosEnabled?: boolean;
     sourcePrincipal?: string;
     sourceKeytabPath?: string;
@@ -152,9 +154,11 @@
   let targetPrincipal = $state('kafka-replicator@COMPANY.LOCAL');
   let targetKeytabPath = $state('/etc/security/keytabs/kafka-replicator.keytab');
 
-  // QoS
+  // QoS и параллелизм
   let bandwidthLimitMb = $state(50);
   let offsetSyncIntervalSec = $state(5);
+  let consumerThreads = $state(8);
+  let batchSize = $state(2000);
 
   // Проверка Regex
   function matchesPattern(name: string, includePattern: string, excludePattern: string): boolean {
@@ -489,7 +493,9 @@
       targetPrincipal,
       targetKeytabPath,
       bandwidthLimitMb,
-      offsetSyncIntervalSec
+      offsetSyncIntervalSec,
+      consumerThreads,
+      batchSize
     };
 
     try {
@@ -670,6 +676,10 @@
                 <span class="font-medium text-slate-700 dark:text-slate-300">{job.targetDc}</span>
                 <span>•</span>
                 <span>Полоса WAN: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.bandwidthLimitMb} МБ/с</strong></span>
+                <span>•</span>
+                <span>Потоков: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.consumerThreads ?? 8}</strong></span>
+                <span>•</span>
+                <span>Батч: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.batchSize ?? 2000}</strong></span>
                 <span>•</span>
                 <span>Сквозной лаг: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">{job.currentLagMs} мс</strong></span>
                 <span>•</span>
@@ -1405,26 +1415,47 @@
             {/if}
           </div>
 
-          <!-- 8. ЛИМИТЫ WAN И ИНТЕРВАЛ СИНХРОНИЗАЦИИ -->
-          <div class="grid grid-cols-2 gap-3">
+          <!-- 8. ЛИМИТЫ WAN, ИНТЕРВАЛ СИНХРОНИЗАЦИИ И ПАРАЛЛЕЛИЗМ -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Лимит полосы WAN (МБ/с):</label>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Полоса WAN (МБ/с):</label>
               <input
                 type="number"
                 bind:value={bandwidthLimitMb}
                 min="1"
-                max="1000"
+                max="5000"
                 class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
               />
             </div>
             <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Интервал трансляции смещений (сек):</label>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Смещение (сек):</label>
               <input
                 type="number"
                 bind:value={offsetSyncIntervalSec}
                 min="1"
                 max="60"
                 class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+              />
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Потоки вычитки (Consumer):</label>
+              <input
+                type="number"
+                bind:value={consumerThreads}
+                min="1"
+                max="64"
+                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-sky-600 dark:text-sky-400"
+              />
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Размер батча (сообщений):</label>
+              <input
+                type="number"
+                bind:value={batchSize}
+                min="100"
+                max="10000"
+                step="500"
+                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
               />
             </div>
           </div>

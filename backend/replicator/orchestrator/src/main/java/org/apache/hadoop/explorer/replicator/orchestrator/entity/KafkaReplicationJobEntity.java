@@ -58,6 +58,12 @@ public class KafkaReplicationJobEntity {
     @Column(name = "offset_sync_interval_sec")
     private Integer offsetSyncIntervalSec = 5;
 
+    @Column(name = "consumer_threads")
+    private Integer consumerThreads = 8;
+
+    @Column(name = "batch_size")
+    private Integer batchSize = 2000;
+
     // Kerberos SASL / GSSAPI Configuration
     @Column(name = "source_kerberos_enabled")
     private boolean sourceKerberosEnabled = false;
@@ -339,4 +345,10 @@ public class KafkaReplicationJobEntity {
 
     public String getTopicProvisioningSummary() { return topicProvisioningSummary; }
     public void setTopicProvisioningSummary(String topicProvisioningSummary) { this.topicProvisioningSummary = topicProvisioningSummary; }
+
+    public Integer getConsumerThreads() { return consumerThreads; }
+    public void setConsumerThreads(Integer consumerThreads) { this.consumerThreads = consumerThreads; }
+
+    public Integer getBatchSize() { return batchSize; }
+    public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
 }

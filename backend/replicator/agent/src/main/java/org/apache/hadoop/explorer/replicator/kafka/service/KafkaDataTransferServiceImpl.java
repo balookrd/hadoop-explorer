@@ -38,20 +38,40 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 log.trace("Получен входящий gRPC пакет {} (топик {}, {} записей)",
                         batch.getBatchId(), batch.getTopic(), batch.getRecordsCount());
 
-                KafkaBatchAck ack = batchProducer.writeBatch(batch);
-                responseObserver.onNext(ack);
+                batchProducer.writeBatchAsync(batch).thenAccept(ack -> {
+                    synchronized (responseObserver) {
+                        responseObserver.onNext(ack);
+                    }
+                }).exceptionally(t -> {
+                    log.error("Сбой асинхронной обработки пакета {}: {}", batch.getBatchId(), t.getMessage(), t);
+                    KafkaBatchAck errorAck = KafkaBatchAck.newBuilder()
+                            .setBatchId(batch.getBatchId())
+                            .setTopic(batch.getTopic())
+                            .setSuccess(false)
+                            .setErrorMessage(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName())
+                            .setReceiveTimestampMs(System.currentTimeMillis())
+                            .build();
+                    synchronized (responseObserver) {
+                        responseObserver.onNext(errorAck);
+                    }
+                    return null;
+                });
             }
 
             @Override
             public void onError(Throwable t) {
                 log.error("Ошибка в gRPC потоке streamBatches: {}", t.getMessage());
-                responseObserver.onError(t);
+                synchronized (responseObserver) {
+                    responseObserver.onError(t);
+                }
             }
 
             @Override
             public void onCompleted() {
                 batchProducer.flush();
-                responseObserver.onCompleted();
+                synchronized (responseObserver) {
+                    responseObserver.onCompleted();
+                }
             }
         };
     }

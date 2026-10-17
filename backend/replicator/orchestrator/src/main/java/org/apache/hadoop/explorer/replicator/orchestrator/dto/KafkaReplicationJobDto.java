@@ -23,6 +23,8 @@ public class KafkaReplicationJobDto {
     private boolean targetSrKerberosEnabled;
     private Double bandwidthLimitMb;
     private Integer offsetSyncIntervalSec;
+    private Integer consumerThreads = 8;
+    private Integer batchSize = 2000;
 
     // Kerberos
     private boolean sourceKerberosEnabled;
@@ -154,4 +156,10 @@ public class KafkaReplicationJobDto {
 
     public String getTopicProvisioningSummary() { return topicProvisioningSummary; }
     public void setTopicProvisioningSummary(String topicProvisioningSummary) { this.topicProvisioningSummary = topicProvisioningSummary; }
+
+    public Integer getConsumerThreads() { return consumerThreads; }
+    public void setConsumerThreads(Integer consumerThreads) { this.consumerThreads = consumerThreads; }
+
+    public Integer getBatchSize() { return batchSize; }
+    public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
 }

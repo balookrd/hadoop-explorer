@@ -19,6 +19,8 @@ public class CreateKafkaJobRequest {
     private boolean targetSrKerberosEnabled = false;
     private Double bandwidthLimitMb = 50.0;
     private Integer offsetSyncIntervalSec = 5;
+    private Integer consumerThreads = 8;
+    private Integer batchSize = 2000;
 
     // Kerberos
     private boolean sourceKerberosEnabled = false;
@@ -207,4 +209,10 @@ public class CreateKafkaJobRequest {
 
     public boolean isAutoCreateTopics() { return autoCreateTopics; }
     public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }
+
+    public Integer getConsumerThreads() { return consumerThreads; }
+    public void setConsumerThreads(Integer consumerThreads) { this.consumerThreads = consumerThreads; }
+
+    public Integer getBatchSize() { return batchSize; }
+    public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
 }
