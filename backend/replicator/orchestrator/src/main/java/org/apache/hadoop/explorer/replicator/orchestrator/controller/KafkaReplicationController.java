@@ -103,6 +103,14 @@ public class KafkaReplicationController {
     }
 
     /**
+     * Возвращает список активных адресов агентов-приемников в целевом кластере/ДЦ для балансировки нагрузки.
+     */
+    @GetMapping("/agents/receivers")
+    public List<String> getReceiverEndpoints(@RequestParam(defaultValue = "DC2") String clusterId) {
+        return service.getLiveReceiverEndpoints(clusterId);
+    }
+
+    /**
      * Возвращает список сконфигурированных кластеров Kafka / ЦОД для выбора в UI.
      */
     @GetMapping("/discovery/clusters")

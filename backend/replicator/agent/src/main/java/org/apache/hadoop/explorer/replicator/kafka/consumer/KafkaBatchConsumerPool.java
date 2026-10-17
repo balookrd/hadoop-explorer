@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Высокопроизводительный многопоточный пул консьюмеров для непрерывного чтения сообщений
  * из локальной Kafka, шардирования партиций через Consumer Group, фильтрации циклов (Loop Prevention),
- * транскодинга схем и стриминга батчей в удаленный ДЦ.
+ * транскодинга схем и стриминга батчей в удаленный ДЦ с балансировкой по партициям (Partition-Pinned Routing).
  */
 public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
@@ -104,8 +104,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
      */
     public synchronized void start() {
         if (running.compareAndSet(false, true)) {
-            log.info("Запуск пула KafkaBatchConsumerPool из {} воркеров ({} -> {}, batchSize={})",
-                    consumers.size(), sourceDcId, targetDcId, maxBatchSize);
+            log.info("Запуск пула KafkaBatchConsumerPool из {} воркеров ({} -> {}, batchSize={}, targets={})",
+                    consumers.size(), sourceDcId, targetDcId, maxBatchSize, replicationClient.getEndpointCount());
             if (executor == null || executor.isShutdown()) {
                 executor = Executors.newFixedThreadPool(consumers.size(), new ThreadFactory() {
                     private final AtomicInteger count = new AtomicInteger(1);
@@ -145,38 +145,52 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private class ConsumerWorker implements Runnable {
         private final int workerId;
         private final KafkaConsumer<byte[], byte[]> workerConsumer;
+        private final Map<Integer, StreamObserver<KafkaBatchRequest>> activeStreams = new ConcurrentHashMap<>();
 
         ConsumerWorker(int workerId, KafkaConsumer<byte[], byte[]> workerConsumer) {
             this.workerId = workerId;
             this.workerConsumer = workerConsumer;
         }
 
+        private StreamObserver<KafkaBatchRequest> getOrCreateStream(int targetIdx) {
+            return activeStreams.computeIfAbsent(targetIdx, idx -> {
+                StreamObserver<KafkaBatchAck> ackObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(KafkaBatchAck ack) {
+                        if (ack.getSuccess()) {
+                            log.trace("[Worker {} -> Target {}] Успешно зафиксирован пакет {} в топике {}: {} записей",
+                                    workerId, idx, ack.getBatchId(), ack.getTopic(), ack.getCommittedRecords());
+                        } else {
+                            log.error("[Worker {} -> Target {}] Удаленный узел вернул ошибку для пакета {}: {}",
+                                    workerId, idx, ack.getBatchId(), ack.getErrorMessage());
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        log.error("[Worker {} -> Target {}] Сбой gRPC стрима: {}", workerId, idx, t.getMessage());
+                        replicationClient.markTargetSuspect(idx, t);
+                        activeStreams.remove(idx);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        log.info("[Worker {} -> Target {}] gRPC стрим закрыт удаленным узлом", workerId, idx);
+                        activeStreams.remove(idx);
+                    }
+                };
+
+                if (replicationClient.getEndpointCount() <= 1) {
+                    return replicationClient.openBatchStream(ackObserver);
+                } else {
+                    return replicationClient.openBatchStream(idx, ackObserver);
+                }
+            });
+        }
+
         @Override
         public void run() {
             log.info("Запущен поток ConsumerWorker-{} ({} -> {})", workerId, sourceDcId, targetDcId);
-
-            StreamObserver<KafkaBatchRequest> requestStream = replicationClient.openBatchStream(new StreamObserver<>() {
-                @Override
-                public void onNext(KafkaBatchAck ack) {
-                    if (ack.getSuccess()) {
-                        log.trace("[Worker {}] Успешно зафиксирован пакет {} в топике {}: {} записей",
-                                workerId, ack.getBatchId(), ack.getTopic(), ack.getCommittedRecords());
-                    } else {
-                        log.error("[Worker {}] Удаленный узел вернул ошибку для пакета {}: {}",
-                                workerId, ack.getBatchId(), ack.getErrorMessage());
-                    }
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    log.error("[Worker {}] Сбой gRPC стрима: {}", workerId, t.getMessage());
-                }
-
-                @Override
-                public void onCompleted() {
-                    log.info("[Worker {}] gRPC стрим закрыт удаленным узлом", workerId);
-                }
-            });
 
             try {
                 while (running.get()) {
@@ -185,7 +199,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         continue;
                     }
 
-                    Map<String, List<KafkaRecord>> recordsByTopic = new HashMap<>();
+                    // Группировка строго по TopicPartition для сохранения порядка при балансировке по агентам
+                    Map<TopicPartition, List<KafkaRecord>> recordsByTp = new LinkedHashMap<>();
 
                     for (ConsumerRecord<byte[], byte[]> record : records) {
                         TopicPartition tp = new TopicPartition(record.topic(), record.partition());
@@ -222,30 +237,42 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             recBuilder.setPayload(ByteString.copyFrom(transformedPayload));
                         }
 
-                        recordsByTopic.computeIfAbsent(record.topic(), k -> new ArrayList<>())
+                        recordsByTp.computeIfAbsent(tp, k -> new ArrayList<>())
                                 .add(recBuilder.build());
                     }
 
-                    // 4. Отправляем батчи по топикам в gRPC-стрим
-                    for (Map.Entry<String, List<KafkaRecord>> entry : recordsByTopic.entrySet()) {
-                        String topic = entry.getKey();
-                        List<KafkaRecord> batchRecords = entry.getValue();
+                    // 4. Отправляем батчи по партициям в соответствующие gRPC-стримы
+                    for (Map.Entry<TopicPartition, List<KafkaRecord>> entry : recordsByTp.entrySet()) {
+                        TopicPartition tp = entry.getKey();
+                        List<KafkaRecord> partitionRecords = entry.getValue();
+
+                        int targetIdx = replicationClient.selectTargetIndex(tp.partition());
+                        StreamObserver<KafkaBatchRequest> targetStream = getOrCreateStream(targetIdx);
 
                         // Дробим на пачки до maxBatchSize
-                        for (int i = 0; i < batchRecords.size(); i += maxBatchSize) {
-                            List<KafkaRecord> chunk = batchRecords.subList(i, Math.min(i + maxBatchSize, batchRecords.size()));
+                        for (int i = 0; i < partitionRecords.size(); i += maxBatchSize) {
+                            List<KafkaRecord> chunk = partitionRecords.subList(i, Math.min(i + maxBatchSize, partitionRecords.size()));
 
                             KafkaBatchRequest batchRequest = KafkaBatchRequest.newBuilder()
                                     .setBatchId(UUID.randomUUID().toString())
                                     .setSourceDc(sourceDcId)
                                     .setTargetDc(targetDcId)
-                                    .setTopic(topic)
+                                    .setTopic(tp.topic())
                                     .setPayloadFormat(targetFormat)
                                     .setSendTimestampMs(System.currentTimeMillis())
                                     .addAllRecords(chunk)
                                     .build();
 
-                            requestStream.onNext(batchRequest);
+                            try {
+                                targetStream.onNext(batchRequest);
+                            } catch (Exception ex) {
+                                log.warn("[Worker {} -> Target {}] Ошибка отправки батча, failover: {}",
+                                        workerId, targetIdx, ex.getMessage());
+                                replicationClient.markTargetSuspect(targetIdx, ex);
+                                activeStreams.remove(targetIdx);
+                                int fallbackIdx = replicationClient.selectTargetIndex(tp.partition());
+                                getOrCreateStream(fallbackIdx).onNext(batchRequest);
+                            }
                         }
                     }
 
@@ -257,10 +284,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             } catch (Exception e) {
                 log.error("[Worker {}] Фатальная ошибка в цикле вычитки Kafka: {}", workerId, e.getMessage(), e);
             } finally {
-                try {
-                    requestStream.onCompleted();
-                } catch (Exception ignored) {
+                for (StreamObserver<KafkaBatchRequest> s : activeStreams.values()) {
+                    try {
+                        s.onCompleted();
+                    } catch (Exception ignored) {
+                    }
                 }
+                activeStreams.clear();
                 log.info("Остановлен рабочий поток ConsumerWorker-{}", workerId);
             }
         }

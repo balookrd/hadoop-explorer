@@ -23,16 +23,25 @@ public class KafkaReplicationOrchestratorService {
 
     private final KafkaReplicationJobRepository repository;
     private final KafkaTopicProvisioner topicProvisioner;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
 
     @org.springframework.beans.factory.annotation.Autowired
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
-                                               KafkaTopicProvisioner topicProvisioner) {
+                                               KafkaTopicProvisioner topicProvisioner,
+                                               @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
         this.repository = repository;
         this.topicProvisioner = topicProvisioner != null ? topicProvisioner : new KafkaTopicProvisioner();
+        this.agentRegistry = agentRegistry;
+    }
+
+    public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
+                                               KafkaTopicProvisioner topicProvisioner) {
+        this(repository, topicProvisioner, null);
     }
 
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository) {
-        this(repository, new KafkaTopicProvisioner());
+        this(repository, new KafkaTopicProvisioner(), null);
     }
 
     @Transactional(readOnly = true)
@@ -90,6 +99,9 @@ public class KafkaReplicationOrchestratorService {
         try {
             entity.setTopicsJson(mapper.writeValueAsString(request.getTopics() != null ? request.getTopics() : Collections.emptyList()));
             entity.setConsumerGroupsJson(mapper.writeValueAsString(request.getConsumerGroups() != null ? request.getConsumerGroups() : Collections.emptyList()));
+            if (request.getTargetEndpoints() != null && !request.getTargetEndpoints().isEmpty()) {
+                entity.setTargetEndpointsJson(mapper.writeValueAsString(request.getTargetEndpoints()));
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize topics or consumer groups to JSON", e);
         }
@@ -237,11 +249,30 @@ public class KafkaReplicationOrchestratorService {
             if (entity.getConsumerGroupsJson() != null) {
                 dto.setConsumerGroups(mapper.readValue(entity.getConsumerGroupsJson(), new TypeReference<>() {}));
             }
+            if (entity.getTargetEndpointsJson() != null) {
+                dto.setTargetEndpoints(mapper.readValue(entity.getTargetEndpointsJson(), new TypeReference<>() {}));
+            }
         } catch (Exception e) {
             log.warn("Не удалось распарсить JSON топиков/групп для задачи {}: {}", entity.getId(), e.getMessage());
         }
 
         return dto;
+    }
+
+    /**
+     * Возвращает список адресов активных агентов-приемников для целевого кластера/ДЦ.
+     */
+    public List<String> getLiveReceiverEndpoints(String clusterId) {
+        if (agentRegistry == null) {
+            return List.of("localhost:50052");
+        }
+        var receivers = agentRegistry.getLiveKafkaReceiversForCluster(clusterId);
+        if (receivers.isEmpty()) {
+            return List.of("localhost:50052");
+        }
+        return receivers.stream()
+                .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
+                .toList();
     }
 
     /**

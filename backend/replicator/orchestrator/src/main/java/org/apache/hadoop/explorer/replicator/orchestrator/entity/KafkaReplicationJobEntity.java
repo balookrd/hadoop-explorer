@@ -64,6 +64,10 @@ public class KafkaReplicationJobEntity {
     @Column(name = "batch_size")
     private Integer batchSize = 2000;
 
+    @Lob
+    @Column(name = "target_endpoints_json")
+    private String targetEndpointsJson;
+
     // Kerberos SASL / GSSAPI Configuration
     @Column(name = "source_kerberos_enabled")
     private boolean sourceKerberosEnabled = false;
@@ -351,4 +355,7 @@ public class KafkaReplicationJobEntity {
 
     public Integer getBatchSize() { return batchSize; }
     public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
+
+    public String getTargetEndpointsJson() { return targetEndpointsJson; }
+    public void setTargetEndpointsJson(String targetEndpointsJson) { this.targetEndpointsJson = targetEndpointsJson; }
 }

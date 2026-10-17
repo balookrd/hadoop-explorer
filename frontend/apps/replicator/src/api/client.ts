@@ -302,6 +302,10 @@ export class ReplicatorApiClient extends BaseApiClient {
       method: 'POST',
     });
   }
+
+  async getKafkaReceiverEndpoints(clusterId = 'DC2'): Promise<string[]> {
+    return this.request<string[]>(`/replicator/kafka/agents/receivers?clusterId=${encodeURIComponent(clusterId)}`);
+  }
 }
 
 export const api = new ReplicatorApiClient();

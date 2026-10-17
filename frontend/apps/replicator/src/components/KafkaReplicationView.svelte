@@ -46,6 +46,7 @@
     offsetSyncIntervalSec: number;
     consumerThreads?: number;
     batchSize?: number;
+    targetEndpoints?: string[];
     sourceKerberosEnabled?: boolean;
     sourcePrincipal?: string;
     sourceKeytabPath?: string;
@@ -159,6 +160,7 @@
   let offsetSyncIntervalSec = $state(5);
   let consumerThreads = $state(8);
   let batchSize = $state(2000);
+  let targetEndpointsInput = $state('');
 
   // Проверка Regex
   function matchesPattern(name: string, includePattern: string, excludePattern: string): boolean {
@@ -495,7 +497,10 @@
       bandwidthLimitMb,
       offsetSyncIntervalSec,
       consumerThreads,
-      batchSize
+      batchSize,
+      targetEndpoints: targetEndpointsInput.trim()
+        ? targetEndpointsInput.split(',').map(s => s.trim()).filter(Boolean)
+        : undefined
     };
 
     try {
@@ -665,6 +670,19 @@
                   <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center gap-1">
                     <Shield class="w-3 h-3 text-slate-500" />
                     <span>Kerberos SASL</span>
+                  </span>
+                {/if}
+
+                <!-- Бейдж Multi-Agent Load Balancing -->
+                {#if job.targetEndpoints && job.targetEndpoints.length > 0}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 flex items-center gap-1">
+                    <Radio class="w-3 h-3 text-sky-500" />
+                    <span>{job.targetEndpoints.length} целевых агентов (балансировка)</span>
+                  </span>
+                {:else}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1">
+                    <Radio class="w-3 h-3 text-slate-400" />
+                    <span>Partition-Pinned Routing</span>
                   </span>
                 {/if}
               </div>
@@ -1458,6 +1476,26 @@
                 class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
               />
             </div>
+          </div>
+
+          <!-- 9. ПУЛ ЦЕЛЕВЫХ АГЕНТОВ-ПРИЕМНИКОВ (CROSS-AGENT LOAD BALANCING) -->
+          <div class="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
+                <Radio class="w-3.5 h-3.5 text-sky-500" />
+                <span>Пул целевых агентов-приемников (Multi-Agent Load Balancing):</span>
+              </span>
+              <span class="text-[10px] text-slate-400">Partition-Pinned Routing (128+ партиций)</span>
+            </div>
+            <input
+              type="text"
+              bind:value={targetEndpointsInput}
+              placeholder="target-agent-1:50052, target-agent-2:50052, target-agent-3:50052, target-agent-4:50052"
+              class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+            />
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              Каждая партиция детерминированно привязывается к своему агенту-приемнику (<code class="font-mono text-sky-600">partition % N</code>), гарантируя сохранение строгого порядка сообщений и распределение нагрузки потока в 1 000 000+ событий/сек.
+            </p>
           </div>
         </div>
 

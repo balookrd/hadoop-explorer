@@ -21,6 +21,7 @@ public class CreateKafkaJobRequest {
     private Integer offsetSyncIntervalSec = 5;
     private Integer consumerThreads = 8;
     private Integer batchSize = 2000;
+    private List<String> targetEndpoints;
 
     // Kerberos
     private boolean sourceKerberosEnabled = false;
@@ -215,4 +216,7 @@ public class CreateKafkaJobRequest {
 
     public Integer getBatchSize() { return batchSize; }
     public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
+
+    public List<String> getTargetEndpoints() { return targetEndpoints; }
+    public void setTargetEndpoints(List<String> targetEndpoints) { this.targetEndpoints = targetEndpoints; }
 }

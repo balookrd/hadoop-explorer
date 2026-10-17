@@ -41,6 +41,7 @@ public class KafkaReplicatorAgentMain {
         String targetDcId = "DC2";
         String targetHost = "localhost";
         int targetPort = DEFAULT_PORT;
+        String targetEndpoints = "";
         String role = "dual";
         String topics = "";
         int consumerThreads = 8;
@@ -63,6 +64,8 @@ public class KafkaReplicatorAgentMain {
                 targetHost = args[++i];
             } else if ("--target-port".equals(args[i]) && i + 1 < args.length) {
                 targetPort = Integer.parseInt(args[++i]);
+            } else if ("--target-endpoints".equals(args[i]) && i + 1 < args.length) {
+                targetEndpoints = args[++i];
             } else if ("--role".equals(args[i]) && i + 1 < args.length) {
                 role = args[++i].toLowerCase();
             } else if ("--topics".equals(args[i]) && i + 1 < args.length) {
@@ -96,8 +99,9 @@ public class KafkaReplicatorAgentMain {
             groupId = "kafka-replicator-" + dcId;
         }
 
-        log.info("Запуск kafka-replicator-agent [Role={}, DC={}, Port={}, Target={}:{}, Threads={}, BatchSize={}, Kerberos={}]",
-                role, dcId, port, targetHost, targetPort, consumerThreads, batchSize, krbConfig.isEnabled());
+        String targetsDesc = !targetEndpoints.isBlank() ? targetEndpoints : (targetHost + ":" + targetPort);
+        log.info("Запуск kafka-replicator-agent [Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}]",
+                role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled());
 
         Server server = null;
         KafkaProducer<byte[], byte[]> producer = null;
@@ -152,10 +156,20 @@ public class KafkaReplicatorAgentMain {
                     .filter(s -> !s.isEmpty())
                     .toList();
 
-            log.info("Инициализация пула консьюмеров отправителя: топики={}, потоков={}, target={}:{}",
-                    topicList, consumerThreads, targetHost, targetPort);
+            List<String> targetList;
+            if (!targetEndpoints.isBlank()) {
+                targetList = Arrays.stream(targetEndpoints.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList();
+            } else {
+                targetList = List.of(targetHost + ":" + targetPort);
+            }
 
-            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(targetHost, targetPort);
+            log.info("Инициализация пула консьюмеров отправителя: топики={}, потоков={}, targets={}",
+                    topicList, consumerThreads, targetList);
+
+            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(targetList);
 
             List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
             for (int i = 0; i < consumerThreads; i++) {

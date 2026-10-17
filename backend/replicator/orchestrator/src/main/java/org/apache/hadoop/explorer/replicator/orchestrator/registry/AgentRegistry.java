@@ -332,6 +332,21 @@ public class AgentRegistry {
             .min(Comparator.comparingInt(AgentEntry::getActiveTransfers));
     }
 
+    /**
+     * Возвращает список всех активных агентов-приемников для кластера Kafka репликации.
+     */
+    public List<AgentEntry> getLiveKafkaReceiversForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && ("all".equalsIgnoreCase(a.getMode())
+                        || "kafka".equalsIgnoreCase(a.getMode())
+                        || "receiver".equalsIgnoreCase(a.getMode())
+                        || "dual".equalsIgnoreCase(a.getMode())))
+            .toList();
+    }
+
     public Optional<AgentEntry> getAgent(String agentId) {
         if (agentId == null) return Optional.empty();
         refreshHealth();
