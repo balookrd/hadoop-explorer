@@ -89,7 +89,7 @@ class TaskServiceOptimizationTest {
             candidateTasks.add(t);
         }
 
-        when(taskRepository.findByStatus(eq("QUEUED"), any(Pageable.class))).thenReturn(candidateTasks);
+        when(taskRepository.findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class))).thenReturn(candidateTasks);
 
         JobEntity job = new JobEntity();
         job.setId(jobId);
@@ -101,8 +101,8 @@ class TaskServiceOptimizationTest {
         var claimed = taskService.claimTasks(new ClaimTasksRequest(agentId, clusterId, 5));
 
         assertEquals(5, claimed.size(), "Должно быть забрано 5 задач");
-        // Выборка задач должна производиться с Pageable
-        verify(taskRepository, times(1)).findByStatus(eq("QUEUED"), any(Pageable.class));
+        // Выборка задач должна производиться с Pageable и блокировкой SKIP LOCKED
+        verify(taskRepository, times(1)).findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class));
 
         // Самое главное: JobEntity должен быть запрошен ИЗ КЭША РОВНО 1 РАЗ для всех 5 задач, а не 5 раз!
         verify(jobRepository, times(1)).findById(jobId);

@@ -237,7 +237,7 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  const allRoutes = $derived(() => {
+  const allRoutes = $derived.by(() => {
     if (!drStatus) return [];
     let list: DrRouteItem[] = [];
     if (routeTypeFilter === 'ALL' || routeTypeFilter === 'HDFS') {
@@ -885,14 +885,14 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-          {#if allRoutes().length === 0}
+          {#if allRoutes.length === 0}
             <tr>
               <td colspan="7" class="py-8 text-center text-slate-400 dark:text-slate-500">
                 Маршруты репликации не найдены
               </td>
             </tr>
           {:else}
-            {#each allRoutes() as route}
+            {#each allRoutes as route}
               <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-950/40 transition">
                 <td class="py-2.5 px-3 font-semibold">
                   <div class="flex items-center gap-1.5 flex-wrap">

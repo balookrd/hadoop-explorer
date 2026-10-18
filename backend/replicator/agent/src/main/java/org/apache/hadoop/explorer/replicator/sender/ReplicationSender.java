@@ -56,6 +56,7 @@ public class ReplicationSender implements AutoCloseable {
     private final int maxBundleFiles;
     private final CompressionCodec defaultCompressionCodec;
     private final int compressionLevel;
+    private final String agentSecret;
     private final AtomicLong totalBytesTransferred = new AtomicLong(0);
     private final AtomicLong totalTransferErrors = new AtomicLong(0);
 
@@ -103,6 +104,20 @@ public class ReplicationSender implements AutoCloseable {
                              boolean insecureSkipVerify,
                              long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles,
                              CompressionCodec defaultCompressionCodec, int compressionLevel) {
+        this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, tlsEnabled,
+                trustCertCollectionPath, clientCertChainPath, clientPrivateKeyPath, insecureSkipVerify,
+                smallFileThresholdBytes, bundleTargetSizeBytes, maxBundleFiles,
+                defaultCompressionCodec, compressionLevel, null);
+    }
+
+    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+                             LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
+                             boolean tlsEnabled, String trustCertCollectionPath,
+                             String clientCertChainPath, String clientPrivateKeyPath,
+                             boolean insecureSkipVerify,
+                             long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles,
+                             CompressionCodec defaultCompressionCodec, int compressionLevel,
+                             String agentSecret) {
         this.workerId = workerId;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
@@ -118,6 +133,7 @@ public class ReplicationSender implements AutoCloseable {
         this.maxBundleFiles = maxBundleFiles > 0 ? maxBundleFiles : 500;
         this.defaultCompressionCodec = defaultCompressionCodec != null ? defaultCompressionCodec : CompressionCodec.COMPRESSION_ZSTD;
         this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
+        this.agentSecret = agentSecret;
     }
 
     public CompressionCodec getDefaultCompressionCodec() {
@@ -141,8 +157,8 @@ public class ReplicationSender implements AutoCloseable {
                 workerId, jobId, sourcePath, targetPath, targetAddress);
 
         if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), Boolean.TRUE.equals(job.getRunAsServiceAccount()))) {
-            boolean autoCreate = Boolean.parseBoolean(System.getenv().getOrDefault("REPLICATOR_AUTO_CREATE_TEST_DATA", "true"));
-            if (autoCreate) {
+            boolean autoCreate = Boolean.parseBoolean(System.getenv().getOrDefault("REPLICATOR_AUTO_CREATE_TEST_DATA", "false"));
+            if (autoCreate && !sourcePath.startsWith("hdfs://") && !sourcePath.startsWith("s3a://") && !sourcePath.startsWith("file://")) {
                 try {
                     File file = new File(sourcePath);
                     if (file.getParentFile() != null && !file.getParentFile().exists()) {
@@ -907,16 +923,24 @@ public class ReplicationSender implements AutoCloseable {
             }
 
             logger.info("Создание защищенного gRPC TLS канала к '{}' (insecureSkipVerify={})", cleanAddress, insecureSkipVerify);
-            return NettyChannelBuilder.forTarget(cleanAddress)
-                    .sslContext(sslBuilder.build())
+            NettyChannelBuilder channelBuilder = NettyChannelBuilder.forTarget(cleanAddress)
+                    .sslContext(sslBuilder.build());
+            if (agentSecret != null && !agentSecret.isBlank()) {
+                channelBuilder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
+            }
+            return channelBuilder
                     .maxInboundMessageSize(64 * 1024 * 1024)
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS)
                     .keepAliveWithoutCalls(true)
                     .build();
         } else {
-            return NettyChannelBuilder.forTarget(cleanAddress)
-                    .usePlaintext()
+            NettyChannelBuilder channelBuilder = NettyChannelBuilder.forTarget(cleanAddress)
+                    .usePlaintext();
+            if (agentSecret != null && !agentSecret.isBlank()) {
+                channelBuilder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
+            }
+            return channelBuilder
                     .maxInboundMessageSize(64 * 1024 * 1024)
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS)

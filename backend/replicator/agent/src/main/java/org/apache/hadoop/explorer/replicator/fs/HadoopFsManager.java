@@ -700,6 +700,9 @@ public class HadoopFsManager {
      * @return финальный путь
      */
     public String commitFile(String stagingFilePath, String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        validatePathSafety(targetPath);
+        validatePathSafety(stagingFilePath);
+
         File stagingFile = new File(stagingFilePath);
         if (!stagingFile.exists()) {
             throw new FileNotFoundException("Staging файл не найден: " + stagingFilePath);
@@ -708,59 +711,55 @@ public class HadoopFsManager {
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
-            try {
-                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-                String impersonateUser = (!runAsServiceAccount && executionPrincipal != null) ? extractUsername(executionPrincipal) : null;
-                logger.info("Коммит файла в HDFS: '{}' -> '{}' (doAs: {})",
-                        stagingFilePath, targetPath, impersonateUser != null ? impersonateUser : "service_account");
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            String impersonateUser = (!runAsServiceAccount && executionPrincipal != null) ? extractUsername(executionPrincipal) : null;
+            logger.info("Коммит файла в HDFS: '{}' -> '{}' (doAs: {})",
+                    stagingFilePath, targetPath, impersonateUser != null ? impersonateUser : "service_account");
 
-                ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
-                    Path hdfsTarget = new Path(targetPath);
-                    FileSystem fs = hdfsTarget.getFileSystem(conf);
+            ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                Path hdfsTarget = new Path(targetPath);
+                FileSystem fs = hdfsTarget.getFileSystem(conf);
 
-                    Path parentDir = hdfsTarget.getParent();
-                    if (parentDir != null && !fs.exists(parentDir)) {
-                        fs.mkdirs(parentDir);
-                    }
-
-                    // Копируем из локального staging в HDFS от имени эффективного UGI (с doAs)
-                    try (InputStream in = new BufferedInputStream(new FileInputStream(stagingFile));
-                         OutputStream out = fs.create(hdfsTarget, true)) {
-                        IOUtils.copyBytes(in, out, conf, false);
-                    }
-                    return null;
-                });
-
-                // Удаляем временный staging-файл после успешной записи в HDFS
-                if (!stagingFile.delete()) {
-                    stagingFile.deleteOnExit();
+                Path parentDir = hdfsTarget.getParent();
+                if (parentDir != null && !fs.exists(parentDir)) {
+                    fs.mkdirs(parentDir);
                 }
-                logger.info("Файл успешно закоммичен в HDFS: {} (doAs: {})",
-                        targetPath, impersonateUser != null ? impersonateUser : "service_account");
-                return targetPath;
-            } catch (Exception e) {
-                logger.warn("Не удалось записать в HDFS ({}), выполняем fallback сохранение в локальную ФС: {}", e.getMessage(), targetPath);
-            }
-        }
-            // Локальная файловая система
-            logger.info("Коммит файла в локальную ФС: '{}' -> '{}'", stagingFilePath, targetPath);
-            File destFile = new File(targetPath);
-            File parentDir = destFile.getParentFile();
-            if (parentDir != null && !parentDir.exists()) {
-                parentDir.mkdirs();
-            }
 
-            try {
-                Files.move(stagingFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                return targetPath;
-            } catch (Exception e) {
-                logger.warn("Не удалось выполнить Files.move ({}), пробуем копирование: {}", e.getMessage(), targetPath);
-                Files.copy(stagingFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                stagingFile.delete();
-                return targetPath;
+                // Копируем из локального staging в HDFS от имени эффективного UGI (с doAs)
+                try (InputStream in = new BufferedInputStream(new FileInputStream(stagingFile));
+                     OutputStream out = fs.create(hdfsTarget, true)) {
+                    IOUtils.copyBytes(in, out, conf, false);
+                }
+                return null;
+            });
+
+            // Удаляем временный staging-файл после успешной записи в HDFS
+            if (!stagingFile.delete()) {
+                stagingFile.deleteOnExit();
             }
+            logger.info("Файл успешно закоммичен в HDFS: {} (doAs: {})",
+                    targetPath, impersonateUser != null ? impersonateUser : "service_account");
+            return targetPath;
         }
 
+        // Локальная файловая система (только если целевой путь явно локальный)
+        logger.info("Коммит файла в локальную ФС: '{}' -> '{}'", stagingFilePath, targetPath);
+        File destFile = new File(targetPath);
+        File parentDir = destFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+
+        try {
+            Files.move(stagingFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return targetPath;
+        } catch (Exception e) {
+            logger.warn("Не удалось выполнить Files.move ({}), пробуем копирование: {}", e.getMessage(), targetPath);
+            Files.copy(stagingFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            stagingFile.delete();
+            return targetPath;
+        }
+    }
 
     public String commitFile(String stagingFilePath, String targetPath, String executionPrincipal) throws Exception {
         return commitFile(stagingFilePath, targetPath, executionPrincipal, false);
@@ -770,30 +769,27 @@ public class HadoopFsManager {
      * Прямая запись байтов файла в HDFS или локальную ФС без создания временного staging-файла на локальном диске (Zero-Staging).
      */
     public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        validatePathSafety(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
-            try {
-                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-                ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
-                    Path hdfsTarget = new Path(targetPath);
-                    FileSystem fs = hdfsTarget.getFileSystem(conf);
-                    Path parentDir = hdfsTarget.getParent();
-                    if (parentDir != null && !fs.exists(parentDir)) {
-                        fs.mkdirs(parentDir);
-                    }
-                    try (OutputStream out = fs.create(hdfsTarget, true)) {
-                        out.write(content);
-                    }
-                    return null;
-                });
-                return;
-            } catch (Exception e) {
-                logger.warn("Не удалось записать напрямую в HDFS ({}), fallback на локальную ФС: {}", e.getMessage(), targetPath);
-            }
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                Path hdfsTarget = new Path(targetPath);
+                FileSystem fs = hdfsTarget.getFileSystem(conf);
+                Path parentDir = hdfsTarget.getParent();
+                if (parentDir != null && !fs.exists(parentDir)) {
+                    fs.mkdirs(parentDir);
+                }
+                try (OutputStream out = fs.create(hdfsTarget, true)) {
+                    out.write(content);
+                }
+                return null;
+            });
+            return;
         }
 
-        // Локальная файловая система
+        // Локальная файловая система (только если путь явно локальный)
         File destFile = new File(targetPath);
         File parentDir = destFile.getParentFile();
         if (parentDir != null && !parentDir.exists()) {
@@ -806,23 +802,20 @@ public class HadoopFsManager {
      * Открытие потока вывода для записи файла напрямую в HDFS или локальную ФС.
      */
     public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        validatePathSafety(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
-            try {
-                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-                return ugi.doAs((PrivilegedExceptionAction<OutputStream>) () -> {
-                    Path hdfsTarget = new Path(targetPath);
-                    FileSystem fs = hdfsTarget.getFileSystem(conf);
-                    Path parentDir = hdfsTarget.getParent();
-                    if (parentDir != null && !fs.exists(parentDir)) {
-                        fs.mkdirs(parentDir);
-                    }
-                    return fs.create(hdfsTarget, true);
-                });
-            } catch (Exception e) {
-                logger.warn("Не удалось открыть OutputStream в HDFS ({}), fallback на локальную ФС: {}", e.getMessage(), targetPath);
-            }
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<OutputStream>) () -> {
+                Path hdfsTarget = new Path(targetPath);
+                FileSystem fs = hdfsTarget.getFileSystem(conf);
+                Path parentDir = hdfsTarget.getParent();
+                if (parentDir != null && !fs.exists(parentDir)) {
+                    fs.mkdirs(parentDir);
+                }
+                return fs.create(hdfsTarget, true);
+            });
         }
 
         File destFile = new File(targetPath);
@@ -837,27 +830,25 @@ public class HadoopFsManager {
      * Атомарное переименование файла в целевой ФС (HDFS или локальной).
      */
     public boolean renameFile(String srcPath, String dstPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        validatePathSafety(srcPath);
+        validatePathSafety(dstPath);
         boolean targetIsHdfs = dstPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(dstPath));
 
         if (targetIsHdfs) {
-            try {
-                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-                return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
-                    Path src = new Path(srcPath);
-                    Path dst = new Path(dstPath);
-                    FileSystem fs = dst.getFileSystem(conf);
-                    Path parent = dst.getParent();
-                    if (parent != null && !fs.exists(parent)) {
-                        fs.mkdirs(parent);
-                    }
-                    if (fs.exists(dst)) {
-                        fs.delete(dst, false);
-                    }
-                    return fs.rename(src, dst);
-                });
-            } catch (Exception e) {
-                logger.warn("Не удалось выполнить rename в HDFS ({}), fallback на локальную ФС: {} -> {}", e.getMessage(), srcPath, dstPath);
-            }
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<Boolean>) () -> {
+                Path src = new Path(srcPath);
+                Path dst = new Path(dstPath);
+                FileSystem fs = dst.getFileSystem(conf);
+                Path parent = dst.getParent();
+                if (parent != null && !fs.exists(parent)) {
+                    fs.mkdirs(parent);
+                }
+                if (fs.exists(dst)) {
+                    fs.delete(dst, false);
+                }
+                return fs.rename(src, dst);
+            });
         }
 
         File srcFile = new File(srcPath);
@@ -883,6 +874,7 @@ public class HadoopFsManager {
     }
 
     public boolean deletePath(String pathStr, boolean recursive, String executionPrincipal, boolean runAsServiceAccount) {
+        validatePathSafety(pathStr);
         boolean targetIsHdfs = pathStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(pathStr));
         if (targetIsHdfs) {
             try {
@@ -894,6 +886,7 @@ public class HadoopFsManager {
                 });
             } catch (Exception e) {
                 logger.debug("Не удалось удалить HDFS путь {}: {}", pathStr, e.getMessage());
+                return false;
             }
         }
         try {

@@ -238,9 +238,9 @@ public class TaskService {
             );
         }
 
-        // Запрашиваем ограниченную пачку кандидатов QUEUED с пагинацией для предотвращения OOM
+        // Запрашиваем ограниченную пачку кандидатов QUEUED с пагинацией и блокировкой SKIP LOCKED для предотвращения состояния гонки (Race Condition)
         int batchSize = Math.max(limit * 3, 20);
-        List<TaskEntity> queuedTasks = taskRepository.findByStatus("QUEUED", PageRequest.of(0, batchSize));
+        List<TaskEntity> queuedTasks = taskRepository.findByStatusForUpdateSkipLocked("QUEUED", PageRequest.of(0, batchSize));
         if (queuedTasks.isEmpty()) {
             return Collections.emptyList();
         }

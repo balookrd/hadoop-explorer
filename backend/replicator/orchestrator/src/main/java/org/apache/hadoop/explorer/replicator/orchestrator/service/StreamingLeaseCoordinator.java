@@ -156,16 +156,8 @@ public class StreamingLeaseCoordinator {
                     clusterId, streamersCount);
         }
 
-        // 4. Поиск максимального lastProcessedTxid для задач стриминга кластера
-        long maxTxid = 0L;
-        List<JobEntity> jobs = jobRepository.findAll();
-        for (JobEntity j : jobs) {
-            if ("STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), clusterId)) {
-                if (j.getLastProcessedTxid() != null && j.getLastProcessedTxid() > maxTxid) {
-                    maxTxid = j.getLastProcessedTxid();
-                }
-            }
-        }
+        // 4. Поиск максимального lastProcessedTxid для задач стриминга кластера через точечный JPQL запрос
+        long maxTxid = jobRepository.findMaxProcessedTxidByClusterId(clusterId);
 
         long pendingTasks = calculateClusterPendingTasks(clusterId);
         boolean queueSaturated = isClusterQueueSaturated(clusterId, pendingTasks);

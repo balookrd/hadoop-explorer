@@ -89,7 +89,8 @@ public class ReplicatorAgent {
                 config.getBundleTargetSizeBytes(),
                 config.getMaxBundleFiles(),
                 config.getWireCompressionCodec(),
-                config.getWireCompressionLevel()
+                config.getWireCompressionLevel(),
+                config.getAgentSecret()
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
@@ -129,7 +130,8 @@ public class ReplicatorAgent {
                     config.isGrpcTlsEnabled(),
                     config.isGrpcInsecureSkipVerify(),
                     8,
-                    1000
+                    1000,
+                    config.getAgentSecret()
             );
         }
     }
@@ -214,6 +216,11 @@ public class ReplicatorAgent {
         if (hmsClient != null) {
             serverBuilder.addService(new org.apache.hadoop.explorer.replicator.hms.service.HmsTransferServiceImpl(hmsClient));
             logger.info("gRPC сервис HmsTransferService успешно зарегистрирован на Receiver сервере");
+        }
+
+        if (config.getAgentSecret() != null && !config.getAgentSecret().isBlank()) {
+            serverBuilder.intercept(new org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor(config.getAgentSecret()));
+            logger.info("Включена gRPC L7 аутентификация по X-Agent-Secret на Receiver сервере");
         }
 
         if (config.isGrpcTlsEnabled()) {

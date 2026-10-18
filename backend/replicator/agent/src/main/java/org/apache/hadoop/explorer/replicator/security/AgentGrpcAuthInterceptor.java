@@ -1,0 +1,74 @@
+package org.apache.hadoop.explorer.replicator.security;
+
+import io.grpc.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
+/**
+ * gRPC L7 интерцептор аутентификации между агентами репликации с использованием X-Agent-Secret.
+ * Защищает удаленные вызовы gRPC сервисов (DataTransferService, HmsTransferService)
+ * от несанкционированного доступа.
+ */
+public class AgentGrpcAuthInterceptor implements ServerInterceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentGrpcAuthInterceptor.class);
+
+    public static final Metadata.Key<String> AGENT_SECRET_HEADER =
+            Metadata.Key.of("x-agent-secret", Metadata.ASCII_STRING_MARSHALLER);
+
+    private final String expectedSecret;
+
+    public AgentGrpcAuthInterceptor(String expectedSecret) {
+        this.expectedSecret = expectedSecret;
+    }
+
+    @Override
+    public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
+            ServerCall<ReqT, RespT> call,
+            Metadata headers,
+            ServerCallHandler<ReqT, RespT> next) {
+
+        if (expectedSecret == null || expectedSecret.isBlank()) {
+            return next.startCall(call, headers);
+        }
+
+        String clientSecret = headers.get(AGENT_SECRET_HEADER);
+        if (clientSecret == null || !MessageDigest.isEqual(
+                expectedSecret.getBytes(StandardCharsets.UTF_8),
+                clientSecret.getBytes(StandardCharsets.UTF_8))) {
+            log.warn("Отклонен неавторизованный gRPC вызов '{}' от '{}': неверный или отсутствующий x-agent-secret",
+                    call.getMethodDescriptor().getFullMethodName(),
+                    call.getAttributes().get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR));
+            call.close(Status.UNAUTHENTICATED.withDescription("Invalid or missing X-Agent-Secret"), new Metadata());
+            return new ServerCall.Listener<ReqT>() {};
+        }
+
+        return next.startCall(call, headers);
+    }
+
+    /**
+     * Создает ClientInterceptor для автоматического добавления заголовка x-agent-secret во все исходящие вызовы.
+     */
+    public static ClientInterceptor createClientInterceptor(String agentSecret) {
+        return new ClientInterceptor() {
+            @Override
+            public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                    MethodDescriptor<ReqT, RespT> method,
+                    CallOptions callOptions,
+                    Channel next) {
+                return new ForwardingClientCall.SimpleForwardingClientCall<>(next.newCall(method, callOptions)) {
+                    @Override
+                    public void start(Listener<RespT> responseListener, Metadata headers) {
+                        if (agentSecret != null && !agentSecret.isBlank()) {
+                            headers.put(AGENT_SECRET_HEADER, agentSecret);
+                        }
+                        super.start(responseListener, headers);
+                    }
+                };
+            }
+        };
+    }
+}

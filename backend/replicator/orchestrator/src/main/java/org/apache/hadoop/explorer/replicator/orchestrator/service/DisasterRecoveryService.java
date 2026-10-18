@@ -147,6 +147,15 @@ public class DisasterRecoveryService {
                 if (entity.getSnapshotJson() != null && !entity.getSnapshotJson().isBlank()) {
                     EmergencySnapshot snapshot = objectMapper.readValue(entity.getSnapshotJson(), EmergencySnapshot.class);
                     activeSnapshots.put(entity.getId(), snapshot);
+                    if (snapshot.isNetworkFenced() && snapshot.getClusterId() != null) {
+                        String clusterId = snapshot.getClusterId();
+                        for (var dc : topologyRegistry.getDatacenters()) {
+                            if (!matchesDc(dc.getId(), clusterId)) {
+                                topologyRegistry.setDcLimit(clusterId, dc.getId(), 0L);
+                                log.warn("[Disaster Recovery Fencing Restored] Восстановлена сетевая блокировка {} ➔ {} (0 МБ/с)", clusterId, dc.getId());
+                            }
+                        }
+                    }
                 }
             }
             if (!entities.isEmpty()) {

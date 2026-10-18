@@ -2,6 +2,8 @@ package org.apache.hadoop.explorer.replicator.orchestrator.repository;
 
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -16,4 +18,11 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(Instant now);
     long countByStatus(String status);
     long countByStatusAndParentJobIdIsNull(String status);
+
+    @Query("""
+        SELECT COALESCE(MAX(j.lastProcessedTxid), 0) FROM JobEntity j
+        WHERE j.syncMode = 'STREAMING_INOTIFY'
+          AND LOWER(j.sourceClusterId) = LOWER(:clusterId)
+    """)
+    long findMaxProcessedTxidByClusterId(@Param("clusterId") String clusterId);
 }

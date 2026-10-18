@@ -40,6 +40,7 @@ public class HmsTaskExecutor implements Closeable {
     private final boolean grpcTlsEnabled;
     private final boolean insecureSkipVerify;
     private final int partitionBatchSize;
+    private final String agentSecret;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob = new ConcurrentHashMap<>();
 
@@ -54,6 +55,22 @@ public class HmsTaskExecutor implements Closeable {
             int concurrency,
             int partitionBatchSize
     ) {
+        this(agentId, clusterId, hmsClient, orchestratorClient, pathRewriter, grpcTlsEnabled,
+                insecureSkipVerify, concurrency, partitionBatchSize, null);
+    }
+
+    public HmsTaskExecutor(
+            String agentId,
+            String clusterId,
+            HmsClient hmsClient,
+            OrchestratorClient orchestratorClient,
+            HmsPathRewriter pathRewriter,
+            boolean grpcTlsEnabled,
+            boolean insecureSkipVerify,
+            int concurrency,
+            int partitionBatchSize,
+            String agentSecret
+    ) {
         this.agentId = agentId;
         this.clusterId = clusterId;
         this.hmsClient = hmsClient;
@@ -63,6 +80,7 @@ public class HmsTaskExecutor implements Closeable {
         this.grpcTlsEnabled = grpcTlsEnabled;
         this.insecureSkipVerify = insecureSkipVerify;
         this.partitionBatchSize = partitionBatchSize > 0 ? partitionBatchSize : 1000;
+        this.agentSecret = agentSecret;
 
         int poolSize = concurrency > 0 ? concurrency : 8;
         this.bootstrapExecutor = Executors.newFixedThreadPool(poolSize, r -> {
@@ -104,7 +122,7 @@ public class HmsTaskExecutor implements Closeable {
                 "Агент " + agentId + " запустил начальный перенос схемы (Bootstrap)", Collections.emptyList(), agentId
         ));
 
-        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify)) {
+        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             long highWaterMark = hmsClient.getCurrentNotificationEventId();
 
             // 1. Создание БД на целевой стороне
@@ -356,7 +374,7 @@ public class HmsTaskExecutor implements Closeable {
         List<HmsEventReportDto> eventLog = new ArrayList<>();
         int processed = 0;
 
-        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify)) {
+        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             for (HmsNotificationEventDto event : events) {
                 lastEventId = event.eventId();
 

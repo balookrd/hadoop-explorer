@@ -18,8 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -371,8 +373,17 @@ public class JobService {
             stream = stream.filter(j -> !"HMS_SUBJOB".equalsIgnoreCase(j.getJobType()));
         }
 
-        return stream
-            .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())))
+        List<JobEntity> filteredJobs = stream.toList();
+        if (filteredJobs.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> jobIds = filteredJobs.stream().map(JobEntity::getId).toList();
+        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
+            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
+
+        return filteredJobs.stream()
+            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0)))
             .toList();
     }
 
@@ -380,8 +391,17 @@ public class JobService {
         if (parentJobId == null || parentJobId.isBlank()) {
             return List.of();
         }
-        return jobRepository.findByParentJobId(parentJobId).stream()
-            .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())))
+        List<JobEntity> subjobs = jobRepository.findByParentJobId(parentJobId);
+        if (subjobs.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> jobIds = subjobs.stream().map(JobEntity::getId).toList();
+        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
+            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
+
+        return subjobs.stream()
+            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0)))
             .toList();
     }
 

@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * gRPC Servicer сервиса DataTransferService для приема файлов и атомарного коммита в HDFS/FS.
  */
-public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransferServiceImplBase {
+public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransferServiceImplBase implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(DataTransferServiceImpl.class);
 
@@ -468,8 +468,20 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     }
                                     String relPath = entry.getName();
                                     long entrySize = entry.getSize();
-                                    ByteArrayOutputStream baos = new ByteArrayOutputStream((int) Math.max(0, Math.min(entrySize, 16 * 1024 * 1024)));
-                                    IOUtils.copyBytes(tarIn, baos, 32768, false);
+                                    if (entrySize > 32 * 1024 * 1024L) {
+                                        throw new SecurityException("Размер файла '" + relPath + "' в TAR-бандле превышает лимит 32 МБ: " + entrySize);
+                                    }
+                                    ByteArrayOutputStream baos = new ByteArrayOutputStream((int) Math.max(0, Math.min(entrySize > 0 ? entrySize : 64 * 1024, 32 * 1024 * 1024)));
+                                    byte[] readBuf = new byte[32768];
+                                    int r;
+                                    long totalRead = 0;
+                                    while ((r = tarIn.read(readBuf)) != -1) {
+                                        totalRead += r;
+                                        if (totalRead > 32 * 1024 * 1024L) {
+                                            throw new SecurityException("Превышен лимит размера (32 МБ) при чтении файла '" + relPath + "' из TAR-архива (Tar Bomb)");
+                                        }
+                                        baos.write(readBuf, 0, r);
+                                    }
                                     byte[] fileData = baos.toByteArray();
 
                                     String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
@@ -721,6 +733,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     || path.trim().equals("/tmp") || path.trim().equals("/etc") || path.trim().equals("/system")) {
                 throw new SecurityException("Запрещено удаление системного или корневого каталога: " + path);
             }
+            HadoopFsManager.validatePathSafety(path);
             boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
             responseObserver.onNext(DeletePathResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -766,5 +779,15 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    @Override
+    public void close() {
+        if (bundleCommitExecutor != null && !bundleCommitExecutor.isShutdown()) {
+            bundleCommitExecutor.shutdown();
+            try {
+                bundleCommitExecutor.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
     }
 }

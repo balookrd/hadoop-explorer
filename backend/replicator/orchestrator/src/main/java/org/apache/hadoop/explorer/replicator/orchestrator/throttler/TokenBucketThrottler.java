@@ -147,18 +147,22 @@ public class TokenBucketThrottler {
             double waitGlobal = globalBucket.calculateWait(requestedBytes, nowNanos);
 
             String dcKey = null;
+            String srcDc = null;
+            String dstDc = null;
             if (srcCluster != null && dstCluster != null) {
                 var srcC = topology.getCluster(srcCluster);
                 var dstC = topology.getCluster(dstCluster);
                 if (srcC.isPresent() && dstC.isPresent()) {
-                    dcKey = srcC.get().getDcId() + "->" + dstC.get().getDcId();
+                    srcDc = srcC.get().getDcId();
+                    dstDc = dstC.get().getDcId();
+                    dcKey = srcDc + "->" + dstDc;
                 }
             }
 
             double waitDc = 0.0;
             SingleBucket dcBucket = null;
-            if (dcKey != null && topology.getDcLimit(srcCluster, dstCluster).isPresent()) {
-                long limit = topology.getDcLimit(srcCluster, dstCluster).get();
+            if (dcKey != null && srcDc != null && dstDc != null && topology.getDcLimit(srcDc, dstDc).isPresent()) {
+                long limit = topology.getDcLimit(srcDc, dstDc).get();
                 dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0));
                 dcBucket.updateLimit(limit);
                 waitDc = dcBucket.calculateWait(requestedBytes, nowNanos);

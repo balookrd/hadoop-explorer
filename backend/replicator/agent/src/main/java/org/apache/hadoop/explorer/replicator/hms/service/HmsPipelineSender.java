@@ -29,6 +29,10 @@ public class HmsPipelineSender implements Closeable {
     private final HmsTransferServiceGrpc.HmsTransferServiceBlockingStub blockingStub;
 
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify) {
+        this(targetAddress, useTls, insecureSkipVerify, null);
+    }
+
+    public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify, String agentSecret) {
         this.targetAddress = targetAddress;
 
         if (useTls) {
@@ -37,19 +41,26 @@ public class HmsPipelineSender implements Closeable {
                 if (insecureSkipVerify) {
                     sslContextBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
                 }
-                this.channel = NettyChannelBuilder.forTarget(targetAddress)
-                        .sslContext(sslContextBuilder.build())
-                        .build();
+                var builder = NettyChannelBuilder.forTarget(targetAddress)
+                        .sslContext(sslContextBuilder.build());
+                if (agentSecret != null && !agentSecret.isBlank()) {
+                    builder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
+                }
+                this.channel = builder.build();
             } catch (SSLException e) {
                 throw new RuntimeException("Ошибка инициализации TLS контекста для HMS конвейера к " + targetAddress, e);
             }
         } else {
-            this.channel = ManagedChannelBuilder.forTarget(targetAddress)
-                    .usePlaintext()
-                    .build();
+            var builder = NettyChannelBuilder.forTarget(targetAddress)
+                    .usePlaintext();
+            if (agentSecret != null && !agentSecret.isBlank()) {
+                builder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
+            }
+            this.channel = builder.build();
         }
 
-        this.blockingStub = HmsTransferServiceGrpc.newBlockingStub(this.channel);
+        this.blockingStub = HmsTransferServiceGrpc.newBlockingStub(this.channel)
+                .withDeadlineAfter(60, TimeUnit.SECONDS);
         log.info("[HmsPipelineSender] Инициализирован gRPC канал к целевому агенту '{}' (TLS={})", targetAddress, useTls);
     }
 

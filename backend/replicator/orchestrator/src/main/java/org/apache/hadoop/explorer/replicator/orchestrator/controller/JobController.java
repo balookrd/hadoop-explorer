@@ -145,6 +145,7 @@ public class JobController {
         if (session != null && !session.isAdmin()) {
             var existing = jobService.getJobEntity(jobId);
             String existingPrincipal = existing.map(org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity::getExecutionPrincipal).orElse(session.username() + "@REALM.LOCAL");
+            boolean safeRunAsSa = existing.map(org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity::isRunAsServiceAccount).orElse(false);
             req = new CreateJobRequest(
                 req.sourcePath(),
                 req.targetPath(),
@@ -152,7 +153,7 @@ public class JobController {
                 req.targetClusterId(),
                 req.totalBytes(),
                 existingPrincipal,
-                req.runAsServiceAccount(),
+                safeRunAsSa,
                 req.isScheduled(),
                 req.cronExpression(),
                 req.historyRetentionRuns(),
@@ -164,6 +165,7 @@ public class JobController {
             if (!ep.contains("@")) {
                 ep = ep + "@REALM.LOCAL";
             }
+            boolean runAsSa = session != null && session.isAdmin() && req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false;
             req = new CreateJobRequest(
                 req.sourcePath(),
                 req.targetPath(),
@@ -171,7 +173,7 @@ public class JobController {
                 req.targetClusterId(),
                 req.totalBytes(),
                 ep,
-                req.runAsServiceAccount(),
+                runAsSa,
                 req.isScheduled(),
                 req.cronExpression(),
                 req.historyRetentionRuns(),
