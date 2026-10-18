@@ -1,10 +1,15 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
+import org.apache.hadoop.explorer.common.model.UserSession;
+import org.apache.hadoop.explorer.common.security.CommonAuthenticationToken;
 import org.apache.hadoop.explorer.replicator.model.TokenRequest;
 import org.apache.hadoop.explorer.replicator.model.TokenResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -18,6 +23,19 @@ public class TokenController {
                            org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService) {
         this.throttler = throttler;
         this.metricsService = metricsService;
+    }
+
+    private void requireAdmin(Authentication auth) {
+        if (auth instanceof CommonAuthenticationToken tokenAuth) {
+            UserSession session = tokenAuth.getUserSession();
+            if (session != null && session.isAdmin()) {
+                return;
+            }
+        }
+        throw new ResponseStatusException(
+            HttpStatus.FORBIDDEN,
+            "Изменение глобального лимита пропускной способности доступно только Администратору (ADMIN)"
+        );
     }
 
     @PostMapping("/api/v1/tokens/request")
@@ -42,7 +60,11 @@ public class TokenController {
     }
 
     @PutMapping("/api/v1/tokens/limit")
-    public ResponseEntity<Map<String, Object>> updateLimit(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> updateLimit(
+        @RequestBody Map<String, Object> body,
+        Authentication auth
+    ) {
+        requireAdmin(auth);
         Number limit = (Number) body.get("global_limit_bytes_per_sec");
         if (limit != null) {
             throttler.setGlobalLimit(limit.longValue());

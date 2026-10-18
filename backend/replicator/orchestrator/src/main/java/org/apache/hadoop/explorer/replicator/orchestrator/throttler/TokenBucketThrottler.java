@@ -18,7 +18,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class TokenBucketThrottler {
 
     private static final Logger log = LoggerFactory.getLogger(TokenBucketThrottler.class);
-    private final ReentrantLock throttlerLock = new ReentrantLock();
 
     public static class SingleBucket {
         private final String name;
@@ -105,6 +104,34 @@ public class TokenBucketThrottler {
             }
         }
 
+        /**
+         * Атомарный расчет задержки и списание токенов под единой блокировкой конкретного бакета
+         * без необходимости глобальной сериализации всего оркестратора.
+         */
+        public double calculateWaitAndConsume(long requestedBytes, long nowNanos) {
+            lock.lock();
+            try {
+                if (requestedBytes <= 0 || limitBytesPerSec <= 0) {
+                    return 0.0;
+                }
+                double elapsedSec = (nowNanos - lastUpdateTimeNanos) / 1_000_000_000.0;
+                if (elapsedSec > 0) {
+                    double newTokens = elapsedSec * limitBytesPerSec;
+                    this.tokens = Math.min(capacity, this.tokens + newTokens);
+                    this.lastUpdateTimeNanos = nowNanos;
+                }
+                double wait = 0.0;
+                if (tokens < requestedBytes) {
+                    double deficit = requestedBytes - tokens;
+                    wait = deficit / limitBytesPerSec;
+                }
+                this.tokens -= requestedBytes;
+                return wait;
+            } finally {
+                lock.unlock();
+            }
+        }
+
         public void updateLimit(double newLimitBytesPerSec) {
             lock.lock();
             try {
@@ -141,69 +168,52 @@ public class TokenBucketThrottler {
             return 0.0;
         }
 
-        throttlerLock.lock();
-        try {
-            long nowNanos = System.nanoTime();
-            double waitGlobal = globalBucket.calculateWait(requestedBytes, nowNanos);
+        long nowNanos = System.nanoTime();
+        double waitGlobal = globalBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
 
-            String dcKey = null;
-            String srcDc = null;
-            String dstDc = null;
-            if (srcCluster != null && dstCluster != null) {
-                var srcC = topology.getCluster(srcCluster);
-                var dstC = topology.getCluster(dstCluster);
-                if (srcC.isPresent() && dstC.isPresent()) {
-                    srcDc = srcC.get().getDcId();
-                    dstDc = dstC.get().getDcId();
-                    dcKey = srcDc + "->" + dstDc;
-                }
+        String dcKey = null;
+        String srcDc = null;
+        String dstDc = null;
+        if (srcCluster != null && dstCluster != null) {
+            var srcC = topology.getCluster(srcCluster);
+            var dstC = topology.getCluster(dstCluster);
+            if (srcC.isPresent() && dstC.isPresent()) {
+                srcDc = srcC.get().getDcId();
+                dstDc = dstC.get().getDcId();
+                dcKey = srcDc + "->" + dstDc;
             }
-
-            double waitDc = 0.0;
-            SingleBucket dcBucket = null;
-            if (dcKey != null && srcDc != null && dstDc != null && topology.getDcLimit(srcDc, dstDc).isPresent()) {
-                long limit = topology.getDcLimit(srcDc, dstDc).get();
-                dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0));
-                dcBucket.updateLimit(limit);
-                waitDc = dcBucket.calculateWait(requestedBytes, nowNanos);
-            }
-
-            String hdfsKey = (srcCluster != null && dstCluster != null) ? srcCluster + "->" + dstCluster : null;
-            double waitHdfs = 0.0;
-            SingleBucket hdfsBucket = null;
-            if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
-                long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
-                hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0));
-                hdfsBucket.updateLimit(limit);
-                waitHdfs = hdfsBucket.calculateWait(requestedBytes, nowNanos);
-            }
-
-            double maxWait = Math.max(waitGlobal, Math.max(waitDc, waitHdfs));
-
-            // Списываем токены
-            globalBucket.consume(requestedBytes);
-            if (dcBucket != null) dcBucket.consume(requestedBytes);
-            if (hdfsBucket != null) hdfsBucket.consume(requestedBytes);
-
-            if (maxWait > 0.05) {
-                log.debug("Throttler requested {} bytes (src={}, dst={}): wait {} s",
-                    requestedBytes, srcCluster, dstCluster, Math.round(maxWait * 1000.0) / 1000.0);
-            }
-
-            return maxWait;
-        } finally {
-            throttlerLock.unlock();
         }
+
+        double waitDc = 0.0;
+        if (dcKey != null && srcDc != null && dstDc != null && topology.getDcLimit(srcDc, dstDc).isPresent()) {
+            long limit = topology.getDcLimit(srcDc, dstDc).get();
+            SingleBucket dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0));
+            dcBucket.updateLimit(limit);
+            waitDc = dcBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+        }
+
+        String hdfsKey = (srcCluster != null && dstCluster != null) ? srcCluster + "->" + dstCluster : null;
+        double waitHdfs = 0.0;
+        if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
+            long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
+            SingleBucket hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0));
+            hdfsBucket.updateLimit(limit);
+            waitHdfs = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+        }
+
+        double maxWait = Math.max(waitGlobal, Math.max(waitDc, waitHdfs));
+
+        if (maxWait > 0.05) {
+            log.debug("Throttler requested {} bytes (src={}, dst={}): wait {} s",
+                requestedBytes, srcCluster, dstCluster, Math.round(maxWait * 1000.0) / 1000.0);
+        }
+
+        return maxWait;
     }
 
     public void setGlobalLimit(long bytesPerSec) {
-        throttlerLock.lock();
-        try {
-            globalBucket.setLimit(bytesPerSec);
-            log.info("Global replication limit set to {} MB/s", bytesPerSec / (1024.0 * 1024.0));
-        } finally {
-            throttlerLock.unlock();
-        }
+        globalBucket.setLimit(bytesPerSec);
+        log.info("Global replication limit set to {} MB/s", bytesPerSec / (1024.0 * 1024.0));
     }
 
     public double getGlobalLimit() {

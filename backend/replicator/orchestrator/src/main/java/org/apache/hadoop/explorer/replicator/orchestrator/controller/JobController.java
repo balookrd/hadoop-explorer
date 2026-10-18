@@ -189,8 +189,10 @@ public class JobController {
     @PatchMapping("/{jobId}")
     public ResponseEntity<JobResponse> updateJobProgress(
         @PathVariable String jobId,
-        @RequestBody UpdateJobRequest req
+        @RequestBody UpdateJobRequest req,
+        Authentication auth
     ) {
+        checkJobAccess(jobId, auth);
         return jobService.updateJobProgress(jobId, req)
             .map(ResponseEntity::ok)
             .orElseGet(() -> ResponseEntity.notFound().build());

@@ -58,6 +58,26 @@ public class HdfsInotifyListener {
     private final long maxPollDelayMs;
     private final long backpressureStepMs = 500L;
 
+    // Кэширование активных потоковых задач для устранения избыточных HTTP-запросов к оркестратору
+    private volatile List<JobDto> cachedStreamingJobs = java.util.Collections.emptyList();
+    private volatile long lastJobsFetchTimeMs = 0L;
+    private static final long JOBS_CACHE_TTL_MS = 5000L;
+
+    public List<JobDto> getStreamingJobs() {
+        long now = System.currentTimeMillis();
+        if (now - lastJobsFetchTimeMs > JOBS_CACHE_TTL_MS || cachedStreamingJobs.isEmpty()) {
+            try {
+                cachedStreamingJobs = orchestratorClient.getJobs().stream()
+                        .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
+                        .toList();
+                lastJobsFetchTimeMs = now;
+            } catch (Exception e) {
+                log.debug("[Inotify] Не удалось обновить список потоковых задач: {}", e.getMessage());
+            }
+        }
+        return cachedStreamingJobs;
+    }
+
     public HdfsInotifyListener(
             ReplicatorAgentConfig config,
             OrchestratorClient orchestratorClient,
@@ -307,10 +327,8 @@ public class HdfsInotifyListener {
                         this.currentTxid = txid;
                         long lag = stream.getTxidsBehindEstimate();
 
-                        // Получаем список активных потоковых задач для кластера текущего стримера
-                        List<JobDto> jobs = orchestratorClient.getJobs().stream()
-                                .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
-                                .toList();
+                        // Получаем список активных потоковых задач для кластера текущего стримера (с кэшированием)
+                        List<JobDto> jobs = getStreamingJobs();
 
                         if (!jobs.isEmpty()) {
                             for (var event : batch.getEvents()) {
@@ -355,9 +373,7 @@ public class HdfsInotifyListener {
         log.info("[Inotify Reconciliation] Выполняется фоновая сверка целевых каталогов потоковых задач для кластера '{}'...",
                 config.getClusterId());
         try {
-            List<JobDto> jobs = orchestratorClient.getJobs().stream()
-                    .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
-                    .toList();
+            List<JobDto> jobs = getStreamingJobs();
 
             for (JobDto job : jobs) {
                 log.info("[Inotify Reconciliation] Сверка задачи '{}' (каталог '{}')", job.getId(), job.getSourcePath());

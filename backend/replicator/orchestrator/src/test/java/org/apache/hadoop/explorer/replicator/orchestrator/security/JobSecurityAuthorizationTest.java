@@ -145,4 +145,59 @@ class JobSecurityAuthorizationTest {
         assertThrows(SecurityException.class, () -> registry.verifySecret(""));
         assertThrows(SecurityException.class, () -> registry.verifySecret(null));
     }
+
+    @Test
+    @DisplayName("IDOR Protection: READER не имеет права обновлять прогресс задачи (403 FORBIDDEN)")
+    void testReaderCannotUpdateJobProgress() {
+        org.apache.hadoop.explorer.replicator.model.UpdateJobRequest updateReq =
+                new org.apache.hadoop.explorer.replicator.model.UpdateJobRequest("RUNNING", 100L, 500L, "progress");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.updateJobProgress("job-123", updateReq, readerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).updateJobProgress(any(), any());
+    }
+
+    @Test
+    @DisplayName("IDOR Protection: WRITER не может обновлять прогресс чужой задачи (403 FORBIDDEN)")
+    void testWriterCannotUpdateOtherUsersJobProgress() {
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity otherJob =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        otherJob.setId("job-other");
+        otherJob.setCreatedBy("stranger_external_user");
+
+        when(jobService.getJobEntity("job-other")).thenReturn(java.util.Optional.of(otherJob));
+
+        org.apache.hadoop.explorer.replicator.model.UpdateJobRequest updateReq =
+                new org.apache.hadoop.explorer.replicator.model.UpdateJobRequest("FAILED", 0L, 500L, "hacked");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.updateJobProgress("job-other", updateReq, writerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).updateJobProgress(any(), any());
+    }
+
+    @Test
+    @DisplayName("Agent Auth: системный агент (system_agent) может обновлять прогресс задачи")
+    void testAgentCanUpdateJobProgress() {
+        UserSession agentSession = new UserSession(
+                "system_agent", "Agent Daemon", "agent@cluster.local",
+                List.of("replicator-agents"), "SECRET", true, Role.ADMIN
+        );
+        CommonAuthenticationToken agentAuth = new CommonAuthenticationToken(agentSession);
+
+        org.apache.hadoop.explorer.replicator.model.UpdateJobRequest updateReq =
+                new org.apache.hadoop.explorer.replicator.model.UpdateJobRequest("RUNNING", 500L, 500L, "all chunks copied");
+
+        when(jobService.updateJobProgress(eq("job-123"), any())).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.updateJobProgress("job-123", updateReq, agentAuth);
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).updateJobProgress(eq("job-123"), eq(updateReq));
+    }
 }
