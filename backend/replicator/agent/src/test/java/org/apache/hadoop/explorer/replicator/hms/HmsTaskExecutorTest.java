@@ -2,7 +2,7 @@ package org.apache.hadoop.explorer.replicator.hms;
 
 import io.grpc.Server;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.hms.client.MockHmsClient;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
@@ -50,7 +50,7 @@ public class HmsTaskExecutorTest {
                 .start();
 
         // Тестовый mock-клиент Оркестратора
-        OrchestratorClient mockOrchestratorClient = new OrchestratorClient("http://localhost:8005", "secret") {
+        OrchestratorGrpcClient mockOrchestratorClient = new OrchestratorGrpcClient() {
             @Override
             public boolean reportHmsProgress(String jobId, HmsProgressReportRequest report) {
                 reports.add(report);

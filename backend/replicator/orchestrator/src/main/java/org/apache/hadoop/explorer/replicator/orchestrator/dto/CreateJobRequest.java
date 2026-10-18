@@ -46,8 +46,6 @@ public record CreateJobRequest(
     String syncMode
 ) {
     public CreateJobRequest {
-        if (sourceClusterId == null) sourceClusterId = "dc1";
-        if (targetClusterId == null) targetClusterId = "dc2";
         if (totalBytes == null) totalBytes = 0L;
         if (executionPrincipal == null) executionPrincipal = "hdfs@EXAMPLE.COM";
         if (runAsServiceAccount == null) runAsServiceAccount = true;

@@ -1,0 +1,5 @@
+hadoop:
+  replicator:
+    grpc:
+      port: 0
+      enabled: true

@@ -13,7 +13,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactor
 import io.grpc.stub.StreamObserver;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
@@ -42,7 +42,7 @@ public class ReplicationSender implements AutoCloseable {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final String workerId;
-    private final OrchestratorClient orchestratorClient;
+    private final OrchestratorGrpcClient orchestratorClient;
     private final HadoopFsManager fsManager;
     private final LocalBandwidthLimiter bandwidthLimiter;
     private final int chunkSize;
@@ -70,12 +70,12 @@ public class ReplicationSender implements AutoCloseable {
     public long getTotalBytesTransferred() { return totalBytesTransferred.get(); }
     public long getTotalTransferErrors() { return totalTransferErrors.get(); }
 
-    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
         this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, false, null, null, null, false);
     }
 
-    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
                              boolean tlsEnabled, String trustCertCollectionPath,
                              String clientCertChainPath, String clientPrivateKeyPath,
@@ -85,7 +85,7 @@ public class ReplicationSender implements AutoCloseable {
                 0L, 16 * 1024 * 1024L, 500);
     }
 
-    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
                              boolean tlsEnabled, String trustCertCollectionPath,
                              String clientCertChainPath, String clientPrivateKeyPath,
@@ -97,7 +97,7 @@ public class ReplicationSender implements AutoCloseable {
                 CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL);
     }
 
-    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
                              boolean tlsEnabled, String trustCertCollectionPath,
                              String clientCertChainPath, String clientPrivateKeyPath,
@@ -110,7 +110,7 @@ public class ReplicationSender implements AutoCloseable {
                 defaultCompressionCodec, compressionLevel, null);
     }
 
-    public ReplicationSender(String workerId, OrchestratorClient orchestratorClient, HadoopFsManager fsManager,
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
                              boolean tlsEnabled, String trustCertCollectionPath,
                              String clientCertChainPath, String clientPrivateKeyPath,
@@ -785,7 +785,7 @@ public class ReplicationSender implements AutoCloseable {
     }
 
     public static void acquireNetworkTokens(ConcurrentHashMap<String, AtomicLong> tokenLeaseMap,
-                                            OrchestratorClient orchestratorClient,
+                                            OrchestratorGrpcClient orchestratorClient,
                                             String workerId,
                                             long wireBytes,
                                             String sourceClusterId,
@@ -1116,7 +1116,7 @@ public class ReplicationSender implements AutoCloseable {
         private final StreamObserver<TarStreamRequest> requestObserver;
         private final int chunkSize;
         private final LocalBandwidthLimiter bandwidthLimiter;
-        private final OrchestratorClient orchestratorClient;
+        private final OrchestratorGrpcClient orchestratorClient;
         private final String workerId;
         private final CompressionCodec codec;
         private final int compressionLevel;
@@ -1129,14 +1129,14 @@ public class ReplicationSender implements AutoCloseable {
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
-                                       OrchestratorClient orchestratorClient, String workerId) {
+                                       OrchestratorGrpcClient orchestratorClient, String workerId) {
             this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
                     CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL, null, null);
         }
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
-                                       OrchestratorClient orchestratorClient, String workerId,
+                                       OrchestratorGrpcClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel) {
             this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
                     codec, compressionLevel, null, null);
@@ -1144,7 +1144,7 @@ public class ReplicationSender implements AutoCloseable {
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
-                                       OrchestratorClient orchestratorClient, String workerId,
+                                       OrchestratorGrpcClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel,
                                        String sourceClusterId, String targetClusterId) {
             this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
@@ -1153,7 +1153,7 @@ public class ReplicationSender implements AutoCloseable {
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
-                                       OrchestratorClient orchestratorClient, String workerId,
+                                       OrchestratorGrpcClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel,
                                        String sourceClusterId, String targetClusterId,
                                        ConcurrentHashMap<String, AtomicLong> tokenBatchLease) {

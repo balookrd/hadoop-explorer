@@ -6,7 +6,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.inotify.Event;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest;
 import org.apache.hadoop.explorer.replicator.model.JobDto;
@@ -26,7 +26,7 @@ class InotifyProcessingTest {
 
     private HadoopFsManager fsManager;
     private FileSystem fileSystem;
-    private OrchestratorClient orchestratorClient;
+    private OrchestratorGrpcClient orchestratorClient;
     private InotifyBatchProcessor processor;
 
     private JobDto streamingJob;
@@ -37,7 +37,7 @@ class InotifyProcessingTest {
         fileSystem = mock(FileSystem.class);
         when(fsManager.getFileSystem()).thenReturn(fileSystem);
 
-        orchestratorClient = mock(OrchestratorClient.class);
+        orchestratorClient = mock(OrchestratorGrpcClient.class);
         when(orchestratorClient.batchCreateTasks(any(BatchCreateTasksRequest.class))).thenReturn(true);
         when(orchestratorClient.batchCreateTasks(anyString(), any(BatchCreateTasksRequest.class))).thenReturn(true);
         when(orchestratorClient.updateJobStreamingTxid(anyString(), anyLong(), anyLong())).thenReturn(true);

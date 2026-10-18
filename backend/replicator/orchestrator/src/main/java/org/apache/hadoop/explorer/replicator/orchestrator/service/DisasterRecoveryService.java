@@ -6,6 +6,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrActionResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyStopRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrReverseRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrStatusResponse;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.TopologyResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
@@ -197,25 +198,25 @@ public class DisasterRecoveryService {
                 status = "DEGRADED";
             }
 
-            // Роль: DC1 по умолчанию Primary, DC2 — Standby (или Promoted если в DC2 есть активные исходящие джобы)
-            boolean isDc1 = dcId.toLowerCase().contains("dc1") || dcId.toLowerCase().contains("primary");
-            boolean isDc2 = dcId.toLowerCase().contains("dc2") || dcId.toLowerCase().contains("standby");
+            // Роль: Первый ДЦ в списке считается Primary по умолчанию, остальные — Standby (или Promoted)
+            boolean isFirstDc = !dcs.isEmpty() && dcs.get(0).getId().equalsIgnoreCase(dcId);
+            boolean isPrimary = isFirstDc || dcId.toLowerCase().contains("primary");
+            boolean isStandby = (!isFirstDc && dcs.size() > 1 && dcs.get(1).getId().equalsIgnoreCase(dcId))
+                    || dcId.toLowerCase().contains("standby") || dcId.toLowerCase().contains("dr");
 
-            if (isDc1 && onlineCount > 0) primaryOnline = true;
-            if (isDc2 && onlineCount > 0) standbyOnline = true;
+            if (isPrimary && onlineCount > 0) primaryOnline = true;
+            if (isStandby && onlineCount > 0) standbyOnline = true;
 
-            // Проверяем направление активных задач: если из DC2 идут активные задачи, значит DC2 сейчас Promoted
+            // Проверяем направление активных задач: если из ДЦ идут активные задачи, значит ДЦ исполняет роль источника
             long outJobsFromDc = allJobs.stream()
                     .filter(j -> matchesDc(j.getSourceClusterId(), dcId) && "RUNNING".equalsIgnoreCase(j.getStatus()))
                     .count();
 
             String role;
-            if (isDc1) {
+            if (isPrimary) {
                 role = (outJobsFromDc > 0 || totalCount == 0) ? "PRIMARY" : "STANDBY";
-            } else if (isDc2) {
-                role = outJobsFromDc > 0 ? "PROMOTED_PRIMARY" : "STANDBY";
             } else {
-                role = "STANDBY";
+                role = outJobsFromDc > 0 ? "PROMOTED_PRIMARY" : "STANDBY";
             }
 
             // Проверяем лимиты пропускной способности (Fencing)
@@ -385,20 +386,30 @@ public class DisasterRecoveryService {
         }
 
         // Определение активного направления
-        String activeSrcDc = "dc1";
-        String activeDstDc = "dc2";
-        long dc2SourceCount = allJobs.stream()
-                .filter(j -> matchesDc(j.getSourceClusterId(), "dc2") && ("RUNNING".equalsIgnoreCase(j.getStatus()) || "QUEUED".equalsIgnoreCase(j.getStatus())))
-                .count();
-        if (dc2SourceCount > 0) {
-            activeSrcDc = "dc2";
-            activeDstDc = "dc1";
+        String firstDcId = !dcs.isEmpty() ? dcs.get(0).getId() : null;
+        String secondDcId = dcs.size() > 1 ? dcs.get(1).getId() : null;
+
+        String activeSrcDc = firstDcId;
+        String activeDstDc = secondDcId;
+        if (secondDcId != null) {
+            long secondDcSourceCount = allJobs.stream()
+                    .filter(j -> matchesDc(j.getSourceClusterId(), secondDcId) && ("RUNNING".equalsIgnoreCase(j.getStatus()) || "QUEUED".equalsIgnoreCase(j.getStatus())))
+                    .count();
+            if (secondDcSourceCount > 0) {
+                activeSrcDc = secondDcId;
+                activeDstDc = firstDcId;
+            }
         }
 
         boolean anyZeroLimit = topologyRegistry.getDcLimitsList().stream().anyMatch(l -> l.limitBytesPerSec() == 0L);
         boolean hasSnapshot = !activeSnapshots.isEmpty();
         boolean killSwitchActive = hasSnapshot || anyZeroLimit;
-        String fencedClusterId = activeSnapshots.keySet().stream().findFirst().orElse(anyZeroLimit ? "dc1" : null);
+        String fencedClusterId = activeSnapshots.keySet().stream().findFirst()
+                .orElseGet(() -> topologyRegistry.getDcLimitsList().stream()
+                        .filter(l -> l.limitBytesPerSec() == 0L)
+                        .map(TopologyResponse.DcLimitDto::sourceDc)
+                        .findFirst()
+                        .orElse(null));
         String lastReason = activeSnapshots.values().stream().findFirst().map(EmergencySnapshot::getReason).orElse(null);
 
         DrStatusResponse.DrSummary summary = new DrStatusResponse.DrSummary(

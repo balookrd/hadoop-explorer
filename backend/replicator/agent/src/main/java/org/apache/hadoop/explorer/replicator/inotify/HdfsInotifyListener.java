@@ -6,7 +6,7 @@ import org.apache.hadoop.hdfs.client.HdfsAdmin;
 import org.apache.hadoop.hdfs.inotify.EventBatch;
 import org.apache.hadoop.hdfs.inotify.MissingEventsException;
 import org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.JobDto;
 import org.apache.hadoop.explorer.replicator.model.StreamingLeaseRenewRequest;
@@ -36,7 +36,7 @@ public class HdfsInotifyListener {
     private static final Logger log = LoggerFactory.getLogger(HdfsInotifyListener.class);
 
     private final ReplicatorAgentConfig config;
-    private final OrchestratorClient orchestratorClient;
+    private final OrchestratorGrpcClient orchestratorClient;
     private final HadoopFsManager fsManager;
     private final InotifyBatchProcessor batchProcessor;
 
@@ -80,7 +80,7 @@ public class HdfsInotifyListener {
 
     public HdfsInotifyListener(
             ReplicatorAgentConfig config,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             HadoopFsManager fsManager
     ) {
         this(config, orchestratorClient, fsManager, new InotifyBatchProcessor(
@@ -96,7 +96,7 @@ public class HdfsInotifyListener {
 
     public HdfsInotifyListener(
             ReplicatorAgentConfig config,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             HadoopFsManager fsManager,
             InotifyBatchProcessor batchProcessor
     ) {

@@ -6,7 +6,7 @@ import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.JobDto;
@@ -43,9 +43,9 @@ class WireCompressionDataTransferTest {
     private HadoopFsManager fsManager;
     private MockOrchestratorClient orchestratorClient;
 
-    static class MockOrchestratorClient extends OrchestratorClient {
+    static class MockOrchestratorClient extends OrchestratorGrpcClient {
         public MockOrchestratorClient() {
-            super("http://localhost:8005", "secret", true);
+            super();
         }
 
         @Override

@@ -1,0 +1,343 @@
+syntax = "proto3";
+
+package replicator.control;
+
+option java_multiple_files = true;
+option java_package = "org.apache.hadoop.explorer.replicator.generated.control";
+option java_outer_classname = "OrchestratorControlPlaneProto";
+
+// Сервис высокопроизводительного управления и координации агентов Оркестратором (Control Plane)
+service OrchestratorControlPlaneService {
+
+  // Регистрация агента в реестре оркестратора
+  rpc RegisterAgent (AgentRegisterRequest) returns (AgentRegisterResponse);
+
+  // Периодический Heartbeat / Keepalive пинг агента с телеметрией
+  rpc Heartbeat (AgentHeartbeatRequest) returns (AgentHeartbeatResponse);
+
+  // Штатное снятие агента с регистрации (Graceful stop -> статус OFFLINE)
+  rpc UnregisterAgent (AgentUnregisterRequest) returns (AgentUnregisterResponse);
+
+  // Запрос сетевой квоты полосы пропускания (Hierarchical Token Bucket)
+  rpc RequestTokens (TokenRequest) returns (TokenResponse);
+
+  // Пакетная регистрация пула пофайловых задач анализатором или Inotify-стримером
+  rpc BatchCreateTasks (BatchCreateTasksRequest) returns (BatchCreateTasksResponse);
+
+  // Атомарный забор порции задач свободным воркером из распределенного пула
+  rpc ClaimTasks (ClaimTasksRequest) returns (ClaimTasksResponse);
+
+  // Фиксация успешного выполнения пофайловой задачи воркером
+  rpc CompleteTask (CompleteTaskRequest) returns (CompleteTaskResponse);
+
+  // Фиксация ошибки передачи файла воркером с возможностью retry
+  rpc FailTask (FailTaskRequest) returns (FailTaskResponse);
+
+  // Обновление прогресса и статуса задания
+  rpc UpdateJobProgress (UpdateJobProgressRequest) returns (UpdateJobProgressResponse);
+
+  // Получение активных заданий репликации
+  rpc GetJobs (GetJobsRequest) returns (GetJobsResponse);
+
+  // Получение топологии кластеров и адресов агентов
+  rpc GetClusters (GetClustersRequest) returns (GetClustersResponse);
+
+  // Продление распределенной аренды Inotify стримера (Active-Standby)
+  rpc RenewStreamingLease (StreamingLeaseRenewRequest) returns (StreamingLeaseRenewResponse);
+
+  // Получение ожидающих задач репликации метаданных Hive Metastore
+  rpc GetPendingHmsJobs (GetPendingHmsJobsRequest) returns (GetPendingHmsJobsResponse);
+
+  // Отчет о прогрессе репликации метаданных HMS
+  rpc ReportHmsProgress (ReportHmsProgressRequest) returns (ReportHmsProgressResponse);
+
+  // Создание дочерней HDFS-подзадачи переноса данных для таблицы HMS
+  rpc CreateHdfsSubjob (CreateHdfsSubjobRequest) returns (CreateHdfsSubjobResponse);
+}
+
+// -------------------------------------------------------------
+// Регистрация и Heartbeat
+// -------------------------------------------------------------
+
+message AgentRegisterRequest {
+  string agent_id = 1;
+  string cluster_id = 2;
+  string mode = 3;
+  string advertised_grpc_address = 4;
+  string source_address = 5;
+  double max_bandwidth_mb_s = 6;
+}
+
+message AgentRegisterResponse {
+  string status = 1;
+  string agent_id = 2;
+  string message = 3;
+  bool success = 4;
+}
+
+message AgentHeartbeatRequest {
+  string agent_id = 1;
+  string cluster_id = 2;
+  string advertised_grpc_address = 3;
+  int32 active_transfers = 4;
+  string mode = 5;
+  int64 transferred_bytes = 6;
+  int64 transfer_errors = 7;
+  double bandwidth_limit_mb_s = 8;
+  int64 compression_raw_bytes = 9;
+  int64 compression_compressed_bytes = 10;
+  double compression_ratio = 11;
+  double chunk_latency_avg_ms = 12;
+  double chunk_latency_max_ms = 13;
+  int64 chunk_transfer_count = 14;
+  int32 staging_active_files = 15;
+  int64 staging_active_bytes = 16;
+  int64 staging_orphans_cleaned = 17;
+}
+
+message AgentHeartbeatResponse {
+  string status = 1;
+  bool acknowledged = 2;
+}
+
+message AgentUnregisterRequest {
+  string agent_id = 1;
+}
+
+message AgentUnregisterResponse {
+  string status = 1;
+  bool success = 2;
+}
+
+// -------------------------------------------------------------
+// Hierarchical Token Bucket
+// -------------------------------------------------------------
+
+message TokenRequest {
+  int64 requested_bytes = 1;
+  string source_cluster_id = 2;
+  string target_cluster_id = 3;
+}
+
+message TokenResponse {
+  double wait_seconds = 1;
+  bool granted = 2;
+}
+
+// -------------------------------------------------------------
+// Управление задачами (Task Queue)
+// -------------------------------------------------------------
+
+message TaskCreateItemProto {
+  string source_path = 1;
+  string target_path = 2;
+  int64 file_size = 3;
+  string task_type = 4;
+  string manifest_json = 5;
+}
+
+message BatchCreateTasksRequest {
+  string job_id = 1;
+  repeated TaskCreateItemProto tasks = 2;
+}
+
+message BatchCreateTasksResponse {
+  bool success = 1;
+  string job_id = 2;
+  int32 tasks_count = 3;
+  int64 queued_count = 4;
+  bool saturated = 5;
+  string error = 6;
+}
+
+message ClaimTasksRequest {
+  string worker_id = 1;
+  string cluster_id = 2;
+  int32 batch_size = 3;
+}
+
+message TaskItemProto {
+  string task_id = 1;
+  string job_id = 2;
+  string source_path = 3;
+  string target_path = 4;
+  int64 file_size = 5;
+  string status = 6;
+  int32 retry_count = 7;
+  string source_cluster_id = 8;
+  string target_cluster_id = 9;
+  string target_grpc_address = 10;
+  string task_type = 11;
+  string manifest_json = 12;
+  bool run_as_service_account = 13;
+  string execution_principal = 14;
+}
+
+message ClaimTasksResponse {
+  repeated TaskItemProto tasks = 1;
+}
+
+message CompleteTaskRequest {
+  string task_id = 1;
+  string worker_id = 2;
+  int64 bytes_written = 3;
+  string message = 4;
+  int32 committed_files = 5;
+}
+
+message CompleteTaskResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message FailTaskRequest {
+  string task_id = 1;
+  string worker_id = 2;
+  string error_message = 3;
+}
+
+message FailTaskResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UpdateJobProgressRequest {
+  string job_id = 1;
+  string status = 2;
+  int64 current_bytes = 3;
+  int64 total_bytes = 4;
+  string message = 5;
+  int64 last_processed_txid = 6;
+  int64 txid_lag = 7;
+}
+
+message UpdateJobProgressResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// -------------------------------------------------------------
+// Получение заданий и топологии
+// -------------------------------------------------------------
+
+message GetJobsRequest {
+  bool include_subjobs = 1;
+  string cluster_id = 2;
+}
+
+message JobItemProto {
+  string id = 1;
+  string source_cluster_id = 2;
+  string target_cluster_id = 3;
+  string source_path = 4;
+  string target_path = 5;
+  string status = 6;
+  int64 total_bytes = 7;
+  int64 processed_bytes = 8;
+  string message = 9;
+  string sync_mode = 10;
+  string cron_expression = 11;
+  string execution_principal = 12;
+  bool run_as_service_account = 13;
+  string job_type = 14;
+  string parent_job_id = 15;
+}
+
+message GetJobsResponse {
+  repeated JobItemProto jobs = 1;
+}
+
+message GetClustersRequest {
+}
+
+message ClusterItemProto {
+  string id = 1;
+  string name = 2;
+  string dc_id = 3;
+  string default_fs = 4;
+  string grpc_host = 5;
+  int32 grpc_port = 6;
+  string grpc_address = 7;
+}
+
+message GetClustersResponse {
+  repeated ClusterItemProto clusters = 1;
+}
+
+// -------------------------------------------------------------
+// Inotify Streaming Lease
+// -------------------------------------------------------------
+
+message StreamingLeaseRenewRequest {
+  string cluster_id = 1;
+  string streamer_id = 2;
+  string streamer_address = 3;
+  int64 processed_txid = 4;
+  int64 txid_lag = 5;
+  int32 queue_size = 6;
+  double queue_saturation_percent = 7;
+  bool active = 8;
+}
+
+message StreamingLeaseRenewResponse {
+  bool granted = 1;
+  string leader_id = 2;
+  string leader_address = 3;
+  int64 lease_duration_ms = 4;
+  string cluster_id = 5;
+  int64 max_active_txid = 6;
+  bool queue_saturated = 7;
+}
+
+// -------------------------------------------------------------
+// Hive Metastore (HMS) Coordination
+// -------------------------------------------------------------
+
+message GetPendingHmsJobsRequest {
+  string cluster_id = 1;
+  string agent_id = 2;
+}
+
+message HmsPendingJobItemProto {
+  string job_id = 1;
+  string source_cluster = 2;
+  string target_cluster = 3;
+  string target_agent_grpc_address = 4;
+  string source_db = 5;
+  string target_db = 6;
+  string table_pattern = 7;
+  string status = 8;
+  bool sync_data = 9;
+  string execution_principal = 10;
+}
+
+message GetPendingHmsJobsResponse {
+  repeated HmsPendingJobItemProto jobs = 1;
+}
+
+message ReportHmsProgressRequest {
+  string job_id = 1;
+  string status = 2;
+  string message = 3;
+  int32 tables_synced = 4;
+  int32 partitions_synced = 5;
+  int64 last_event_id = 6;
+}
+
+message ReportHmsProgressResponse {
+  bool success = 1;
+}
+
+message CreateHdfsSubjobRequest {
+  string parent_job_id = 1;
+  string source_path = 2;
+  string target_path = 3;
+  string source_cluster = 4;
+  string target_cluster = 5;
+  string execution_principal = 6;
+}
+
+message CreateHdfsSubjobResponse {
+  string job_id = 1;
+  bool success = 2;
+}

@@ -27,6 +27,7 @@ sleep 5
 echo "========================================================================"
 echo "✅ Все сервисы демо-стенда успешно запущены:"
 echo " • Replicator Orchestrator (Web UI): http://localhost:8005"
+echo " • Replicator Control Plane (gRPC):  localhost:10051"
 echo " • Replicator Agent (DC1):           localhost:50051 (gRPC)"
 echo " • Replicator Agent (DC2):           localhost:50052 (gRPC)"
 echo " • Primary HDFS (DC1 WebHDFS):       http://localhost:9870"

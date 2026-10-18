@@ -98,10 +98,7 @@ public class HmsClientPool {
     }
 
     public HmsClient getClient(String clusterId) {
-        String normalizedId = clusterId;
-        if ("demo-cluster".equalsIgnoreCase(normalizedId)) normalizedId = "dc1";
-        if ("backup-cluster".equalsIgnoreCase(normalizedId)) normalizedId = "dc2";
-        return clients.computeIfAbsent(normalizedId, id -> new MockHmsClient(id, "APACHE_3.1.3"));
+        return clients.computeIfAbsent(clusterId, id -> new MockHmsClient(id, "APACHE_3.1.3"));
     }
 
     public void registerClient(String clusterId, HmsClient client) {

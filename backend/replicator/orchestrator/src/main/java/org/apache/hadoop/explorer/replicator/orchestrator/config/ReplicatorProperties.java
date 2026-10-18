@@ -26,16 +26,11 @@ public class ReplicatorProperties {
     private int maxBundleFiles = 500;
     private int bundleCommitConcurrency = 8;
     private StreamingConfig streaming = new StreamingConfig();
+    private GrpcControlPlaneConfig grpc = new GrpcControlPlaneConfig();
 
-    private List<DatacenterConfig> datacenters = new ArrayList<>(List.of(
-        new DatacenterConfig("dc1", "Дата-Центр 1 (Primary DC)", "zone-a"),
-        new DatacenterConfig("dc2", "Дата-Центр 2 (Disaster Recovery)", "zone-b")
-    ));
-
-    private List<ClusterConfig> clusters = new ArrayList<>(List.of(
-        new ClusterConfig("dc1", "HDFS DC1 Production", "dc1", "hdfs://namenode-dc1:8020", "agent-dc1", 50051),
-        new ClusterConfig("dc2", "HDFS DC2 Disaster Recovery", "dc2", "hdfs://namenode-dc2:8020", "agent-dc2", 50051)
-    ));
+    private List<DatacenterConfig> datacenters = new ArrayList<>();
+    private List<ClusterConfig> clusters = new ArrayList<>();
+    private boolean seedDemoData = false;
 
     public long getGlobalLimitBytesPerSec() { return globalLimitBytesPerSec; }
     public void setGlobalLimitBytesPerSec(long globalLimitBytesPerSec) { this.globalLimitBytesPerSec = globalLimitBytesPerSec; }
@@ -75,6 +70,8 @@ public class ReplicatorProperties {
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }
     public void setClusters(List<ClusterConfig> clusters) { this.clusters = clusters; }
+    public boolean isSeedDemoData() { return seedDemoData; }
+    public void setSeedDemoData(boolean seedDemoData) { this.seedDemoData = seedDemoData; }
 
     public static class DatacenterConfig {
         private String id;
@@ -128,11 +125,7 @@ public class ReplicatorProperties {
         public void setGrpcPort(int grpcPort) { this.grpcPort = grpcPort; }
     }
 
-    private List<FederationMappingConfig> federationMappings = new ArrayList<>(List.of(
-        new FederationMappingConfig("ns-cold", "dc1-ns-cold", "hdfs://ns-cold-dc2:8020", "dc2-ns-cold"),
-        new FederationMappingConfig("ns-hot", "dc1-ns-hot", "hdfs://ns-hot-dc2:8020", "dc2-ns-hot"),
-        new FederationMappingConfig("namenode-dc1:8020", "dc1", "hdfs://namenode-dc2:8020", "dc2")
-    ));
+    private List<FederationMappingConfig> federationMappings = new ArrayList<>();
 
     public List<FederationMappingConfig> getFederationMappings() { return federationMappings; }
     public void setFederationMappings(List<FederationMappingConfig> federationMappings) { this.federationMappings = federationMappings; }
@@ -206,4 +199,36 @@ public class ReplicatorProperties {
         public long getInotifyBackpressureMaxDelayMs() { return inotifyBackpressureMaxDelayMs; }
         public void setInotifyBackpressureMaxDelayMs(long inotifyBackpressureMaxDelayMs) { this.inotifyBackpressureMaxDelayMs = inotifyBackpressureMaxDelayMs; }
     }
+
+    public GrpcControlPlaneConfig getGrpc() { return grpc; }
+    public void setGrpc(GrpcControlPlaneConfig grpc) { this.grpc = grpc; }
+
+    public static class GrpcControlPlaneConfig {
+        private boolean enabled = true;
+        private int port = 50051;
+        private int maxInboundMessageSize = 16 * 1024 * 1024;
+        private boolean tlsEnabled = false;
+        private String certChainPath;
+        private String privateKeyPath;
+        private String trustCertCollectionPath;
+        private String clientAuth = "NONE";
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
+        public int getMaxInboundMessageSize() { return maxInboundMessageSize; }
+        public void setMaxInboundMessageSize(int maxInboundMessageSize) { this.maxInboundMessageSize = maxInboundMessageSize; }
+        public boolean isTlsEnabled() { return tlsEnabled; }
+        public void setTlsEnabled(boolean tlsEnabled) { this.tlsEnabled = tlsEnabled; }
+        public String getCertChainPath() { return certChainPath; }
+        public void setCertChainPath(String certChainPath) { this.certChainPath = certChainPath; }
+        public String getPrivateKeyPath() { return privateKeyPath; }
+        public void setPrivateKeyPath(String privateKeyPath) { this.privateKeyPath = privateKeyPath; }
+        public String getTrustCertCollectionPath() { return trustCertCollectionPath; }
+        public void setTrustCertCollectionPath(String trustCertCollectionPath) { this.trustCertCollectionPath = trustCertCollectionPath; }
+        public String getClientAuth() { return clientAuth; }
+        public void setClientAuth(String clientAuth) { this.clientAuth = clientAuth; }
+    }
 }
+

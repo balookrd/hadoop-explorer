@@ -26,10 +26,10 @@ public class JobEntity {
     private String parentJobId;
 
     @Column(name = "source_cluster_id", nullable = false, length = 64)
-    private String sourceClusterId = "dc1";
+    private String sourceClusterId;
 
     @Column(name = "target_cluster_id", nullable = false, length = 64)
-    private String targetClusterId = "dc2";
+    private String targetClusterId;
 
     @Column(name = "status", nullable = false, length = 32)
     private String status = "QUEUED";

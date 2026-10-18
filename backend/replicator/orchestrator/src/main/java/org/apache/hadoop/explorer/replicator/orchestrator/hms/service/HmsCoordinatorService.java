@@ -110,17 +110,23 @@ public class HmsCoordinatorService {
             boolean dropExtraneousPartitions,
             String executionPrincipal
     ) {
+        if (sourceClusterId == null || sourceClusterId.isBlank()) {
+            throw new IllegalArgumentException("Параметр sourceClusterId обязателен для создания задачи HMS репликации");
+        }
+        if (targetClusterId == null || targetClusterId.isBlank()) {
+            throw new IllegalArgumentException("Параметр targetClusterId обязателен для создания задачи HMS репликации");
+        }
         String id = "hms-job-" + sourceDb + "-" + UUID.randomUUID().toString().substring(0, 8);
 
         HmsReplicationJobEntity entity = new HmsReplicationJobEntity();
         entity.setId(id);
-        entity.setSourceClusterId(sourceClusterId != null ? sourceClusterId : "dc1");
-        entity.setTargetClusterId(targetClusterId != null ? targetClusterId : "dc2");
+        entity.setSourceClusterId(sourceClusterId);
+        entity.setTargetClusterId(targetClusterId);
         entity.setSourceDbName(sourceDb);
         entity.setTargetDbName(targetDb != null ? targetDb : sourceDb);
         entity.setTableIncludePattern(tablePattern != null ? tablePattern : "*");
         entity.setCreatedBy(author != null ? author : "system_operator");
-        entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : "hdfs@EXAMPLE.COM");
+        entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : null);
         entity.setDropExtraneousTables(dropExtraneousTables);
         entity.setDropExtraneousPartitions(dropExtraneousPartitions);
 
@@ -144,7 +150,7 @@ public class HmsCoordinatorService {
     ) {
         String defaultPrincipal = (author != null && !author.isBlank())
                 ? (author.contains("@") ? author : author + "@REALM.LOCAL")
-                : "hdfs@EXAMPLE.COM";
+                : null;
         return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern, author, dropExtraneousTables, dropExtraneousPartitions, defaultPrincipal);
     }
 

@@ -41,13 +41,13 @@ public class SparkProperties {
         private String name;
         private String description = "";
         private String type = "livy";
-        private String livyUrl = "http://localhost:8998";
-        private String yarnClusterId = "yarn-prod";
-        private boolean mockStorage = true;
+        private String livyUrl;
+        private String yarnClusterId;
+        private boolean mockStorage;
         private List<SparkVersionConfig> sparkVersions = new ArrayList<>();
         private List<MetastoreConfig> metastores = new ArrayList<>();
-        private List<String> yarnQueues = new ArrayList<>(List.of("root.default", "root.analytics"));
-        private String defaultQueue = "root.default";
+        private List<String> yarnQueues = new ArrayList<>();
+        private String defaultQueue;
         private List<ResourceProfileConfig> resourceProfiles = new ArrayList<>();
         private List<String> defaultRepositories = new ArrayList<>();
         private List<String> allowedUsers = new ArrayList<>();

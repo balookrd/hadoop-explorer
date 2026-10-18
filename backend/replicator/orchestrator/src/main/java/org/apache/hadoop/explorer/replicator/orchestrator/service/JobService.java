@@ -50,6 +50,10 @@ public class JobService {
     @PostConstruct
     @Transactional
     public void seedDemoJobsIfEmpty() {
+        if (!properties.isSeedDemoData()) {
+            log.debug("Сидирование демо-задач отключено конфигурацией (seedDemoData = false)");
+            return;
+        }
         Instant now = Instant.now();
 
         if (!jobRepository.existsById("job-writer-sales")) {
@@ -277,6 +281,12 @@ public class JobService {
 
     @Transactional
     public JobResponse createJob(CreateJobRequest req, String username) {
+        if (req.sourceClusterId() == null || req.sourceClusterId().isBlank()) {
+            throw new IllegalArgumentException("Параметр sourceClusterId обязателен для создания задачи репликации");
+        }
+        if (req.targetClusterId() == null || req.targetClusterId().isBlank()) {
+            throw new IllegalArgumentException("Параметр targetClusterId обязателен для создания задачи репликации");
+        }
         String id = UUID.randomUUID().toString();
         JobEntity entity = new JobEntity();
         entity.setId(id);

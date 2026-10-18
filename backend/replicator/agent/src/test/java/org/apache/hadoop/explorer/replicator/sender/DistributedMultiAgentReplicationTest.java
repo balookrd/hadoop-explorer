@@ -2,7 +2,7 @@ package org.apache.hadoop.explorer.replicator.sender;
 
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessServerBuilder;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
@@ -300,13 +300,13 @@ class DistributedMultiAgentReplicationTest {
     /**
      * Потокобезопасный in-memory стаб Оркестратора для тестирования распределенного пула задач.
      */
-    static class MockDistributedOrchestratorClient extends OrchestratorClient {
+    static class MockDistributedOrchestratorClient extends OrchestratorGrpcClient {
 
         final Map<String, TaskItemDto> taskPool = new ConcurrentHashMap<>();
         final Queue<String> queuedTaskIds = new ConcurrentLinkedQueue<>();
 
         MockDistributedOrchestratorClient() {
-            super("http://localhost:8005", "secret");
+            super();
         }
 
         @Override

@@ -2,7 +2,7 @@ package org.apache.hadoop.explorer.replicator.sender;
 
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessServerBuilder;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.*;
@@ -31,13 +31,13 @@ public class TarStreamReplicationTest {
     private HadoopFsManager fsManager;
     private MockOrchestratorClient orchestratorMock;
 
-    static class MockOrchestratorClient extends OrchestratorClient {
+    static class MockOrchestratorClient extends OrchestratorGrpcClient {
         final List<BatchCreateTasksRequest> batchRequests = new CopyOnWriteArrayList<>();
         final List<CompleteTaskRequest> completedTasks = new CopyOnWriteArrayList<>();
         final List<FailTaskRequest> failedTasks = new CopyOnWriteArrayList<>();
 
         public MockOrchestratorClient() {
-            super("http://localhost:8005", "secret", true);
+            super();
         }
 
         @Override

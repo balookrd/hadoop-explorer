@@ -90,6 +90,8 @@ class TokenBucketThrottlerTest {
     void shouldDynamicallyUpdateDcLimitsOnTheFly() {
         ReplicatorProperties props = new ReplicatorProperties();
         props.setGlobalLimitBytesPerSec(100_000_000); // 100 MB/s
+        props.getClusters().add(new ReplicatorProperties.ClusterConfig("dc1", "Cluster 1", "dc1", "hdfs://nn1:8020", "agent1", 50051));
+        props.getClusters().add(new ReplicatorProperties.ClusterConfig("dc2", "Cluster 2", "dc2", "hdfs://nn2:8020", "agent2", 50051));
 
         TopologyRegistry topology = new TopologyRegistry(props);
         topology.setDcLimit("dc1", "dc2", 10_000_000); // 10 MB/s начальный лимит

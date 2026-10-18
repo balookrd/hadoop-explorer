@@ -31,6 +31,9 @@ class OrchestratorIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
+
     @Test
     @DisplayName("Сквозной интеграционный сценарий Оркестратора: Login -> Topology -> Agents -> Jobs Lifecycle -> Token Bucket")
     void fullOrchestratorWorkflowTest() throws Exception {
@@ -57,23 +60,29 @@ class OrchestratorIntegrationTest {
             .andExpect(jsonPath("$.datacenters").isArray())
             .andExpect(jsonPath("$.clusters").isArray());
 
-        // 4. Регистрация агента с заголовком X-Agent-Secret
+        // 4. Проверка отключения устаревшего REST эндпоинта регистрации агентов (Control Plane переведен на gRPC)
         AgentRegisterRequest agentReg = new AgentRegisterRequest("agent-dc1-node1", "dc1", "all", "node1:50051", "node1", 100.0);
         mockMvc.perform(post("/api/v1/agents/register")
                 .header("X-Agent-Secret", "replicator-secure-agent-secret-key-12345")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(agentReg)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("registered"));
+            .andExpect(status().isNotFound());
 
-        // 5. Запрос квоты полосы пропускания (Token Bucket)
+        // Регистрация агента в реестре (как это делает gRPC Control Plane)
+        agentRegistry.register(agentReg, "replicator-secure-agent-secret-key-12345");
+
+        // Проверка получения зарегистрированных агентов через UI REST API
+        mockMvc.perform(get("/api/v1/agents").cookie(authCookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$").isArray());
+
+        // 5. Проверка отключения устаревшего REST эндпоинта запроса квоты (Token Bucket переведен на gRPC)
         TokenRequest tokenReq = new TokenRequest("agent-dc1-node1", 1048576, "dc1", "dc2");
         mockMvc.perform(post("/api/v1/tokens/request")
                 .header("X-Agent-Secret", "replicator-secure-agent-secret-key-12345")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(tokenReq)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.wait_seconds").value(0.0));
+            .andExpect(status().isNotFound());
 
         // 6. Создание задачи репликации
         CreateJobRequest createJob = new CreateJobRequest(

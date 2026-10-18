@@ -2,8 +2,6 @@ package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
 import org.apache.hadoop.explorer.common.model.UserSession;
 import org.apache.hadoop.explorer.common.security.CommonAuthenticationToken;
-import org.apache.hadoop.explorer.replicator.model.TokenRequest;
-import org.apache.hadoop.explorer.replicator.model.TokenResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,19 +34,6 @@ public class TokenController {
             HttpStatus.FORBIDDEN,
             "Изменение глобального лимита пропускной способности доступно только Администратору (ADMIN)"
         );
-    }
-
-    @PostMapping("/api/v1/tokens/request")
-    public ResponseEntity<TokenResponse> requestTokens(@RequestBody TokenRequest req) {
-        double waitSeconds = throttler.requestTokens(
-            req.getRequestedBytes(),
-            req.getSourceClusterId(),
-            req.getTargetClusterId()
-        );
-        if (waitSeconds > 0) {
-            metricsService.recordThrottlingWait(waitSeconds);
-        }
-        return ResponseEntity.ok(new TokenResponse(waitSeconds));
     }
 
     @GetMapping("/api/v1/tokens/limit")

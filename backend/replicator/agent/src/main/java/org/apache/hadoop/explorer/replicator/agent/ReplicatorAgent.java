@@ -6,7 +6,7 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
@@ -45,7 +45,7 @@ public class ReplicatorAgent {
     private final ReplicatorAgentConfig config;
     private final LocalBandwidthLimiter bandwidthLimiter;
     private final HadoopFsManager fsManager;
-    private final OrchestratorClient orchestratorClient;
+    private final OrchestratorGrpcClient orchestratorClient;
     private final ReplicationSender sender;
     private HmsClient hmsClient;
     private org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor hmsTaskExecutor;
@@ -69,10 +69,11 @@ public class ReplicatorAgent {
         this.config = config;
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
         this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal());
-        this.orchestratorClient = new OrchestratorClient(
-                config.getOrchestratorUrl(),
+        this.orchestratorClient = new OrchestratorGrpcClient(
+                config.getOrchestratorGrpcAddress(),
                 config.getAgentSecret(),
-                config.isOrchestratorInsecureSkipVerify()
+                config.isGrpcTlsEnabled(),
+                config.getGrpcTrustCertCollectionPath()
         );
         this.sender = new ReplicationSender(
                 config.getAgentId(),
@@ -592,7 +593,15 @@ public class ReplicatorAgent {
             inotifyListener.stop();
         }
 
+        if (orchestratorClient != null) {
+            orchestratorClient.close();
+        }
+
         logger.info("Replicator Agent '{}' успешно остановлен", config.getAgentId());
+    }
+
+    public OrchestratorGrpcClient getOrchestratorClient() {
+        return orchestratorClient;
     }
 
     public boolean isRunning() {

@@ -225,13 +225,22 @@ public class ReplicatorMetricsService {
     }
 
     private void renderDrMetrics(StringBuilder sb) {
-        double fencedDc1 = isClusterFenced("dc1") ? 1.0 : 0.0;
-        double fencedDc2 = isClusterFenced("dc2") ? 1.0 : 0.0;
-
         sb.append("# HELP replicator_dr_cluster_fenced Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active)\n");
         sb.append("# TYPE replicator_dr_cluster_fenced gauge\n");
-        sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"dc1\"} %.1f\n", fencedDc1));
-        sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"dc2\"} %.1f\n", fencedDc2));
+        try {
+            DrStatusResponse drStatus = disasterRecoveryService.getDrStatus();
+            if (drStatus != null && drStatus.clusters() != null && !drStatus.clusters().isEmpty()) {
+                for (var cluster : drStatus.clusters()) {
+                    double fenced = (Boolean.TRUE.equals(cluster.isFenced()) || isClusterFenced(cluster.id())) ? 1.0 : 0.0;
+                    sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n", escape(cluster.id()), fenced));
+                }
+            } else if (drStatus != null && drStatus.datacenters() != null && !drStatus.datacenters().isEmpty()) {
+                for (var dc : drStatus.datacenters()) {
+                    double fenced = (dc.isFenced() || dc.bandwidthLimitMbS() == 0.0) ? 1.0 : 0.0;
+                    sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n", escape(dc.id()), fenced));
+                }
+            }
+        } catch (Exception ignored) {}
 
         double revRunning = countReverseJobs("RUNNING");
         double revCompleted = countReverseJobs("COMPLETED");

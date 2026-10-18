@@ -65,7 +65,19 @@ public class DisasterRecoveryController {
         requireAdmin(auth);
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : "system_operator";
-        var request = req != null ? req : new org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyRollbackRequest("dc1", true, true, true);
+        String targetCluster = (req != null && req.clusterId() != null && !req.clusterId().isBlank())
+                ? req.clusterId()
+                : (drService.getDrStatus() != null && drService.getDrStatus().summary() != null
+                        ? drService.getDrStatus().summary().fencedClusterId() : null);
+        if (targetCluster == null || targetCluster.isBlank()) {
+            throw new IllegalArgumentException("Параметр cluster_id обязателен для отката аварийного останова");
+        }
+        var request = new org.apache.hadoop.explorer.replicator.orchestrator.dto.DrEmergencyRollbackRequest(
+                targetCluster,
+                req != null && req.restoreNetwork() != null ? req.restoreNetwork() : true,
+                req != null && req.resumeHms() != null ? req.resumeHms() : true,
+                req != null && req.resumeHdfs() != null ? req.resumeHdfs() : true
+        );
         return ResponseEntity.ok(drService.rollbackEmergencyStop(request, username));
     }
 

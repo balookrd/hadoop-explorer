@@ -13,6 +13,7 @@ public class ReplicatorAgentConfig {
     private String clusterId;
     private String mode;
     private String orchestratorUrl;
+    private String orchestratorGrpcAddress;
     private String receiverHost;
     private int receiverPort;
     private String stagingDir;
@@ -67,6 +68,14 @@ public class ReplicatorAgentConfig {
         config.clusterId = getEnv("AGENT_CLUSTER_ID", getEnv("CLUSTER_ID", null));
         config.mode = getEnv("AGENT_MODE", "all").toLowerCase();
         config.orchestratorUrl = getEnv("ORCHESTRATOR_URL", "http://localhost:8005");
+        String envGrpcAddr = getEnv("ORCHESTRATOR_GRPC_ADDRESS", getEnv("ORCHESTRATOR_GRPC_URL", null));
+        if (envGrpcAddr != null && !envGrpcAddr.isBlank()) {
+            config.orchestratorGrpcAddress = envGrpcAddr;
+        } else if (config.orchestratorUrl != null && config.orchestratorUrl.contains("orchestrator")) {
+            config.orchestratorGrpcAddress = "orchestrator:50051";
+        } else {
+            config.orchestratorGrpcAddress = "localhost:10051";
+        }
         config.receiverHost = getEnv("RECEIVER_HOST", "0.0.0.0");
         config.receiverPort = Integer.parseInt(getEnv("RECEIVER_PORT", "50051"));
         config.stagingDir = getEnv("REPLICATOR_STAGING_DIR", "/tmp/staging");
@@ -167,6 +176,9 @@ public class ReplicatorAgentConfig {
 
     public String getOrchestratorUrl() { return orchestratorUrl; }
     public void setOrchestratorUrl(String orchestratorUrl) { this.orchestratorUrl = orchestratorUrl; }
+
+    public String getOrchestratorGrpcAddress() { return orchestratorGrpcAddress; }
+    public void setOrchestratorGrpcAddress(String orchestratorGrpcAddress) { this.orchestratorGrpcAddress = orchestratorGrpcAddress; }
 
     public String getReceiverHost() { return receiverHost; }
     public void setReceiverHost(String receiverHost) { this.receiverHost = receiverHost; }

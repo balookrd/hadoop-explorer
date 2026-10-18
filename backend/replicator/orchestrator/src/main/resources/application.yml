@@ -51,11 +51,6 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
-replicator:
-  hms:
-    mock-cluster-api:
-      enabled: false # В боевом режиме отключено по умолчанию (чистый Control Plane)
-
 hadoop:
   security:
     debug: true
@@ -112,8 +107,13 @@ hadoop:
         - "hadoop_explorer_session"
 
   replicator:
+    grpc:
+      port: ${REPLICATOR_GRPC_PORT:50051}
+      enabled: ${REPLICATOR_GRPC_ENABLED:true}
+      tls-enabled: ${REPLICATOR_GRPC_TLS_ENABLED:false}
     global-limit-bytes-per-sec: 104857600
     agent-secret: "replicator-secure-agent-secret-key-12345"
+    seed-demo-data: ${REPLICATOR_SEED_DEMO_DATA:true}
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
     hms-poll-interval-ms: 5000

@@ -148,7 +148,7 @@ public class KafkaReplicationController {
      */
     @GetMapping("/discovery/topics")
     public List<Map<String, Object>> discoverTopics(
-            @RequestParam(defaultValue = "dc1") String dc,
+            @RequestParam(required = false) String dc,
             @RequestParam(required = false) String search) {
         List<Map<String, Object>> all = List.of(
                 // Orders domain
@@ -196,7 +196,7 @@ public class KafkaReplicationController {
      */
     @GetMapping("/discovery/groups")
     public List<Map<String, Object>> discoverGroups(
-            @RequestParam(defaultValue = "dc1") String dc,
+            @RequestParam(required = false) String dc,
             @RequestParam(required = false) String search) {
         List<Map<String, Object>> all = List.of(
                 // Billing groups

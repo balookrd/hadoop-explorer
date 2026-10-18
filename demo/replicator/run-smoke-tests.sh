@@ -487,14 +487,14 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "inotify" ]; then
     LEASE_RESP=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/streaming/lease/all")
     echo "  ✓ Статус распределенной аренды стримеров: ${LEASE_RESP}"
 
-    # 2. Проверка изоляции привилегий: стример не может брать задачи воркера
+    # 2. Проверка изоляции: устаревший REST-эндпоинт /tasks/claim отключен (переведен на gRPC Control Plane)
     CLAIM_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${ORCHESTRATOR_URL}/api/v1/tasks/claim" \
       -H "Content-Type: application/json" \
       -H "X-Agent-Secret: replicator-secure-agent-secret-key-12345" \
       -d '{"agent_id":"streamer-dc1-01","cluster_id":"dc1","limit":5}')
 
-    if [ "$CLAIM_HTTP_CODE" = "403" ]; then
-        printf "%b  ✓ [Security Isolation OK] Запрос задач передачи от стримера отклонен (HTTP 403 Forbidden)%b\n" "$GREEN" "$NC"
+    if [ "$CLAIM_HTTP_CODE" = "404" ] || [ "$CLAIM_HTTP_CODE" = "403" ]; then
+        printf "%b  ✓ [Security Isolation OK] Устаревший REST-эндпоинт tasks/claim отключен (HTTP %s, взаимодействие переведено на gRPC)%b\n" "$GREEN" "$CLAIM_HTTP_CODE" "$NC"
     else
         printf "%b  ⚠️ Предупреждение: статус изоляции стримера: HTTP %s%b\n" "$YELLOW" "$CLAIM_HTTP_CODE" "$NC"
     fi

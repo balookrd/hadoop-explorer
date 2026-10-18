@@ -16,9 +16,6 @@ public record DrEmergencyRollbackRequest(
     Boolean resumeHdfs
 ) {
     public DrEmergencyRollbackRequest {
-        if (clusterId == null || clusterId.isBlank()) {
-            clusterId = "dc1";
-        }
         if (restoreNetwork == null) {
             restoreNetwork = true;
         }

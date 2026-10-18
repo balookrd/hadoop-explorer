@@ -18,11 +18,12 @@
      - **HDFS-to-HDFS Pool**: выделенная полоса между парами кластеров.
    - Потокобезопасный учет на базе `AtomicLong` с расчетом узкого горлышка `max(wait_global, wait_dc, wait_hdfs)`.
 
-2. **Реестр агентов и обнаружение топологии (`AgentRegistry`)**:
-   - Автоматическая регистрация агентов (`POST /api/v1/agents/register`) и мониторинг доступности по heartbeat (`POST /api/v1/agents/heartbeat`).
+2. **Реестр агентов и gRPC Control Plane (`AgentRegistry`, `OrchestratorControlPlaneService`)**:
+   - Высокопроизводительный управляющий gRPC интерфейс (порт `50051` в Docker / `10051` на хосте, HTTP/2).
+   - Автоматическая регистрация агентов (`RegisterAgent`), мониторинг доступности по heartbeat (`Heartbeat`) и graceful дерегистрация (`UnregisterAgent`).
    - Автоматическое исключение офлайн-агентов по таймауту.
    - Защита от SSRF (Server-Side Request Forgery): блокировка регистрации агентов на loopback, link-local и cloud-metadata адреса (`169.254.169.254`).
-   - Аутентификация вызовов агентов через защищенный заголовок `X-Agent-Secret`.
+   - Аутентификация вызовов агентов на уровне gRPC L7 через интерцептор заголовка `X-Agent-Secret`.
 
 3. **Планировщик и жизненный цикл задач (`ReplicationScheduler`, `JobService`)**:
    - Поддержка запуска по расписанию: интервальные пресеты (`@every_5m`, `@every_15m`, `@hourly`, `@daily`) и Cron-выражения (`UNIX` / `Spring`).
@@ -71,10 +72,15 @@ hadoop:
       expiration-minutes: 480
 
   replicator:
+    grpc:
+      port: 50051 # gRPC Control Plane порт (в docker 50051, на хосте 10051)
+      enabled: true
+      tls-enabled: false
     global-limit-bytes-per-sec: 104857600 # 100 MB/s
     agent-secret: "replicator-secure-agent-secret-key-12345"
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
+    seed-demo-data: false # Сидирование демонстрационных задач при старте (по умолчанию false)
     small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
     bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
     max-bundle-files: 500 # макс. файлов в одном бандле
@@ -137,7 +143,31 @@ make test-java
 
 ---
 
-## 4. REST API Эндпоинты
+## 4. gRPC Control Plane API (`orchestrator_control_plane.proto`)
+
+Протокол взаимодействия Агентов и Стримеров с Оркестром (порт `50051` в Docker / `10051` на хосте, HTTP/2, заголовок `X-Agent-Secret`).
+
+| Категория | RPC Метод | Запрос / Ответ | Назначение |
+|---|---|---|---|
+| **Агенты** | `RegisterAgent` | `AgentRegisterRequest` / `AgentRegisterResponse` | Регистрация агента и его сетевых возможностей |
+| | `Heartbeat` | `AgentHeartbeatRequest` / `AgentHeartbeatResponse` | Продление аренды, отправка телеметрии и загрузки |
+| | `UnregisterAgent` | `AgentUnregisterRequest` / `AgentUnregisterResponse` | Корректный вывод агента из пула (graceful shutdown) |
+| **Шейпинг WAN** | `RequestTokens` | `TokenRequest` / `TokenResponse` | Запрос квоты полосы пропускания (Hierarchical Token Bucket) |
+| **Задачи HDFS** | `ClaimTasks` | `ClaimTasksRequest` / `ClaimTasksResponse` | Забор пачки доступных пофайловых задач свободным воркером |
+| | `CompleteTask` | `CompleteTaskRequest` / `CompleteTaskResponse` | Подтверждение успешной передачи файла/бандла |
+| | `FailTask` | `FailTaskRequest` / `FailTaskResponse` | Фиксация сбоя исполнения задачи для перераспределения |
+| | `BatchCreateTasks`| `BatchCreateTasksRequest` / `BatchCreateTasksResponse` | Пакетная регистрация выявленных файлов на репликацию |
+| **Inotify CDC** | `RenewStreamingLease` | `StreamingLeaseRenewRequest` / `StreamingLeaseRenewResponse` | Продление лизинга лидерства стримера Inotify |
+| | `ReportInotifyProgress` | `InotifyProgressReportRequest` / `InotifyProgressReportResponse` | Фиксация последнего обработанного `txid` NameNode |
+| **Hive Metastore** | `ClaimHmsTasks` | `ClaimHmsTasksRequest` / `ClaimHmsTasksResponse` | Забор подзадач репликации метаданных HMS |
+| | `ReportHmsProgress` | `HmsProgressReportRequest` / `HmsProgressReportResponse` | Промежуточный отчет о прогрессе синхронизации схем |
+| | `ReportHmsTaskResult` | `HmsTaskResultRequest` / `HmsTaskResultResponse` | Фиксация результата обработки метаданных таблицы/партиции |
+| | `AcquireHmsJobLease` | `AcquireHmsJobLeaseRequest` / `AcquireHmsJobLeaseResponse` | Захват эксклюзивного лизинга на репликацию схемы |
+| | `RenewHmsJobLease` | `RenewHmsJobLeaseRequest` / `RenewHmsJobLeaseResponse` | Продление эксклюзивного лизинга схемы HMS |
+
+---
+
+## 5. REST API Эндпоинты (Web UI и Администрирование)
 
 | Метод | Путь | Описание | Доступ |
 |---|---|---|---|
@@ -145,10 +175,7 @@ make test-java
 | `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Публичный |
 | `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator | Публичный |
 | `POST` | `/api/v1/auth/login` | Аутентификация пользователя (JWT Cookie) | Публичный |
-| `POST` | `/api/v1/agents/register` | Регистрация gRPC агента | `X-Agent-Secret` |
-| `POST` | `/api/v1/agents/heartbeat` | Heartbeat агента и метрики загрузки | `X-Agent-Secret` |
 | `GET` | `/api/v1/agents` | Список активных агентов репликации | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/tokens/request` | Запрос квоты полосы пропускания (Hierarchical Token Bucket) | `X-Agent-Secret` |
 | `GET` | `/api/v1/jobs` | Список задач репликации | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/jobs` | Создание новой задачи репликации | JWT (`ADMIN` / `WRITER`) |
 | `GET` | `/api/v1/jobs/{id}` | Детальная информация по задаче | JWT (`USER` / `ADMIN`) |
@@ -159,12 +186,9 @@ make test-java
 | `POST` | `/api/v1/jobs/{id}/cancel` | Отмена выполнения задачи | JWT (`ADMIN` / `WRITER`) |
 | `DELETE` | `/api/v1/jobs/{id}` | Удаление задачи | JWT (`ADMIN`) |
 | `GET` | `/api/v1/jobs/{id}/runs` | История запусков задачи | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/tasks/claim` | Забор пофайловых задач агентом из распределенной очереди | `X-Agent-Secret` |
-| `POST` | `/api/v1/tasks/{id}/complete` | Подтверждение успешного завершения задачи | `X-Agent-Secret` |
-| `POST` | `/api/v1/tasks/{id}/fail` | Регистрация ошибки исполнения задачи | `X-Agent-Secret` |
+| `GET` | `/api/v1/jobs/{id}/tasks` | Постраничный просмотр пофайловых задач | JWT (`USER` / `ADMIN`) |
 | `GET` | `/api/v1/tasks/queue-status` | Проверка насыщения очереди пула задач (Backpressure) | `X-Agent-Secret` / JWT |
 | `GET` | `/api/v1/streaming/lease/status` | Статус распределенного лидерства потокового слушателя Inotify | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/streaming/lease/renew` | Продление лизинга активного стримера | `X-Agent-Secret` |
 | `GET` | `/api/v1/dr/status` | Телеметрия Disaster Recovery и лаг непереданных данных | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/dr/emergency-stop` | Экстренная остановка (Kill-Switch) и сетевое ограждение (Fencing) | JWT (`ADMIN`) |
 | `POST` | `/api/v1/dr/emergency-stop/rollback` | Откат аварийной изоляции и безопасное снятие ограждения | JWT (`ADMIN`) |
@@ -173,9 +197,7 @@ make test-java
 | `GET` | `/api/v1/hms/jobs` | Список задач репликации Hive Metastore | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/hms/jobs` | Создание новой задачи репликации схемы HMS | JWT (`ADMIN` / `WRITER`) |
 | `GET` | `/api/v1/topology` | Топология дата-центров, кластеров и активные лимиты | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/limits/global` | Динамическое изменение глобального лимита WAN полосы | JWT (`ADMIN`) |
-| `POST` | `/api/v1/limits/dc-dc` | Динамическое изменение лимита магистрали между ЦОД | JWT (`ADMIN`) |
-| `POST` | `/api/v1/limits/hdfs-hdfs` | Динамическое изменение лимита между кластерами HDFS | JWT (`ADMIN`) |
+| `PUT` | `/api/v1/tokens/limit` | Динамическое изменение лимитов полосы пропускания | JWT (`ADMIN`) |
 | `GET` | `/api/v1/replicator/kafka/jobs` | Список задач межкластерной репликации Kafka | JWT (`USER` / `ADMIN`) |
 | `POST` | `/api/v1/replicator/kafka/jobs` | Регистрация задачи репликации Kafka с автосозданием топиков | JWT (`ADMIN` / `WRITER`) |
 | `GET` | `/api/v1/replicator/kafka/jobs/{id}` | Детали задачи репликации Kafka | JWT (`USER` / `ADMIN`) |

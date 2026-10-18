@@ -1,6 +1,6 @@
 package org.apache.hadoop.explorer.replicator.hms.service;
 
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.generated.GetMetadataSnapshotResponse;
 import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
 import org.apache.hadoop.explorer.replicator.hms.filter.TableSupportFilter;
@@ -33,7 +33,7 @@ public class HmsTaskExecutor implements Closeable {
     private final String agentId;
     private final String clusterId;
     private final HmsClient hmsClient;
-    private final OrchestratorClient orchestratorClient;
+    private final OrchestratorGrpcClient orchestratorClient;
     private final TableSupportFilter tableFilter;
     private final HmsPathRewriter pathRewriter;
     private final ExecutorService bootstrapExecutor;
@@ -48,7 +48,7 @@ public class HmsTaskExecutor implements Closeable {
             String agentId,
             String clusterId,
             HmsClient hmsClient,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             HmsPathRewriter pathRewriter,
             boolean grpcTlsEnabled,
             boolean insecureSkipVerify,
@@ -63,7 +63,7 @@ public class HmsTaskExecutor implements Closeable {
             String agentId,
             String clusterId,
             HmsClient hmsClient,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             HmsPathRewriter pathRewriter,
             boolean grpcTlsEnabled,
             boolean insecureSkipVerify,
@@ -94,7 +94,7 @@ public class HmsTaskExecutor implements Closeable {
             String agentId,
             String clusterId,
             HmsClient hmsClient,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             boolean grpcTlsEnabled,
             boolean insecureSkipVerify,
             int concurrency,

@@ -13,10 +13,10 @@ public class HmsReplicationJobEntity {
     private String id;
 
     @Column(name = "source_cluster_id", nullable = false, length = 64)
-    private String sourceClusterId = "dc1";
+    private String sourceClusterId;
 
     @Column(name = "target_cluster_id", nullable = false, length = 64)
-    private String targetClusterId = "dc2";
+    private String targetClusterId;
 
     @Column(name = "source_db_name", nullable = false, length = 128)
     private String sourceDbName;

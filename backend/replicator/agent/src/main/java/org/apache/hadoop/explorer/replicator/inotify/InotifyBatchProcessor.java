@@ -6,7 +6,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.inotify.Event;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest;
 import org.apache.hadoop.explorer.replicator.model.JobDto;
@@ -44,7 +44,7 @@ public class InotifyBatchProcessor implements AutoCloseable {
     ) {}
 
     private final HadoopFsManager fsManager;
-    private final OrchestratorClient orchestratorClient;
+    private final OrchestratorGrpcClient orchestratorClient;
 
     private final int maxQueueCapacity;
     private final double highWatermark;
@@ -59,14 +59,14 @@ public class InotifyBatchProcessor implements AutoCloseable {
 
     private final ScheduledExecutorService flushExecutor;
 
-    public InotifyBatchProcessor(HadoopFsManager fsManager, OrchestratorClient orchestratorClient) {
+    public InotifyBatchProcessor(HadoopFsManager fsManager, OrchestratorGrpcClient orchestratorClient) {
         // Конструктор по умолчанию (синхронный сброс flushIntervalMs = 0 для мгновенной обработки в юнит-тестах)
         this(fsManager, orchestratorClient, 10000, 0.8, 0.3, 500, 0L);
     }
 
     public InotifyBatchProcessor(
             HadoopFsManager fsManager,
-            OrchestratorClient orchestratorClient,
+            OrchestratorGrpcClient orchestratorClient,
             int maxQueueCapacity,
             double highWatermark,
             double lowWatermark,

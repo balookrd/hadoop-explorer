@@ -1,7 +1,7 @@
 package org.apache.hadoop.explorer.replicator.sender;
 
 import io.grpc.ManagedChannel;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.model.TokenRequest;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
@@ -20,7 +20,7 @@ class ReplicationSenderOptimizationTest {
     @Test
     @DisplayName("P1: getOrCreateChannel возвращает одинаковый ManagedChannel из пула и удаляет при evictChannel")
     void testChannelPoolReuseAndEviction() throws Exception {
-        OrchestratorClient orchestratorClient = mock(OrchestratorClient.class);
+        OrchestratorGrpcClient orchestratorClient = mock(OrchestratorGrpcClient.class);
         HadoopFsManager fsManager = mock(HadoopFsManager.class);
         LocalBandwidthLimiter bandwidthLimiter = mock(LocalBandwidthLimiter.class);
 
@@ -55,7 +55,7 @@ class ReplicationSenderOptimizationTest {
     @Test
     @DisplayName("P1: acquireNetworkTokens пакетирует запросы порциями (Hierarchical Token Bucket batching)")
     void testTokenBatchLeaseAcquisition() {
-        OrchestratorClient orchestratorClient = mock(OrchestratorClient.class);
+        OrchestratorGrpcClient orchestratorClient = mock(OrchestratorGrpcClient.class);
         when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.0);
 
         ConcurrentHashMap<String, AtomicLong> leaseMap = new ConcurrentHashMap<>();

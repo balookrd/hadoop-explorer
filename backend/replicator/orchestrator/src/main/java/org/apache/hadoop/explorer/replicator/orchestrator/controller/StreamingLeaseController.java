@@ -24,7 +24,7 @@ public class StreamingLeaseController {
     }
 
     @GetMapping("/status")
-    public ResponseEntity<StreamingLeaseRenewResponse> getStatus(@RequestParam(defaultValue = "dc1") String clusterId) {
+    public ResponseEntity<StreamingLeaseRenewResponse> getStatus(@RequestParam String clusterId) {
         return leaseCoordinator.getLeaseStatus(clusterId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());

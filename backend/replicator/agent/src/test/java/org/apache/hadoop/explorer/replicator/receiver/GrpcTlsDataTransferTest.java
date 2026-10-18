@@ -11,7 +11,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.grpc.stub.StreamObserver;
-import org.apache.hadoop.explorer.replicator.client.OrchestratorClient;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.model.JobDto;
@@ -176,7 +176,7 @@ public class GrpcTlsDataTransferTest {
         byte[] payload = "Payload transferred via ReplicationSender with TLS".getBytes();
         Files.write(sourceFile.toPath(), payload);
 
-        OrchestratorClient dummyOrchestrator = new OrchestratorClient("http://127.0.0.1:65535", "secret", true) {
+        OrchestratorGrpcClient dummyOrchestrator = new OrchestratorGrpcClient() {
             @Override
             public void updateJobProgress(String jobId, org.apache.hadoop.explorer.replicator.model.UpdateJobRequest req) {
                 // no-op

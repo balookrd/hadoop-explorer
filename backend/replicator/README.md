@@ -178,6 +178,13 @@
     - **Оптимизация хранения PostgreSQL для частых UPDATE (HOT-updates)**: для таблицы `replication_tasks` выставлены параметры `WITH (autovacuum_vacuum_scale_factor = 0.05, autovacuum_vacuum_cost_limit = 1000, fillfactor = 90)`. Запас 10% свободного места на страницах таблицы обеспечивает размещение обновленных версий строк (HOT) без модификации индексов.
     - **Пагинация при инспекции задач**: эндпоинт `GET /api/v1/jobs/{jobId}/tasks` дополнен поддержкой параметров `page` и `size` (по умолчанию 100, максимум 1000), предотвращая OutOfMemoryError при просмотре заданий с миллионами файлов.
 
+24. **Высокопроизводительный gRPC Control Plane для агентов (Отказ от REST)**:
+    - **Полный переход на HTTP/2 и gRPC**: Управляющий протокол взаимодействия агентов с оркестратором (Control Plane) полностью переведен с REST на нативный gRPC (порт `50051` в сети оркестратора, `10051` на хосте).
+    - **Строгий Protobuf-контракт (`orchestrator_control_plane.proto`)**: Единый типобезопасный контракт включает 15 RPC-методов для регистрации (`RegisterAgent`, `Heartbeat`, `UnregisterAgent`), квотирования трафика (`RequestTokens`), диспетчеризации задач (`ClaimTasks`, `CompleteTask`, `FailTask`, `BatchCreateTasks`), лизинга стримеров Inotify (`RenewStreamingLease`, `ReportInotifyProgress`) и координации репликации схем Hive Metastore (`ClaimHmsTasks`, `ReportHmsProgress`, `ReportHmsTaskResult`, `AcquireHmsJobLease`, `RenewHmsJobLease`).
+    - **Мультиплексирование и производительность**: Использование постоянных HTTP/2 мультиплексированных соединений с keepalive вместо сотен разрозненных короткоживущих HTTP/1.1 запросов устранило задержки TCP-рукопожатий и многократно снизило оверхед на сериализацию (бинарный Protobuf против JSON).
+    - **Безопасность L7 и TLS**: Аутентификация запросов агентов выполняется через интерцептор заголовка `X-Agent-Secret` с constant-time верификацией (`AgentSecretServerInterceptor`), с поддержкой шифрования TLS/mTLS.
+    - **Чистая сегментация интерфейсов**: REST API оркестратора очищен от внутренних сервисных эндпоинтов агентов и используется исключительно для веб-интерфейса Svelte 5 и внешнего администрирования.
+
 ---
 
 ## 2. Быстрый запуск

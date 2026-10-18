@@ -25,6 +25,7 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <sqlite-jdbc.version>3.46.1.3</sqlite-jdbc.version>
+        <grpc.version>1.68.1</grpc.version>
     </properties>
 
     <dependencies>
@@ -40,6 +41,23 @@
             <groupId>org.apache.hadoop.explorer</groupId>
             <artifactId>replicator-agent</artifactId>
             <version>1.0.0</version>
+        </dependency>
+
+        <!-- gRPC Netty & Protobuf -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+            <version>${grpc.version}</version>
         </dependency>
 
         <!-- Spring Boot Starters -->
@@ -121,6 +139,9 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                    <systemPropertyVariables>
+                        <spring.profiles.active>test</spring.profiles.active>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

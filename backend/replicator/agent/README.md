@@ -26,7 +26,7 @@
 - **`HdfsStagingCleaner` / TTL Reaper**: Фоновый сборщик мусора агента, периодически сканирующий зарегистрированные целевые директории и удаляющий осиротевшие staging-файлы (`*._staging_*`), оставшиеся от аварийно упавших агентов (по порогу TTL).
 - **`AgentMetrics`**: Потокобезопасный сервис сбора Enterprise-метрик на базе **Micrometer** (`SimpleMeterRegistry`). Фиксирует объемы и коэффициент сжатия (`compression_ratio`), таймер задержек передачи gRPC-чанков (`replicator.grpc.chunk.transfer.latency` с SLA-бакетами от 1 мс до 5 с), а также активную очередь и байты буфера staging (`staging.queue.size`, `staging.active.bytes`, `staging.orphans.cleaned`). Агрегированная телеметрия передается в Оркестратор в цикле heartbeat.
 - **`LocalBandwidthLimiter`**: Локальный Token Bucket ограничитель полосы пропускания для предотвращения вытеснения рабочего трафика Spark/YARN на DataNode.
-- **`OrchestratorClient`**: Взаимодействие с REST API Оркестратора через `java.net.http.HttpClient` (регистрация в реестре, keepalive heartbeat, опрос очереди задач, запрос квот Token Bucket, обновление прогресса).
+- **`OrchestratorGrpcClient`**: Высокопроизводительное взаимодействие с gRPC Control Plane Оркестратора через постоянный HTTP/2 мультиплексированный канал (`orchestrator_control_plane.proto`): регистрация агента, keepalive heartbeat с телеметрией, взятие пофайловых задач из распределенной очереди (`claimTasks`), подтверждение завершения (`completeTask`), запрос квот Token Bucket, лизинг потоковых Inotify-демонов и координация репликации схем HMS.
 - **`ReplicatorYarnClient` & `ReplicatorApplicationMaster`**: Автономная интеграция с Apache Hadoop YARN для развертывания пула агентов в контейнерах YARN по запросу.
 
 ---
@@ -85,8 +85,8 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 | `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в системе |
 | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера |
 | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс), `sender`, `receiver` |
-| `ORCHESTRATOR_URL` | `http://localhost:8005` | URL REST API Оркестратора |
-| `RECEIVER_HOST` | `0.0.0.0` | Сетевой адрес для прослушивания gRPC |
+| `ORCHESTRATOR_GRPC_ADDRESS` | `localhost:10051` (`orchestrator:50051` в docker) | Сетевой адрес gRPC Control Plane Оркестратора (`host:port`) |
+| `RECEIVER_HOST` | `0.0.0.0` | Сетевой адрес для прослушивания входящих соединений gRPC Data Plane |
 | `RECEIVER_PORT` | `50051` | Порт gRPC сервиса приема файлов |
 | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` (без ограничений) | Локальный лимит скорости репликации в МБ/с |
 | `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов для локальной ФС (при работе с HDFS используется прямой Zero-Staging `._staging_<jobId>` в HDFS) |
