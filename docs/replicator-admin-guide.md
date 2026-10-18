@@ -241,6 +241,44 @@ flowchart TD
 
 ---
 
+### 1.7 Партиционирование PostgreSQL в высоконагруженных средах (High-Scale Table Partitioning)
+
+При непрерывной потоковой репликации через Inotify и периодической синхронизации петабайтных каталогов HDFS с десятками миллионов файлов таблица подзадач `replication_tasks` и история `job_runs` накапливают миллионы строк. 
+
+Для промышленных инсталляций на базе PostgreSQL 14+ (Patroni / Cloud Native PG) подготовлена архитектура **декларативного секционирования (Range Partitioning)**:
+
+```mermaid
+flowchart TD
+    subgraph Master ["🎯 Родительская таблица replication_tasks"]
+        Tasks["<b>replication_tasks</b><br/>PARTITION BY RANGE (updated_at)"]
+    end
+
+    subgraph Partitions ["📅 Помесячные секции (Partition Pruning)"]
+        PPrev["<code>replication_tasks_2026_09</code><br/>[Архив: удаление DROP TABLE за 5 мс]"]
+        PCurr["<code>replication_tasks_2026_10</code><br/>[Активная запись воркеров]"]
+        PNext["<code>replication_tasks_2026_11</code><br/>[Упреждающее создание cron/функцией]"]
+        PDef["<code>replication_tasks_default</code><br/>[Резервная секция]"]
+    end
+
+    Tasks --> PPrev
+    Tasks --> PCurr
+    Tasks --> PNext
+    Tasks --> PDef
+```
+
+#### Ключевые преимущества:
+1. **Partition Pruning при заборе задач воркерами**:
+   - Запросы воркеров `SELECT ... FOR UPDATE SKIP LOCKED` с фильтром по актуальному времени сканируют исключительно секцию текущего месяца, не затрагивая миллионы старых записей.
+2. **Мгновенная очистка без VACUUM и нагрузки на WAL (Zero I/O Drop)**:
+   - Очистка архивных данных старше срока хранения выполняется моментальным `DROP TABLE replication_tasks_YYYY_MM;` (<10 мс) вместо долгого `DELETE` с последующей дефрагментацией.
+3. **Эталонный DDL-скрипт**:
+   - Полная схема таблиц и секций доступна в файле [`schema-postgresql.sql`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/backend/replicator/orchestrator/src/main/resources/schema-postgresql.sql).
+   - Для активации скрипта в `application.yml` достаточно указать `spring.sql.init.schema-locations: classpath:schema-postgresql.sql` и `spring.jpa.hibernate.ddl-auto: none`.
+4. **Автоматическое создание секций**:
+   - В схему включена функция `SELECT create_future_tasks_partition(1);`, которую можно поставить в pg_cron для упреждающего создания секций на месяц вперед.
+
+---
+
 ### 1.6 Модель поставки и готовые дистрибутивы (Distribution & No-Build Deployment)
 
 Платформа **Hadoop Explorer** поставляется в виде полностью скомпилированных, готовых к промышленной эксплуатации релизных артефактов и Docker-образов.
