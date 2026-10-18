@@ -73,6 +73,20 @@ CREATE INDEX IF NOT EXISTS idx_task_job_status ON replication_tasks (job_id, sta
 CREATE INDEX IF NOT EXISTS idx_task_status_job_id ON replication_tasks (status, job_id);
 CREATE INDEX IF NOT EXISTS idx_task_assigned_status ON replication_tasks (assigned_agent_id, status);
 
+-- Высокопроизводительные частичные индексы (Partial Indexes) под нагрузку 200+ агентов:
+-- Исключают миллионы завершенных записей (COMPLETED), помещаясь целиком в RAM cache
+CREATE INDEX IF NOT EXISTS idx_tasks_queued_active ON replication_tasks (updated_at) WHERE status = 'QUEUED';
+CREATE INDEX IF NOT EXISTS idx_tasks_running_stale ON replication_tasks (updated_at) WHERE status = 'RUNNING';
+CREATE INDEX IF NOT EXISTS idx_tasks_active_by_job ON replication_tasks (job_id, status) WHERE status IN ('QUEUED', 'RUNNING');
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_running ON replication_tasks (assigned_agent_id) WHERE status = 'RUNNING';
+
+-- Индекс для молниеносного забора задач по кластеру
+CREATE INDEX IF NOT EXISTS idx_jobs_running_cluster ON replication_jobs (source_cluster_id, status) WHERE status = 'RUNNING';
+
+-- Оптимизация параметров хранения PostgreSQL для частых обновлений статуса задач (HOT-updates)
+ALTER TABLE replication_tasks SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_vacuum_cost_limit = 1000, fillfactor = 90);
+ALTER TABLE job_runs SET (autovacuum_vacuum_scale_factor = 0.05, fillfactor = 90);
+
 -- Секции по умолчанию и предсозданные помесячные партиции
 CREATE TABLE IF NOT EXISTS replication_tasks_default PARTITION OF replication_tasks DEFAULT;
 

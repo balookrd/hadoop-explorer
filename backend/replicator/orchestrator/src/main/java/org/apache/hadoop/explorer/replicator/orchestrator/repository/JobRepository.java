@@ -25,4 +25,14 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
           AND LOWER(j.sourceClusterId) = LOWER(:clusterId)
     """)
     long findMaxProcessedTxidByClusterId(@Param("clusterId") String clusterId);
+
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE JobEntity j
+        SET j.copiedBytes = j.copiedBytes + :bytes,
+            j.transferredObjects = j.transferredObjects + :files,
+            j.updatedAt = :now
+        WHERE j.id = :jobId
+    """)
+    int incrementProgress(@Param("jobId") String jobId, @Param("bytes") long bytes, @Param("files") int files, @Param("now") Instant now);
 }

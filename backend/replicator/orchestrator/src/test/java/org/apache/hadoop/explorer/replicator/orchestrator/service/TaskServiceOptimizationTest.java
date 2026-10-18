@@ -122,4 +122,68 @@ class TaskServiceOptimizationTest {
                 any(java.time.Instant.class)
         );
     }
+
+    @Test
+    @DisplayName("200+ Agents: completeTask использует атомарный incrementProgress и быструю проверку exists без блокировки JobEntity")
+    void testCompleteTaskUsesAtomicProgressIncrementAndExistsCheck() {
+        String taskId = "task-opt-1";
+        String jobId = "job-atomic-progress";
+
+        TaskEntity task = new TaskEntity();
+        task.setId(taskId);
+        task.setJobId(jobId);
+        task.setStatus("RUNNING");
+        task.setFileSize(2048L);
+        task.setFileCount(1);
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+
+        // Симулируем, что в очереди еще остались незавершенные задачи
+        when(taskRepository.existsByJobIdAndStatusIn(eq(jobId), anyCollection())).thenReturn(true);
+
+        boolean completed = taskService.completeTask(new org.apache.hadoop.explorer.replicator.model.CompleteTaskRequest(
+                taskId, "worker-200", 2048L, "checksum-ok", 1
+        ));
+
+        assertTrue(completed);
+        assertEquals("COMPLETED", task.getStatus());
+
+        // Проверяем, что выполнен атомарный инкремент в базе данных
+        verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(2048L), eq(1), any(java.time.Instant.class));
+
+        // Проверяем, что использовался индексный LIMIT 1 exists вместо COUNT
+        verify(taskRepository, times(1)).existsByJobIdAndStatusIn(eq(jobId), anyCollection());
+
+        // И самое главное: тяжелый jobRepository.save(job) НЕ вызывается, пока задачи еще не завершились
+        verify(jobRepository, never()).save(any(JobEntity.class));
+    }
+
+    @Test
+    @DisplayName("200+ Agents: completeTasksBatch пакетно коммитит список задач воркеров")
+    void testCompleteTasksBatch() {
+        String taskId1 = "batch-task-1";
+        String taskId2 = "batch-task-2";
+        String jobId = "job-batch";
+
+        TaskEntity t1 = new TaskEntity();
+        t1.setId(taskId1);
+        t1.setJobId(jobId);
+        t1.setStatus("RUNNING");
+
+        TaskEntity t2 = new TaskEntity();
+        t2.setId(taskId2);
+        t2.setJobId(jobId);
+        t2.setStatus("RUNNING");
+
+        when(taskRepository.findById(taskId1)).thenReturn(Optional.of(t1));
+        when(taskRepository.findById(taskId2)).thenReturn(Optional.of(t2));
+        when(taskRepository.existsByJobIdAndStatusIn(eq(jobId), anyCollection())).thenReturn(true);
+
+        int count = taskService.completeTasksBatch(List.of(
+                new org.apache.hadoop.explorer.replicator.model.CompleteTaskRequest(taskId1, "worker-1", 100L, "ok", 1),
+                new org.apache.hadoop.explorer.replicator.model.CompleteTaskRequest(taskId2, "worker-1", 200L, "ok", 1)
+        ));
+
+        assertEquals(2, count);
+        verify(jobRepository, times(2)).incrementProgress(eq(jobId), anyLong(), anyInt(), any(java.time.Instant.class));
+    }
 }

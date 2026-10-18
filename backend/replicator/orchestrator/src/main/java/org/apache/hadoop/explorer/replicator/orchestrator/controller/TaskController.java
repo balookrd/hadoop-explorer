@@ -130,10 +130,36 @@ public class TaskController {
     }
 
     /**
-     * Получение всех задач для инспекции в UI / мониторинге.
+     * Пакетная фиксация завершения подзадач воркерами для оптимизации сетевого и БД-взаимодействия.
+     */
+    @PostMapping({"/api/v1/tasks/complete-batch", "/tasks/complete-batch"})
+    public ResponseEntity<Map<String, Object>> completeTasksBatch(
+            @RequestBody List<CompleteTaskRequest> requests,
+            Authentication auth
+    ) {
+        requireAgentOrAdmin(auth);
+        int completed = taskService.completeTasksBatch(requests);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "completed_count", completed,
+                "total_requested", requests != null ? requests.size() : 0
+        ));
+    }
+
+    /**
+     * Получение задач для инспекции в UI / мониторинге с поддержкой пагинации.
      */
     @GetMapping({"/api/v1/jobs/{jobId}/tasks", "/jobs/{jobId}/tasks"})
-    public ResponseEntity<List<TaskItemDto>> getTasks(@PathVariable String jobId) {
+    public ResponseEntity<?> getTasks(
+            @PathVariable String jobId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
+    ) {
+        if (page != null || size != null) {
+            int p = page != null && page >= 0 ? page : 0;
+            int s = size != null && size > 0 ? Math.min(size, 1000) : 100;
+            return ResponseEntity.ok(taskService.getTasksByJob(jobId, org.springframework.data.domain.PageRequest.of(p, s)));
+        }
         return ResponseEntity.ok(taskService.getTasksByJob(jobId));
     }
 }

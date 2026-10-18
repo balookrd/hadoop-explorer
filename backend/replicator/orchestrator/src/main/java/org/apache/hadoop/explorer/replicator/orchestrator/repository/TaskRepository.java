@@ -19,17 +19,38 @@ import java.util.List;
 @Repository
 public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     List<TaskEntity> findByJobId(String jobId);
+    org.springframework.data.domain.Page<TaskEntity> findByJobId(String jobId, Pageable pageable);
     List<TaskEntity> findByJobIdAndStatus(String jobId, String status);
     long countByJobId(String jobId);
     long countByJobIdAndStatus(String jobId, String status);
     long countByJobIdAndStatusIn(String jobId, Collection<String> statuses);
+    boolean existsByJobIdAndStatusIn(String jobId, Collection<String> statuses);
     List<TaskEntity> findByStatus(String status);
     List<TaskEntity> findByStatus(String status, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
-    @Query("SELECT t FROM TaskEntity t WHERE t.status = :status")
+    @Query("SELECT t FROM TaskEntity t WHERE t.status = :status ORDER BY t.updatedAt ASC")
     List<TaskEntity> findByStatusForUpdateSkipLocked(@Param("status") String status, Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
+    @Query("""
+        SELECT t FROM TaskEntity t
+        JOIN t.job j
+        WHERE t.status = :status
+          AND j.status = 'RUNNING'
+          AND (:clusterId IS NULL OR LOWER(j.sourceClusterId) = LOWER(:clusterId))
+        ORDER BY t.updatedAt ASC
+    """)
+    List<TaskEntity> findPendingTasksForClusterSkipLocked(
+        @Param("status") String status,
+        @Param("clusterId") String clusterId,
+        Pageable pageable
+    );
+
+    List<TaskEntity> findByStatusAndUpdatedAtBefore(String status, Instant cutoff, Pageable pageable);
+    List<TaskEntity> findByStatusAndAssignedAgentIdIsNull(String status, Pageable pageable);
 
     long countByStatus(String status);
     List<TaskEntity> findByAssignedAgentIdAndStatus(String assignedAgentId, String status);
