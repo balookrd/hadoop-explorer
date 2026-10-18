@@ -25,8 +25,9 @@
 - **`ReplicationSender`**: gRPC-клиент с поддержкой многоуровневого шейпинга пропускной способности. Читает файлы из HDFS и потоково передает их в удаленный gRPC Receiver (одиночные файлы через `TransferFile`, сгруппированные мелкие файлы через виртуальный `TarArchiveOutputStream` и RPC `TransferTarStream`). Выполняет pre-flight очистку старых staging-файлов задания перед началом репликации.
 - **`HdfsStagingCleaner` / TTL Reaper**: Фоновый сборщик мусора агента, периодически сканирующий зарегистрированные целевые директории и удаляющий осиротевшие staging-файлы (`*._staging_*`), оставшиеся от аварийно упавших агентов (по порогу TTL).
 - **`AgentMetrics`**: Потокобезопасный сервис сбора Enterprise-метрик на базе **Micrometer** (`SimpleMeterRegistry`). Фиксирует объемы и коэффициент сжатия (`compression_ratio`), таймер задержек передачи gRPC-чанков (`replicator.grpc.chunk.transfer.latency` с SLA-бакетами от 1 мс до 5 с), а также активную очередь и байты буфера staging (`staging.queue.size`, `staging.active.bytes`, `staging.orphans.cleaned`). Агрегированная телеметрия передается в Оркестратор в цикле heartbeat.
-- **`LocalBandwidthLimiter`**: Локальный Token Bucket ограничитель полосы пропускания для предотвращения вытеснения рабочего трафика Spark/YARN на DataNode.
-- **`OrchestratorGrpcClient`**: Высокопроизводительное взаимодействие с gRPC Control Plane Оркестратора через постоянный HTTP/2 мультиплексированный канал (`orchestrator_control_plane.proto`): регистрация агента, keepalive heartbeat с телеметрией, взятие пофайловых задач из распределенной очереди (`claimTasks`), подтверждение завершения (`completeTask`), запрос квот Token Bucket, лизинг потоковых Inotify-демонов и координация репликации схем HMS.
+- **`ReplicatorAgent`**: Высокопроизводительный оркестратор воркера и отправителя задач. Включает многопоточный пул `workerTaskPool` (`Executors.newFixedThreadPool(workerConcurrency)`) для параллельной передачи независимых задач передачи данных (`transferTask`) с контролем предельного числа одновременных передач (`activeTransfers`) и graceful shutdown.
+- **`OrchestratorGrpcClient`**: Высокопроизводительное взаимодействие с gRPC Control Plane Оркестратора через постоянный HTTP/2 мультиплексированный канал (`orchestrator_control_plane.proto`): регистрация агента, keepalive heartbeat с телеметрией, взятие пофайловых задач из распределенной очереди (`claimTasks`), подтверждение завершения (`completeTask`), запрос квот Token Bucket, лизинг потоковых Inotify-демонов и координация репликации схем HMS. Поддерживает защищенное TLS/mTLS соединение со строгой валидацией сертификатов через системные доверенные центры сертификации (TrustManager JVM) с опцией `insecureSkipVerify` исключительно для локальных отладочных сред.
+- **`HadoopFsManager`**: Нативная интеграция с HDFS и Kerberos UGI. Включает защитный механизм `validatePrincipalSafety` (паттерн `SAFE_PRINCIPAL_PATTERN` и черный список системных аккаунтов), блокирующий эскалацию привилегий и запуск под учетными записями `root`, `bin`, `daemon`, `sys`, `adm` и др.
 - **`ReplicatorYarnClient` & `ReplicatorApplicationMaster`**: Автономная интеграция с Apache Hadoop YARN для развертывания пула агентов в контейнерах YARN по запросу.
 
 ---
@@ -85,7 +86,7 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 | `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в системе |
 | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера |
 | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс), `sender`, `receiver` |
-| `ORCHESTRATOR_GRPC_ADDRESS` | `localhost:10051` (`orchestrator:50051` в docker) | Сетевой адрес gRPC Control Plane Оркестратора (`host:port`) |
+| `ORCHESTRATOR_GRPC_ADDRESS` | `localhost:50050` (`orchestrator:50050` в docker) | Сетевой адрес gRPC Control Plane Оркестратора (`host:port`) |
 | `RECEIVER_HOST` | `0.0.0.0` | Сетевой адрес для прослушивания входящих соединений gRPC Data Plane |
 | `RECEIVER_PORT` | `50051` | Порт gRPC сервиса приема файлов |
 | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` (без ограничений) | Локальный лимит скорости репликации в МБ/с |

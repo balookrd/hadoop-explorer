@@ -57,13 +57,15 @@ public final class KafkaSecurityConfigBuilder {
         props.put(SaslConfigs.SASL_MECHANISM, "GSSAPI");
         props.put(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, krbConfig.getServiceName());
 
-        // 2. Генерация динамического JAAS конфига (Krb5LoginModule)
+        // 2. Генерация динамического JAAS конфига (Krb5LoginModule) с защитой от JAAS Injection
+        String sanitizedKeytab = sanitizeJaasValue(keytabPath);
+        String sanitizedPrincipal = sanitizeJaasValue(principal);
         String jaasTemplate = "com.sun.security.auth.module.Krb5LoginModule required " +
                 "useKeyTab=true " +
                 "storeKey=true " +
                 "keyTab=\"%s\" " +
                 "principal=\"%s\";";
-        String jaasConfig = String.format(jaasTemplate, keytabPath.replace("\\", "\\\\"), principal);
+        String jaasConfig = String.format(jaasTemplate, sanitizedKeytab, sanitizedPrincipal);
         props.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
 
         // 3. krb5.conf (если указан)
@@ -86,5 +88,20 @@ public final class KafkaSecurityConfigBuilder {
                 krbConfig.getSecurityProtocol(), krbConfig.getServiceName(), principal);
 
         return props;
+    }
+
+    /**
+     * Очищает и экранирует спецсимволы для безопасной вставки в JAAS login configuration,
+     * предотвращая инъекции директив (JAAS Injection).
+     */
+    public static String sanitizeJaasValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace(";", "")
+                    .replace("\n", "")
+                    .replace("\r", "");
     }
 }

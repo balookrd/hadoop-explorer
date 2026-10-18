@@ -10,30 +10,38 @@ import static org.junit.jupiter.api.Assertions.*;
 public class HmsPathRewriterTest {
 
     @Test
-    @DisplayName("Проверка fallback трансляции authority между кластерами hdfs-cluster-1 и hdfs-cluster-2")
-    void testFallbackClusterAuthorityTranslation() {
+    @DisplayName("Проверка динамической трансляции authority по границам идентификаторов кластеров")
+    void testDynamicClusterAuthorityTranslation() {
         HmsPathRewriter rewriter = new HmsPathRewriter();
 
-        String srcUri = "hdfs://hdfs-cluster-1:9000/apps/hive/warehouse/test_db.db/sales_report";
-        var res = rewriter.rewrite(srcUri, "dc1", "dc2");
+        // 1. Сопоставление с портом
+        String srcUri = "hdfs://prod-nn1.corp:9000/apps/hive/warehouse/test_db.db/sales_report";
+        var res = rewriter.rewrite(srcUri, "prod-nn1", "dr-nn2");
 
         assertEquals(srcUri, res.sourceUri());
-        assertEquals("hdfs://hdfs-cluster-2:9000/apps/hive/warehouse/test_db.db/sales_report", res.targetUri());
-        assertEquals("dc1", res.sourceClusterId());
-        assertEquals("dc2", res.targetClusterId());
+        assertEquals("hdfs://dr-nn2.corp:9000/apps/hive/warehouse/test_db.db/sales_report", res.targetUri());
+        assertEquals("prod-nn1", res.sourceClusterId());
+        assertEquals("dr-nn2", res.targetClusterId());
         assertFalse(res.unmapped());
+
+        // 2. Обратная трансляция
+        String reverseUri = "hdfs://dc2:8020/warehouse/db.db/t1";
+        var reverseRes = rewriter.rewrite(reverseUri, "dc2", "dc1");
+        assertEquals("hdfs://dc1:8020/warehouse/db.db/t1", reverseRes.targetUri());
+        assertFalse(reverseRes.unmapped());
     }
 
     @Test
-    @DisplayName("Проверка обратной трансляции dc2 -> dc1")
-    void testReverseFallbackTranslation() {
+    @DisplayName("Проверка сохранения оригинального пути при отсутствии сопоставления (unmapped)")
+    void testUnmappedWhenNoRuleMatches() {
         HmsPathRewriter rewriter = new HmsPathRewriter();
 
-        String srcUri = "hdfs://hdfs-cluster-2:9000/warehouse/db.db/t1";
-        var res = rewriter.rewrite(srcUri, "dc2", "dc1");
+        String unknownUri = "hdfs://external-shared-storage:8020/warehouse/data";
+        var res = rewriter.rewrite(unknownUri, "dc1", "dc2");
 
-        assertEquals("hdfs://hdfs-cluster-1:9000/warehouse/db.db/t1", res.targetUri());
-        assertFalse(res.unmapped());
+        assertEquals(unknownUri, res.sourceUri());
+        assertEquals(unknownUri, res.targetUri(), "Путь не должен искажаться при отсутствии сопоставления");
+        assertTrue(res.unmapped(), "Должен быть выставлен флаг unmapped");
     }
 
     @Test

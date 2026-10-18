@@ -324,8 +324,9 @@ public class HmsCoordinatorService {
         if (report.eventLag() != null) {
             job.setEventLag(report.eventLag());
         }
-        // Сохранение DDL событий в историю аудита
+        // Сохранение DDL событий в историю аудита батчем
         if (report.events() != null && !report.events().isEmpty()) {
+            List<HmsEventLogEntity> entities = new ArrayList<>(report.events().size());
             for (HmsEventReportDto ev : report.events()) {
                 HmsEventLogEntity eventEntity = new HmsEventLogEntity();
                 eventEntity.setId(UUID.randomUUID().toString());
@@ -339,8 +340,9 @@ public class HmsCoordinatorService {
                 eventEntity.setSubjobId(ev.subjobId());
                 eventEntity.setStatus(ev.status());
                 eventEntity.setErrorMessage(ev.errorMessage());
-                hmsEventLogRepository.save(eventEntity);
+                entities.add(eventEntity);
             }
+            hmsEventLogRepository.saveAll(entities);
         }
 
         if (report.message() != null) {
@@ -578,12 +580,15 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Обогащение списка задач HMS метриками первичной синхронизации.
+     * Обогащение списка задач HMS метриками первичной синхронизации (пакетный запрос без N+1).
      */
     public void enrichAllWithSubtasksMetrics(List<HmsReplicationJobEntity> jobs) {
         if (jobs == null || jobs.isEmpty()) return;
+        List<String> parentIds = jobs.stream().map(HmsReplicationJobEntity::getId).toList();
+        Map<String, List<JobResponse>> subtasksByParent = jobService.listSubjobsByParentIds(parentIds);
         for (HmsReplicationJobEntity job : jobs) {
-            enrichWithSubtasksMetrics(job);
+            List<JobResponse> subtasks = subtasksByParent.getOrDefault(job.getId(), Collections.emptyList());
+            enrichJobWithSubtasks(job, subtasks);
         }
     }
 

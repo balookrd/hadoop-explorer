@@ -227,23 +227,24 @@ verify_dc2_replication() {
     # Даем агенту время на вычитку и передачу батча по gRPC
     sleep 3
 
-    # Проверяем наличие сообщений в metrics-raw на DC1 и DC2
-    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+    # Проверяем наличие сообщений в metrics-raw на DC2
+    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic metrics-raw --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic metrics-raw --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
-    [ "$count" -ge 2 ] 2>/dev/null || return 0
+    [ -n "$count" ] && [ "$count" -ge 2 ] 2>/dev/null || return 1
 }
-run_check "Проверка публикации Passthrough сообщений и целостности оффсетов" verify_dc2_replication
+run_check "Проверка публикации Passthrough сообщений и целостности оффсетов в DC2" verify_dc2_replication
 
 verify_tombstone_delivery() {
-    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+    # Проверяем наличие сообщений в user-cache на DC2
+    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic user-cache --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic user-cache --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
-    [ "$count" -ge 3 ] 2>/dev/null || return 0
+    [ -n "$count" ] && [ "$count" -ge 3 ] 2>/dev/null || return 1
 }
-run_check "Проверка доставки Tombstone-записи (null payload) в compact-топик" verify_tombstone_delivery
+run_check "Проверка доставки Tombstone-записи (null payload) в compact-топик DC2" verify_tombstone_delivery
 
 
 # ------------------------------------------------------------------------------

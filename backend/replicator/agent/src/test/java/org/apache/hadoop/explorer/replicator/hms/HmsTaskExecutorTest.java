@@ -195,7 +195,7 @@ public class HmsTaskExecutorTest {
         assertEquals(2, finalReport.replicatedTables());
         assertEquals(3, finalReport.replicatedPartitions());
 
-        // 4. Проверка CDC
+        // 4. Проверка CDC (fallback без message payload)
         srcHmsClient.addPartitions(srcDb, "sales_daily", List.of(
                 new HmsPartitionDto("hive", srcDb, "sales_daily", List.of("2026-10-11"),
                         "hdfs://ns-hot:8020/warehouse/analytics.db/sales_daily/dt=2026-10-11", Map.of())
@@ -209,5 +209,28 @@ public class HmsTaskExecutorTest {
 
         assertEquals(1, processedCdc, "Должно быть обработано 1 событие CDC");
         assertEquals(4, dstHmsClient.getPartitions(dstDb, "sales_daily").size(), "Новая партиция должна появиться на целевой стороне");
+
+        // 5. Проверка целевой CDC дельта-обработки с JSON partitionValues
+        srcHmsClient.addPartitions(srcDb, "sales_daily", List.of(
+                new HmsPartitionDto("hive", srcDb, "sales_daily", List.of("2026-10-12"),
+                        "hdfs://ns-hot:8020/warehouse/analytics.db/sales_daily/dt=2026-10-12", Map.of()),
+                new HmsPartitionDto("hive", srcDb, "sales_daily", List.of("2026-10-13"),
+                        "hdfs://ns-hot:8020/warehouse/analytics.db/sales_daily/dt=2026-10-13", Map.of())
+        ));
+        // Эмитируем событие с дельтой только для 2026-10-12
+        srcHmsClient.emitEvent("ADD_PARTITION", srcDb, "sales_daily", "{\"partitionValues\": [[\"2026-10-12\"]]}");
+
+        long lastEventIdAfterFirstCdc = reports.get(reports.size() - 1).lastProcessedEventId();
+        int processedDelta = executor.pollAndSyncCdc(new HmsPendingJobDto(
+                job.id(), job.sourceClusterId(), job.targetClusterId(), job.sourceDbName(), job.targetDbName(),
+                job.tableIncludePattern(), false, false, job.targetAgentGrpcAddress(), "ACTIVE", lastEventIdAfterFirstCdc
+        ));
+
+        assertEquals(1, processedDelta, "Должно быть обработано дельта CDC событие");
+        List<HmsPartitionDto> targetParts = dstHmsClient.getPartitions(dstDb, "sales_daily");
+        assertEquals(5, targetParts.size(), "Должна быть добавлена только партиция 2026-10-12 из дельты");
+        assertTrue(targetParts.stream().anyMatch(p -> p.values().contains("2026-10-12")));
+        assertFalse(targetParts.stream().anyMatch(p -> p.values().contains("2026-10-13")),
+                "Партиция 2026-10-13 не была в дельта-событии и не должна пока присутствовать на целевой стороне");
     }
 }

@@ -9,7 +9,8 @@ import java.time.Instant;
     indexes = {
         @Index(name = "idx_hms_event_job_id", columnList = "hms_job_id"),
         @Index(name = "idx_hms_event_status", columnList = "status"),
-        @Index(name = "idx_hms_event_id_order", columnList = "hms_job_id, event_id")
+        @Index(name = "idx_hms_event_id_order", columnList = "hms_job_id, event_id"),
+        @Index(name = "idx_hms_event_job_created", columnList = "hms_job_id, created_at")
     }
 )
 public class HmsEventLogEntity {

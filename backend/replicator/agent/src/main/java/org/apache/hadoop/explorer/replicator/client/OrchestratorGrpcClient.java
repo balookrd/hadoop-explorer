@@ -55,9 +55,15 @@ public class OrchestratorGrpcClient implements Closeable {
 
     public OrchestratorGrpcClient(String orchestratorGrpcAddress, String agentSecret,
                                   boolean tlsEnabled, String trustCertCollectionPath) {
+        this(orchestratorGrpcAddress, agentSecret, tlsEnabled, trustCertCollectionPath, false);
+    }
+
+    public OrchestratorGrpcClient(String orchestratorGrpcAddress, String agentSecret,
+                                  boolean tlsEnabled, String trustCertCollectionPath,
+                                  boolean insecureSkipVerify) {
         String addr = (orchestratorGrpcAddress != null && !orchestratorGrpcAddress.isBlank())
                 ? orchestratorGrpcAddress.trim()
-                : "localhost:10051";
+                : "localhost:50050";
 
         // Очистка префиксов если переданы grpc:// или http://
         if (addr.startsWith("grpc://")) {
@@ -83,7 +89,7 @@ public class OrchestratorGrpcClient implements Closeable {
                 var sslBuilder = GrpcSslContexts.forClient();
                 if (trustCertCollectionPath != null && !trustCertCollectionPath.isBlank()) {
                     sslBuilder.trustManager(new File(trustCertCollectionPath));
-                } else {
+                } else if (insecureSkipVerify) {
                     sslBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
                 }
                 builder.sslContext(sslBuilder.build());

@@ -53,6 +53,7 @@ public class ReplicatorAgent {
     private Server grpcServer;
     private ScheduledExecutorService heartbeatExecutor;
     private ScheduledExecutorService stagingCleanupExecutor;
+    private ExecutorService workerTaskPool;
     private Thread senderThread;
     private Thread hmsThread;
     private DataTransferServiceImpl receiverService;
@@ -69,11 +70,20 @@ public class ReplicatorAgent {
         this.config = config;
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
         this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal());
+        this.workerTaskPool = Executors.newFixedThreadPool(
+                Math.max(2, config.getBundleCommitConcurrency()),
+                r -> {
+                    Thread t = new Thread(r, "transfer-worker-" + config.getAgentId());
+                    t.setDaemon(true);
+                    return t;
+                }
+        );
         this.orchestratorClient = new OrchestratorGrpcClient(
                 config.getOrchestratorGrpcAddress(),
                 config.getAgentSecret(),
                 config.isGrpcTlsEnabled(),
-                config.getGrpcTrustCertCollectionPath()
+                config.getGrpcTrustCertCollectionPath(),
+                config.isOrchestratorInsecureSkipVerify()
         );
         this.sender = new ReplicationSender(
                 config.getAgentId(),
@@ -411,20 +421,29 @@ public class ReplicatorAgent {
 
                 // 2. Фаза воркера: забор и параллельное исполнение задач из распределенного пула
                 if (canWork) {
-                    List<TaskItemDto> claimedTasks = orchestratorClient.claimTasks(
-                            new ClaimTasksRequest(config.getAgentId(), config.getClusterId(), 5)
-                    );
+                    int maxConcurrency = Math.max(2, config.getBundleCommitConcurrency());
+                    int availableSlots = maxConcurrency - activeTransfers.get();
+                    if (availableSlots > 0) {
+                        int claimBatch = Math.min(5, availableSlots);
+                        List<TaskItemDto> claimedTasks = orchestratorClient.claimTasks(
+                                new ClaimTasksRequest(config.getAgentId(), config.getClusterId(), claimBatch)
+                        );
 
-                    if (!claimedTasks.isEmpty()) {
-                        didWork = true;
-                        for (TaskItemDto task : claimedTasks) {
-                            if (!running.get()) break;
+                        if (!claimedTasks.isEmpty()) {
+                            didWork = true;
+                            for (TaskItemDto task : claimedTasks) {
+                                if (!running.get()) break;
 
-                            activeTransfers.incrementAndGet();
-                            try {
-                                sender.transferTask(task);
-                            } finally {
-                                activeTransfers.decrementAndGet();
+                                activeTransfers.incrementAndGet();
+                                CompletableFuture.runAsync(() -> {
+                                    try {
+                                        sender.transferTask(task);
+                                    } catch (Throwable t) {
+                                        logger.error("Ошибка при параллельной передаче задачи {}: {}", task.getId(), t.getMessage(), t);
+                                    } finally {
+                                        activeTransfers.decrementAndGet();
+                                    }
+                                }, workerTaskPool);
                             }
                         }
                     }
@@ -447,13 +466,13 @@ public class ReplicatorAgent {
     public static boolean matchesCluster(String agentCluster, String jobCluster) {
         if (agentCluster == null || jobCluster == null) return true;
         if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
-        if (jobCluster.toLowerCase().startsWith(agentCluster.toLowerCase() + "-")) return true;
-        if (("dc1".equalsIgnoreCase(agentCluster) || "demo-cluster".equalsIgnoreCase(agentCluster))
-                && (jobCluster.toLowerCase().contains("dc1") || jobCluster.toLowerCase().contains("demo-cluster"))) {
+        String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
+        String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
+        if (aNorm.equals(jNorm)) return true;
+        if (("dc1".equals(aNorm) || "democluster".equals(aNorm)) && ("dc1".equals(jNorm) || "democluster".equals(jNorm))) {
             return true;
         }
-        if (("dc2".equalsIgnoreCase(agentCluster) || "backup-cluster".equalsIgnoreCase(agentCluster))
-                && (jobCluster.toLowerCase().contains("dc2") || jobCluster.toLowerCase().contains("backup-cluster"))) {
+        if (("dc2".equals(aNorm) || "backupcluster".equals(aNorm)) && ("dc2".equals(jNorm) || "backupcluster".equals(jNorm))) {
             return true;
         }
         return false;
@@ -591,6 +610,13 @@ public class ReplicatorAgent {
 
         if (inotifyListener != null) {
             inotifyListener.stop();
+        }
+
+        if (workerTaskPool != null) {
+            workerTaskPool.shutdown();
+            try {
+                workerTaskPool.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
         }
 
         if (orchestratorClient != null) {

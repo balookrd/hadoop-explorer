@@ -34,11 +34,16 @@ public class KafkaReplicationController {
         return null;
     }
 
-    private void requireWriterOrAdmin() {
+    private void requireAuthentication() {
         UserSession session = getSession();
         if (session == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Требуется аутентификация");
         }
+    }
+
+    private void requireWriterOrAdmin() {
+        requireAuthentication();
+        UserSession session = getSession();
         if (session.systemRole() == Role.READER) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Пользователь с ролью READER не имеет права модифицировать задачи Kafka");
         }
@@ -46,18 +51,20 @@ public class KafkaReplicationController {
 
     @GetMapping("/jobs")
     public List<KafkaReplicationJobDto> listJobs() {
+        requireAuthentication();
         return service.listAllJobs();
     }
 
     @GetMapping("/jobs/{id}")
     public ResponseEntity<KafkaReplicationJobDto> getJob(@PathVariable String id) {
+        requireAuthentication();
         return service.getJobById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/jobs")
-    public ResponseEntity<KafkaReplicationJobDto> createJob(@RequestBody CreateKafkaJobRequest request) {
+    public ResponseEntity<KafkaReplicationJobDto> createJob(@jakarta.validation.Valid @RequestBody CreateKafkaJobRequest request) {
         requireWriterOrAdmin();
         KafkaReplicationJobDto created = service.createJob(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);

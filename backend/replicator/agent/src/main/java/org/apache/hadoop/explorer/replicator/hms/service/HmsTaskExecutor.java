@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.hms.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.generated.GetMetadataSnapshotResponse;
 import org.apache.hadoop.explorer.replicator.hms.client.HmsClient;
@@ -8,11 +9,12 @@ import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter;
-import org.apache.hadoop.explorer.replicator.model.*;
+import org.apache.hadoop.explorer.replicator.model.HmsEventReportDto;
+import org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto;
+import org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.Closeable;
 import java.util.*;
 import java.util.concurrent.*;
@@ -20,11 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * Исполнитель задач репликации Hive Metastore на стороне Source Agent.
- * <p>
- * Выполняет масштабируемый многопоточный Bootstrap с чанкингом партиций (1000 шт),
- * двусторонний Diff и Reconciliation лишних таблиц/партиций, регистрацию HDFS саб-джоб
- * в Оркестраторе и отправку метаданных через прямой gRPC конвейер на Target Agent.
+ * Исполнитель задач репликации схемы и метаданных Hive Metastore на стороне Replicator Agent.
+ * Выполняет первичный Bootstrap и потоковую CDC-синхронизацию из NOTIFICATION_LOG.
  */
 public class HmsTaskExecutor implements Closeable {
 
@@ -41,22 +40,18 @@ public class HmsTaskExecutor implements Closeable {
     private final boolean insecureSkipVerify;
     private final int partitionBatchSize;
     private final String agentSecret;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
+    private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob;
+    private final ConcurrentMap<String, AtomicInteger> totalPartitionsPerJob;
 
     public HmsTaskExecutor(
             String agentId,
             String clusterId,
             HmsClient hmsClient,
             OrchestratorGrpcClient orchestratorClient,
-            HmsPathRewriter pathRewriter,
-            boolean grpcTlsEnabled,
-            boolean insecureSkipVerify,
-            int concurrency,
-            int partitionBatchSize
+            HmsPathRewriter pathRewriter
     ) {
-        this(agentId, clusterId, hmsClient, orchestratorClient, pathRewriter, grpcTlsEnabled,
-                insecureSkipVerify, concurrency, partitionBatchSize, null);
+        this(agentId, clusterId, hmsClient, orchestratorClient, pathRewriter, false, false, 8, 1000, null);
     }
 
     public HmsTaskExecutor(
@@ -67,7 +62,36 @@ public class HmsTaskExecutor implements Closeable {
             HmsPathRewriter pathRewriter,
             boolean grpcTlsEnabled,
             boolean insecureSkipVerify,
-            int concurrency,
+            int bootstrapConcurrency,
+            int partitionBatchSize
+    ) {
+        this(agentId, clusterId, hmsClient, orchestratorClient, pathRewriter, grpcTlsEnabled, insecureSkipVerify,
+                bootstrapConcurrency, partitionBatchSize, null);
+    }
+
+    public HmsTaskExecutor(
+            String agentId,
+            String clusterId,
+            HmsClient hmsClient,
+            OrchestratorGrpcClient orchestratorClient,
+            boolean grpcTlsEnabled,
+            boolean insecureSkipVerify,
+            int bootstrapConcurrency,
+            int partitionBatchSize
+    ) {
+        this(agentId, clusterId, hmsClient, orchestratorClient, new HmsPathRewriter(), grpcTlsEnabled, insecureSkipVerify,
+                bootstrapConcurrency, partitionBatchSize, null);
+    }
+
+    public HmsTaskExecutor(
+            String agentId,
+            String clusterId,
+            HmsClient hmsClient,
+            OrchestratorGrpcClient orchestratorClient,
+            HmsPathRewriter pathRewriter,
+            boolean grpcTlsEnabled,
+            boolean insecureSkipVerify,
+            int bootstrapConcurrency,
             int partitionBatchSize,
             String agentSecret
     ) {
@@ -75,37 +99,26 @@ public class HmsTaskExecutor implements Closeable {
         this.clusterId = clusterId;
         this.hmsClient = hmsClient;
         this.orchestratorClient = orchestratorClient;
-        this.tableFilter = new TableSupportFilter();
         this.pathRewriter = pathRewriter != null ? pathRewriter : new HmsPathRewriter();
+        this.tableFilter = new TableSupportFilter();
         this.grpcTlsEnabled = grpcTlsEnabled;
         this.insecureSkipVerify = insecureSkipVerify;
         this.partitionBatchSize = partitionBatchSize > 0 ? partitionBatchSize : 1000;
         this.agentSecret = agentSecret;
+        this.objectMapper = new ObjectMapper();
+        this.syncedCdcEventsPerJob = new ConcurrentHashMap<>();
+        this.totalPartitionsPerJob = new ConcurrentHashMap<>();
 
-        int poolSize = concurrency > 0 ? concurrency : 8;
-        this.bootstrapExecutor = Executors.newFixedThreadPool(poolSize, r -> {
-            Thread t = new Thread(r, "hms-agent-worker");
+        int threads = Math.max(1, bootstrapConcurrency);
+        this.bootstrapExecutor = Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r, "HmsBootstrapWorker-" + UUID.randomUUID().toString().substring(0, 5));
             t.setDaemon(true);
             return t;
         });
     }
 
-    public HmsTaskExecutor(
-            String agentId,
-            String clusterId,
-            HmsClient hmsClient,
-            OrchestratorGrpcClient orchestratorClient,
-            boolean grpcTlsEnabled,
-            boolean insecureSkipVerify,
-            int concurrency,
-            int partitionBatchSize
-    ) {
-        this(agentId, clusterId, hmsClient, orchestratorClient, new HmsPathRewriter(),
-                grpcTlsEnabled, insecureSkipVerify, concurrency, partitionBatchSize);
-    }
-
     /**
-     * Выполнение полного начального Bootstrap для задачи.
+     * Выполнение начального создания и переноса таблиц/партиций (Bootstrap).
      */
     public boolean runBootstrap(HmsPendingJobDto job) {
         if (job.targetAgentGrpcAddress() == null || job.targetAgentGrpcAddress().isBlank()) {
@@ -125,8 +138,11 @@ public class HmsTaskExecutor implements Closeable {
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             long highWaterMark = hmsClient.getCurrentNotificationEventId();
 
-            // 1. Создание БД на целевой стороне
-            sender.applyDatabase(job.id(), job.targetDbName(), null);
+            // 1. Создание БД на целевой стороне и валидация ответа
+            var dbResp = sender.applyDatabase(job.id(), job.targetDbName(), null);
+            if (!dbResp.getSuccess()) {
+                throw new RuntimeException("Целевой агент вернул ошибку при создании БД '" + job.targetDbName() + "': " + dbResp.getMessage());
+            }
 
             List<String> allSourceTables = hmsClient.getAllTables(job.sourceDbName());
             List<String> tables = allSourceTables.stream()
@@ -148,11 +164,14 @@ public class HmsTaskExecutor implements Closeable {
 
                     if (!dropTables.isEmpty()) {
                         log.warn("[HmsTaskExecutor] Reconciliation: обнаружены лишние таблицы на приемнике: {}", dropTables);
-                        sender.reconcileExtraneousTables(job.id(), job.targetDbName(), dropTables);
+                        var dropResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), dropTables);
+                        if (!dropResp.getSuccess()) {
+                            log.error("[HmsTaskExecutor] Ошибка согласования лишних таблиц: {}", dropResp.getMessage());
+                        }
 
                         for (String dt : dropTables) {
                             reconciliationEvents.add(new HmsEventReportDto(
-                                    highWaterMark, "BOOTSTRAP_DROP_EXTRA_TABLE", dt, null, null, null, null,
+                                     highWaterMark, "BOOTSTRAP_DROP_EXTRA_TABLE", dt, null, null, null, null,
                                     "DROPPED", "Лишняя таблица удалена при начальном согласовании. Данные HDFS сохранены."
                             ));
                         }
@@ -182,6 +201,8 @@ public class HmsTaskExecutor implements Closeable {
             }
 
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            totalPartitionsPerJob.put(job.id(), totalPartitionsCount);
 
             // Итоговый отчет о завершении Bootstrap
             HmsProgressReportRequest finalReport = new HmsProgressReportRequest(
@@ -246,7 +267,7 @@ public class HmsTaskExecutor implements Closeable {
         // 4. Очистка вендорных параметров HDP 3.1
         Map<String, String> cleanParams = tableFilter.sanitizeParameters(table.parameters());
 
-        // 5. Создание/обновление таблицы на целевой стороне через gRPC
+        // 5. Создание/обновление таблицы на целевой стороне через gRPC с полной схемой колонок и SerDe
         HmsTableDto targetTable = new HmsTableDto(
                 "hive",
                 job.targetDbName(),
@@ -257,9 +278,15 @@ public class HmsTaskExecutor implements Closeable {
                 table.partitionKeys(),
                 table.inputFormat(),
                 table.outputFormat(),
-                table.serdeLib()
+                table.serdeLib(),
+                table.columns(),
+                table.partitionKeyFields(),
+                table.serdeParameters()
         );
-        sender.applyTable(job.id(), targetTable);
+        var tableResp = sender.applyTable(job.id(), targetTable);
+        if (!tableResp.getSuccess()) {
+            throw new RuntimeException("Целевой агент вернул ошибку при создании/обновлении таблицы " + tblName + ": " + tableResp.getMessage());
+        }
 
         // 6. Обработка партиций
         if (table.isPartitioned()) {
@@ -283,7 +310,10 @@ public class HmsTaskExecutor implements Closeable {
                     }
 
                     if (!dropPartitionVals.isEmpty()) {
-                        sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tblName, dropPartitionVals);
+                        var partDropResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tblName, dropPartitionVals);
+                        if (!partDropResp.getSuccess()) {
+                            log.warn("[HmsTaskExecutor] Сбой согласования партиций: {}", partDropResp.getMessage());
+                        }
                         for (List<String> dVals : dropPartitionVals) {
                             String partName = String.join("/", dVals);
                             eventLog.add(new HmsEventReportDto(
@@ -321,7 +351,9 @@ public class HmsTaskExecutor implements Closeable {
                             tblName,
                             part.values(),
                             partRewrite.targetUri(),
-                            part.parameters()
+                            part.parameters(),
+                            part.columns(),
+                            part.serdeParameters()
                     ));
 
                     if (allPartitions.size() <= 100 || !isLocationWithinTable(part.location(), tableBaseLocation)) {
@@ -334,7 +366,10 @@ public class HmsTaskExecutor implements Closeable {
                 }
 
                 if (!targetChunk.isEmpty()) {
-                    sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, targetChunk);
+                    var chunkResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, targetChunk);
+                    if (!chunkResp.getSuccess()) {
+                        throw new RuntimeException("Целевой агент вернул ошибку при пакетной вставке партиций: " + chunkResp.getMessage());
+                    }
                 }
 
                 if (allPartitions.size() > 100) {
@@ -389,19 +424,34 @@ public class HmsTaskExecutor implements Closeable {
                 if ("ADD_PARTITION".equalsIgnoreCase(eventType) || "ALTER_PARTITION".equalsIgnoreCase(eventType)) {
                     Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tbl);
                     if (optTable.isPresent()) {
-                        List<HmsPartitionDto> parts = hmsClient.getPartitions(job.sourceDbName(), tbl);
-                        for (HmsPartitionDto part : parts) {
+                        List<List<String>> targetPartVals = extractPartitionValuesFromEvent(event);
+                        List<HmsPartitionDto> allParts = hmsClient.getPartitions(job.sourceDbName(), tbl);
+                        List<HmsPartitionDto> partsToSync;
+
+                        if (!targetPartVals.isEmpty()) {
+                            Set<List<String>> targetSet = new HashSet<>(targetPartVals);
+                            partsToSync = allParts.stream()
+                                    .filter(p -> targetSet.contains(p.values()))
+                                    .toList();
+                        } else {
+                            // Если парсинг values не дал результатов, берем только последнюю добавленную партицию (дельта)
+                            partsToSync = !allParts.isEmpty() ? List.of(allParts.get(allParts.size() - 1)) : Collections.emptyList();
+                        }
+
+                        for (HmsPartitionDto part : partsToSync) {
                             var partRewrite = pathRewriter.rewrite(part.location(), job.sourceClusterId(), job.targetClusterId());
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
                                     partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
 
-                            sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
-                                    new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(), part.parameters())
+                            var partResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
+                                    new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(),
+                                            part.parameters(), part.columns(), part.serdeParameters())
                             ));
 
                             String partName = part.getPartitionName(optTable.get().partitionKeys());
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, partName,
-                                    partRewrite.sourceUri(), partRewrite.targetUri(), subjobId, "APPLIED", null));
+                                    partRewrite.sourceUri(), partRewrite.targetUri(), subjobId,
+                                    partResp.getSuccess() ? "APPLIED" : "FAILED", partResp.getMessage()));
                         }
                     }
                 } else if ("CREATE_TABLE".equalsIgnoreCase(eventType)) {
@@ -417,19 +467,22 @@ public class HmsTaskExecutor implements Closeable {
                             HmsTableDto targetTable = new HmsTableDto(
                                     "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),
                                     tableFilter.sanitizeParameters(table.parameters()), table.partitionKeys(),
-                                    table.inputFormat(), table.outputFormat(), table.serdeLib()
+                                    table.inputFormat(), table.outputFormat(), table.serdeLib(),
+                                    table.columns(), table.partitionKeyFields(), table.serdeParameters()
                             );
-                            sender.applyTable(job.id(), targetTable);
+                            var tblResp = sender.applyTable(job.id(), targetTable);
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
-                                    rewrite.sourceUri(), rewrite.targetUri(), subjobId, "APPLIED", null));
+                                    rewrite.sourceUri(), rewrite.targetUri(), subjobId,
+                                    tblResp.getSuccess() ? "APPLIED" : "FAILED", tblResp.getMessage()));
                         } else {
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
                                     table.sdLocation(), null, null, "SKIPPED_ACID", check.reason()));
                         }
                     }
                 } else if ("DROP_TABLE".equalsIgnoreCase(eventType)) {
-                    sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl));
-                    eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null, "APPLIED", "deleteData=false"));
+                    var dropTblResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl));
+                    eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null,
+                            dropTblResp.getSuccess() ? "APPLIED" : "FAILED", "deleteData=false"));
                 } else if ("DROP_PARTITION".equalsIgnoreCase(eventType)) {
                     List<String> partVals = Collections.emptyList();
                     try {
@@ -442,8 +495,9 @@ public class HmsTaskExecutor implements Closeable {
                         }
                     } catch (Exception ignored) {}
                     if (!partVals.isEmpty()) {
-                        sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals));
-                        eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, String.join(",", partVals), null, null, null, "APPLIED", "deleteData=false"));
+                        var dropPartResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals));
+                        eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, String.join(",", partVals), null, null, null,
+                                dropPartResp.getSuccess() ? "APPLIED" : "FAILED", "deleteData=false"));
                     }
                 }
 
@@ -454,19 +508,15 @@ public class HmsTaskExecutor implements Closeable {
             long lag = Math.max(0, currentMax - lastEventId);
 
             List<String> currentTables = Collections.emptyList();
-            int curPartCount = 0;
             try {
                 currentTables = hmsClient.getAllTables(job.sourceDbName()).stream()
                         .filter(t -> matchesPattern(t, job.tableIncludePattern()))
                         .toList();
-                for (String ct : currentTables) {
-                    try {
-                        curPartCount += hmsClient.getPartitions(job.sourceDbName(), ct).size();
-                    } catch (Exception ignored) {}
-                }
             } catch (Exception e) {
-                log.warn("[HmsTaskExecutor] Не удалось получить актуальные таблицы/партиции схемы {}: {}", job.sourceDbName(), e.getMessage());
+                log.warn("[HmsTaskExecutor] Не удалось получить актуальные таблицы схемы {}: {}", job.sourceDbName(), e.getMessage());
             }
+
+            int curPartCount = totalPartitionsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0)).get();
 
             // Накопительный счетчик обработанных CDC событий схемы
             AtomicInteger counter = syncedCdcEventsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0));
@@ -483,6 +533,53 @@ public class HmsTaskExecutor implements Closeable {
         }
 
         return processed;
+    }
+
+    private List<List<String>> extractPartitionValuesFromEvent(HmsNotificationEventDto event) {
+        if (event == null || event.message() == null || event.message().isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            Map<?, ?> map = objectMapper.readValue(event.message(), Map.class);
+            List<List<String>> result = new ArrayList<>();
+            Object values = map.get("values");
+            if (values instanceof List<?> valList) {
+                result.add(valList.stream().map(Object::toString).toList());
+                return result;
+            }
+            Object parts = map.get("partitions");
+            if (parts instanceof List<?> pList) {
+                for (Object item : pList) {
+                    if (item instanceof Map<?, ?> pMap) {
+                        Object pVals = pMap.get("values");
+                        if (pVals instanceof List<?> pvList) {
+                            result.add(pvList.stream().map(Object::toString).toList());
+                        }
+                    }
+                }
+                if (!result.isEmpty()) return result;
+            }
+            Object partObj = map.get("partition");
+            if (partObj instanceof Map<?, ?> pMap) {
+                Object pVals = pMap.get("values");
+                if (pVals instanceof List<?> pvList) {
+                    result.add(pvList.stream().map(Object::toString).toList());
+                    return result;
+                }
+            }
+            Object partVals = map.get("partitionValues");
+            if (partVals instanceof List<?> pvList) {
+                for (Object item : pvList) {
+                    if (item instanceof List<?> l) {
+                        result.add(l.stream().map(Object::toString).toList());
+                    } else if (item != null) {
+                        result.add(List.of(item.toString()));
+                    }
+                }
+                if (!result.isEmpty()) return result;
+            }
+        } catch (Exception ignored) {}
+        return Collections.emptyList();
     }
 
     private boolean isLocationWithinTable(String partLocation, String tableBaseLocation) {

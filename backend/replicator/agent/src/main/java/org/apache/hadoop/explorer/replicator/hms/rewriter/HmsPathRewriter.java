@@ -7,6 +7,8 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class HmsPathRewriter {
 
@@ -80,17 +82,17 @@ public class HmsPathRewriter {
                     String cleanPath = targetPath.startsWith("/") ? targetPath : "/" + targetPath;
                     return new PathRewriteResult(sourceUri, cleanTarget + cleanPath, defaultSourceCluster, defaultTargetCluster, false);
                 }
-                if (defaultSourceCluster != null && defaultTargetCluster != null) {
-                    targetPath = targetPath.replace("/" + defaultSourceCluster + "/", "/" + defaultTargetCluster + "/")
-                                           .replace("/" + defaultSourceCluster, "/" + defaultTargetCluster);
+                if (defaultSourceCluster != null && defaultTargetCluster != null && !defaultSourceCluster.isBlank()) {
+                    String regex = "(?i)/" + Pattern.quote(defaultSourceCluster) + "(?=/|$)";
+                    targetPath = targetPath.replaceAll(regex, "/" + Matcher.quoteReplacement(defaultTargetCluster));
                 }
                 return new PathRewriteResult(sourceUri, targetPath, defaultSourceCluster, defaultTargetCluster, false);
             }
 
-            // 1. Проверка явных Federation / Cluster Mappings
+            // 1. Проверка явных сопоставлений Federation Mappings
             for (FederationMapping mapping : federationMappings) {
                 String srcNs = mapping.sourceNameservice();
-                if (srcNs != null && (authority.equalsIgnoreCase(srcNs) || authority.startsWith(srcNs + ":") || authority.contains(srcNs))) {
+                if (srcNs != null && (authority.equalsIgnoreCase(srcNs) || authority.toLowerCase().startsWith(srcNs.toLowerCase() + ":"))) {
                     String targetNs = mapping.targetNameservice();
                     if (targetNs.contains("://")) {
                         String targetPrefix = targetNs.endsWith("/") ? targetNs.substring(0, targetNs.length() - 1) : targetNs;
@@ -115,51 +117,25 @@ public class HmsPathRewriter {
                 }
             }
 
-            // 3. Fallback: замена хоста/NS источника на целевой с учетом распространенных паттернов кластеров
+            // 3. Динамическая замена по идентификаторам кластеров (по точным границам слов)
             String targetAuthority = authority;
-            if (defaultSourceCluster != null && defaultTargetCluster != null && authority.contains(defaultSourceCluster)) {
-                targetAuthority = authority.replace(defaultSourceCluster, defaultTargetCluster);
-            }
-
-            if (targetAuthority.equals(authority)) {
-                targetAuthority = translateClusterAuthority(authority, defaultSourceCluster, defaultTargetCluster);
+            if (defaultSourceCluster != null && defaultTargetCluster != null && !defaultSourceCluster.isBlank()) {
+                String wordBoundaryRegex = "(?i)\\b" + Pattern.quote(defaultSourceCluster) + "\\b";
+                targetAuthority = authority.replaceAll(wordBoundaryRegex, Matcher.quoteReplacement(defaultTargetCluster));
             }
 
             String targetUri = scheme + "://" + targetAuthority + path;
             boolean unmapped = targetAuthority.equals(authority);
+            if (unmapped) {
+                log.debug("[HmsPathRewriter] Путь '{}' не имеет сопоставления федерации (targetDefaultFs не задан, authority '{}' не соответствует источнику '{}').",
+                        sourceUri, authority, defaultSourceCluster);
+            }
+
             return new PathRewriteResult(sourceUri, targetUri, defaultSourceCluster, defaultTargetCluster, unmapped);
 
         } catch (Exception e) {
-            log.warn("Ошибка парсинга URI '{}': {}. Использован оригинальный путь.", sourceUri, e.getMessage());
+            log.warn("[HmsPathRewriter] Ошибка парсинга URI '{}': {}. Использован оригинальный путь.", sourceUri, e.getMessage());
             return new PathRewriteResult(sourceUri, sourceUri, defaultSourceCluster, defaultTargetCluster, true);
         }
-    }
-
-    public static String translateClusterAuthority(String authority, String srcCluster, String dstCluster) {
-        if (authority == null) return null;
-        String res = authority;
-
-        boolean srcHas1 = (srcCluster != null && srcCluster.contains("1")) || authority.contains("1");
-        boolean dstHas2 = (dstCluster != null && dstCluster.contains("2"));
-        boolean srcHas2 = (srcCluster != null && srcCluster.contains("2")) || authority.contains("2");
-        boolean dstHas1 = (dstCluster != null && dstCluster.contains("1"));
-
-        if (srcHas1 && dstHas2) {
-            res = res.replace("hdfs-cluster-1", "hdfs-cluster-2")
-                     .replace("cluster-1", "cluster-2")
-                     .replace("cluster1", "cluster2")
-                     .replace("namenode-dc1", "namenode-dc2")
-                     .replace("dc1", "dc2")
-                     .replace("dc-1", "dc-2");
-        } else if (srcHas2 && dstHas1) {
-            res = res.replace("hdfs-cluster-2", "hdfs-cluster-1")
-                     .replace("cluster-2", "cluster-1")
-                     .replace("cluster2", "cluster1")
-                     .replace("namenode-dc2", "namenode-dc1")
-                     .replace("dc2", "dc1")
-                     .replace("dc-2", "dc-1");
-        }
-
-        return res;
     }
 }

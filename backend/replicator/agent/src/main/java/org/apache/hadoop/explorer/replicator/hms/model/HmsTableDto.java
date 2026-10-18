@@ -23,16 +23,52 @@ public record HmsTableDto(
         List<String> partitionKeys,
         String inputFormat,
         String outputFormat,
-        String serdeLib
+        String serdeLib,
+        List<HmsFieldSchemaDto> columns,
+        List<HmsFieldSchemaDto> partitionKeyFields,
+        Map<String, String> serdeParameters
 ) {
     public HmsTableDto {
         if (catName == null || catName.isBlank()) catName = "hive";
         if (parameters == null) parameters = Collections.emptyMap();
         else parameters = new HashMap<>(parameters);
-        if (partitionKeys == null) partitionKeys = Collections.emptyList();
+        if (partitionKeys == null) {
+            partitionKeys = (partitionKeyFields != null)
+                    ? partitionKeyFields.stream().map(HmsFieldSchemaDto::name).toList()
+                    : Collections.emptyList();
+        }
+        if (columns == null) columns = Collections.emptyList();
+        if (partitionKeyFields == null) {
+            partitionKeyFields = partitionKeys.stream()
+                    .map(pk -> new HmsFieldSchemaDto(pk, "string", null))
+                    .toList();
+        }
+        if (serdeParameters == null) serdeParameters = Collections.emptyMap();
+        else serdeParameters = new HashMap<>(serdeParameters);
+    }
+
+    /**
+     * Конструктор обратной совместимости (10 аргументов).
+     */
+    public HmsTableDto(
+            String catName,
+            String dbName,
+            String tableName,
+            String tableType,
+            String sdLocation,
+            Map<String, String> parameters,
+            List<String> partitionKeys,
+            String inputFormat,
+            String outputFormat,
+            String serdeLib
+    ) {
+        this(catName, dbName, tableName, tableType, sdLocation, parameters, partitionKeys, inputFormat, outputFormat, serdeLib,
+                Collections.emptyList(),
+                partitionKeys != null ? partitionKeys.stream().map(pk -> new HmsFieldSchemaDto(pk, "string", null)).toList() : Collections.emptyList(),
+                Collections.emptyMap());
     }
 
     public boolean isPartitioned() {
-        return partitionKeys != null && !partitionKeys.isEmpty();
+        return (partitionKeys != null && !partitionKeys.isEmpty()) || (partitionKeyFields != null && !partitionKeyFields.isEmpty());
     }
 }

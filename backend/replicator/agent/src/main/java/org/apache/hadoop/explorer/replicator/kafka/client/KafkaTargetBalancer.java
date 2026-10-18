@@ -88,7 +88,7 @@ public class KafkaTargetBalancer {
      */
     public int selectTargetIndex(int partition) {
         List<Integer> healthy = getHealthyIndices();
-        int slot = Math.abs(partition) % healthy.size();
+        int slot = (partition & 0x7FFFFFFF) % healthy.size();
         return healthy.get(slot);
     }
 

@@ -30,15 +30,28 @@ public class DefaultKafkaAdminClientFactory implements KafkaAdminClientFactory {
             props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
             props.put(SaslConfigs.SASL_MECHANISM, "GSSAPI");
             props.put(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, serviceName != null && !serviceName.isBlank() ? serviceName : "kafka");
+            String sanitizedKeytab = sanitizeJaasValue(keytabPath);
+            String sanitizedPrincipal = sanitizeJaasValue(principal);
             String jaasTemplate = "com.sun.security.auth.module.Krb5LoginModule required " +
                     "useKeyTab=true " +
                     "storeKey=true " +
                     "keyTab=\"%s\" " +
                     "principal=\"%s\";";
-            props.put(SaslConfigs.SASL_JAAS_CONFIG, String.format(jaasTemplate, keytabPath.replace("\\", "\\\\"), principal));
+            props.put(SaslConfigs.SASL_JAAS_CONFIG, String.format(jaasTemplate, sanitizedKeytab, sanitizedPrincipal));
             log.debug("Настроен Kerberos SASL/GSSAPI для Kafka AdminClient: principal={}", principal);
         }
 
         return AdminClient.create(props);
+    }
+
+    private static String sanitizeJaasValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace(";", "")
+                    .replace("\n", "")
+                    .replace("\r", "");
     }
 }

@@ -1,12 +1,20 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 
 public class CreateKafkaJobRequest {
 
+    @NotBlank(message = "Название задачи репликации не может быть пустым")
     private String name;
+
+    @NotBlank(message = "Исходный ДЦ обязателен")
     private String sourceDc = "DC1";
+
+    @NotBlank(message = "Целевой ДЦ обязателен")
     private String targetDc = "DC2";
+
+    @NotBlank(message = "Направление репликации обязательно")
     private String direction = "BIDIRECTIONAL"; // BIDIRECTIONAL / UNIDIRECTIONAL
     private List<TopicSetting> topics;
     private List<String> consumerGroups;

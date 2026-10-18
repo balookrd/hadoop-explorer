@@ -108,7 +108,7 @@ hadoop:
 
   replicator:
     grpc:
-      port: ${REPLICATOR_GRPC_PORT:50051}
+      port: ${REPLICATOR_GRPC_PORT:50050}
       enabled: ${REPLICATOR_GRPC_ENABLED:true}
       tls-enabled: ${REPLICATOR_GRPC_TLS_ENABLED:false}
     global-limit-bytes-per-sec: 104857600

@@ -89,7 +89,8 @@ class TaskServiceOptimizationTest {
             candidateTasks.add(t);
         }
 
-        when(taskRepository.findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class))).thenReturn(candidateTasks);
+        when(taskRepository.findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class)))
+                .thenReturn(candidateTasks);
 
         JobEntity job = new JobEntity();
         job.setId(jobId);
@@ -101,11 +102,45 @@ class TaskServiceOptimizationTest {
         var claimed = taskService.claimTasks(new ClaimTasksRequest(agentId, clusterId, 5));
 
         assertEquals(5, claimed.size(), "Должно быть забрано 5 задач");
-        // Выборка задач должна производиться с Pageable и блокировкой SKIP LOCKED
-        verify(taskRepository, times(1)).findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class));
+        // Выборка задач для кластера должна производиться с целевым JPQL-запросом SKIP LOCKED (устранение Head-of-line blocking)
+        verify(taskRepository, times(1)).findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class));
 
         // Самое главное: JobEntity должен быть запрошен ИЗ КЭША РОВНО 1 РАЗ для всех 5 задач, а не 5 раз!
         verify(jobRepository, times(1)).findById(jobId);
+    }
+
+    @Test
+    @DisplayName("P1: claimTasks без указания clusterId использует глобальный findByStatusForUpdateSkipLocked")
+    void testClaimTasksWithoutClusterUsesGlobalSkipLocked() {
+        String agentId = "worker-generic-1";
+        String jobId = "job-generic-100";
+
+        when(agentRegistry.getAgent(agentId)).thenReturn(Optional.of(
+                new AgentRegistry.AgentEntry(agentId, null, "localhost", 50051, "localhost:50051", "all", null)
+        ));
+
+        List<TaskEntity> candidateTasks = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            TaskEntity t = new TaskEntity();
+            t.setId("task-gen-" + i);
+            t.setJobId(jobId);
+            t.setStatus("QUEUED");
+            t.setSourcePath("/src/gen-" + i);
+            t.setTargetPath("/dst/gen-" + i);
+            candidateTasks.add(t);
+        }
+
+        when(taskRepository.findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class))).thenReturn(candidateTasks);
+
+        JobEntity job = new JobEntity();
+        job.setId(jobId);
+        job.setStatus("RUNNING");
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+
+        var claimed = taskService.claimTasks(new ClaimTasksRequest(agentId, null, 3));
+
+        assertEquals(3, claimed.size());
+        verify(taskRepository, times(1)).findByStatusForUpdateSkipLocked(eq("QUEUED"), any(Pageable.class));
     }
 
     @Test

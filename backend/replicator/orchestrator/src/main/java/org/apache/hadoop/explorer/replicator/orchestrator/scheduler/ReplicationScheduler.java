@@ -88,10 +88,7 @@ public class ReplicationScheduler {
                 continue;
             }
 
-            int nextRunNum = jobRunRepository.findByJobIdOrderByRunNumberDesc(job.getId()).stream()
-                .mapToInt(JobRunEntity::getRunNumber)
-                .max()
-                .orElse(0) + 1;
+            int nextRunNum = jobRunRepository.findMaxRunNumberByJobId(job.getId()) + 1;
 
             String runId = UUID.randomUUID().toString();
             job.setStatus("QUEUED");

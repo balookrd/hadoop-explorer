@@ -1,0 +1,167 @@
+package org.apache.hadoop.explorer.replicator.hms.client;
+
+import org.apache.commons.pool2.BasePooledObjectFactory;
+import org.apache.commons.pool2.PooledObject;
+import org.apache.commons.pool2.impl.DefaultPooledObject;
+import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsFieldSchemaDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+public class ThriftHmsClientTest {
+
+    private IMetaStoreClient mockClient1;
+    private IMetaStoreClient mockClient2;
+    private GenericObjectPool<IMetaStoreClient> pool;
+    private ThriftHmsClient thriftHmsClient;
+
+    @BeforeEach
+    void setup() {
+        mockClient1 = mock(IMetaStoreClient.class);
+        mockClient2 = mock(IMetaStoreClient.class);
+
+        BasePooledObjectFactory<IMetaStoreClient> factory = new BasePooledObjectFactory<>() {
+            private int count = 0;
+
+            @Override
+            public IMetaStoreClient create() {
+                count++;
+                return (count == 1) ? mockClient1 : mockClient2;
+            }
+
+            @Override
+            public PooledObject<IMetaStoreClient> wrap(IMetaStoreClient obj) {
+                return new DefaultPooledObject<>(obj);
+            }
+        };
+
+        GenericObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericObjectPoolConfig<>();
+        poolConfig.setMaxTotal(5);
+        poolConfig.setMaxWait(Duration.ofSeconds(2));
+        pool = new GenericObjectPool<>(factory, poolConfig);
+
+        thriftHmsClient = new ThriftHmsClient("dc1", pool);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (thriftHmsClient != null) {
+            thriftHmsClient.close();
+        }
+    }
+
+    @Test
+    @DisplayName("Проверка возврата соединений в пул после успешных операций")
+    void testConnectionPoolBorrowAndReturn() throws Exception {
+        when(mockClient1.getAllDatabases()).thenReturn(List.of("db1", "db2"));
+
+        List<String> dbs = thriftHmsClient.getAllDatabases();
+        assertEquals(2, dbs.size());
+        assertTrue(dbs.contains("db1"));
+
+        // Соединение должно быть возвращено в пул
+        assertEquals(0, pool.getNumActive(), "После завершения операции не должно оставаться активных соединений");
+        assertEquals(1, pool.getNumIdle(), "Соединение должно быть свободно в пуле");
+        verify(mockClient1, times(1)).getAllDatabases();
+    }
+
+    @Test
+    @DisplayName("Проверка инвалидации и повтора при возникновении MetaException")
+    void testRetryAndInvalidationOnMetaException() throws Exception {
+        // Первый клиент бросает ошибку сети / MetaException
+        when(mockClient1.getAllDatabases()).thenThrow(new MetaException("Connection lost"));
+        // Второй клиент отвечает успешно
+        when(mockClient2.getAllDatabases()).thenReturn(List.of("recovered_db"));
+
+        List<String> dbs = thriftHmsClient.getAllDatabases();
+        assertEquals(1, dbs.size());
+        assertEquals("recovered_db", dbs.get(0));
+
+        // Проверяем, что первый клиент был вызван, сфейлился, а второй клиент успешно отработал
+        verify(mockClient1, times(1)).getAllDatabases();
+        verify(mockClient2, times(1)).getAllDatabases();
+        assertEquals(0, pool.getNumActive());
+    }
+
+    @Test
+    @DisplayName("Проверка создания таблицы: сохранение полной схемы колонок, партиций и параметров SerDe")
+    void testCreateTablePreservesSchemaAndSerde() throws Exception {
+        ArgumentCaptor<Table> tableCaptor = ArgumentCaptor.forClass(Table.class);
+
+        HmsTableDto tableDto = new HmsTableDto(
+                "hive",
+                "default",
+                "orders",
+                "EXTERNAL_TABLE",
+                "hdfs://ns1/user/hive/warehouse/orders",
+                Map.of("EXTERNAL", "TRUE", "orc.compress", "ZLIB"),
+                List.of("dt", "region"),
+                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+                "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+                "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+                List.of(
+                        new HmsFieldSchemaDto("order_id", "bigint", "Order ID"),
+                        new HmsFieldSchemaDto("customer_id", "string", "Customer UUID"),
+                        new HmsFieldSchemaDto("amount", "decimal(18,2)", "Order sum")
+                ),
+                List.of(
+                        new HmsFieldSchemaDto("dt", "string", "Partition Date"),
+                        new HmsFieldSchemaDto("region", "string", "Partition Region")
+                ),
+                Map.of("serialization.format", "1", "field.delim", ",")
+        );
+
+        thriftHmsClient.createTable(tableDto);
+
+        verify(mockClient1, times(1)).createTable(tableCaptor.capture());
+        Table created = tableCaptor.getValue();
+
+        assertNotNull(created);
+        assertEquals("orders", created.getTableName());
+        assertEquals("EXTERNAL_TABLE", created.getTableType());
+        assertEquals("hdfs://ns1/user/hive/warehouse/orders", created.getSd().getLocation());
+
+        // Проверка колонок
+        List<FieldSchema> cols = created.getSd().getCols();
+        assertEquals(3, cols.size());
+        assertEquals("order_id", cols.get(0).getName());
+        assertEquals("bigint", cols.get(0).getType());
+        assertEquals("Order ID", cols.get(0).getComment());
+
+        // Проверка partition keys
+        List<FieldSchema> partKeys = created.getPartitionKeys();
+        assertEquals(2, partKeys.size());
+        assertEquals("dt", partKeys.get(0).getName());
+        assertEquals("region", partKeys.get(1).getName());
+
+        // Проверка SerDe параметров
+        Map<String, String> serdeParams = created.getSd().getSerdeInfo().getParameters();
+        assertEquals("1", serdeParams.get("serialization.format"));
+        assertEquals(",", serdeParams.get("field.delim"));
+    }
+
+    @Test
+    @DisplayName("Проверка закрытия пула клиентов")
+    void testClosePool() throws Exception {
+        assertFalse(pool.isClosed());
+        thriftHmsClient.close();
+        assertTrue(pool.isClosed(), "Пул должен быть закрыт при закрытии ThriftHmsClient");
+    }
+}

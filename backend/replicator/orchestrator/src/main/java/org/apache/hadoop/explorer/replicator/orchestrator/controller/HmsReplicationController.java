@@ -162,8 +162,41 @@ public class HmsReplicationController {
         return ResponseEntity.ok(jobService.listSubjobsByParentId(id));
     }
 
+    private void checkHmsJobAccess(String jobId, Authentication auth) {
+        UserSession session = getSession(auth);
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
+            );
+        }
+        var opt = jobRepository.findById(jobId);
+        if (opt.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.NOT_FOUND, "Задача репликации не найдена: " + jobId
+            );
+        }
+        if (session.isAdmin()) {
+            return; // Администратор может управлять любыми существующими задачами
+        }
+        if (session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.FORBIDDEN, "Пользователь с ролью только для чтения (READER) не имеет права изменять задачи"
+            );
+        }
+        String createdBy = opt.get().getCreatedBy();
+        if (createdBy != null && (createdBy.equalsIgnoreCase(session.username())
+                || "system_operator".equalsIgnoreCase(createdBy)
+                || "demo-admin".equalsIgnoreCase(createdBy))) {
+            return;
+        }
+        throw new org.springframework.web.server.ResponseStatusException(
+            HttpStatus.FORBIDDEN, "Недостаточно прав для управления задачей репликации другого пользователя"
+        );
+    }
+
     @PostMapping("/{id}/pause")
-    public ResponseEntity<HmsReplicationJobEntity> pauseJob(@PathVariable String id) {
+    public ResponseEntity<HmsReplicationJobEntity> pauseJob(@PathVariable String id, Authentication auth) {
+        checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
                     job.setStatus("PAUSED");
@@ -174,7 +207,8 @@ public class HmsReplicationController {
     }
 
     @PostMapping("/{id}/resume")
-    public ResponseEntity<HmsReplicationJobEntity> resumeJob(@PathVariable String id) {
+    public ResponseEntity<HmsReplicationJobEntity> resumeJob(@PathVariable String id, Authentication auth) {
+        checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
                     job.setStatus("ACTIVE");
@@ -185,7 +219,8 @@ public class HmsReplicationController {
     }
 
     @PostMapping("/{id}/rebootstrap")
-    public ResponseEntity<HmsReplicationJobEntity> rebootstrap(@PathVariable String id) {
+    public ResponseEntity<HmsReplicationJobEntity> rebootstrap(@PathVariable String id, Authentication auth) {
+        checkHmsJobAccess(id, auth);
         coordinatorService.rebootstrap(id);
         return jobRepository.findById(id)
                 .map(ResponseEntity::ok)
@@ -193,7 +228,8 @@ public class HmsReplicationController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteJob(@PathVariable String id) {
+    public ResponseEntity<Map<String, Object>> deleteJob(@PathVariable String id, Authentication auth) {
+        checkHmsJobAccess(id, auth);
         boolean deleted = coordinatorService.deleteReplicationJob(id);
         if (deleted) {
             return ResponseEntity.ok(Map.of("success", true, "message", "Задача репликации HMS успешно удалена"));

@@ -903,7 +903,7 @@ public class DisasterRecoveryService {
             }
 
             if (targetToDeleteHmsId != null) {
-                hmsReplicationJobRepository.deleteById(targetToDeleteHmsId);
+                hmsCoordinatorService.deleteReplicationJob(targetToDeleteHmsId);
                 String msg = String.format("Обратная HMS-задача '%s' успешно отозвана и удалена.", targetToDeleteHmsId);
                 log.info("[Disaster Recovery] {}", msg);
                 return DrActionResponse.reverseSuccess(msg, 0, 0, List.of(targetToDeleteHmsId));

@@ -19,23 +19,27 @@
    - Потокобезопасный учет на базе `AtomicLong` с расчетом узкого горлышка `max(wait_global, wait_dc, wait_hdfs)`.
 
 2. **Реестр агентов и gRPC Control Plane (`AgentRegistry`, `OrchestratorControlPlaneService`)**:
-   - Высокопроизводительный управляющий gRPC интерфейс (порт `50051` в Docker / `10051` на хосте, HTTP/2).
+   - Высокопроизводительный управляющий gRPC интерфейс (порт `50050`, HTTP/2).
    - Автоматическая регистрация агентов (`RegisterAgent`), мониторинг доступности по heartbeat (`Heartbeat`) и graceful дерегистрация (`UnregisterAgent`).
    - Автоматическое исключение офлайн-агентов по таймауту.
    - Защита от SSRF (Server-Side Request Forgery): блокировка регистрации агентов на loopback, link-local и cloud-metadata адреса (`169.254.169.254`).
    - Аутентификация вызовов агентов на уровне gRPC L7 через интерцептор заголовка `X-Agent-Secret`.
 
-3. **Планировщик и жизненный цикл задач (`ReplicationScheduler`, `JobService`)**:
+3. **Планировщик и жизненный цикл задач (`ReplicationScheduler`, `JobService`, `TaskService`)**:
    - Поддержка запуска по расписанию: интервальные пресеты (`@every_5m`, `@every_15m`, `@hourly`, `@daily`) и Cron-выражения (`UNIX` / `Spring`).
    - Ведение истории запусков (`JobRunEntity`) и детализация пофайловых задач (`TaskEntity`), включая обычные файлы (`FILE`) и бандлы упакованных мелких файлов (`BUNDLE_TAR`).
-   - Оптимизация распределенной очереди (`claimTasks`): составной индекс `(status, job_id)` в таблице `replication_tasks` для мгновенной выборки доступных задач при миллионных объемах пофайлового пула.
+   - Оптимизация распределенной очереди (`claimTasks`): метод `findPendingTasksForClusterSkipLocked` с составным индексом `(status, updated_at)` и блокировкой `SKIP LOCKED`, предотвращающий Head-of-Line межкластерное голодание агентов.
+   - Агрегатное вычисление максимального номера запуска (`findMaxRunNumberByJobId`), исключающее выгрузку истории запусков $O(N)$ в память.
+   - Пакетное атомарное удаление задач в БД (`deleteByJobId`) единым JPQL/SQL запросом без поэлементного сканирования.
+   - Распределенный замок `DistributedLockService.runWithLock("orphan_task_failover_lock", ...)` при проверке и миграции осиротевших задач аварийных агентов (`checkAndFailoverOrphanedTasks`).
    - Корректный учет числа упакованных объектов (`fileCount`) в бандлах при завершении задач (`transferredObjects` / `totalObjects`).
    - Автоматическая очистка устаревших запусков (`cleanupRetentionDays`).
    - Расчет метрик: процент выполнения, средняя скорость передачи (`MB/s`), время старта и завершения.
 
 4. **Интеграция с `common-security-starter`**:
    - Централизованная аутентификация через cookie JWT и Kerberos SPNEGO SSO.
-   - Ролевая модель RBAC (`ADMIN` — полный контроль задач организации, `USER` — изоляция задач конкретного пользователя).
+   - Ролевая модель RBAC (`ADMIN` — полный контроль задач организации, `USER` / `WRITER` — изоляция задач конкретного пользователя).
+   - Защита от BOLA / IDOR в чтении задач (`GET /api/v1/jobs/{jobId}`): проверка прав доступа создателя задачи, администратора или агента кластера (`checkJobReadAccess`).
    - Защита от CSRF-атак на мутирующие запросы API.
    - Встроенный аудит критических операций `@Audited` и Rate Limiter (Token Bucket per IP).
 
@@ -73,7 +77,7 @@ hadoop:
 
   replicator:
     grpc:
-      port: 50051 # gRPC Control Plane порт (в docker 50051, на хосте 10051)
+      port: 50050 # gRPC Control Plane порт
       enabled: true
       tls-enabled: false
     global-limit-bytes-per-sec: 104857600 # 100 MB/s
@@ -145,7 +149,7 @@ make test-java
 
 ## 4. gRPC Control Plane API (`orchestrator_control_plane.proto`)
 
-Протокол взаимодействия Агентов и Стримеров с Оркестром (порт `50051` в Docker / `10051` на хосте, HTTP/2, заголовок `X-Agent-Secret`).
+Протокол взаимодействия Агентов и Стримеров с Оркестром (порт `50050`, HTTP/2, заголовок `X-Agent-Secret`).
 
 | Категория | RPC Метод | Запрос / Ответ | Назначение |
 |---|---|---|---|

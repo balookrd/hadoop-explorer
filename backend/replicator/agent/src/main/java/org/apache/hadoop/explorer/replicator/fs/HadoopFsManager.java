@@ -149,10 +149,36 @@ public class HadoopFsManager {
         return p;
     }
 
+    private static final Set<String> FORBIDDEN_PRINCIPALS = Set.of(
+            "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news",
+            "uucp", "proxy", "adm", "shutdown", "halt", "operator", "nobody", "0"
+    );
+
+    private static final java.util.regex.Pattern SAFE_PRINCIPAL_PATTERN =
+            java.util.regex.Pattern.compile("^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?(@[a-zA-Z0-9_.-]+)?$");
+
+    /**
+     * Валидация безопасности принципала имперсонации: запрет doAs под системными учетками ОС и инъекций.
+     */
+    public static void validatePrincipalSafety(String principal) {
+        if (principal == null || principal.isBlank()) {
+            return;
+        }
+        String trimmed = principal.trim();
+        if (trimmed.contains("..") || trimmed.contains("\0") || !SAFE_PRINCIPAL_PATTERN.matcher(trimmed).matches()) {
+            throw new SecurityException("Попытка инъекции или недопустимые символы в имени принципала: " + principal);
+        }
+        String username = extractUsername(trimmed).toLowerCase(Locale.ROOT);
+        if (FORBIDDEN_PRINCIPALS.contains(username)) {
+            throw new SecurityException("Попытка имперсонации запрещенной системной учетной записи: " + principal);
+        }
+    }
+
     /**
      * Получение эффективного Kerberos UGI контекста с поддержкой doAs-имперсонации для Apache Ranger аудита.
      */
     public UserGroupInformation getEffectiveUgi(String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        validatePrincipalSafety(executionPrincipal);
         if (!UserGroupInformation.isSecurityEnabled() && !kerberosLoggedIn) {
             return UserGroupInformation.getCurrentUser();
         }

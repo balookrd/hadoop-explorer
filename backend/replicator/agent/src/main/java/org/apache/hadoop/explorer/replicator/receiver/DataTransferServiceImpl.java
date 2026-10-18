@@ -240,6 +240,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     // 1. Прием метаданных файла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
                         metadata = request.getMetadata();
+                        HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
                         recordTargetDirectory(metadata.getTargetPath());
                         // Прямой staging в целевой HDFS/ФС (targetPath._staging_<jobId>) без промежуточного локального диска
                         stagingPath = metadata.getTargetPath() + "._staging_" + metadata.getJobId();
@@ -419,6 +420,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     // 1. Метаданные бандла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
                         metadata = request.getMetadata();
+                        HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
                         recordTargetDirectory(metadata.getBaseTargetPath());
 
                         // Ограничение пула памяти: захват слота семафора для TAR-распаковки

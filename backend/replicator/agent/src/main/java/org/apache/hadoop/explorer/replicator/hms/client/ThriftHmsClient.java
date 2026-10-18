@@ -1,24 +1,32 @@
 package org.apache.hadoop.explorer.replicator.hms.client;
 
+import org.apache.commons.pool2.BasePooledObjectFactory;
+import org.apache.commons.pool2.PooledObject;
+import org.apache.commons.pool2.impl.DefaultPooledObject;
+import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsFieldSchemaDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
+import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.*;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
-import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
-import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
+import java.time.Duration;
 import java.util.*;
 
 /**
- * Полноценная боевая реализация HmsClient через Thrift RPC протокол Hive Metastore.
- * Поддерживает Kerberos SASL аутентификацию, doAs имперсонацию и прямое управление таблицами и партициями.
+ * Высокопроизводительная потокобезопасная боевая реализация HmsClient через Thrift RPC протокол Hive Metastore.
+ * Инкапсулирует пул соединений IMetaStoreClient (Apache Commons-Pool2), предотвращая гонки потоков,
+ * поддерживает Kerberos SASL аутентификацию, doAs имперсонацию и перенос полной схемы колонок и партиций без хардкода.
  */
 public class ThriftHmsClient implements HmsClient, Closeable {
 
@@ -29,10 +37,13 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private final String kerberosPrincipal;
     private final String keytabPath;
     private final Configuration conf;
-    private volatile IMetaStoreClient client;
-    private final Object clientLock = new Object();
+    private final GenericObjectPool<IMetaStoreClient> clientPool;
 
     public ThriftHmsClient(String clusterId, String thriftUris, String kerberosPrincipal, String keytabPath) {
+        this(clusterId, thriftUris, kerberosPrincipal, keytabPath, 16);
+    }
+
+    public ThriftHmsClient(String clusterId, String thriftUris, String kerberosPrincipal, String keytabPath, int maxPoolSize) {
         this.clusterId = clusterId;
         this.thriftUris = thriftUris;
         this.kerberosPrincipal = kerberosPrincipal;
@@ -52,66 +63,101 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 this.conf.set("hive.metastore.kerberos.keytab.file", keytabPath);
             }
         }
+
+        GenericObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericObjectPoolConfig<>();
+        poolConfig.setMaxTotal(Math.max(4, maxPoolSize));
+        poolConfig.setMaxIdle(Math.max(2, maxPoolSize / 2));
+        poolConfig.setMinIdle(1);
+        poolConfig.setTestOnBorrow(true);
+        poolConfig.setBlockWhenExhausted(true);
+        poolConfig.setMaxWait(Duration.ofSeconds(30));
+
+        this.clientPool = new GenericObjectPool<>(new MetaStoreClientFactory(), poolConfig);
+        log.info("[ThriftHmsClient:{}] Инициализирован пул Thrift клиентов к '{}' (maxTotal={}, kerberos={})",
+                clusterId, thriftUris, poolConfig.getMaxTotal(), kerberosPrincipal != null);
     }
 
-    private IMetaStoreClient getClient() {
-        if (client == null) {
-            synchronized (clientLock) {
-                if (client == null) {
-                    try {
-                        if (kerberosPrincipal != null && !kerberosPrincipal.isBlank() || UserGroupInformation.isSecurityEnabled()) {
-                            this.conf.set("hadoop.security.authentication", "kerberos");
-                            UserGroupInformation.setConfiguration(conf);
-                            if (keytabPath != null && !keytabPath.isBlank()) {
-                                String userPrinc = System.getenv("KRB5_PRINCIPAL");
-                                if (userPrinc == null || userPrinc.isBlank()) {
-                                    userPrinc = kerberosPrincipal;
-                                }
-                                UserGroupInformation.loginUserFromKeytab(userPrinc, keytabPath);
-                            }
-                            UserGroupInformation ugi = UserGroupInformation.getLoginUser();
-                            log.info("[ThriftHmsClient:{}] Подключение к Hive Metastore '{}' с Kerberos UGI: {}",
-                                    clusterId, thriftUris, ugi.getUserName());
-                            this.client = ugi.doAs((PrivilegedExceptionAction<IMetaStoreClient>) () -> new HiveMetaStoreClient(conf));
-                        } else {
-                            log.info("[ThriftHmsClient:{}] Подключение к Hive Metastore '{}' (без Kerberos SASL)",
-                                    clusterId, thriftUris);
-                            this.client = new HiveMetaStoreClient(conf);
-                        }
-                    } catch (Exception e) {
-                        log.error("[ThriftHmsClient:{}] Сбой инициализации Thrift клиента к {}: {}",
-                                clusterId, thriftUris, e.getMessage());
-                        throw new RuntimeException("Не удалось подключиться к Hive Metastore по Thrift: " + e.getMessage(), e);
+    ThriftHmsClient(String clusterId, GenericObjectPool<IMetaStoreClient> clientPool) {
+        this.clusterId = clusterId;
+        this.thriftUris = "mock://thrift";
+        this.kerberosPrincipal = null;
+        this.keytabPath = null;
+        this.conf = new org.apache.hadoop.conf.Configuration();
+        this.clientPool = clientPool;
+    }
+
+    public GenericObjectPool<IMetaStoreClient> getClientPool() {
+        return clientPool;
+    }
+
+    private class MetaStoreClientFactory extends BasePooledObjectFactory<IMetaStoreClient> {
+        @Override
+        public IMetaStoreClient create() throws Exception {
+            if (kerberosPrincipal != null && !kerberosPrincipal.isBlank() || UserGroupInformation.isSecurityEnabled()) {
+                conf.set("hadoop.security.authentication", "kerberos");
+                UserGroupInformation.setConfiguration(conf);
+                if (keytabPath != null && !keytabPath.isBlank()) {
+                    String userPrinc = System.getenv("KRB5_PRINCIPAL");
+                    if (userPrinc == null || userPrinc.isBlank()) {
+                        userPrinc = kerberosPrincipal;
                     }
+                    UserGroupInformation.loginUserFromKeytab(userPrinc, keytabPath);
                 }
+                UserGroupInformation ugi = UserGroupInformation.getLoginUser();
+                log.info("[ThriftHmsClient:{}] Создание нового Thrift клиента с Kerberos UGI: {}", clusterId, ugi.getUserName());
+                return ugi.doAs((PrivilegedExceptionAction<IMetaStoreClient>) () -> new HiveMetaStoreClient(conf));
+            } else {
+                log.info("[ThriftHmsClient:{}] Создание нового Thrift клиента без Kerberos", clusterId);
+                return new HiveMetaStoreClient(conf);
             }
         }
-        return client;
+
+        @Override
+        public PooledObject<IMetaStoreClient> wrap(IMetaStoreClient client) {
+            return new DefaultPooledObject<>(client);
+        }
+
+        @Override
+        public void destroyObject(PooledObject<IMetaStoreClient> p) {
+            try {
+                p.getObject().close();
+            } catch (Exception ignored) {}
+        }
+
+        @Override
+        public boolean validateObject(PooledObject<IMetaStoreClient> p) {
+            try {
+                return p != null && p.getObject() != null;
+            } catch (Exception e) {
+                return false;
+            }
+        }
     }
 
     private <T> T executeWithRetry(HmsOperation<T> operation) {
+        IMetaStoreClient client = null;
         try {
-            return operation.execute(getClient());
+            client = clientPool.borrowObject();
+            return operation.execute(client);
         } catch (MetaException e) {
-            log.warn("[ThriftHmsClient:{}] Ошибка MetaException: {}, попытка переподключения...", clusterId, e.getMessage());
-            reconnect();
+            log.warn("[ThriftHmsClient:{}] Ошибка MetaException: {}, попытка повтора с новым соединением...", clusterId, e.getMessage());
+            if (client != null) {
+                try {
+                    clientPool.invalidateObject(client);
+                } catch (Exception ignored) {}
+                client = null;
+            }
             try {
-                return operation.execute(getClient());
+                client = clientPool.borrowObject();
+                return operation.execute(client);
             } catch (Exception ex) {
                 throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + ex.getMessage(), ex);
             }
         } catch (Exception e) {
             throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + e.getMessage(), e);
-        }
-    }
-
-    private void reconnect() {
-        synchronized (clientLock) {
+        } finally {
             if (client != null) {
-                try {
-                    client.close();
-                } catch (Exception ignored) {}
-                client = null;
+                clientPool.returnObject(client);
             }
         }
     }
@@ -227,8 +273,8 @@ public class ThriftHmsClient implements HmsClient, Closeable {
             try {
                 Table table = toThrift(tableDto);
                 c.createTable(table);
-                log.info("[ThriftHmsClient:{}] Таблица '{}.{}' успешно создана в Hive Metastore",
-                        clusterId, tableDto.dbName(), tableDto.tableName());
+                log.info("[ThriftHmsClient:{}] Таблица '{}.{}' (колонок: {}, партиций: {}) успешно создана в Hive Metastore",
+                        clusterId, tableDto.dbName(), tableDto.tableName(), tableDto.columns().size(), tableDto.partitionKeys().size());
             } catch (AlreadyExistsException e) {
                 log.warn("[ThriftHmsClient:{}] Таблица '{}.{}' уже существует, выполняется alterTable",
                         clusterId, tableDto.dbName(), tableDto.tableName());
@@ -301,11 +347,13 @@ public class ThriftHmsClient implements HmsClient, Closeable {
 
     @Override
     public void close() throws IOException {
-        reconnect();
+        if (clientPool != null) {
+            clientPool.close();
+        }
     }
 
     // =========================================================================
-    // Конвертеры DTO <-> Thrift Entity
+    // Конвертеры DTO <-> Thrift Entity с сохранением полной схемы и типов
     // =========================================================================
 
     public static HmsTableDto toDto(Table t) {
@@ -315,11 +363,22 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         String outputFormat = (t.getSd() != null) ? t.getSd().getOutputFormat() : null;
         String serdeLib = (t.getSd() != null && t.getSd().getSerdeInfo() != null)
                 ? t.getSd().getSerdeInfo().getSerializationLib() : null;
+        Map<String, String> serdeParams = (t.getSd() != null && t.getSd().getSerdeInfo() != null && t.getSd().getSerdeInfo().getParameters() != null)
+                ? new HashMap<>(t.getSd().getSerdeInfo().getParameters()) : Collections.emptyMap();
 
         List<String> partKeys = new ArrayList<>();
+        List<HmsFieldSchemaDto> partKeyFields = new ArrayList<>();
         if (t.getPartitionKeys() != null) {
             for (FieldSchema fs : t.getPartitionKeys()) {
                 partKeys.add(fs.getName());
+                partKeyFields.add(new HmsFieldSchemaDto(fs.getName(), fs.getType(), fs.getComment()));
+            }
+        }
+
+        List<HmsFieldSchemaDto> cols = new ArrayList<>();
+        if (t.getSd() != null && t.getSd().getCols() != null) {
+            for (FieldSchema fs : t.getSd().getCols()) {
+                cols.add(new HmsFieldSchemaDto(fs.getName(), fs.getType(), fs.getComment()));
             }
         }
 
@@ -333,7 +392,10 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 partKeys,
                 inputFormat,
                 outputFormat,
-                serdeLib
+                serdeLib,
+                cols,
+                partKeyFields,
+                serdeParams
         );
     }
 
@@ -356,15 +418,27 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         SerDeInfo serde = new SerDeInfo();
         serde.setName(dto.tableName());
         serde.setSerializationLib(dto.serdeLib() != null ? dto.serdeLib() : "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        if (dto.serdeParameters() != null && !dto.serdeParameters().isEmpty()) {
+            serde.setParameters(new HashMap<>(dto.serdeParameters()));
+        }
         sd.setSerdeInfo(serde);
 
         List<FieldSchema> cols = new ArrayList<>();
-        cols.add(new FieldSchema("id", "bigint", "id"));
-        cols.add(new FieldSchema("data", "string", "data"));
+        if (dto.columns() != null && !dto.columns().isEmpty()) {
+            for (HmsFieldSchemaDto col : dto.columns()) {
+                cols.add(new FieldSchema(col.name(), col.type(), col.comment()));
+            }
+        }
         sd.setCols(cols);
         t.setSd(sd);
 
-        if (dto.partitionKeys() != null && !dto.partitionKeys().isEmpty()) {
+        if (dto.partitionKeyFields() != null && !dto.partitionKeyFields().isEmpty()) {
+            List<FieldSchema> pks = new ArrayList<>(dto.partitionKeyFields().size());
+            for (HmsFieldSchemaDto pk : dto.partitionKeyFields()) {
+                pks.add(new FieldSchema(pk.name(), pk.type(), pk.comment()));
+            }
+            t.setPartitionKeys(pks);
+        } else if (dto.partitionKeys() != null && !dto.partitionKeys().isEmpty()) {
             List<FieldSchema> pks = new ArrayList<>(dto.partitionKeys().size());
             for (String pk : dto.partitionKeys()) {
                 pks.add(new FieldSchema(pk, "string", "partition key"));
@@ -378,13 +452,24 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     public static HmsPartitionDto toDto(Partition p) {
         if (p == null) return null;
         String location = (p.getSd() != null) ? p.getSd().getLocation() : null;
+        List<HmsFieldSchemaDto> cols = new ArrayList<>();
+        if (p.getSd() != null && p.getSd().getCols() != null) {
+            for (FieldSchema fs : p.getSd().getCols()) {
+                cols.add(new HmsFieldSchemaDto(fs.getName(), fs.getType(), fs.getComment()));
+            }
+        }
+        Map<String, String> serdeParams = (p.getSd() != null && p.getSd().getSerdeInfo() != null && p.getSd().getSerdeInfo().getParameters() != null)
+                ? new HashMap<>(p.getSd().getSerdeInfo().getParameters()) : Collections.emptyMap();
+
         return new HmsPartitionDto(
                 p.getCatName() != null ? p.getCatName() : "hive",
                 p.getDbName(),
                 p.getTableName(),
                 p.getValues() != null ? new ArrayList<>(p.getValues()) : Collections.emptyList(),
                 location,
-                p.getParameters() != null ? new HashMap<>(p.getParameters()) : Collections.emptyMap()
+                p.getParameters() != null ? new HashMap<>(p.getParameters()) : Collections.emptyMap(),
+                cols,
+                serdeParams
         );
     }
 
@@ -409,11 +494,17 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         SerDeInfo serde = new SerDeInfo();
         serde.setName(dto.tableName());
         serde.setSerializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        if (dto.serdeParameters() != null && !dto.serdeParameters().isEmpty()) {
+            serde.setParameters(new HashMap<>(dto.serdeParameters()));
+        }
         sd.setSerdeInfo(serde);
 
         List<FieldSchema> cols = new ArrayList<>();
-        cols.add(new FieldSchema("id", "bigint", "id"));
-        cols.add(new FieldSchema("data", "string", "data"));
+        if (dto.columns() != null && !dto.columns().isEmpty()) {
+            for (HmsFieldSchemaDto col : dto.columns()) {
+                cols.add(new FieldSchema(col.name(), col.type(), col.comment()));
+            }
+        }
         sd.setCols(cols);
         p.setSd(sd);
 

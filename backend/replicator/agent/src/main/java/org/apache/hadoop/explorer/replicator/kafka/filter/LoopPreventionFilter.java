@@ -26,17 +26,27 @@ public class LoopPreventionFilter {
     public static final int DEFAULT_MAX_HOPS = 3;
 
     private final String localDcId;
+    private final String targetDcId;
     private final int maxHops;
 
     public LoopPreventionFilter(String localDcId) {
-        this(localDcId, DEFAULT_MAX_HOPS);
+        this(localDcId, null, DEFAULT_MAX_HOPS);
     }
 
     public LoopPreventionFilter(String localDcId, int maxHops) {
+        this(localDcId, null, maxHops);
+    }
+
+    public LoopPreventionFilter(String localDcId, String targetDcId) {
+        this(localDcId, targetDcId, DEFAULT_MAX_HOPS);
+    }
+
+    public LoopPreventionFilter(String localDcId, String targetDcId, int maxHops) {
         if (localDcId == null || localDcId.isBlank()) {
             throw new IllegalArgumentException("localDcId must not be blank");
         }
         this.localDcId = localDcId.trim();
+        this.targetDcId = (targetDcId != null && !targetDcId.isBlank()) ? targetDcId.trim() : null;
         this.maxHops = maxHops > 0 ? maxHops : DEFAULT_MAX_HOPS;
     }
 
@@ -58,6 +68,11 @@ public class LoopPreventionFilter {
             if (localDcId.equalsIgnoreCase(origin)) {
                 log.trace("Отброшена эхо-запись для топика {} партиции {}: Origin matches local DC ({})",
                         record.topic(), record.partition(), localDcId);
+                return false;
+            }
+            if (targetDcId != null && targetDcId.equalsIgnoreCase(origin)) {
+                log.trace("Отброшена запись для топика {} партиции {}: Origin matches target DC ({}) (предотвращение паразитного обратного цикла)",
+                        record.topic(), record.partition(), targetDcId);
                 return false;
             }
         }
@@ -133,5 +148,9 @@ public class LoopPreventionFilter {
 
     public String getLocalDcId() {
         return localDcId;
+    }
+
+    public String getTargetDcId() {
+        return targetDcId;
     }
 }

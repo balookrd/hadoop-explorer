@@ -21,6 +21,7 @@ public class KafkaReplicationClient implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaReplicationClient.class);
 
+    private final String agentSecret;
     private final KafkaTargetBalancer balancer;
     private final List<ManagedChannel> channels;
     private final List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> asyncStubs;
@@ -45,13 +46,22 @@ public class KafkaReplicationClient implements Closeable {
      * Создает независимые gRPC каналы с оптимизацией буферов для каждого узла.
      */
     public KafkaReplicationClient(List<String> targetEndpoints) {
+        this(targetEndpoints, null);
+    }
+
+    public KafkaReplicationClient(List<String> targetEndpoints, String agentSecret) {
         if (targetEndpoints == null || targetEndpoints.isEmpty()) {
             throw new IllegalArgumentException("targetEndpoints list must not be null or empty");
         }
+        this.agentSecret = agentSecret;
         this.balancer = new KafkaTargetBalancer(targetEndpoints);
         this.channels = new ArrayList<>();
         this.asyncStubs = new ArrayList<>();
         this.blockingStubs = new ArrayList<>();
+
+        io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
+                ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
+                : null;
 
         for (String ep : targetEndpoints) {
             String[] parts = ep.trim().split(":");
@@ -64,30 +74,47 @@ public class KafkaReplicationClient implements Closeable {
                     .build();
 
             this.channels.add(ch);
-            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(ch));
-            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(ch));
+            io.grpc.Channel targetChannel = (authInterceptor != null)
+                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
+                    : ch;
+
+            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
+            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }
-        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {}", channels.size(), targetEndpoints);
+        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={})",
+                channels.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()));
     }
 
     /**
      * Конструктор для пула готовых ManagedChannel (используется для in-process тестов мульти-агентности).
      */
     public KafkaReplicationClient(List<ManagedChannel> channels, List<String> endpointNames) {
+        this(channels, endpointNames, null);
+    }
+
+    public KafkaReplicationClient(List<ManagedChannel> channels, List<String> endpointNames, String agentSecret) {
         if (channels == null || channels.isEmpty()) {
             throw new IllegalArgumentException("channels list must not be null or empty");
         }
         if (endpointNames == null || endpointNames.size() != channels.size()) {
             throw new IllegalArgumentException("endpointNames must match channels size");
         }
+        this.agentSecret = agentSecret;
         this.balancer = new KafkaTargetBalancer(endpointNames);
         this.channels = new ArrayList<>(channels);
         this.asyncStubs = new ArrayList<>();
         this.blockingStubs = new ArrayList<>();
 
+        io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
+                ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
+                : null;
+
         for (ManagedChannel ch : channels) {
-            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(ch));
-            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(ch));
+            io.grpc.Channel targetChannel = (authInterceptor != null)
+                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
+                    : ch;
+            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
+            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }
     }
 

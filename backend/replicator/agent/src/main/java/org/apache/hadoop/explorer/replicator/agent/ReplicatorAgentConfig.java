@@ -72,9 +72,9 @@ public class ReplicatorAgentConfig {
         if (envGrpcAddr != null && !envGrpcAddr.isBlank()) {
             config.orchestratorGrpcAddress = envGrpcAddr;
         } else if (config.orchestratorUrl != null && config.orchestratorUrl.contains("orchestrator")) {
-            config.orchestratorGrpcAddress = "orchestrator:50051";
+            config.orchestratorGrpcAddress = "orchestrator:50050";
         } else {
-            config.orchestratorGrpcAddress = "localhost:10051";
+            config.orchestratorGrpcAddress = "localhost:50050";
         }
         config.receiverHost = getEnv("RECEIVER_HOST", "0.0.0.0");
         config.receiverPort = Integer.parseInt(getEnv("RECEIVER_PORT", "50051"));

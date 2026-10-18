@@ -33,10 +33,16 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
     @Override
     public StreamObserver<KafkaBatchRequest> streamBatches(StreamObserver<KafkaBatchAck> responseObserver) {
-        if (responseObserver instanceof ServerCallStreamObserver<KafkaBatchAck> serverCallStreamObserver) {
+        final ServerCallStreamObserver<KafkaBatchAck> serverCallStreamObserver =
+                (responseObserver instanceof ServerCallStreamObserver<KafkaBatchAck> scso) ? scso : null;
+
+        if (serverCallStreamObserver != null) {
+            serverCallStreamObserver.disableAutoInboundFlowControl();
             serverCallStreamObserver.setOnCancelHandler(() -> {
                 log.warn("Клиент прервал (CANCELLED) gRPC соединение streamBatches");
             });
+            // Запрашиваем первый входящий пакет сообщений
+            serverCallStreamObserver.request(1);
         }
 
         final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -53,6 +59,9 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                     synchronized (responseObserver) {
                         responseObserver.onNext(ack);
                     }
+                    if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
+                        serverCallStreamObserver.request(1);
+                    }
                     checkCompletion();
                 }).exceptionally(t -> {
                     log.error("Сбой асинхронной обработки пакета {}: {}", batch.getBatchId(), t.getMessage(), t);
@@ -65,6 +74,9 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                             .build();
                     synchronized (responseObserver) {
                         responseObserver.onNext(errorAck);
+                    }
+                    if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
+                        serverCallStreamObserver.request(1);
                     }
                     checkCompletion();
                     return null;
@@ -99,6 +111,17 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 }
             }
         };
+    }
+
+    @Override
+    public void syncSchemaMetadata(SchemaSyncRequest request, StreamObserver<SchemaSyncResponse> responseObserver) {
+        log.info("Получен запрос предварительной синхронизации схемы для subject={}", request.getSubject());
+        responseObserver.onNext(SchemaSyncResponse.newBuilder()
+                .setSubject(request.getSubject())
+                .setSuccess(true)
+                .setTargetSchemaId(request.getSourceSchemaId())
+                .build());
+        responseObserver.onCompleted();
     }
 
     @Override

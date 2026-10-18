@@ -31,7 +31,7 @@ docker compose -f demo/replicator/docker-compose.yml down -v
 | Сервис | Порт | Технология | Описание | URL / Доступ |
 |---|---|---|---|---|
 | **Replicator Orchestrator (Web / REST)** | `8005` | Java 21 LTS (Spring Boot 3 + Svelte 5) | Веб-интерфейс, REST API для UI, аутентификация | [http://localhost:8005](http://localhost:8005) |
-| **Orchestrator Control Plane (gRPC)** | `10051` (хост) / `50051` (docker) | Java 21 LTS (gRPC Netty HTTP/2) | Высокопроизводительный Control Plane для агентов | `localhost:10051` |
+| **Orchestrator Control Plane (gRPC)** | `50050` | Java 21 LTS (gRPC Netty HTTP/2) | Высокопроизводительный Control Plane для агентов | `localhost:50050` |
 | **Prometheus Metrics** | `8005` | Spring Boot Actuator | Экспорт системных и сетевых метрик | [http://localhost:8005/actuator/prometheus](http://localhost:8005/actuator/prometheus) |
 | **Agent DC1 (Primary ЦОД)** | `50051` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc1` (HDFS 1 Kerberos) | `localhost:50051` |
 | **Agent DC2 (DR ЦОД)** | `50052` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc2` (HDFS 2 Kerberos) | `localhost:50052` |

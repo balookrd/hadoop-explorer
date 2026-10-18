@@ -212,4 +212,64 @@ class JobSecurityAuthorizationTest {
         assertEquals(HttpStatus.OK, resp.getStatusCode());
         verify(jobService).updateJobProgress(eq("job-123"), eq(updateReq));
     }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: чужой пользователь не может просматривать детали чужой задачи (403 FORBIDDEN)")
+    void testStrangerCannotReadOtherUsersJob() {
+        UserSession strangerSession = new UserSession(
+                "stranger_dave", "Dave", "dave@corp.local",
+                List.of("analytics"), "LDAP", false, Role.WRITER
+        );
+        CommonAuthenticationToken strangerAuth = new CommonAuthenticationToken(strangerSession);
+
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity job =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.getJob("job-secret-999", null, strangerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).getJob(eq("job-secret-999"));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: создатель задачи может просматривать свои задачи (200 OK)")
+    void testCreatorCanReadOwnJob() {
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity job =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJob("job-secret-999")).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.getJob("job-secret-999", null, writerAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJob("job-secret-999");
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: администратор (ADMIN) может просматривать любые задачи (200 OK)")
+    void testAdminCanReadAnyJob() {
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity job =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJob("job-secret-999")).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.getJob("job-secret-999", null, adminAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJob("job-secret-999");
+    }
 }

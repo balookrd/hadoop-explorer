@@ -377,7 +377,7 @@ public class AgentRegistry {
         if (agentCluster.equalsIgnoreCase(targetCluster)) return true;
         String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
         String tNorm = targetCluster.toLowerCase().replace("-", "").replace("_", "");
-        return aNorm.equals(tNorm) || aNorm.contains(tNorm) || tNorm.contains(aNorm);
+        return aNorm.equals(tNorm);
     }
 
     public void verifySecret(String secretHeader) {

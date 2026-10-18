@@ -32,7 +32,7 @@ services:
       HADOOP_REPLICATOR_STREAMING_ENABLED: "true"
       HADOOP_REPLICATOR_STREAMING_POLL_INTERVAL_MS: "1000"
       REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "false"
-      REPLICATOR_GRPC_PORT: "50051"
+      REPLICATOR_GRPC_PORT: "50050"
       REPLICATOR_GRPC_ENABLED: "true"
     volumes:
       - replicator-db-data:/app/data
@@ -41,7 +41,7 @@ services:
       - demo-shared-krb5:/shared/conf:ro
     ports:
       - "8005:8005"
-      - "10051:50051"
+      - "50050:50050"
     depends_on:
       kdc:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       AGENT_CLUSTER_ID: "dc1"
       AGENT_MODE: "all"
       AGENT_MAX_BANDWIDTH_MB_S: "80.0"
-      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50051"
+      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50050"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
       AGENT_ADVERTISED_ADDRESS: "agent-dc1:50051"
@@ -123,7 +123,7 @@ services:
       AGENT_CLUSTER_ID: "dc2"
       AGENT_MODE: "all"
       AGENT_MAX_BANDWIDTH_MB_S: "60.0"
-      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50051"
+      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50050"
       RECEIVER_HOST: "0.0.0.0"
       RECEIVER_PORT: "50051"
       AGENT_ADVERTISED_ADDRESS: "agent-dc2:50051"
@@ -171,7 +171,7 @@ services:
       AGENT_CLUSTER_ID: "dc1"
       AGENT_MODE: "streamer"
       HADOOP_STREAMING_ENABLED: "true"
-      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50051"
+      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50050"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
       POLL_INTERVAL_SEC: "1.0"
       KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
@@ -202,7 +202,7 @@ services:
       AGENT_CLUSTER_ID: "dc1"
       AGENT_MODE: "streamer"
       HADOOP_STREAMING_ENABLED: "true"
-      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50051"
+      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50050"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
       POLL_INTERVAL_SEC: "1.0"
       KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-1.keytab"
@@ -233,7 +233,7 @@ services:
       AGENT_CLUSTER_ID: "dc2"
       AGENT_MODE: "streamer"
       HADOOP_STREAMING_ENABLED: "true"
-      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50051"
+      ORCHESTRATOR_GRPC_ADDRESS: "orchestrator:50050"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
       POLL_INTERVAL_SEC: "1.0"
       KRB5_KEYTAB: "/etc/security/keytabs/hdfs-cluster-2.keytab"

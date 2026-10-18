@@ -49,8 +49,10 @@ flowchart TD
 ### 1.2 Сетевые порты и протоколы
 | Сервис | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|---|
-| **Orchestrator** | `8005` | HTTP/HTTPS | Inbound | Web UI консоль, REST API, выдача токенов шейпера, `/health`, `/metrics` |
-| **Replicator Agent (DC1 / DC2)** | `50051` | gRPC (HTTP/2) | Inbound/Outbound | Полный дуплекс: прием входящих чанков и отправка исходящих реплик |
+| **Orchestrator HTTP/REST** | `8005` | HTTP/HTTPS | Inbound | Web UI консоль, REST API, выдача токенов шейпера, `/health`, `/metrics` |
+| **Orchestrator Control Plane (gRPC)** | `50050` | gRPC (HTTP/2) | Inbound | Высокопроизводительный Control Plane: регистрация агентов (`AgentRegistry`), heartbeat, выдача задач |
+| **Replicator Agent (HDFS Data Plane)** | `50051` | gRPC (HTTP/2) | Inbound/Outbound | Полный дуплекс: прием входящих файлов/чанков HDFS и передача исходящих реплик |
+| **Kafka Replicator Agent (Data Plane)** | `50052` | gRPC (HTTP/2) | Inbound/Outbound | Полный дуплекс передачи батчей Kafka, Zero-Copy транскодинг схем, Flow Control |
 | **NameNodes** | `9870`/`8020` | HTTP / RPC | Outbound | Чтение из исходного HDFS и запись в целевой HDFS |
 | **KDC** | `88` | TCP/UDP | Outbound | Выпуск билетов Kerberos для системной техучетки |
 
@@ -171,7 +173,8 @@ flowchart TD
 | `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | Отключение строгой проверки TLS сертификатов для gRPC (только dev) | `false` | Опционально |
 | `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | Отключение проверки HTTPS сертификатов при запросах к Оркестратору | `false` | Опционально |
 | `REPLICATOR_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (боевое прямое подключение Thrift RPC к Hive Metastore), `demo-http` (REST симулятор стенда), `mock` (unit-тесты) | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
-| `TARGET_HDFS_DEFAULT_FS` | URI целевой HDFS файловой системы (например, `hdfs://hdfs-cluster-2:9000`) для автоматической перезаписи схем и путей таблиц/партиций в Thrift Hive Metastore через `HmsPathRewriter` | Не задано (используются эвристики и mappings) | Рекомендуется при межкластерной репликации |
+| `HMS_THRIFT_POOL_MAX_SIZE` | Максимальный размер пула Thrift-соединений к Hive Metastore (Commons-Pool2) | `16` (minIdle: 1, maxIdle: 8) | Опционально |
+| `TARGET_HDFS_DEFAULTFS` / `TARGET_HDFS_DEFAULT_FS` | URI целевой HDFS файловой системы (например, `hdfs://hdfs-cluster-2:9000`) для автоматической перезаписи схем и путей таблиц/партиций в Thrift Hive Metastore через `HmsPathRewriter` | Не задано (используются эвристики и mappings) | Рекомендуется при межкластерной репликации |
 | `REPLICATOR_FEDERATION_MAPPINGS` | Список сопоставлений HDFS authority для федерации кластеров через запятую (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,dc1=dc2`) | Не задано | Опционально |
 | `HMS_LOOP_INTERVAL_MS` | Интервал фонового опроса и синхронизации метаданных HMS в изолированном потоке `replicator-hms-loop` (мс) | `2000` (2 сек) | Опционально |
 
@@ -1910,6 +1913,98 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 > [!TIP]
 > Полный пошаговый регламент действий, архитектура сетевого ограждения и предотвращения Split-Brain подробно описаны в документе:
 > [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md).
+
+---
+
+## 15. Подсистема репликации Apache Kafka (Kafka Replicator)
+
+Подсистема **Kafka Replicator** обеспечивает масштабируемую двунаправленную репликацию топиков Apache Kafka, схем данных и оффсетов консьюмер-групп между территориально распределенными ЦОД по gRPC Data Plane с централизованным управлением через gRPC Control Plane Оркестратора.
+
+```mermaid
+flowchart LR
+    subgraph CP["🎯 Control Plane (:50050)"]
+        Orch["🎯 Replicator Orchestrator<br/><code>AgentRegistry & Topology</code>"]
+    end
+
+    subgraph DC1["🏢 ЦОД-1 (Primary)"]
+        K1[("📦 Kafka Cluster 1")]
+        SR1["📜 Schema Registry 1<br/>(HWX / Confluent)"]
+        A1["⚡ kafka-replicator-agent DC1<br/><code>:50052 (Data Plane)</code>"]
+        K1 <--> A1
+        SR1 <--> A1
+    end
+
+    subgraph DC2["🏢 ЦОД-2 (Disaster Recovery)"]
+        K2[("📦 Kafka Cluster 2")]
+        SR2["📜 Schema Registry 2<br/>(Confluent / HWX)"]
+        A2["⚡ kafka-replicator-agent DC2<br/><code>:50052 (Data Plane)</code>"]
+        K2 <--> A2
+        SR2 <--> A2
+    end
+
+    A1 <==>|"⚡ gRPC Data Plane (:50052)<br/>Backpressure + Zero-Copy Transcoding"| A2
+    A1 -.->|"Register & Heartbeat (:50050)"| Orch
+    A2 -.->|"Register & Heartbeat (:50050)"| Orch
+```
+
+### 15.1 Ключевые возможности и архитектурные гарантии
+
+1. **Гарантия At-Least-Once (Zero Data Loss)**:
+   - Смещения (`offsets`) в исходных партициях коммитятся консьюмером **строго асинхронно после получения положительного подтверждения от приемника** (`ack.getSuccess() == true`).
+   - Исключена потеря данных при аварийном падении брокеров или агентов во время транзита батча.
+
+2. **Двусторонний Flow Control (Backpressure)**:
+   - **Серверный Backpressure**: в `KafkaDataTransferServiceImpl` отключен автоматический входящий поток (`disableAutoInboundFlowControl()`). Запрос следующего батча (`callStream.request(1)`) выполняется только после того, как текущий батч зафиксирован локальным `KafkaProducer`.
+   - **Клиентский Backpressure**: пул консьюмеров отслеживает окно незавершенных батчей (`inFlightBatches`) и приостанавливает вычитку из Kafka при достижении лимита (16 батчей), предотвращая переполнение heap memory (OOM).
+
+3. **Интеграция с Orchestrator Control Plane**:
+   - Агент автоматически регистрируется в `OrchestratorControlPlaneService` (`:50050`) при старте и отправляет периодический `heartbeat` (раз в 5 секунд).
+   - При штатной остановке агент выполняет `unregisterAgent`, корректно освобождая ресурсы в реестре топологии.
+
+4. **Zero-Copy Wire Transcoding**:
+   - Автоматическая трансляция бинарных заголовков схем Confluent (5 байт Magic + SchemaID) в Hortonworks/Cloudera Schema Registry (3 байт Magic + SchemaVersionID) без десериализации полезной нагрузки.
+
+5. **Защита от циклов репликации (Loop Prevention Filter)**:
+   - Каждая запись помечается заголовком `X-Repl-Origin: <sourceDcId>`.
+   - Фильтр блокирует повторную передачу сообщений, уже содержащих текущий `targetDcId` в цепочке `X-Repl-Origin`.
+
+### 15.2 Параметры командной строки демона `kafka-replicator-agent`
+
+```bash
+java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain \
+  --port 50052 \
+  --bootstrap-servers "kafka-broker1.corp:9092,kafka-broker2.corp:9092" \
+  --dc-id "DC1" \
+  --target-dc "DC2" \
+  --target-endpoints "agent-dc2-1.corp:50052,agent-dc2-2.corp:50052" \
+  --orchestrator-grpc "orchestrator.corp:50050" \
+  --agent-id "kafka-agent-dc1-1" \
+  --agent-secret "s3cr3t-t0k3n" \
+  --role dual \
+  --topics "orders-avro,metrics-raw,user-events" \
+  --batch-size 2000 \
+  --consumer-threads 8 \
+  --kerberos-enabled \
+  --principal "kafka-replicator@CORP.LOCAL" \
+  --keytab "/etc/security/keytabs/kafka-replicator.keytab"
+```
+
+| Параметр | Переменная окружения | По умолчанию | Описание |
+|---|---|---|---|
+| `--port` | `PORT` | `50052` | Порт gRPC Data Plane приемника |
+| `--bootstrap-servers` | `BOOTSTRAP_SERVERS` | `localhost:9092` | Список брокеров локального Kafka кластера |
+| `--dc-id` | `DC_ID` | `DC1` | Идентификатор локального ЦОД |
+| `--target-dc` | `TARGET_DC` | `DC2` | Идентификатор целевого ЦОД |
+| `--target-endpoints` | `TARGET_ENDPOINTS` | - | Список адресов целевых агентов для балансировки (host:port, ...) |
+| `--orchestrator-grpc` | `ORCHESTRATOR_GRPC_ADDRESS` | - | Адрес Control Plane оркестратора (`host:50050`) |
+| `--agent-id` | `AGENT_ID` | `kafka-agent-<dc>-<port>` | Уникальный ID агента в кластере |
+| `--agent-secret` | `AGENT_SECRET` | - | Общий секрет для L7 аутентификации Data Plane и Control Plane |
+| `--role` | `ROLE` | `dual` | Роль: `dual` (прием и отправка), `sender`, `receiver` |
+| `--topics` | `TOPICS` | - | Список реплицируемых топиков через запятую |
+| `--batch-size` | `BATCH_SIZE` | `2000` | Максимальный размер пачки записей в gRPC запросе |
+| `--consumer-threads` | `CONSUMER_THREADS` | `8` | Число параллельных потоков вычитки Kafka |
+| `--kerberos-enabled` | `KERBEROS_ENABLED` | `false` | Включение Kerberos SASL аутентификации в брокерах |
+
 
 
 

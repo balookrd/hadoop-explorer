@@ -415,6 +415,25 @@ public class JobService {
             .toList();
     }
 
+    public Map<String, List<JobResponse>> listSubjobsByParentIds(java.util.Collection<String> parentJobIds) {
+        if (parentJobIds == null || parentJobIds.isEmpty()) {
+            return Map.of();
+        }
+        List<JobEntity> subjobs = jobRepository.findByParentJobIdIn(parentJobIds);
+        if (subjobs.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> jobIds = subjobs.stream().map(JobEntity::getId).toList();
+        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
+            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
+
+        return subjobs.stream()
+            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0)))
+            .filter(j -> j.parentJobId() != null)
+            .collect(Collectors.groupingBy(JobResponse::parentJobId));
+    }
+
     @Transactional
     public void deleteSubjobsByParentId(String parentJobId) {
         if (parentJobId == null || parentJobId.isBlank()) {
@@ -547,7 +566,7 @@ public class JobService {
                 run = jobRunRepository.findById(job.getActiveRunId()).orElse(null);
             }
             if (run == null) {
-                int nextRunNum = jobRunRepository.countByJobId(job.getId()) + 1;
+                int nextRunNum = jobRunRepository.findMaxRunNumberByJobId(job.getId()) + 1;
                 String runId = UUID.randomUUID().toString();
                 run = new JobRunEntity();
                 run.setId(runId);

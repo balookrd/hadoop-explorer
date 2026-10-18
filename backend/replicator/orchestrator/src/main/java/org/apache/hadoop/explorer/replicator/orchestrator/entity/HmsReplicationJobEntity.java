@@ -5,7 +5,15 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "hms_replication_jobs")
+@Table(
+    name = "hms_replication_jobs",
+    indexes = {
+        @Index(name = "idx_hms_jobs_status", columnList = "status"),
+        @Index(name = "idx_hms_jobs_assigned_agent", columnList = "assigned_agent_id"),
+        @Index(name = "idx_hms_jobs_src_cluster", columnList = "source_cluster_id"),
+        @Index(name = "idx_hms_jobs_lease_exp", columnList = "lease_expires_at")
+    }
+)
 public class HmsReplicationJobEntity {
 
     @Id

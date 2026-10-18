@@ -164,7 +164,7 @@ public class InotifyBatchProcessor implements AutoCloseable {
             log.warn("[Inotify Queue Overflow] Внутренняя очередь насыщена ({}/{}). Ожидание слота для '{}'...",
                     currentQueueSize.get(), maxQueueCapacity, item.getSourcePath());
             try {
-                boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag), 500, TimeUnit.MILLISECONDS);
+                boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag), 3000, TimeUnit.MILLISECONDS);
                 if (offered) {
                     currentQueueSize.incrementAndGet();
                     updateSaturationState();
@@ -332,8 +332,11 @@ public class InotifyBatchProcessor implements AutoCloseable {
             if (!failedTasks.isEmpty()) {
                 log.warn("[Inotify Reliability] Возврат {} неотправленных задач обратно в очередь буфера для повтора", failedTasks.size());
                 for (QueuedInotifyTask failed : failedTasks) {
-                    taskQueue.offer(failed);
-                    currentQueueSize.incrementAndGet();
+                    if (taskQueue.offer(failed)) {
+                        currentQueueSize.incrementAndGet();
+                    } else {
+                        log.error("[Inotify Critical] Не удалось вернуть задачу в очередь буфера: {}", failed.item().getSourcePath());
+                    }
                 }
                 updateSaturationState();
             }

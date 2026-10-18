@@ -19,13 +19,32 @@ public record HmsPartitionDto(
         String tableName,
         List<String> values,
         String location,
-        Map<String, String> parameters
+        Map<String, String> parameters,
+        List<HmsFieldSchemaDto> columns,
+        Map<String, String> serdeParameters
 ) {
     public HmsPartitionDto {
         if (catName == null || catName.isBlank()) catName = "hive";
         if (values == null) values = Collections.emptyList();
         if (parameters == null) parameters = Collections.emptyMap();
         else parameters = new HashMap<>(parameters);
+        if (columns == null) columns = Collections.emptyList();
+        if (serdeParameters == null) serdeParameters = Collections.emptyMap();
+        else serdeParameters = new HashMap<>(serdeParameters);
+    }
+
+    /**
+     * Конструктор обратной совместимости (6 аргументов).
+     */
+    public HmsPartitionDto(
+            String catName,
+            String dbName,
+            String tableName,
+            List<String> values,
+            String location,
+            Map<String, String> parameters
+    ) {
+        this(catName, dbName, tableName, values, location, parameters, Collections.emptyList(), Collections.emptyMap());
     }
 
     public String getPartitionName(List<String> partKeys) {

@@ -39,7 +39,7 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
         SELECT t FROM TaskEntity t
         JOIN t.job j
         WHERE t.status = :status
-          AND j.status = 'RUNNING'
+          AND (j.status = 'RUNNING' OR j.status = 'STREAMING')
           AND (:clusterId IS NULL OR LOWER(j.sourceClusterId) = LOWER(:clusterId))
         ORDER BY t.updatedAt ASC
     """)
@@ -54,7 +54,10 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
 
     long countByStatus(String status);
     List<TaskEntity> findByAssignedAgentIdAndStatus(String assignedAgentId, String status);
-    void deleteByJobId(String jobId);
+
+    @Modifying
+    @Query("DELETE FROM TaskEntity t WHERE t.jobId = :jobId")
+    void deleteByJobId(@Param("jobId") String jobId);
 
     @Query("""
         SELECT COUNT(t) FROM TaskEntity t

@@ -12,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskReposit
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,24 @@ public class TaskService {
     private final AgentRegistry agentRegistry;
     private final TopologyRegistry topologyRegistry;
     private final ReplicatorProperties properties;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
+
+    @Autowired
+    public TaskService(TaskRepository taskRepository,
+                       JobRepository jobRepository,
+                       JobRunRepository jobRunRepository,
+                       AgentRegistry agentRegistry,
+                       TopologyRegistry topologyRegistry,
+                       ReplicatorProperties properties,
+                       @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService) {
+        this.taskRepository = taskRepository;
+        this.jobRepository = jobRepository;
+        this.jobRunRepository = jobRunRepository;
+        this.agentRegistry = agentRegistry;
+        this.topologyRegistry = topologyRegistry;
+        this.properties = properties;
+        this.lockService = lockService;
+    }
 
     public TaskService(TaskRepository taskRepository,
                        JobRepository jobRepository,
@@ -43,12 +62,7 @@ public class TaskService {
                        AgentRegistry agentRegistry,
                        TopologyRegistry topologyRegistry,
                        ReplicatorProperties properties) {
-        this.taskRepository = taskRepository;
-        this.jobRepository = jobRepository;
-        this.jobRunRepository = jobRunRepository;
-        this.agentRegistry = agentRegistry;
-        this.topologyRegistry = topologyRegistry;
-        this.properties = properties;
+        this(taskRepository, jobRepository, jobRunRepository, agentRegistry, topologyRegistry, properties, null);
     }
 
     /**
@@ -240,7 +254,12 @@ public class TaskService {
 
         // Запрашиваем ограниченную пачку кандидатов QUEUED с пагинацией и блокировкой SKIP LOCKED для предотвращения состояния гонки (Race Condition)
         int batchSize = Math.max(limit * 3, 20);
-        List<TaskEntity> queuedTasks = taskRepository.findByStatusForUpdateSkipLocked("QUEUED", PageRequest.of(0, batchSize));
+        List<TaskEntity> queuedTasks;
+        if (clusterId != null && !clusterId.isBlank()) {
+            queuedTasks = taskRepository.findPendingTasksForClusterSkipLocked("QUEUED", clusterId, PageRequest.of(0, batchSize));
+        } else {
+            queuedTasks = taskRepository.findByStatusForUpdateSkipLocked("QUEUED", PageRequest.of(0, batchSize));
+        }
         if (queuedTasks.isEmpty()) {
             return Collections.emptyList();
         }
@@ -256,7 +275,7 @@ public class TaskService {
             if (job == null) {
                 continue;
             }
-            if (!"RUNNING".equalsIgnoreCase(job.getStatus())) {
+            if (!"RUNNING".equalsIgnoreCase(job.getStatus()) && !"STREAMING".equalsIgnoreCase(job.getStatus())) {
                 continue;
             }
 
@@ -513,8 +532,16 @@ public class TaskService {
      * или потерявшие назначение агента (0.1 мс при нормальной работе).
      */
     @Scheduled(fixedDelay = 3000)
-    @Transactional
     public void checkAndFailoverOrphanedTasks() {
+        if (lockService != null) {
+            lockService.runWithLock("orphan_task_failover_lock", java.time.Duration.ofSeconds(5), this::executeCheckAndFailoverOrphanedTasks);
+        } else {
+            executeCheckAndFailoverOrphanedTasks();
+        }
+    }
+
+    @Transactional
+    public void executeCheckAndFailoverOrphanedTasks() {
         // 1. Быстрый failover для задач агентов, перешедших в OFFLINE в реестре
         for (AgentRegistry.AgentEntry agent : agentRegistry.getAgents()) {
             if (agent.getStatus() == AgentRegistry.AgentStatus.OFFLINE) {
@@ -620,10 +647,11 @@ public class TaskService {
     }
 
     private boolean matchesCluster(String agentCluster, String jobCluster) {
+        if (agentCluster == null || jobCluster == null) return false;
         if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
         String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
         String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
-        return aNorm.equals(jNorm) || aNorm.contains(jNorm) || jNorm.contains(aNorm);
+        return aNorm.equals(jNorm);
     }
 
     /**

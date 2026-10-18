@@ -15,6 +15,9 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, String> {
     int countByJobId(String jobId);
     void deleteByJobId(String jobId);
 
+    @Query("SELECT COALESCE(MAX(r.runNumber), 0) FROM JobRunEntity r WHERE r.jobId = :jobId")
+    int findMaxRunNumberByJobId(@Param("jobId") String jobId);
+
     interface JobRunCount {
         String getJobId();
         long getRunCount();

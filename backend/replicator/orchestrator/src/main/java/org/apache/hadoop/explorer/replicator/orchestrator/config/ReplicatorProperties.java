@@ -205,7 +205,7 @@ public class ReplicatorProperties {
 
     public static class GrpcControlPlaneConfig {
         private boolean enabled = true;
-        private int port = 50051;
+        private int port = 50050;
         private int maxInboundMessageSize = 16 * 1024 * 1024;
         private boolean tlsEnabled = false;
         private String certChainPath;

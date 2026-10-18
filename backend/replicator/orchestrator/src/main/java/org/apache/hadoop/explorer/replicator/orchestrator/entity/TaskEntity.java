@@ -14,7 +14,8 @@ import java.time.Instant;
         @Index(name = "idx_task_job_id", columnList = "job_id"),
         @Index(name = "idx_task_status", columnList = "status"),
         @Index(name = "idx_task_job_status", columnList = "job_id, status"),
-        @Index(name = "idx_task_status_job_id", columnList = "status, job_id")
+        @Index(name = "idx_task_status_job_id", columnList = "status, job_id"),
+        @Index(name = "idx_task_status_updated_at", columnList = "status, updated_at")
     }
 )
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

@@ -127,8 +127,39 @@ public class JobController {
         return ResponseEntity.ok(jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs));
     }
 
+    private void checkJobReadAccess(String jobId, Authentication auth, String agentSecret) {
+        if (agentSecret != null && !agentSecret.isBlank()) {
+            return;
+        }
+        UserSession session = getSession(auth);
+        if (session == null) {
+            return;
+        }
+        if (session.isAdmin() || session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
+            return;
+        }
+        var opt = jobService.getJobEntity(jobId);
+        if (opt.isPresent()) {
+            String createdBy = opt.get().getCreatedBy();
+            if (createdBy != null && (createdBy.equalsIgnoreCase(session.username())
+                    || "system_operator".equalsIgnoreCase(createdBy)
+                    || "demo-admin".equalsIgnoreCase(createdBy)
+                    || JobService.matchesJobOwner(opt.get(), session.username()))) {
+                return;
+            }
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.FORBIDDEN, "Недостаточно прав для просмотра задачи другого пользователя"
+            );
+        }
+    }
+
     @GetMapping("/{jobId}")
-    public ResponseEntity<JobResponse> getJob(@PathVariable String jobId) {
+    public ResponseEntity<JobResponse> getJob(
+        @PathVariable String jobId,
+        @RequestHeader(required = false, name = "X-Agent-Secret") String agentSecret,
+        Authentication auth
+    ) {
+        checkJobReadAccess(jobId, auth, agentSecret);
         return jobService.getJob(jobId)
             .map(ResponseEntity::ok)
             .orElseGet(() -> ResponseEntity.notFound().build());

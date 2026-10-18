@@ -16,10 +16,17 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
+import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
+import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
+import org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor;
+
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,6 +54,10 @@ public class KafkaReplicatorAgentMain {
         int consumerThreads = 8;
         int batchSize = 2000;
         String groupId = null;
+        String orchestratorGrpc = System.getenv("ORCHESTRATOR_GRPC_ADDRESS");
+        String agentId = System.getenv("AGENT_ID");
+        String agentSecret = System.getenv("AGENT_SECRET");
+        String advertisedGrpcAddress = System.getenv("ADVERTISED_GRPC_ADDRESS");
 
         org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig =
                 new org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig();
@@ -76,6 +87,14 @@ public class KafkaReplicatorAgentMain {
                 batchSize = Integer.parseInt(args[++i]);
             } else if ("--group-id".equals(args[i]) && i + 1 < args.length) {
                 groupId = args[++i];
+            } else if ("--orchestrator-grpc".equals(args[i]) && i + 1 < args.length) {
+                orchestratorGrpc = args[++i];
+            } else if ("--agent-id".equals(args[i]) && i + 1 < args.length) {
+                agentId = args[++i];
+            } else if ("--agent-secret".equals(args[i]) && i + 1 < args.length) {
+                agentSecret = args[++i];
+            } else if ("--advertised-grpc-address".equals(args[i]) && i + 1 < args.length) {
+                advertisedGrpcAddress = args[++i];
             } else if ("--kerberos-enabled".equals(args[i])) {
                 krbConfig.setEnabled(true);
             } else if ("--principal".equals(args[i]) && i + 1 < args.length) {
@@ -98,10 +117,16 @@ public class KafkaReplicatorAgentMain {
         if (groupId == null || groupId.isBlank()) {
             groupId = "kafka-replicator-" + dcId;
         }
+        if (agentId == null || agentId.isBlank()) {
+            agentId = "kafka-agent-" + dcId.toLowerCase() + "-" + port;
+        }
+        if (advertisedGrpcAddress == null || advertisedGrpcAddress.isBlank()) {
+            advertisedGrpcAddress = "localhost:" + port;
+        }
 
         String targetsDesc = !targetEndpoints.isBlank() ? targetEndpoints : (targetHost + ":" + targetPort);
-        log.info("Запуск kafka-replicator-agent [Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}]",
-                role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled());
+        log.info("Запуск kafka-replicator-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, Orchestrator={}]",
+                agentId, role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled(), orchestratorGrpc);
 
         Server server = null;
         KafkaProducer<byte[], byte[]> producer = null;
@@ -140,11 +165,16 @@ public class KafkaReplicatorAgentMain {
             SafetyCommitManager safetyCommitManager = new SafetyCommitManager(adminClient, resolverConsumer);
             KafkaDataTransferServiceImpl service = new KafkaDataTransferServiceImpl(batchProducer, safetyCommitManager, dcId);
 
-            server = ServerBuilder.forPort(port)
+            var serverBuilder = ServerBuilder.forPort(port)
                     .addService(service)
-                    .maxInboundMessageSize(64 * 1024 * 1024)
-                    .build()
-                    .start();
+                    .maxInboundMessageSize(64 * 1024 * 1024);
+
+            if (agentSecret != null && !agentSecret.isBlank()) {
+                serverBuilder.intercept(new AgentGrpcAuthInterceptor(agentSecret));
+                log.info("Включена gRPC L7 аутентификация сервера через x-agent-secret");
+            }
+
+            server = serverBuilder.build().start();
 
             log.info("gRPC сервер kafka-replicator-agent успешно запущен на порту {}", port);
         }
@@ -169,7 +199,7 @@ public class KafkaReplicatorAgentMain {
             log.info("Инициализация пула консьюмеров отправителя: топики={}, потоков={}, targets={}",
                     topicList, consumerThreads, targetList);
 
-            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(targetList);
+            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(targetList, agentSecret);
 
             List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
             for (int i = 0; i < consumerThreads; i++) {
@@ -190,7 +220,7 @@ public class KafkaReplicatorAgentMain {
             }
 
             org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter loopFilter =
-                    new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(dcId);
+                    new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(dcId, targetDcId);
             org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier classifier =
                     new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier();
             org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver passthroughResolver =
@@ -219,16 +249,76 @@ public class KafkaReplicatorAgentMain {
             log.info("Пул консьюмеров отправителя успешно запущен");
         }
 
+        // 3. Подключение к Orchestrator Control Plane
+        OrchestratorGrpcClient orchestratorClient = null;
+        ScheduledExecutorService heartbeatExecutor = null;
+
+        if (orchestratorGrpc != null && !orchestratorGrpc.isBlank()) {
+            log.info("Регистрация в Orchestrator Control Plane: {} (agentId={})", orchestratorGrpc, agentId);
+            orchestratorClient = new OrchestratorGrpcClient(orchestratorGrpc, agentSecret);
+            AgentRegisterRequest regReq = new AgentRegisterRequest(
+                    agentId,
+                    dcId,
+                    role,
+                    ("receiver".equals(role) || "dual".equals(role)) ? advertisedGrpcAddress : null,
+                    null,
+                    100.0
+            );
+            boolean regSuccess = orchestratorClient.register(regReq);
+            log.info("Результат регистрации агента '{}' в оркестраторе: {}", agentId, regSuccess);
+
+            heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "kafka-agent-heartbeat");
+                t.setDaemon(true);
+                return t;
+            });
+
+            final OrchestratorGrpcClient finalOrch = orchestratorClient;
+            final String finalAgentId = agentId;
+            final String finalDcId = dcId;
+            final String finalRole = role;
+            final String finalAdvAddr = advertisedGrpcAddress;
+
+            heartbeatExecutor.scheduleAtFixedRate(() -> {
+                try {
+                    AgentHeartbeatRequest hbReq = new AgentHeartbeatRequest(
+                            finalAgentId,
+                            finalDcId,
+                            finalAdvAddr,
+                            0,
+                            finalRole
+                    );
+                    finalOrch.heartbeat(hbReq);
+                } catch (Exception e) {
+                    log.debug("Ошибка отправки heartbeat в оркестратор: {}", e.getMessage());
+                }
+            }, 5, 5, TimeUnit.SECONDS);
+        }
+
         final Server finalServer = server;
         final KafkaProducer<byte[], byte[]> finalProducer = producer;
         final AdminClient finalAdminClient = adminClient;
         final KafkaConsumer<byte[], byte[]> finalResolverConsumer = resolverConsumer;
         final org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool finalPool = consumerPool;
         final org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient finalClient = replicationClient;
+        final OrchestratorGrpcClient finalOrchestratorClient = orchestratorClient;
+        final ScheduledExecutorService finalHeartbeatExecutor = heartbeatExecutor;
+        final String finalShutdownAgentId = agentId;
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Остановка kafka-replicator-agent...");
             try {
+                if (finalHeartbeatExecutor != null) {
+                    finalHeartbeatExecutor.shutdownNow();
+                }
+                if (finalOrchestratorClient != null) {
+                    try {
+                        finalOrchestratorClient.unregister(finalShutdownAgentId);
+                    } catch (Exception e) {
+                        log.debug("Ошибка unregister агента: {}", e.getMessage());
+                    }
+                    finalOrchestratorClient.close();
+                }
                 if (finalPool != null) {
                     finalPool.close();
                 }
