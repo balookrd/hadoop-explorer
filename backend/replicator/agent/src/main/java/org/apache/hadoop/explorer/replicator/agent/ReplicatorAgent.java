@@ -468,14 +468,7 @@ public class ReplicatorAgent {
         if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
         String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
         String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
-        if (aNorm.equals(jNorm)) return true;
-        if (("dc1".equals(aNorm) || "democluster".equals(aNorm)) && ("dc1".equals(jNorm) || "democluster".equals(jNorm))) {
-            return true;
-        }
-        if (("dc2".equals(aNorm) || "backupcluster".equals(aNorm)) && ("dc2".equals(jNorm) || "backupcluster".equals(jNorm))) {
-            return true;
-        }
-        return false;
+        return aNorm.equals(jNorm);
     }
 
     /**
@@ -501,8 +494,6 @@ public class ReplicatorAgent {
                 for (ClusterDto c : clusters) {
                     if (c.getId() != null && c.getGrpcAddress() != null) {
                         clusterAddressCache.put(c.getId(), c.getGrpcAddress());
-                        if ("dc1".equalsIgnoreCase(c.getId())) clusterAddressCache.put("demo-cluster", c.getGrpcAddress());
-                        if ("dc2".equalsIgnoreCase(c.getId())) clusterAddressCache.put("backup-cluster", c.getGrpcAddress());
                     }
                 }
                 lastTopologySyncTime = now;
@@ -514,22 +505,6 @@ public class ReplicatorAgent {
         String targetAddr = clusterAddressCache.get(targetClusterId);
         if (targetAddr != null && !targetAddr.isBlank()) {
             return targetAddr;
-        }
-        if (("dc1".equalsIgnoreCase(targetClusterId) || "demo-cluster".equalsIgnoreCase(targetClusterId))
-                && clusterAddressCache.containsKey("dc1")) {
-            return clusterAddressCache.get("dc1");
-        }
-        if (("dc2".equalsIgnoreCase(targetClusterId) || "backup-cluster".equalsIgnoreCase(targetClusterId))
-                && clusterAddressCache.containsKey("dc2")) {
-            return clusterAddressCache.get("dc2");
-        }
-
-        // 3. Fallback по умолчанию для известных пар в Docker
-        if ("dc1".equalsIgnoreCase(targetClusterId) || "demo-cluster".equalsIgnoreCase(targetClusterId)) {
-            return "agent-dc1:50051";
-        }
-        if ("dc2".equalsIgnoreCase(targetClusterId) || "backup-cluster".equalsIgnoreCase(targetClusterId)) {
-            return "agent-dc2:50051";
         }
 
         return config.getFallbackTargetAddress();

@@ -47,7 +47,7 @@ public class JobEntity {
     private String executionPrincipal = "hdfs@EXAMPLE.COM";
 
     @Column(name = "created_by", nullable = false)
-    private String createdBy = "system_operator";
+    private String createdBy = "system";
 
     @Column(name = "is_scheduled", nullable = false)
     private boolean isScheduled = false;

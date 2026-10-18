@@ -72,7 +72,7 @@ public class HmsReplicationJobEntity {
     private String message;
 
     @Column(name = "created_by", nullable = false)
-    private String createdBy = "system_operator";
+    private String createdBy = "system";
 
     @Column(name = "execution_principal", length = 128)
     private String executionPrincipal = "hdfs@EXAMPLE.COM";

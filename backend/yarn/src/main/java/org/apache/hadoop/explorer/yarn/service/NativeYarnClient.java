@@ -25,7 +25,6 @@ public class NativeYarnClient implements YarnClient {
     private final ClusterConfig cluster;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-    private final MockYarnClient fallbackMockClient;
     private volatile String cachedActiveRmUrl;
 
     public NativeYarnClient(ClusterConfig cluster, ObjectMapper objectMapper) {
@@ -35,7 +34,6 @@ public class NativeYarnClient implements YarnClient {
     public NativeYarnClient(ClusterConfig cluster, ObjectMapper objectMapper, CommonSecurityProperties.TlsProperties tlsProps) {
         this.cluster = cluster;
         this.objectMapper = objectMapper;
-        this.fallbackMockClient = new MockYarnClient(cluster);
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NORMAL);
@@ -53,7 +51,7 @@ public class NativeYarnClient implements YarnClient {
 
         List<String> rmUrls = cluster.getResourceManagerUrls();
         if (rmUrls == null || rmUrls.isEmpty()) {
-            return "http://localhost:8088";
+            throw new IllegalStateException("Не указаны адреса ResourceManager (rmUrls) для кластера: " + cluster.getId());
         }
 
         for (String url : rmUrls) {
@@ -120,8 +118,8 @@ public class NativeYarnClient implements YarnClient {
                     .partitions(cluster.getPartitions())
                     .build();
         } catch (Exception e) {
-            log.warn("Не удалось получить метрики кластера {} из YARN RM, переключение на mock fallback: {}", cluster.getId(), e.getMessage());
-            return fallbackMockClient.getClusterMetrics(doAs);
+            log.error("Не удалось получить метрики кластера {} из YARN RM: {}", cluster.getId(), e.getMessage());
+            throw new RuntimeException("Ошибка связи с YARN ResourceManager кластера " + cluster.getId() + ": " + e.getMessage(), e);
         }
     }
 
@@ -138,8 +136,8 @@ public class NativeYarnClient implements YarnClient {
             // Capacity Scheduler представляет корень в schedulerInfo
             return parseQueueNode(schedulerInfo, null);
         } catch (Exception e) {
-            log.warn("Не удалось получить дерево очередей {} из YARN RM, переключение на mock fallback: {}", cluster.getId(), e.getMessage());
-            return fallbackMockClient.getQueueTree(doAs);
+            log.error("Не удалось получить дерево очередей {} из YARN RM: {}", cluster.getId(), e.getMessage());
+            throw new RuntimeException("Ошибка связи с YARN ResourceManager кластера " + cluster.getId() + ": " + e.getMessage(), e);
         }
     }
 

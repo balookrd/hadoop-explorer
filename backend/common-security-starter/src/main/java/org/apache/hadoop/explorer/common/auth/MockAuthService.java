@@ -27,8 +27,9 @@ public class MockAuthService {
     }
 
     public Optional<UserSession> authenticate(String username, String password) {
-        if (!properties.isDebug() && !"mock".equalsIgnoreCase(properties.getAuth().getMode())) {
-            throw new SecurityException("Mock authentication is forbidden in non-debug mode (debug: false)");
+        if (!"mock".equalsIgnoreCase(properties.getAuth().getMode()) && !properties.isDebug()) {
+            throw new SecurityException("Mock authentication is forbidden in non-debug mode (auth.mode="
+                    + properties.getAuth().getMode() + ", debug=false)");
         }
 
         if (username == null || username.isBlank()) {
@@ -42,6 +43,9 @@ public class MockAuthService {
         if (configured != null) {
             for (CommonSecurityProperties.MockUser mu : configured) {
                 if (mu.getUsername() != null && mu.getUsername().equalsIgnoreCase(uname)) {
+                    if (mu.getPassword() != null && !mu.getPassword().equals(password)) {
+                        return Optional.empty();
+                    }
                     List<String> userGroups = mu.getGroups() != null ? new ArrayList<>(mu.getGroups()) : new ArrayList<>();
                     var resolved = roleResolver.resolve(uname, userGroups);
                     String dName = mu.getDisplayName() != null ? mu.getDisplayName() : (uname.substring(0, 1).toUpperCase() + uname.substring(1));
@@ -59,17 +63,16 @@ public class MockAuthService {
             }
         }
 
-        // 2. Дефолтный fallback по префиксу имени пользователя
+        // 2. Дефолтный fallback для стандартных учетных записей демо-режима разработки
         List<String> mockGroups = new ArrayList<>();
         String lower = uname.toLowerCase();
-        if (lower.startsWith("admin") || lower.equals("root")) {
+        if ("admin".equals(lower) || "root".equals(lower)) {
             mockGroups.addAll(RoleResolver.DEFAULT_ADMIN_GROUPS);
-        } else if (lower.startsWith("writer") || lower.startsWith("engineer") || lower.startsWith("de") || lower.startsWith("operator") || lower.startsWith("data_engineer")) {
+        } else if ("writer".equals(lower)) {
             mockGroups.addAll(RoleResolver.DEFAULT_WRITER_GROUPS);
         } else {
             mockGroups.add("users");
         }
-
         var resolved = roleResolver.resolve(uname, mockGroups);
 
         return Optional.of(new UserSession(

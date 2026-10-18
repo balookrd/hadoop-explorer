@@ -297,7 +297,7 @@ public class JobService {
         entity.setTotalBytes(req.totalBytes());
         entity.setExecutionPrincipal(req.executionPrincipal());
         entity.setRunAsServiceAccount(req.runAsServiceAccount());
-        entity.setCreatedBy(username != null ? username : "system_operator");
+        entity.setCreatedBy(username != null ? username : "system");
 
         String syncMode = req.syncMode() != null ? req.syncMode().toUpperCase() :
             (Boolean.TRUE.equals(req.isScheduled()) ? "SCHEDULED" : "MANUAL");
@@ -462,11 +462,8 @@ public class JobService {
         String author = createdBy != null ? (createdBy.contains("@") ? createdBy.substring(0, createdBy.indexOf('@')) : createdBy) : "";
         String user = username.contains("@") ? username.substring(0, username.indexOf('@')) : username;
 
-        // Системные и административные задачи видны всем пользователям платформы
-        if (author.isBlank()
-                || "system_operator".equalsIgnoreCase(author)
-                || "demo-admin".equalsIgnoreCase(author)
-                || "admin_user".equalsIgnoreCase(author)) {
+        // Системные задачи доступны для платформы
+        if (author.isBlank() || "system".equalsIgnoreCase(author)) {
             return true;
         }
 
@@ -474,24 +471,11 @@ public class JobService {
             return true;
         }
 
-        if (principal != null && principal.toLowerCase().startsWith(user.toLowerCase())) {
-            return true;
-        }
-
-        // Выравнивание ролей инженеров данных (RW): writer_user и de_user
-        boolean isEngineerUser = "writer_user".equalsIgnoreCase(user) || "de_user".equalsIgnoreCase(user)
-                || user.toLowerCase().contains("writer") || user.toLowerCase().contains("engineer");
-        if (isEngineerUser) {
-            String cbLower = author.toLowerCase();
-            return cbLower.contains("writer") || cbLower.contains("engineer") || cbLower.contains("de_");
-        }
-
-        // Выравнивание ролей наблюдателей (RO): reader_user и analyst_user
-        boolean isViewerUser = "reader_user".equalsIgnoreCase(user) || "analyst_user".equalsIgnoreCase(user)
-                || user.toLowerCase().contains("reader") || user.toLowerCase().contains("analyst");
-        if (isViewerUser) {
-            String cbLower = author.toLowerCase();
-            return cbLower.contains("reader") || cbLower.contains("analyst");
+        if (principal != null && !principal.isBlank()) {
+            String princUser = principal.contains("@") ? principal.substring(0, principal.indexOf('@')) : principal;
+            if (princUser.equalsIgnoreCase(user)) {
+                return true;
+            }
         }
 
         return false;

@@ -33,6 +33,7 @@ public class AwxClientService {
     private final YarnProperties yarnProperties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final CommonSecurityProperties securityProperties;
 
     public AwxClientService(YarnProperties yarnProperties, ObjectMapper objectMapper) {
         this(yarnProperties, objectMapper, null);
@@ -43,6 +44,7 @@ public class AwxClientService {
                             @Autowired(required = false) CommonSecurityProperties securityProperties) {
         this.yarnProperties = yarnProperties;
         this.objectMapper = objectMapper;
+        this.securityProperties = securityProperties;
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NORMAL);
@@ -66,7 +68,8 @@ public class AwxClientService {
                 .withZone(ZoneOffset.UTC)
                 .format(Instant.now());
 
-        if (awx.isEnabled() && awx.getBaseUrl() != null && !awx.getBaseUrl().contains(".local")) {
+        boolean isMock = securityProperties != null && "mock".equalsIgnoreCase(securityProperties.getAuth().getMode());
+        if (!isMock && awx.isEnabled() && awx.getBaseUrl() != null && !awx.getBaseUrl().isBlank()) {
             try {
                 String launchUrl = awx.getBaseUrl().replaceAll("/+$", "") +
                         "/api/v2/job_templates/" + jobTemplateId + "/launch/";
@@ -107,8 +110,25 @@ public class AwxClientService {
                             .deployedAt(now)
                             .build();
                 }
+
+                log.error("AWX вернул статус ошибки {}: {}", response.statusCode(), response.body());
+                return DeployResponse.builder()
+                        .crId(crId)
+                        .clusterId(cluster.getId())
+                        .status("FAILED")
+                        .message("Ошибка запуска шаблона в AWX: HTTP " + response.statusCode())
+                        .deployedAt(now)
+                        .stdout(response.body())
+                        .build();
             } catch (Exception e) {
-                log.warn("Не удалось отправить запрос в реальный AWX: {}. Переход к симуляции деплоя.", e.getMessage());
+                log.error("Сбой обращения к AWX API: {}", e.getMessage());
+                return DeployResponse.builder()
+                        .crId(crId)
+                        .clusterId(cluster.getId())
+                        .status("FAILED")
+                        .message("Сбой обращения к AWX API: " + e.getMessage())
+                        .deployedAt(now)
+                        .build();
             }
         }
 

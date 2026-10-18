@@ -40,21 +40,19 @@ public class JobController {
                 HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
             );
         }
-        if (session.isAdmin()) {
-            return; // Администратор может управлять любыми задачами
+        if (session.isAdmin() || (session.groups() != null && session.groups().contains("replicator-agents"))) {
+            return; // Администраторы и доверенные демоны-агенты могут управлять задачами
         }
         if (session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с ролью только для чтения (READER) не имеет права изменять задачи"
             );
         }
-        // WRITER может управлять своими задачами, задачами группы инженеров или системными
+        // WRITER может управлять своими задачами или задачами, владельцем которых он является
         var opt = jobService.getJobEntity(jobId);
         if (opt.isPresent()) {
             String createdBy = opt.get().getCreatedBy();
             if (createdBy != null && (createdBy.equalsIgnoreCase(session.username())
-                    || "system_operator".equalsIgnoreCase(createdBy)
-                    || "demo-admin".equalsIgnoreCase(createdBy)
                     || JobService.matchesJobOwner(opt.get(), session.username()))) {
                 return;
             }
@@ -142,8 +140,6 @@ public class JobController {
         if (opt.isPresent()) {
             String createdBy = opt.get().getCreatedBy();
             if (createdBy != null && (createdBy.equalsIgnoreCase(session.username())
-                    || "system_operator".equalsIgnoreCase(createdBy)
-                    || "demo-admin".equalsIgnoreCase(createdBy)
                     || JobService.matchesJobOwner(opt.get(), session.username()))) {
                 return;
             }

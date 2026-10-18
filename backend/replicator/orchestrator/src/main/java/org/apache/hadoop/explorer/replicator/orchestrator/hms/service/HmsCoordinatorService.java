@@ -125,7 +125,7 @@ public class HmsCoordinatorService {
         entity.setSourceDbName(sourceDb);
         entity.setTargetDbName(targetDb != null ? targetDb : sourceDb);
         entity.setTableIncludePattern(tablePattern != null ? tablePattern : "*");
-        entity.setCreatedBy(author != null ? author : "system_operator");
+        entity.setCreatedBy(author != null ? author : "system");
         entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : null);
         entity.setDropExtraneousTables(dropExtraneousTables);
         entity.setDropExtraneousPartitions(dropExtraneousPartitions);

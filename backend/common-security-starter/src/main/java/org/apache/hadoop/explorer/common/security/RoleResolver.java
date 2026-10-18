@@ -74,20 +74,13 @@ public class RoleResolver {
 
         // 1. Проверка Администратора (ADM)
         boolean hasAdminGroup = !Collections.disjoint(userGroups, adminGroups);
-        if (adminUsers.contains(uname) || hasAdminGroup || uname.startsWith("admin") || uname.equals("root")) {
+        if (adminUsers.contains(uname) || hasAdminGroup) {
             return new ResolvedRole(Role.ADMIN, true);
         }
 
         // 2. Проверка Писателя (Writer / RW)
         boolean hasWriterGroup = !Collections.disjoint(userGroups, writerGroups);
-        if (writerUsers.contains(uname)
-            || hasWriterGroup
-            || uname.startsWith("writer")
-            || uname.startsWith("engineer")
-            || uname.equals("de_user")
-            || uname.startsWith("de_")
-            || uname.startsWith("data_engineer")
-            || uname.startsWith("operator")) {
+        if (writerUsers.contains(uname) || hasWriterGroup) {
             return new ResolvedRole(Role.WRITER, false);
         }
 

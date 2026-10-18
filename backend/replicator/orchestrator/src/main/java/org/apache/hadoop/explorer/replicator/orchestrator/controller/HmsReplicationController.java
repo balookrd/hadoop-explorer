@@ -48,7 +48,7 @@ public class HmsReplicationController {
 
     private String getUsername(Authentication auth) {
         UserSession session = getSession(auth);
-        return session != null ? session.username() : "system_operator";
+        return session != null ? session.username() : "system";
     }
 
     public record CreateHmsJobRequest(
@@ -184,9 +184,7 @@ public class HmsReplicationController {
             );
         }
         String createdBy = opt.get().getCreatedBy();
-        if (createdBy != null && (createdBy.equalsIgnoreCase(session.username())
-                || "system_operator".equalsIgnoreCase(createdBy)
-                || "demo-admin".equalsIgnoreCase(createdBy))) {
+        if (createdBy != null && createdBy.equalsIgnoreCase(session.username())) {
             return;
         }
         throw new org.springframework.web.server.ResponseStatusException(

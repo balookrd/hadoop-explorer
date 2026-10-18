@@ -105,11 +105,13 @@ public class NativeHdfsClient implements HdfsFileSystemClient {
             return URI.create(url);
         }
 
-        return URI.create("hdfs://localhost:8020");
+        throw new IllegalStateException("Не указаны WebHDFS URLs или NameService для кластера: " + cluster.getId());
     }
 
     private <T> T executeAsUser(String username, PrivilegedExceptionAction<T> action) {
-        String effectiveUser = (username != null && !username.isBlank()) ? username : "hdfs";
+        String effectiveUser = (username != null && !username.isBlank())
+                ? username
+                : (loginUser != null ? loginUser.getShortUserName() : "nobody");
         try {
             UserGroupInformation ugi;
             if (loginUser != null) {

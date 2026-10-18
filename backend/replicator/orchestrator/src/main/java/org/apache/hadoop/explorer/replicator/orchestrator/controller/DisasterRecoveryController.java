@@ -53,7 +53,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         return ResponseEntity.ok(drService.emergencyStop(req, username));
     }
 
@@ -64,7 +64,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         String targetCluster = (req != null && req.clusterId() != null && !req.clusterId().isBlank())
                 ? req.clusterId()
                 : (drService.getDrStatus() != null && drService.getDrStatus().summary() != null
@@ -88,7 +88,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         return ResponseEntity.ok(drService.reverseReplication(req, username));
     }
 
@@ -99,7 +99,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         return ResponseEntity.ok(drService.reverseSingleHdfsJob(jobId, username));
     }
 
@@ -110,7 +110,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         return ResponseEntity.ok(drService.undoReverse(jobId, username));
     }
 
@@ -121,7 +121,7 @@ public class DisasterRecoveryController {
     ) {
         requireAdmin(auth);
         UserSession session = getSession(auth);
-        String username = session != null ? session.username() : "system_operator";
+        String username = session != null ? session.username() : "system";
         return ResponseEntity.ok(drService.undoReverse(jobId, username));
     }
 }

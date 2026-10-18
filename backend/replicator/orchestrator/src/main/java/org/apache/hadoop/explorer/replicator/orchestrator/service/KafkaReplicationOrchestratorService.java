@@ -264,12 +264,9 @@ public class KafkaReplicationOrchestratorService {
      */
     public List<String> getLiveReceiverEndpoints(String clusterId) {
         if (agentRegistry == null) {
-            return List.of("localhost:50052");
+            return List.of();
         }
         var receivers = agentRegistry.getLiveKafkaReceiversForCluster(clusterId);
-        if (receivers.isEmpty()) {
-            return List.of("localhost:50052");
-        }
         return receivers.stream()
                 .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
                 .toList();
@@ -280,18 +277,18 @@ public class KafkaReplicationOrchestratorService {
      */
     public String resolveBootstrapServers(String dc, String explicitServers) {
         if (explicitServers != null && !explicitServers.isBlank()) {
-            return explicitServers;
+            return explicitServers.trim();
         }
-        if (dc == null) {
+        if (dc == null || dc.isBlank()) {
             return "localhost:9092";
         }
-        String lower = dc.toLowerCase();
-        if (lower.contains("dc1") || lower.contains("primary") || lower.contains("moscow") || lower.contains("skolkovo")) {
-            return "kafka-cluster-1.demo-platform-net:9092";
-        } else if (lower.contains("dc2") || lower.contains("dr") || lower.contains("spb") || lower.contains("pulkovo")) {
-            return "kafka-cluster-2.demo-platform-net:9092";
+        String dId = dc.trim().toLowerCase();
+        if ("dc1".equals(dId)) {
+            return "kafka-dc1:9092";
+        } else if ("dc2".equals(dId)) {
+            return "kafka-dc2:9092";
         }
-        return "localhost:9092";
+        return dId + "-kafka:9092";
     }
 
     /**

@@ -362,7 +362,10 @@ public class ReplicationSender implements AutoCloseable {
         String sourcePath = task.getSourcePath();
         String targetPath = task.getTargetPath();
         long fileSize = task.getFileSize();
-        String targetAddress = task.getTargetAddress() != null ? task.getTargetAddress() : "localhost:50051";
+        String targetAddress = task.getTargetAddress();
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new IllegalArgumentException("Целевой gRPC адрес репликации не указан для задачи " + taskId);
+        }
 
         logger.info("Воркер '{}' начинает передачу файла задачи '{}': {} -> {} ({} байт) на {}",
                 workerId, taskId, sourcePath, targetPath, fileSize, targetAddress);
@@ -825,11 +828,11 @@ public class ReplicationSender implements AutoCloseable {
         }
     }
 
-    /**
-     * Возвращает существующий или создает новый переиспользуемый gRPC ManagedChannel из пула соединений.
-     */
     public ManagedChannel getOrCreateChannel(String targetAddress) throws javax.net.ssl.SSLException {
-        String key = targetAddress != null ? targetAddress.trim() : "localhost:50051";
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new IllegalArgumentException("Целевой gRPC адрес не может быть пустым");
+        }
+        String key = targetAddress.trim();
         ManagedChannel channel = channelPool.get(key);
         if (channel != null && !channel.isShutdown() && !channel.isTerminated()) {
             return channel;
@@ -983,7 +986,10 @@ public class ReplicationSender implements AutoCloseable {
         String targetPath = task.getTargetPath();
         long totalBytes = task.getFileSize();
         int fileCount = task.getFileCount();
-        String targetAddress = task.getTargetAddress() != null ? task.getTargetAddress() : "localhost:50051";
+        String targetAddress = task.getTargetAddress();
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new IllegalArgumentException("Целевой gRPC адрес репликации не указан для бандла " + taskId);
+        }
 
         logger.info("Воркер '{}' начинает потоковую передачу бандла TAR '{}': {} файлов ({} байт) в '{}' на {}",
                 workerId, taskId, fileCount, totalBytes, targetPath, targetAddress);

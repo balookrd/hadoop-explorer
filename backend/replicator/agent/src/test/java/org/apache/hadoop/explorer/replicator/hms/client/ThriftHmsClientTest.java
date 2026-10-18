@@ -57,7 +57,7 @@ public class ThriftHmsClientTest {
         poolConfig.setMaxWait(Duration.ofSeconds(2));
         pool = new GenericObjectPool<>(factory, poolConfig);
 
-        thriftHmsClient = new ThriftHmsClient("dc1", pool);
+        thriftHmsClient = new ThriftHmsClient("dc1", "thrift://localhost:9083", pool);
     }
 
     @AfterEach

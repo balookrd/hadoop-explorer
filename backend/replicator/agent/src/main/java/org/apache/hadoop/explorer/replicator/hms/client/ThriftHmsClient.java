@@ -77,9 +77,9 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 clusterId, thriftUris, poolConfig.getMaxTotal(), kerberosPrincipal != null);
     }
 
-    ThriftHmsClient(String clusterId, GenericObjectPool<IMetaStoreClient> clientPool) {
+    ThriftHmsClient(String clusterId, String thriftUris, GenericObjectPool<IMetaStoreClient> clientPool) {
         this.clusterId = clusterId;
-        this.thriftUris = "mock://thrift";
+        this.thriftUris = thriftUris != null ? thriftUris : "thrift://localhost:9083";
         this.kerberosPrincipal = null;
         this.keytabPath = null;
         this.conf = new org.apache.hadoop.conf.Configuration();

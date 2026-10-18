@@ -629,7 +629,9 @@ public class TaskService {
     }
 
     private String resolveTargetAddress(String targetClusterId) {
-        if (targetClusterId == null) return "localhost:50051";
+        if (targetClusterId == null || targetClusterId.isBlank()) {
+            return null;
+        }
 
         // 1. Поиск наименее загруженного живого агента в целевом кластере (Least Loaded)
         Optional<AgentRegistry.AgentEntry> leastLoaded = agentRegistry.getLeastLoadedAgentForCluster(targetClusterId);
@@ -643,7 +645,7 @@ public class TaskService {
             return topoAddr;
         }
 
-        return "localhost:50051";
+        return null;
     }
 
     private boolean matchesCluster(String agentCluster, String jobCluster) {

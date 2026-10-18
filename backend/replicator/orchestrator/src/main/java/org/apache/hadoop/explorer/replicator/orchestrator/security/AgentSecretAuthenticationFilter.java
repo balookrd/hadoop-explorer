@@ -65,10 +65,10 @@ public class AgentSecretAuthenticationFilter extends OncePerRequestFilter {
                             "system_agent",
                             "Replicator Agent Daemon",
                             "agent@cluster.local",
-                            List.of("replicator-agents", "hadoop-admins", "platform-admins"),
+                            List.of("replicator-agents"),
                             "agent-secret",
-                            true,
-                            Role.ADMIN
+                            false,
+                            Role.WRITER
                     );
 
                     CommonAuthenticationToken token = new CommonAuthenticationToken(agentSession);
