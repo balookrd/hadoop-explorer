@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,9 +31,15 @@ public class KafkaBatchProducer {
     private static final Logger log = LoggerFactory.getLogger(KafkaBatchProducer.class);
 
     private final KafkaProducer<byte[], byte[]> producer;
+    private final ExecutorService executor;
 
     public KafkaBatchProducer(KafkaProducer<byte[], byte[]> producer) {
+        this(producer, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    public KafkaBatchProducer(KafkaProducer<byte[], byte[]> producer, ExecutorService executor) {
         this.producer = Objects.requireNonNull(producer, "producer must not be null");
+        this.executor = Objects.requireNonNull(executor, "executor must not be null");
     }
 
     /**
@@ -65,50 +73,52 @@ public class KafkaBatchProducer {
         AtomicLong maxOffset = new AtomicLong(-1);
         AtomicReference<Throwable> firstError = new AtomicReference<>(null);
 
-        for (KafkaRecord r : records) {
-            byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
-            byte[] val = r.getIsTombstone() || !r.hasPayload() ? null : r.getPayload().toByteArray();
-            Integer partition = r.getPartition() >= 0 ? r.getPartition() : null;
-            Long timestamp = r.getTimestamp() > 0 ? r.getTimestamp() : null;
+        executor.submit(() -> {
+            for (KafkaRecord r : records) {
+                byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
+                byte[] val = r.getIsTombstone() || !r.hasPayload() ? null : r.getPayload().toByteArray();
+                Integer partition = r.getPartition() >= 0 ? r.getPartition() : null;
+                Long timestamp = r.getTimestamp() > 0 ? r.getTimestamp() : null;
 
-            ProducerRecord<byte[], byte[]> prodRecord = new ProducerRecord<>(
-                    topic,
-                    partition,
-                    timestamp,
-                    key,
-                    val
-            );
+                ProducerRecord<byte[], byte[]> prodRecord = new ProducerRecord<>(
+                        topic,
+                        partition,
+                        timestamp,
+                        key,
+                        val
+                );
 
-            // Добавляем заголовки
-            for (KafkaRecordHeader h : r.getHeadersList()) {
-                prodRecord.headers().add(new RecordHeader(
-                        h.getKey(),
-                        h.getValue().toByteArray()
-                ));
-            }
+                // Добавляем заголовки
+                for (KafkaRecordHeader h : r.getHeadersList()) {
+                    prodRecord.headers().add(new RecordHeader(
+                            h.getKey(),
+                            h.getValue().toByteArray()
+                    ));
+                }
 
-            try {
-                producer.send(prodRecord, (rm, ex) -> {
-                    if (ex != null) {
-                        firstError.compareAndSet(null, ex);
-                        log.error("Ошибка при отправке записи в топик {}: {}", topic, ex.getMessage());
-                    } else if (rm != null) {
-                        committedCount.incrementAndGet();
-                        maxOffset.accumulateAndGet(rm.offset(), Math::max);
-                    }
+                try {
+                    producer.send(prodRecord, (rm, ex) -> {
+                        if (ex != null) {
+                            firstError.compareAndSet(null, ex);
+                            log.error("Ошибка при отправке записи в топик {}: {}", topic, ex.getMessage());
+                        } else if (rm != null) {
+                            committedCount.incrementAndGet();
+                            maxOffset.accumulateAndGet(rm.offset(), Math::max);
+                        }
 
+                        if (remainingCount.decrementAndGet() == 0) {
+                            finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
+                        }
+                    });
+                } catch (Exception e) {
+                    firstError.compareAndSet(null, e);
+                    log.error("Синхронное исключение producer.send() для топика {}: {}", topic, e.getMessage());
                     if (remainingCount.decrementAndGet() == 0) {
                         finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
                     }
-                });
-            } catch (Exception e) {
-                firstError.compareAndSet(null, e);
-                log.error("Синхронное исключение producer.send() для топика {}: {}", topic, e.getMessage());
-                if (remainingCount.decrementAndGet() == 0) {
-                    finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
                 }
             }
-        }
+        });
 
         return resultFuture;
     }
@@ -165,5 +175,17 @@ public class KafkaBatchProducer {
 
     public void flush() {
         producer.flush();
+    }
+
+    public void close() {
+        try {
+            executor.shutdown();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
     }
 }

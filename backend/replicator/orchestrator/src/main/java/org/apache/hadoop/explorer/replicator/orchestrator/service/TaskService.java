@@ -594,4 +594,24 @@ public class TaskService {
         String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
         return aNorm.equals(jNorm) || aNorm.contains(jNorm) || jNorm.contains(aNorm);
     }
+
+    /**
+     * Фоновая периодическая очистка старых завершенных/сбойных задач согласно retention policy.
+     */
+    @Scheduled(fixedDelayString = "${hadoop.replicator.task-cleanup-interval-ms:3600000}")
+    @Transactional
+    public int cleanOldTasks() {
+        return cleanOldTasks(properties.getTaskRetentionDays());
+    }
+
+    @Transactional
+    public int cleanOldTasks(int retentionDays) {
+        if (retentionDays <= 0) return 0;
+        Instant cutoff = Instant.now().minus(retentionDays, java.time.temporal.ChronoUnit.DAYS);
+        int deleted = taskRepository.deleteByStatusInAndUpdatedAtBefore(List.of("COMPLETED", "FAILED"), cutoff);
+        if (deleted > 0) {
+            log.info("Очищено {} устаревших подзадач репликации старше {} дней (cutoff: {})", deleted, retentionDays, cutoff);
+        }
+        return deleted;
+    }
 }

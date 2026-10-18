@@ -10,9 +10,11 @@ public class ReplicatorProperties {
 
     private long globalLimitBytesPerSec = 100L * 1024 * 1024; // 100 MB/s
     private String agentSecret = "replicator-secure-agent-secret-key-12345";
+    private boolean enforceAgentSecret = false;
     private boolean enforceClusterWhitelist = false;
     private int agentHeartbeatTimeoutSeconds = 15;
     private int agentOfflineTimeoutSeconds = 45;
+    private int taskRetentionDays = 7;
     private int maxTaskRetries = 3;
     private int taskTimeoutSeconds = 60;
     private long hmsPollIntervalMs = 5000L;
@@ -39,12 +41,16 @@ public class ReplicatorProperties {
     public void setGlobalLimitBytesPerSec(long globalLimitBytesPerSec) { this.globalLimitBytesPerSec = globalLimitBytesPerSec; }
     public String getAgentSecret() { return agentSecret; }
     public void setAgentSecret(String agentSecret) { this.agentSecret = agentSecret; }
+    public boolean isEnforceAgentSecret() { return enforceAgentSecret; }
+    public void setEnforceAgentSecret(boolean enforceAgentSecret) { this.enforceAgentSecret = enforceAgentSecret; }
     public boolean isEnforceClusterWhitelist() { return enforceClusterWhitelist; }
     public void setEnforceClusterWhitelist(boolean enforceClusterWhitelist) { this.enforceClusterWhitelist = enforceClusterWhitelist; }
     public int getAgentHeartbeatTimeoutSeconds() { return agentHeartbeatTimeoutSeconds; }
     public void setAgentHeartbeatTimeoutSeconds(int agentHeartbeatTimeoutSeconds) { this.agentHeartbeatTimeoutSeconds = agentHeartbeatTimeoutSeconds; }
     public int getAgentOfflineTimeoutSeconds() { return agentOfflineTimeoutSeconds; }
     public void setAgentOfflineTimeoutSeconds(int agentOfflineTimeoutSeconds) { this.agentOfflineTimeoutSeconds = agentOfflineTimeoutSeconds; }
+    public int getTaskRetentionDays() { return taskRetentionDays; }
+    public void setTaskRetentionDays(int taskRetentionDays) { this.taskRetentionDays = taskRetentionDays; }
     public int getMaxTaskRetries() { return maxTaskRetries; }
     public void setMaxTaskRetries(int maxTaskRetries) { this.maxTaskRetries = maxTaskRetries; }
     public int getTaskTimeoutSeconds() { return taskTimeoutSeconds; }

@@ -6,11 +6,13 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -43,4 +45,8 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
           )
     """)
     long countPendingTasksByClusterId(@Param("clusterId") String clusterId, @Param("status") String status);
+
+    @Modifying
+    @Query("DELETE FROM TaskEntity t WHERE t.status IN :statuses AND t.updatedAt < :before")
+    int deleteByStatusInAndUpdatedAtBefore(@Param("statuses") Collection<String> statuses, @Param("before") Instant before);
 }

@@ -107,4 +107,19 @@ class TaskServiceOptimizationTest {
         // Самое главное: JobEntity должен быть запрошен ИЗ КЭША РОВНО 1 РАЗ для всех 5 задач, а не 5 раз!
         verify(jobRepository, times(1)).findById(jobId);
     }
+
+    @Test
+    @DisplayName("P2 Retention Policy: cleanOldTasks удаляет завершенные и ошибочные задачи старше retentionDays")
+    void testCleanOldTasksRetentionPolicy() {
+        when(taskRepository.deleteByStatusInAndUpdatedAtBefore(anyCollection(), any(java.time.Instant.class)))
+                .thenReturn(150);
+
+        int deleted = taskService.cleanOldTasks(7);
+
+        assertEquals(150, deleted);
+        verify(taskRepository, times(1)).deleteByStatusInAndUpdatedAtBefore(
+                argThat(statuses -> statuses.contains("COMPLETED") && statuses.contains("FAILED")),
+                any(java.time.Instant.class)
+        );
+    }
 }

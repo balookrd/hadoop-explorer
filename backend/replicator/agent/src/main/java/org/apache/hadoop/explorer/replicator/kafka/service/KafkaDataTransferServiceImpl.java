@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.kafka.service;
 
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import org.apache.hadoop.explorer.replicator.kafka.generated.*;
 import org.apache.hadoop.explorer.replicator.kafka.offset.SafetyCommitManager;
@@ -32,16 +33,27 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
     @Override
     public StreamObserver<KafkaBatchRequest> streamBatches(StreamObserver<KafkaBatchAck> responseObserver) {
+        if (responseObserver instanceof ServerCallStreamObserver<KafkaBatchAck> serverCallStreamObserver) {
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                log.warn("Клиент прервал (CANCELLED) gRPC соединение streamBatches");
+            });
+        }
+
+        final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicBoolean clientCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
+
         return new StreamObserver<>() {
             @Override
             public void onNext(KafkaBatchRequest batch) {
                 log.trace("Получен входящий gRPC пакет {} (топик {}, {} записей)",
                         batch.getBatchId(), batch.getTopic(), batch.getRecordsCount());
 
+                inFlightBatches.incrementAndGet();
                 batchProducer.writeBatchAsync(batch).thenAccept(ack -> {
                     synchronized (responseObserver) {
                         responseObserver.onNext(ack);
                     }
+                    checkCompletion();
                 }).exceptionally(t -> {
                     log.error("Сбой асинхронной обработки пакета {}: {}", batch.getBatchId(), t.getMessage(), t);
                     KafkaBatchAck errorAck = KafkaBatchAck.newBuilder()
@@ -54,8 +66,18 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                     synchronized (responseObserver) {
                         responseObserver.onNext(errorAck);
                     }
+                    checkCompletion();
                     return null;
                 });
+            }
+
+            private void checkCompletion() {
+                if (inFlightBatches.decrementAndGet() == 0 && clientCompleted.get()) {
+                    batchProducer.flush();
+                    synchronized (responseObserver) {
+                        responseObserver.onCompleted();
+                    }
+                }
             }
 
             @Override
@@ -68,9 +90,12 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
             @Override
             public void onCompleted() {
-                batchProducer.flush();
-                synchronized (responseObserver) {
-                    responseObserver.onCompleted();
+                clientCompleted.set(true);
+                if (inFlightBatches.get() == 0) {
+                    batchProducer.flush();
+                    synchronized (responseObserver) {
+                        responseObserver.onCompleted();
+                    }
                 }
             }
         };

@@ -17,6 +17,7 @@
 | **Data Receiver** | Сбой узла назначения во время gRPC стрима | Сетевой обрыв gRPC стрима (`UNAVAILABLE`) | Воркер пробует альтернативный адрес приемника из топологии. Незавершенный staging файл удаляется. | **Мгновенно (retry)** | **0** (Атомарный commit в staging) |
 | **HDFS NameNode (Source/Target)** | Падение Active NameNode | Hadoop Client `ConfiguredFailoverProxyProvider` | Прозрачный failover клиента на Standby NameNode по виртуальному URI `hdfs://nameservice1`. | **1–3 сек** | **0** (JournalNodes кворум) |
 | **HMS Replicator** | Падение агента синхронизации схемы | Истечение Distributed Lease в `HmsCoordinatorService` | Авто-failover задачи на резервный агент кластера. Чтение CDC продолжается с `last_event_id`. | **5–10 сек** | **0** (At-least-once DDL лог) |
+| **Kafka Replicator (Data Plane)** | Деградация локального брокера Kafka / переполнение буфера | Задержка подтверждения ack, тайм-аут продюсера | Offload в пул виртуальных потоков Java 21, координация in-flight батчей и onCancelHandler (Netty EventLoop не блокируется) | **0 сек (non-blocking)** | **0 (retry/backpressure)** |
 
 ---
 

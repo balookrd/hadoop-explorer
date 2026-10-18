@@ -147,6 +147,18 @@ class JobSecurityAuthorizationTest {
     }
 
     @Test
+    @DisplayName("Fail-Closed Security: AgentRegistry при enforceAgentSecret=true запрещает пустой секрет")
+    void testAgentRegistryEnforceSecretBlocksEmptySecret() {
+        var props = new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties();
+        props.setEnforceAgentSecret(true);
+        props.setAgentSecret("");
+        AgentRegistry registry = new AgentRegistry(props, new org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry(props));
+
+        assertThrows(IllegalStateException.class, registry::initSecurityValidation);
+        assertThrows(SecurityException.class, () -> registry.verifySecret("any-secret"));
+    }
+
+    @Test
     @DisplayName("IDOR Protection: READER не имеет права обновлять прогресс задачи (403 FORBIDDEN)")
     void testReaderCannotUpdateJobProgress() {
         org.apache.hadoop.explorer.replicator.model.UpdateJobRequest updateReq =

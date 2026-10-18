@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.registry;
 
+import jakarta.annotation.PostConstruct;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
@@ -117,6 +118,16 @@ public class AgentRegistry {
     public AgentRegistry(ReplicatorProperties properties, TopologyRegistry topologyRegistry) {
         this.properties = properties;
         this.topologyRegistry = topologyRegistry;
+    }
+
+    @PostConstruct
+    public void initSecurityValidation() {
+        String secret = properties.getAgentSecret();
+        if (properties.isEnforceAgentSecret()) {
+            if (secret == null || secret.isBlank() || secret.trim().length() < 16) {
+                throw new IllegalStateException("В защищенном режиме (enforce-agent-secret=true) hadoop.replicator.agent-secret должен быть задан и содержать минимум 16 символов");
+            }
+        }
     }
 
     public void clear() {
@@ -371,7 +382,15 @@ public class AgentRegistry {
 
     public void verifySecret(String secretHeader) {
         String expected = properties.getAgentSecret();
-        if (expected == null || expected.isBlank()) return;
+        if (properties.isEnforceAgentSecret() && (expected == null || expected.isBlank() || expected.trim().length() < 16)) {
+            throw new SecurityException("В защищенном режиме секрет агента не сконфигурирован должным образом (минимум 16 символов)");
+        }
+        if (expected == null || expected.isBlank()) {
+            if (properties.isEnforceAgentSecret()) {
+                throw new SecurityException("Секрет агента обязателен, но не сконфигурирован на сервере");
+            }
+            return;
+        }
         if (secretHeader == null) {
             throw new SecurityException("Отсутствует X-Agent-Secret токен агента");
         }
