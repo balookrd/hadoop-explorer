@@ -24,22 +24,29 @@
 
 ## 2. Отказоустойчивость Оркестратора (Orchestrator HA)
 
-Оркестратор репликации спроектирован как **Stateless вычислительный узел** с внешним распределенным состоянием в отказоустойчивой СУБД PostgreSQL.
+Оркестратор репликации спроектирован как **Stateless вычислительный узел** с внешним распределенным состоянием в отказоустойчивой СУБД PostgreSQL и разделением сетевых плоскостей **Control Plane** (REST + gRPC) и **Data Plane** (межцодовый gRPC).
 
 ```mermaid
 flowchart TD
     subgraph Clients["👥 Клиенты и агенты"]
         WebUI["💻 Web UI Console (Svelte 5)"]
-        Agents["⚡ Агенты репликации (Workers / Streamers)"]
+        AgentsCtrl["⚡ Агенты репликации (Control Plane)"]
+        AgentSender["⚡ Agent Sender (DC1)"]
+        AgentReceiver["⚡ Agent Receiver (DC2)"]
     end
 
     subgraph LB["⚖️ Балансировщик нагрузки (High Availability)"]
-        VIP["🌐 Keepalived VIP: 8005<br/>(Nginx / HAProxy / K8s Ingress)"]
+        VIP_REST["🌐 Keepalived VIP: 8005<br/>(HTTPS / REST: Web UI & HDFS Task Claim)"]
+        VIP_GRPC["⚡ gRPC Load Balancer: 50050<br/>(HTTP/2 Control Plane: Kafka Heartbeat & Dispatch)"]
     end
 
-    subgraph Orchestrators["🎯 Пул инстансов Оркестратора (Active-Active API)"]
-        Orch1["🎯 Replicator Orchestrator #1<br/>• Stateless REST API<br/>• [X] ShedLock Leader (Cron & Lease)"]
-        Orch2["🎯 Replicator Orchestrator #2<br/>• Stateless REST API<br/>• [ ] ShedLock Standby"]
+    subgraph Orchestrators["🎯 Пул инстансов Оркестратора (Active-Active Control Plane)"]
+        Orch1["🎯 Replicator Orchestrator #1<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [X] ShedLock Leader (Cron & Lease)"]
+        Orch2["🎯 Replicator Orchestrator #2<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [ ] ShedLock Standby"]
+    end
+
+    subgraph DataPlane["🚀 Межцодовый Data Plane (Прямой транспорт без участия оркестратора)"]
+        AgentSender -->|gRPC Data Plane :50051 (HDFS) / :50052 (Kafka)<br/>Потоковые батчи, Zstandard/LZ4, Sliding Window, Zero-Copy| AgentReceiver
     end
 
     subgraph Storage["🗄️ Отказоустойчивое хранилище состояния"]
@@ -48,10 +55,13 @@ flowchart TD
         Etcd["🔐 etcd Кворум (Консенсус Patroni)"]
     end
 
-    WebUI --> VIP
-    Agents --> VIP
-    VIP -->|Round-Robin / Failover| Orch1
-    VIP -->|Round-Robin / Failover| Orch2
+    WebUI --> VIP_REST
+    AgentsCtrl -->|REST :8005| VIP_REST
+    AgentsCtrl -->|gRPC :50050| VIP_GRPC
+    VIP_REST -->|Round-Robin / Failover| Orch1
+    VIP_REST -->|Round-Robin / Failover| Orch2
+    VIP_GRPC -->|HTTP/2 Round-Robin| Orch1
+    VIP_GRPC -->|HTTP/2 Round-Robin| Orch2
 
     Orch1 --> PGPrimary
     Orch2 --> PGPrimary
@@ -60,10 +70,17 @@ flowchart TD
     Etcd -.->|Мониторинг и Failover| PGStandby
 ```
 
-### 2.1. Балансировка и распределение запросов
-1. **Единая точка входа**: Все агенты и пользователи обращаются по виртуальному адресу `https://replicator.company.local:8005`.
-2. **Stateless сессии**: Аутентификация через cookie JWT (`common-security-starter`), подписанные общим ключом `hadoop.security.jwt.secret-key`. Запросы любого пользователя или агента могут обрабатываться любым инстансом оркестратора без Sticky Sessions.
-3. **Health Monitoring**: Балансировщик опрашивает `GET /actuator/health` или `GET /api/v1/health`. При недоступности инстанса трафик переключается за 1 секунду.
+### 2.1. Разделение сетевых плоскостей и балансировка запросов
+1. **Control Plane (Управление и координация)**:
+   - **REST API (порт `:8005`)**: Обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, CRUD задач репликации и запросы токенов пропускной способности (`POST /api/v1/tokens/request`). Доступ защищен Keepalived VIP `https://replicator.company.local:8005`.
+   - **gRPC Control Plane (порт `:50050`)**: Сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Используется распределенными агентами (включая Kafka Replicator) для легковесной регистрации, периодического heartbeat и динамического получения активных задач (`GetActiveKafkaJobs`) без накладных расходов JSON/HTTP.
+2. **Data Plane (Межцодовая передача данных)**:
+   - Потоковая передача данных (файлы HDFS, виртуальные TAR-архивы, батчи Kafka) идет **напрямую между агентами** (`Agent Sender ➔ Agent Receiver`) через выделенные сокеты gRPC:
+     - `:50051` — HDFS Data Plane (`DataTransferService`).
+     - `:50052` — Kafka Data Plane (`KafkaDataTransferService`).
+   - Оркестратор **не пропускает через себя полезную нагрузку**, что исключает появление «бутылочного горлышка» и гарантирует линейную масштабируемость при гигабитных скоростях WAN.
+3. **Stateless сессии**: Аутентификация через JWT-токены (`common-security-starter`), подписанные общим ключом. Запросы любого пользователя или агента могут обрабатываться любым инстансом оркестратора без Sticky Sessions.
+4. **Health Monitoring**: Балансировщик опрашивает `GET /actuator/health` или `GET /api/v1/health`. При недоступности инстанса трафик переключается за 1 секунду.
 
 ### 2.2. Защита от дублирования шедулеров (ShedLock & Distributed Locks)
 Фоновые периодические задачи (Cron Scheduler, проверка брошенных задач HMS, мониторинг офлайн-агентов) защищены распределенными блокировками **ShedLock** на уровне PostgreSQL:
