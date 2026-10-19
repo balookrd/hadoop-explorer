@@ -154,6 +154,16 @@ public class HmsReplicationJobEntity {
     public void setTableExcludePattern(String tableExcludePattern) { this.tableExcludePattern = tableExcludePattern; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public org.apache.hadoop.explorer.replicator.model.HmsJobStatus getJobStatus() {
+        return org.apache.hadoop.explorer.replicator.model.HmsJobStatus.fromString(this.status);
+    }
+    public void setJobStatus(org.apache.hadoop.explorer.replicator.model.HmsJobStatus jobStatus) {
+        this.status = jobStatus != null ? jobStatus.name() : org.apache.hadoop.explorer.replicator.model.HmsJobStatus.QUEUED.name();
+    }
+    public void transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus targetStatus) {
+        getJobStatus().validateTransition(targetStatus);
+        setJobStatus(targetStatus);
+    }
     public Long getBootstrapEventId() { return bootstrapEventId; }
     public void setBootstrapEventId(Long bootstrapEventId) { this.bootstrapEventId = bootstrapEventId; }
     public Long getLastProcessedEventId() { return lastProcessedEventId; }
