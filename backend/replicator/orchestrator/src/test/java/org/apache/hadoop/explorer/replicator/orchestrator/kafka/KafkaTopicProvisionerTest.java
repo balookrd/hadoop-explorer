@@ -9,6 +9,8 @@ import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.TopicConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -230,4 +232,65 @@ public class KafkaTopicProvisionerTest {
 
         verify(targetAdmin).createTopics(anyCollection());
     }
+
+    @Test
+    @DisplayName("Копирование конфигураций: перенос cleanup.policy=compact, min.insync.replicas и retention при создании топика")
+    void shouldCopyAdvancedTopicConfigsWhenCreatingNewTopic() throws Exception {
+        String topic = "cdc-customers";
+
+        // Описание на источнике: 3 партиции, RF = 2
+        TopicDescription srcDesc = createTopicDescription(topic, 3, 2);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        // Конфигурации на источнике: cleanup.policy=compact, min.insync.replicas=2, retention.ms=86400000
+        ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, topic);
+        List<ConfigEntry> entries = List.of(
+                new ConfigEntry(TopicConfig.CLEANUP_POLICY_CONFIG, "compact", ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG, false, false, Collections.emptyList(), null, null),
+                new ConfigEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2", ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG, false, false, Collections.emptyList(), null, null),
+                new ConfigEntry(TopicConfig.RETENTION_MS_CONFIG, "86400000", ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG, false, false, Collections.emptyList(), null, null),
+                new ConfigEntry(TopicConfig.COMPRESSION_TYPE_CONFIG, "zstd", ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG, false, false, Collections.emptyList(), null, null)
+        );
+        Config topicConfig = new Config(entries);
+        DescribeConfigsResult descConfigsResult = mock(DescribeConfigsResult.class);
+        when(descConfigsResult.all()).thenReturn(KafkaFuture.completedFuture(Map.of(resource, topicConfig)));
+        when(sourceAdmin.describeConfigs(anyCollection())).thenReturn(descConfigsResult);
+
+        // Таргет: топик пока отсутствует
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Collections.emptySet()));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+
+        CreateTopicsResult tgtCreateResult = mock(CreateTopicsResult.class);
+        when(tgtCreateResult.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(targetAdmin.createTopics(anyCollection())).thenReturn(tgtCreateResult);
+
+        TopicProvisioningResult result = provisioner.provisionTopics(
+                "source:9092", false, null, null, null,
+                "target:9092", false, null, null, null,
+                List.of(topic), true
+        );
+
+        assertTrue(result.success());
+        assertEquals(1, result.createdTopics().size());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<NewTopic>> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(targetAdmin).createTopics(captor.capture());
+
+        NewTopic created = captor.getValue().iterator().next();
+        assertEquals("cdc-customers", created.name());
+        assertEquals(3, created.numPartitions());
+        assertEquals(2, created.replicationFactor());
+
+        // Проверяем скопированные конфигурации
+        Map<String, String> configs = created.configs();
+        assertNotNull(configs);
+        assertEquals("compact", configs.get(TopicConfig.CLEANUP_POLICY_CONFIG));
+        assertEquals("2", configs.get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG));
+        assertEquals("86400000", configs.get(TopicConfig.RETENTION_MS_CONFIG));
+        assertEquals("zstd", configs.get(TopicConfig.COMPRESSION_TYPE_CONFIG));
+    }
 }
+

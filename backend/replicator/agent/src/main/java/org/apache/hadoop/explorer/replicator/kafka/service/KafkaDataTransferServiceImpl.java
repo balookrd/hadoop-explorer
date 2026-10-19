@@ -5,6 +5,10 @@ import io.grpc.stub.StreamObserver;
 import org.apache.hadoop.explorer.replicator.kafka.generated.*;
 import org.apache.hadoop.explorer.replicator.kafka.offset.SafetyCommitManager;
 import org.apache.hadoop.explorer.replicator.kafka.producer.KafkaBatchProducer;
+import org.apache.hadoop.explorer.replicator.kafka.schema.CachedSchemaRegistryResolver;
+import org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver;
+import org.apache.hadoop.explorer.replicator.kafka.schema.client.ConfluentRegistryClient;
+import org.apache.hadoop.explorer.replicator.kafka.schema.client.HwxRegistryClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +19,7 @@ import java.util.Objects;
  * <p>
  * Обеспечивает высокопроизводительный потоковый прием пакетов записей с поддержкой
  * скользящего окна упреждения (Pipelining / Sliding Window Flow Control),
- * вызов безопасного коммита оффсетов и heartbeat.
+ * вызов безопасного коммита оффсетов, авторегистрацию схем и heartbeat.
  */
 public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.KafkaDataTransferServiceImplBase {
 
@@ -26,21 +30,49 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
     private final SafetyCommitManager safetyCommitManager;
     private final String localDcId;
     private final int pipelineWindow;
+    private final SchemaIdResolver schemaIdResolver;
+    private final ConfluentRegistryClient targetConfluentClient;
+    private final HwxRegistryClient targetHwxClient;
 
     public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
                                         SafetyCommitManager safetyCommitManager,
                                         String localDcId) {
-        this(batchProducer, safetyCommitManager, localDcId, DEFAULT_PIPELINE_WINDOW);
+        this(batchProducer, safetyCommitManager, localDcId, DEFAULT_PIPELINE_WINDOW, null, null, null);
     }
 
     public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
                                         SafetyCommitManager safetyCommitManager,
                                         String localDcId,
                                         int pipelineWindow) {
+        this(batchProducer, safetyCommitManager, localDcId, pipelineWindow, null, null, null);
+    }
+
+    public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
+                                        SafetyCommitManager safetyCommitManager,
+                                        String localDcId,
+                                        int pipelineWindow,
+                                        SchemaIdResolver schemaIdResolver) {
+        this(batchProducer, safetyCommitManager, localDcId, pipelineWindow, schemaIdResolver,
+                schemaIdResolver instanceof CachedSchemaRegistryResolver csrr ? csrr.getTargetConfluentClient() : null,
+                schemaIdResolver instanceof CachedSchemaRegistryResolver csrr ? csrr.getTargetHwxClient() : null);
+    }
+
+    public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
+                                        SafetyCommitManager safetyCommitManager,
+                                        String localDcId,
+                                        int pipelineWindow,
+                                        SchemaIdResolver schemaIdResolver,
+                                        ConfluentRegistryClient targetConfluentClient,
+                                        HwxRegistryClient targetHwxClient) {
         this.batchProducer = Objects.requireNonNull(batchProducer, "batchProducer must not be null");
         this.safetyCommitManager = safetyCommitManager;
         this.localDcId = localDcId != null ? localDcId : "LOCAL_DC";
         this.pipelineWindow = Math.max(1, pipelineWindow);
+        this.schemaIdResolver = schemaIdResolver;
+        this.targetConfluentClient = targetConfluentClient != null ? targetConfluentClient :
+                (schemaIdResolver instanceof CachedSchemaRegistryResolver csrr ? csrr.getTargetConfluentClient() : null);
+        this.targetHwxClient = targetHwxClient != null ? targetHwxClient :
+                (schemaIdResolver instanceof CachedSchemaRegistryResolver csrr ? csrr.getTargetHwxClient() : null);
     }
 
     @Override
@@ -128,13 +160,75 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
     @Override
     public void syncSchemaMetadata(SchemaSyncRequest request, StreamObserver<SchemaSyncResponse> responseObserver) {
-        log.info("Получен запрос предварительной синхронизации схемы для subject={}", request.getSubject());
-        responseObserver.onNext(SchemaSyncResponse.newBuilder()
-                .setSubject(request.getSubject())
-                .setSuccess(true)
-                .setTargetSchemaId(request.getSourceSchemaId())
-                .build());
-        responseObserver.onCompleted();
+        String subject = request.getSubject();
+        String schemaText = request.getSchemaText();
+        long sourceSchemaId = request.getSourceSchemaId();
+        String targetRegType = request.getTargetRegistryType();
+
+        log.info("Получен запрос предварительной синхронизации схемы: subject='{}', sourceId={}, srcType='{}', targetType='{}'",
+                subject, sourceSchemaId, request.getSourceRegistryType(), targetRegType);
+
+        try {
+            long targetSchemaId;
+
+            // Определяем целевой тип реестра
+            boolean isConfluentTarget = "CONFLUENT".equalsIgnoreCase(targetRegType) ||
+                    (targetRegType.isBlank() && targetConfluentClient != null);
+            boolean isHwxTarget = "HORTONWORKS".equalsIgnoreCase(targetRegType) ||
+                    (targetRegType.isBlank() && targetHwxClient != null && !isConfluentTarget);
+
+            if (schemaText != null && !schemaText.isBlank()) {
+                if (isConfluentTarget && targetConfluentClient != null) {
+                    int assignedId = targetConfluentClient.registerSchema(subject, schemaText);
+                    targetSchemaId = assignedId;
+                    if (schemaIdResolver instanceof CachedSchemaRegistryResolver csrr) {
+                        if ("HORTONWORKS".equalsIgnoreCase(request.getSourceRegistryType())) {
+                            csrr.putHwxToConfluent(sourceSchemaId, assignedId);
+                        } else {
+                            csrr.putConfluentToConfluent((int) sourceSchemaId, assignedId);
+                        }
+                    }
+                    log.info("Схема для subject '{}' успешно зарегистрирована в целевом Confluent Schema Registry (id={})",
+                            subject, assignedId);
+                } else if (isHwxTarget && targetHwxClient != null) {
+                    long assignedVersionId = targetHwxClient.registerSchemaVersion(subject, schemaText);
+                    targetSchemaId = assignedVersionId;
+                    if (schemaIdResolver instanceof CachedSchemaRegistryResolver csrr) {
+                        if ("HORTONWORKS".equalsIgnoreCase(request.getSourceRegistryType())) {
+                            csrr.putHwxToHwx(sourceSchemaId, assignedVersionId);
+                        } else {
+                            csrr.putHwxToConfluent(assignedVersionId, (int) sourceSchemaId);
+                        }
+                    }
+                    log.info("Схема для subject '{}' успешно зарегистрирована в целевом Hortonworks Schema Registry (versionId={})",
+                            subject, assignedVersionId);
+                } else {
+                    // Клиент реестра не сконфигурирован — graceful fallback (сохраняем исходный ID)
+                    targetSchemaId = sourceSchemaId;
+                    log.debug("Клиенты целевого реестра схем не сконфигурированы на данном узле, используется passthrough ID: {}", targetSchemaId);
+                }
+            } else {
+                targetSchemaId = sourceSchemaId;
+            }
+
+            responseObserver.onNext(SchemaSyncResponse.newBuilder()
+                    .setSubject(subject)
+                    .setSuccess(true)
+                    .setTargetSchemaId(targetSchemaId)
+                    .build());
+            responseObserver.onCompleted();
+
+        } catch (Exception e) {
+            String errorMsg = "Ошибка регистрации схемы в целевом реестре для subject '" + subject + "': " + e.getMessage();
+            log.error(errorMsg, e);
+            responseObserver.onNext(SchemaSyncResponse.newBuilder()
+                    .setSubject(subject)
+                    .setSuccess(false)
+                    .setTargetSchemaId(-1)
+                    .setErrorMessage(errorMsg)
+                    .build());
+            responseObserver.onCompleted();
+        }
     }
 
     @Override

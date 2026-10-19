@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class KafkaTargetBalancerTest {
 
     @Test
-    @DisplayName("Равномерное распределение 128 партиций по 4 агентам (по 32 партиции на узел)")
+    @DisplayName("Равномерное распределение 128 партиций по 4 агентам (Consistent Hashing)")
     void shouldEvenlyDistribute128PartitionsAcross4Nodes() {
         List<String> endpoints = List.of(
                 "agent-1:50052",
@@ -33,11 +33,12 @@ class KafkaTargetBalancerTest {
         // Проверяем, что задействованы все 4 узла
         assertEquals(4, partitionsByTarget.size());
 
-        // Ровно 32 партиции на каждый узел
+        // Проверяем сбалансированность: каждый узел получает соразмерную нагрузку (среднее 32 +/- 12)
         for (int i = 0; i < 4; i++) {
             List<Integer> parts = partitionsByTarget.get(i);
             assertNotNull(parts, "Узел #" + i + " должен получить партиции");
-            assertEquals(32, parts.size(), "На узел #" + i + " должно приходиться ровно 32 партиции");
+            assertTrue(parts.size() >= 20 && parts.size() <= 45,
+                    "Нагрузка узла #" + i + " (" + parts.size() + ") должна быть равномерной вокруг среднего 32");
         }
     }
 
@@ -110,4 +111,57 @@ class KafkaTargetBalancerTest {
         assertEquals(2, healthy.size());
         assertDoesNotThrow(() -> balancer.selectTargetIndex(5));
     }
+
+    @Test
+    @DisplayName("Consistent Hashing: при отказе узла #1 все нетронутые партиции (на узлах 0, 2, 3) сохраняют свои узлы (0% reshuffle)")
+    void shouldEnsureZeroReshuffleForHealthyNodesUnderFailoverConsistentHashing() {
+        List<String> endpoints = List.of(
+                "worker-dc2-1:50052",
+                "worker-dc2-2:50052",
+                "worker-dc2-3:50052",
+                "worker-dc2-4:50052"
+        );
+        KafkaTargetBalancer balancer = new KafkaTargetBalancer(endpoints, 10_000L);
+
+        // Фиксируем исходное распределение для 128 партиций
+        Map<Integer, Integer> initialPlacement = new HashMap<>();
+        for (int p = 0; p < 128; p++) {
+            initialPlacement.put(p, balancer.selectTargetIndex(p));
+        }
+
+        // Выводим из строя узел #1
+        balancer.markFailed(1, new RuntimeException("Node 1 timed out"));
+
+        int undisturbedCount = 0;
+        int failedNodeMigratedCount = 0;
+
+        for (int p = 0; p < 128; p++) {
+            int oldTarget = initialPlacement.get(p);
+            int newTarget = balancer.selectTargetIndex(p);
+
+            if (oldTarget == 1) {
+                // Партиция принадлежала сбойному узлу — она обязана мигрировать на один из оставшихся живых {0, 2, 3}
+                assertNotEquals(1, newTarget);
+                assertTrue(Set.of(0, 2, 3).contains(newTarget));
+                failedNodeMigratedCount++;
+            } else {
+                // Партиция принадлежала здоровому узлу — Consistent Hashing гарантирует, что она НЕ меняет узел!
+                assertEquals(oldTarget, newTarget,
+                        "Инвариант Consistent Hashing нарушен: партиция " + p + " сменила узел с " + oldTarget + " на " + newTarget);
+                undisturbedCount++;
+            }
+        }
+
+        // Проверяем, что большая часть партиций (примерно 3/4) вообще не трогалась
+        assertTrue(undisturbedCount > 0);
+        assertEquals(128, undisturbedCount + failedNodeMigratedCount);
+
+        // Восстанавливаем узел #1 и проверяем полную обратимость (100% возврат на исходные позиции)
+        balancer.markHealthy(1);
+        for (int p = 0; p < 128; p++) {
+            assertEquals(initialPlacement.get(p), balancer.selectTargetIndex(p),
+                    "После возвращения узла #1 партиция " + p + " должна вернуться на исходный узел");
+        }
+    }
 }
+

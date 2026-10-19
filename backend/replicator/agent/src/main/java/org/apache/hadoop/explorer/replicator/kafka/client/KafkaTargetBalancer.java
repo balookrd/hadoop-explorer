@@ -14,12 +14,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Балансировщик нагрузки целевых агентов-приемников с привязкой по партициям (Partition-Pinned Balancer).
  * <p>
  * Обеспечивает:
- * 1. Детерминированное распределение 128+ партиций по M узлам-приемникам:
- *    {@code targetIndex = abs(partition) % activeTargets.size()}.
+ * 1. Детерминированное распределение партиций по M узлам-приемникам с использованием
+ *    Consistent Hashing (Rendezvous / Highest Random Weight Hashing).
  * 2. Сохранение строгого порядка следования записей внутри партиции (все батчи партиции P
  *    гарантированно идут на один и тот же целевой узел).
- * 3. Автоматический Failover: при сбое узла он временно переводится в карантин,
- *    а партиции перераспределяются по оставшимся живым узлам.
+ * 3. Локализованный Failover без каскадного reshuffle: при сбое узла он временно переводится в карантин,
+ *    и только его партиции (1/M) перераспределяются по оставшимся узлам. Все остальные партиции
+ *    остаются на своих прежних целевых агентах, предотвращая сброс сетевых буферов и гонки порядков.
  */
 public class KafkaTargetBalancer {
 
@@ -81,15 +82,44 @@ public class KafkaTargetBalancer {
     }
 
     /**
-     * Выбирает целевой узел для заданной партиции с сохранением детерминированности.
+     * Вычисляет 64-битный вес узла для заданной партиции (Rendezvous / Highest Random Weight Hashing).
+     * Быстрый перемешивающий хеш (SplitMix64 finalizer) гарантирует псевдослучайное равномерное
+     * распределение и минимальное количество перестановок (1/M) при изменении состава узлов.
+     */
+    static long computeHashWeight(int partition, String endpoint) {
+        long h = ((long) partition << 32) ^ (endpoint.hashCode() * 0x9E3779B97F4A7C15L);
+        h ^= (h >>> 33);
+        h *= 0xff51afd7ed558ccdL;
+        h ^= (h >>> 33);
+        h *= 0xc4ceb9fe1a85ec53L;
+        h ^= (h >>> 33);
+        return h;
+    }
+
+    /**
+     * Выбирает целевой узел для заданной партиции с использованием Consistent Hashing (Rendezvous / HRW).
      *
      * @param partition номер партиции Kafka
      * @return индекс целевого узла (0 .. endpoints.size() - 1)
      */
     public int selectTargetIndex(int partition) {
         List<Integer> healthy = getHealthyIndices();
-        int slot = (partition & 0x7FFFFFFF) % healthy.size();
-        return healthy.get(slot);
+        if (healthy.size() == 1) {
+            return healthy.get(0);
+        }
+
+        int bestIndex = healthy.get(0);
+        long maxWeight = Long.MIN_VALUE;
+
+        for (int nodeIndex : healthy) {
+            String ep = endpoints.get(nodeIndex);
+            long weight = computeHashWeight(partition, ep);
+            if (weight > maxWeight) {
+                maxWeight = weight;
+                bestIndex = nodeIndex;
+            }
+        }
+        return bestIndex;
     }
 
     /**

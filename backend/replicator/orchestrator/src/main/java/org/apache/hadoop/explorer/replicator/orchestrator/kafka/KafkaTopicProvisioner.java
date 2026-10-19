@@ -1,6 +1,8 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.kafka;
 
 import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.TopicConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -25,6 +27,56 @@ public class KafkaTopicProvisioner {
 
     public KafkaTopicProvisioner(KafkaAdminClientFactory adminClientFactory) {
         this.adminClientFactory = adminClientFactory != null ? adminClientFactory : new DefaultKafkaAdminClientFactory();
+    }
+
+    /**
+     * Белый список критических и безопасных параметров топика Kafka,
+     * которые необходимо переносить при автоматическом создании топика на целевом кластере.
+     */
+    private static final Set<String> REPLICATED_CONFIG_KEYS = Set.of(
+            TopicConfig.CLEANUP_POLICY_CONFIG,
+            TopicConfig.COMPRESSION_TYPE_CONFIG,
+            TopicConfig.DELETE_RETENTION_MS_CONFIG,
+            TopicConfig.FILE_DELETE_DELAY_MS_CONFIG,
+            TopicConfig.FLUSH_MESSAGES_INTERVAL_CONFIG,
+            TopicConfig.FLUSH_MS_CONFIG,
+            TopicConfig.INDEX_INTERVAL_BYTES_CONFIG,
+            TopicConfig.MAX_COMPACTION_LAG_MS_CONFIG,
+            TopicConfig.MAX_MESSAGE_BYTES_CONFIG,
+            TopicConfig.MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG,
+            TopicConfig.MESSAGE_TIMESTAMP_TYPE_CONFIG,
+            TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG,
+            TopicConfig.MIN_COMPACTION_LAG_MS_CONFIG,
+            TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG,
+            TopicConfig.PREALLOCATE_CONFIG,
+            TopicConfig.RETENTION_BYTES_CONFIG,
+            TopicConfig.RETENTION_MS_CONFIG,
+            TopicConfig.SEGMENT_BYTES_CONFIG,
+            TopicConfig.SEGMENT_INDEX_BYTES_CONFIG,
+            TopicConfig.SEGMENT_JITTER_MS_CONFIG,
+            TopicConfig.SEGMENT_MS_CONFIG,
+            TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_CONFIG
+    );
+
+    /**
+     * Извлекает из конфигурации исходного топика параметры, подлежащие репликации.
+     */
+    private Map<String, String> extractReplicableConfigs(Config topicConfig) {
+        if (topicConfig == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        for (ConfigEntry entry : topicConfig.entries()) {
+            if (entry.value() == null || entry.value().isBlank() || entry.isReadOnly()) {
+                continue;
+            }
+            boolean isDynamic = entry.source() == ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG;
+            boolean isWhitelisted = REPLICATED_CONFIG_KEYS.contains(entry.name());
+            if (isDynamic || (isWhitelisted && !entry.isDefault())) {
+                result.put(entry.name(), entry.value());
+            }
+        }
+        return result;
     }
 
     /**
@@ -90,6 +142,20 @@ public class KafkaTopicProvisioner {
             Map<String, TopicDescription> sourceDescriptions =
                     sourceAdmin.describeTopics(uniqueTopics).allTopicNames().get(8, TimeUnit.SECONDS);
 
+            // 1.1 Получаем детальные конфигурации топиков на источнике (cleanup.policy, retention, min.insync.replicas и др.)
+            Map<ConfigResource, Config> sourceConfigs = Collections.emptyMap();
+            try {
+                List<ConfigResource> configResources = uniqueTopics.stream()
+                        .map(t -> new ConfigResource(ConfigResource.Type.TOPIC, t))
+                        .toList();
+                DescribeConfigsResult descConfigsResult = sourceAdmin.describeConfigs(configResources);
+                if (descConfigsResult != null && descConfigsResult.all() != null) {
+                    sourceConfigs = descConfigsResult.all().get(8, TimeUnit.SECONDS);
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось получить конфигурации топиков с исходного брокера (будут использованы дефолтные параметры): {}", e.getMessage());
+            }
+
             // 2. Получаем список существующих топиков на целевом брокере
             Set<String> existingTargetTopics =
                     targetAdmin.listTopics(new ListTopicsOptions().listInternal(false)).names().get(8, TimeUnit.SECONDS);
@@ -109,9 +175,16 @@ public class KafkaTopicProvisioner {
                         srcDesc.partitions().isEmpty() ? 1 : srcDesc.partitions().get(0).replicas().size());
 
                 if (!existingTargetTopics.contains(topic)) {
-                    // Топик отсутствует на целевом кластере — создаем с идентичными параметрами
-                    toCreate.add(new NewTopic(topic, srcPartitions, replicationFactor));
-                    createdTopics.add(String.format("%s (партиций: %d, RF: %d)", topic, srcPartitions, replicationFactor));
+                    // Топик отсутствует на целевом кластере — создаем с идентичными параметрами и конфигурацией
+                    NewTopic newTopic = new NewTopic(topic, srcPartitions, replicationFactor);
+                    Config srcCfg = sourceConfigs.get(new ConfigResource(ConfigResource.Type.TOPIC, topic));
+                    Map<String, String> topicConfigsToApply = extractReplicableConfigs(srcCfg);
+                    if (!topicConfigsToApply.isEmpty()) {
+                        newTopic.configs(topicConfigsToApply);
+                    }
+                    toCreate.add(newTopic);
+                    String configSummary = topicConfigsToApply.isEmpty() ? "" : String.format(", configs: %s", topicConfigsToApply.keySet());
+                    createdTopics.add(String.format("%s (партиций: %d, RF: %d%s)", topic, srcPartitions, replicationFactor, configSummary));
                 } else {
                     // Топик уже существует на целевом кластере — проверяем количество партиций
                     TopicDescription tgtDesc = targetAdmin.describeTopics(List.of(topic))

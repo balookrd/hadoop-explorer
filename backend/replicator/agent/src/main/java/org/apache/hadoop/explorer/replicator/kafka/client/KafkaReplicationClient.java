@@ -231,6 +231,20 @@ public class KafkaReplicationClient implements Closeable {
     }
 
     /**
+     * Синхронизирует метаданные схемы с целевым реестром через удаленный узел-приемник.
+     */
+    public SchemaSyncResponse syncSchema(SchemaSyncRequest request) {
+        return syncSchemaTarget(0, request);
+    }
+
+    public SchemaSyncResponse syncSchemaTarget(int targetIndex, SchemaSyncRequest request) {
+        int idx = Math.max(0, Math.min(targetIndex, blockingStubs.size() - 1));
+        return blockingStubs.get(idx)
+                .withDeadlineAfter(10, TimeUnit.SECONDS)
+                .syncSchemaMetadata(request);
+    }
+
+    /**
      * Проверяет доступность удаленного агента и замеряет RTT (на первом доступном узле).
      */
     public long ping(String localDcId) {

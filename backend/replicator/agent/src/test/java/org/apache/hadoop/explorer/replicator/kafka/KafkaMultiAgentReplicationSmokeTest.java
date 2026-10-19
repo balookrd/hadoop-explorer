@@ -132,17 +132,27 @@ class KafkaMultiAgentReplicationSmokeTest {
 
         assertEquals(2, client.getEndpointCount());
 
-        // Отправка батча для партиции 0 (должен пойти на сервер #1, targetIdx = 0)
+        // Находим партицию, маршрутизируемую на сервер 1 (targetIdx = 0), и партицию для сервера 2 (targetIdx = 1)
+        int pServer1 = 0;
+        while (client.getBalancer().selectTargetIndex(pServer1) != 0) {
+            pServer1++;
+        }
+        int pServer2 = 0;
+        while (client.getBalancer().selectTargetIndex(pServer2) != 1) {
+            pServer2++;
+        }
+
+        // Отправка батча для партиции сервера #1 (targetIdx = 0)
         KafkaBatchRequest batchP0 = KafkaBatchRequest.newBuilder()
                 .setBatchId("batch-p0")
                 .setSourceDc("DC1")
                 .setTargetDc("DC2")
                 .setTopic("orders")
-                .addRecords(KafkaRecord.newBuilder().setPartition(0).setOriginalOffset(100L).build())
+                .addRecords(KafkaRecord.newBuilder().setPartition(pServer1).setOriginalOffset(100L).build())
                 .build();
 
         CompletableFuture<KafkaBatchAck> ackFuture0 = new CompletableFuture<>();
-        StreamObserver<KafkaBatchRequest> stream0 = client.openBatchStreamForPartition(0, new StreamObserver<>() {
+        StreamObserver<KafkaBatchRequest> stream0 = client.openBatchStreamForPartition(pServer1, new StreamObserver<>() {
             @Override public void onNext(KafkaBatchAck value) { ackFuture0.complete(value); }
             @Override public void onError(Throwable t) { ackFuture0.completeExceptionally(t); }
             @Override public void onCompleted() {}
@@ -154,17 +164,17 @@ class KafkaMultiAgentReplicationSmokeTest {
         assertTrue(ack0.getSuccess());
         assertEquals("batch-p0", ack0.getBatchId());
 
-        // Отправка батча для партиции 1 (должен пойти на сервер #2, targetIdx = 1)
+        // Отправка батча для партиции сервера #2 (targetIdx = 1)
         KafkaBatchRequest batchP1 = KafkaBatchRequest.newBuilder()
                 .setBatchId("batch-p1")
                 .setSourceDc("DC1")
                 .setTargetDc("DC2")
                 .setTopic("orders")
-                .addRecords(KafkaRecord.newBuilder().setPartition(1).setOriginalOffset(200L).build())
+                .addRecords(KafkaRecord.newBuilder().setPartition(pServer2).setOriginalOffset(200L).build())
                 .build();
 
         CompletableFuture<KafkaBatchAck> ackFuture1 = new CompletableFuture<>();
-        StreamObserver<KafkaBatchRequest> stream1 = client.openBatchStreamForPartition(1, new StreamObserver<>() {
+        StreamObserver<KafkaBatchRequest> stream1 = client.openBatchStreamForPartition(pServer2, new StreamObserver<>() {
             @Override public void onNext(KafkaBatchAck value) { ackFuture1.complete(value); }
             @Override public void onError(Throwable t) { ackFuture1.completeExceptionally(t); }
             @Override public void onCompleted() {}
@@ -176,9 +186,9 @@ class KafkaMultiAgentReplicationSmokeTest {
         assertTrue(ack1.getSuccess());
         assertEquals("batch-p1", ack1.getBatchId());
 
-        // Проверяем, что сервер 1 обработал ровно батч партиции 0, а сервер 2 — батч партиции 1
-        assertEquals(1, server1Batches.get(), "Сервер 1 должен был получить 1 батч (партиция 0)");
-        assertEquals(1, server2Batches.get(), "Сервер 2 должен был получить 1 батч (партиция 1)");
+        // Проверяем, что сервер 1 обработал ровно батч партиции pServer1, а сервер 2 — батч партиции pServer2
+        assertEquals(1, server1Batches.get(), "Сервер 1 должен был получить 1 батч (партиция " + pServer1 + ")");
+        assertEquals(1, server2Batches.get(), "Сервер 2 должен был получить 1 батч (партиция " + pServer2 + ")");
 
         client.close();
     }
