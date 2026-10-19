@@ -3,11 +3,18 @@ package org.apache.hadoop.explorer.replicator.orchestrator.registry;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.AgentEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.AgentRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 class AgentRegistryTest {
 
@@ -188,4 +195,44 @@ class AgentRegistryTest {
         assertTrue(enforcedRegistry.register(
                 new AgentRegisterRequest("agent-x", "dc1", "all", "node1:50051", "node1", 50.0), "custom-super-secret-key-67890"));
     }
+
+    @Test
+    @DisplayName("RES-01: Должен сохранять агентов в AgentRepository и восстанавливать при старте")
+    void shouldPersistAndRestoreAgentsFromRepository() {
+        AgentRepository mockRepo = mock(AgentRepository.class);
+        AgentRegistry repoRegistry = new AgentRegistry(props, new TopologyRegistry(props), mockRepo);
+
+        // Регистрация -> save
+        AgentRegisterRequest reg = new AgentRegisterRequest("agent-db-1", "dc1", "all", "node1:50051", "node1", 100.0);
+        assertTrue(repoRegistry.register(reg, "secret-123"));
+        verify(mockRepo, times(1)).save(any(AgentEntity.class));
+
+        // Heartbeat -> save
+        AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-db-1", "dc1", "node1:50051", 3);
+        assertTrue(repoRegistry.heartbeat(hb, "secret-123"));
+        verify(mockRepo, times(2)).save(any(AgentEntity.class));
+
+        // Unregister -> deleteById
+        assertTrue(repoRegistry.unregister("agent-db-1", "secret-123"));
+        verify(mockRepo, times(1)).deleteById("agent-db-1");
+
+        // Восстановление из БД при инициализации
+        AgentEntity savedEntity = new AgentEntity();
+        savedEntity.setAgentId("agent-restored");
+        savedEntity.setClusterId("dc-restored");
+        savedEntity.setHost("node-restored");
+        savedEntity.setGrpcPort(50051);
+        savedEntity.setGrpcAddress("node-restored:50051");
+        savedEntity.setMode("all");
+        savedEntity.setStatus("ONLINE");
+        when(mockRepo.findAll()).thenReturn(List.of(savedEntity));
+
+        AgentRegistry newRegistry = new AgentRegistry(props, new TopologyRegistry(props), mockRepo);
+        newRegistry.initSecurityValidation(); // вызывает loadAgentsFromDatabase
+
+        assertEquals(1, newRegistry.getAgents().size());
+        assertEquals("agent-restored", newRegistry.getAgents().get(0).getAgentId());
+        assertEquals("node-restored:50051", newRegistry.getAgents().get(0).getGrpcAddress());
+    }
 }
+

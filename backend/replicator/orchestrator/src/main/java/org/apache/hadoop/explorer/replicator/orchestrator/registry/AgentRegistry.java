@@ -5,9 +5,12 @@ import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.AgentResponseDto;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.AgentEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.AgentRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
@@ -115,11 +118,20 @@ public class AgentRegistry {
 
     private final ReplicatorProperties properties;
     private final TopologyRegistry topologyRegistry;
+    private final AgentRepository agentRepository;
     private final Map<String, AgentEntry> agents = new ConcurrentHashMap<>();
 
     public AgentRegistry(ReplicatorProperties properties, TopologyRegistry topologyRegistry) {
+        this(properties, topologyRegistry, null);
+    }
+
+    @Autowired
+    public AgentRegistry(ReplicatorProperties properties,
+                         TopologyRegistry topologyRegistry,
+                         @Autowired(required = false) AgentRepository agentRepository) {
         this.properties = properties;
         this.topologyRegistry = topologyRegistry;
+        this.agentRepository = agentRepository;
     }
 
     @PostConstruct
@@ -134,6 +146,24 @@ public class AgentRegistry {
             if (secret == null || secret.isBlank() || secret.trim().length() < 16) {
                 throw new IllegalStateException("В защищенном режиме (enforce-agent-secret=true) hadoop.replicator.agent-secret должен быть задан и содержать минимум 16 символов");
             }
+        }
+        loadAgentsFromDatabase();
+    }
+
+    private void loadAgentsFromDatabase() {
+        if (agentRepository == null) return;
+        try {
+            List<AgentEntity> entities = agentRepository.findAll();
+            for (AgentEntity entity : entities) {
+                AgentEntry entry = fromEntity(entity);
+                agents.put(entry.getAgentId(), entry);
+                topologyRegistry.updateClusterGrpcAddress(entry.getClusterId(), entry.getGrpcAddress());
+            }
+            if (!entities.isEmpty()) {
+                log.info("Успешно восстановлено {} агентов из БД в in-memory реестр", entities.size());
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось загрузить состояние агентов из БД при старте: {}", e.getMessage());
         }
     }
 
@@ -293,6 +323,7 @@ public class AgentRegistry {
         );
 
         agents.put(agentId, entry);
+        persistAgent(entry);
         topologyRegistry.updateClusterGrpcAddress(clusterId, grpcAddress);
         log.info("Agent registered: id={}, cluster={}, grpc={}, mode={}", agentId, clusterId, grpcAddress, entry.getMode());
         return true;
@@ -375,6 +406,7 @@ public class AgentRegistry {
         if (request.getStagingOrphansCleaned() > 0) {
             entry.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
         }
+        persistAgent(entry);
         return true;
     }
 
@@ -384,6 +416,7 @@ public class AgentRegistry {
         }
         AgentEntry entry = agents.remove(agentId);
         if (entry != null) {
+            deleteAgentFromDb(agentId);
             log.info("Agent unregistered: id={}", agentId);
             return true;
         }
@@ -534,5 +567,86 @@ public class AgentRegistry {
                 agent.setStatus(AgentStatus.ONLINE);
             }
         }
+    }
+
+    private void persistAgent(AgentEntry entry) {
+        if (agentRepository == null || entry == null) return;
+        try {
+            AgentEntity entity = toEntity(entry);
+            agentRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Не удалось сохранить агента '{}' в БД: {}", entry.getAgentId(), e.getMessage());
+        }
+    }
+
+    private void deleteAgentFromDb(String agentId) {
+        if (agentRepository == null || agentId == null) return;
+        try {
+            agentRepository.deleteById(agentId);
+        } catch (Exception e) {
+            log.warn("Не удалось удалить агента '{}' из БД: {}", agentId, e.getMessage());
+        }
+    }
+
+    private AgentEntity toEntity(AgentEntry entry) {
+        AgentEntity entity = new AgentEntity();
+        entity.setAgentId(entry.getAgentId());
+        entity.setClusterId(entry.getClusterId());
+        entity.setHost(entry.getHost());
+        entity.setGrpcPort(entry.getGrpcPort());
+        entity.setGrpcAddress(entry.getGrpcAddress());
+        entity.setMode(entry.getMode());
+        entity.setActiveTransfers(entry.getActiveTransfers());
+        entity.setMaxBandwidthMbS(entry.getMaxBandwidthMbS());
+        entity.setStatus(entry.getStatus() != null ? entry.getStatus().name() : "ONLINE");
+        entity.setLastHeartbeat(entry.getLastHeartbeat());
+        entity.setTransferredBytes(entry.getTransferredBytes());
+        entity.setTransferErrors(entry.getTransferErrors());
+        entity.setCompressionRawBytes(entry.getCompressionRawBytes());
+        entity.setCompressionCompressedBytes(entry.getCompressionCompressedBytes());
+        entity.setCompressionRatio(entry.getCompressionRatio());
+        entity.setChunkLatencyAvgMs(entry.getChunkLatencyAvgMs());
+        entity.setChunkLatencyMaxMs(entry.getChunkLatencyMaxMs());
+        entity.setChunkTransferCount(entry.getChunkTransferCount());
+        entity.setStagingActiveFiles(entry.getStagingActiveFiles());
+        entity.setStagingActiveBytes(entry.getStagingActiveBytes());
+        entity.setStagingOrphansCleaned(entry.getStagingOrphansCleaned());
+        entity.setUpdatedAt(Instant.now());
+        return entity;
+    }
+
+    private AgentEntry fromEntity(AgentEntity entity) {
+        AgentEntry entry = new AgentEntry(
+                entity.getAgentId(),
+                entity.getClusterId(),
+                entity.getHost(),
+                entity.getGrpcPort(),
+                entity.getGrpcAddress(),
+                entity.getMode(),
+                entity.getMaxBandwidthMbS()
+        );
+        entry.setActiveTransfers(entity.getActiveTransfers());
+        if (entity.getStatus() != null) {
+            try {
+                entry.setStatus(AgentStatus.valueOf(entity.getStatus()));
+            } catch (IllegalArgumentException ignored) {
+                entry.setStatus(AgentStatus.ONLINE);
+            }
+        }
+        if (entity.getLastHeartbeat() != null) {
+            entry.setLastHeartbeat(entity.getLastHeartbeat());
+        }
+        entry.setTransferredBytes(entity.getTransferredBytes());
+        entry.setTransferErrors(entity.getTransferErrors());
+        entry.setCompressionRawBytes(entity.getCompressionRawBytes());
+        entry.setCompressionCompressedBytes(entity.getCompressionCompressedBytes());
+        entry.setCompressionRatio(entity.getCompressionRatio());
+        entry.setChunkLatencyAvgMs(entity.getChunkLatencyAvgMs());
+        entry.setChunkLatencyMaxMs(entity.getChunkLatencyMaxMs());
+        entry.setChunkTransferCount(entity.getChunkTransferCount());
+        entry.setStagingActiveFiles(entity.getStagingActiveFiles());
+        entry.setStagingActiveBytes(entity.getStagingActiveBytes());
+        entry.setStagingOrphansCleaned(entity.getStagingOrphansCleaned());
+        return entry;
     }
 }

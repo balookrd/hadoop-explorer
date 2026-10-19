@@ -95,6 +95,7 @@
 
 15. **Комплексная архитектура отказоустойчивости (High Availability & Zero SPoF)**:
     - Резервирование Оркестратора (Active-Active Stateless API + ShedLock + HA PostgreSQL Patroni).
+    - **Персистентный реестр агентов в БД (`replication_agents`)**: синхронизация регистрации, heartbeat и дерегистрации агентов с базой данных через JPA-сущность `AgentEntity` и репозиторий `AgentRepository`. Автоматическое восстановление реестра из БД при старте инстанса Оркестратора (`loadAgentsFromDatabase`), гарантирующее полную согласованность состояния агентов в распределенном Active-Active пуле Оркестраторов.
     - Отказоустойчивый потоковый слушатель HDFS Inotify (Active-Standby пул с распределенным лизингом и Fencing).
     - Строгая изоляция привилегий безопасности (`AGENT_MODE=streamer` без прав исполнения задач).
     - Подробная документация и схемы: [`docs/replicator-fault-tolerance.md`](../../docs/replicator-fault-tolerance.md).

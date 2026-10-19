@@ -199,6 +199,35 @@ CREATE TABLE IF NOT EXISTS replicator_cluster_locks (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS replication_agents (
+    agent_id VARCHAR(64) PRIMARY KEY,
+    cluster_id VARCHAR(64) NOT NULL,
+    host VARCHAR(128) NOT NULL,
+    grpc_port INT NOT NULL,
+    grpc_address VARCHAR(160) NOT NULL,
+    mode VARCHAR(32) NOT NULL DEFAULT 'all',
+    active_transfers INT NOT NULL DEFAULT 0,
+    max_bandwidth_mb_s DOUBLE PRECISION,
+    status VARCHAR(32) NOT NULL DEFAULT 'ONLINE',
+    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    transferred_bytes BIGINT NOT NULL DEFAULT 0,
+    transfer_errors BIGINT NOT NULL DEFAULT 0,
+    compression_raw_bytes BIGINT NOT NULL DEFAULT 0,
+    compression_compressed_bytes BIGINT NOT NULL DEFAULT 0,
+    compression_ratio DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    chunk_latency_avg_ms DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    chunk_latency_max_ms DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    chunk_transfer_count BIGINT NOT NULL DEFAULT 0,
+    staging_active_files INT NOT NULL DEFAULT 0,
+    staging_active_bytes BIGINT NOT NULL DEFAULT 0,
+    staging_orphans_cleaned BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_cluster_id ON replication_agents (cluster_id);
+CREATE INDEX IF NOT EXISTS idx_agents_status ON replication_agents (status);
+
 -- ==============================================================================
 -- 5. Хранимая функция автоматического создания будущих помесячных партиций
 -- ==============================================================================
