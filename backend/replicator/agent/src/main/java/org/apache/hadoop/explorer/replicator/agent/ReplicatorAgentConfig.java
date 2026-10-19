@@ -17,6 +17,7 @@ public class ReplicatorAgentConfig {
     private String receiverHost;
     private int receiverPort;
     private String stagingDir;
+    private String localSandboxDir;
     private String defaultFsUri;
     private String targetDefaultFsUri;
     private String federationMappings;
@@ -158,6 +159,7 @@ public class ReplicatorAgentConfig {
         config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
         config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
         config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "false"));
+        config.localSandboxDir = getEnv("REPLICATOR_LOCAL_SANDBOX", getEnv("LOCAL_SANDBOX_DIR", null));
 
         return config;
     }
@@ -316,4 +318,7 @@ public class ReplicatorAgentConfig {
 
     public boolean isEnforceTaskAttestation() { return enforceTaskAttestation; }
     public void setEnforceTaskAttestation(boolean enforceTaskAttestation) { this.enforceTaskAttestation = enforceTaskAttestation; }
+
+    public String getLocalSandboxDir() { return localSandboxDir; }
+    public void setLocalSandboxDir(String localSandboxDir) { this.localSandboxDir = localSandboxDir; }
 }

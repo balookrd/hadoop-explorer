@@ -348,6 +348,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         metadata = request.getMetadata();
                         validateTaskAttestation(metadata);
                         HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
+                        fsManager.validateSandboxAccess(metadata.getTargetPath());
                         recordTargetDirectory(metadata.getTargetPath());
                         // Прямой staging в целевой HDFS/ФС (targetPath._staging_<jobId>) без промежуточного локального диска
                         stagingPath = metadata.getTargetPath() + "._staging_" + metadata.getJobId();
@@ -552,6 +553,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         metadata = request.getMetadata();
                         validateTaskAttestation(metadata);
                         HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
+                        fsManager.validateSandboxAccess(metadata.getBaseTargetPath());
                         recordTargetDirectory(metadata.getBaseTargetPath());
 
                         // Ограничение пула памяти: захват слота семафора для TAR-распаковки
@@ -632,6 +634,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     byte[] fileData = baos.toByteArray();
 
                                     String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
+                                    fsManager.validateSandboxAccess(targetPath);
                                     String stagingPath = targetPath + "._staging_" + meta.getTaskId();
                                     activeStagingPaths.add(stagingPath);
                                     activeStagingSizes.put(stagingPath, (long) fileData.length);
@@ -913,6 +916,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         logger.info("[gRPC Receiver] Запрос атомарного переименования: '{}' -> '{}' (job_id={})", src, dst, request.getJobId());
 
         try {
+            fsManager.validateSandboxAccess(src);
+            fsManager.validateSandboxAccess(dst);
             boolean success = fsManager.renameFile(src, dst, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
             responseObserver.onNext(RenamePathResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -941,7 +946,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     || path.trim().equals("/tmp") || path.trim().equals("/etc") || path.trim().equals("/system")) {
                 throw new SecurityException("Запрещено удаление системного или корневого каталога: " + path);
             }
-            HadoopFsManager.validatePathSafety(path);
+            fsManager.validateSandboxAccess(path);
             boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
             responseObserver.onNext(DeletePathResponse.newBuilder()
                     .setJobId(request.getJobId())

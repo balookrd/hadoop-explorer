@@ -253,6 +253,12 @@
     - **Строгая верификация на стороне ресивера**: при валидации токена проверяется подлинность криптографической подписи (`MessageDigest.isEqual`), совпадение целевого пути, принципала Kerberos, флага системной техучетки и срок действия токена (TTL). При любой попытке подмены прав или пути ресивер немедленно отклоняет запрос с ошибкой `Status.PERMISSION_DENIED`, исключая Blind Privilege Escalation и несанкционированную запись в HDFS.
     - **Обратная совместимость и Fail-Safe**: поддержка плавного перехода через `enforceTaskAttestation` (по умолчанию `false` для тестов обратной совместимости и `true` при включении `REPLICATOR_ENFORCE_TASK_ATTESTATION=true`).
 
+34. **Chroot-песочница целевых путей и защита системных файлов хоста (SEC-10)**:
+    - **Каноническая изоляция локальной директории (Chroot Jail)**: при локальной репликации (`file:///` или автономный режим) агент принудительно изолирует файловые операции (`transferFile`, `transferTarStream`, `renamePath`, `deletePath`, чтение метаданных) внутри настроенной директории песочницы `REPLICATOR_LOCAL_SANDBOX` (конфиг `localSandboxDir`).
+    - **Защита от Symlink Traversal**: проверка канонических путей (`File.getCanonicalFile().toPath().startsWith(sandboxRoot)`) исключает обход песочницы через символические ссылки на внешние каталоги хоста.
+    - **Защита от Null Byte Injection и Path Traversal**: блокируются любые байты `\0` и относительные переходы (`..`).
+    - **Расширенный черный список системных каталогов ОС**: блокировка доступа к `/bin`, `/sbin`, `/usr`, `/lib`, `/lib64`, `/opt`, `/boot`, `/etc`, `/proc`, `/sys`, `/dev`, `/root`, `/System`, `/Library`, `/Applications`, системным директориям `/var` (`/var/run`, `/var/spool`, `/var/log`, `/var/lib`, `/var/mail`, `/var/root`, `/var/db`, `/var/cron`), а также чувствительным конфигурациям пользователей хоста (`/.ssh`, `/.gnupg`, `/.bashrc`, `/.zshrc`, `/.profile`, `/.bash_profile`, `/.bash_history`, `/.zsh_history`, `/.env`, `crontab`).
+
 ---
 
 ## 2. Быстрый запуск

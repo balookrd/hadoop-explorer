@@ -72,7 +72,7 @@ public class ReplicatorAgent {
     public ReplicatorAgent(ReplicatorAgentConfig config) {
         this.config = config;
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
-        this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal());
+        this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal(), config.getLocalSandboxDir());
         this.hmsTaskPool = Executors.newVirtualThreadPerTaskExecutor();
         this.workerTaskPool = Executors.newFixedThreadPool(
                 Math.max(2, config.getBundleCommitConcurrency()),

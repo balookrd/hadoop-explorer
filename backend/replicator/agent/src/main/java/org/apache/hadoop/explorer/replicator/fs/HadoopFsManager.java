@@ -48,13 +48,15 @@ public class HadoopFsManager {
     private final String defaultFsUri;
     private final String servicePrincipal;
     private final String keytabPath;
+    private final String localSandboxDir;
     private final KerberosUgiProvider ugiProvider;
     private final HdfsStagingReaper stagingReaper;
     private volatile boolean kerberosLoggedIn = false;
 
-    public HadoopFsManager(String defaultFsUri, String keytabPath, String principal) {
+    public HadoopFsManager(String defaultFsUri, String keytabPath, String principal, String localSandboxDir) {
         this.conf = new Configuration();
         this.defaultFsUri = defaultFsUri;
+        this.localSandboxDir = (localSandboxDir != null && !localSandboxDir.isBlank()) ? localSandboxDir : System.getenv("REPLICATOR_LOCAL_SANDBOX");
 
         if (defaultFsUri != null && !defaultFsUri.isBlank()) {
             this.conf.set("fs.defaultFS", defaultFsUri);
@@ -81,12 +83,16 @@ public class HadoopFsManager {
         this.stagingReaper = new HdfsStagingReaper(this.conf, this.ugiProvider, this.defaultFsUri);
     }
 
+    public HadoopFsManager(String defaultFsUri, String keytabPath, String principal) {
+        this(defaultFsUri, keytabPath, principal, null);
+    }
+
     public HadoopFsManager() {
-        this("file:///", null, null);
+        this("file:///", null, null, null);
     }
 
     public HadoopFsManager(String defaultFsUri) {
-        this(defaultFsUri, null, null);
+        this(defaultFsUri, null, null, null);
     }
 
     public KerberosUgiProvider getUgiProvider() {
@@ -134,8 +140,20 @@ public class HadoopFsManager {
         return ugiProvider.getEffectiveUgi(executionPrincipal, runAsServiceAccount);
     }
 
+    public String getLocalSandboxDir() {
+        return localSandboxDir;
+    }
+
     private static final Set<String> FORBIDDEN_OS_PREFIXES = Set.of(
-            "/etc", "/proc", "/sys", "/dev", "/root", "/var/run", "/boot"
+            "/bin", "/sbin", "/usr", "/lib", "/lib64", "/opt", "/boot",
+            "/etc", "/proc", "/sys", "/dev", "/root",
+            "/System", "/Library", "/Applications",
+            "/var/run", "/var/spool", "/var/log", "/var/lib", "/var/mail", "/var/root", "/var/db", "/var/cron"
+    );
+
+    private static final List<String> SENSITIVE_PATH_PATTERNS = List.of(
+            "/.ssh", "/.gnupg", "/.bashrc", "/.zshrc", "/.profile",
+            "/.bash_profile", "/.bash_history", "/.zsh_history", "/.env", "/crontab"
     );
 
     /**
@@ -144,6 +162,9 @@ public class HadoopFsManager {
     public static void validatePathSafety(String pathStr) {
         if (pathStr == null || pathStr.isBlank()) {
             throw new IllegalArgumentException("Путь не может быть пустым");
+        }
+        if (pathStr.indexOf('\0') >= 0) {
+            throw new SecurityException("Попытка инъекции нулевого байта (Null Byte Injection) в пути: " + pathStr);
         }
         String normalized = pathStr.replace('\\', '/').trim();
         if (normalized.contains("..")) {
@@ -169,13 +190,54 @@ public class HadoopFsManager {
                 throw new SecurityException("Доступ к системным путям ОС запрещен политикой безопасности: " + pathStr);
             }
         }
+        for (String sensitive : SENSITIVE_PATH_PATTERNS) {
+            String lower = pathOnly.toLowerCase();
+            if (lower.equals(sensitive) || lower.endsWith(sensitive) || lower.contains(sensitive + "/")) {
+                throw new SecurityException("Доступ к конфиденциальным файлам и каталогам запрещен политикой безопасности: " + pathStr);
+            }
+        }
+    }
+
+    /**
+     * Валидация доступа к пути с учетом Chroot-песочницы (для локальных путей) и базовых правил безопасности.
+     */
+    public void validateSandboxAccess(String pathStr) {
+        validateSandboxAccess(pathStr, this.localSandboxDir, isLocalPath(pathStr));
+    }
+
+    public static void validateSandboxAccess(String pathStr, String sandboxDir, boolean isLocal) {
+        validatePathSafety(pathStr);
+        if (isLocal && sandboxDir != null && !sandboxDir.isBlank()) {
+            try {
+                File sandboxRoot = new File(sandboxDir).getCanonicalFile();
+                String rawPath = pathStr;
+                if (rawPath.startsWith("file://")) {
+                    try {
+                        rawPath = java.net.URI.create(rawPath).getPath();
+                    } catch (Exception ignored) {
+                        rawPath = rawPath.substring(7);
+                    }
+                }
+                File target = new File(rawPath).getCanonicalFile();
+                java.nio.file.Path targetNorm = target.toPath().normalize();
+                java.nio.file.Path rootNorm = sandboxRoot.toPath().normalize();
+                if (!targetNorm.startsWith(rootNorm)) {
+                    throw new SecurityException("Нарушение Chroot-песочницы: целевой локальный путь '" + pathStr +
+                            "' выходит за пределы разрешенной директории '" + rootNorm + "'");
+                }
+            } catch (SecurityException se) {
+                throw se;
+            } catch (Exception e) {
+                throw new SecurityException("Ошибка проверки границ Chroot-песочницы для пути '" + pathStr + "': " + e.getMessage(), e);
+            }
+        }
     }
 
     /**
      * Открывает InputStream для чтения файла с учетом Kerberos контекста и doAs имперсонации.
      */
     public InputStream openInputStream(String pathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             if (!file.exists()) {
@@ -214,7 +276,7 @@ public class HadoopFsManager {
      * Получает размер файла в байтах.
      */
     public long getFileSize(String pathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             if (file.exists()) {
@@ -246,7 +308,7 @@ public class HadoopFsManager {
      * Проверяет существование файла или каталога с учетом Kerberos UGI.
      */
     public boolean exists(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
             return new File(pathStr).exists();
         }
@@ -273,7 +335,7 @@ public class HadoopFsManager {
     }
 
     public boolean isDirectory(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             return file.exists() && file.isDirectory();
@@ -302,7 +364,7 @@ public class HadoopFsManager {
      * Получает время последней модификации файла в миллисекундах.
      */
     public long getFileModificationTime(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
             File file = new File(pathStr);
             return file.exists() ? file.lastModified() : 0L;
@@ -327,7 +389,7 @@ public class HadoopFsManager {
      * Рекурсивно собирает все регулярные файлы внутри директории (или одиночный файл, если путь указывает на файл).
      */
     public List<FileItem> listFilesRecursively(String basePathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
-        validatePathSafety(basePathStr);
+        validateSandboxAccess(basePathStr);
         if (isLocalPath(basePathStr)) {
             return listLocalFilesRecursively(basePathStr);
         }
@@ -681,7 +743,7 @@ public class HadoopFsManager {
      * @return финальный путь
      */
     public String commitFile(String stagingFilePath, String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
-        validatePathSafety(targetPath);
+        validateSandboxAccess(targetPath);
         validatePathSafety(stagingFilePath);
 
         File stagingFile = new File(stagingFilePath);
@@ -750,7 +812,7 @@ public class HadoopFsManager {
      * Прямая запись байтов файла в HDFS или локальную ФС без создания временного staging-файла на локальном диске (Zero-Staging).
      */
     public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
-        validatePathSafety(targetPath);
+        validateSandboxAccess(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
@@ -783,7 +845,7 @@ public class HadoopFsManager {
      * Открытие потока вывода для записи файла напрямую в HDFS или локальную ФС.
      */
     public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
-        validatePathSafety(targetPath);
+        validateSandboxAccess(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
         if (targetIsHdfs) {
@@ -811,8 +873,8 @@ public class HadoopFsManager {
      * Атомарное переименование файла в целевой ФС (HDFS или локальной).
      */
     public boolean renameFile(String srcPath, String dstPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
-        validatePathSafety(srcPath);
-        validatePathSafety(dstPath);
+        validateSandboxAccess(srcPath);
+        validateSandboxAccess(dstPath);
         boolean targetIsHdfs = dstPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(dstPath));
 
         if (targetIsHdfs) {
@@ -855,7 +917,7 @@ public class HadoopFsManager {
     }
 
     public boolean deletePath(String pathStr, boolean recursive, String executionPrincipal, boolean runAsServiceAccount) {
-        validatePathSafety(pathStr);
+        validateSandboxAccess(pathStr);
         boolean targetIsHdfs = pathStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(pathStr));
         if (targetIsHdfs) {
             try {
@@ -895,7 +957,7 @@ public class HadoopFsManager {
         return stagingReaper.cleanStagingFiles(baseDirStr, olderThanMillis);
     }
 
-    private boolean isLocalPath(String path) {
+    public boolean isLocalPath(String path) {
         if (path == null) return true;
         if (path.startsWith("hdfs://")) return false;
         if (defaultFsUri != null && defaultFsUri.startsWith("hdfs://")) return false;
