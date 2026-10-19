@@ -156,6 +156,18 @@ export interface AgentInfo {
   staging_orphans_cleaned?: number;
 }
 
+export type HmsJobStatusType =
+  | 'CREATED'
+  | 'QUEUED'
+  | 'WAITING_FOR_AGENTS'
+  | 'ACTIVE'
+  | 'BOOTSTRAPPING'
+  | 'COMPLETED'
+  | 'PAUSED'
+  | 'STOPPED'
+  | 'FAILED'
+  | 'ERROR';
+
 export interface HmsReplicationJob {
   id: string;
   source_cluster_id: string;
@@ -165,7 +177,7 @@ export interface HmsReplicationJob {
   table_include_pattern?: string;
   table_exclude_pattern?: string;
   table_pattern?: string;
-  status: 'BOOTSTRAPPING' | 'ACTIVE' | 'PAUSED' | 'ERROR';
+  status: HmsJobStatusType;
   bootstrap_event_id?: number;
   last_processed_event_id?: number;
   event_lag?: number;
@@ -190,6 +202,36 @@ export interface HmsReplicationJob {
   progress_percent?: number;
   subtasks_count?: number;
   active_subtasks_count?: number;
+}
+
+export interface HmsDeadLetterEvent {
+  id: string;
+  hms_job_id?: string;
+  hmsJobId?: string;
+  event_id?: number;
+  eventId?: number;
+  event_type?: string;
+  eventType?: string;
+  table_name?: string;
+  tableName?: string;
+  partition_name?: string;
+  partitionName?: string;
+  payload?: string;
+  error_message?: string;
+  errorMessage?: string;
+  status: 'NEW' | 'IGNORED' | 'REPLAYED';
+  retry_count?: number;
+  retryCount?: number;
+  failed_at?: string;
+  failedAt?: string;
+}
+
+export interface HmsSchemaDriftReport {
+  db_name: string;
+  table_name: string;
+  has_drift: boolean;
+  discrepancies: string[];
+  checked_at: string;
 }
 
 export interface HmsEventLog {

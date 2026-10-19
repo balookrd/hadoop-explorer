@@ -10,6 +10,8 @@ import type {
   AgentInfo,
   HmsReplicationJob,
   HmsEventLog,
+  HmsDeadLetterEvent,
+  HmsSchemaDriftReport,
   CreateHmsJobPayload,
   StreamingLeaseStatus,
   DrStatusResponse,
@@ -201,6 +203,33 @@ export class ReplicatorApiClient extends BaseApiClient {
     return this.request<{ success: boolean; message: string }>(`/hms/jobs/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  }
+
+  async getHmsDlq(id: string, status?: string, limit: number = 100): Promise<HmsDeadLetterEvent[]> {
+    const params = new URLSearchParams();
+    if (status && status !== 'ALL') {
+      params.set('status', status);
+    }
+    params.set('limit', String(limit));
+    return this.request<HmsDeadLetterEvent[]>(`/hms/jobs/${encodeURIComponent(id)}/dlq?${params.toString()}`);
+  }
+
+  async skipHmsDlqEvent(id: string, dlqId: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      `/hms/jobs/${encodeURIComponent(id)}/dlq/${encodeURIComponent(dlqId)}/skip`,
+      { method: 'POST' }
+    );
+  }
+
+  async replayHmsDlqEvent(id: string, dlqId: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      `/hms/jobs/${encodeURIComponent(id)}/dlq/${encodeURIComponent(dlqId)}/replay`,
+      { method: 'POST' }
+    );
+  }
+
+  async getHmsSchemaDrift(id: string): Promise<HmsSchemaDriftReport[]> {
+    return this.request<HmsSchemaDriftReport[]>(`/hms/jobs/${encodeURIComponent(id)}/drift`);
   }
 
   // --- HDFS Inotify Streaming & Streamer HA ---

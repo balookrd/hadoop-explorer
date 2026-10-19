@@ -25,10 +25,24 @@
     Server,
     HardDrive,
     Info,
-    CheckCircle
+    CheckCircle,
+    AlertOctagon,
+    GitCompare,
+    Eye,
+    FileWarning,
+    CheckCheck
   } from 'lucide-svelte';
   import { api } from '../api/client';
-  import type { HmsReplicationJob, HmsEventLog, Job, TopologyResponse, ClusterInfo, CreateHmsJobPayload } from '../types';
+  import type {
+    HmsReplicationJob,
+    HmsEventLog,
+    HmsDeadLetterEvent,
+    HmsSchemaDriftReport,
+    Job,
+    TopologyResponse,
+    ClusterInfo,
+    CreateHmsJobPayload
+  } from '../types';
   import { StatusBadge, type UserSession } from '@hadoop-explorer/common';
 
   // Пропсы
@@ -54,10 +68,24 @@
   // Модальное окно детального просмотра схемы
   let isDetailsModalOpen = $state(false);
   let modalJob: HmsReplicationJob | null = $state(null);
-  let detailsTab: 'events' | 'subtasks' = $state('events');
+  let detailsTab: 'events' | 'subtasks' | 'dlq' | 'drift' = $state('events');
   let detailsLoading = $state(false);
   let events: HmsEventLog[] = $state([]);
   let subtasks: Job[] = $state([]);
+
+  // Состояние DLQ (Dead-Letter Queue)
+  let dlqEvents: HmsDeadLetterEvent[] = $state([]);
+  let dlqLoading = $state(false);
+  let dlqStatusFilter = $state('ALL');
+  let actingDlqId: string | null = $state(null);
+  let dlqActionMessage: string | null = $state(null);
+  let selectedDlqPayload: HmsDeadLetterEvent | null = $state(null);
+
+  // Состояние Schema Drift
+  let driftReports: HmsSchemaDriftReport[] = $state([]);
+  let driftLoading = $state(false);
+  let driftScanned = $state(false);
+  let driftError: string | null = $state(null);
 
   // Модальное окно создания новой репликации
   let isCreateModalOpen = $state(false);
@@ -172,12 +200,14 @@
   async function loadDetails(jobId: string) {
     try {
       detailsLoading = true;
-      const [evts, subs] = await Promise.all([
+      const [evts, subs, dlq] = await Promise.all([
         api.getHmsEvents(jobId),
-        api.getHmsSubtasks(jobId)
+        api.getHmsSubtasks(jobId),
+        api.getHmsDlq(jobId).catch(() => [] as HmsDeadLetterEvent[])
       ]);
       events = evts;
       subtasks = subs;
+      dlqEvents = dlq;
     } catch (e) {
       console.error('Ошибка загрузки деталей HMS задачи:', e);
     } finally {
@@ -185,11 +215,73 @@
     }
   }
 
-  function openDetailsModal(job: HmsReplicationJob, initialTab: 'events' | 'subtasks' = 'events') {
+  function openDetailsModal(job: HmsReplicationJob, initialTab: 'events' | 'subtasks' | 'dlq' | 'drift' = 'events') {
     modalJob = job;
     detailsTab = initialTab;
     isDetailsModalOpen = true;
+    driftScanned = false;
+    driftReports = [];
+    driftError = null;
+    dlqActionMessage = null;
     loadDetails(job.id);
+  }
+
+  async function handleFilterDlq(status: string) {
+    if (!modalJob) return;
+    dlqStatusFilter = status;
+    try {
+      dlqLoading = true;
+      dlqEvents = await api.getHmsDlq(modalJob.id, status);
+    } catch (e) {
+      console.error('Ошибка фильтрации DLQ:', e);
+    } finally {
+      dlqLoading = false;
+    }
+  }
+
+  async function handleSkipDlq(dlqId: string) {
+    if (!modalJob) return;
+    try {
+      actingDlqId = dlqId;
+      const res = await api.skipHmsDlqEvent(modalJob.id, dlqId);
+      dlqActionMessage = res.message || 'Событие успешно помечено как IGNORED';
+      setTimeout(() => { dlqActionMessage = null; }, 4000);
+      dlqEvents = await api.getHmsDlq(modalJob.id, dlqStatusFilter);
+    } catch (e: any) {
+      console.error('Ошибка пропуска события DLQ:', e);
+    } finally {
+      actingDlqId = null;
+    }
+  }
+
+  async function handleReplayDlq(dlqId: string) {
+    if (!modalJob) return;
+    try {
+      actingDlqId = dlqId;
+      const res = await api.replayHmsDlqEvent(modalJob.id, dlqId);
+      dlqActionMessage = res.message || 'Событие отправлено на повтор (REPLAYED)';
+      setTimeout(() => { dlqActionMessage = null; }, 4000);
+      dlqEvents = await api.getHmsDlq(modalJob.id, dlqStatusFilter);
+    } catch (e: any) {
+      console.error('Ошибка повторного запуска события DLQ:', e);
+    } finally {
+      actingDlqId = null;
+    }
+  }
+
+  async function handleScanDrift() {
+    if (!modalJob) return;
+    try {
+      driftLoading = true;
+      driftError = null;
+      driftReports = await api.getHmsSchemaDrift(modalJob.id);
+      driftScanned = true;
+    } catch (e: any) {
+      console.error('Ошибка сканирования дрейфа схем:', e);
+      driftError = e.message || 'Ошибка соединения с Hive Metastore при сверке схем';
+    } finally {
+      driftLoading = false;
+    }
   }
 
   function toggleExpand(jobId: string) {
@@ -1259,6 +1351,40 @@
             {subtasks.length}
           </span>
         </button>
+
+        <button
+          onclick={() => (detailsTab = 'dlq')}
+          class="flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-semibold transition cursor-pointer {detailsTab === 'dlq'
+            ? 'border-rose-600 text-rose-600 dark:text-rose-400'
+            : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}"
+        >
+          <AlertOctagon class="w-4 h-4 text-rose-500" />
+          <span>Очередь сбоев (DLQ)</span>
+          {#if dlqEvents.length > 0}
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+              {dlqEvents.length}
+            </span>
+          {:else}
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              0
+            </span>
+          {/if}
+        </button>
+
+        <button
+          onclick={() => (detailsTab = 'drift')}
+          class="flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-semibold transition cursor-pointer {detailsTab === 'drift'
+            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+            : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}"
+        >
+          <GitCompare class="w-4 h-4 text-indigo-500" />
+          <span>Дрейф схемы (Drift)</span>
+          {#if driftScanned}
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono {driftReports.some(r => r.has_drift) ? 'bg-amber-100 text-amber-700 font-bold dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 font-bold dark:bg-emerald-950 dark:text-emerald-300'}">
+              {driftReports.filter(r => r.has_drift).length} дрейф
+            </span>
+          {/if}
+        </button>
       </div>
 
       <!-- Содержимое активной вкладки -->
@@ -1425,6 +1551,238 @@
             </table>
           {/if}
         {/if}
+
+        {#if detailsTab === 'dlq'}
+          <div class="p-4 flex flex-col gap-4">
+            <!-- Плашка уведомления об операции (Success toast) -->
+            {#if dlqActionMessage}
+              <div class="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <CheckCheck class="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{dlqActionMessage}</span>
+                </div>
+                <button onclick={() => { dlqActionMessage = null; }} class="text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            {/if}
+
+            <!-- Тулбар фильтрации DLQ -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Статус событий:</span>
+                <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800 text-xs">
+                  {#each ['ALL', 'NEW', 'IGNORED', 'REPLAYED'] as st}
+                    <button
+                      onclick={() => handleFilterDlq(st)}
+                      class="px-2.5 py-1 rounded-md font-medium transition cursor-pointer {dlqStatusFilter === st
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}"
+                    >
+                      {st === 'ALL' ? 'Все' : st === 'NEW' ? 'Новые (New)' : st === 'IGNORED' ? 'Пропущенные' : 'Повторенные'}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="text-xs text-slate-500">
+                Всего в карантине: <strong class="font-mono text-slate-700 dark:text-slate-300">{dlqEvents.length}</strong>
+              </div>
+            </div>
+
+            <!-- Список событий DLQ -->
+            {#if dlqLoading}
+              <div class="py-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw class="w-4 h-4 animate-spin text-sky-500" />
+                <span>Загрузка очереди отравленных событий...</span>
+              </div>
+            {:else if dlqEvents.length === 0}
+              <div class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+                <CheckCircle class="w-8 h-8 text-emerald-500" />
+                <span class="font-medium text-slate-700 dark:text-slate-300">Очередь Dead-Letter пуста</span>
+                <span class="text-[11px] text-slate-400">Все DDL-события реплицируются без сбоев и фатальных ошибок.</span>
+              </div>
+            {:else}
+              <div class="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <table class="w-full table-fixed text-left border-collapse text-xs">
+                  <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold text-[10px] uppercase tracking-wider sticky top-0">
+                    <tr>
+                      <th class="py-2.5 px-3 w-24">Event ID</th>
+                      <th class="py-2.5 px-3 w-32">Тип DDL</th>
+                      <th class="py-2.5 px-3 w-44">Таблица / Партиция</th>
+                      <th class="py-2.5 px-3">Ошибка (Error Stack)</th>
+                      <th class="py-2.5 px-3 w-24">Статус</th>
+                      <th class="py-2.5 px-3 w-36 text-right">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                    {#each dlqEvents as ev}
+                      <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-850/50">
+                        <td class="py-2.5 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
+                          #{ev.event_id ?? ev.eventId ?? '—'}
+                        </td>
+                        <td class="py-2.5 px-3">
+                          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                            {ev.event_type ?? ev.eventType ?? 'DDL'}
+                          </span>
+                        </td>
+                        <td class="py-2.5 px-3 truncate" title="{ev.table_name ?? ev.tableName ?? ''}{ev.partition_name ?? ev.partitionName ? ` (${ev.partition_name ?? ev.partitionName})` : ''}">
+                          <div class="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                            {ev.table_name ?? ev.tableName ?? '—'}
+                          </div>
+                          {#if ev.partition_name || ev.partitionName}
+                            <div class="text-[10px] text-slate-400 font-normal truncate">
+                              {ev.partition_name || ev.partitionName}
+                            </div>
+                          {/if}
+                        </td>
+                        <td class="py-2.5 px-3 text-rose-600 dark:text-rose-400 truncate font-sans text-[11px]" title={ev.error_message ?? ev.errorMessage ?? ''}>
+                          {ev.error_message ?? ev.errorMessage ?? 'Неизвестная ошибка DDL'}
+                        </td>
+                        <td class="py-2.5 px-3">
+                          {#if ev.status === 'NEW'}
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                              NEW
+                            </span>
+                          {:else if ev.status === 'IGNORED'}
+                            <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              IGNORED
+                            </span>
+                          {:else}
+                            <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
+                              REPLAYED
+                            </span>
+                          {/if}
+                        </td>
+                        <td class="py-2.5 px-3 text-right">
+                          <div class="flex items-center justify-end gap-1.5">
+                            {#if ev.payload}
+                              <button
+                                onclick={() => { selectedDlqPayload = ev; }}
+                                class="p-1 rounded text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                title="Посмотреть полезную нагрузку DDL"
+                              >
+                                <Eye class="w-3.5 h-3.5" />
+                              </button>
+                            {/if}
+                            {#if ev.status === 'NEW'}
+                              <button
+                                onclick={() => handleReplayDlq(ev.id)}
+                                disabled={actingDlqId === ev.id}
+                                class="px-2 py-1 rounded bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 hover:bg-sky-100 text-[10px] font-semibold transition disabled:opacity-50 cursor-pointer"
+                                title="Повторить применение события"
+                              >
+                                {#if actingDlqId === ev.id}
+                                  <RefreshCw class="w-3 h-3 animate-spin inline" />
+                                {:else}
+                                  Повторить
+                                {/if}
+                              </button>
+                              <button
+                                onclick={() => handleSkipDlq(ev.id)}
+                                disabled={actingDlqId === ev.id}
+                                class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 text-[10px] font-semibold transition disabled:opacity-50 cursor-pointer"
+                                title="Игнорировать сбойное событие"
+                              >
+                                Пропустить
+                              </button>
+                            {/if}
+                          </div>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if detailsTab === 'drift'}
+          <div class="p-4 flex flex-col gap-4">
+            <!-- Верхняя плашка с кнопкой запуска сканирования -->
+            <div class="p-3.5 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div class="space-y-0.5">
+                <div class="font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
+                  <GitCompare class="w-4 h-4 text-indigo-600" />
+                  <span>Детектор расхождений схемы (Schema Drift Detector)</span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                  Автономно сопоставляет DDL-описания таблиц, состав и типы колонок, ключи партиционирования и параметры SerDe между кластером-источником и таргетом.
+                </p>
+              </div>
+
+              <button
+                onclick={handleScanDrift}
+                disabled={driftLoading}
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw class="w-3.5 h-3.5 {driftLoading ? 'animate-spin' : ''}" />
+                <span>{driftLoading ? 'Сверка схем...' : 'Сверить схему с таргетом'}</span>
+              </button>
+            </div>
+
+            {#if driftError}
+              <div class="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 flex items-center gap-2">
+                <AlertOctagon class="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{driftError}</span>
+              </div>
+            {/if}
+
+            {#if driftLoading}
+              <div class="py-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+                <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
+                <span>Выполняется глубокая проверка DDL и SerDe метаданных в обоих кластерах Hive Metastore...</span>
+              </div>
+            {:else if !driftScanned}
+              <div class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+                <GitCompare class="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                <span class="font-medium text-slate-700 dark:text-slate-300">Сканирование схемы еще не запускалось</span>
+                <span class="text-[11px] text-slate-400">Нажмите «Сверить схему с таргетом» для выявления дрейфа колонок, типов и SerDe.</span>
+              </div>
+            {:else if driftReports.length === 0 || !driftReports.some(r => r.has_drift)}
+              <div class="py-12 text-center text-xs flex flex-col items-center justify-center gap-2">
+                <CheckCircle class="w-10 h-10 text-emerald-500" />
+                <span class="font-bold text-slate-800 dark:text-slate-100 text-sm">Схемы полностью идентичны (No Drift)</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 max-w-md">
+                  Все проверенные таблицы имеют совпадающие типы колонок, корректный порядок полей, идентичные ключи партиционирования и параметры SerDe.
+                </span>
+              </div>
+            {:else}
+              <div class="space-y-3">
+                <div class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                  <FileWarning class="w-4 h-4 text-amber-500" />
+                  <span>Обнаружены расхождения в схемах таблиц ({driftReports.filter(r => r.has_drift).length}):</span>
+                </div>
+
+                <div class="grid grid-cols-1 gap-2.5">
+                  {#each driftReports.filter(r => r.has_drift) as report}
+                    <div class="p-3 rounded-xl border border-amber-200 dark:border-amber-800/80 bg-amber-50/40 dark:bg-amber-950/20 flex flex-col gap-2">
+                      <div class="flex items-center justify-between">
+                        <div class="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Table2 class="w-4 h-4 text-amber-600" />
+                          <span>{report.db_name}.{report.table_name}</span>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                          Дрейф схемы
+                        </span>
+                      </div>
+
+                      <ul class="space-y-1 text-xs font-mono text-slate-700 dark:text-slate-300">
+                        {#each report.discrepancies as disc}
+                          <li class="flex items-start gap-1.5 text-[11px]">
+                            <span class="text-amber-500 font-bold shrink-0">•</span>
+                            <span class="text-amber-900 dark:text-amber-200">{disc}</span>
+                          </li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
 
       <!-- Подвал модального окна -->
@@ -1436,6 +1794,39 @@
           onclick={() => (isDetailsModalOpen = false)}
           class="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer"
         >
+          Закрыть
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- МОДАЛЬНОЕ ОКНО ПРОСМОТРА ПОЛЕЗНОЙ НАГРУЗКИ DLQ -->
+{#if selectedDlqPayload}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div
+    role="presentation"
+    class="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 select-none"
+    onclick={(e) => { if (e.target === e.currentTarget) selectedDlqPayload = null; }}
+  >
+    <div
+      class="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-5 flex flex-col gap-3 select-auto text-slate-900 dark:text-slate-100"
+    >
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+        <h3 class="text-sm font-bold flex items-center gap-2">
+          <Eye class="w-4 h-4 text-sky-500" />
+          <span>DDL Payload (Событие #{selectedDlqPayload.event_id ?? selectedDlqPayload.eventId})</span>
+        </h3>
+        <button onclick={() => { selectedDlqPayload = null; }} class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+          <X class="w-4 h-4" />
+        </button>
+      </div>
+      <div class="text-[11px] text-slate-500">
+        Таблица: <strong class="font-mono text-slate-700 dark:text-slate-300">{selectedDlqPayload.table_name ?? selectedDlqPayload.tableName ?? '—'}</strong>
+      </div>
+      <pre class="p-3 bg-slate-950 text-slate-100 rounded-xl text-xs font-mono overflow-auto max-h-80 whitespace-pre-wrap">{selectedDlqPayload.payload || 'Нет сохраненной полезной нагрузки'}</pre>
+      <div class="flex justify-end">
+        <button onclick={() => { selectedDlqPayload = null; }} class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
           Закрыть
         </button>
       </div>
