@@ -37,10 +37,12 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
     @Query("""
         SELECT t FROM TaskEntity t
-        JOIN t.job j
         WHERE t.status = :status
-          AND (j.status = 'RUNNING' OR j.status = 'STREAMING')
-          AND (:clusterId IS NULL OR LOWER(j.sourceClusterId) = LOWER(:clusterId))
+          AND t.jobId IN (
+              SELECT j.id FROM JobEntity j
+              WHERE (j.status = 'RUNNING' OR j.status = 'STREAMING')
+                AND (:clusterId IS NULL OR LOWER(j.sourceClusterId) = LOWER(:clusterId))
+          )
         ORDER BY t.updatedAt ASC
     """)
     List<TaskEntity> findPendingTasksForClusterSkipLocked(
