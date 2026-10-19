@@ -787,3 +787,32 @@ stateDiagram-v2
 2. **Формирование отчета `HmsSchemaDriftReport`**:
    - Структурированный отчет классифицирует расхождения: `missingTargetColumns`, `unexpectedTargetColumns`, `columnTypeMismatches`, `partitionKeyMismatches`, `storageFormatMismatches`.
    - Результаты доступны через эндпоинт `GET /api/v1/hms/jobs/{id}/drift`.
+
+---
+
+## 15. Хаос-тестирование, стресс-верификация и устойчивость к пиковым нагрузкам (Chaos & Stress Engineering)
+
+В рамках Фазы 5 платформа покрыта специализированными наборами тестов хаос-инженерии (`ReplicatorChaosResilienceTest`, `OrchestratorChaosResilienceTest`) и экстремальных стресс-нагрузок (`ReplicatorHighConcurrencyStressTest`), верифицирующими поведение системы в условиях жестких аварий инфраструктуры.
+
+### 15.1 Матрица хаос-сценариев и верификации
+
+| Компонент | Симулируемый аварийный сценарий | Тестовый класс | Результат и поведение системы |
+|---|---|---|---|
+| **Data Receiver (gRPC)** | Внезапный обрыв WAN TCP-соединения (`CANCELLED` / `UNAVAILABLE`) посреди передачи файла | `ReplicatorChaosResilienceTest` | Недописанный целевой файл не коммитится, срабатывает `cleanup()`, `HdfsStagingReaper` гарантированно удаляет временные `._staging_<jobId>` файлы. |
+| **Data Receiver (gRPC)** | Аварийный разрыв сокета во время распаковки потокового виртуального TAR-стрима | `ReplicatorChaosResilienceTest` | Немедленное освобождение семафора `tarStreamSemaphore`, разрыв конвейера `PipedOutputStream` без утечек потоков и памяти; сервер готов принимать следующий стрим. |
+| **TarStreamPipeline (Sender)** | Сетевой сбой канала передачи пакета мелких файлов на недоступный узел | `ReplicatorChaosResilienceTest` | Откат передачи, фиксация ошибки и автоматическая отправка структурированного отчета `failTask` в Оркестратор. |
+| **Orchestrator Task Service** | Внезапная смерть воркера (Worker Death) во время выполнения задачи в статусе `RUNNING` | `OrchestratorChaosResilienceTest` | Авто-обнаружение по таймауту heartbeat, перевод агента в `OFFLINE`, эвакуация задачи в `QUEUED`, изоляция сбойного узла (`lastFailedAgentId`) и перехват задачи резервным агентом кластера. |
+| **Circuit Breaker (Tasks)** | Исчерпание максимального числа попыток передачи (`retryCount >= maxRetries`) | `OrchestratorChaosResilienceTest` | Атомарный перевод задачи в `FAILED`, фиксация ошибки задания в `FAILED`, обновление счетчика `failedObjects`. |
+| **Token Bucket Throttler** | Шторм конкурентных запросов полосы пропускания (20 параллельных потоков) | `OrchestratorChaosResilienceTest` | Атомарное бесконфликтное списание токенов под `ReentrantLock` без thread pinning на виртуальных потоках Java 21, строго монотонный расчет задержки. |
+| **Agent Registry** | Конкурентный шторм регистраций и heartbeat (30 параллельных агентов) | `OrchestratorChaosResilienceTest` | Безопасная конкурентная регистрация в `ConcurrentHashMap`, сохранение консистентности метрик латентности и коэффициентов сжатия. |
+| **Tar Stream Engine** | Потоковая передача 500+ мелких файлов во вложенных каталогах с проверкой контрольных сумм | `ReplicatorHighConcurrencyStressTest` | 100% сохранение контента и прав, отсутствие остаточных staging-файлов, корректная финализация задания. |
+| **OOM Backpressure Protection** | Превышение лимита параллельных TAR-стримов (`maxConcurrentTarStreams = 2`) | `ReplicatorHighConcurrencyStressTest` | Быстрый защитный отказ с сообщением о перегрузке пула памяти распаковки, освобождение слота сразу после завершения активного потока. |
+| **Wire Compressor** | Экстремальная компрессия 10 000 чанков LZ4/ZSTD и защита от битых данных | `ReplicatorHighConcurrencyStressTest` | Стабильная пропускная способность, корректная детекция и выброс исключений при получении поврежденных блоков. |
+
+### 15.2 Архитектура OOM Backpressure и защиты памяти
+
+Для предотвращения исчерпания памяти при шторме входящих TAR-стримов на узлах-приемниках внедрена двухконтурная защита:
+1. **Семафорный лимитер `tarStreamSemaphore`**: жестко ограничивает число одновременно распаковываемых стримов на узле (`maxConcurrentTarStreams`, по умолчанию 16).
+2. **Конфигурируемый таймаут ожидания `tarStreamAcquireTimeoutMs`**: если в течение заданного интервала слот памяти не освобождается, удаленному агенту возвращается защитный отказ без создания буферов в куче JVM.
+3. **Ограничение конвейера in-flight коммитов**: внутри каждого стрима размер буфера `tarPipeBufferBytes` фиксирован, а параллелизм коммита в HDFS ограничен пулом `bundleCommitExecutor` с дополнительным барьером `fileCommitLimiter`.
+
