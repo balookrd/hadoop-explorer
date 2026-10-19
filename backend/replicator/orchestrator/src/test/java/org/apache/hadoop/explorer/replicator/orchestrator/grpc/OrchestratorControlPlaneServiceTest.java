@@ -266,4 +266,42 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals("job-1", resp.getJobs(0).getId());
         assertEquals("STREAMING_INOTIFY", resp.getJobs(0).getSyncMode());
     }
+
+    @Test
+    @DisplayName("gRPC: Успешное обновление прогресса задачи")
+    void testUpdateJobProgressSuccess() {
+        JobEntity entity = new JobEntity();
+        entity.setId("job-1");
+        entity.setStatus("RUNNING");
+        JobResponse mockResp = JobResponse.fromEntity(entity);
+        when(jobService.updateJobProgress(eq("job-1"), any())).thenReturn(Optional.of(mockResp));
+
+        UpdateJobProgressRequest req = UpdateJobProgressRequest.newBuilder()
+                .setJobId("job-1")
+                .setStatus("RUNNING")
+                .setCurrentBytes(500L)
+                .setTotalBytes(1000L)
+                .setMessage("Progress update")
+                .build();
+
+        UpdateJobProgressResponse resp = stub.updateJobProgress(req);
+        assertTrue(resp.getSuccess());
+        assertEquals("Progress updated", resp.getMessage());
+    }
+
+    @Test
+    @DisplayName("gRPC: Отклонение обновления при CAS-конфликте захвата задачи в ANALYZING")
+    void testUpdateJobProgressCasConflict() {
+        when(jobService.updateJobProgress(eq("job-cas"), any())).thenReturn(Optional.empty());
+
+        UpdateJobProgressRequest req = UpdateJobProgressRequest.newBuilder()
+                .setJobId("job-cas")
+                .setStatus("ANALYZING")
+                .setMessage("Захват на анализ")
+                .build();
+
+        UpdateJobProgressResponse resp = stub.updateJobProgress(req);
+        assertFalse(resp.getSuccess());
+        assertEquals("Job not found", resp.getMessage());
+    }
 }

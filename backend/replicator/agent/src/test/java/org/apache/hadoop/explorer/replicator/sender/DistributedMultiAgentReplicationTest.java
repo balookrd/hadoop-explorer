@@ -310,7 +310,9 @@ class DistributedMultiAgentReplicationTest {
         }
 
         @Override
-        public void updateJobProgress(String jobId, UpdateJobRequest request) {}
+        public boolean updateJobProgress(String jobId, UpdateJobRequest request) {
+            return true;
+        }
 
         @Override
         public double requestNetworkTokens(TokenRequest request) {

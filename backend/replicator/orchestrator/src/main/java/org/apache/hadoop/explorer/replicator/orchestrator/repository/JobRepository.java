@@ -36,4 +36,15 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
         WHERE j.id = :jobId
     """)
     int incrementProgress(@Param("jobId") String jobId, @Param("bytes") long bytes, @Param("files") int files, @Param("now") Instant now);
+
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE JobEntity j
+        SET j.status = 'ANALYZING',
+            j.updatedAt = :now,
+            j.message = :message
+        WHERE j.id = :jobId
+          AND j.status = 'QUEUED'
+    """)
+    int claimJobForAnalysis(@Param("jobId") String jobId, @Param("message") String message, @Param("now") Instant now);
 }

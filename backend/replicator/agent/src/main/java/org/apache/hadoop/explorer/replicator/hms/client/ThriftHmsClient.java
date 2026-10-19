@@ -17,6 +17,8 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.thrift.TException;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
@@ -127,7 +129,10 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         @Override
         public boolean validateObject(PooledObject<IMetaStoreClient> p) {
             try {
-                return p != null && p.getObject() != null;
+                if (p == null || p.getObject() == null) {
+                    return false;
+                }
+                return true;
             } catch (Exception e) {
                 return false;
             }
@@ -139,8 +144,9 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         try {
             client = clientPool.borrowObject();
             return operation.execute(client);
-        } catch (MetaException e) {
-            log.warn("[ThriftHmsClient:{}] Ошибка MetaException: {}, попытка повтора с новым соединением...", clusterId, e.getMessage());
+        } catch (TException e) {
+            log.warn("[ThriftHmsClient:{}] Ошибка Thrift/MetaException ({}): {}, попытка повтора с новым соединением...",
+                    clusterId, e.getClass().getSimpleName(), e.getMessage());
             if (client != null) {
                 try {
                     clientPool.invalidateObject(client);
@@ -151,15 +157,37 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 client = clientPool.borrowObject();
                 return operation.execute(client);
             } catch (Exception ex) {
+                if (client != null) {
+                    try {
+                        clientPool.invalidateObject(client);
+                    } catch (Exception ignored) {}
+                    client = null;
+                }
                 throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + ex.getMessage(), ex);
             }
         } catch (Exception e) {
+            if (client != null && isConnectionException(e)) {
+                try {
+                    clientPool.invalidateObject(client);
+                } catch (Exception ignored) {}
+                client = null;
+            }
             throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + e.getMessage(), e);
         } finally {
             if (client != null) {
                 clientPool.returnObject(client);
             }
         }
+    }
+
+    private boolean isConnectionException(Throwable t) {
+        if (t == null) return false;
+        if (t instanceof java.net.SocketException
+                || t instanceof java.io.EOFException
+                || t instanceof org.apache.thrift.transport.TTransportException) {
+            return true;
+        }
+        return isConnectionException(t.getCause());
     }
 
     @FunctionalInterface

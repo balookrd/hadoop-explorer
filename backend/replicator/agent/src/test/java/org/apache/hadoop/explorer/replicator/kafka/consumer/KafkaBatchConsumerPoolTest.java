@@ -16,6 +16,7 @@ import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.util.*;
@@ -132,5 +133,81 @@ class KafkaBatchConsumerPoolTest {
         verify(c2, atLeastOnce()).wakeup();
         verify(c1, atLeastOnce()).close();
         verify(c2, atLeastOnce()).close();
+    }
+
+    @Test
+    @DisplayName("Гарантия надежности At-Least-Once: смещения коммитятся только после успешного KafkaBatchAck")
+    @SuppressWarnings("unchecked")
+    void shouldCommitOffsetsOnlyAfterSuccessfulAck() throws Exception {
+        KafkaConsumer<byte[], byte[]> consumer = mock(KafkaConsumer.class);
+        TopicPartition tp = new TopicPartition("orders", 0);
+        ConsumerRecord<byte[], byte[]> rec = new ConsumerRecord<>("orders", 0, 42L, 1000L,
+                org.apache.kafka.common.record.TimestampType.CREATE_TIME,
+                0, 0, "k".getBytes(), "v".getBytes(), new RecordHeaders(), Optional.empty());
+        ConsumerRecords<byte[], byte[]> records = new ConsumerRecords<>(Map.of(tp, List.of(rec)));
+
+        CountDownLatch pollLatch = new CountDownLatch(1);
+        when(consumer.poll(any(Duration.class))).thenAnswer(inv -> {
+            pollLatch.countDown();
+            return records;
+        });
+
+        List<StreamObserver<KafkaBatchAck>> ackObservers = new ArrayList<>();
+        List<KafkaBatchRequest> sentRequests = new ArrayList<>();
+
+        when(mockClient.openBatchStream(any())).thenAnswer(inv -> {
+            StreamObserver<KafkaBatchAck> ackObs = inv.getArgument(0);
+            ackObservers.add(ackObs);
+            return new StreamObserver<KafkaBatchRequest>() {
+                @Override
+                public void onNext(KafkaBatchRequest req) {
+                    sentRequests.add(req);
+                }
+                @Override public void onError(Throwable t) {}
+                @Override public void onCompleted() {}
+            };
+        });
+
+        KafkaBatchConsumerPool pool = new KafkaBatchConsumerPool(
+                consumer, mockClient, loopFilter, formatClassifier, transcoder,
+                "DC1", "DC2", PayloadFormat.PAYLOAD_PASSTHROUGH, PayloadFormat.PAYLOAD_PASSTHROUGH
+        );
+
+        pool.start();
+        assertTrue(pollLatch.await(3, TimeUnit.SECONDS));
+
+        // Ждем формирования и отправки батча
+        long deadline = System.currentTimeMillis() + 2000;
+        while (sentRequests.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertFalse(sentRequests.isEmpty(), "Батч должен быть отправлен");
+        KafkaBatchRequest sentBatch = sentRequests.get(0);
+        assertEquals("orders", sentBatch.getTopic());
+
+        // До подтверждения Ack смещения не должны коммититься
+        verify(consumer, never()).commitAsync(anyMap(), any());
+
+        // Отправляем успешный Ack
+        StreamObserver<KafkaBatchAck> ackObs = ackObservers.get(0);
+        ackObs.onNext(KafkaBatchAck.newBuilder()
+                .setBatchId(sentBatch.getBatchId())
+                .setTopic(sentBatch.getTopic())
+                .setSuccess(true)
+                .setCommittedRecords(1)
+                .build());
+
+        // Даем воркеру время зафиксировать смещения в Kafka
+        Thread.sleep(300);
+
+        ArgumentCaptor<Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata>> captor =
+                ArgumentCaptor.forClass(Map.class);
+        verify(consumer, atLeastOnce()).commitAsync(captor.capture(), any());
+
+        Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> committed = captor.getValue();
+        assertNotNull(committed.get(tp));
+        assertEquals(43L, committed.get(tp).offset(), "Смещение должно быть сдвинуто на 42 + 1 = 43");
+
+        pool.close();
     }
 }

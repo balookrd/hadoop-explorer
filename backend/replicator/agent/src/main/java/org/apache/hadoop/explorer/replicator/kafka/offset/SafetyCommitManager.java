@@ -83,7 +83,7 @@ public class SafetyCommitManager {
                 OffsetAndTimestamp match = foundOffsets.get(tp);
                 if (match != null) {
                     targetOffset = match.offset();
-                } else if (tpo.getTargetOffset() > 0) {
+                } else if (tpo.hasTargetOffset()) {
                     targetOffset = tpo.getTargetOffset();
                 }
 

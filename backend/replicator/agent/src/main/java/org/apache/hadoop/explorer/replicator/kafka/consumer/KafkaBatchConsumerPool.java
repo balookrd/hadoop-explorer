@@ -48,6 +48,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private final Map<TopicPartition, Long> lastObservedTimestamps = new ConcurrentHashMap<>();
 
     private int maxBatchSize = 2000;
+    private int maxInFlightBatches = 100;
     private ExecutorService executor;
 
     public KafkaBatchConsumerPool(KafkaConsumer<byte[], byte[]> consumer,
@@ -93,6 +94,14 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     public int getMaxBatchSize() {
         return maxBatchSize;
+    }
+
+    public void setMaxInFlightBatches(int maxInFlightBatches) {
+        this.maxInFlightBatches = Math.max(1, maxInFlightBatches);
+    }
+
+    public int getMaxInFlightBatches() {
+        return maxInFlightBatches;
     }
 
     public int getPoolSize() {
@@ -147,6 +156,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final KafkaConsumer<byte[], byte[]> workerConsumer;
         private final Map<Integer, StreamObserver<KafkaBatchRequest>> activeStreams = new ConcurrentHashMap<>();
 
+        private record InFlightBatch(String batchId, TopicPartition topicPartition, long maxSourceOffset, int recordCount) {}
+        private final Map<String, InFlightBatch> inFlightBatches = new ConcurrentHashMap<>();
+        private final Map<TopicPartition, Long> pendingCommittedOffsets = new ConcurrentHashMap<>();
+        private final AtomicInteger inFlightCount = new AtomicInteger(0);
+
         ConsumerWorker(int workerId, KafkaConsumer<byte[], byte[]> workerConsumer) {
             this.workerId = workerId;
             this.workerConsumer = workerConsumer;
@@ -157,9 +171,21 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 StreamObserver<KafkaBatchAck> ackObserver = new StreamObserver<>() {
                     @Override
                     public void onNext(KafkaBatchAck ack) {
+                        InFlightBatch inFlight = inFlightBatches.remove(ack.getBatchId());
+                        if (inFlight != null) {
+                            inFlightCount.decrementAndGet();
+                        }
                         if (ack.getSuccess()) {
                             log.trace("[Worker {} -> Target {}] Успешно зафиксирован пакет {} в топике {}: {} записей",
                                     workerId, idx, ack.getBatchId(), ack.getTopic(), ack.getCommittedRecords());
+                            if (inFlight != null) {
+                                // Безопасное смещение: maxSourceOffset + 1 (At-least-once watermark)
+                                pendingCommittedOffsets.merge(
+                                        inFlight.topicPartition(),
+                                        inFlight.maxSourceOffset() + 1,
+                                        Math::max
+                                );
+                            }
                         } else {
                             log.error("[Worker {} -> Target {}] Удаленный узел вернул ошибку для пакета {}: {}",
                                     workerId, idx, ack.getBatchId(), ack.getErrorMessage());
@@ -194,6 +220,20 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
             try {
                 while (running.get()) {
+                    // 1. Фиксируем оффсеты, успешно подтвержденные целевым узлом через Ack
+                    drainAndCommitPendingOffsets();
+
+                    // Контроль Backpressure: притормаживаем вычитку, если буфер in-flight переполнен
+                    while (running.get() && inFlightCount.get() >= maxInFlightBatches) {
+                        drainAndCommitPendingOffsets();
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+
                     ConsumerRecords<byte[], byte[]> records = workerConsumer.poll(Duration.ofMillis(100));
                     if (records.isEmpty()) {
                         continue;
@@ -252,6 +292,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         // Дробим на пачки до maxBatchSize
                         for (int i = 0; i < partitionRecords.size(); i += maxBatchSize) {
                             List<KafkaRecord> chunk = partitionRecords.subList(i, Math.min(i + maxBatchSize, partitionRecords.size()));
+                            long maxChunkOffset = chunk.get(chunk.size() - 1).getOriginalOffset();
 
                             KafkaBatchRequest batchRequest = KafkaBatchRequest.newBuilder()
                                     .setBatchId(UUID.randomUUID().toString())
@@ -263,27 +304,37 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                     .addAllRecords(chunk)
                                     .build();
 
+                            inFlightBatches.put(batchRequest.getBatchId(),
+                                    new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
+                            inFlightCount.incrementAndGet();
+
                             try {
                                 targetStream.onNext(batchRequest);
                             } catch (Exception ex) {
+                                inFlightBatches.remove(batchRequest.getBatchId());
+                                inFlightCount.decrementAndGet();
                                 log.warn("[Worker {} -> Target {}] Ошибка отправки батча, failover: {}",
                                         workerId, targetIdx, ex.getMessage());
                                 replicationClient.markTargetSuspect(targetIdx, ex);
                                 activeStreams.remove(targetIdx);
                                 int fallbackIdx = replicationClient.selectTargetIndex(tp.partition());
+                                inFlightBatches.put(batchRequest.getBatchId(),
+                                        new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
+                                inFlightCount.incrementAndGet();
                                 getOrCreateStream(fallbackIdx).onNext(batchRequest);
                             }
                         }
                     }
 
-                    // 5. Коммитим смещения локально
-                    workerConsumer.commitAsync();
+                    // Фиксируем подтвержденные смещения
+                    drainAndCommitPendingOffsets();
                 }
             } catch (WakeupException e) {
                 log.debug("[Worker {}] Получен сигнал Wakeup, штатное завершение", workerId);
             } catch (Exception e) {
                 log.error("[Worker {}] Фатальная ошибка в цикле вычитки Kafka: {}", workerId, e.getMessage(), e);
             } finally {
+                drainAndCommitPendingOffsets();
                 for (StreamObserver<KafkaBatchRequest> s : activeStreams.values()) {
                     try {
                         s.onCompleted();
@@ -292,6 +343,25 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 }
                 activeStreams.clear();
                 log.info("Остановлен рабочий поток ConsumerWorker-{}", workerId);
+            }
+        }
+
+        private void drainAndCommitPendingOffsets() {
+            if (pendingCommittedOffsets.isEmpty()) {
+                return;
+            }
+            Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> toCommit = new HashMap<>();
+            for (Map.Entry<TopicPartition, Long> entry : pendingCommittedOffsets.entrySet()) {
+                toCommit.put(entry.getKey(), new org.apache.kafka.clients.consumer.OffsetAndMetadata(entry.getValue()));
+            }
+            if (!toCommit.isEmpty()) {
+                workerConsumer.commitAsync(toCommit, (offsets, exception) -> {
+                    if (exception != null) {
+                        log.warn("[Worker {}] Предупреждение фиксации подтвержденных оффсетов: {}", workerId, exception.getMessage());
+                    } else {
+                        log.trace("[Worker {}] Успешно зафиксированы подтвержденные оффсеты: {}", workerId, offsets);
+                    }
+                });
             }
         }
     }

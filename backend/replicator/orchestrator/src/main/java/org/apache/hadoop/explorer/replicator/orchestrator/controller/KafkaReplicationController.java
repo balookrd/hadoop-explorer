@@ -114,6 +114,7 @@ public class KafkaReplicationController {
      */
     @GetMapping("/agents/receivers")
     public List<String> getReceiverEndpoints(@RequestParam(defaultValue = "DC2") String clusterId) {
+        requireAuthentication();
         return service.getLiveReceiverEndpoints(clusterId);
     }
 
@@ -122,6 +123,11 @@ public class KafkaReplicationController {
      */
     @GetMapping("/discovery/clusters")
     public List<Map<String, Object>> discoverClusters() {
+        requireAuthentication();
+        UserSession session = getSession();
+        boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
+        String keytabDisplay = isAdmin ? "/etc/security/keytabs/kafka-replicator.keytab" : "[PROTECTED]";
+
         return List.of(
                 Map.of(
                         "id", "kafka-cluster-1",
@@ -133,7 +139,7 @@ public class KafkaReplicationController {
                         "srType", "HORTONWORKS",
                         "kerberosEnabled", true,
                         "principal", "kafka-replicator@COMPANY.LOCAL",
-                        "keytabPath", "/etc/security/keytabs/kafka-replicator.keytab"
+                        "keytabPath", keytabDisplay
                 ),
                 Map.of(
                         "id", "kafka-cluster-2",
@@ -145,7 +151,7 @@ public class KafkaReplicationController {
                         "srType", "CONFLUENT",
                         "kerberosEnabled", true,
                         "principal", "kafka-replicator@COMPANY.LOCAL",
-                        "keytabPath", "/etc/security/keytabs/kafka-replicator.keytab"
+                        "keytabPath", keytabDisplay
                 )
         );
     }
@@ -157,6 +163,7 @@ public class KafkaReplicationController {
     public List<Map<String, Object>> discoverTopics(
             @RequestParam(required = false) String dc,
             @RequestParam(required = false) String search) {
+        requireAuthentication();
         List<Map<String, Object>> all = List.of(
                 // Orders domain
                 Map.of("name", "orders-v1", "partitions", 12, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
@@ -205,6 +212,7 @@ public class KafkaReplicationController {
     public List<Map<String, Object>> discoverGroups(
             @RequestParam(required = false) String dc,
             @RequestParam(required = false) String search) {
+        requireAuthentication();
         List<Map<String, Object>> all = List.of(
                 // Billing groups
                 Map.of("groupId", "billing-service-prod", "state", "STABLE", "members", 4, "lag", 12),

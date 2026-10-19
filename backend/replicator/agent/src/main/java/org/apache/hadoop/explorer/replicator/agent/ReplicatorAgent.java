@@ -406,10 +406,16 @@ public class ReplicatorAgent {
                             continue;
                         }
 
-                        logger.info("Агент '{}' взял задачу '{}' на анализ каталога и формирование пула задач",
-                                config.getAgentId(), job.getId());
-                        orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
+                        boolean claimed = orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
                                 "Анализ каталога и вычисление diff деревьев"));
+                        if (!claimed) {
+                            logger.info("Агент '{}' пропустил задачу '{}': задача уже взята на анализ другим агентом (CAS)",
+                                    config.getAgentId(), job.getId());
+                            continue;
+                        }
+
+                        logger.info("Агент '{}' успешно захватил задачу '{}' на анализ каталога и формирование пула задач",
+                                config.getAgentId(), job.getId());
 
                         String targetAddress = resolveTargetAddress(job.getTargetClusterId());
                         boolean ok = sender.analyzeAndCreateTaskPool(job, targetAddress);

@@ -2004,6 +2004,17 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 | `--batch-size` | `BATCH_SIZE` | `2000` | Максимальный размер пачки записей в gRPC запросе |
 | `--consumer-threads` | `CONSUMER_THREADS` | `8` | Число параллельных потоков вычитки Kafka |
 | `--kerberos-enabled` | `KERBEROS_ENABLED` | `false` | Включение Kerberos SASL аутентификации в брокерах |
+| `--tls-enabled` | `TLS_ENABLED` | `false` | Включение шифрования gRPC Data Plane через TLS/mTLS |
+| `--tls-cert-chain` | `TLS_CERT_CHAIN` | - | Путь к цепочке X.509 сертификатов сервера gRPC (`cert.pem`) |
+| `--tls-private-key` | `TLS_PRIVATE_KEY` | - | Путь к приватному ключу сервера gRPC (`key.pem`) |
+| `--tls-trust-cert` | `TLS_TRUST_CERT` | - | Путь к доверенному корневому сертификату CA клиента (`ca.pem`) |
+
+### 15.3 Защитный гейт синхронизации оффсетов (Consumer Group Safety Gate)
+
+При трансляции смещений консьюмер-групп (`OffsetSyncRequest`) система реализует двухуровневую защиту:
+1. **Проверка состояния группы**: если группа активна на целевом кластере (`STABLE` / `REBALANCING`), коммит смещений блокируется во избежание конфликтов и отката прогресса.
+2. **Защита от потери данных при lag**: если оффсет группы в источнике отстает от границы репликации (`committedOffset < endOffset`), временная метка конца топика не подставляется (`timestamp = 0`). Это предотвращает ошибочный скачок смещения вперед в целевом кластере через `offsetsForTimes` и гарантирует отсутствие потерь сообщений.
+
 
 
 

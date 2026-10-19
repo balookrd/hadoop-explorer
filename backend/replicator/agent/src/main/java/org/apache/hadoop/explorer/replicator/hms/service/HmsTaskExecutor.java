@@ -186,6 +186,33 @@ public class HmsTaskExecutor implements Closeable {
             AtomicInteger totalPartitionsCount = new AtomicInteger(0);
             List<HmsEventReportDto> eventLog = Collections.synchronizedList(new ArrayList<>(reconciliationEvents));
 
+            // Фоновый heartbeat-таймер для непрерывного продления аренды (lease renewal) во время тяжелого Bootstrap
+            ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "HmsHeartbeat-" + job.id());
+                t.setDaemon(true);
+                return t;
+            });
+            heartbeatScheduler.scheduleAtFixedRate(() -> {
+                try {
+                    orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+                            "BOOTSTRAPPING",
+                            tables.size(),
+                            replicatedTablesCount.get(),
+                            totalPartitionsCount.get(),
+                            replicatedPartitionsCount.get(),
+                            null,
+                            highWaterMark,
+                            null,
+                            String.format("Bootstrap в процессе: перенесено %d/%d таблиц, %d партиций",
+                                    replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()),
+                            Collections.emptyList(),
+                            agentId
+                    ));
+                } catch (Exception e) {
+                    log.warn("[HmsTaskExecutor] Сбой отправки периодического heartbeat для задачи {}: {}", job.id(), e.getMessage());
+                }
+            }, 5, 5, TimeUnit.SECONDS);
+
             List<CompletableFuture<Void>> futures = new ArrayList<>();
             for (String tblName : tables) {
                 futures.add(CompletableFuture.runAsync(() -> {
@@ -200,13 +227,25 @@ public class HmsTaskExecutor implements Closeable {
                 }, bootstrapExecutor));
             }
 
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            } finally {
+                heartbeatScheduler.shutdownNow();
+            }
 
             totalPartitionsPerJob.put(job.id(), totalPartitionsCount);
 
+            boolean hasFailures = eventLog.stream().anyMatch(e -> "FAILED".equalsIgnoreCase(e.status()));
+            String finalStatus = hasFailures ? "ERROR" : "ACTIVE";
+            String finalMessage = hasFailures
+                    ? String.format("Bootstrap завершен с ошибками: успешно %d/%d таблиц, %d партиций. Требуется проверка схем.",
+                            replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get())
+                    : String.format("Первичный Bootstrap успешно завершен (таблиц: %d/%d, партиций: %d). Режим CDC активен.",
+                            replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get());
+
             // Итоговый отчет о завершении Bootstrap
             HmsProgressReportRequest finalReport = new HmsProgressReportRequest(
-                    "ACTIVE",
+                    finalStatus,
                     tables.size(),
                     replicatedTablesCount.get(),
                     totalPartitionsCount.get(),
@@ -214,16 +253,15 @@ public class HmsTaskExecutor implements Closeable {
                     highWaterMark,
                     highWaterMark,
                     0L,
-                    String.format("Первичный Bootstrap успешно завершен (таблиц: %d/%d, партиций: %d). Режим CDC активен.",
-                            replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()),
+                    finalMessage,
                     new ArrayList<>(eventLog),
                     agentId
             );
             orchestratorClient.reportHmsProgress(job.id(), finalReport);
 
-            log.info("[HmsTaskExecutor] Bootstrap для задачи {} успешно завершен: таблиц={}/{}, партиций={}/{}",
-                    job.id(), replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get(), totalPartitionsCount.get());
-            return true;
+            log.info("[HmsTaskExecutor] Bootstrap для задачи {} завершен (status={}): таблиц={}/{}, партиций={}/{}",
+                    job.id(), finalStatus, replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get(), totalPartitionsCount.get());
+            return !hasFailures;
         } catch (Exception e) {
             log.error("[HmsTaskExecutor] Критическая ошибка при исполнении Bootstrap задачи {}: {}", job.id(), e.getMessage(), e);
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
@@ -409,17 +447,21 @@ public class HmsTaskExecutor implements Closeable {
         List<HmsEventReportDto> eventLog = new ArrayList<>();
         int processed = 0;
 
+        long lastCommittedEventId = lastEventId;
+        boolean batchHasFailures = false;
+
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             for (HmsNotificationEventDto event : events) {
-                lastEventId = event.eventId();
-
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
                 if (event.dbName() != null && !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
+                    lastCommittedEventId = event.eventId();
                     continue;
                 }
 
                 String tbl = event.tableName();
                 String eventType = event.eventType();
+                boolean eventSuccess = true;
+                String failureReason = null;
 
                 if ("ADD_PARTITION".equalsIgnoreCase(eventType) || "ALTER_PARTITION".equalsIgnoreCase(eventType)) {
                     Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tbl);
@@ -449,9 +491,16 @@ public class HmsTaskExecutor implements Closeable {
                             ));
 
                             String partName = part.getPartitionName(optTable.get().partitionKeys());
+                            boolean ok = partResp.getSuccess();
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, partName,
                                     partRewrite.sourceUri(), partRewrite.targetUri(), subjobId,
-                                    partResp.getSuccess() ? "APPLIED" : "FAILED", partResp.getMessage()));
+                                    ok ? "APPLIED" : "FAILED", partResp.getMessage()));
+
+                            if (!ok) {
+                                eventSuccess = false;
+                                failureReason = partResp.getMessage();
+                                break;
+                            }
                         }
                     }
                 } else if ("CREATE_TABLE".equalsIgnoreCase(eventType)) {
@@ -471,9 +520,15 @@ public class HmsTaskExecutor implements Closeable {
                                     table.columns(), table.partitionKeyFields(), table.serdeParameters()
                             );
                             var tblResp = sender.applyTable(job.id(), targetTable);
+                            boolean ok = tblResp.getSuccess();
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
                                     rewrite.sourceUri(), rewrite.targetUri(), subjobId,
-                                    tblResp.getSuccess() ? "APPLIED" : "FAILED", tblResp.getMessage()));
+                                    ok ? "APPLIED" : "FAILED", tblResp.getMessage()));
+
+                            if (!ok) {
+                                eventSuccess = false;
+                                failureReason = tblResp.getMessage();
+                            }
                         } else {
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
                                     table.sdLocation(), null, null, "SKIPPED_ACID", check.reason()));
@@ -481,8 +536,14 @@ public class HmsTaskExecutor implements Closeable {
                     }
                 } else if ("DROP_TABLE".equalsIgnoreCase(eventType)) {
                     var dropTblResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl));
+                    boolean ok = dropTblResp.getSuccess();
                     eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null,
-                            dropTblResp.getSuccess() ? "APPLIED" : "FAILED", "deleteData=false"));
+                            ok ? "APPLIED" : "FAILED", "deleteData=false"));
+
+                    if (!ok) {
+                        eventSuccess = false;
+                        failureReason = dropTblResp.getMessage();
+                    }
                 } else if ("DROP_PARTITION".equalsIgnoreCase(eventType)) {
                     List<String> partVals = Collections.emptyList();
                     try {
@@ -496,16 +557,30 @@ public class HmsTaskExecutor implements Closeable {
                     } catch (Exception ignored) {}
                     if (!partVals.isEmpty()) {
                         var dropPartResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals));
+                        boolean ok = dropPartResp.getSuccess();
                         eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, String.join(",", partVals), null, null, null,
-                                dropPartResp.getSuccess() ? "APPLIED" : "FAILED", "deleteData=false"));
+                                ok ? "APPLIED" : "FAILED", "deleteData=false"));
+
+                        if (!ok) {
+                            eventSuccess = false;
+                            failureReason = dropPartResp.getMessage();
+                        }
                     }
                 }
 
-                processed++;
+                if (eventSuccess) {
+                    lastCommittedEventId = event.eventId();
+                    processed++;
+                } else {
+                    log.error("[HmsTaskExecutor] Сбой применения события CDC id={}, тип={}, таблица={}: {}. Остановка пачки для повтора.",
+                            event.eventId(), eventType, tbl, failureReason);
+                    batchHasFailures = true;
+                    break;
+                }
             }
 
             long currentMax = hmsClient.getCurrentNotificationEventId();
-            long lag = Math.max(0, currentMax - lastEventId);
+            long lag = Math.max(0, currentMax - lastCommittedEventId);
 
             List<String> currentTables = Collections.emptyList();
             try {
@@ -522,10 +597,14 @@ public class HmsTaskExecutor implements Closeable {
             AtomicInteger counter = syncedCdcEventsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0));
             int cumulativeEvents = (processed > 0) ? counter.addAndGet(processed) : counter.get();
 
+            String statusMessage = batchHasFailures
+                    ? String.format("Приостановка CDC на событии %d из-за ошибки. Отставание: %d событий.", lastCommittedEventId, lag)
+                    : String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.",
+                            cumulativeEvents > 0 ? cumulativeEvents : processed, lag);
+
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
-                    "ACTIVE", currentTables.size(), currentTables.size(), curPartCount, curPartCount, lastEventId, null, lag,
-                    String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.",
-                            cumulativeEvents > 0 ? cumulativeEvents : processed, lag),
+                    "ACTIVE", currentTables.size(), currentTables.size(), curPartCount, curPartCount, lastCommittedEventId, null, lag,
+                    statusMessage,
                     eventLog, agentId
             ));
         } catch (Exception e) {

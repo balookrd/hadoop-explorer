@@ -178,8 +178,9 @@ public class GrpcTlsDataTransferTest {
 
         OrchestratorGrpcClient dummyOrchestrator = new OrchestratorGrpcClient() {
             @Override
-            public void updateJobProgress(String jobId, org.apache.hadoop.explorer.replicator.model.UpdateJobRequest req) {
+            public boolean updateJobProgress(String jobId, org.apache.hadoop.explorer.replicator.model.UpdateJobRequest req) {
                 // no-op
+                return true;
             }
             @Override
             public double requestNetworkTokens(org.apache.hadoop.explorer.replicator.model.TokenRequest req) {

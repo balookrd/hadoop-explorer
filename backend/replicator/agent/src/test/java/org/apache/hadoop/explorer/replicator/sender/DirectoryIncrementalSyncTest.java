@@ -43,8 +43,9 @@ public class DirectoryIncrementalSyncTest {
         }
 
         @Override
-        public void updateJobProgress(String jobId, UpdateJobRequest req) {
+        public boolean updateJobProgress(String jobId, UpdateJobRequest req) {
             recordedUpdates.add(req);
+            return true;
         }
     }
 

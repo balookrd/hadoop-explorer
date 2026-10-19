@@ -26,14 +26,20 @@ public class HmsPipelineSender implements Closeable {
 
     private final String targetAddress;
     private final ManagedChannel channel;
-    private final HmsTransferServiceGrpc.HmsTransferServiceBlockingStub blockingStub;
+    private final HmsTransferServiceGrpc.HmsTransferServiceBlockingStub baseStub;
+    private final long defaultTimeoutSeconds;
 
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify) {
         this(targetAddress, useTls, insecureSkipVerify, null);
     }
 
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify, String agentSecret) {
+        this(targetAddress, useTls, insecureSkipVerify, agentSecret, 60L);
+    }
+
+    public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify, String agentSecret, long defaultTimeoutSeconds) {
         this.targetAddress = targetAddress;
+        this.defaultTimeoutSeconds = defaultTimeoutSeconds > 0 ? defaultTimeoutSeconds : 60L;
 
         if (useTls) {
             try {
@@ -59,9 +65,17 @@ public class HmsPipelineSender implements Closeable {
             this.channel = builder.build();
         }
 
-        this.blockingStub = HmsTransferServiceGrpc.newBlockingStub(this.channel)
-                .withDeadlineAfter(60, TimeUnit.SECONDS);
-        log.info("[HmsPipelineSender] Инициализирован gRPC канал к целевому агенту '{}' (TLS={})", targetAddress, useTls);
+        this.baseStub = HmsTransferServiceGrpc.newBlockingStub(this.channel);
+        log.info("[HmsPipelineSender] Инициализирован gRPC канал к целевому агенту '{}' (TLS={}, timeout={}s)",
+                targetAddress, useTls, this.defaultTimeoutSeconds);
+    }
+
+    private HmsTransferServiceGrpc.HmsTransferServiceBlockingStub stub() {
+        return baseStub.withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS);
+    }
+
+    public HmsTransferServiceGrpc.HmsTransferServiceBlockingStub stub(long timeoutSeconds) {
+        return baseStub.withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS);
     }
 
     public HmsOperationResponse applyDatabase(String jobId, String dbName, String locationUri) {
@@ -70,7 +84,7 @@ public class HmsPipelineSender implements Closeable {
                 .setDbName(dbName)
                 .setLocationUri(locationUri != null ? locationUri : "")
                 .build();
-        return blockingStub.applyDatabase(req);
+        return stub().applyDatabase(req);
     }
 
     public HmsOperationResponse applyTable(String jobId, HmsTableDto tableDto) {
@@ -78,7 +92,7 @@ public class HmsPipelineSender implements Closeable {
                 .setJobId(jobId != null ? jobId : "")
                 .setTable(HmsConversionHelper.toProto(tableDto))
                 .build();
-        return blockingStub.applyTable(req);
+        return stub().applyTable(req);
     }
 
     public HmsOperationResponse applyPartitionBatch(String jobId, String dbName, String tableName, List<HmsPartitionDto> partitions) {
@@ -91,7 +105,7 @@ public class HmsPipelineSender implements Closeable {
             b.addPartitions(HmsConversionHelper.toProto(p));
         }
 
-        return blockingStub.applyPartitionBatch(b.build());
+        return stub().applyPartitionBatch(b.build());
     }
 
     public HmsOperationResponse reconcileExtraneousTables(String jobId, String dbName, List<String> dropTables) {
@@ -100,7 +114,7 @@ public class HmsPipelineSender implements Closeable {
                 .setDbName(dbName)
                 .addAllDropTables(dropTables)
                 .build();
-        return blockingStub.reconcileExtraneous(req);
+        return stub().reconcileExtraneous(req);
     }
 
     public HmsOperationResponse reconcileExtraneousPartitions(String jobId, String dbName, String tableName, List<List<String>> dropPartVals) {
@@ -113,7 +127,7 @@ public class HmsPipelineSender implements Closeable {
             b.addDropPartitions(HmsDroppedPartitionProto.newBuilder().addAllValues(vals).build());
         }
 
-        return blockingStub.reconcileExtraneous(b.build());
+        return stub().reconcileExtraneous(b.build());
     }
 
     public GetMetadataSnapshotResponse getMetadataSnapshot(String jobId, String dbName, String tableName) {
@@ -122,7 +136,7 @@ public class HmsPipelineSender implements Closeable {
                 .setDbName(dbName)
                 .setTableName(tableName != null ? tableName : "")
                 .build();
-        return blockingStub.getMetadataSnapshot(req);
+        return stub().getMetadataSnapshot(req);
     }
 
     @Override

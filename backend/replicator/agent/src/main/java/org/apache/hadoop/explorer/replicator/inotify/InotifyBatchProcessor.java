@@ -43,6 +43,12 @@ public class InotifyBatchProcessor implements AutoCloseable {
             long lag
     ) {}
 
+    public static class InotifyQueueOverflowException extends RuntimeException {
+        public InotifyQueueOverflowException(String message) {
+            super(message);
+        }
+    }
+
     private final HadoopFsManager fsManager;
     private final OrchestratorGrpcClient orchestratorClient;
 
@@ -164,7 +170,7 @@ public class InotifyBatchProcessor implements AutoCloseable {
             log.warn("[Inotify Queue Overflow] Внутренняя очередь насыщена ({}/{}). Ожидание слота для '{}'...",
                     currentQueueSize.get(), maxQueueCapacity, item.getSourcePath());
             try {
-                boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag), 3000, TimeUnit.MILLISECONDS);
+                boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag), 200, TimeUnit.MILLISECONDS);
                 if (offered) {
                     currentQueueSize.incrementAndGet();
                     updateSaturationState();
@@ -172,10 +178,11 @@ public class InotifyBatchProcessor implements AutoCloseable {
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
+                throw new InotifyQueueOverflowException("Прервано ожидание слота очереди Inotify для: " + item.getSourcePath());
             }
             log.error("[Inotify Drop Warning] Очередь переполнена ({}), задача для '{}' отклонена после ожидания",
                     maxQueueCapacity, item.getSourcePath());
-            return false;
+            throw new InotifyQueueOverflowException("Очередь Inotify переполнена (" + maxQueueCapacity + "), задача для '" + item.getSourcePath() + "' отклонена после ожидания");
         }
 
         boolean offered = taskQueue.offer(new QueuedInotifyTask(jobId, item, txid, lag));
@@ -244,7 +251,7 @@ public class InotifyBatchProcessor implements AutoCloseable {
         return 0;
     }
 
-    private int enqueueFile(JobDto job, String filePath, long fileSize, long txid, long lag) {
+    public int enqueueFile(JobDto job, String filePath, long fileSize, long txid, long lag) {
         String targetPath = computeTargetPath(job, filePath);
         TaskCreateItem item = new TaskCreateItem(filePath, targetPath, fileSize, false);
         return offerTask(job.getId(), item, txid, lag) ? 1 : 0;

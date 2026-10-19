@@ -58,6 +58,10 @@ public class KafkaReplicatorAgentMain {
         String agentId = System.getenv("AGENT_ID");
         String agentSecret = System.getenv("AGENT_SECRET");
         String advertisedGrpcAddress = System.getenv("ADVERTISED_GRPC_ADDRESS");
+        boolean tlsEnabled = "true".equalsIgnoreCase(System.getenv("TLS_ENABLED"));
+        String tlsCertChain = System.getenv("TLS_CERT_CHAIN");
+        String tlsPrivateKey = System.getenv("TLS_PRIVATE_KEY");
+        String tlsTrustCert = System.getenv("TLS_TRUST_CERT");
 
         org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig =
                 new org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig();
@@ -95,6 +99,17 @@ public class KafkaReplicatorAgentMain {
                 agentSecret = args[++i];
             } else if ("--advertised-grpc-address".equals(args[i]) && i + 1 < args.length) {
                 advertisedGrpcAddress = args[++i];
+            } else if ("--tls-enabled".equals(args[i])) {
+                tlsEnabled = true;
+                if (i + 1 < args.length && ("true".equalsIgnoreCase(args[i + 1]) || "false".equalsIgnoreCase(args[i + 1]))) {
+                    tlsEnabled = Boolean.parseBoolean(args[++i]);
+                }
+            } else if ("--tls-cert-chain".equals(args[i]) && i + 1 < args.length) {
+                tlsCertChain = args[++i];
+            } else if ("--tls-private-key".equals(args[i]) && i + 1 < args.length) {
+                tlsPrivateKey = args[++i];
+            } else if ("--tls-trust-cert".equals(args[i]) && i + 1 < args.length) {
+                tlsTrustCert = args[++i];
             } else if ("--kerberos-enabled".equals(args[i])) {
                 krbConfig.setEnabled(true);
             } else if ("--principal".equals(args[i]) && i + 1 < args.length) {
@@ -125,8 +140,8 @@ public class KafkaReplicatorAgentMain {
         }
 
         String targetsDesc = !targetEndpoints.isBlank() ? targetEndpoints : (targetHost + ":" + targetPort);
-        log.info("Запуск kafka-replicator-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, Orchestrator={}]",
-                agentId, role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled(), orchestratorGrpc);
+        log.info("Запуск kafka-replicator-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, TLS={}, Orchestrator={}]",
+                agentId, role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled(), tlsEnabled, orchestratorGrpc);
 
         Server server = null;
         KafkaProducer<byte[], byte[]> producer = null;
@@ -169,6 +184,15 @@ public class KafkaReplicatorAgentMain {
                     .addService(service)
                     .maxInboundMessageSize(64 * 1024 * 1024);
 
+            if (tlsEnabled) {
+                if (tlsCertChain != null && !tlsCertChain.isBlank() && tlsPrivateKey != null && !tlsPrivateKey.isBlank()) {
+                    serverBuilder.useTransportSecurity(new java.io.File(tlsCertChain), new java.io.File(tlsPrivateKey));
+                    log.info("Включен gRPC TLS для сервера (сертификат: {})", tlsCertChain);
+                } else {
+                    log.warn("TLS включен (--tls-enabled), но сертификат или приватный ключ не указаны!");
+                }
+            }
+
             if (agentSecret != null && !agentSecret.isBlank()) {
                 serverBuilder.intercept(new AgentGrpcAuthInterceptor(agentSecret));
                 log.info("Включена gRPC L7 аутентификация сервера через x-agent-secret");
@@ -199,7 +223,8 @@ public class KafkaReplicatorAgentMain {
             log.info("Инициализация пула консьюмеров отправителя: топики={}, потоков={}, targets={}",
                     topicList, consumerThreads, targetList);
 
-            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(targetList, agentSecret);
+            replicationClient = new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
+                    targetList, agentSecret, tlsEnabled, tlsTrustCert);
 
             List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
             for (int i = 0; i < consumerThreads; i++) {

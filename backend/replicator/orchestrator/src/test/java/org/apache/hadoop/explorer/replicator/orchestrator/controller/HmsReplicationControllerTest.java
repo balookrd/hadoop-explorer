@@ -154,4 +154,46 @@ public class HmsReplicationControllerTest {
         assertEquals(HttpStatus.OK, resp.getStatusCode());
         verify(coordinatorService, times(1)).deleteReplicationJob("job-100");
     }
+
+    @Test
+    @DisplayName("Аутентификация /progress: неаутентифицированный вызов отклоняется 401 UNAUTHORIZED")
+    void unauthenticatedCannotUpdateProgress() {
+        var report = new org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest(
+                "ACTIVE", 1, 1, 10, 10, 100L, null, 0L, "ok", List.of(), "agent-1"
+        );
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.updateProgress("job-100", report, null)
+        );
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        verify(coordinatorService, never()).updateJobProgress(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("Аутентификация /progress: авторизованный агент успешно передает прогресс")
+    void authenticatedCanUpdateProgress() {
+        var report = new org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest(
+                "ACTIVE", 1, 1, 10, 10, 100L, null, 0L, "ok", List.of(), "agent-1"
+        );
+        ResponseEntity<Map<String, Object>> resp = controller.updateProgress("job-100", report, ownerAuth);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(coordinatorService, times(1)).updateJobProgress("job-100", report);
+    }
+
+    @Test
+    @DisplayName("Аутентификация /pending: неаутентифицированный вызов отклоняется 401 UNAUTHORIZED")
+    void unauthenticatedCannotGetPendingJobs() {
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.getPendingJobs("dc1", "agent-1", null)
+        );
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        verify(coordinatorService, never()).getPendingJobsForCluster(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Аутентификация /pending: авторизованный запрос возвращает список задач")
+    void authenticatedCanGetPendingJobs() {
+        ResponseEntity<?> resp = controller.getPendingJobs("dc1", "agent-1", ownerAuth);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(coordinatorService, times(1)).getPendingJobsForCluster("dc1", "agent-1");
+    }
 }

@@ -1,6 +1,10 @@
 package org.apache.hadoop.explorer.replicator.inotify;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.DFSInotifyEventInputStream;
 import org.apache.hadoop.hdfs.client.HdfsAdmin;
 import org.apache.hadoop.hdfs.inotify.EventBatch;
@@ -346,11 +350,27 @@ public class HdfsInotifyListener {
                           "Запуск Reconciliation Scan для устранения расхождений...",
                         e.getExpectedTxid(), e.getActualTxid());
 
+                // Обновляем текущий txid до актуального NameNode txid, предотвращая зацикливание
+                this.currentTxid = Math.max(this.currentTxid, e.getActualTxid());
+
                 // Запуск Reconciliation Scan
                 runReconciliationScan();
 
                 // Сброс стрима на актуальный txid
                 stream = null;
+            } catch (InotifyBatchProcessor.InotifyQueueOverflowException e) {
+                log.warn("[Inotify Backpressure Peak] Зафиксировано пиковое переполнение очереди буфера: {}. Приостановка чтения EditLog на 2с...", e.getMessage());
+                if (batchProcessor != null) {
+                    batchProcessor.flush();
+                }
+                // Сбрасываем stream, чтобы переоткрыть с текущего currentTxid без пропуска событий
+                stream = null;
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -369,18 +389,56 @@ public class HdfsInotifyListener {
     /**
      * Сверка файловых деревьев при пропуске событий NameNode (MissingEventsException).
      */
-    private void runReconciliationScan() {
+    public int runReconciliationScan() {
         log.info("[Inotify Reconciliation] Выполняется фоновая сверка целевых каталогов потоковых задач для кластера '{}'...",
                 config.getClusterId());
+        int totalReconciled = 0;
         try {
             List<JobDto> jobs = getStreamingJobs();
 
             for (JobDto job : jobs) {
                 log.info("[Inotify Reconciliation] Сверка задачи '{}' (каталог '{}')", job.getId(), job.getSourcePath());
+                totalReconciled += reconcileJobDirectory(job);
             }
         } catch (Exception e) {
             log.error("[Inotify Reconciliation Error] Ошибка при сверке: {}", e.getMessage(), e);
         }
+        return totalReconciled;
+    }
+
+    public int reconcileJobDirectory(JobDto job) {
+        if (job == null || job.getSourcePath() == null || job.getSourcePath().isBlank()) {
+            return 0;
+        }
+        int count = 0;
+        try {
+            FileSystem fs = fsManager.getFileSystem();
+            Path path = new Path(job.getSourcePath());
+            if (!fs.exists(path)) {
+                log.warn("[Inotify Reconciliation] Корневой каталог задачи '{}' не существует: {}", job.getId(), path);
+                return 0;
+            }
+
+            RemoteIterator<LocatedFileStatus> it = fs.listFiles(path, true);
+            while (it.hasNext()) {
+                LocatedFileStatus file = it.next();
+                String filePath = file.getPath().toUri().getPath();
+                if (!InotifyPathFilter.isStagedPath(filePath)) {
+                    if (batchProcessor != null) {
+                        count += batchProcessor.enqueueFile(job, filePath, file.getLen(), currentTxid, 0L);
+                    }
+                }
+            }
+            if (batchProcessor != null && count > 0) {
+                batchProcessor.flush();
+            }
+            log.info("[Inotify Reconciliation] Сверка задачи '{}' завершена: поставлено в очередь {} файлов",
+                    job.getId(), count);
+        } catch (Exception e) {
+            log.error("[Inotify Reconciliation] Ошибка обхода каталога '{}' для задачи '{}': {}",
+                    job.getSourcePath(), job.getId(), e.getMessage(), e);
+        }
+        return count;
     }
 
     void handleLeaseCheckFailure() {

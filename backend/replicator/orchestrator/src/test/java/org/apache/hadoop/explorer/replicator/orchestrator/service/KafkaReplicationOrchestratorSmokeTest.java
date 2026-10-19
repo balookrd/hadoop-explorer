@@ -167,5 +167,29 @@ public class KafkaReplicationOrchestratorSmokeTest {
 
         Optional<KafkaReplicationJobEntity> deletedEntityOpt = repository.findById(createdJob.getId());
         assertFalse(deletedEntityOpt.isPresent(), "Сущность задачи должна быть удалена из БД");
+
+        // 9. Проверка защищенности Discovery эндпоинтов (авторизованный пользователь)
+        assertFalse(controller.discoverClusters().isEmpty());
+        assertFalse(controller.discoverTopics(null, null).isEmpty());
+        assertFalse(controller.discoverGroups(null, null).isEmpty());
+        assertNotNull(controller.getReceiverEndpoints("DC2"));
+
+        // 10. Проверка запрета неаутентифицированного доступа (401 UNAUTHORIZED)
+        SecurityContextHolder.clearContext();
+        org.springframework.web.server.ResponseStatusException ex1 =
+                assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.discoverClusters());
+        assertEquals(HttpStatus.UNAUTHORIZED, ex1.getStatusCode());
+
+        org.springframework.web.server.ResponseStatusException ex2 =
+                assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.discoverTopics(null, null));
+        assertEquals(HttpStatus.UNAUTHORIZED, ex2.getStatusCode());
+
+        org.springframework.web.server.ResponseStatusException ex3 =
+                assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.discoverGroups(null, null));
+        assertEquals(HttpStatus.UNAUTHORIZED, ex3.getStatusCode());
+
+        org.springframework.web.server.ResponseStatusException ex4 =
+                assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.getReceiverEndpoints("DC2"));
+        assertEquals(HttpStatus.UNAUTHORIZED, ex4.getStatusCode());
     }
 }

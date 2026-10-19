@@ -269,7 +269,7 @@ public class OrchestratorGrpcClient implements Closeable {
     /**
      * Обновление статуса и прогресса выполнения задачи.
      */
-    public void updateJobProgress(String jobId, UpdateJobRequest request) {
+    public boolean updateJobProgress(String jobId, UpdateJobRequest request) {
         try {
             var protoReq = UpdateJobProgressRequest.newBuilder()
                     .setJobId(jobId != null ? jobId : "")
@@ -279,9 +279,11 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setMessage(request.getMessage() != null ? request.getMessage() : "")
                     .build();
 
-            stub().updateJobProgress(protoReq);
+            var resp = stub().updateJobProgress(protoReq);
+            return resp.getSuccess();
         } catch (Exception e) {
             log.warn("Ошибка gRPC обновления прогресса задачи '{}': {}", jobId, e.getMessage());
+            return false;
         }
     }
 

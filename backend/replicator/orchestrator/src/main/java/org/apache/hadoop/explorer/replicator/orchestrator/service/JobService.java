@@ -510,6 +510,18 @@ public class JobService {
 
     @Transactional
     public Optional<JobResponse> updateJobProgress(String id, UpdateJobRequest req) {
+        if (req.getStatus() != null && "ANALYZING".equalsIgnoreCase(req.getStatus().trim())) {
+            int updated = jobRepository.claimJobForAnalysis(
+                    id,
+                    req.getMessage() != null ? req.getMessage() : "Анализ каталога и вычисление diff деревьев",
+                    Instant.now()
+            );
+            if (updated == 0) {
+                log.info("Задание '{}' уже переведено в обработку другим агентом (статус не QUEUED)", id);
+                return Optional.empty();
+            }
+        }
+
         return jobRepository.findById(id).map(job -> {
             if (req.getStatus() != null && !req.getStatus().isBlank()) {
                 job.setStatus(req.getStatus().toUpperCase());

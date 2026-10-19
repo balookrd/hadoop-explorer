@@ -225,6 +225,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private long bytesWritten = 0;
             private MessageDigest sha256Digest = null;
             private final java.util.concurrent.atomic.AtomicBoolean stagingTracked = new java.util.concurrent.atomic.AtomicBoolean(false);
+            private final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
 
             {
                 try {
@@ -236,6 +237,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
             @Override
             public void onNext(TransferFileRequest request) {
+                if (cancelled.get()) {
+                    return;
+                }
                 try {
                     // 1. Прием метаданных файла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
@@ -305,6 +309,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
             @Override
             public void onCompleted() {
+                if (cancelled.get()) {
+                    logger.warn("Передача файла job_id={} отменена, коммит пропущен", metadata != null ? metadata.getJobId() : "unknown");
+                    return;
+                }
                 if (metadata == null || outputStream == null) {
                     responseObserver.onNext(TransferFileResponse.newBuilder()
                             .setJobId("unknown")
@@ -320,6 +328,12 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     outputStream.flush();
                     outputStream.close();
                     outputStream = null;
+
+                    if (cancelled.get()) {
+                        logger.warn("Передача файла job_id={} отменена перед renameFile, коммит пропущен", metadata.getJobId());
+                        cleanup();
+                        return;
+                    }
 
                     String checksum = sha256Digest != null ? bytesToHex(sha256Digest.digest()) : "";
 
@@ -367,6 +381,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             }
 
             void cleanup() {
+                cancelled.set(true);
                 if (stagingTracked.compareAndSet(true, false)) {
                     AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
                 }
@@ -405,6 +420,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
             private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
             private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
+            private final AtomicBoolean cancelled = new AtomicBoolean(false);
+            private final List<CompletableFuture<Void>> commitFutures = new CopyOnWriteArrayList<>();
 
             private void releasePermit() {
                 if (permitAcquired.compareAndSet(true, false)) {
@@ -416,6 +433,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
             @Override
             public void onNext(TarStreamRequest request) {
+                if (cancelled.get()) {
+                    return;
+                }
                 try {
                     // 1. Метаданные бандла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
@@ -458,13 +478,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS
                         unpackFuture = CompletableFuture.supplyAsync(() -> {
                             List<TarFileCommitResult> results = new CopyOnWriteArrayList<>();
-                            List<CompletableFuture<Void>> commitFutures = new ArrayList<>();
                             AtomicInteger committedCount = new AtomicInteger(0);
                             AtomicLong totalBytesWritten = new AtomicLong(0);
 
                             try (TarArchiveInputStream tarIn = new TarArchiveInputStream(new BufferedInputStream(inStream, 64 * 1024))) {
                                 TarArchiveEntry entry;
                                 while ((entry = tarIn.getNextTarEntry()) != null) {
+                                    if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                        logger.warn("Распаковка TAR прервана из-за отмены task_id={}", meta.getTaskId());
+                                        break;
+                                    }
                                     if (entry.isDirectory()) {
                                         continue;
                                     }
@@ -502,6 +525,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     }
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
+                                        if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                            activeStagingPaths.remove(stagingPath);
+                                            return;
+                                        }
                                         try {
                                             fsManager.writeDirect(
                                                     stagingPath,
@@ -509,6 +536,13 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                     meta.getExecutionPrincipal(),
                                                     meta.getRunAsServiceAccount()
                                             );
+                                            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                                try {
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                } catch (Exception ignored) {}
+                                                activeStagingPaths.remove(stagingPath);
+                                                return;
+                                            }
                                             fsManager.renameFile(
                                                     stagingPath,
                                                     targetPath,
@@ -529,6 +563,13 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                     .setSuccess(true)
                                                     .build());
                                         } catch (Exception e) {
+                                            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                                try {
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                } catch (Exception ignored) {}
+                                                activeStagingPaths.remove(stagingPath);
+                                                return;
+                                            }
                                             logger.error("Ошибка при прямом коммите файла {} в HDFS: {}", targetPath, e.getMessage(), e);
                                             try {
                                                 fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
@@ -552,7 +593,26 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     commitFutures.add(fut);
                                 }
 
-                                CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0])).join();
+                                try {
+                                    CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0])).join();
+                                } catch (Exception e) {
+                                    if (cancelled.get()) {
+                                        logger.warn("Ожидание коммитов TAR-бандла прервано отменой task_id={}", meta.getTaskId());
+                                    } else {
+                                        throw e;
+                                    }
+                                }
+
+                                if (cancelled.get()) {
+                                    return TarStreamResponse.newBuilder()
+                                            .setTaskId(meta.getTaskId())
+                                            .setSuccess(false)
+                                            .setFilesCommitted(committedCount.get())
+                                            .setBytesWritten(totalBytesWritten.get())
+                                            .setMessage("Передача TAR-бандла отменена (cancelled)")
+                                            .addAllFiles(results)
+                                            .build();
+                                }
 
                                 boolean allOk = results.stream().allMatch(TarFileCommitResult::getSuccess);
                                 return TarStreamResponse.newBuilder()
@@ -624,6 +684,11 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
             @Override
             public void onCompleted() {
+                if (cancelled.get()) {
+                    logger.warn("Виртуальный TAR-стрим task_id={} был отменен, финализация пропущена", metadata != null ? metadata.getTaskId() : "unknown");
+                    cleanup();
+                    return;
+                }
                 if (metadata == null || pipedOut == null || unpackFuture == null) {
                     cleanup();
                     responseObserver.onNext(TarStreamResponse.newBuilder()
@@ -643,6 +708,14 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                             metadata.getTaskId(), response.getSuccess(), response.getFilesCommitted(), response.getBytesWritten());
                     responseObserver.onNext(response);
                     responseObserver.onCompleted();
+                } catch (CancellationException ce) {
+                    logger.warn("Распаковка TAR-стрима task_id={} была отменена", metadata.getTaskId());
+                    responseObserver.onNext(TarStreamResponse.newBuilder()
+                            .setTaskId(metadata.getTaskId())
+                            .setSuccess(false)
+                            .setMessage("Передача прервана: cancelled")
+                            .build());
+                    responseObserver.onCompleted();
                 } catch (Exception e) {
                     logger.error("Ошибка ожидания распаковки TAR-стрима task_id={}: {}", metadata.getTaskId(), e.getMessage(), e);
                     responseObserver.onNext(TarStreamResponse.newBuilder()
@@ -657,6 +730,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             }
 
             void cleanup() {
+                cancelled.set(true);
                 releasePermit();
                 if (pipedOut != null) {
                     try {
@@ -670,6 +744,15 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     } catch (IOException ignored) {}
                     pipedIn = null;
                 }
+                if (unpackFuture != null && !unpackFuture.isDone()) {
+                    unpackFuture.cancel(true);
+                }
+                for (CompletableFuture<Void> fut : commitFutures) {
+                    if (!fut.isDone()) {
+                        fut.cancel(true);
+                    }
+                }
+                commitFutures.clear();
                 for (String staging : activeStagingPaths) {
                     try {
                         if (metadata != null) {

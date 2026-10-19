@@ -101,6 +101,23 @@ public class ThriftHmsClientTest {
     }
 
     @Test
+    @DisplayName("Проверка инвалидации и повтора при возникновении сетевой ошибки Thrift (TTransportException)")
+    void testRetryAndInvalidationOnTTransportException() throws Exception {
+        // Первый клиент бросает сетевую ошибку сокета TTransportException
+        when(mockClient1.getAllDatabases()).thenThrow(new org.apache.thrift.transport.TTransportException("Socket closed by peer"));
+        // Второй клиент отвечает успешно
+        when(mockClient2.getAllDatabases()).thenReturn(List.of("recovered_db"));
+
+        List<String> dbs = thriftHmsClient.getAllDatabases();
+        assertEquals(1, dbs.size());
+        assertEquals("recovered_db", dbs.get(0));
+
+        verify(mockClient1, times(1)).getAllDatabases();
+        verify(mockClient2, times(1)).getAllDatabases();
+        assertEquals(0, pool.getNumActive(), "Сломанный клиент не должен оставаться активным");
+    }
+
+    @Test
     @DisplayName("Проверка создания таблицы: сохранение полной схемы колонок, партиций и параметров SerDe")
     void testCreateTablePreservesSchemaAndSerde() throws Exception {
         ArgumentCaptor<Table> tableCaptor = ArgumentCaptor.forClass(Table.class);

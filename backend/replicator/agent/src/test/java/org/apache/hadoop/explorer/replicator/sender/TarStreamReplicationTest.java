@@ -64,7 +64,8 @@ public class TarStreamReplicationTest {
         }
 
         @Override
-        public void updateJobProgress(String jobId, UpdateJobRequest req) {
+        public boolean updateJobProgress(String jobId, UpdateJobRequest req) {
+            return true;
         }
     }
 

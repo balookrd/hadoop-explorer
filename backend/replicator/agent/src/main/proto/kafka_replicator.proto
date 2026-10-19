@@ -76,7 +76,7 @@ message TopicPartitionOffset {
   int32 partition = 2;
   int64 source_offset = 3;
   int64 timestamp = 4;
-  int64 target_offset = 5;
+  optional int64 target_offset = 5;
 }
 
 // Запрос на синхронизацию оффсетов консьюмер-группы

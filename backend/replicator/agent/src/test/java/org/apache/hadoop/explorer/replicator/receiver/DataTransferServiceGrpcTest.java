@@ -5,12 +5,15 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -209,5 +212,117 @@ public class DataTransferServiceGrpcTest {
         assertEquals(f1.length(), map.get("a.txt"));
         assertTrue(map.containsKey("sub/b.txt"));
         assertEquals(f2.length(), map.get("sub/b.txt"));
+    }
+
+    @Test
+    @DisplayName("gRPC: Отмена передачи файла клиентом (Cancel) удаляет staging-файл и не создает целевой")
+    public void testTransferFileCancellationCleansUpStaging() throws Exception {
+        DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(inProcessChannel);
+
+        String jobId = "test-job-cancel";
+        File targetFile = new File(tempTargetDir, "cancel_test.dat");
+        File stagingFile = new File(targetFile.getAbsolutePath() + "._staging_" + jobId);
+        byte[] testData = "Partial data before cancellation".getBytes();
+
+        CompletableFuture<Void> cancelCompletedFuture = new CompletableFuture<>();
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<TransferFileRequest>[] clientCallRef = new ClientCallStreamObserver[1];
+
+        StreamObserver<TransferFileRequest> requestObserver = stub.transferFile(new ClientResponseObserver<TransferFileRequest, TransferFileResponse>() {
+            @Override
+            public void beforeStart(ClientCallStreamObserver<TransferFileRequest> requestStream) {
+                clientCallRef[0] = requestStream;
+            }
+
+            @Override
+            public void onNext(TransferFileResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {
+                cancelCompletedFuture.complete(null);
+            }
+
+            @Override
+            public void onCompleted() {
+                cancelCompletedFuture.complete(null);
+            }
+        });
+
+        // 1. Отправляем метаданные
+        FileMetadata metadata = FileMetadata.newBuilder()
+                .setJobId(jobId)
+                .setSourcePath("/test/source/cancel.dat")
+                .setTargetPath(targetFile.getAbsolutePath())
+                .setTotalBytes(testData.length * 2)
+                .setRunAsServiceAccount(true)
+                .build();
+        requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
+
+        // 2. Отправляем первый чанк
+        FileChunk chunk = FileChunk.newBuilder()
+                .setJobId(jobId)
+                .setOffset(0)
+                .setData(ByteString.copyFrom(testData))
+                .setIsLastChunk(false)
+                .build();
+        requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
+
+        // Убеждаемся, что staging файл был создан на диске
+        assertTrue(stagingFile.exists(), "Staging файл должен существовать во время передачи");
+
+        // 3. Отменяем вызов со стороны клиента
+        assertNotNull(clientCallRef[0], "ClientCallStreamObserver должен быть инициализирован");
+        clientCallRef[0].cancel("Тестовая отмена клиентом", null);
+
+        cancelCompletedFuture.get(5, TimeUnit.SECONDS);
+
+        // 4. Проверяем, что staging файл очищен и целевой файл не создан
+        assertFalse(stagingFile.exists(), "Staging файл должен быть удален при отмене вызова");
+        assertFalse(targetFile.exists(), "Целевой файл не должен создаваться при отмене передачи");
+    }
+
+    @Test
+    @DisplayName("gRPC: Ошибка потока (onError) удаляет staging-файл")
+    public void testTransferFileOnErrorCleansUpStaging() throws Exception {
+        DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(inProcessChannel);
+
+        String jobId = "test-job-error";
+        File targetFile = new File(tempTargetDir, "error_test.dat");
+        File stagingFile = new File(targetFile.getAbsolutePath() + "._staging_" + jobId);
+        byte[] testData = "Data before network fault".getBytes();
+
+        StreamObserver<TransferFileRequest> requestObserver = stub.transferFile(new StreamObserver<>() {
+            @Override
+            public void onNext(TransferFileResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // 1. Отправляем метаданные
+        FileMetadata metadata = FileMetadata.newBuilder()
+                .setJobId(jobId)
+                .setSourcePath("/test/source/error.dat")
+                .setTargetPath(targetFile.getAbsolutePath())
+                .setTotalBytes(testData.length)
+                .setRunAsServiceAccount(true)
+                .build();
+        requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
+
+        // Убеждаемся, что staging файл создан
+        assertTrue(stagingFile.exists(), "Staging файл должен существовать");
+
+        // 2. Имитируем сбой сети
+        requestObserver.onError(new RuntimeException("Имитация разрыва сетевого соединения"));
+
+        // Небольшая задержка для завершения cleanup
+        Thread.sleep(200);
+
+        // 3. Проверяем, что staging файл очищен
+        assertFalse(stagingFile.exists(), "Staging файл должен быть удален при ошибке");
+        assertFalse(targetFile.exists(), "Целевой файл не должен существовать");
     }
 }

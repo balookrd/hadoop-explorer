@@ -50,6 +50,10 @@ public class KafkaReplicationClient implements Closeable {
     }
 
     public KafkaReplicationClient(List<String> targetEndpoints, String agentSecret) {
+        this(targetEndpoints, agentSecret, false, null);
+    }
+
+    public KafkaReplicationClient(List<String> targetEndpoints, String agentSecret, boolean tlsEnabled, String trustCertPath) {
         if (targetEndpoints == null || targetEndpoints.isEmpty()) {
             throw new IllegalArgumentException("targetEndpoints list must not be null or empty");
         }
@@ -68,11 +72,26 @@ public class KafkaReplicationClient implements Closeable {
             String host = parts[0];
             int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 50052;
 
-            ManagedChannel ch = ManagedChannelBuilder.forAddress(host, port)
-                    .usePlaintext() // В продакшене mTLS: .useTransportSecurity()
-                    .maxInboundMessageSize(64 * 1024 * 1024)
-                    .build();
+            ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port)
+                    .maxInboundMessageSize(64 * 1024 * 1024);
 
+            if (tlsEnabled) {
+                if (trustCertPath != null && !trustCertPath.isBlank()) {
+                    java.io.File trustFile = new java.io.File(trustCertPath);
+                    if (trustFile.exists() && trustFile.canRead()) {
+                        builder.useTransportSecurity();
+                    } else {
+                        log.warn("Сертификат доверия TLS не найден по пути: {}, используется системный TLS trust", trustCertPath);
+                        builder.useTransportSecurity();
+                    }
+                } else {
+                    builder.useTransportSecurity();
+                }
+            } else {
+                builder.usePlaintext();
+            }
+
+            ManagedChannel ch = builder.build();
             this.channels.add(ch);
             io.grpc.Channel targetChannel = (authInterceptor != null)
                     ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
@@ -81,8 +100,8 @@ public class KafkaReplicationClient implements Closeable {
             this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
             this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }
-        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={})",
-                channels.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()));
+        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={}, tls={})",
+                channels.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()), tlsEnabled);
     }
 
     /**

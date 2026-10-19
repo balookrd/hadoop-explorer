@@ -118,16 +118,30 @@ public class HmsReplicationController {
     @GetMapping("/pending")
     public ResponseEntity<List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto>> getPendingJobs(
             @RequestParam(required = false) String clusterId,
-            @RequestParam(required = false) String agentId
+            @RequestParam(required = false) String agentId,
+            Authentication auth
     ) {
+        UserSession session = getSession(auth);
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация агента или оператора"
+            );
+        }
         return ResponseEntity.ok(coordinatorService.getPendingJobsForCluster(clusterId, agentId));
     }
 
     @PostMapping("/{id}/progress")
     public ResponseEntity<Map<String, Object>> updateProgress(
             @PathVariable String id,
-            @RequestBody org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest report
+            @RequestBody org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest report,
+            Authentication auth
     ) {
+        UserSession session = getSession(auth);
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация агента или оператора для обновления прогресса"
+            );
+        }
         coordinatorService.updateJobProgress(id, report);
         return ResponseEntity.ok(Map.of("success", true));
     }

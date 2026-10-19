@@ -488,19 +488,46 @@ public class HmsClusterApiController {
         return ResponseEntity.ok(client.getNextNotifications(lastEventId, maxEvents));
     }
 
+    private static final String BASE_SANDBOX_DIR = "/tmp/data";
+
     private File resolveLocalPath(String locationUri) {
-        if (locationUri == null) return new File("/tmp/data");
-        String p = locationUri;
+        File baseDir = new File(BASE_SANDBOX_DIR);
+        if (locationUri == null || locationUri.isBlank()) {
+            return baseDir;
+        }
+        String p = locationUri.replace('\\', '/');
         if (p.startsWith("hdfs://")) {
             int pathStart = p.indexOf('/', 7);
-            p = (pathStart > 0) ? p.substring(pathStart) : "/tmp/data";
+            p = (pathStart > 0) ? p.substring(pathStart) : "/";
         } else if (p.startsWith("file://")) {
             p = p.substring(7);
         }
-        if (!p.startsWith("/tmp/") && !p.equals("/tmp")) {
-            p = "/tmp" + (p.startsWith("/") ? "" : "/") + p;
+
+        while (p.contains("..")) {
+            p = p.replace("..", "");
         }
-        return new File(p);
+        if (p.startsWith("/tmp/data/")) {
+            p = p.substring("/tmp/data/".length());
+        } else if (p.startsWith("/tmp/data")) {
+            p = p.substring("/tmp/data".length());
+        } else if (p.startsWith("/tmp/")) {
+            p = p.substring("/tmp/".length());
+        } else if (p.startsWith("/")) {
+            p = p.substring(1);
+        }
+
+        File target = new File(baseDir, p);
+        try {
+            String canonicalTarget = target.getCanonicalPath();
+            String canonicalBase = baseDir.getCanonicalPath();
+            if (!canonicalTarget.startsWith(canonicalBase)) {
+                log.warn("[HmsClusterApi Security] Заблокирована попытка Path Traversal: '{}'", locationUri);
+                return baseDir;
+            }
+        } catch (Exception e) {
+            return baseDir;
+        }
+        return target;
     }
 
     private void createSampleDataFile(String locationUri, String fileName, long sizeBytes) {
@@ -510,9 +537,19 @@ public class HmsClusterApiController {
                 log.info("[HmsClusterApi] Сэмпл для HDFS зарегистрирован логически: {}/{} ({} байт)", locationUri, fileName, sizeBytes);
                 return;
             }
+            if (fileName == null || fileName.isBlank() || fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) {
+                log.warn("[HmsClusterApi Security] Отклонено небезопасное имя файла сэмпл-данных: '{}'", fileName);
+                return;
+            }
             File dir = resolveLocalPath(locationUri);
             if (!dir.exists()) dir.mkdirs();
             File f = new File(dir, fileName);
+            String canonicalTarget = f.getCanonicalPath();
+            String canonicalDir = dir.getCanonicalPath();
+            if (!canonicalTarget.startsWith(canonicalDir)) {
+                log.warn("[HmsClusterApi Security] Заблокирована попытка записи файла за пределы каталога: '{}'", fileName);
+                return;
+            }
             writeDummyBytes(f, sizeBytes);
         } catch (Exception e) {
             log.warn("Не удалось создать тестовый файл данных: {}", e.getMessage());
