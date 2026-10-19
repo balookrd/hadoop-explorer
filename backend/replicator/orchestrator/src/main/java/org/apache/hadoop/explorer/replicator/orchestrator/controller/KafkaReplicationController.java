@@ -23,6 +23,7 @@ public class KafkaReplicationController {
     private final KafkaReplicationOrchestratorService service;
     private final org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public KafkaReplicationController(KafkaReplicationOrchestratorService service,
                                      @org.springframework.beans.factory.annotation.Autowired(required = false)
                                      org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry) {
