@@ -27,12 +27,20 @@ public class ClusterLockEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Column(name = "epoch", nullable = false)
+    private Long epoch = 1L;
+
     public ClusterLockEntity() {}
 
     public ClusterLockEntity(String lockName, String lockedBy, Instant lockedUntil) {
+        this(lockName, lockedBy, lockedUntil, 1L);
+    }
+
+    public ClusterLockEntity(String lockName, String lockedBy, Instant lockedUntil, Long epoch) {
         this.lockName = lockName;
         this.lockedBy = lockedBy;
         this.lockedUntil = lockedUntil;
+        this.epoch = epoch != null && epoch > 0 ? epoch : 1L;
         this.updatedAt = Instant.now();
     }
 
@@ -44,4 +52,6 @@ public class ClusterLockEntity {
     public void setLockedUntil(Instant lockedUntil) { this.lockedUntil = lockedUntil; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Long getEpoch() { return epoch; }
+    public void setEpoch(Long epoch) { this.epoch = epoch != null && epoch > 0 ? epoch : 1L; }
 }

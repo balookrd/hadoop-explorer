@@ -192,11 +192,20 @@ CREATE TABLE IF NOT EXISTS dr_emergency_snapshots (
     active_jobs_snapshot TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cluster_locks (
+    lock_name VARCHAR(128) PRIMARY KEY,
+    locked_by VARCHAR(128) NOT NULL,
+    locked_until TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    epoch BIGINT NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS replicator_cluster_locks (
     lock_key VARCHAR(128) PRIMARY KEY,
     locked_by VARCHAR(128) NOT NULL,
     acquired_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL,
+    epoch BIGINT NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS replication_agents (
