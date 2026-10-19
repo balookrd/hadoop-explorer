@@ -291,4 +291,110 @@ public class HmsControlPlaneDispatcherTest {
         List<HmsPendingJobDto> switched = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-node");
         assertEquals("10.0.2.20:50051", switched.get(0).targetAgentGrpcAddress());
     }
+
+    @Test
+    @DisplayName("DLQ: изоляция ядовитых событий, фильтрация по статусу, skip и replay")
+    void testDeadLetterQueueIsolationAndManagement() {
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dlq-src", "dc1", "all", "10.0.1.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-dlq-dst", "dc2", "all", "10.0.2.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+
+        HmsReplicationJobEntity job = coordinatorService.createAndStartReplication(
+                "dc1", "dc2", "poison_db", "poison_db", "*", "operator"
+        );
+
+        // Агент изолирует ядовитое CDC событие в DLQ
+        HmsEventReportDto poisonEvent = new HmsEventReportDto(
+                9999L, "ALTER_TABLE", "corrupt_table", null,
+                null, null, null, "DLQ_ISOLATED", "Syntax error in SerDe DDL specification"
+        );
+        HmsProgressReportRequest report = new HmsProgressReportRequest(
+                "ACTIVE", 1, 1, 0, 0, 9999L, null, 0L,
+                "Изолировано 1 ядовитое событие", List.of(poisonEvent), "agent-dlq-src"
+        );
+        coordinatorService.updateJobProgress(job.getId(), report);
+
+        // Проверяем наличие в DLQ
+        var dlqEvents = coordinatorService.getDeadLetterEvents(job.getId(), "NEW", 10);
+        assertEquals(1, dlqEvents.size());
+        var dlqItem = dlqEvents.get(0);
+        assertEquals(9999L, dlqItem.getEventId());
+        assertEquals("corrupt_table", dlqItem.getTableName());
+        assertEquals("NEW", dlqItem.getStatus());
+        assertEquals(1, dlqItem.getRetryCount());
+
+        // Оператор пропускает событие (skip)
+        boolean skipped = coordinatorService.skipDeadLetterEvent(job.getId(), dlqItem.getId());
+        assertTrue(skipped);
+        var afterSkip = coordinatorService.getDeadLetterEvents(job.getId(), "IGNORED", 10);
+        assertEquals(1, afterSkip.size());
+
+        // Оператор отправляет событие на повтор (replay)
+        boolean replayed = coordinatorService.replayDeadLetterEvent(job.getId(), dlqItem.getId());
+        assertTrue(replayed);
+        var afterReplay = coordinatorService.getDeadLetterEvents(job.getId(), "REPLAYED", 10);
+        assertEquals(1, afterReplay.size());
+        assertEquals(2, afterReplay.get(0).getRetryCount());
+    }
+
+    @Test
+    @DisplayName("Preemptive Fencing: отчет прогресса для STOPPED задачи отклоняется с false")
+    void testPreemptiveFencingOnStoppedJob() {
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-fenced-src", "dc1", "all", "10.0.1.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+        agentRegistry.register(new AgentRegisterRequest(
+                "agent-fenced-dst", "dc2", "all", "10.0.2.1:50051", null, 100.0
+        ), properties.getAgentSecret());
+
+        HmsReplicationJobEntity job = coordinatorService.createAndStartReplication(
+                "dc1", "dc2", "fenced_db", "fenced_db", "*", "operator"
+        );
+
+        // Задача переводится в STOPPED (например, при развороте репликации в DR)
+        job.setStatus("STOPPED");
+        hmsJobRepository.save(job);
+
+        // Попытка агента обновить прогресс остановленной задачи пресекается Fencing
+        HmsProgressReportRequest report = new HmsProgressReportRequest(
+                "ACTIVE", 1, 1, 0, 0, 100L, null, 0L,
+                "Попытка записи", List.of(), "agent-fenced-src"
+        );
+        boolean allowed = coordinatorService.updateJobProgress(job.getId(), report);
+        assertFalse(allowed, "Preemptive Fencing обязан отклонять отчеты и запись для STOPPED задачи");
+    }
+
+    @Test
+    @DisplayName("FSM State Machine: проверка допустимости переходов состояний")
+    void testFsmStateTransitionsEnforcement() {
+        HmsReplicationJobEntity job = new HmsReplicationJobEntity();
+        job.setId("job-fsm-test");
+        job.setSourceClusterId("c1");
+        job.setTargetClusterId("c2");
+        job.setSourceDbName("db");
+        job.setJobStatus(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.QUEUED);
+
+        // Валидные переходы
+        job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.BOOTSTRAPPING);
+        assertEquals("BOOTSTRAPPING", job.getStatus());
+
+        job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE);
+        assertEquals("ACTIVE", job.getStatus());
+
+        job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED);
+        assertEquals("PAUSED", job.getStatus());
+
+        job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE);
+        assertEquals("ACTIVE", job.getStatus());
+
+        job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.STOPPED);
+        assertEquals("STOPPED", job.getStatus());
+
+        // Невалидный переход: из STOPPED напрямую в ACTIVE запрещено
+        assertThrows(IllegalStateException.class,
+                () -> job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE));
+    }
 }

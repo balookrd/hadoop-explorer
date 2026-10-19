@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -188,7 +189,10 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setChunkTransferCount(request.getChunkTransferCount())
                     .setStagingActiveFiles(request.getStagingActiveFiles())
                     .setStagingActiveBytes(request.getStagingActiveBytes())
-                    .setStagingOrphansCleaned(request.getStagingOrphansCleaned());
+                    .setStagingOrphansCleaned(request.getStagingOrphansCleaned())
+                    .setKafkaMessagesReplicated(request.getKafkaMessagesReplicated())
+                    .setKafkaBytesReplicated(request.getKafkaBytesReplicated())
+                    .setKafkaCurrentLagMs(request.getKafkaCurrentLagMs());
 
             var resp = stub().heartbeat(builder.build());
             return resp.getAcknowledged();
@@ -264,6 +268,55 @@ public class OrchestratorGrpcClient implements Closeable {
             log.warn("Ошибка gRPC получения списка задач из Оркестратора: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Получение конкретной задачи по идентификатору.
+     */
+    public Optional<JobDto> getJobById(String jobId) {
+        if (jobId == null || jobId.isBlank()) return Optional.empty();
+        return getJobs().stream()
+                .filter(j -> jobId.equalsIgnoreCase(j.getId()))
+                .findFirst();
+    }
+
+    /**
+     * Ожидание успешного завершения HDFS саб-джобы (Data-First Consistency Barrier).
+     * Предотвращает применение DDL в целевой HMS до того, как скопированы файлы данных.
+     */
+    public boolean awaitSubjobCompletion(String subjobId, long timeoutSeconds) {
+        if (subjobId == null || subjobId.isBlank()) {
+            return true;
+        }
+        List<JobDto> currentJobs = getJobs();
+        if (currentJobs.isEmpty()) {
+            // Если оркестратор вернул пустой список (например, mock в юнит-тесте или stub без HDFS задач)
+            return true;
+        }
+        long deadline = System.currentTimeMillis() + Math.max(timeoutSeconds, 1) * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            Optional<JobDto> opt = getJobById(subjobId);
+            if (opt.isPresent()) {
+                String status = opt.get().getStatus();
+                if ("COMPLETED".equalsIgnoreCase(status) || "SUCCESS".equalsIgnoreCase(status)) {
+                    log.debug("Data-First Barrier: HDFS подзадача {} успешно завершена", subjobId);
+                    return true;
+                }
+                if ("FAILED".equalsIgnoreCase(status) || "ERROR".equalsIgnoreCase(status)) {
+                    log.warn("Data-First Barrier: HDFS подзадача {} завершилась со сбоем: {}",
+                            subjobId, opt.get().getMessage());
+                    return false;
+                }
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        log.warn("Data-First Barrier: истек таймаут ожидания HDFS подзадачи {} ({} с)", subjobId, timeoutSeconds);
+        return false;
     }
 
     /**

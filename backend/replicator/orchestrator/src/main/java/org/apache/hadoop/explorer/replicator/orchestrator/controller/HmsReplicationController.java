@@ -248,4 +248,50 @@ public class HmsReplicationController {
         }
         return ResponseEntity.notFound().build();
     }
+
+    @GetMapping("/{id}/dlq")
+    public ResponseEntity<List<org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsDeadLetterEventEntity>> getDlqEvents(
+            @PathVariable String id,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "100") int limit
+    ) {
+        return ResponseEntity.ok(coordinatorService.getDeadLetterEvents(id, status, limit));
+    }
+
+    @PostMapping("/{id}/dlq/{dlqId}/skip")
+    public ResponseEntity<Map<String, Object>> skipDlqEvent(
+            @PathVariable String id,
+            @PathVariable String dlqId,
+            Authentication auth
+    ) {
+        checkHmsJobAccess(id, auth);
+        boolean skipped = coordinatorService.skipDeadLetterEvent(id, dlqId);
+        if (skipped) {
+            return ResponseEntity.ok(Map.of("success", true, "message", "Событие DLQ помечено как IGNORED"));
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/dlq/{dlqId}/replay")
+    public ResponseEntity<Map<String, Object>> replayDlqEvent(
+            @PathVariable String id,
+            @PathVariable String dlqId,
+            Authentication auth
+    ) {
+        checkHmsJobAccess(id, auth);
+        boolean replayed = coordinatorService.replayDeadLetterEvent(id, dlqId);
+        if (replayed) {
+            return ResponseEntity.ok(Map.of("success", true, "message", "Событие DLQ отправлено на повтор (REPLAYED)"));
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @GetMapping("/{id}/drift")
+    public ResponseEntity<List<org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport>> getSchemaDrift(
+            @PathVariable String id,
+            Authentication auth
+    ) {
+        checkHmsJobAccess(id, auth);
+        return ResponseEntity.ok(coordinatorService.scanSchemaDrift(id));
+    }
 }

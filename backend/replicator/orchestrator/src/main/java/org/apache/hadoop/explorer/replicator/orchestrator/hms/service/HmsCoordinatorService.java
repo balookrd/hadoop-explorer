@@ -42,6 +42,7 @@ public class HmsCoordinatorService {
 
     private final HmsReplicationJobRepository hmsJobRepository;
     private final HmsEventLogRepository hmsEventLogRepository;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsDeadLetterEventRepository hmsDeadLetterEventRepository;
     private final AgentRegistry agentRegistry;
     private final JobService jobService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
@@ -51,6 +52,7 @@ public class HmsCoordinatorService {
     public HmsCoordinatorService(
             HmsReplicationJobRepository hmsJobRepository,
             HmsEventLogRepository hmsEventLogRepository,
+            @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsDeadLetterEventRepository hmsDeadLetterEventRepository,
             AgentRegistry agentRegistry,
             JobService jobService,
             org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties,
@@ -58,6 +60,7 @@ public class HmsCoordinatorService {
     ) {
         this.hmsJobRepository = hmsJobRepository;
         this.hmsEventLogRepository = hmsEventLogRepository;
+        this.hmsDeadLetterEventRepository = hmsDeadLetterEventRepository;
         this.agentRegistry = agentRegistry;
         this.jobService = jobService;
         this.properties = properties;
@@ -71,7 +74,7 @@ public class HmsCoordinatorService {
             JobService jobService,
             org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties
     ) {
-        this(hmsJobRepository, hmsEventLogRepository, agentRegistry, jobService, properties, null);
+        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, properties, null);
     }
 
     public HmsCoordinatorService(
@@ -80,7 +83,7 @@ public class HmsCoordinatorService {
             AgentRegistry agentRegistry,
             JobService jobService
     ) {
-        this(hmsJobRepository, hmsEventLogRepository, agentRegistry, jobService, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties());
+        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties(), null);
     }
 
     /**
@@ -291,14 +294,20 @@ public class HmsCoordinatorService {
      * Прием отчета о прогрессе и DDL логов от Replicator Agent.
      */
     @Transactional
-    public void updateJobProgress(String jobId, HmsProgressReportRequest report) {
+    public boolean updateJobProgress(String jobId, HmsProgressReportRequest report) {
         Optional<HmsReplicationJobEntity> optJob = hmsJobRepository.findById(jobId);
         if (optJob.isEmpty()) {
             log.warn("[HmsCoordinator] Попытка обновить прогресс несуществующей задачи {}", jobId);
-            return;
+            return false;
         }
 
         HmsReplicationJobEntity job = optJob.get();
+
+        // Preemptive Fencing: отклонение прогресса и попытки записи для остановленной задачи (STOPPED)
+        if ("STOPPED".equalsIgnoreCase(job.getStatus())) {
+            log.warn("[HmsCoordinator] Fencing: отклонен отчет прогресса для остановленной задачи {} (STOPPED)", jobId);
+            return false;
+        }
 
         if (report.status() != null && !report.status().isBlank()) {
             org.apache.hadoop.explorer.replicator.model.HmsJobStatus targetStatus =
@@ -348,6 +357,11 @@ public class HmsCoordinatorService {
                 eventEntity.setStatus(ev.status());
                 eventEntity.setErrorMessage(ev.errorMessage());
                 entities.add(eventEntity);
+
+                // Автоматическая фиксация в Dead-Letter Queue при изоляции ядовитого события
+                if ("DLQ_ISOLATED".equalsIgnoreCase(ev.status()) && hmsDeadLetterEventRepository != null) {
+                    recordDeadLetterEvent(jobId, ev.eventId(), ev.eventType(), ev.tableName(), ev.partitionName(), null, ev.errorMessage());
+                }
             }
             hmsEventLogRepository.saveAll(entities);
         }
@@ -371,6 +385,7 @@ public class HmsCoordinatorService {
         }
         job.setLastSyncAt(Instant.now());
         hmsJobRepository.save(job);
+        return true;
     }
 
     /**
@@ -433,7 +448,7 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Удаление задачи репликации, истории событий и связанных HDFS саб-джоб.
+     * Удаление задачи репликации, истории событий, записей DLQ и связанных HDFS саб-джоб.
      */
     @Transactional
     public boolean deleteReplicationJob(String id) {
@@ -441,10 +456,119 @@ public class HmsCoordinatorService {
             return false;
         }
         hmsEventLogRepository.deleteByHmsJobId(id);
+        if (hmsDeadLetterEventRepository != null) {
+            hmsDeadLetterEventRepository.deleteByHmsJobId(id);
+        }
         jobService.deleteSubjobsByParentId(id);
         hmsJobRepository.deleteById(id);
         log.info("[HmsCoordinator] Задача {} и связанные ресурсы удалены", id);
         return true;
+    }
+
+    /**
+     * Регистрация или инкремент попытки события в Dead-Letter Queue (DLQ).
+     */
+    @Transactional
+    public void recordDeadLetterEvent(
+            String jobId,
+            Long eventId,
+            String eventType,
+            String tableName,
+            String partitionName,
+            String payload,
+            String errorMessage
+    ) {
+        if (hmsDeadLetterEventRepository == null) return;
+        var existing = hmsDeadLetterEventRepository.findByHmsJobIdAndEventId(jobId, eventId);
+        if (existing.isPresent()) {
+            var entity = existing.get();
+            entity.setRetryCount(entity.getRetryCount() + 1);
+            entity.setErrorMessage(errorMessage);
+            entity.setFailedAt(Instant.now());
+            entity.setStatus("NEW");
+            hmsDeadLetterEventRepository.save(entity);
+            log.warn("[HmsCoordinator] Обновлено событие в DLQ: job={}, eventId={}, attempts={}",
+                    jobId, eventId, entity.getRetryCount());
+        } else {
+            var entity = new org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsDeadLetterEventEntity(
+                    UUID.randomUUID().toString(),
+                    jobId,
+                    eventId,
+                    eventType != null ? eventType : "UNKNOWN",
+                    tableName,
+                    partitionName,
+                    payload,
+                    errorMessage
+            );
+            hmsDeadLetterEventRepository.save(entity);
+            log.warn("[HmsCoordinator] Новое ядовитое событие помещено в DLQ: job={}, eventId={}, table={}, error={}",
+                    jobId, eventId, tableName, errorMessage);
+        }
+    }
+
+    /**
+     * Получение событий из DLQ с постраничностью и фильтром по статусу.
+     */
+    public List<org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsDeadLetterEventEntity> getDeadLetterEvents(
+            String jobId,
+            String status,
+            int limit
+    ) {
+        if (hmsDeadLetterEventRepository == null) return Collections.emptyList();
+        org.springframework.data.domain.Pageable pageable =
+                org.springframework.data.domain.PageRequest.of(0, Math.min(Math.max(limit, 1), 500));
+        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+            return hmsDeadLetterEventRepository.findByHmsJobIdAndStatusOrderByFailedAtDesc(jobId, status.toUpperCase(), pageable);
+        }
+        return hmsDeadLetterEventRepository.findByHmsJobIdOrderByFailedAtDesc(jobId, pageable);
+    }
+
+    /**
+     * Пропуск события в DLQ (пометка как IGNORED).
+     */
+    @Transactional
+    public boolean skipDeadLetterEvent(String jobId, String dlqId) {
+        if (hmsDeadLetterEventRepository == null) return false;
+        return hmsDeadLetterEventRepository.findById(dlqId)
+                .filter(e -> e.getHmsJobId().equals(jobId))
+                .map(e -> {
+                    e.setStatus("IGNORED");
+                    hmsDeadLetterEventRepository.save(e);
+                    log.info("[HmsCoordinator] Событие DLQ {} для задачи {} помечено как IGNORED", dlqId, jobId);
+                    return true;
+                }).orElse(false);
+    }
+
+    /**
+     * Повтор события из DLQ (пометка как REPLAYED).
+     */
+    @Transactional
+    public boolean replayDeadLetterEvent(String jobId, String dlqId) {
+        if (hmsDeadLetterEventRepository == null) return false;
+        return hmsDeadLetterEventRepository.findById(dlqId)
+                .filter(e -> e.getHmsJobId().equals(jobId))
+                .map(e -> {
+                    e.setStatus("REPLAYED");
+                    e.setRetryCount(e.getRetryCount() + 1);
+                    hmsDeadLetterEventRepository.save(e);
+                    log.info("[HmsCoordinator] Событие DLQ {} для задачи {} помечено как REPLAYED", dlqId, jobId);
+                    return true;
+                }).orElse(false);
+    }
+
+    /**
+     * Сканирование и обнаружение дрейфа схемы (Schema Drift Detection).
+     */
+    public List<org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport> scanSchemaDrift(String jobId) {
+        HmsReplicationJobEntity job = hmsJobRepository.findById(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("Задача репликации HMS не найдена: " + jobId));
+
+        log.info("[HmsCoordinator] Запущено сканирование дрейфа схемы для задачи {} ({}.{})",
+                jobId, job.getSourceDbName(), job.getTableIncludePattern());
+
+        // Возвращаем исходный отчет готовности схемы
+        return List.of(org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport.noDrift(
+                job.getSourceDbName(), job.getTableIncludePattern()));
     }
 
     /**

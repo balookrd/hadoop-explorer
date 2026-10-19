@@ -46,6 +46,13 @@ public class HmsTaskExecutor implements Closeable {
     private final ConcurrentMap<String, AtomicInteger> totalPartitionsPerJob;
     private final AtomicBoolean running = new AtomicBoolean(true);
 
+    // Расширения надежности и консистентности:
+    private final ConcurrentMap<Long, AtomicInteger> eventFailureCounts = new ConcurrentHashMap<>();
+    private final int maxEventRetries;
+    private final boolean dataBarrierEnabled;
+    private final long dataBarrierTimeoutSeconds;
+    private final ConcurrentMap<String, AtomicBoolean> jobFencedFlags = new ConcurrentHashMap<>();
+
     public HmsTaskExecutor(
             String agentId,
             String clusterId,
@@ -97,6 +104,25 @@ public class HmsTaskExecutor implements Closeable {
             int partitionBatchSize,
             String agentSecret
     ) {
+        this(agentId, clusterId, hmsClient, orchestratorClient, pathRewriter, grpcTlsEnabled, insecureSkipVerify,
+                bootstrapConcurrency, partitionBatchSize, agentSecret, true, 60L, 3);
+    }
+
+    public HmsTaskExecutor(
+            String agentId,
+            String clusterId,
+            HmsClient hmsClient,
+            OrchestratorGrpcClient orchestratorClient,
+            HmsPathRewriter pathRewriter,
+            boolean grpcTlsEnabled,
+            boolean insecureSkipVerify,
+            int bootstrapConcurrency,
+            int partitionBatchSize,
+            String agentSecret,
+            boolean dataBarrierEnabled,
+            long dataBarrierTimeoutSeconds,
+            int maxEventRetries
+    ) {
         this.agentId = agentId;
         this.clusterId = clusterId;
         this.hmsClient = hmsClient;
@@ -107,6 +133,9 @@ public class HmsTaskExecutor implements Closeable {
         this.insecureSkipVerify = insecureSkipVerify;
         this.partitionBatchSize = partitionBatchSize > 0 ? partitionBatchSize : 1000;
         this.agentSecret = agentSecret;
+        this.dataBarrierEnabled = dataBarrierEnabled;
+        this.dataBarrierTimeoutSeconds = dataBarrierTimeoutSeconds > 0 ? dataBarrierTimeoutSeconds : 60L;
+        this.maxEventRetries = maxEventRetries > 0 ? maxEventRetries : 3;
         this.objectMapper = new ObjectMapper();
         this.syncedCdcEventsPerJob = new ConcurrentHashMap<>();
         this.totalPartitionsPerJob = new ConcurrentHashMap<>();
@@ -284,7 +313,13 @@ public class HmsTaskExecutor implements Closeable {
             AtomicInteger totalPartitions,
             List<HmsEventReportDto> eventLog
     ) {
-        if (!running.get()) return;
+        AtomicBoolean isFenced = jobFencedFlags.get(job.id());
+        if (!running.get() || (isFenced != null && isFenced.get())) {
+            log.warn("[HmsTaskExecutor] Пропуск обработки таблицы {}.{} задачи {} по сигналу Fencing/Stop",
+                    job.sourceDbName(), tblName, job.id());
+            return;
+        }
+
         Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tblName);
         if (optTable.isEmpty()) return;
         HmsTableDto table = optTable.get();
@@ -304,6 +339,16 @@ public class HmsTaskExecutor implements Closeable {
         // 3. Создание 1 корневой саб-джобы HDFS передачи файлов через Оркестратор!
         String tableSubjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
                 rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
+
+        // Data-First Consistency Barrier: ожидание физической готовности данных в HDFS перед DDL в целевой HMS
+        if (dataBarrierEnabled && tableSubjobId != null) {
+            boolean dataReady = orchestratorClient.awaitSubjobCompletion(tableSubjobId, dataBarrierTimeoutSeconds);
+            if (!dataReady) {
+                throw new RuntimeException(String.format(
+                        "Data-First Barrier: HDFS подзадача копирования данных таблицы '%s' (%s) не завершена вовремя. DDL отменен.",
+                        tblName, tableSubjobId));
+            }
+        }
 
         // 4. Очистка вендорных параметров HDP 3.1
         Map<String, String> cleanParams = tableFilter.sanitizeParameters(table.parameters());
@@ -373,6 +418,10 @@ public class HmsTaskExecutor implements Closeable {
 
             // Чанкинг партиций по 1000 шт
             for (int i = 0; i < allPartitions.size(); i += partitionBatchSize) {
+                if (!running.get() || (isFenced != null && isFenced.get())) {
+                    log.warn("[HmsTaskExecutor] Прерывание чанков партиций таблицы {} задачи {} по сигналу Fencing/Stop", tblName, job.id());
+                    break;
+                }
                 int toIndex = Math.min(i + partitionBatchSize, allPartitions.size());
                 List<HmsPartitionDto> chunk = allPartitions.subList(i, toIndex);
                 List<HmsPartitionDto> targetChunk = new ArrayList<>(chunk.size());
@@ -384,6 +433,14 @@ public class HmsTaskExecutor implements Closeable {
                     if (!isLocationWithinTable(part.location(), tableBaseLocation)) {
                         partSubjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
                                 partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
+                        if (dataBarrierEnabled && partSubjobId != null) {
+                            boolean partDataReady = orchestratorClient.awaitSubjobCompletion(partSubjobId, dataBarrierTimeoutSeconds);
+                            if (!partDataReady) {
+                                throw new RuntimeException(String.format(
+                                        "Data-First Barrier: HDFS подзадача копирования данных партиции '%s' (%s) не завершена вовремя. DDL отменен.",
+                                        part.location(), partSubjobId));
+                            }
+                        }
                     }
 
                     targetChunk.add(new HmsPartitionDto(
@@ -441,6 +498,12 @@ public class HmsTaskExecutor implements Closeable {
             return 0;
         }
 
+        AtomicBoolean isFenced = jobFencedFlags.get(job.id());
+        if (!running.get() || (isFenced != null && isFenced.get())) {
+            log.warn("[HmsTaskExecutor] Пропуск CDC опроса для задачи {} по сигналу Fencing/Stop", job.id());
+            return 0;
+        }
+
         long lastEventId = job.lastProcessedEventId() != null ? job.lastProcessedEventId() : 0L;
         List<HmsNotificationEventDto> events = hmsClient.getNextNotifications(lastEventId, 50);
         if (events.isEmpty()) {
@@ -455,7 +518,7 @@ public class HmsTaskExecutor implements Closeable {
 
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             for (HmsNotificationEventDto event : events) {
-                if (!running.get()) break;
+                if (!running.get() || (isFenced != null && isFenced.get())) break;
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
                 if (event.dbName() != null && !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
                     lastCommittedEventId = event.eventId();
@@ -490,8 +553,17 @@ public class HmsTaskExecutor implements Closeable {
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
                                     partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
 
+                            if (dataBarrierEnabled && subjobId != null) {
+                                boolean dataOk = orchestratorClient.awaitSubjobCompletion(subjobId, dataBarrierTimeoutSeconds);
+                                if (!dataOk) {
+                                    eventSuccess = false;
+                                    failureReason = "Data-First Barrier: HDFS подзадача копирования партиции " + subjobId + " не завершена вовремя";
+                                    break;
+                                }
+                            }
+
                             var partResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
-                                    new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(),
+                                     new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(),
                                             part.parameters(), part.columns(), part.serdeParameters())
                             ));
 
@@ -518,21 +590,31 @@ public class HmsTaskExecutor implements Closeable {
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(),
                                     rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId(), job.executionPrincipal());
 
-                            HmsTableDto targetTable = new HmsTableDto(
-                                    "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),
-                                    tableFilter.sanitizeParameters(table.parameters()), table.partitionKeys(),
-                                    table.inputFormat(), table.outputFormat(), table.serdeLib(),
-                                    table.columns(), table.partitionKeyFields(), table.serdeParameters()
-                            );
-                            var tblResp = sender.applyTable(job.id(), targetTable);
-                            boolean ok = tblResp.getSuccess();
-                            eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
-                                    rewrite.sourceUri(), rewrite.targetUri(), subjobId,
-                                    ok ? "APPLIED" : "FAILED", tblResp.getMessage()));
+                            if (dataBarrierEnabled && subjobId != null) {
+                                boolean dataOk = orchestratorClient.awaitSubjobCompletion(subjobId, dataBarrierTimeoutSeconds);
+                                if (!dataOk) {
+                                    eventSuccess = false;
+                                    failureReason = "Data-First Barrier: HDFS подзадача данных таблицы " + subjobId + " не завершена вовремя";
+                                }
+                            }
 
-                            if (!ok) {
-                                eventSuccess = false;
-                                failureReason = tblResp.getMessage();
+                            if (eventSuccess) {
+                                HmsTableDto targetTable = new HmsTableDto(
+                                        "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),
+                                        tableFilter.sanitizeParameters(table.parameters()), table.partitionKeys(),
+                                        table.inputFormat(), table.outputFormat(), table.serdeLib(),
+                                        table.columns(), table.partitionKeyFields(), table.serdeParameters()
+                                );
+                                var tblResp = sender.applyTable(job.id(), targetTable);
+                                boolean ok = tblResp.getSuccess();
+                                eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
+                                        rewrite.sourceUri(), rewrite.targetUri(), subjobId,
+                                        ok ? "APPLIED" : "FAILED", tblResp.getMessage()));
+
+                                if (!ok) {
+                                    eventSuccess = false;
+                                    failureReason = tblResp.getMessage();
+                                }
                             }
                         } else {
                             eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
@@ -575,12 +657,30 @@ public class HmsTaskExecutor implements Closeable {
 
                 if (eventSuccess) {
                     lastCommittedEventId = event.eventId();
+                    eventFailureCounts.remove(event.eventId());
                     processed++;
                 } else {
-                    log.error("[HmsTaskExecutor] Сбой применения события CDC id={}, тип={}, таблица={}: {}. Остановка пачки для повтора.",
-                            event.eventId(), eventType, tbl, failureReason);
-                    batchHasFailures = true;
-                    break;
+                    AtomicInteger failCounter = eventFailureCounts.computeIfAbsent(event.eventId(), k -> new AtomicInteger(0));
+                    int attempts = failCounter.incrementAndGet();
+
+                    if (attempts >= maxEventRetries) {
+                        log.warn("[HmsTaskExecutor] Событие CDC id={}, тип={}, таблица={} превысило лимит попыток ({}/{}). Изоляция в Dead-Letter Queue (DLQ).",
+                                event.eventId(), eventType, tbl, attempts, maxEventRetries);
+                        eventLog.add(new HmsEventReportDto(
+                                event.eventId(), eventType, tbl, null,
+                                null, null, null,
+                                "DLQ_ISOLATED",
+                                String.format("Ядовитое событие (attempts=%d/%d): %s", attempts, maxEventRetries, failureReason)
+                        ));
+                        lastCommittedEventId = event.eventId();
+                        eventFailureCounts.remove(event.eventId());
+                        processed++;
+                    } else {
+                        log.error("[HmsTaskExecutor] Сбой применения события CDC id={}, тип={}, таблица={} (попытка {}/{}): {}. Остановка пачки для повтора.",
+                                event.eventId(), eventType, tbl, attempts, maxEventRetries, failureReason);
+                        batchHasFailures = true;
+                        break;
+                    }
                 }
             }
 
@@ -607,11 +707,15 @@ public class HmsTaskExecutor implements Closeable {
                     : String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.",
                             cumulativeEvents > 0 ? cumulativeEvents : processed, lag);
 
-            orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+            boolean ok = orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
                     "ACTIVE", currentTables.size(), currentTables.size(), curPartCount, curPartCount, lastCommittedEventId, null, lag,
                     statusMessage,
                     eventLog, agentId
             ));
+            if (!ok) {
+                log.warn("[HmsTaskExecutor] Preemptive Fencing: Оркестратор отклонил отчет прогресса CDC задачи {}. Выставлен флаг прерывания.", job.id());
+                jobFencedFlags.computeIfAbsent(job.id(), k -> new AtomicBoolean(false)).set(true);
+            }
         } catch (Exception e) {
             log.error("[HmsTaskExecutor] Ошибка при передаче CDC событий: {}", e.getMessage(), e);
         }
