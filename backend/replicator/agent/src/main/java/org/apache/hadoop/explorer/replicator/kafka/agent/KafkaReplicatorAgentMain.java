@@ -239,7 +239,8 @@ public class KafkaReplicatorAgentMain {
                 consProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
                 consProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
                 consProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-                consProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1048576); // 1 MB
+                consProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+                consProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1);
                 consProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 50);
                 consProps.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 2097152); // 2 MB
                 org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(consProps, krbConfig);

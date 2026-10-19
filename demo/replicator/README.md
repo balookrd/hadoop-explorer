@@ -108,6 +108,8 @@ docker compose -f demo/infra/docker-compose.infra.yml up -d kdc ldap
 docker compose -f demo/replicator/docker-compose.kafka.yml up -d
 
 # 2. Выполнение полного E2E Smoke-теста Data Plane & Control Plane:
+make demo-kafka-smoke
+# Либо напрямую:
 ./demo/replicator/run-kafka-smoke-tests.sh
 ```
 

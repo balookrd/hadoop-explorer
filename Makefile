@@ -202,6 +202,12 @@ demo-monitoring:
 demo-monitoring-stop:
 	cd demo/monitoring && ./stop-monitoring.sh
 
+demo-monitoring-smoke:
+	cd demo/monitoring && ./run-monitoring-smoke-tests.sh
+
+demo-kafka-smoke:
+	cd demo/replicator && ./run-kafka-smoke-tests.sh
+
 demo-all:
 	cd demo/all && ./start-all-demo.sh
 

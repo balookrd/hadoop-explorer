@@ -196,9 +196,12 @@ run_check "Создание задачи репликации Kafka с Kerberos 
 # ------------------------------------------------------------------------------
 # 5. Генерация сообщений в исходный кластер DC1
 # ------------------------------------------------------------------------------
-echo "\n${BLUE}▶ Шаг 5: Публикация гетерогенных потоковых данных в DC1${NC}"
+printf "\n${BLUE}▶ Шаг 5: Публикация гетерогенных потоковых данных в DC1${NC}\n"
 
 produce_test_records() {
+    # Даем агенту время на опрос Control Plane (каждые 3 сек) и инициализацию подписки
+    sleep 4
+
     # 1. Passthrough JSON
     docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         bash -c "kafka-console-producer --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
