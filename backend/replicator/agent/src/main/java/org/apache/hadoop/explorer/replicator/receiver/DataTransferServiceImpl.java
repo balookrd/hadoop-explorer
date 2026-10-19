@@ -43,6 +43,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final int maxConcurrentTarStreams;
     private final int tarPipeBufferBytes;
     private final Semaphore tarStreamSemaphore;
+    private final long tarStreamAcquireTimeoutMs;
 
     public DataTransferServiceImpl(
             String stagingDir,
@@ -51,7 +52,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             String keytabPath,
             int bundleCommitConcurrency,
             int maxConcurrentTarStreams,
-            int tarPipeBufferBytes
+            int tarPipeBufferBytes,
+            long tarStreamAcquireTimeoutMs
     ) {
         this.stagingDir = stagingDir != null ? stagingDir : "/tmp/staging";
         this.fsManager = fsManager;
@@ -60,6 +62,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         this.bundleCommitConcurrency = bundleCommitConcurrency > 0 ? bundleCommitConcurrency : 8;
         this.maxConcurrentTarStreams = maxConcurrentTarStreams > 0 ? maxConcurrentTarStreams : 16;
         this.tarPipeBufferBytes = tarPipeBufferBytes > 0 ? tarPipeBufferBytes : 2 * 1024 * 1024;
+        this.tarStreamAcquireTimeoutMs = tarStreamAcquireTimeoutMs > 0 ? tarStreamAcquireTimeoutMs : 60_000L;
         this.tarStreamSemaphore = new Semaphore(this.maxConcurrentTarStreams, true);
         this.bundleCommitExecutor = Executors.newFixedThreadPool(this.bundleCommitConcurrency, r -> {
             Thread t = new Thread(r, "bundle-hdfs-committer");
@@ -71,6 +74,18 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (!dir.exists()) {
             dir.mkdirs();
         }
+    }
+
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
+            int tarPipeBufferBytes
+    ) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, 60_000L);
     }
 
     public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency) {
@@ -446,7 +461,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         // Ограничение пула памяти: захват слота семафора для TAR-распаковки
                         boolean acquired = false;
                         try {
-                            acquired = tarStreamSemaphore.tryAcquire(60, TimeUnit.SECONDS);
+                            acquired = tarStreamSemaphore.tryAcquire(tarStreamAcquireTimeoutMs, TimeUnit.MILLISECONDS);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             logger.warn("Прервано ожидание слота памяти TAR-распаковки для task_id={}", metadata.getTaskId());
