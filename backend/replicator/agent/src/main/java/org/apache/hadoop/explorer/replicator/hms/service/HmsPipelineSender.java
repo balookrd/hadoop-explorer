@@ -79,27 +79,46 @@ public class HmsPipelineSender implements Closeable {
     }
 
     public HmsOperationResponse applyDatabase(String jobId, String dbName, String locationUri) {
-        ApplyDatabaseRequest req = ApplyDatabaseRequest.newBuilder()
+        return applyDatabase(jobId, dbName, locationUri, null);
+    }
+
+    public HmsOperationResponse applyDatabase(String jobId, String dbName, String locationUri, String executionPrincipal) {
+        ApplyDatabaseRequest.Builder req = ApplyDatabaseRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setDbName(dbName)
-                .setLocationUri(locationUri != null ? locationUri : "")
-                .build();
-        return stub().applyDatabase(req);
+                .setLocationUri(locationUri != null ? locationUri : "");
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            req.setExecutionPrincipal(executionPrincipal);
+        }
+        return stub().applyDatabase(req.build());
     }
 
     public HmsOperationResponse applyTable(String jobId, HmsTableDto tableDto) {
-        ApplyTableRequest req = ApplyTableRequest.newBuilder()
+        return applyTable(jobId, tableDto, null);
+    }
+
+    public HmsOperationResponse applyTable(String jobId, HmsTableDto tableDto, String executionPrincipal) {
+        ApplyTableRequest.Builder req = ApplyTableRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
-                .setTable(HmsConversionHelper.toProto(tableDto))
-                .build();
-        return stub().applyTable(req);
+                .setTable(HmsConversionHelper.toProto(tableDto));
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            req.setExecutionPrincipal(executionPrincipal);
+        }
+        return stub().applyTable(req.build());
     }
 
     public HmsOperationResponse applyPartitionBatch(String jobId, String dbName, String tableName, List<HmsPartitionDto> partitions) {
+        return applyPartitionBatch(jobId, dbName, tableName, partitions, null);
+    }
+
+    public HmsOperationResponse applyPartitionBatch(String jobId, String dbName, String tableName, List<HmsPartitionDto> partitions, String executionPrincipal) {
         ApplyPartitionBatchRequest.Builder b = ApplyPartitionBatchRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setDbName(dbName)
                 .setTableName(tableName);
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            b.setExecutionPrincipal(executionPrincipal);
+        }
 
         for (HmsPartitionDto p : partitions) {
             b.addPartitions(HmsConversionHelper.toProto(p));
@@ -109,19 +128,32 @@ public class HmsPipelineSender implements Closeable {
     }
 
     public HmsOperationResponse reconcileExtraneousTables(String jobId, String dbName, List<String> dropTables) {
-        ReconcileExtraneousRequest req = ReconcileExtraneousRequest.newBuilder()
+        return reconcileExtraneousTables(jobId, dbName, dropTables, null);
+    }
+
+    public HmsOperationResponse reconcileExtraneousTables(String jobId, String dbName, List<String> dropTables, String executionPrincipal) {
+        ReconcileExtraneousRequest.Builder req = ReconcileExtraneousRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setDbName(dbName)
-                .addAllDropTables(dropTables)
-                .build();
-        return stub().reconcileExtraneous(req);
+                .addAllDropTables(dropTables);
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            req.setExecutionPrincipal(executionPrincipal);
+        }
+        return stub().reconcileExtraneous(req.build());
     }
 
     public HmsOperationResponse reconcileExtraneousPartitions(String jobId, String dbName, String tableName, List<List<String>> dropPartVals) {
+        return reconcileExtraneousPartitions(jobId, dbName, tableName, dropPartVals, null);
+    }
+
+    public HmsOperationResponse reconcileExtraneousPartitions(String jobId, String dbName, String tableName, List<List<String>> dropPartVals, String executionPrincipal) {
         ReconcileExtraneousRequest.Builder b = ReconcileExtraneousRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setDbName(dbName)
                 .setTableName(tableName);
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            b.setExecutionPrincipal(executionPrincipal);
+        }
 
         for (List<String> vals : dropPartVals) {
             b.addDropPartitions(HmsDroppedPartitionProto.newBuilder().addAllValues(vals).build());
@@ -131,12 +163,18 @@ public class HmsPipelineSender implements Closeable {
     }
 
     public GetMetadataSnapshotResponse getMetadataSnapshot(String jobId, String dbName, String tableName) {
-        GetMetadataSnapshotRequest req = GetMetadataSnapshotRequest.newBuilder()
+        return getMetadataSnapshot(jobId, dbName, tableName, null);
+    }
+
+    public GetMetadataSnapshotResponse getMetadataSnapshot(String jobId, String dbName, String tableName, String executionPrincipal) {
+        GetMetadataSnapshotRequest.Builder req = GetMetadataSnapshotRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setDbName(dbName)
-                .setTableName(tableName != null ? tableName : "")
-                .build();
-        return stub().getMetadataSnapshot(req);
+                .setTableName(tableName != null ? tableName : "");
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            req.setExecutionPrincipal(executionPrincipal);
+        }
+        return stub().getMetadataSnapshot(req.build());
     }
 
     @Override

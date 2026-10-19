@@ -234,6 +234,19 @@
     - **Lock-Free Fast-Path и кэширование маршрутов в Throttler (P1-3)**: в `TokenBucketThrottler` поле `limitBytesPerSec` переведено на `volatile double`, а в `SingleBucket.updateLimit` внедрен lock-free fast-path (`Math.abs(limit - newLimit) < 1e-6`), устраняющий захват блокировок `ReentrantLock` при неизменных лимитах. Введен кэш разрешенных маршрутов `routeCache` (`ConcurrentHashMap<String, RouteBinding>`), исключивший повторные обращения к топологии и аллокации строк на каждый пакет токенов.
     - **Single-Flight Token Lease Refill (P1-4)**: в `ReplicationSender` для запросов сетевых квот по маршрутам внедрен паттерн Single-Flight с `routeRefillLocks`. При исчерпании пачки токенов ровно один поток отправляет RPC-запрос к оркестратору на пополнение квоты (2 МБ), в то время как остальные параллельные потоки ожидают на блокировке маршрута и списывают токены из локального пула без паразитных сетевых RPC (ликвидация Thundering Herd).
 
+32. **Комплексный архитектурный Hardening: Безопасность, Отказоустойчивость и Java 21 LTS (Phase 4)**:
+    - **[SEC-03] Санитизация путей HDFS и экранирование Staging Reaper**: строгий шаблон `Pattern.compile(".*\\._staging_[a-zA-Z0-9_-]+$")` и валидация путей `HadoopFsManager.validatePathSafety` с проверкой схем `file:///` и `hdfs://` для предотвращения Path Traversal и случайного удаления пользовательских файлов данных.
+    - **[SEC-02] Fail-Closed gRPC Auth**: режим закрытого по умолчанию интерцептора `AgentGrpcAuthInterceptor` (`allowAnonymous = false` при отсутствии секрета).
+    - **[PERF-01] Memory-Bounded Flow Control при TAR-Streaming**: семафор памяти (`16 МБ` лимит) и оптимизация списков коммитов `$O(1)$` в `DataTransferServiceImpl` для предотвращения Out-Of-Memory (OOM) при обработке миллионов мелких файлов.
+    - **[RES-04] Целостность структуры TAR-потока**: проверка существования файла `fsManager.exists` перенесена до записи заголовка TAR-архива, исключая повреждение потока и разрыв распаковки.
+    - **[SEC-04] Валидация URL Schema Registry и SSRF**: внедрен `SchemaRegistryUrlValidator` с блокировкой облачных метаданных (`169.254.169.254`, `metadata.google.internal`) и link-local диапазонов, а также предупреждением о незашифрованной передаче Kerberos SPNEGO тикетов.
+    - **[RES-05] Устранение Carrier Thread Pinning**: в `SafetyCommitManager` критическая секция синхронизации переведена с монитора `synchronized` на `ReentrantLock`, предотвращая блокировку потоков-носителей виртуальных потоков Java 21 (Project Loom).
+    - **[SEC-06] doAs-имперсонация в Hive Metastore**: расширены gRPC контракты (`replicator.proto`) полем `execution_principal`, в `ThriftHmsClient` внедрен `executeAs` с валидацией имени принципала и `UserGroupInformation.createProxyUser`. Все DDL и snapshot операции выполняются строго под правами инициатора задачи с контролем Apache Ranger.
+    - **[SEC-05 & SEC-08] Защита топологии Kafka и изоляция Discovery**: не-администраторам запрещено указание произвольных keytab путей в `KafkaReplicationController`, заблокирован SSRF в Kafka Discovery при разрешении bootstrap-серверов.
+    - **[RES-02] Epoch Fencing и изоляция транзакций стриминга**: внедрен монотонный номер эпохи стримера (`epoch`) в `orchestrator_control_plane.proto` и `TaskService`. Отклоняются устаревшие пакеты событий от отгороженных стримеров при смене лидера. Безопасный fallback при отсутствии записи аренды в базе данных.
+    - **[RES-03] Защита активных передач от Staging Reaper**: проверка `DistributedFileSystem.isFileClosed` перед удалением staging-файлов, предотвращающая срыв передач сверхдлинных и тяжелых файлов (> 30 минут).
+    - **[SEC-07] Защита от Route Hijacking и Whitelist топологии**: в `TopologyRegistry` запрещена перезапись постоянных адресов кластеров динамическими воркерами, валидирован список кластеров `enforce-cluster-whitelist`.
+
 ---
 
 ## 2. Быстрый запуск

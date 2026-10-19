@@ -43,12 +43,10 @@ public class ConfluentRegistryClient {
     }
 
     public ConfluentRegistryClient(String baseUrl, HttpClient httpClient, SpnegoAuthenticator spnegoAuthenticator) {
-        if (baseUrl == null || baseUrl.isBlank()) {
-            throw new IllegalArgumentException("baseUrl must not be blank");
-        }
-        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.baseUrl = SchemaRegistryUrlValidator.validate(baseUrl);
         this.httpClient = httpClient;
         this.spnegoAuthenticator = spnegoAuthenticator;
+        SchemaRegistryUrlValidator.checkSpnegoSecurity(this.baseUrl, spnegoAuthenticator != null);
     }
 
     /**

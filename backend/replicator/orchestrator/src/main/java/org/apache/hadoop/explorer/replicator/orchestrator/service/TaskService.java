@@ -38,6 +38,7 @@ public class TaskService {
     private final TopologyRegistry topologyRegistry;
     private final ReplicatorProperties properties;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository;
 
     @Autowired
     public TaskService(TaskRepository taskRepository,
@@ -46,7 +47,8 @@ public class TaskService {
                        AgentRegistry agentRegistry,
                        TopologyRegistry topologyRegistry,
                        ReplicatorProperties properties,
-                       @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService) {
+                       @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
+                       @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository) {
         this.taskRepository = taskRepository;
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
@@ -54,6 +56,7 @@ public class TaskService {
         this.topologyRegistry = topologyRegistry;
         this.properties = properties;
         this.lockService = lockService;
+        this.leaseRepository = leaseRepository;
     }
 
     public TaskService(TaskRepository taskRepository,
@@ -62,7 +65,7 @@ public class TaskService {
                        AgentRegistry agentRegistry,
                        TopologyRegistry topologyRegistry,
                        ReplicatorProperties properties) {
-        this(taskRepository, jobRepository, jobRunRepository, agentRegistry, topologyRegistry, properties, null);
+        this(taskRepository, jobRepository, jobRunRepository, agentRegistry, topologyRegistry, properties, null, null);
     }
 
     /**
@@ -78,6 +81,17 @@ public class TaskService {
 
         JobEntity job = jobOpt.get();
         boolean isStreaming = "STREAMING_INOTIFY".equalsIgnoreCase(job.getSyncMode());
+
+        if (isStreaming && leaseRepository != null && req.getEpoch() != null && req.getEpoch() > 0) {
+            String clusterId = job.getSourceClusterId() != null ? job.getSourceClusterId() : "default";
+            var leaseOpt = leaseRepository.findById(clusterId);
+            if (leaseOpt.isPresent() && req.getEpoch() < leaseOpt.get().getEpoch()) {
+                log.warn("[Epoch Fencing] Отклонен пакет streaming задач от устаревшего/отгороженного стримера: jobId={}, clusterId={}, requestEpoch={}, activeEpoch={}",
+                        jobId, clusterId, req.getEpoch(), leaseOpt.get().getEpoch());
+                return false;
+            }
+        }
+
         List<TaskCreateItem> items = req.getTasks();
         if (items == null || items.isEmpty()) {
             if (!isStreaming) {
@@ -151,6 +165,9 @@ public class TaskService {
             if (job.getStartedAt() == null) {
                 job.setStartedAt(Instant.now());
             }
+            if (req.getLastProcessedTxid() != null && req.getLastProcessedTxid() > 0) {
+                job.setLastProcessedTxid(req.getLastProcessedTxid());
+            }
             job.setMessage(String.format("Inotify поток активен: добавлено %d объектов (%d байт)", totalObjectsCount, totalBytes));
         } else {
             job.setTotalObjects(totalObjectsCount);
@@ -181,6 +198,26 @@ public class TaskService {
         log.info("Для job '{}' сформирован пул из {} задач (всего объектов: {}, к передаче: {}, пропущено: {})",
                 jobId, items.size(), totalObjectsCount, totalObjectsCount - skippedObjectsCount, skippedObjectsCount);
         return true;
+    }
+
+    /**
+     * Проверяет, отгорожен ли стример по эпохе лизинга (Epoch Fencing).
+     */
+    public boolean isEpochFenced(String jobId, Long requestEpoch) {
+        if (jobId == null || requestEpoch == null || requestEpoch <= 0 || leaseRepository == null) {
+            return false;
+        }
+        var jobOpt = jobRepository.findById(jobId);
+        if (jobOpt.isEmpty()) {
+            return false;
+        }
+        JobEntity job = jobOpt.get();
+        if (!"STREAMING_INOTIFY".equalsIgnoreCase(job.getSyncMode())) {
+            return false;
+        }
+        String clusterId = job.getSourceClusterId() != null ? job.getSourceClusterId() : "default";
+        var leaseOpt = leaseRepository.findById(clusterId);
+        return leaseOpt.isPresent() && requestEpoch < leaseOpt.get().getEpoch();
     }
 
     /**

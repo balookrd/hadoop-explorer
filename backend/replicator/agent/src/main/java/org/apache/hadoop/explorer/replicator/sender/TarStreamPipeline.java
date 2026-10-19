@@ -161,14 +161,14 @@ public class TarStreamPipeline {
                 tarOut.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
 
                 for (ReplicationSender.BundleFileEntry entry : entries) {
+                    if (!fsManager.exists(entry.getSourcePath(), principal, asService)) {
+                        logger.warn("Файл бандла '{}' не найден в HDFS, пропуск до формирования записи TAR", entry.getSourcePath());
+                        continue;
+                    }
+
                     TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
                     tarEntry.setSize(entry.getSize());
                     tarOut.putArchiveEntry(tarEntry);
-
-                    if (!fsManager.exists(entry.getSourcePath(), principal, asService)) {
-                        logger.warn("Файл бандла '{}' не найден в HDFS, пропуск", entry.getSourcePath());
-                        continue;
-                    }
 
                     try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
                         IOUtils.copyBytes(in, tarOut, 32 * 1024, false);

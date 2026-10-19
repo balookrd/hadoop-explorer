@@ -29,6 +29,7 @@ public class SafetyCommitManager {
 
     private final AdminClient targetAdminClient;
     private final KafkaConsumer<?, ?> timeResolverConsumer;
+    private final java.util.concurrent.locks.ReentrantLock timeResolverLock = new java.util.concurrent.locks.ReentrantLock();
 
     public SafetyCommitManager(AdminClient targetAdminClient, KafkaConsumer<?, ?> timeResolverConsumer) {
         this.targetAdminClient = Objects.requireNonNull(targetAdminClient, "targetAdminClient must not be null");
@@ -67,8 +68,11 @@ public class SafetyCommitManager {
 
             Map<TopicPartition, OffsetAndTimestamp> foundOffsets = Collections.emptyMap();
             if (!timestampsToSearch.isEmpty()) {
-                synchronized (timeResolverConsumer) {
+                timeResolverLock.lock();
+                try {
                     foundOffsets = timeResolverConsumer.offsetsForTimes(timestampsToSearch, Duration.ofSeconds(5));
+                } finally {
+                    timeResolverLock.unlock();
                 }
             }
 

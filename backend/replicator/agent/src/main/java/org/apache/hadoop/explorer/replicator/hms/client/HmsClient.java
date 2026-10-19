@@ -41,4 +41,8 @@ public interface HmsClient {
     void dropTable(String dbName, String tableName, boolean deleteData);
 
     void dropPartition(String dbName, String tableName, List<String> partVals, boolean deleteData);
+
+    default <T> T executeAs(String executionPrincipal, java.util.concurrent.Callable<T> action) throws Exception {
+        return action.call();
+    }
 }

@@ -181,4 +181,22 @@ public class ThriftHmsClientTest {
         thriftHmsClient.close();
         assertTrue(pool.isClosed(), "Пул должен быть закрыт при закрытии ThriftHmsClient");
     }
+
+    @Test
+    @DisplayName("Проверка executeAs с валидным пользователем")
+    void testExecuteAsValidUser() throws Exception {
+        when(mockClient1.getAllDatabases()).thenReturn(List.of("sales_db"));
+        List<String> dbs = thriftHmsClient.executeAs("analyst_user@EXAMPLE.COM", () -> thriftHmsClient.getAllDatabases());
+        assertEquals(List.of("sales_db"), dbs);
+        verify(mockClient1).getAllDatabases();
+    }
+
+    @Test
+    @DisplayName("Проверка отклонения запрещенных системных принципалов в executeAs")
+    void testExecuteAsRejectsForbiddenPrincipal() {
+        assertThrows(SecurityException.class, () ->
+                thriftHmsClient.executeAs("root", () -> thriftHmsClient.getAllDatabases()));
+        assertThrows(SecurityException.class, () ->
+                thriftHmsClient.executeAs("../bad_user", () -> thriftHmsClient.getAllDatabases()));
+    }
 }

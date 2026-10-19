@@ -238,9 +238,18 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                 ));
             }
 
+            Long epoch = request.getEpoch() > 0 ? request.getEpoch() : null;
+            Long lastTxid = request.getLastProcessedTxid() > 0 ? request.getLastProcessedTxid() : null;
             org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest domainReq =
-                    new org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest(request.getJobId(), items);
+                    new org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest(request.getJobId(), items, epoch, lastTxid);
             boolean ok = taskService.batchCreateTasks(request.getJobId(), domainReq);
+
+            boolean fenced = false;
+            String errorMsg = "";
+            if (!ok) {
+                fenced = taskService.isEpochFenced(request.getJobId(), epoch);
+                errorMsg = fenced ? "Стример отгорожен (Epoch fencing: более свежая аренда)" : "Задание не найдено или отклонено";
+            }
 
             long queuedCount = taskService.getQueuedTasksCount(request.getJobId());
             boolean saturated = taskService.isQueueSaturated(request.getJobId(), null);
@@ -251,7 +260,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     .setTasksCount(items.size())
                     .setQueuedCount(queuedCount)
                     .setSaturated(saturated)
-                    .setError(ok ? "" : "Задание не найдено")
+                    .setFenced(fenced)
+                    .setError(errorMsg)
                     .build();
 
             responseObserver.onNext(resp);

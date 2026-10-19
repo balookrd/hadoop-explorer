@@ -114,4 +114,26 @@ class AgentRegistryTest {
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("hb-agent", "dc1", "169.254.169.254:50051", 0);
         assertThrows(SecurityException.class, () -> registry.heartbeat(hb, "secret-123"));
     }
+
+    @Test
+    @DisplayName("Должен защищать статический gRPC адрес кластера от перезаписи динамическим агентом")
+    void shouldProtectStaticClusterGrpcAddressFromHijacking() {
+        ReplicatorProperties customProps = new ReplicatorProperties();
+        customProps.setAgentSecret("secret-123");
+
+        ReplicatorProperties.ClusterConfig allowedCluster = new ReplicatorProperties.ClusterConfig();
+        allowedCluster.setId("prod-hdfs");
+        allowedCluster.setName("Production HDFS");
+        allowedCluster.setGrpcHost("gateway.prod.corp");
+        allowedCluster.setGrpcPort(50051);
+        customProps.setClusters(java.util.List.of(allowedCluster));
+
+        TopologyRegistry customTopology = new TopologyRegistry(customProps);
+        AgentRegistry customRegistry = new AgentRegistry(customProps, customTopology);
+
+        AgentRegisterRequest agentReg = new AgentRegisterRequest("node-1", "prod-hdfs", "all", "node-1:50051", "node-1", 100.0);
+        assertTrue(customRegistry.register(agentReg, "secret-123"));
+
+        assertEquals("gateway.prod.corp:50051", customTopology.getClusterGrpcAddress("prod-hdfs"));
+    }
 }

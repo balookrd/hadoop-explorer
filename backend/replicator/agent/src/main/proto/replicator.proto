@@ -188,6 +188,7 @@ message ApplyDatabaseRequest {
   string job_id = 1;
   string db_name = 2;
   string location_uri = 3;
+  string execution_principal = 4;
 }
 
 // Метаданные поля/колонки Hive таблицы или партиции
@@ -218,6 +219,7 @@ message HmsTableProto {
 message ApplyTableRequest {
   string job_id = 1;
   HmsTableProto table = 2;
+  string execution_principal = 3;
 }
 
 // Метаданные партиции Hive
@@ -238,6 +240,7 @@ message ApplyPartitionBatchRequest {
   string db_name = 2;
   string table_name = 3;
   repeated HmsPartitionProto partitions = 4;
+  string execution_principal = 5;
 }
 
 // Значения удаляемой партиции
@@ -252,6 +255,7 @@ message ReconcileExtraneousRequest {
   repeated string drop_tables = 3;
   string table_name = 4;
   repeated HmsDroppedPartitionProto drop_partitions = 5;
+  string execution_principal = 6;
 }
 
 // Событие из NOTIFICATION_LOG Hive Metastore
@@ -269,6 +273,7 @@ message HmsNotificationEventProto {
 message ApplyCdcBatchRequest {
   string job_id = 1;
   repeated HmsNotificationEventProto events = 2;
+  string execution_principal = 3;
 }
 
 // Запрос среза метаданных для двустороннего Diff
@@ -276,6 +281,7 @@ message GetMetadataSnapshotRequest {
   string job_id = 1;
   string db_name = 2;
   string table_name = 3;
+  string execution_principal = 4;
 }
 
 // Ответ со срезом метаданных

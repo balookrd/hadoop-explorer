@@ -18,6 +18,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.PrivilegedExceptionAction;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * Сервис обнаружения и очистки осиротевших staging-файлов (*._staging_*) в HDFS и локальной ФС.
@@ -26,10 +27,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class HdfsStagingReaper {
 
     private static final Logger logger = LoggerFactory.getLogger(HdfsStagingReaper.class);
+    public static final Pattern STAGING_FILE_PATTERN = Pattern.compile(".*\\._staging_[a-zA-Z0-9_-]+$");
 
     private final Configuration conf;
     private final KerberosUgiProvider ugiProvider;
     private final String defaultFsUri;
+
+    public static boolean isStagingFile(String fileName, String jobIdFilter) {
+        if (fileName == null || !STAGING_FILE_PATTERN.matcher(fileName).matches()) {
+            return false;
+        }
+        if (jobIdFilter != null && !jobIdFilter.isBlank()) {
+            return fileName.endsWith("._staging_" + jobIdFilter.trim());
+        }
+        return true;
+    }
 
     public HdfsStagingReaper(Configuration conf, KerberosUgiProvider ugiProvider, String defaultFsUri) {
         this.conf = conf != null ? conf : new Configuration();
@@ -42,6 +54,7 @@ public class HdfsStagingReaper {
         if (baseDirStr == null || baseDirStr.isBlank()) {
             return 0;
         }
+        HadoopFsManager.validatePathSafety(baseDirStr);
 
         boolean targetIsHdfs = baseDirStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(baseDirStr));
         long now = System.currentTimeMillis();
@@ -59,10 +72,13 @@ public class HdfsStagingReaper {
                     int deleted = 0;
                     if (!fs.getFileStatus(p).isDirectory()) {
                         String name = p.getName();
-                        if (name.contains("._staging_") || name.contains("_staging_")) {
-                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                        if (isStagingFile(name, jobIdFilter)) {
                             boolean matchAge = olderThanMillis <= 0 || (fs.getFileStatus(p).getModificationTime() <= cutoffTime);
-                            if (matchJob && matchAge) {
+                            if (matchAge) {
+                                if (isFileUnderConstruction(fs, p)) {
+                                    logger.info("Пропуск staging-файла HDFS {}: файл активно дописывается клиентом (under construction)", p);
+                                    return 0;
+                                }
                                 if (fs.delete(p, false)) deleted++;
                             }
                         }
@@ -73,10 +89,13 @@ public class HdfsStagingReaper {
                     while (iter.hasNext()) {
                         LocatedFileStatus status = iter.next();
                         String name = status.getPath().getName();
-                        if (name.contains("._staging_") || name.contains("_staging_")) {
-                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                        if (isStagingFile(name, jobIdFilter)) {
                             boolean matchAge = olderThanMillis <= 0 || (status.getModificationTime() <= cutoffTime);
-                            if (matchJob && matchAge) {
+                            if (matchAge) {
+                                if (isFileUnderConstruction(fs, status.getPath())) {
+                                    logger.info("Пропуск staging-файла HDFS {}: файл активно дописывается клиентом (under construction)", status.getPath());
+                                    continue;
+                                }
                                 try {
                                     if (fs.delete(status.getPath(), false)) {
                                         deleted++;
@@ -105,10 +124,9 @@ public class HdfsStagingReaper {
         AtomicInteger deletedLocal = new AtomicInteger(0);
         if (baseFile.isFile()) {
             String name = baseFile.getName();
-            if (name.contains("._staging_") || name.contains("_staging_")) {
-                boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+            if (isStagingFile(name, jobIdFilter)) {
                 boolean matchAge = olderThanMillis <= 0 || (baseFile.lastModified() <= cutoffTime);
-                if (matchJob && matchAge && baseFile.delete()) {
+                if (matchAge && baseFile.delete()) {
                     deletedLocal.incrementAndGet();
                 }
             }
@@ -120,10 +138,9 @@ public class HdfsStagingReaper {
                 @Override
                 public FileVisitResult visitFile(java.nio.file.Path file, BasicFileAttributes attrs) {
                     String name = file.getFileName().toString();
-                    if (name.contains("._staging_") || name.contains("_staging_")) {
-                        boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
+                    if (isStagingFile(name, jobIdFilter)) {
                         boolean matchAge = olderThanMillis <= 0 || (attrs.lastModifiedTime().toMillis() <= cutoffTime);
-                        if (matchJob && matchAge) {
+                        if (matchAge) {
                             try {
                                 if (Files.deleteIfExists(file)) {
                                     deletedLocal.incrementAndGet();
@@ -148,6 +165,17 @@ public class HdfsStagingReaper {
 
     public int cleanStagingFiles(String baseDirStr, long olderThanMillis) {
         return cleanStagingFiles(baseDirStr, null, olderThanMillis, null, true);
+    }
+
+    boolean isFileUnderConstruction(FileSystem fs, Path path) {
+        try {
+            if (fs instanceof org.apache.hadoop.hdfs.DistributedFileSystem dfs) {
+                return !dfs.isFileClosed(path);
+            }
+        } catch (Throwable t) {
+            logger.debug("Не удалось проверить isFileClosed для {}: {}", path, t.getMessage());
+        }
+        return false;
     }
 
     private boolean isLocalPath(String path) {

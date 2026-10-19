@@ -36,6 +36,7 @@ public class StreamingLeaseCoordinator {
     private final AgentRegistry agentRegistry;
     private final ReplicatorProperties properties;
     private final org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository taskRepository;
+    private final StreamingLeaseInitializer leaseInitializer;
 
     @Autowired
     public StreamingLeaseCoordinator(
@@ -43,13 +44,15 @@ public class StreamingLeaseCoordinator {
             JobRepository jobRepository,
             AgentRegistry agentRegistry,
             ReplicatorProperties properties,
-            org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository taskRepository
+            org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository taskRepository,
+            @Autowired(required = false) StreamingLeaseInitializer leaseInitializer
     ) {
         this.leaseRepository = leaseRepository;
         this.jobRepository = jobRepository;
         this.agentRegistry = agentRegistry;
         this.properties = properties != null ? properties : new ReplicatorProperties();
         this.taskRepository = taskRepository;
+        this.leaseInitializer = leaseInitializer != null ? leaseInitializer : new StreamingLeaseInitializer(leaseRepository);
     }
 
     public StreamingLeaseCoordinator(
@@ -58,7 +61,7 @@ public class StreamingLeaseCoordinator {
             AgentRegistry agentRegistry,
             ReplicatorProperties properties
     ) {
-        this(leaseRepository, jobRepository, agentRegistry, properties, null);
+        this(leaseRepository, jobRepository, agentRegistry, properties, null, null);
     }
 
     private boolean isClusterQueueSaturated(String clusterId, long pendingTasks) {
@@ -127,19 +130,13 @@ public class StreamingLeaseCoordinator {
         // 1. Попытка атомарного продления или перехвата протухшей аренды
         int updated = leaseRepository.tryAcquireOrRenewLease(clusterId, agentId, expiresAt, now);
         if (updated == 0 && !leaseRepository.existsById(clusterId)) {
-            // Первая инициализация лизинга для кластера
-            try {
-                StreamingLeaseEntity initial = new StreamingLeaseEntity(clusterId, agentId, 1L, expiresAt, now);
-                leaseRepository.saveAndFlush(initial);
-                log.info("[Streamer HA] Создана начальная аренда для кластера '{}': активный агент '{}', эпоха 1", clusterId, agentId);
-            } catch (Exception e) {
-                log.debug("[Streamer HA] Конкурентная инициализация лизинга кластера {}: {}", clusterId, e.getMessage());
-            }
+            // Первая инициализация лизинга для кластера в изолированной REQUIRES_NEW транзакции
+            leaseInitializer.tryCreateInitialLease(clusterId, agentId, expiresAt, now);
         }
 
         // 2. Читаем актуальное состояние лизинга
         StreamingLeaseEntity lease = leaseRepository.findById(clusterId).orElseGet(() ->
-                new StreamingLeaseEntity(clusterId, agentId, 1L, expiresAt, now)
+                new StreamingLeaseEntity(clusterId, "none", 0L, now.minusSeconds(1), now)
         );
 
         boolean isActive = agentId.equalsIgnoreCase(lease.getActiveAgentId()) && lease.getExpiresAt().isAfter(now);

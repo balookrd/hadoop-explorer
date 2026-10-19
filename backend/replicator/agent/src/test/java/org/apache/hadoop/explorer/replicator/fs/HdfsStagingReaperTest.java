@@ -76,4 +76,54 @@ class HdfsStagingReaperTest {
         assertEquals(0, reaper.cleanStagingFiles("", null, 0L, null, true));
         assertEquals(0, reaper.cleanStagingFiles("/non/existent/path/for/sure/123", null, 0L, null, true));
     }
+
+    @Test
+    @DisplayName("cleanStagingFiles: легитимные файлы пользователей со словом staging в имени НЕ удаляются")
+    void testLegitimateUserFileWithStagingInNameIsNotDeleted() throws Exception {
+        Path userStagingFile1 = tempDir.resolve("orders_staging_daily.parquet");
+        Path userStagingFile2 = tempDir.resolve("etl_staging_log.orc");
+        Path validStagingFile = tempDir.resolve("data.parquet._staging_uuid-999");
+
+        Files.writeString(userStagingFile1, "user data 1");
+        Files.writeString(userStagingFile2, "user data 2");
+        Files.writeString(validStagingFile, "temporary replica chunk");
+
+        // Устанавливаем mtime в прошлое для всех трех файлов (2 часа назад)
+        long twoHoursAgo = System.currentTimeMillis() - (2 * 60 * 60 * 1000L);
+        new File(userStagingFile1.toString()).setLastModified(twoHoursAgo);
+        new File(userStagingFile2.toString()).setLastModified(twoHoursAgo);
+        new File(validStagingFile.toString()).setLastModified(twoHoursAgo);
+
+        // Запуск очистки без фильтра по jobId и с TTL = 1 час (3600000 мс)
+        int cleaned = reaper.cleanStagingFiles(tempDir.toString(), null, 3600000L, null, true);
+
+        assertEquals(1, cleaned, "Должен быть удален только реальный staging-файл");
+        assertFalse(Files.exists(validStagingFile), "Staging файл с суффиксом ._staging_<id> должен быть удален");
+        assertTrue(Files.exists(userStagingFile1), "orders_staging_daily.parquet НЕ должен быть удален");
+        assertTrue(Files.exists(userStagingFile2), "etl_staging_log.orc НЕ должен быть удален");
+    }
+
+    @Test
+    @DisplayName("cleanStagingFiles: активные staging-файлы в состоянии under construction не удаляются рипером")
+    void testFileUnderConstructionIsNotDeleted() throws Exception {
+        Path activeStaging = tempDir.resolve("big_file.parquet._staging_job-active");
+        Files.writeString(activeStaging, "active stream in progress");
+
+        // Устанавливаем mtime в прошлое (2 часа назад)
+        long twoHoursAgo = System.currentTimeMillis() - (2 * 60 * 60 * 1000L);
+        new File(activeStaging.toString()).setLastModified(twoHoursAgo);
+
+        // Создаем подкласс рипера с переопределенным isFileUnderConstruction = true
+        HdfsStagingReaper mockUnderConstructionReaper = new HdfsStagingReaper(new Configuration(), null, "file:///") {
+            @Override
+            boolean isFileUnderConstruction(org.apache.hadoop.fs.FileSystem fs, org.apache.hadoop.fs.Path path) {
+                return true;
+            }
+        };
+
+        // Запуск очистки для HDFS пути через Mock-рипер
+        int cleaned = mockUnderConstructionReaper.cleanStagingFiles(tempDir.toUri().toString(), "job-active", 3600000L, null, true);
+        assertEquals(0, cleaned, "Файл under construction не должен быть удален");
+        assertTrue(Files.exists(activeStaging), "Активный файл должен остаться на диске");
+    }
 }

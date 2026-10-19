@@ -113,6 +113,7 @@ hadoop:
       tls-enabled: ${REPLICATOR_GRPC_TLS_ENABLED:false}
     global-limit-bytes-per-sec: 104857600
     agent-secret: "replicator-secure-agent-secret-key-12345"
+    enforce-cluster-whitelist: ${HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST:false}
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
     hms-poll-interval-ms: 5000

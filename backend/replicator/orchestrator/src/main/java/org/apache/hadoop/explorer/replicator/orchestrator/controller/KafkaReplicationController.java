@@ -81,6 +81,23 @@ public class KafkaReplicationController {
     @PostMapping("/jobs")
     public ResponseEntity<KafkaReplicationJobDto> createJob(@jakarta.validation.Valid @RequestBody CreateKafkaJobRequest request) {
         requireWriterOrAdmin();
+        UserSession session = getSession();
+        boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
+        if (!isAdmin) {
+            // [SEC-05] Запрет задания произвольных путей keytab для не-администраторов
+            if ((request.getSourceKeytabPath() != null && !request.getSourceKeytabPath().isBlank()) ||
+                (request.getTargetKeytabPath() != null && !request.getTargetKeytabPath().isBlank())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Задание путей к файлам keytab разрешено исключительно администраторам платформы");
+            }
+            if (request.getSourcePrincipal() != null && !request.getSourcePrincipal().isBlank()) {
+                org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(request.getSourcePrincipal());
+            }
+            if (request.getTargetPrincipal() != null && !request.getTargetPrincipal().isBlank()) {
+                org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(request.getTargetPrincipal());
+            }
+            applyTopologyDefaultsForNonAdmin(request);
+        }
         KafkaReplicationJobDto created = service.createJob(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -216,9 +233,56 @@ public class KafkaReplicationController {
         return discoverGroups(dc, null, null, search);
     }
 
+    private void applyTopologyDefaultsForNonAdmin(CreateKafkaJobRequest request) {
+        if (topologyRegistry == null) return;
+        for (var c : topologyRegistry.getClusters()) {
+            var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+            if (cfg == null) continue;
+            if (request.getSourceDc() != null && request.getSourceDc().equalsIgnoreCase(cfg.getDcId())) {
+                if (cfg.isKerberosEnabled()) {
+                    request.setSourceKerberosEnabled(true);
+                    request.setSourcePrincipal(cfg.getPrincipal());
+                    request.setSourceKeytabPath(cfg.getKeytabPath());
+                }
+            }
+            if (request.getTargetDc() != null && request.getTargetDc().equalsIgnoreCase(cfg.getDcId())) {
+                if (cfg.isKerberosEnabled()) {
+                    request.setTargetKerberosEnabled(true);
+                    request.setTargetPrincipal(cfg.getPrincipal());
+                    request.setTargetKeytabPath(cfg.getKeytabPath());
+                }
+            }
+        }
+    }
+
+    private boolean isKnownBootstrap(String bootstrap) {
+        if (bootstrap == null || bootstrap.isBlank() || topologyRegistry == null) {
+            return false;
+        }
+        String trimmed = bootstrap.trim();
+        for (var c : topologyRegistry.getClusters()) {
+            var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+            if (cfg != null && trimmed.equalsIgnoreCase(cfg.getKafkaBootstrapServers())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String resolveBootstrap(String dc, String clusterId, String bootstrapServers) {
         if (bootstrapServers != null && !bootstrapServers.isBlank()) {
-            return bootstrapServers;
+            String trimmed = bootstrapServers.trim();
+            if (trimmed.contains("169.254.") || trimmed.toLowerCase().contains("metadata")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Заблокирована попытка обращения к сервису метаданных или link-local");
+            }
+            UserSession session = getSession();
+            boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
+            if (!isAdmin && topologyRegistry != null && !isKnownBootstrap(trimmed)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Указание произвольного bootstrap-сервера разрешено только администраторам платформы");
+            }
+            return trimmed;
         }
         if (topologyRegistry == null) {
             return null;

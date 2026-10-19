@@ -78,6 +78,11 @@ public class TopologyRegistry {
         String[] parts = grpcAddress.split(":");
         ReplicatorProperties.ClusterConfig config = clusters.get(clusterId);
         if (config != null) {
+            // Защита от Route Hijacking: если в топологии уже сконфигурирован постоянный gRPC шлюз/хост,
+            // запрещаем произвольным агентам динамически перезаписывать адрес кластера.
+            if (config.getGrpcHost() != null && !config.getGrpcHost().isBlank() && !"localhost".equalsIgnoreCase(config.getGrpcHost())) {
+                return;
+            }
             config.setGrpcHost(parts[0]);
             try {
                 config.setGrpcPort(Integer.parseInt(parts[1]));

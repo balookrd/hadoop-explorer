@@ -31,9 +31,13 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
         try {
             String dbName = request.getDbName();
             String loc = request.getLocationUri().isBlank() ? null : request.getLocationUri();
-            hmsClient.createDatabase(dbName, loc);
+            hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
+                hmsClient.createDatabase(dbName, loc);
+                return null;
+            });
 
-            log.info("[HmsTransferService] База данных '{}' успешно создана/проверена на целевом кластере", dbName);
+            log.info("[HmsTransferService] База данных '{}' успешно создана/проверена на целевом кластере (doAs={})",
+                    dbName, request.getExecutionPrincipal());
             responseObserver.onNext(HmsOperationResponse.newBuilder()
                     .setJobId(request.getJobId())
                     .setSuccess(true)
@@ -55,17 +59,20 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
     public void applyTable(ApplyTableRequest request, StreamObserver<HmsOperationResponse> responseObserver) {
         try {
             HmsTableDto tableDto = HmsConversionHelper.toDto(request.getTable());
-            Optional<HmsTableDto> existing = hmsClient.getTable(tableDto.dbName(), tableDto.tableName());
+            hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
+                Optional<HmsTableDto> existing = hmsClient.getTable(tableDto.dbName(), tableDto.tableName());
 
-            if (existing.isPresent()) {
-                log.info("[HmsTransferService] Таблица {}.{} уже существует на приемнике — выполнение alterTable",
-                        tableDto.dbName(), tableDto.tableName());
-                hmsClient.alterTable(tableDto);
-            } else {
-                log.info("[HmsTransferService] Создание таблицы {}.{} на приемнике",
-                        tableDto.dbName(), tableDto.tableName());
-                hmsClient.createTable(tableDto);
-            }
+                if (existing.isPresent()) {
+                    log.info("[HmsTransferService] Таблица {}.{} уже существует на приемнике — выполнение alterTable (doAs={})",
+                            tableDto.dbName(), tableDto.tableName(), request.getExecutionPrincipal());
+                    hmsClient.alterTable(tableDto);
+                } else {
+                    log.info("[HmsTransferService] Создание таблицы {}.{} на приемнике (doAs={})",
+                            tableDto.dbName(), tableDto.tableName(), request.getExecutionPrincipal());
+                    hmsClient.createTable(tableDto);
+                }
+                return null;
+            });
 
             responseObserver.onNext(HmsOperationResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -93,11 +100,14 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
                     .toList();
 
             if (!batch.isEmpty()) {
-                hmsClient.addPartitions(request.getDbName(), request.getTableName(), batch);
+                hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
+                    hmsClient.addPartitions(request.getDbName(), request.getTableName(), batch);
+                    return null;
+                });
             }
 
-            log.info("[HmsTransferService] Успешно применено {} партиций для {}.{}",
-                    batch.size(), request.getDbName(), request.getTableName());
+            log.info("[HmsTransferService] Успешно применено {} партиций для {}.{} (doAs={})",
+                    batch.size(), request.getDbName(), request.getTableName(), request.getExecutionPrincipal());
 
             responseObserver.onNext(HmsOperationResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -121,26 +131,28 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
     @Override
     public void reconcileExtraneous(ReconcileExtraneousRequest request, StreamObserver<HmsOperationResponse> responseObserver) {
         try {
-            int droppedCount = 0;
-
-            // Удаление лишних таблиц (deleteData = false)
-            for (String extraTbl : request.getDropTablesList()) {
-                log.warn("[HmsTransferService] Reconciliation: удаление лишней таблицы на приемнике: {}.{}",
-                        request.getDbName(), extraTbl);
-                hmsClient.dropTable(request.getDbName(), extraTbl, false);
-                droppedCount++;
-            }
-
-            // Удаление лишних партиций (deleteData = false)
-            if (!request.getTableName().isBlank() && !request.getDropPartitionsList().isEmpty()) {
-                for (HmsDroppedPartitionProto p : request.getDropPartitionsList()) {
-                    List<String> vals = p.getValuesList();
-                    log.warn("[HmsTransferService] Reconciliation: удаление лишней партиции на приемнике: {}.{} [{}]",
-                            request.getDbName(), request.getTableName(), vals);
-                    hmsClient.dropPartition(request.getDbName(), request.getTableName(), vals, false);
-                    droppedCount++;
+            int droppedCount = hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
+                int count = 0;
+                // Удаление лишних таблиц (deleteData = false)
+                for (String extraTbl : request.getDropTablesList()) {
+                    log.warn("[HmsTransferService] Reconciliation: удаление лишней таблицы на приемнике: {}.{} (doAs={})",
+                            request.getDbName(), extraTbl, request.getExecutionPrincipal());
+                    hmsClient.dropTable(request.getDbName(), extraTbl, false);
+                    count++;
                 }
-            }
+
+                // Удаление лишних партиций (deleteData = false)
+                if (!request.getTableName().isBlank() && !request.getDropPartitionsList().isEmpty()) {
+                    for (HmsDroppedPartitionProto p : request.getDropPartitionsList()) {
+                        List<String> vals = p.getValuesList();
+                        log.warn("[HmsTransferService] Reconciliation: удаление лишней партиции на приемнике: {}.{} [{}] (doAs={})",
+                                request.getDbName(), request.getTableName(), vals, request.getExecutionPrincipal());
+                        hmsClient.dropPartition(request.getDbName(), request.getTableName(), vals, false);
+                        count++;
+                    }
+                }
+                return count;
+            });
 
             responseObserver.onNext(HmsOperationResponse.newBuilder()
                     .setJobId(request.getJobId())
@@ -163,25 +175,28 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
     @Override
     public void getMetadataSnapshot(GetMetadataSnapshotRequest request, StreamObserver<GetMetadataSnapshotResponse> responseObserver) {
         try {
-            boolean dbExists = hmsClient.getAllDatabases().stream()
-                    .anyMatch(d -> d.equalsIgnoreCase(request.getDbName()));
+            hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
+                boolean dbExists = hmsClient.getAllDatabases().stream()
+                        .anyMatch(d -> d.equalsIgnoreCase(request.getDbName()));
 
-            List<String> tables = dbExists ? hmsClient.getAllTables(request.getDbName()) : List.of();
-            List<HmsPartitionProto> partitionProtos = new ArrayList<>();
+                List<String> tables = dbExists ? hmsClient.getAllTables(request.getDbName()) : List.of();
+                List<HmsPartitionProto> partitionProtos = new ArrayList<>();
 
-            if (!request.getTableName().isBlank() && tables.contains(request.getTableName())) {
-                List<HmsPartitionDto> partitions = hmsClient.getPartitions(request.getDbName(), request.getTableName());
-                for (HmsPartitionDto p : partitions) {
-                    partitionProtos.add(HmsConversionHelper.toProto(p));
+                if (!request.getTableName().isBlank() && tables.contains(request.getTableName())) {
+                    List<HmsPartitionDto> partitions = hmsClient.getPartitions(request.getDbName(), request.getTableName());
+                    for (HmsPartitionDto p : partitions) {
+                        partitionProtos.add(HmsConversionHelper.toProto(p));
+                    }
                 }
-            }
 
-            responseObserver.onNext(GetMetadataSnapshotResponse.newBuilder()
-                    .setDbExists(dbExists)
-                    .addAllExistingTables(tables)
-                    .addAllExistingPartitions(partitionProtos)
-                    .build());
-            responseObserver.onCompleted();
+                responseObserver.onNext(GetMetadataSnapshotResponse.newBuilder()
+                        .setDbExists(dbExists)
+                        .addAllExistingTables(tables)
+                        .addAllExistingPartitions(partitionProtos)
+                        .build());
+                responseObserver.onCompleted();
+                return null;
+            });
         } catch (Exception e) {
             log.error("[HmsTransferService] Ошибка получения снимка метаданных: {}", e.getMessage(), e);
             responseObserver.onError(e);

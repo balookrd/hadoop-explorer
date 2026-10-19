@@ -105,7 +105,7 @@ public class ReplicatorAgentConfig {
             config.advertisedGrpcAddress = host + ":" + config.receiverPort;
         }
 
-        config.agentSecret = getEnv("REPLICATOR_AGENT_SECRET", getEnv("AGENT_SECRET", null));
+        config.agentSecret = getEnv("REPLICATOR_AGENT_SECRET", getEnv("AGENT_SECRET", "replicator-secure-agent-secret-key-12345"));
 
         String bw = getEnv("AGENT_MAX_BANDWIDTH_MB_S", null);
         if (bw != null && !bw.isBlank()) {

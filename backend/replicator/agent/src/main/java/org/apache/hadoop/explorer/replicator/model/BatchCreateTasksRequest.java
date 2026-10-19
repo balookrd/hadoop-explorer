@@ -18,6 +18,12 @@ public class BatchCreateTasksRequest {
     @JsonProperty("tasks")
     private List<TaskCreateItem> tasks = new ArrayList<>();
 
+    @JsonProperty("epoch")
+    private Long epoch;
+
+    @JsonProperty("last_processed_txid")
+    private Long lastProcessedTxid;
+
     public BatchCreateTasksRequest() {}
 
     public BatchCreateTasksRequest(List<TaskCreateItem> tasks) {
@@ -25,8 +31,14 @@ public class BatchCreateTasksRequest {
     }
 
     public BatchCreateTasksRequest(String jobId, List<TaskCreateItem> tasks) {
+        this(jobId, tasks, null, null);
+    }
+
+    public BatchCreateTasksRequest(String jobId, List<TaskCreateItem> tasks, Long epoch, Long lastProcessedTxid) {
         this.jobId = jobId;
         this.tasks = tasks != null ? tasks : new ArrayList<>();
+        this.epoch = epoch;
+        this.lastProcessedTxid = lastProcessedTxid;
     }
 
     public String getJobId() { return jobId; }
@@ -34,4 +46,10 @@ public class BatchCreateTasksRequest {
 
     public List<TaskCreateItem> getTasks() { return tasks; }
     public void setTasks(List<TaskCreateItem> tasks) { this.tasks = tasks; }
+
+    public Long getEpoch() { return epoch; }
+    public void setEpoch(Long epoch) { this.epoch = epoch; }
+
+    public Long getLastProcessedTxid() { return lastProcessedTxid; }
+    public void setLastProcessedTxid(Long lastProcessedTxid) { this.lastProcessedTxid = lastProcessedTxid; }
 }

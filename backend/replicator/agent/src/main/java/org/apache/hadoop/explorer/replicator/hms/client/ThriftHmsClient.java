@@ -41,6 +41,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private final Configuration conf;
     private final UserGroupInformation ugi;
     private final GenericObjectPool<IMetaStoreClient> clientPool;
+    private final ThreadLocal<String> currentExecutionPrincipal = new ThreadLocal<>();
 
     public ThriftHmsClient(String clusterId, String thriftUris, String kerberosPrincipal, String keytabPath) {
         this(clusterId, thriftUris, kerberosPrincipal, keytabPath, 16);
@@ -147,10 +148,39 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         }
     }
 
+    @Override
+    public <T> T executeAs(String executionPrincipal, java.util.concurrent.Callable<T> action) throws Exception {
+        if (executionPrincipal == null || executionPrincipal.isBlank()) {
+            return action.call();
+        }
+        org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(executionPrincipal);
+        currentExecutionPrincipal.set(executionPrincipal);
+        try {
+            return action.call();
+        } finally {
+            currentExecutionPrincipal.remove();
+        }
+    }
+
+    private UserGroupInformation resolveEffectiveUgi() {
+        String principal = currentExecutionPrincipal.get();
+        if (principal == null || principal.isBlank()) {
+            return this.ugi;
+        }
+        org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(principal);
+        String username = org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.extractUsername(principal);
+        if (this.ugi != null) {
+            return UserGroupInformation.createProxyUser(username, this.ugi);
+        } else {
+            return UserGroupInformation.createRemoteUser(username);
+        }
+    }
+
     private <T> T doExecute(IMetaStoreClient client, HmsOperation<T> operation) throws Exception {
-        if (ugi != null) {
+        UserGroupInformation effectiveUgi = resolveEffectiveUgi();
+        if (effectiveUgi != null) {
             try {
-                return ugi.doAs((PrivilegedExceptionAction<T>) () -> operation.execute(client));
+                return effectiveUgi.doAs((PrivilegedExceptionAction<T>) () -> operation.execute(client));
             } catch (java.lang.reflect.UndeclaredThrowableException ute) {
                 Throwable cause = ute.getCause();
                 if (cause instanceof Exception e) throw e;

@@ -18,6 +18,7 @@ import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -436,7 +437,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
             private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
             private final AtomicBoolean cancelled = new AtomicBoolean(false);
-            private final List<CompletableFuture<Void>> commitFutures = new CopyOnWriteArrayList<>();
+            private final List<CompletableFuture<Void>> commitFutures = Collections.synchronizedList(new ArrayList<>());
 
             private void releasePermit() {
                 if (permitAcquired.compareAndSet(true, false)) {
@@ -488,6 +489,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         final InputStream inStream = pipedIn;
 
                         // Ограничение параллелизма in-flight коммитов файлов одного бандла для сдерживания памяти
+                        final int MAX_BUNDLE_BUFFER_BYTES = 16 * 1024 * 1024; // 16 МБ максимум на стрим
+                        final Semaphore memoryLimiter = new Semaphore(MAX_BUNDLE_BUFFER_BYTES);
                         final Semaphore fileCommitLimiter = new Semaphore(Math.max(2, bundleCommitConcurrency * 2));
 
                         // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS
@@ -508,17 +511,26 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     }
                                     String relPath = entry.getName();
                                     long entrySize = entry.getSize();
-                                    if (entrySize > 32 * 1024 * 1024L) {
-                                        throw new SecurityException("Размер файла '" + relPath + "' в TAR-бандле превышает лимит 32 МБ: " + entrySize);
+                                    if (entrySize > 8 * 1024 * 1024L) {
+                                        throw new SecurityException("Размер файла '" + relPath + "' в TAR-бандле превышает лимит 8 МБ: " + entrySize);
                                     }
-                                    ByteArrayOutputStream baos = new ByteArrayOutputStream((int) Math.max(0, Math.min(entrySize > 0 ? entrySize : 64 * 1024, 32 * 1024 * 1024)));
+                                    final int estimatedBytes = (int) Math.max(32 * 1024, Math.min(entrySize > 0 ? entrySize : 64 * 1024, MAX_BUNDLE_BUFFER_BYTES));
+                                    try {
+                                        memoryLimiter.acquire(estimatedBytes);
+                                        fileCommitLimiter.acquire();
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new IOException("Прервано ожидание слота памяти для коммита файла: " + relPath, ie);
+                                    }
+
+                                    ByteArrayOutputStream baos = new ByteArrayOutputStream((int) Math.max(0, Math.min(entrySize > 0 ? entrySize : 64 * 1024, 8 * 1024 * 1024)));
                                     byte[] readBuf = new byte[32768];
                                     int r;
                                     long totalRead = 0;
                                     while ((r = tarIn.read(readBuf)) != -1) {
                                         totalRead += r;
-                                        if (totalRead > 32 * 1024 * 1024L) {
-                                            throw new SecurityException("Превышен лимит размера (32 МБ) при чтении файла '" + relPath + "' из TAR-архива (Tar Bomb)");
+                                        if (totalRead > 8 * 1024 * 1024L) {
+                                            throw new SecurityException("Превышен лимит размера (8 МБ) при чтении файла '" + relPath + "' из TAR-архива (Tar Bomb)");
                                         }
                                         baos.write(readBuf, 0, r);
                                     }
@@ -530,14 +542,6 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     activeStagingSizes.put(stagingPath, (long) fileData.length);
                                     AgentMetrics.getInstance().recordStagingFileStart();
                                     AgentMetrics.getInstance().recordStagingBytes(fileData.length);
-
-                                    // Захватываем разрешение на коммит файла (сдерживает чтение из tarIn и pipe buffer)
-                                    try {
-                                        fileCommitLimiter.acquire();
-                                    } catch (InterruptedException ie) {
-                                        Thread.currentThread().interrupt();
-                                        throw new IOException("Прервано ожидание слота коммита файла: " + relPath, ie);
-                                    }
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         if (cancelled.get() || Thread.currentThread().isInterrupted()) {
@@ -603,6 +607,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                     .build());
                                         } finally {
                                             fileCommitLimiter.release();
+                                            memoryLimiter.release(estimatedBytes);
                                         }
                                     }, bundleCommitExecutor);
                                     commitFutures.add(fut);

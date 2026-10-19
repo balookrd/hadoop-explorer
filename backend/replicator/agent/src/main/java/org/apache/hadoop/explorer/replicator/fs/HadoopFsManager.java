@@ -149,8 +149,23 @@ public class HadoopFsManager {
         if (normalized.contains("..")) {
             throw new SecurityException("Попытка Path Traversal ('..') в пути: " + pathStr);
         }
+        String pathOnly = normalized;
+        if (normalized.contains("://")) {
+            try {
+                java.net.URI uri = java.net.URI.create(normalized);
+                if (uri.getPath() != null && !uri.getPath().isEmpty()) {
+                    pathOnly = uri.getPath();
+                }
+            } catch (Exception ignored) {
+                int schemeIdx = normalized.indexOf("://");
+                int slashIdx = normalized.indexOf('/', schemeIdx + 3);
+                if (slashIdx >= 0) {
+                    pathOnly = normalized.substring(slashIdx);
+                }
+            }
+        }
         for (String forbidden : FORBIDDEN_OS_PREFIXES) {
-            if (normalized.equalsIgnoreCase(forbidden) || normalized.toLowerCase().startsWith(forbidden + "/")) {
+            if (pathOnly.equalsIgnoreCase(forbidden) || pathOnly.toLowerCase().startsWith(forbidden + "/")) {
                 throw new SecurityException("Доступ к системным путям ОС запрещен политикой безопасности: " + pathStr);
             }
         }
@@ -550,8 +565,15 @@ public class HadoopFsManager {
             return true;
         }
 
-        // Staging-файлы Replicator (содержащие ._staging_ или _staging_)
-        if (lower.contains("._staging_") || lower.contains(".staging.") || lower.contains("_staging_")) {
+        // Staging-файлы Replicator (строгий суффикс ._staging_<id>)
+        if (lower.contains("._staging_")) {
+            int idx = lower.lastIndexOf("._staging_");
+            String after = lower.substring(idx + "._staging_".length());
+            if (!after.isEmpty() && after.matches("^[a-zA-Z0-9_-]+$")) {
+                return true;
+            }
+        }
+        if (lower.contains(".staging.") && (lower.startsWith(".") || lower.contains("/."))) {
             return true;
         }
 

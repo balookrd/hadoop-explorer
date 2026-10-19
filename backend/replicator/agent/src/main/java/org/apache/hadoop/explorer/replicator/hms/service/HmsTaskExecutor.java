@@ -170,7 +170,7 @@ public class HmsTaskExecutor implements Closeable {
             long highWaterMark = hmsClient.getCurrentNotificationEventId();
 
             // 1. Создание БД на целевой стороне и валидация ответа
-            var dbResp = sender.applyDatabase(job.id(), job.targetDbName(), null);
+            var dbResp = sender.applyDatabase(job.id(), job.targetDbName(), null, job.executionPrincipal());
             if (!dbResp.getSuccess()) {
                 throw new RuntimeException("Целевой агент вернул ошибку при создании БД '" + job.targetDbName() + "': " + dbResp.getMessage());
             }
@@ -185,7 +185,7 @@ public class HmsTaskExecutor implements Closeable {
             // 2. Двусторонний Diff и Reconciliation лишних таблиц
             if (job.dropExtraneousTables()) {
                 try {
-                    GetMetadataSnapshotResponse snapshot = sender.getMetadataSnapshot(job.id(), job.targetDbName(), "");
+                    GetMetadataSnapshotResponse snapshot = sender.getMetadataSnapshot(job.id(), job.targetDbName(), "", job.executionPrincipal());
                     List<String> targetExistingTables = snapshot.getExistingTablesList();
                     Set<String> sourceTableSet = new HashSet<>(tables);
 
@@ -195,7 +195,7 @@ public class HmsTaskExecutor implements Closeable {
 
                     if (!dropTables.isEmpty()) {
                         log.warn("[HmsTaskExecutor] Reconciliation: обнаружены лишние таблицы на приемнике: {}", dropTables);
-                        var dropResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), dropTables);
+                        var dropResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), dropTables, job.executionPrincipal());
                         if (!dropResp.getSuccess()) {
                             log.error("[HmsTaskExecutor] Ошибка согласования лишних таблиц: {}", dropResp.getMessage());
                         }
@@ -369,7 +369,7 @@ public class HmsTaskExecutor implements Closeable {
                 table.partitionKeyFields(),
                 table.serdeParameters()
         );
-        var tableResp = sender.applyTable(job.id(), targetTable);
+        var tableResp = sender.applyTable(job.id(), targetTable, job.executionPrincipal());
         if (!tableResp.getSuccess()) {
             throw new RuntimeException("Целевой агент вернул ошибку при создании/обновлении таблицы " + tblName + ": " + tableResp.getMessage());
         }
@@ -382,7 +382,7 @@ public class HmsTaskExecutor implements Closeable {
             // Reconciliation партиций:
             if (job.dropExtraneousPartitions()) {
                 try {
-                    GetMetadataSnapshotResponse partSnapshot = sender.getMetadataSnapshot(job.id(), job.targetDbName(), tblName);
+                    GetMetadataSnapshotResponse partSnapshot = sender.getMetadataSnapshot(job.id(), job.targetDbName(), tblName, job.executionPrincipal());
                     Set<List<String>> srcPartitionValues = allPartitions.stream()
                             .map(HmsPartitionDto::values)
                             .collect(Collectors.toSet());
@@ -396,7 +396,7 @@ public class HmsTaskExecutor implements Closeable {
                     }
 
                     if (!dropPartitionVals.isEmpty()) {
-                        var partDropResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tblName, dropPartitionVals);
+                        var partDropResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tblName, dropPartitionVals, job.executionPrincipal());
                         if (!partDropResp.getSuccess()) {
                             log.warn("[HmsTaskExecutor] Сбой согласования партиций: {}", partDropResp.getMessage());
                         }
@@ -464,7 +464,7 @@ public class HmsTaskExecutor implements Closeable {
                 }
 
                 if (!targetChunk.isEmpty()) {
-                    var chunkResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, targetChunk);
+                    var chunkResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, targetChunk, job.executionPrincipal());
                     if (!chunkResp.getSuccess()) {
                         throw new RuntimeException("Целевой агент вернул ошибку при пакетной вставке партиций: " + chunkResp.getMessage());
                     }
@@ -565,7 +565,7 @@ public class HmsTaskExecutor implements Closeable {
                             var partResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
                                      new HmsPartitionDto("hive", job.targetDbName(), tbl, part.values(), partRewrite.targetUri(),
                                             part.parameters(), part.columns(), part.serdeParameters())
-                            ));
+                            ), job.executionPrincipal());
 
                             String partName = part.getPartitionName(optTable.get().partitionKeys());
                             boolean ok = partResp.getSuccess();
@@ -605,7 +605,7 @@ public class HmsTaskExecutor implements Closeable {
                                         table.inputFormat(), table.outputFormat(), table.serdeLib(),
                                         table.columns(), table.partitionKeyFields(), table.serdeParameters()
                                 );
-                                var tblResp = sender.applyTable(job.id(), targetTable);
+                                var tblResp = sender.applyTable(job.id(), targetTable, job.executionPrincipal());
                                 boolean ok = tblResp.getSuccess();
                                 eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
                                         rewrite.sourceUri(), rewrite.targetUri(), subjobId,
@@ -622,7 +622,7 @@ public class HmsTaskExecutor implements Closeable {
                         }
                     }
                 } else if ("DROP_TABLE".equalsIgnoreCase(eventType)) {
-                    var dropTblResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl));
+                    var dropTblResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl), job.executionPrincipal());
                     boolean ok = dropTblResp.getSuccess();
                     eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null,
                             ok ? "APPLIED" : "FAILED", "deleteData=false"));
@@ -643,7 +643,7 @@ public class HmsTaskExecutor implements Closeable {
                         }
                     } catch (Exception ignored) {}
                     if (!partVals.isEmpty()) {
-                        var dropPartResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals));
+                        var dropPartResp = sender.reconcileExtraneousPartitions(job.id(), job.targetDbName(), tbl, List.of(partVals), job.executionPrincipal());
                         boolean ok = dropPartResp.getSuccess();
                         eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, String.join(",", partVals), null, null, null,
                                 ok ? "APPLIED" : "FAILED", "deleteData=false"));

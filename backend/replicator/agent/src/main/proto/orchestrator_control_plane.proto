@@ -145,6 +145,8 @@ message TaskCreateItemProto {
 message BatchCreateTasksRequest {
   string job_id = 1;
   repeated TaskCreateItemProto tasks = 2;
+  int64 epoch = 3;
+  int64 last_processed_txid = 4;
 }
 
 message BatchCreateTasksResponse {
@@ -154,6 +156,7 @@ message BatchCreateTasksResponse {
   int64 queued_count = 4;
   bool saturated = 5;
   string error = 6;
+  bool fenced = 7;
 }
 
 message ClaimTasksRequest {
