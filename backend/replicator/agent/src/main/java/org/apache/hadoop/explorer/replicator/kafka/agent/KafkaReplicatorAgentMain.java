@@ -344,7 +344,7 @@ public class KafkaReplicatorAgentMain {
                 } catch (Exception e) {
                     log.debug("Ошибка отправки heartbeat в оркестратор: {}", e.getMessage());
                 }
-            }, 5, 5, TimeUnit.SECONDS);
+            }, 1, 3, TimeUnit.SECONDS);
         }
 
         final Server finalServer = server;

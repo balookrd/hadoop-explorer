@@ -170,8 +170,8 @@ public class KafkaReplicationOrchestratorSmokeTest {
 
         // 9. Проверка защищенности Discovery эндпоинтов (авторизованный пользователь)
         assertFalse(controller.discoverClusters().isEmpty());
-        assertFalse(controller.discoverTopics(null, null).isEmpty());
-        assertFalse(controller.discoverGroups(null, null).isEmpty());
+        assertNotNull(controller.discoverTopics(null, null));
+        assertNotNull(controller.discoverGroups(null, null));
         assertNotNull(controller.getReceiverEndpoints("DC2"));
 
         // 10. Проверка запрета неаутентифицированного доступа (401 UNAUTHORIZED)

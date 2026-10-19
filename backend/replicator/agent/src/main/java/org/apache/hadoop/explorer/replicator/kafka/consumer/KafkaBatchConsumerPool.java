@@ -266,6 +266,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         }
                     }
 
+
                     ConsumerRecords<byte[], byte[]> records;
                     try {
                         records = workerConsumer.poll(Duration.ofMillis(100));
@@ -284,6 +285,14 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 workerConsumer.unsubscribe();
                                 log.info("[Worker {}] Обработан сигнал Wakeup: отписка от топиков", workerId);
                             }
+                        }
+                        continue;
+                    } catch (IllegalStateException ise) {
+                        try {
+                            Thread.sleep(200);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
                         }
                         continue;
                     }

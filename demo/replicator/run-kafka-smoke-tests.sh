@@ -163,6 +163,8 @@ create_replication_job() {
         "sourceDc": "DC1",
         "targetDc": "DC2",
         "direction": "UNIDIRECTIONAL",
+        "sourceBootstrapServers": "kafka-cluster-1.demo-platform-net:9092",
+        "targetBootstrapServers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
             {"topic": "orders-avro", "payloadMode": "SCHEMA_REGISTRY"},
             {"topic": "metrics-raw", "payloadMode": "PASSTHROUGH"},
@@ -224,25 +226,34 @@ run_check "Публикация Raw JSON и Tombstones в топики DC1" prod
 echo "\n${BLUE}▶ Шаг 6: Проверка репликации данных и трансляции заголовков в DC2${NC}"
 
 verify_dc2_replication() {
-    # Даем агенту время на вычитку и передачу батча по gRPC
-    sleep 3
-
-    # Проверяем наличие сообщений в metrics-raw на DC2
-    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
-        bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic metrics-raw --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
-
-    [ -n "$count" ] && [ "$count" -ge 2 ] 2>/dev/null || return 1
+    # Даем агенту время на опрос Control Plane, подписку и передачу батча по gRPC
+    local count=0
+    for i in $(seq 1 15); do
+        count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+            bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic metrics-raw --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        if [ -n "$count" ] && [ "$count" -ge 2 ] 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
 }
 run_check "Проверка публикации Passthrough сообщений и целостности оффсетов в DC2" verify_dc2_replication
 
 verify_tombstone_delivery() {
     # Проверяем наличие сообщений в user-cache на DC2
-    local count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
-        bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic user-cache --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
-
-    [ -n "$count" ] && [ "$count" -ge 3 ] 2>/dev/null || return 1
+    local count=0
+    for i in $(seq 1 10); do
+        count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+            bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic user-cache --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        if [ -n "$count" ] && [ "$count" -ge 3 ] 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
 }
 run_check "Проверка доставки Tombstone-записи (null payload) в compact-топик DC2" verify_tombstone_delivery
 

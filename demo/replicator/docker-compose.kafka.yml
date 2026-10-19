@@ -40,6 +40,8 @@ services:
         aliases:
           - kafka-cluster-1
           - kafka-cluster-1.demo-platform-net
+          - kafka-dc1
+          - kafka-dc1.demo-platform-net
 
   # ==============================================================================
   # 2. DR Kafka Broker (DC2) - Керберизованный KRaft брокер (SASL_PLAINTEXT GSSAPI)
@@ -81,6 +83,8 @@ services:
         aliases:
           - kafka-cluster-2
           - kafka-cluster-2.demo-platform-net
+          - kafka-dc2
+          - kafka-dc2.demo-platform-net
 
   # ==============================================================================
   # 3. Schema Registry 1 (DC1 - Hortonworks Wire Protocol Emulation / SPNEGO)
@@ -195,6 +199,7 @@ services:
     restart: unless-stopped
     depends_on:
       - kafka-cluster-1
+      - orchestrator
     ports:
       - "50052:50052"
     environment:
@@ -209,6 +214,20 @@ services:
       - "50052"
       - "--dc-id"
       - "DC1"
+      - "--target-dc"
+      - "DC2"
+      - "--target-host"
+      - "kafka-agent-dc2"
+      - "--target-port"
+      - "50053"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--agent-id"
+      - "kafka-agent-dc1"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc1:50052"
+      - "--role"
+      - "dual"
       - "--bootstrap-servers"
       - "kafka-cluster-1.demo-platform-net:9092"
       - "--kerberos-enabled"
@@ -243,6 +262,7 @@ services:
     restart: unless-stopped
     depends_on:
       - kafka-cluster-2
+      - orchestrator
     ports:
       - "50053:50053"
     environment:
@@ -257,6 +277,20 @@ services:
       - "50053"
       - "--dc-id"
       - "DC2"
+      - "--target-dc"
+      - "DC1"
+      - "--target-host"
+      - "kafka-agent-dc1"
+      - "--target-port"
+      - "50052"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--agent-id"
+      - "kafka-agent-dc2"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc2:50053"
+      - "--role"
+      - "dual"
       - "--bootstrap-servers"
       - "kafka-cluster-2.demo-platform-net:9092"
       - "--kerberos-enabled"
