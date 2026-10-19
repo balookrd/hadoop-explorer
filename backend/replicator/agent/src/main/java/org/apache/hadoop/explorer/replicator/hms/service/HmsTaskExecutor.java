@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -43,6 +44,7 @@ public class HmsTaskExecutor implements Closeable {
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob;
     private final ConcurrentMap<String, AtomicInteger> totalPartitionsPerJob;
+    private final AtomicBoolean running = new AtomicBoolean(true);
 
     public HmsTaskExecutor(
             String agentId,
@@ -282,6 +284,7 @@ public class HmsTaskExecutor implements Closeable {
             AtomicInteger totalPartitions,
             List<HmsEventReportDto> eventLog
     ) {
+        if (!running.get()) return;
         Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tblName);
         if (optTable.isEmpty()) return;
         HmsTableDto table = optTable.get();
@@ -452,6 +455,7 @@ public class HmsTaskExecutor implements Closeable {
 
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             for (HmsNotificationEventDto event : events) {
+                if (!running.get()) break;
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
                 if (event.dbName() != null && !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
                     lastCommittedEventId = event.eventId();
@@ -680,8 +684,9 @@ public class HmsTaskExecutor implements Closeable {
 
     @Override
     public void close() {
+        running.set(false);
         if (bootstrapExecutor != null) {
-            bootstrapExecutor.shutdown();
+            bootstrapExecutor.shutdownNow();
         }
     }
 }
