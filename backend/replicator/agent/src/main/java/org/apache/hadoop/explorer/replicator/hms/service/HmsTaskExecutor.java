@@ -467,17 +467,18 @@ public class HmsTaskExecutor implements Closeable {
                     Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tbl);
                     if (optTable.isPresent()) {
                         List<List<String>> targetPartVals = extractPartitionValuesFromEvent(event);
-                        List<HmsPartitionDto> allParts = hmsClient.getPartitions(job.sourceDbName(), tbl);
-                        List<HmsPartitionDto> partsToSync;
+                        List<HmsPartitionDto> partsToSync = new ArrayList<>();
 
                         if (!targetPartVals.isEmpty()) {
-                            Set<List<String>> targetSet = new HashSet<>(targetPartVals);
-                            partsToSync = allParts.stream()
-                                    .filter(p -> targetSet.contains(p.values()))
-                                    .toList();
+                            for (List<String> partVal : targetPartVals) {
+                                hmsClient.getPartition(job.sourceDbName(), tbl, partVal).ifPresent(partsToSync::add);
+                            }
                         } else {
-                            // Если парсинг values не дал результатов, берем только последнюю добавленную партицию (дельта)
-                            partsToSync = !allParts.isEmpty() ? List.of(allParts.get(allParts.size() - 1)) : Collections.emptyList();
+                            // Если парсинг values не дал результатов, берем только последнюю добавленную партицию (фолбэк-дельта)
+                            List<HmsPartitionDto> allParts = hmsClient.getPartitions(job.sourceDbName(), tbl);
+                            if (!allParts.isEmpty()) {
+                                partsToSync.add(allParts.get(allParts.size() - 1));
+                            }
                         }
 
                         for (HmsPartitionDto part : partsToSync) {

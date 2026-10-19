@@ -250,13 +250,15 @@ class InotifyProcessingTest {
 
             assertTrue(testProcessor.isQueueFull(), "Очередь должна быть заполнена");
 
-            // 4-й элемент не должен приниматься
+            // 4-й элемент при переполнении буфера должен выбрасывать InotifyQueueOverflowException
+            // для предотвращения продвижения txid и исключения потери данных
             Event.CloseEvent evOverflow = new Event.CloseEvent(
                     "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/file-overflow.parquet",
                     1024L, 304L
             );
-            int queuedOverflow = testProcessor.processEvent(evOverflow, 304L, 0L, List.of(streamingJob));
-            assertEquals(0, queuedOverflow, "Переполненная очередь должна отклонить задачу (Backpressure Drop/Wait)");
+            assertThrows(InotifyBatchProcessor.InotifyQueueOverflowException.class, () -> {
+                testProcessor.processEvent(evOverflow, 304L, 0L, List.of(streamingJob));
+            }, "Переполненная очередь должна выбросить InotifyQueueOverflowException вместо тихого сброса данных");
         }
     }
 
@@ -279,5 +281,39 @@ class InotifyProcessingTest {
         // При сбое связи с оркестратором стример должен перевести себя в STANDBY (self-fencing)
         listener.handleLeaseCheckFailure();
         assertFalse(listener.isActive(), "Стример должен совершить self-fencing и сбросить active в false");
+    }
+
+    @Test
+    @DisplayName("Reconciliation Scan: Обход директории задачи и постановка файлов при пропуске событий")
+    void testReconciliationScanRecoversFiles() throws IOException {
+        org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig config =
+                new org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig();
+        config.setClusterId("dc1");
+        config.setAgentId("streamer-node1");
+
+        HdfsInotifyListener listener = new HdfsInotifyListener(config, orchestratorClient, fsManager, processor);
+
+        Path rootPath = new Path(streamingJob.getSourcePath());
+        when(fileSystem.exists(rootPath)).thenReturn(true);
+
+        LocatedFileStatus file1 = mock(LocatedFileStatus.class);
+        when(file1.getPath()).thenReturn(new Path(streamingJob.getSourcePath() + "/file-reconcile-1.parquet"));
+        when(file1.getLen()).thenReturn(4096L);
+
+        LocatedFileStatus file2 = mock(LocatedFileStatus.class);
+        when(file2.getPath()).thenReturn(new Path(streamingJob.getSourcePath() + "/file-reconcile-2.parquet"));
+        when(file2.getLen()).thenReturn(8192L);
+
+        @SuppressWarnings("unchecked")
+        RemoteIterator<LocatedFileStatus> iterator = mock(RemoteIterator.class);
+        when(iterator.hasNext()).thenReturn(true, true, false);
+        when(iterator.next()).thenReturn(file1, file2);
+
+        when(fileSystem.listFiles(rootPath, true)).thenReturn(iterator);
+
+        int reconciled = listener.reconcileJobDirectory(streamingJob);
+        assertEquals(2, reconciled, "Должно быть найдено и поставлено в очередь 2 файла");
+
+        verify(orchestratorClient, atLeastOnce()).batchCreateTasks(any(BatchCreateTasksRequest.class));
     }
 }

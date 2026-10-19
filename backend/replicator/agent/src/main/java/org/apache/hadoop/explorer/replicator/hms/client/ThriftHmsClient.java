@@ -39,6 +39,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private final String kerberosPrincipal;
     private final String keytabPath;
     private final Configuration conf;
+    private final UserGroupInformation ugi;
     private final GenericObjectPool<IMetaStoreClient> clientPool;
 
     public ThriftHmsClient(String clusterId, String thriftUris, String kerberosPrincipal, String keytabPath) {
@@ -56,15 +57,31 @@ public class ThriftHmsClient implements HmsClient, Closeable {
             this.conf.set("hive.metastore.uris", thriftUris);
         }
 
-        // Kerberos / SASL конфигурация Hive Metastore
-        if (kerberosPrincipal != null && !kerberosPrincipal.isBlank()) {
+        // Kerberos / SASL конфигурация Hive Metastore и изоляция UGI
+        UserGroupInformation resolvedUgi = null;
+        if ((kerberosPrincipal != null && !kerberosPrincipal.isBlank()) || UserGroupInformation.isSecurityEnabled()) {
             this.conf.set("hadoop.security.authentication", "kerberos");
             this.conf.set("hive.metastore.sasl.enabled", "true");
-            this.conf.set("hive.metastore.kerberos.principal", kerberosPrincipal);
+            this.conf.set("hive.metastore.kerberos.principal", kerberosPrincipal != null ? kerberosPrincipal : "");
             if (keytabPath != null && !keytabPath.isBlank()) {
                 this.conf.set("hive.metastore.kerberos.keytab.file", keytabPath);
             }
+            try {
+                UserGroupInformation.setConfiguration(conf);
+                if (keytabPath != null && !keytabPath.isBlank()) {
+                    String userPrinc = System.getenv("KRB5_PRINCIPAL");
+                    if (userPrinc == null || userPrinc.isBlank()) {
+                        userPrinc = kerberosPrincipal;
+                    }
+                    resolvedUgi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(userPrinc, keytabPath);
+                } else if (UserGroupInformation.isSecurityEnabled()) {
+                    resolvedUgi = UserGroupInformation.getLoginUser();
+                }
+            } catch (Exception e) {
+                log.warn("[ThriftHmsClient:{}] Ошибка инициализации Kerberos UGI: {}", clusterId, e.getMessage());
+            }
         }
+        this.ugi = resolvedUgi;
 
         GenericObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericObjectPoolConfig<>();
         poolConfig.setMaxTotal(Math.max(4, maxPoolSize));
@@ -86,6 +103,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         this.keytabPath = null;
         this.conf = new org.apache.hadoop.conf.Configuration();
         this.clientPool = clientPool;
+        this.ugi = null;
     }
 
     public GenericObjectPool<IMetaStoreClient> getClientPool() {
@@ -95,17 +113,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private class MetaStoreClientFactory extends BasePooledObjectFactory<IMetaStoreClient> {
         @Override
         public IMetaStoreClient create() throws Exception {
-            if (kerberosPrincipal != null && !kerberosPrincipal.isBlank() || UserGroupInformation.isSecurityEnabled()) {
-                conf.set("hadoop.security.authentication", "kerberos");
-                UserGroupInformation.setConfiguration(conf);
-                if (keytabPath != null && !keytabPath.isBlank()) {
-                    String userPrinc = System.getenv("KRB5_PRINCIPAL");
-                    if (userPrinc == null || userPrinc.isBlank()) {
-                        userPrinc = kerberosPrincipal;
-                    }
-                    UserGroupInformation.loginUserFromKeytab(userPrinc, keytabPath);
-                }
-                UserGroupInformation ugi = UserGroupInformation.getLoginUser();
+            if (ugi != null) {
                 log.info("[ThriftHmsClient:{}] Создание нового Thrift клиента с Kerberos UGI: {}", clusterId, ugi.getUserName());
                 return ugi.doAs((PrivilegedExceptionAction<IMetaStoreClient>) () -> new HiveMetaStoreClient(conf));
             } else {
@@ -139,11 +147,25 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         }
     }
 
+    private <T> T doExecute(IMetaStoreClient client, HmsOperation<T> operation) throws Exception {
+        if (ugi != null) {
+            try {
+                return ugi.doAs((PrivilegedExceptionAction<T>) () -> operation.execute(client));
+            } catch (java.lang.reflect.UndeclaredThrowableException ute) {
+                Throwable cause = ute.getCause();
+                if (cause instanceof Exception e) throw e;
+                throw ute;
+            }
+        } else {
+            return operation.execute(client);
+        }
+    }
+
     private <T> T executeWithRetry(HmsOperation<T> operation) {
         IMetaStoreClient client = null;
         try {
             client = clientPool.borrowObject();
-            return operation.execute(client);
+            return doExecute(client, operation);
         } catch (TException e) {
             log.warn("[ThriftHmsClient:{}] Ошибка Thrift/MetaException ({}): {}, попытка повтора с новым соединением...",
                     clusterId, e.getClass().getSimpleName(), e.getMessage());
@@ -155,7 +177,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
             }
             try {
                 client = clientPool.borrowObject();
-                return operation.execute(client);
+                return doExecute(client, operation);
             } catch (Exception ex) {
                 if (client != null) {
                     try {
@@ -273,6 +295,21 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 return list;
             } catch (NoSuchObjectException e) {
                 return Collections.emptyList();
+            }
+        });
+    }
+
+    @Override
+    public Optional<HmsPartitionDto> getPartition(String dbName, String tableName, List<String> partVals) {
+        if (partVals == null || partVals.isEmpty()) {
+            return Optional.empty();
+        }
+        return executeWithRetry(c -> {
+            try {
+                Partition partition = c.getPartition(dbName, tableName, partVals);
+                return Optional.ofNullable(toDto(partition));
+            } catch (NoSuchObjectException e) {
+                return Optional.empty();
             }
         });
     }

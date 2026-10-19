@@ -21,6 +21,15 @@ public interface HmsClient {
 
     List<HmsPartitionDto> getPartitions(String dbName, String tableName);
 
+    default Optional<HmsPartitionDto> getPartition(String dbName, String tableName, List<String> partVals) {
+        if (partVals == null || partVals.isEmpty()) {
+            return Optional.empty();
+        }
+        return getPartitions(dbName, tableName).stream()
+                .filter(p -> partVals.equals(p.values()))
+                .findFirst();
+    }
+
     void createDatabase(String dbName, String locationUri);
 
     void createTable(HmsTableDto table);

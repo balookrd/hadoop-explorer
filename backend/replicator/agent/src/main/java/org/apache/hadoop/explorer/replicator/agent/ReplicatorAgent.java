@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -54,6 +55,8 @@ public class ReplicatorAgent {
     private ScheduledExecutorService heartbeatExecutor;
     private ScheduledExecutorService stagingCleanupExecutor;
     private ExecutorService workerTaskPool;
+    private final ExecutorService hmsTaskPool;
+    private final Set<String> activeRunningHmsJobs = ConcurrentHashMap.newKeySet();
     private Thread senderThread;
     private Thread hmsThread;
     private DataTransferServiceImpl receiverService;
@@ -70,6 +73,7 @@ public class ReplicatorAgent {
         this.config = config;
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
         this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal());
+        this.hmsTaskPool = Executors.newVirtualThreadPerTaskExecutor();
         this.workerTaskPool = Executors.newFixedThreadPool(
                 Math.max(2, config.getBundleCommitConcurrency()),
                 r -> {
@@ -357,12 +361,22 @@ public class ReplicatorAgent {
                             orchestratorClient.getPendingHmsJobs(config.getClusterId(), config.getAgentId());
                     for (var hJob : hmsJobs) {
                         if (!running.get()) break;
-                        if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
+                        String jobId = hJob.id();
+                        if (activeRunningHmsJobs.add(jobId)) {
                             didWork = true;
-                            hmsTaskExecutor.runBootstrap(hJob);
-                        } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
-                            int cdcCount = hmsTaskExecutor.pollAndSyncCdc(hJob);
-                            if (cdcCount > 0) didWork = true;
+                            hmsTaskPool.submit(() -> {
+                                try {
+                                    if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
+                                        hmsTaskExecutor.runBootstrap(hJob);
+                                    } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
+                                        hmsTaskExecutor.pollAndSyncCdc(hJob);
+                                    }
+                                } catch (Throwable t) {
+                                    logger.error("[HMS Worker] Ошибка обработки задачи {}: {}", jobId, t.getMessage(), t);
+                                } finally {
+                                    activeRunningHmsJobs.remove(jobId);
+                                }
+                            });
                         }
                     }
                 }
@@ -373,6 +387,13 @@ public class ReplicatorAgent {
             if (!didWork) {
                 try {
                     Thread.sleep(1500L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else {
+                try {
+                    Thread.sleep(200L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -597,6 +618,13 @@ public class ReplicatorAgent {
             workerTaskPool.shutdown();
             try {
                 workerTaskPool.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+
+        if (hmsTaskPool != null) {
+            hmsTaskPool.shutdown();
+            try {
+                hmsTaskPool.awaitTermination(3, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {}
         }
 

@@ -11,10 +11,11 @@
 | **Orchestrator** | Падение инстанса #1 (OOM, сбой сервера) | L7 Балансировщик (`GET /api/v1/health` таймаут) | Балансировщик переключает HTTP/UI на инстанс #2. ShedLock передает блокировку фоновых планировщиков (шедулеров). | **1–3 сек** | **0** (Stateless API + Shared DB) |
 | **PostgreSQL (Orchestrator DB)** | Падение Primary БД | Patroni / etcd кворумный мониторинг | Patroni автоматически повышает Standby реплику до Primary. Пул PgBouncer переподключается. | **3–5 сек** | **0** (Синхронная репликация) |
 | **Inotify Streamer (Active)** | Падение процесса стримера (DC1) | Heartbeat Lease Timeout в БД Оркестратора (> 10 сек) | Standby Streamer захватывает лидерство, читает EditLog с `last_committed_txid`. | **5–10 сек** | **0 (Near-Zero RPO)** |
-| **Inotify Streamer Pool** | Разрыв истории EditLog (`MissingEventsException`) | Перехват исключения клиентом `DFSInotifyEventInputStream` | Авто-переключение на инкрементальное сканирование директорий (Reconciliation Scan). | **Время сканирования** | **0** (Полная сверка каталогов) |
-| **Inotify Streamer / Orchestrator** | Лавина событий EditLog (шторм транзакций) | Заполнение буфера событий, высокая частота HTTP-запросов | Локальный TTL-кэш задач (5 сек), микробатчинг до 500 событий, адаптивный гистерезис и backpressure опроса | **0 сек** | **0** |
+| **Inotify Streamer Pool** | Разрыв истории EditLog (`MissingEventsException`) | Перехват исключения клиентом `DFSInotifyEventInputStream` | Автоматическое продвижение `currentTxid` до актуального и запуск глубокой сверки директорий (`runReconciliationScan`). | **Время сканирования** | **0** (Полная сверка каталогов) |
+| **Inotify Streamer / Orchestrator** | Лавина событий EditLog (шторм транзакций / переполнение буфера) | Заполнение буфера событий, отказ добавления | Выброс `InotifyQueueOverflowException`, приостановка продвижения txid, микробатчинг до 500 событий и гистерезис | **0 сек** | **0** |
+| **Data Worker (Sender Pool)** | Конкурентный анализ задания несколькими агентами (`mode=all`) | Попытка одновременного перевода в `ANALYZING` | Атомарный SQL CAS (`claimJobForAnalysis`): задачу анализирует ровно один агент, исключая гонки и сброс очередей. | **0 сек** | **0** |
 | **Data Worker (Sender)** | Падение воркера во время передачи файла | Пропадание Heartbeat воркера / таймаут задачи | Оркестратор возвращает задачу в статус `QUEUED`. Другой воркер пула берет задачу на повтор. | **По таймауту задачи (60 сек)** | **0** (Повторная передача файла) |
-| **Data Receiver** | Сбой узла назначения во время gRPC стрима | Сетевой обрыв gRPC стрима (`UNAVAILABLE`) | Воркер пробует альтернативный адрес приемника из топологии. Незавершенный staging файл удаляется. | **Мгновенно (retry)** | **0** (Атомарный commit в staging) |
+| **Data Receiver** | Отмена передачи клиентом (`CANCELLED`) / сбой узла | Срабатывание `onCancelHandler` / обрыв сети | Принудительная отмена пула коммитеров (`commitFutures.cancel(true)`), немедленное удаление staging-файлов, предотвращение гонок `rename`. | **Мгновенно** | **0** (Атомарный commit в staging) |
 | **HDFS NameNode (Source/Target)** | Падение Active NameNode | Hadoop Client `ConfiguredFailoverProxyProvider` | Прозрачный failover клиента на Standby NameNode по виртуальному URI `hdfs://nameservice1`. | **1–3 сек** | **0** (JournalNodes кворум) |
 | **HMS Replicator** | Падение агента синхронизации схемы | Истечение Distributed Lease в `HmsCoordinatorService` | Авто-failover задачи на резервный агент кластера. Чтение CDC продолжается с `last_event_id`. | **5–10 сек** | **0** (At-least-once DDL лог) |
 | **Kafka Replicator (Data Plane)** | Деградация локального брокера Kafka / переполнение буфера | Задержка подтверждения ack, тайм-аут продюсера | Offload в пул виртуальных потоков Java 21, координация in-flight батчей и onCancelHandler (Netty EventLoop не блокируется) | **0 сек (non-blocking)** | **0 (retry/backpressure)** |
@@ -292,6 +293,14 @@ stateDiagram-v2
 2. **Таймауты задач (`taskTimeoutSeconds = 60`)**: Если воркер взял задачу и пропал (сбой JVM, авария сети), фоновый монитор Оркестратора возвращает задачу в статус `QUEUED`.
 3. **Автоматические повторы (`maxTaskRetries = 3`)**: При транзиентных сбоях сети задача передается повторно с экспоненциальной задержкой.
 4. **Идемпотентность передачи**: Приемник сохраняет файлы во временный каталог `staging` (`.tmp-transfer-<uuid>`), сверяет размер и контрольную сумму, и только затем выполняет атомарный `rename`.
+5. **Атомарный CAS-анализ заданий (Split-Brain Prevention)**:
+   - При работе нескольких агентов в режиме `AGENT_MODE=all` исключена конкуренция за анализ заданий в статусе `QUEUED`.
+   - Захват задания на анализ выполняется атомарным SQL-запросом `claimJobForAnalysis`:
+     ```sql
+     UPDATE replicator_job SET status = 'ANALYZING', message = :message, updated_at = :now
+     WHERE id = :jobId AND status = 'QUEUED'
+     ```
+   - Задание захватывает ровно один агент. Остальные агенты получают `updated == 0` и отступают, исключая повторное удаление очередей и уничтожение уже выполняющихся подзадач.
 
 ---
 
@@ -300,6 +309,14 @@ stateDiagram-v2
 Приемник (`DataTransferServiceImpl`) развертывается на каждом узле кластера назначения:
 1. **Динамический выбор узла назначения**: Если целевой агент недоступен по gRPC, Sender запрашивает у Оркестратора альтернативный узел назначения из топологии кластера (`GET /api/v1/clusters/{id}/nodes`).
 2. **Очистка незавершенных файлов (Staging Cleanup)**: При аварийном обрыве gRPC соединения временный файл в staging-директории удаляется сборщиком мусора приемника (`cleanupStagingOrphans()`), предотвращая утечку дискового пространства.
+3. **Безопасная отмена gRPC-потока (Cancel Handler & Worker Cancellation)**:
+   - В обработчиках `TransferFileObserver` и `TarStreamObserver` зарегистрирован `serverCallStreamObserver.setOnCancelHandler(...)`.
+   - При получении сигнала отмены от клиента (`CANCELLED`) или обрыве сети (`onError`):
+     1. Выставляется атомарный флаг `cancelled.set(true)`.
+     2. Принудительно отменяется задача потоковой распаковки `unpackFuture.cancel(true)`.
+     3. Для всех активных параллельных задач записи на целевой HDFS вызывается `fut.cancel(true)`.
+     4. Воркеры проверяют флаг отмены перед `writeDirect` и перед `renameFile`, предотвращая появление мусорных файлов и гонки между очисткой staging и финализацией.
+     5. Все временные staging-файлы немедленно удаляются из целевой файловой системы.
 
 ---
 
