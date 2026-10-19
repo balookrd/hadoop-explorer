@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.service;
 
+import jakarta.annotation.PreDestroy;
 import org.apache.hadoop.explorer.replicator.model.*;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
@@ -39,6 +40,7 @@ public class TaskService {
     private final ReplicatorProperties properties;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository;
+    private final JobProgressBuffer progressBuffer = new JobProgressBuffer();
 
     @Autowired
     public TaskService(TaskRepository taskRepository,
@@ -413,10 +415,10 @@ public class TaskService {
         long transferredBytes = req.getBytesTransferred() > 0 ? req.getBytesTransferred() : task.getFileSize();
         int filesDone = req.getFilesCount() > 0 ? req.getFilesCount() : (task.getFileCount() > 0 ? task.getFileCount() : 1);
 
-        // 1. Атомарное обновление счетчиков прогресса в БД без блокировки ORM-сущности JobEntity (исключает Row Contention и Deadlocks)
-        jobRepository.incrementProgress(task.getJobId(), transferredBytes, filesDone, now);
+        // Буферизация приращения прогресса в памяти (PERF-06): устраняет Row Lock Contention на строке replication_jobs при высоком RPS
+        progressBuffer.record(task.getJobId(), transferredBytes, filesDone);
 
-        // 2. Быстрая проверка завершения задания через exists (индексный LIMIT 1 за 0.05 мс вместо тяжелого COUNT)
+        // Быстрая проверка завершения задания через exists (индексный LIMIT 1 за 0.05 мс вместо тяжелого COUNT)
         boolean hasActiveTasks = taskRepository.existsByJobIdAndStatusIn(task.getJobId(), List.of("QUEUED", "RUNNING"));
         if (!hasActiveTasks) {
             finalizeJobCompletion(task.getJobId(), now);
@@ -426,26 +428,88 @@ public class TaskService {
     }
 
     /**
-     * Пакетная фиксация завершения подзадач для минимизации транзакционного overhead от 200+ агентов.
+     * Пакетная фиксация завершения подзадач для минимизации транзакционного overhead от 200+ агентов (PERF-06).
+     * Загружает и обновляет задачи пакетом через findAllById и saveAll, аккумулируя прогресс в буфере.
      */
     @Transactional
     public int completeTasksBatch(List<CompleteTaskRequest> requests) {
         if (requests == null || requests.isEmpty()) {
             return 0;
         }
-        int count = 0;
+
+        List<String> taskIds = requests.stream()
+                .map(CompleteTaskRequest::getTaskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (taskIds.isEmpty()) {
+            return 0;
+        }
+
+        Map<String, TaskEntity> existingTasks = taskRepository.findAllById(taskIds).stream()
+                .collect(java.util.stream.Collectors.toMap(TaskEntity::getId, java.util.function.Function.identity()));
+
+        Instant now = Instant.now();
+        List<TaskEntity> tasksToSave = new ArrayList<>(requests.size());
+        Set<String> affectedJobIds = new HashSet<>();
+        int completedCount = 0;
+
         for (CompleteTaskRequest req : requests) {
-            if (completeTask(req)) {
-                count++;
+            if (req.getTaskId() == null) {
+                continue;
+            }
+            TaskEntity task = existingTasks.get(req.getTaskId());
+            if (task == null) {
+                log.warn("Не найдена задача для пакетного завершения: {}", req.getTaskId());
+                continue;
+            }
+
+            if ("COMPLETED".equalsIgnoreCase(task.getStatus())) {
+                completedCount++; // Идемпотентность
+                continue;
+            }
+
+            task.setStatus("COMPLETED");
+            task.setChecksum(req.getChecksum());
+            task.setUpdatedAt(now);
+            if (req.getAgentId() != null) {
+                task.setAssignedAgentId(req.getAgentId());
+            }
+            tasksToSave.add(task);
+
+            long transferredBytes = req.getBytesTransferred() > 0 ? req.getBytesTransferred() : task.getFileSize();
+            int filesDone = req.getFilesCount() > 0 ? req.getFilesCount() : (task.getFileCount() > 0 ? task.getFileCount() : 1);
+
+            progressBuffer.record(task.getJobId(), transferredBytes, filesDone);
+            affectedJobIds.add(task.getJobId());
+            completedCount++;
+        }
+
+        if (!tasksToSave.isEmpty()) {
+            taskRepository.saveAll(tasksToSave);
+        }
+
+        for (String jobId : affectedJobIds) {
+            boolean hasActiveTasks = taskRepository.existsByJobIdAndStatusIn(jobId, List.of("QUEUED", "RUNNING"));
+            if (!hasActiveTasks) {
+                finalizeJobCompletion(jobId, now);
             }
         }
-        return count;
+
+        return completedCount;
     }
 
     /**
      * Единая финализация задания при завершении всех дочерних задач.
      */
     private void finalizeJobCompletion(String jobId, Instant now) {
+        // PERF-06: Принудительный сброс дельты прогресса из буфера в БД перед финализацией задания
+        long[] delta = progressBuffer.drainJob(jobId);
+        if (delta != null && (delta[0] > 0 || delta[1] > 0)) {
+            jobRepository.incrementProgress(jobId, delta[0], (int) delta[1], now);
+        }
+
         jobRepository.findById(jobId).ifPresent(job -> {
             if (!"RUNNING".equalsIgnoreCase(job.getStatus()) && !"QUEUED".equalsIgnoreCase(job.getStatus())) {
                 return;
@@ -727,5 +791,45 @@ public class TaskService {
             log.info("Очищено {} устаревших подзадач репликации старше {} дней (cutoff: {})", deleted, retentionDays, cutoff);
         }
         return deleted;
+    }
+
+    /**
+     * Возвращает буфер прогресса задач для инспекции и тестов (PERF-06).
+     */
+    public JobProgressBuffer getProgressBuffer() {
+        return progressBuffer;
+    }
+
+    /**
+     * Периодический сброс накопленных в памяти дельт прогресса задач в базу данных (PERF-06).
+     * Срабатывает раз в секунду, агрегируя отчеты тысяч мелких файлов в одиночные атомарные апдейты строк.
+     */
+    @Scheduled(fixedDelayString = "${hadoop.replicator.progress-flush-interval-ms:1000}")
+    @Transactional
+    public void flushPendingProgress() {
+        Map<String, long[]> drained = progressBuffer.drain();
+        if (drained.isEmpty()) {
+            return;
+        }
+        Instant now = Instant.now();
+        for (Map.Entry<String, long[]> entry : drained.entrySet()) {
+            String jobId = entry.getKey();
+            long[] delta = entry.getValue();
+            long bytes = delta[0];
+            int files = (int) delta[1];
+            if (bytes > 0 || files > 0) {
+                try {
+                    jobRepository.incrementProgress(jobId, bytes, files, now);
+                } catch (Exception e) {
+                    log.error("Ошибка сброса буферизованного прогресса для задания '{}': {}", jobId, e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Остановка TaskService: принудительный сброс остаточного буфера прогресса...");
+        flushPendingProgress();
     }
 }

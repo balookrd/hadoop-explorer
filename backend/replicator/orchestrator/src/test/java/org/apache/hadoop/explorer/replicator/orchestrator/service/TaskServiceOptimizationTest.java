@@ -159,7 +159,7 @@ class TaskServiceOptimizationTest {
     }
 
     @Test
-    @DisplayName("200+ Agents: completeTask использует атомарный incrementProgress и быструю проверку exists без блокировки JobEntity")
+    @DisplayName("PERF-06: completeTask буферизует инкремент в памяти, исключая Row Contention до flushPendingProgress")
     void testCompleteTaskUsesAtomicProgressIncrementAndExistsCheck() {
         String taskId = "task-opt-1";
         String jobId = "job-atomic-progress";
@@ -182,18 +182,25 @@ class TaskServiceOptimizationTest {
         assertTrue(completed);
         assertEquals("COMPLETED", task.getStatus());
 
-        // Проверяем, что выполнен атомарный инкремент в базе данных
-        verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(2048L), eq(1), any(java.time.Instant.class));
+        // Проверяем, что прогресс буферизован в памяти и не вызывает блокировок строк БД до сброса
+        assertTrue(taskService.getProgressBuffer().hasPendingProgress(jobId));
+        verify(jobRepository, never()).incrementProgress(any(), anyLong(), anyInt(), any());
 
         // Проверяем, что использовался индексный LIMIT 1 exists вместо COUNT
         verify(taskRepository, times(1)).existsByJobIdAndStatusIn(eq(jobId), anyCollection());
+
+        // Сбрасываем буфер (симуляция фонового таймера @Scheduled раз в 1 сек)
+        taskService.flushPendingProgress();
+
+        // Проверяем, что выполнен атомарный инкремент в базе данных
+        verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(2048L), eq(1), any(java.time.Instant.class));
 
         // И самое главное: тяжелый jobRepository.save(job) НЕ вызывается, пока задачи еще не завершились
         verify(jobRepository, never()).save(any(JobEntity.class));
     }
 
     @Test
-    @DisplayName("200+ Agents: completeTasksBatch пакетно коммитит список задач воркеров")
+    @DisplayName("PERF-06: completeTasksBatch пакетно коммитит список задач через findAllById/saveAll и агрегирует дельты")
     void testCompleteTasksBatch() {
         String taskId1 = "batch-task-1";
         String taskId2 = "batch-task-2";
@@ -203,14 +210,17 @@ class TaskServiceOptimizationTest {
         t1.setId(taskId1);
         t1.setJobId(jobId);
         t1.setStatus("RUNNING");
+        t1.setFileSize(100L);
+        t1.setFileCount(1);
 
         TaskEntity t2 = new TaskEntity();
         t2.setId(taskId2);
         t2.setJobId(jobId);
         t2.setStatus("RUNNING");
+        t2.setFileSize(200L);
+        t2.setFileCount(1);
 
-        when(taskRepository.findById(taskId1)).thenReturn(Optional.of(t1));
-        when(taskRepository.findById(taskId2)).thenReturn(Optional.of(t2));
+        when(taskRepository.findAllById(anyList())).thenReturn(List.of(t1, t2));
         when(taskRepository.existsByJobIdAndStatusIn(eq(jobId), anyCollection())).thenReturn(true);
 
         int count = taskService.completeTasksBatch(List.of(
@@ -219,6 +229,16 @@ class TaskServiceOptimizationTest {
         ));
 
         assertEquals(2, count);
-        verify(jobRepository, times(2)).incrementProgress(eq(jobId), anyLong(), anyInt(), any(java.time.Instant.class));
+        verify(taskRepository, times(1)).saveAll(anyList());
+        assertTrue(taskService.getProgressBuffer().hasPendingProgress(jobId));
+
+        // До сброса в БД не было обращений
+        verify(jobRepository, never()).incrementProgress(any(), anyLong(), anyInt(), any());
+
+        // Сбрасываем дельты в БД
+        taskService.flushPendingProgress();
+
+        // Проверяем, что выполнен ровно 1 агрегированный инкремент (300 байт, 2 файла) вместо 2 отдельных транзакций
+        verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(300L), eq(2), any(java.time.Instant.class));
     }
 }

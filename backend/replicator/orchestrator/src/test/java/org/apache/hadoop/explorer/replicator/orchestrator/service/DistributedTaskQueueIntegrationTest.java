@@ -93,6 +93,10 @@ class DistributedTaskQueueIntegrationTest {
         boolean comp1 = taskService.completeTask(new CompleteTaskRequest(t1.getId(), "worker-node1", t1.getFileSize(), "sha256-ok-1"));
         assertTrue(comp1);
 
+        // PERF-06: Проверяем наличие дельты в буфере и сбрасываем в БД
+        assertTrue(taskService.getProgressBuffer().hasPendingProgress(jobId));
+        taskService.flushPendingProgress();
+
         JobEntity midJob = jobRepository.findById(jobId).orElseThrow();
         assertEquals("RUNNING", midJob.getStatus(), "Задание все еще должно быть RUNNING, так как осталась вторая задача");
         assertEquals(1000L + t1.getFileSize(), midJob.getCopiedBytes());
