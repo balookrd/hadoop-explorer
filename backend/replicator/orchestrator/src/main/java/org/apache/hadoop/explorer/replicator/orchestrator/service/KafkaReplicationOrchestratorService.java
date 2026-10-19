@@ -430,7 +430,7 @@ public class KafkaReplicationOrchestratorService {
             List<String> groupIds = listings.stream().map(ConsumerGroupListing::groupId).toList();
 
             DescribeConsumerGroupsResult describeResult = adminClient.describeConsumerGroups(groupIds, new DescribeConsumerGroupsOptions().timeoutMs(5000));
-            Map<String, ConsumerGroupDescription> descriptions = describeResult.allTopicNames() != null
+            Map<String, ConsumerGroupDescription> descriptions = describeResult.all() != null
                     ? describeResult.all().get(5, TimeUnit.SECONDS)
                     : Collections.emptyMap();
 
