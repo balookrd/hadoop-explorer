@@ -287,6 +287,7 @@
                 <version>3.5.0</version>
                 <configuration>
                     <argLine>-XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED</argLine>
+                    <useSystemClassLoader>false</useSystemClassLoader>
                 </configuration>
             </plugin>
 

@@ -9,6 +9,7 @@ import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,6 +48,8 @@ public class HadoopFsManager {
     private final String defaultFsUri;
     private final String servicePrincipal;
     private final String keytabPath;
+    private final KerberosUgiProvider ugiProvider;
+    private final HdfsStagingReaper stagingReaper;
     private volatile boolean kerberosLoggedIn = false;
 
     public HadoopFsManager(String defaultFsUri, String keytabPath, String principal) {
@@ -72,8 +75,10 @@ public class HadoopFsManager {
         }
         this.keytabPath = (keytabPath != null && !keytabPath.isBlank()) ? keytabPath : envKeytab;
 
-        // Инициализация Kerberos аутентификации системной техучетки (Proxy User)
-        initKerberos();
+        // Делегирование инициализации Kerberos и UGI провайдеру
+        this.ugiProvider = new KerberosUgiProvider(this.conf, this.servicePrincipal, this.keytabPath);
+        this.kerberosLoggedIn = this.ugiProvider.isKerberosLoggedIn();
+        this.stagingReaper = new HdfsStagingReaper(this.conf, this.ugiProvider, this.defaultFsUri);
     }
 
     public HadoopFsManager() {
@@ -84,34 +89,12 @@ public class HadoopFsManager {
         this(defaultFsUri, null, null);
     }
 
-    private void initKerberos() {
-        if (keytabPath != null && !keytabPath.isBlank()) {
-            try {
-                this.conf.set("hadoop.security.authentication", "kerberos");
-                this.conf.set("dfs.namenode.kerberos.principal.pattern", "*");
-                String nnPrincipal = System.getenv().getOrDefault("HDFS_NAMENODE_PRINCIPAL", "nn/*@COMPANY.LOCAL");
-                this.conf.set("dfs.namenode.kerberos.principal", nnPrincipal);
-                this.conf.set("dfs.datanode.kerberos.principal", "dn/*@COMPANY.LOCAL");
-                String dataTransferProtection = System.getenv().getOrDefault("HDFS_DATA_TRANSFER_PROTECTION", "integrity");
-                this.conf.set("dfs.data.transfer.protection", dataTransferProtection);
-                UserGroupInformation.setConfiguration(conf);
-                UserGroupInformation.loginUserFromKeytab(servicePrincipal, keytabPath);
-                this.kerberosLoggedIn = true;
-                logger.info("Успешная Kerberos-аутентификация Proxy User техучетки '{}' по keytab: {} (qop: {})",
-                        servicePrincipal, keytabPath, dataTransferProtection);
-            } catch (IOException e) {
-                logger.error("Ошибка Kerberos аутентификации Proxy User: {}", e.getMessage(), e);
-            }
-        } else {
-            try {
-                if (UserGroupInformation.isSecurityEnabled()) {
-                    logger.info("Активен внешний Kerberos контекст UGI (например YARN delegation tokens): {}",
-                            UserGroupInformation.getCurrentUser());
-                    this.kerberosLoggedIn = true;
-                }
-            } catch (Exception ignored) {
-            }
-        }
+    public KerberosUgiProvider getUgiProvider() {
+        return ugiProvider;
+    }
+
+    public HdfsStagingReaper getStagingReaper() {
+        return stagingReaper;
     }
 
     public Configuration getConfiguration() {
@@ -134,71 +117,21 @@ public class HadoopFsManager {
      * Извлечение чистого имени пользователя из Kerberos Principal (например 'alice@REALM.LOCAL' -> 'alice').
      */
     public static String extractUsername(String principal) {
-        if (principal == null || principal.isBlank()) {
-            return "hdfs";
-        }
-        String p = principal.trim();
-        int atIdx = p.indexOf('@');
-        if (atIdx > 0) {
-            p = p.substring(0, atIdx);
-        }
-        int slashIdx = p.indexOf('/');
-        if (slashIdx > 0) {
-            p = p.substring(0, slashIdx);
-        }
-        return p;
+        return KerberosUgiProvider.extractUsername(principal);
     }
-
-    private static final Set<String> FORBIDDEN_PRINCIPALS = Set.of(
-            "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news",
-            "uucp", "proxy", "adm", "shutdown", "halt", "operator", "nobody", "0"
-    );
-
-    private static final java.util.regex.Pattern SAFE_PRINCIPAL_PATTERN =
-            java.util.regex.Pattern.compile("^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?(@[a-zA-Z0-9_.-]+)?$");
 
     /**
      * Валидация безопасности принципала имперсонации: запрет doAs под системными учетками ОС и инъекций.
      */
     public static void validatePrincipalSafety(String principal) {
-        if (principal == null || principal.isBlank()) {
-            return;
-        }
-        String trimmed = principal.trim();
-        if (trimmed.contains("..") || trimmed.contains("\0") || !SAFE_PRINCIPAL_PATTERN.matcher(trimmed).matches()) {
-            throw new SecurityException("Попытка инъекции или недопустимые символы в имени принципала: " + principal);
-        }
-        String username = extractUsername(trimmed).toLowerCase(Locale.ROOT);
-        if (FORBIDDEN_PRINCIPALS.contains(username)) {
-            throw new SecurityException("Попытка имперсонации запрещенной системной учетной записи: " + principal);
-        }
+        KerberosUgiProvider.validatePrincipalSafety(principal);
     }
 
     /**
      * Получение эффективного Kerberos UGI контекста с поддержкой doAs-имперсонации для Apache Ranger аудита.
      */
     public UserGroupInformation getEffectiveUgi(String executionPrincipal, boolean runAsServiceAccount) throws IOException {
-        validatePrincipalSafety(executionPrincipal);
-        if (!UserGroupInformation.isSecurityEnabled() && !kerberosLoggedIn) {
-            return UserGroupInformation.getCurrentUser();
-        }
-
-        UserGroupInformation baseUgi = UserGroupInformation.getLoginUser();
-        if (baseUgi == null) {
-            baseUgi = UserGroupInformation.getCurrentUser();
-        }
-
-        if (runAsServiceAccount || executionPrincipal == null || executionPrincipal.isBlank()
-                || executionPrincipal.equals(servicePrincipal)) {
-            // Прямое выполнение от системной техучетки
-            return baseUgi;
-        }
-
-        // Выполнение с doAs имперсонацией конечного пользователя
-        String impersonateUser = extractUsername(executionPrincipal);
-        logger.debug("Создание Hadoop Proxy User doAs контекста для '{}' (техучетка: '{}')",
-                impersonateUser, baseUgi.getUserName());
-        return UserGroupInformation.createProxyUser(impersonateUser, baseUgi);
+        return ugiProvider.getEffectiveUgi(executionPrincipal, runAsServiceAccount);
     }
 
     private static final Set<String> FORBIDDEN_OS_PREFIXES = Set.of(
@@ -929,115 +862,15 @@ public class HadoopFsManager {
     }
 
     public int cleanStagingFiles(String baseDirStr, String jobIdFilter, long olderThanMillis, String executionPrincipal, boolean runAsServiceAccount) {
-        if (baseDirStr == null || baseDirStr.isBlank()) {
-            return 0;
-        }
-
-        boolean targetIsHdfs = baseDirStr.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(baseDirStr));
-        long now = System.currentTimeMillis();
-        long cutoffTime = olderThanMillis > 0 ? (now - olderThanMillis) : Long.MAX_VALUE;
-
-        if (targetIsHdfs) {
-            try {
-                UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
-                return ugi.doAs((PrivilegedExceptionAction<Integer>) () -> {
-                    Path p = new Path(baseDirStr);
-                    FileSystem fs = p.getFileSystem(conf);
-                    if (!fs.exists(p)) {
-                        return 0;
-                    }
-                    int deleted = 0;
-                    if (!fs.getFileStatus(p).isDirectory()) {
-                        String name = p.getName();
-                        if (name.contains("._staging_") || name.contains("_staging_")) {
-                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
-                            boolean matchAge = olderThanMillis <= 0 || (fs.getFileStatus(p).getModificationTime() <= cutoffTime);
-                            if (matchJob && matchAge) {
-                                if (fs.delete(p, false)) deleted++;
-                            }
-                        }
-                        return deleted;
-                    }
-
-                    RemoteIterator<LocatedFileStatus> iter = fs.listFiles(p, true);
-                    while (iter.hasNext()) {
-                        LocatedFileStatus status = iter.next();
-                        String name = status.getPath().getName();
-                        if (name.contains("._staging_") || name.contains("_staging_")) {
-                            boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
-                            boolean matchAge = olderThanMillis <= 0 || (status.getModificationTime() <= cutoffTime);
-                            if (matchJob && matchAge) {
-                                try {
-                                    if (fs.delete(status.getPath(), false)) {
-                                        deleted++;
-                                        logger.info("Удален осиротевший staging-файл HDFS: {} (модифицирован {} мс назад)",
-                                                status.getPath(), (now - status.getModificationTime()));
-                                    }
-                                } catch (Exception e) {
-                                    logger.warn("Не удалось удалить staging-файл HDFS {}: {}", status.getPath(), e.getMessage());
-                                }
-                            }
-                        }
-                    }
-                    return deleted;
-                });
-            } catch (Exception e) {
-                logger.warn("Ошибка при очистке HDFS staging-файлов в {}: {}", baseDirStr, e.getMessage());
-            }
-        }
-
-        // Локальная файловая система
-        File baseFile = new File(baseDirStr);
-        if (!baseFile.exists()) {
-            return 0;
-        }
-
-        AtomicInteger deletedLocal = new AtomicInteger(0);
-        if (baseFile.isFile()) {
-            String name = baseFile.getName();
-            if (name.contains("._staging_") || name.contains("_staging_")) {
-                boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
-                boolean matchAge = olderThanMillis <= 0 || (baseFile.lastModified() <= cutoffTime);
-                if (matchJob && matchAge && baseFile.delete()) {
-                    deletedLocal.incrementAndGet();
-                }
-            }
-            return deletedLocal.get();
-        }
-
-        try {
-            Files.walkFileTree(baseFile.toPath(), new SimpleFileVisitor<java.nio.file.Path>() {
-                @Override
-                public FileVisitResult visitFile(java.nio.file.Path file, BasicFileAttributes attrs) {
-                    String name = file.getFileName().toString();
-                    if (name.contains("._staging_") || name.contains("_staging_")) {
-                        boolean matchJob = (jobIdFilter == null || jobIdFilter.isBlank()) || name.contains(jobIdFilter);
-                        boolean matchAge = olderThanMillis <= 0 || (attrs.lastModifiedTime().toMillis() <= cutoffTime);
-                        if (matchJob && matchAge) {
-                            try {
-                                if (Files.deleteIfExists(file)) {
-                                    deletedLocal.incrementAndGet();
-                                    logger.info("Удален staging-файл в локальной ФС: {}", file);
-                                }
-                            } catch (IOException ignored) {}
-                        }
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException e) {
-            logger.warn("Ошибка при обходе локальных staging-файлов в {}: {}", baseDirStr, e.getMessage());
-        }
-
-        return deletedLocal.get();
+        return stagingReaper.cleanStagingFiles(baseDirStr, jobIdFilter, olderThanMillis, executionPrincipal, runAsServiceAccount);
     }
 
     public int cleanStagingFiles(String baseDirStr, String jobIdFilter) {
-        return cleanStagingFiles(baseDirStr, jobIdFilter, 0L, null, true);
+        return stagingReaper.cleanStagingFiles(baseDirStr, jobIdFilter);
     }
 
     public int cleanStagingFiles(String baseDirStr, long olderThanMillis) {
-        return cleanStagingFiles(baseDirStr, null, olderThanMillis, null, true);
+        return stagingReaper.cleanStagingFiles(baseDirStr, olderThanMillis);
     }
 
     private boolean isLocalPath(String path) {
