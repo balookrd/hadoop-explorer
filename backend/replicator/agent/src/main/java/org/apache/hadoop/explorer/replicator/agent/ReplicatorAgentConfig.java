@@ -49,6 +49,7 @@ public class ReplicatorAgentConfig {
     private boolean stagingCleanupEnabled = true;
     private long stagingCleanupIntervalMinutes = 15;
     private long stagingTtlMinutes = 30;
+    private boolean enforceTaskAttestation = false;
     private org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec = org.apache.hadoop.explorer.replicator.generated.CompressionCodec.COMPRESSION_ZSTD;
     private int wireCompressionLevel = 3;
     private int inotifyQueueCapacity = 10000;
@@ -156,6 +157,7 @@ public class ReplicatorAgentConfig {
         config.inotifyFlushIntervalMs = Long.parseLong(getEnv("INOTIFY_FLUSH_INTERVAL_MS", "200"));
         config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
         config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
+        config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "false"));
 
         return config;
     }
@@ -311,4 +313,7 @@ public class ReplicatorAgentConfig {
 
     public int getTarPipeBufferBytes() { return tarPipeBufferBytes; }
     public void setTarPipeBufferBytes(int tarPipeBufferBytes) { this.tarPipeBufferBytes = tarPipeBufferBytes; }
+
+    public boolean isEnforceTaskAttestation() { return enforceTaskAttestation; }
+    public void setEnforceTaskAttestation(boolean enforceTaskAttestation) { this.enforceTaskAttestation = enforceTaskAttestation; }
 }

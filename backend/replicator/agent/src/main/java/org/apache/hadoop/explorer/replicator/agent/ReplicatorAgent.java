@@ -221,7 +221,10 @@ public class ReplicatorAgent {
                 config.getKeytabPath(),
                 config.getBundleCommitConcurrency(),
                 config.getMaxConcurrentTarStreams(),
-                config.getTarPipeBufferBytes()
+                config.getTarPipeBufferBytes(),
+                60_000L,
+                config.getAgentSecret(),
+                config.isEnforceTaskAttestation()
         );
 
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))

@@ -339,7 +339,7 @@ public class TaskService {
             // Разрешаем оптимальный gRPC адрес приемника с балансировкой нагрузки (Least Loaded)
             String targetAddress = resolveTargetAddress(job.getTargetClusterId());
 
-            claimed.add(new TaskItemDto(
+            TaskItemDto dto = new TaskItemDto(
                     task.getId(),
                     task.getJobId(),
                     task.getRunId(),
@@ -360,7 +360,23 @@ public class TaskService {
                     task.getBundleManifest(),
                     job.getSourceClusterId(),
                     job.getTargetClusterId()
-            ));
+            );
+
+            // Криптографическая аттестация задачи (SEC-01: Zero-Trust Task Attestation Token)
+            String secret = properties != null ? properties.getAgentSecret() : null;
+            if (secret != null && !secret.isBlank()) {
+                String token = org.apache.hadoop.explorer.replicator.security.TaskAttestationService.generateToken(
+                        task.getId(),
+                        task.getJobId(),
+                        task.getTargetPath(),
+                        job.getExecutionPrincipal(),
+                        job.isRunAsServiceAccount(),
+                        secret
+                );
+                dto.setTaskToken(token);
+            }
+
+            claimed.add(dto);
         }
 
         if (!claimed.isEmpty()) {

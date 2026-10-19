@@ -301,6 +301,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setManifestJson(item.getBundleManifest() != null ? item.getBundleManifest() : "")
                         .setRunAsServiceAccount(Boolean.TRUE.equals(item.getRunAsServiceAccount()))
                         .setExecutionPrincipal(item.getExecutionPrincipal() != null ? item.getExecutionPrincipal() : "")
+                        .setTaskToken(item.getTaskToken() != null ? item.getTaskToken() : "")
                         .build());
             }
 

@@ -180,6 +180,7 @@ message TaskItemProto {
   string manifest_json = 12;
   bool run_as_service_account = 13;
   string execution_principal = 14;
+  string task_token = 15;
 }
 
 message ClaimTasksResponse {

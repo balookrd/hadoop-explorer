@@ -125,7 +125,7 @@ public class TarStreamPipeline {
                     WireCompressor.isPrecompressedPath(e.getSourcePath()) || WireCompressor.isPrecompressedPath(e.getRelativePath()));
             CompressionCodec tarCodec = allPrecompressed ? CompressionCodec.COMPRESSION_NONE : defaultCompressionCodec;
 
-            TarStreamMetadata metadata = TarStreamMetadata.newBuilder()
+            TarStreamMetadata.Builder metaBuilder = TarStreamMetadata.newBuilder()
                     .setJobId(jobId)
                     .setTaskId(taskId)
                     .setBaseTargetPath(targetPath)
@@ -133,8 +133,11 @@ public class TarStreamPipeline {
                     .setTotalBytes(totalBytes)
                     .setRunAsServiceAccount(asService)
                     .setExecutionPrincipal(principal)
-                    .setCompressionCodec(tarCodec)
-                    .build();
+                    .setCompressionCodec(tarCodec);
+            if (task.getTaskToken() != null && !task.getTaskToken().isBlank()) {
+                metaBuilder.setTaskToken(task.getTaskToken());
+            }
+            TarStreamMetadata metadata = metaBuilder.build();
 
             requestObserver.onNext(TarStreamRequest.newBuilder().setMetadata(metadata).build());
 

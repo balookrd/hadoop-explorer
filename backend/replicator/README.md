@@ -247,6 +247,12 @@
     - **[RES-03] Защита активных передач от Staging Reaper**: проверка `DistributedFileSystem.isFileClosed` перед удалением staging-файлов, предотвращающая срыв передач сверхдлинных и тяжелых файлов (> 30 минут).
     - **[SEC-07] Защита от Route Hijacking и Whitelist топологии**: в `TopologyRegistry` запрещена перезапись постоянных адресов кластеров динамическими воркерами, валидирован список кластеров `enforce-cluster-whitelist`.
 
+33. **Криптографическая аттестация задач и Zero-Trust изоляция (Task Attestation / HMAC Tokens - SEC-01)**:
+    - **Архитектура Zero-Trust доверяет только проверенным токенам**: ресивер `DataTransferServiceImpl` не доверяет параметрам передачи (`execution_principal`, `run_as_service_account`, `target_path`, `task_id`, `job_id`) на слово. При получении задачи из очереди `claimTasks` Оркестратор подписывает канонические метаданные задачи алгоритмом HMAC-SHA256 (`v1|taskId|jobId|targetPath|executionPrincipal|runAsServiceAccount|expiresAt`).
+    - **Сквозная передача через gRPC**: поле `task_token` добавлено в Protobuf-сообщения `TaskItemProto`, `FileMetadata` и `TarStreamMetadata`. Воркер передает токен ресиверу при инициализации потока.
+    - **Строгая верификация на стороне ресивера**: при валидации токена проверяется подлинность криптографической подписи (`MessageDigest.isEqual`), совпадение целевого пути, принципала Kerberos, флага системной техучетки и срок действия токена (TTL). При любой попытке подмены прав или пути ресивер немедленно отклоняет запрос с ошибкой `Status.PERMISSION_DENIED`, исключая Blind Privilege Escalation и несанкционированную запись в HDFS.
+    - **Обратная совместимость и Fail-Safe**: поддержка плавного перехода через `enforceTaskAttestation` (по умолчанию `false` для тестов обратной совместимости и `true` при включении `REPLICATOR_ENFORCE_TASK_ATTESTATION=true`).
+
 ---
 
 ## 2. Быстрый запуск

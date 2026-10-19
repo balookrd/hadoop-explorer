@@ -45,6 +45,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final int tarPipeBufferBytes;
     private final Semaphore tarStreamSemaphore;
     private final long tarStreamAcquireTimeoutMs;
+    private final String agentSecret;
+    private final boolean enforceTaskAttestation;
 
     public DataTransferServiceImpl(
             String stagingDir,
@@ -54,7 +56,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             int bundleCommitConcurrency,
             int maxConcurrentTarStreams,
             int tarPipeBufferBytes,
-            long tarStreamAcquireTimeoutMs
+            long tarStreamAcquireTimeoutMs,
+            String agentSecret,
+            boolean enforceTaskAttestation
     ) {
         this.stagingDir = stagingDir != null ? stagingDir : "/tmp/staging";
         this.fsManager = fsManager;
@@ -64,6 +68,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         this.maxConcurrentTarStreams = maxConcurrentTarStreams > 0 ? maxConcurrentTarStreams : 16;
         this.tarPipeBufferBytes = tarPipeBufferBytes > 0 ? tarPipeBufferBytes : 2 * 1024 * 1024;
         this.tarStreamAcquireTimeoutMs = tarStreamAcquireTimeoutMs > 0 ? tarStreamAcquireTimeoutMs : 60_000L;
+        this.agentSecret = agentSecret;
+        this.enforceTaskAttestation = enforceTaskAttestation;
         this.tarStreamSemaphore = new Semaphore(this.maxConcurrentTarStreams, true);
         this.bundleCommitExecutor = Executors.newFixedThreadPool(this.bundleCommitConcurrency, r -> {
             Thread t = new Thread(r, "bundle-hdfs-committer");
@@ -84,13 +90,30 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             String keytabPath,
             int bundleCommitConcurrency,
             int maxConcurrentTarStreams,
+            int tarPipeBufferBytes,
+            long tarStreamAcquireTimeoutMs
+    ) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, tarStreamAcquireTimeoutMs, null, false);
+    }
+
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
             int tarPipeBufferBytes
     ) {
-        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, 60_000L);
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, 60_000L, null, false);
     }
 
     public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency) {
-        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024);
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024, 60_000L, null, false);
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency, String agentSecret, boolean enforceTaskAttestation) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024, 60_000L, agentSecret, enforceTaskAttestation);
     }
 
     public void recordTargetDirectory(String path) {
@@ -144,6 +167,69 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
     public int getActiveTarStreamsCount() {
         return maxConcurrentTarStreams - tarStreamSemaphore.availablePermits();
+    }
+
+    public String getAgentSecret() {
+        return agentSecret;
+    }
+
+    public boolean isEnforceTaskAttestation() {
+        return enforceTaskAttestation;
+    }
+
+    private void validateTaskAttestation(FileMetadata metadata) {
+        validateTaskAttestationInternal(
+                metadata.getTaskToken(),
+                metadata.getTaskId(),
+                metadata.getJobId(),
+                metadata.getTargetPath(),
+                metadata.getExecutionPrincipal(),
+                metadata.getRunAsServiceAccount()
+        );
+    }
+
+    private void validateTaskAttestation(TarStreamMetadata metadata) {
+        validateTaskAttestationInternal(
+                metadata.getTaskToken(),
+                metadata.getTaskId(),
+                metadata.getJobId(),
+                metadata.getBaseTargetPath(),
+                metadata.getExecutionPrincipal(),
+                metadata.getRunAsServiceAccount()
+        );
+    }
+
+    private void validateTaskAttestationInternal(String token, String taskId, String jobId,
+                                                 String targetPath, String executionPrincipal,
+                                                 boolean runAsServiceAccount) {
+        boolean hasToken = token != null && !token.isBlank();
+        if (hasToken) {
+            if (agentSecret == null || agentSecret.isBlank()) {
+                logger.warn("Получен токен аттестации задачи, но секретный ключ agentSecret не сконфигурирован на Receiver сервере");
+                if (enforceTaskAttestation) {
+                    throw new SecurityException("Аттестация задачи отклонена: секретный ключ ресивера не сконфигурирован");
+                }
+                return;
+            }
+            boolean valid = org.apache.hadoop.explorer.replicator.security.TaskAttestationService.validateToken(
+                    token, taskId, jobId, targetPath, executionPrincipal, runAsServiceAccount, agentSecret
+            );
+            if (!valid) {
+                logger.error("Отказ безопасности (SEC-01): недействительный токен аттестации задачи task={}, job={}, path={}, principal={}, runAsService={}",
+                        taskId, jobId, targetPath, executionPrincipal, runAsServiceAccount);
+                throw new SecurityException("Криптографическая аттестация задачи не пройдена: токен подделан или параметры скомпрометированы");
+            }
+            logger.debug("Криптографическая аттестация задачи подтверждена: task={}, job={}, principal={}",
+                    taskId, jobId, executionPrincipal);
+        } else {
+            if (enforceTaskAttestation) {
+                logger.error("Отказ безопасности (SEC-01): отсутствует обязательный токен аттестации задачи task={}, job={}",
+                        taskId, jobId);
+                throw new SecurityException("Отклонено: требуется криптографическая аттестация задачи (Zero-Trust Task Attestation Token)");
+            }
+            logger.debug("Токен аттестации задачи отсутствует, выполнение в доверенном режиме обратной совместимости (task={}, job={})",
+                    taskId, jobId);
+        }
     }
 
     @Override
@@ -260,6 +346,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     // 1. Прием метаданных файла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
                         metadata = request.getMetadata();
+                        validateTaskAttestation(metadata);
                         HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
                         recordTargetDirectory(metadata.getTargetPath());
                         // Прямой staging в целевой HDFS/ФС (targetPath._staging_<jobId>) без промежуточного локального диска
@@ -310,6 +397,13 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                             AgentMetrics.getInstance().recordStagingBytes(bytes.length);
                         }
                     }
+                } catch (SecurityException se) {
+                    logger.error("Нарушение безопасности при передаче файла: {}", se.getMessage());
+                    cleanup();
+                    cancelled.set(true);
+                    responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                            .withDescription(se.getMessage())
+                            .asRuntimeException());
                 } catch (Exception e) {
                     logger.error("Ошибка при обработке чанка репликации: {}", e.getMessage(), e);
                     cleanup();
@@ -456,6 +550,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     // 1. Метаданные бандла (первое сообщение в потоке)
                     if (request.hasMetadata()) {
                         metadata = request.getMetadata();
+                        validateTaskAttestation(metadata);
                         HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
                         recordTargetDirectory(metadata.getBaseTargetPath());
 
@@ -689,6 +784,14 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                             bytesReceived += rawBytes.length;
                         }
                     }
+                } catch (SecurityException se) {
+                    logger.error("Нарушение безопасности при передаче TAR-стрима: {}", se.getMessage());
+                    cleanup();
+                    cancelled.set(true);
+                    releasePermit();
+                    responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                            .withDescription(se.getMessage())
+                            .asRuntimeException());
                 } catch (Exception e) {
                     logger.error("Ошибка при обработке чанка TAR-стрима: {}", e.getMessage(), e);
                     cleanup();

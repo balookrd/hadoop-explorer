@@ -454,6 +454,7 @@ public class OrchestratorGrpcClient implements Closeable {
                         t.getSourceClusterId(),
                         t.getTargetClusterId()
                 );
+                dto.setTaskToken(t.getTaskToken());
                 result.add(dto);
             }
             return result;

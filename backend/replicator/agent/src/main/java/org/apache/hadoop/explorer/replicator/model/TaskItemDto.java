@@ -69,6 +69,9 @@ public class TaskItemDto {
     @JsonProperty("target_cluster_id")
     private String targetClusterId;
 
+    @JsonProperty("task_token")
+    private String taskToken;
+
     public TaskItemDto() {}
 
     public TaskItemDto(String id, String jobId, String runId, String sourcePath, String targetPath,
@@ -184,4 +187,7 @@ public class TaskItemDto {
 
     public String getTargetClusterId() { return targetClusterId; }
     public void setTargetClusterId(String targetClusterId) { this.targetClusterId = targetClusterId; }
+
+    public String getTaskToken() { return taskToken; }
+    public void setTaskToken(String taskToken) { this.taskToken = taskToken; }
 }

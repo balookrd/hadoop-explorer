@@ -53,6 +53,8 @@ message FileMetadata {
   string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
   string checksum = 8;                   // Контрольная сумма (опционально, например MD5/SHA256)
   CompressionCodec compression_codec = 9;// Кодек сжатия чанков файла по умолчанию
+  string task_id = 10;                   // Идентификатор пофайловой подзадачи
+  string task_token = 11;                // Токен криптографической аттестации задачи (HMAC-SHA256)
 }
 
 // Чанк бинарных данных
@@ -128,6 +130,7 @@ message TarStreamMetadata {
   bool run_as_service_account = 6;       // Выполнять от системной техучетки
   string execution_principal = 7;        // Принципал Kerberos (техучетка или пользователь)
   CompressionCodec compression_codec = 8;// Кодек сжатия TAR-потока по умолчанию
+  string task_token = 9;                 // Токен криптографической аттестации задачи (HMAC-SHA256)
 }
 
 // Чанк бинарных данных tar-потока

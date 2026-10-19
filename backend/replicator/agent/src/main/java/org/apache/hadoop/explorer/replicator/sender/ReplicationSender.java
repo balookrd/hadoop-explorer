@@ -258,7 +258,7 @@ public class ReplicationSender implements AutoCloseable {
 
             boolean success = streamTaskFileToChannel(taskId, jobId, sourcePath, targetPath, fileSize,
                     task.getExecutionPrincipal(), task.getRunAsServiceAccount(),
-                    task.getSourceClusterId(), task.getTargetClusterId(), channel);
+                    task.getSourceClusterId(), task.getTargetClusterId(), task.getTaskToken(), channel);
 
             if (success) {
                 totalBytesTransferred.addAndGet(fileSize);
@@ -283,6 +283,7 @@ public class ReplicationSender implements AutoCloseable {
     private boolean streamTaskFileToChannel(String taskId, String jobId, String sourcePath, String targetPath,
                                             long fileBytes, String executionPrincipal, Boolean runAsServiceAccount,
                                             String sourceClusterId, String targetClusterId,
+                                            String taskToken,
                                             ManagedChannel channel) {
         CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
         StreamObserver<TransferFileRequest> requestObserver = null;
@@ -308,15 +309,19 @@ public class ReplicationSender implements AutoCloseable {
             // Метаданные файла
             boolean asService = runAsServiceAccount != null && runAsServiceAccount;
             CompressionCodec effectiveCodec = WireCompressor.resolveCodecForPath(sourcePath, defaultCompressionCodec);
-            FileMetadata metadata = FileMetadata.newBuilder()
+            FileMetadata.Builder metaBuilder = FileMetadata.newBuilder()
                     .setJobId(jobId)
+                    .setTaskId(taskId != null ? taskId : "")
                     .setSourcePath(sourcePath)
                     .setTargetPath(targetPath)
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(asService)
                     .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "hdfs-replicator@REALM.LOCAL")
-                    .setCompressionCodec(effectiveCodec)
-                    .build();
+                    .setCompressionCodec(effectiveCodec);
+            if (taskToken != null && !taskToken.isBlank()) {
+                metaBuilder.setTaskToken(taskToken);
+            }
+            FileMetadata metadata = metaBuilder.build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
