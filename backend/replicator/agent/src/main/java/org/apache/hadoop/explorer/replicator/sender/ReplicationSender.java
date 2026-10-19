@@ -57,6 +57,8 @@ public class ReplicationSender implements AutoCloseable {
     private final CompressionCodec defaultCompressionCodec;
     private final int compressionLevel;
     private final String agentSecret;
+    private final DirectoryDiffEngine diffEngine;
+    private final TarStreamPipeline tarPipeline;
     private final AtomicLong totalBytesTransferred = new AtomicLong(0);
     private final AtomicLong totalTransferErrors = new AtomicLong(0);
 
@@ -69,6 +71,8 @@ public class ReplicationSender implements AutoCloseable {
 
     public long getTotalBytesTransferred() { return totalBytesTransferred.get(); }
     public long getTotalTransferErrors() { return totalTransferErrors.get(); }
+    public DirectoryDiffEngine getDiffEngine() { return diffEngine; }
+    public TarStreamPipeline getTarPipeline() { return tarPipeline; }
 
     public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
@@ -134,6 +138,9 @@ public class ReplicationSender implements AutoCloseable {
         this.defaultCompressionCodec = defaultCompressionCodec != null ? defaultCompressionCodec : CompressionCodec.COMPRESSION_ZSTD;
         this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
         this.agentSecret = agentSecret;
+        this.diffEngine = new DirectoryDiffEngine(this.fsManager, this.orchestratorClient, objectMapper,
+                this.smallFileThresholdBytes, this.bundleTargetSizeBytes, this.maxBundleFiles);
+        this.tarPipeline = new TarStreamPipeline(objectMapper);
     }
 
     public CompressionCodec getDefaultCompressionCodec() {
@@ -212,141 +219,16 @@ public class ReplicationSender implements AutoCloseable {
      * вычисление in-memory diff и создание распределенного пула пофайловых задач в Оркестраторе.
      */
     public boolean analyzeAndCreateTaskPool(JobDto job, String targetAddress) {
-        String jobId = job.getId();
-        String sourcePath = job.getSourcePath();
-        String targetPath = job.getTargetPath();
-
-        boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
-        if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), asService)) {
-            String err = "Исходный путь не найден: " + sourcePath;
-            logger.error(err);
-            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
-            return false;
-        }
-
-        ManagedChannel channel = null;
+        ManagedChannel channel;
         try {
             channel = getOrCreateChannel(targetAddress);
-            // Pre-flight очистка старых staging-файлов предыдущей попытки этого задания
-            try {
-                fsManager.cleanStagingFiles(targetPath, jobId, 0L, job.getExecutionPrincipal(), asService);
-            } catch (Exception e) {
-                logger.debug("Предстартовая очистка staging файлов для job_id={}: {}", jobId, e.getMessage());
-            }
-
-            boolean isDir = fsManager.isDirectory(sourcePath, job.getExecutionPrincipal(), asService);
-
-            List<TaskCreateItem> taskItems = new ArrayList<>();
-
-            if (isDir) {
-                if (HadoopFsManager.isIgnoredDirectoryPath(sourcePath)) {
-                    logger.info("Каталог {} пропущен согласно фильтру временных папок", sourcePath);
-                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
-                    return true;
-                }
-
-                List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(
-                        sourcePath, job.getExecutionPrincipal(), asService
-                );
-
-                if (items.isEmpty()) {
-                    logger.info("Каталог {} пуст или все файлы отфильтрованы. Создание пустой задачи.", sourcePath);
-                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
-                    return true;
-                }
-
-                // Запрос пакетного манифеста у целевого агента (1 сетевой round-trip)
-                DirectoryManifestResponse remoteManifest = fetchRemoteManifest(channel, targetPath, job);
-                Map<String, Long> remoteFileSizes = new HashMap<>();
-                if (remoteManifest != null && remoteManifest.getExists()) {
-                    for (FileManifestEntry entry : remoteManifest.getFilesList()) {
-                        remoteFileSizes.put(entry.getRelativePath(), entry.getSize());
-                    }
-                }
-
-                // In-memory diff и формирование пула подзадач с бандлингом мелких файлов
-                List<HadoopFsManager.FileItem> currentBundle = new ArrayList<>();
-                long currentBundleBytes = 0;
-
-                for (HadoopFsManager.FileItem item : items) {
-                    Long remoteSize = remoteFileSizes.get(item.relativePath());
-                    boolean skipped = (remoteSize != null && remoteSize == item.size() && item.size() > 0);
-                    String subTargetPath = combinePaths(targetPath, item.relativePath());
-
-                    if (skipped) {
-                        taskItems.add(new TaskCreateItem(
-                                UUID.randomUUID().toString(),
-                                item.fullPath(),
-                                subTargetPath,
-                                item.size(),
-                                true,
-                                null,
-                                "FILE",
-                                1,
-                                null
-                        ));
-                        continue;
-                    }
-
-                    // Если файл >= порога мелких файлов или бандлинг отключен (порог <= 0)
-                    if (smallFileThresholdBytes <= 0 || item.size() >= smallFileThresholdBytes) {
-                        taskItems.add(new TaskCreateItem(
-                                UUID.randomUUID().toString(),
-                                item.fullPath(),
-                                subTargetPath,
-                                item.size(),
-                                false,
-                                null,
-                                "FILE",
-                                1,
-                                null
-                        ));
-                    } else {
-                        // Мелкий файл: добавляем в накапливаемый бандл
-                        currentBundle.add(item);
-                        currentBundleBytes += item.size();
-
-                        if (currentBundle.size() >= maxBundleFiles || currentBundleBytes >= bundleTargetSizeBytes) {
-                            taskItems.add(createBundleTaskItem(sourcePath, targetPath, currentBundle, currentBundleBytes));
-                            currentBundle = new ArrayList<>();
-                            currentBundleBytes = 0;
-                        }
-                    }
-                }
-
-                // Завершающий бандл (если остались файлы)
-                if (!currentBundle.isEmpty()) {
-                    taskItems.add(createBundleTaskItem(sourcePath, targetPath, currentBundle, currentBundleBytes));
-                }
-            } else {
-                if (HadoopFsManager.isIgnoredPath(sourcePath)) {
-                    logger.info("Файл {} пропущен согласно фильтру временных файлов", sourcePath);
-                    orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
-                    return true;
-                }
-
-                long fileBytes = fsManager.getFileSize(sourcePath, job.getExecutionPrincipal(), asService);
-                CheckFileResponse check = checkRemoteFile(channel, targetPath, job);
-                boolean skipped = (check != null && check.getExists() && check.getSize() == fileBytes && fileBytes > 0);
-
-                taskItems.add(new TaskCreateItem(
-                        UUID.randomUUID().toString(),
-                        sourcePath,
-                        targetPath,
-                        fileBytes,
-                        skipped
-                ));
-            }
-
-            boolean ok = orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, taskItems));
-            logger.info("Для задания '{}' успешно сформирован и зарегистрирован пул из {} пофайловых задач", jobId, taskItems.size());
-            return ok;
         } catch (Exception e) {
-            String err = "Ошибка при анализе каталога " + sourcePath + ": " + e.getMessage();
+            String err = "Не удалось получить gRPC соединение к " + targetAddress + ": " + e.getMessage();
             logger.error(err, e);
-            orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
+            orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
         }
+        return diffEngine.analyzeAndCreateTaskPool(job, channel);
     }
 
     /**
@@ -641,21 +523,7 @@ public class ReplicationSender implements AutoCloseable {
     }
 
     private DirectoryManifestResponse fetchRemoteManifest(ManagedChannel channel, String targetDir, JobDto job) {
-        try {
-            DataTransferServiceGrpc.DataTransferServiceBlockingStub blockingStub =
-                    DataTransferServiceGrpc.newBlockingStub(channel).withDeadlineAfter(30, TimeUnit.SECONDS);
-
-            DirectoryManifestRequest req = DirectoryManifestRequest.newBuilder()
-                    .setPath(targetDir)
-                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "")
-                    .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
-                    .build();
-
-            return blockingStub.getDirectoryManifest(req);
-        } catch (Exception e) {
-            logger.debug("Не удалось получить пакетный манифест каталога '{}' через gRPC (возможно, новый каталог): {}", targetDir, e.getMessage());
-            return null;
-        }
+        return diffEngine.fetchRemoteManifest(channel, targetDir, job);
     }
 
     private boolean streamFileToChannel(String jobId, String sourcePath, String targetPath, long fileBytes,
@@ -758,21 +626,7 @@ public class ReplicationSender implements AutoCloseable {
     }
 
     private CheckFileResponse checkRemoteFile(ManagedChannel channel, String targetPath, JobDto job) {
-        try {
-            DataTransferServiceGrpc.DataTransferServiceBlockingStub blockingStub =
-                    DataTransferServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS);
-
-            CheckFileRequest req = CheckFileRequest.newBuilder()
-                    .setPath(targetPath)
-                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "")
-                    .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
-                    .build();
-
-            return blockingStub.checkFile(req);
-        } catch (Exception e) {
-            logger.debug("Статус целевого файла '{}' не получен через gRPC (возможно, новый файл): {}", targetPath, e.getMessage());
-            return null;
-        }
+        return diffEngine.checkRemoteFile(channel, targetPath, job);
     }
 
     private static String combinePaths(String base, String relative) {
@@ -954,162 +808,25 @@ public class ReplicationSender implements AutoCloseable {
 
     private TaskCreateItem createBundleTaskItem(String baseSourcePath, String baseTargetPath,
                                                 List<HadoopFsManager.FileItem> bundleFiles, long totalBytes) {
-        List<BundleFileEntry> entries = new ArrayList<>(bundleFiles.size());
-        for (HadoopFsManager.FileItem item : bundleFiles) {
-            entries.add(new BundleFileEntry(item.fullPath(), item.relativePath(), item.size()));
-        }
-        String manifestJson = "";
-        try {
-            manifestJson = objectMapper.writeValueAsString(entries);
-        } catch (Exception e) {
-            logger.error("Ошибка сериализации bundleManifest: {}", e.getMessage());
-        }
-        return new TaskCreateItem(
-                UUID.randomUUID().toString(),
-                baseSourcePath,
-                baseTargetPath,
-                totalBytes,
-                false,
-                null,
-                "BUNDLE_TAR",
-                bundleFiles.size(),
-                manifestJson
-        );
+        return diffEngine.createBundleTaskItem(baseSourcePath, baseTargetPath, bundleFiles, totalBytes);
     }
 
     /**
      * Потоковая передача пакета мелких файлов в виде единого непрерывного TAR-архива на лету.
      */
     public boolean transferBundleTarTask(TaskItemDto task) {
-        String taskId = task.getId();
-        String jobId = task.getJobId();
-        String targetPath = task.getTargetPath();
-        long totalBytes = task.getFileSize();
-        int fileCount = task.getFileCount();
         String targetAddress = task.getTargetAddress();
         if (targetAddress == null || targetAddress.isBlank()) {
-            throw new IllegalArgumentException("Целевой gRPC адрес репликации не указан для бандла " + taskId);
+            throw new IllegalArgumentException("Целевой gRPC адрес репликации не указан для бандла " + task.getId());
         }
-
-        logger.info("Воркер '{}' начинает потоковую передачу бандла TAR '{}': {} файлов ({} байт) в '{}' на {}",
-                workerId, taskId, fileCount, totalBytes, targetPath, targetAddress);
-
-        List<BundleFileEntry> entries;
         try {
-            entries = objectMapper.readValue(task.getBundleManifest(), new TypeReference<List<BundleFileEntry>>() {});
-        } catch (Exception e) {
-            String err = "Ошибка десериализации bundleManifest для задачи " + taskId + ": " + e.getMessage();
-            logger.error(err);
-            orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, err));
-            return false;
-        }
-
-        ManagedChannel channel = null;
-        StreamObserver<TarStreamRequest> requestObserver = null;
-        try {
-            channel = getOrCreateChannel(targetAddress);
-            DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
-
-            CompletableFuture<TarStreamResponse> responseFuture = new CompletableFuture<>();
-
-            requestObserver = stub.transferTarStream(new StreamObserver<>() {
-                @Override
-                public void onNext(TarStreamResponse value) {
-                    responseFuture.complete(value);
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    responseFuture.completeExceptionally(t);
-                }
-
-                @Override
-                public void onCompleted() {
-                }
-            });
-
-            // 1. Метаданные бандла
-            boolean asService = task.getRunAsServiceAccount() != null && task.getRunAsServiceAccount();
-            String principal = task.getExecutionPrincipal() != null ? task.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL";
-            boolean allPrecompressed = entries.stream().allMatch(e ->
-                    WireCompressor.isPrecompressedPath(e.getSourcePath()) || WireCompressor.isPrecompressedPath(e.getRelativePath()));
-            CompressionCodec tarCodec = allPrecompressed ? CompressionCodec.COMPRESSION_NONE : defaultCompressionCodec;
-
-            TarStreamMetadata metadata = TarStreamMetadata.newBuilder()
-                    .setJobId(jobId)
-                    .setTaskId(taskId)
-                    .setBaseTargetPath(targetPath)
-                    .setTotalFiles(entries.size())
-                    .setTotalBytes(totalBytes)
-                    .setRunAsServiceAccount(asService)
-                    .setExecutionPrincipal(principal)
-                    .setCompressionCodec(tarCodec)
-                    .build();
-
-            requestObserver.onNext(TarStreamRequest.newBuilder().setMetadata(metadata).build());
-
-            // 2. Потоковая упаковка TAR на лету в памяти с чанкованием, сжатием, шейпингом и запросом токенов
-            TarChunkingOutputStream chunkingOut = new TarChunkingOutputStream(
-                    taskId,
-                    requestObserver,
-                    chunkSize,
-                    bandwidthLimiter,
-                    orchestratorClient,
-                    workerId,
-                    tarCodec,
-                    compressionLevel,
-                    task.getSourceClusterId(),
-                    task.getTargetClusterId(),
-                    tokenBatchLease
-            );
-
-            try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
-                tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
-                tarOut.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
-
-                for (BundleFileEntry entry : entries) {
-                    TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
-                    tarEntry.setSize(entry.getSize());
-                    tarOut.putArchiveEntry(tarEntry);
-
-                    if (!fsManager.exists(entry.getSourcePath(), principal, asService)) {
-                        logger.warn("Файл бандла '{}' не найден в HDFS, пропуск", entry.getSourcePath());
-                        continue;
-                    }
-
-                    try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
-                        IOUtils.copyBytes(in, tarOut, 32 * 1024, false);
-                    }
-                    tarOut.closeArchiveEntry();
-                }
-
-                tarOut.finish();
-                tarOut.flush();
-            }
-
-            chunkingOut.flush();
-            requestObserver.onCompleted();
-
-            TarStreamResponse resp = responseFuture.get(120, TimeUnit.SECONDS);
-            if (resp.getSuccess()) {
-                logger.info("Воркер '{}' успешно передал виртуальный TAR-стрим '{}': {} файлов ({} байт)",
-                        workerId, taskId, resp.getFilesCommitted(), resp.getBytesWritten());
-                orchestratorClient.completeTask(new CompleteTaskRequest(taskId, workerId, resp.getBytesWritten(), "OK", resp.getFilesCommitted()));
-                return true;
-            } else {
-                logger.error("Воркер '{}' получил ошибку передачи бандла '{}': {}", workerId, taskId, resp.getMessage());
-                orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, resp.getMessage()));
-                return false;
-            }
+            ManagedChannel channel = getOrCreateChannel(targetAddress);
+            return tarPipeline.transferBundleTarTask(task, channel, workerId, orchestratorClient, fsManager,
+                    bandwidthLimiter, chunkSize, defaultCompressionCodec, compressionLevel, tokenBatchLease);
         } catch (Exception e) {
             evictChannel(targetAddress);
-            logger.error("Исключение при передаче бандла TAR '{}': {}", taskId, e.getMessage(), e);
-            if (requestObserver != null) {
-                try {
-                    requestObserver.onError(e);
-                } catch (Exception ignored) {}
-            }
-            orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, e.getMessage()));
+            logger.error("Исключение при передаче бандла TAR '{}': {}", task.getId(), e.getMessage(), e);
+            orchestratorClient.failTask(new FailTaskRequest(task.getId(), workerId, e.getMessage()));
             return false;
         }
     }
@@ -1117,35 +834,18 @@ public class ReplicationSender implements AutoCloseable {
     /**
      * Потоковый адаптер OutputStream, упаковывающий байты архива в gRPC чанки по 64 КБ с шейпингом.
      */
-    public static class TarChunkingOutputStream extends OutputStream {
-        private final String taskId;
-        private final StreamObserver<TarStreamRequest> requestObserver;
-        private final int chunkSize;
-        private final LocalBandwidthLimiter bandwidthLimiter;
-        private final OrchestratorGrpcClient orchestratorClient;
-        private final String workerId;
-        private final CompressionCodec codec;
-        private final int compressionLevel;
-        private final String sourceClusterId;
-        private final String targetClusterId;
-        private final ConcurrentHashMap<String, AtomicLong> tokenBatchLease;
-        private final byte[] buffer;
-        private int count = 0;
-        private long offset = 0;
-
+    public static class TarChunkingOutputStream extends TarStreamPipeline.TarChunkingOutputStream {
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
                                        OrchestratorGrpcClient orchestratorClient, String workerId) {
-            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
-                    CompressionCodec.COMPRESSION_ZSTD, WireCompressor.DEFAULT_ZSTD_LEVEL, null, null);
+            super(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId);
         }
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
                                        OrchestratorGrpcClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel) {
-            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
-                    codec, compressionLevel, null, null);
+            super(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId, codec, compressionLevel);
         }
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
@@ -1153,8 +853,7 @@ public class ReplicationSender implements AutoCloseable {
                                        OrchestratorGrpcClient orchestratorClient, String workerId,
                                        CompressionCodec codec, int compressionLevel,
                                        String sourceClusterId, String targetClusterId) {
-            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
-                    codec, compressionLevel, sourceClusterId, targetClusterId, null);
+            super(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId, codec, compressionLevel, sourceClusterId, targetClusterId);
         }
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
@@ -1163,81 +862,7 @@ public class ReplicationSender implements AutoCloseable {
                                        CompressionCodec codec, int compressionLevel,
                                        String sourceClusterId, String targetClusterId,
                                        ConcurrentHashMap<String, AtomicLong> tokenBatchLease) {
-            this.taskId = taskId;
-            this.requestObserver = requestObserver;
-            this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
-            this.bandwidthLimiter = bandwidthLimiter;
-            this.orchestratorClient = orchestratorClient;
-            this.workerId = workerId;
-            this.codec = codec != null ? codec : CompressionCodec.COMPRESSION_NONE;
-            this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
-            this.sourceClusterId = sourceClusterId;
-            this.targetClusterId = targetClusterId;
-            this.tokenBatchLease = tokenBatchLease != null ? tokenBatchLease : new ConcurrentHashMap<>();
-            this.buffer = new byte[this.chunkSize];
-        }
-
-        @Override
-        public void write(int b) throws IOException {
-            buffer[count++] = (byte) b;
-            if (count >= chunkSize) {
-                flushBuffer();
-            }
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException {
-            int remaining = len;
-            int currentOff = off;
-            while (remaining > 0) {
-                int space = chunkSize - count;
-                int toCopy = Math.min(space, remaining);
-                System.arraycopy(b, currentOff, buffer, count, toCopy);
-                count += toCopy;
-                currentOff += toCopy;
-                remaining -= toCopy;
-                if (count >= chunkSize) {
-                    flushBuffer();
-                }
-            }
-        }
-
-        private void flushBuffer() throws IOException {
-            if (count == 0) return;
-
-            WireCompressor.CompressedPayload payload = WireCompressor.compress(
-                    buffer, 0, count, codec, compressionLevel
-            );
-            int wireBytes = payload.bytes().length;
-            AgentMetrics.getInstance().recordCompression(payload.appliedCodec().name(), count, wireBytes);
-
-            if (bandwidthLimiter != null) {
-                bandwidthLimiter.throttle(wireBytes);
-            }
-            if (orchestratorClient != null && workerId != null) {
-                acquireNetworkTokens(this.tokenBatchLease, this.orchestratorClient, this.workerId,
-                        wireBytes, this.sourceClusterId, this.targetClusterId);
-            }
-
-            TarStreamChunk chunk = TarStreamChunk.newBuilder()
-                    .setTaskId(taskId)
-                    .setOffset(offset)
-                    .setData(ByteString.copyFrom(payload.bytes()))
-                    .setCompressionCodec(payload.appliedCodec())
-                    .setUncompressedSize(count)
-                    .build();
-
-            long chunkSendStart = System.nanoTime();
-            requestObserver.onNext(TarStreamRequest.newBuilder().setChunk(chunk).build());
-            AgentMetrics.getInstance().recordChunkTransferLatency(System.nanoTime() - chunkSendStart);
-
-            offset += count;
-            count = 0;
-        }
-
-        @Override
-        public void flush() throws IOException {
-            flushBuffer();
+            super(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId, codec, compressionLevel, sourceClusterId, targetClusterId, tokenBatchLease);
         }
     }
 

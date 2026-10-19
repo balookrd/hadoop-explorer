@@ -4,14 +4,17 @@ import org.apache.hadoop.explorer.replicator.orchestrator.dto.AgentResponseDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrStatusResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.DisasterRecoveryService;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -24,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * - Агенты: статус доступности флота, активные трансферы, переданный объем байт, ошибки
  * - Репликация Hive Metastore (HMS): прогресс Bootstrap, скорость, ETA, CDC стриминг
  * - Disaster Recovery (DR): статус изоляции (fencing), аварийный рубильник (kill-switch), обратная репликация
+ * - Репликация Kafka: сквозной лаг (lag ms), счетчики сообщений и байт, лимиты полосы
  */
 @Service
 public class ReplicatorMetricsService {
@@ -33,12 +37,32 @@ public class ReplicatorMetricsService {
     private final JobRepository jobRepository;
     private final TaskRepository taskRepository;
     private final HmsReplicationJobRepository hmsReplicationJobRepository;
+    private final KafkaReplicationJobRepository kafkaReplicationJobRepository;
     private final AgentRegistry agentRegistry;
     private final TokenBucketThrottler throttler;
     private final DisasterRecoveryService disasterRecoveryService;
 
     // Внутренний счетчик накопленной задержки троттлинга
     private final AtomicLong accumulatedThrottlingNanos = new AtomicLong(0);
+
+    @Autowired
+    public ReplicatorMetricsService(
+            JobRepository jobRepository,
+            TaskRepository taskRepository,
+            HmsReplicationJobRepository hmsReplicationJobRepository,
+            KafkaReplicationJobRepository kafkaReplicationJobRepository,
+            AgentRegistry agentRegistry,
+            TokenBucketThrottler throttler,
+            DisasterRecoveryService disasterRecoveryService
+    ) {
+        this.jobRepository = jobRepository;
+        this.taskRepository = taskRepository;
+        this.hmsReplicationJobRepository = hmsReplicationJobRepository;
+        this.kafkaReplicationJobRepository = kafkaReplicationJobRepository;
+        this.agentRegistry = agentRegistry;
+        this.throttler = throttler;
+        this.disasterRecoveryService = disasterRecoveryService;
+    }
 
     public ReplicatorMetricsService(
             JobRepository jobRepository,
@@ -48,12 +72,7 @@ public class ReplicatorMetricsService {
             TokenBucketThrottler throttler,
             DisasterRecoveryService disasterRecoveryService
     ) {
-        this.jobRepository = jobRepository;
-        this.taskRepository = taskRepository;
-        this.hmsReplicationJobRepository = hmsReplicationJobRepository;
-        this.agentRegistry = agentRegistry;
-        this.throttler = throttler;
-        this.disasterRecoveryService = disasterRecoveryService;
+        this(jobRepository, taskRepository, hmsReplicationJobRepository, null, agentRegistry, throttler, disasterRecoveryService);
     }
 
     public void recordThrottlingWait(double waitSeconds) {
@@ -151,6 +170,9 @@ public class ReplicatorMetricsService {
 
             // 9. Детальные метрики агентов: replicator_agent_* & agent_*
             renderAgentMetrics(sb);
+
+            // 10. Kafka Replication metrics: replicator_kafka_* & kafka_*
+            renderKafkaMetrics(sb);
 
         } catch (Exception e) {
             log.error("Ошибка при генерации метрик Prometheus: {}", e.getMessage(), e);
@@ -556,6 +578,95 @@ public class ReplicatorMetricsService {
                     .count();
         } catch (Exception e) {
             return 0.0;
+        }
+    }
+
+    private void renderKafkaMetrics(StringBuilder sb) {
+        if (kafkaReplicationJobRepository == null) {
+            return;
+        }
+        try {
+            List<KafkaReplicationJobEntity> jobs = kafkaReplicationJobRepository.findAll();
+
+            long activeCount = 0;
+            long pausedCount = 0;
+            long totalMessages = 0;
+            long totalBytes = 0;
+            long maxLagMs = 0;
+
+            for (KafkaReplicationJobEntity j : jobs) {
+                if ("ACTIVE".equalsIgnoreCase(j.getStatus())) {
+                    activeCount++;
+                } else if ("PAUSED".equalsIgnoreCase(j.getStatus())) {
+                    pausedCount++;
+                }
+                long msgs = j.getMessagesReplicated() != null ? j.getMessagesReplicated() : 0L;
+                long bytes = j.getBytesReplicated() != null ? j.getBytesReplicated() : 0L;
+                long lag = j.getCurrentLagMs() != null ? j.getCurrentLagMs() : 0L;
+
+                totalMessages += msgs;
+                totalBytes += bytes;
+                if (lag > maxLagMs) {
+                    maxLagMs = lag;
+                }
+            }
+
+            // 1. Статусы задач
+            sb.append("# HELP replicator_kafka_jobs_total Количество задач репликации Kafka по статусам\n");
+            sb.append("# TYPE replicator_kafka_jobs_total gauge\n");
+            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"ACTIVE\"} %d\n", activeCount));
+            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"PAUSED\"} %d\n", pausedCount));
+            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"TOTAL\"} %d\n", jobs.size()));
+
+            // 2. Агрегированные счетчики (гармонизированный стандарт Prometheus & Grafana)
+            sb.append("# HELP kafka_replicated_messages_total Суммарное количество сообщений Kafka, переданных через gRPC\n");
+            sb.append("# TYPE kafka_replicated_messages_total counter\n");
+            sb.append(String.format(Locale.US, "kafka_replicated_messages_total %d\n", totalMessages));
+
+            sb.append("# HELP kafka_replicated_bytes_total Суммарный объем байт данных Kafka, переданных через gRPC\n");
+            sb.append("# TYPE kafka_replicated_bytes_total counter\n");
+            sb.append(String.format(Locale.US, "kafka_replicated_bytes_total %d\n", totalBytes));
+
+            sb.append("# HELP kafka_current_lag_ms Максимальный текущий сквозной лаг репликации Kafka (мс)\n");
+            sb.append("# TYPE kafka_current_lag_ms gauge\n");
+            sb.append(String.format(Locale.US, "kafka_current_lag_ms %d\n", maxLagMs));
+
+            // 3. Детальные метрики по каждой задаче репликации Kafka
+            if (!jobs.isEmpty()) {
+                sb.append("# HELP replicator_kafka_job_messages_total Передано сообщений по задаче репликации Kafka\n");
+                sb.append("# TYPE replicator_kafka_job_messages_total counter\n");
+                for (KafkaReplicationJobEntity j : jobs) {
+                    long msgs = j.getMessagesReplicated() != null ? j.getMessagesReplicated() : 0L;
+                    sb.append(String.format(Locale.US, "replicator_kafka_job_messages_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), msgs));
+                }
+
+                sb.append("# HELP replicator_kafka_job_bytes_total Передано байт по задаче репликации Kafka\n");
+                sb.append("# TYPE replicator_kafka_job_bytes_total counter\n");
+                for (KafkaReplicationJobEntity j : jobs) {
+                    long bytes = j.getBytesReplicated() != null ? j.getBytesReplicated() : 0L;
+                    sb.append(String.format(Locale.US, "replicator_kafka_job_bytes_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), bytes));
+                }
+
+                sb.append("# HELP replicator_kafka_job_lag_ms Текущий сквозной лаг репликации по задаче Kafka (мс)\n");
+                sb.append("# TYPE replicator_kafka_job_lag_ms gauge\n");
+                for (KafkaReplicationJobEntity j : jobs) {
+                    long lag = j.getCurrentLagMs() != null ? j.getCurrentLagMs() : 0L;
+                    sb.append(String.format(Locale.US, "replicator_kafka_job_lag_ms{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), lag));
+                }
+
+                sb.append("# HELP replicator_kafka_bandwidth_limit_mb Выделенный лимит полосы пропускания WAN для задачи Kafka (МБ/с)\n");
+                sb.append("# TYPE replicator_kafka_bandwidth_limit_mb gauge\n");
+                for (KafkaReplicationJobEntity j : jobs) {
+                    double bw = j.getBandwidthLimitMb() != null ? j.getBandwidthLimitMb() : 0.0;
+                    sb.append(String.format(Locale.US, "replicator_kafka_bandwidth_limit_mb{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\"} %.2f\n",
+                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), bw));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Ошибка при генерации метрик Kafka репликации: {}", e.getMessage(), e);
         }
     }
 

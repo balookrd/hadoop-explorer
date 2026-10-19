@@ -38,8 +38,8 @@ flowchart TD
     end
 
     subgraph LB["⚖️ Балансировщик нагрузки (High Availability)"]
-        VIP_REST["🌐 Keepalived VIP: 8005<br/>(HTTPS / REST: Web UI & HDFS Task Claim)"]
-        VIP_GRPC["⚡ gRPC Load Balancer: 50050<br/>(HTTP/2 Control Plane: Kafka Heartbeat & Dispatch)"]
+        VIP_REST["🌐 Keepalived VIP: 8005<br/>(HTTPS / REST: Web UI Console & Admin API)"]
+        VIP_GRPC["⚡ gRPC Load Balancer: 50050<br/>(HTTP/2 Control Plane: Task Claim, Heartbeat & Quotas)"]
     end
 
     subgraph Orchestrators["🎯 Пул инстансов Оркестратора (Active-Active Control Plane)"]
@@ -58,8 +58,7 @@ flowchart TD
     end
 
     WebUI --> VIP_REST
-    AgentsCtrl -->|REST :8005| VIP_REST
-    AgentsCtrl -->|gRPC :50050| VIP_GRPC
+    AgentsCtrl -->|gRPC :50050 (HTTP/2 Control Plane)| VIP_GRPC
     VIP_REST -->|Round-Robin / Failover| Orch1
     VIP_REST -->|Round-Robin / Failover| Orch2
     VIP_GRPC -->|HTTP/2 Round-Robin| Orch1
@@ -74,8 +73,8 @@ flowchart TD
 
 ### 2.1. Разделение сетевых плоскостей и балансировка запросов
 1. **Control Plane (Управление и координация)**:
-   - **REST API (порт `:8005`)**: Обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, CRUD задач репликации и запросы токенов пропускной способности (`POST /api/v1/tokens/request`). Доступ защищен Keepalived VIP `https://replicator.company.local:8005`.
-   - **gRPC Control Plane (порт `:50050`)**: Сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Используется распределенными агентами (включая Kafka Replicator) для легковесной регистрации, периодического heartbeat и динамического получения активных задач (`GetActiveKafkaJobs`) без накладных расходов JSON/HTTP.
+   - **REST API (порт `:8005`)**: Обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, административный CRUD задач репликации и DR-сценарии. Доступ защищен Keepalived VIP `https://replicator.company.local:8005`.
+   - **gRPC Control Plane (порт `:50050`)**: Сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Используется всеми распределенными агентами (HDFS, HMS, Kafka) для легковесной регистрации, периодического heartbeat, захвата задач из очереди (`claimTasks`), подтверждения финализации (`completeTask`), запроса квот Token Bucket (`requestTokens`) и лизинга стримеров без накладных расходов JSON/HTTP.
 2. **Data Plane (Межцодовая передача данных)**:
    - Потоковая передача данных (файлы HDFS, виртуальные TAR-архивы, батчи Kafka) идет **напрямую между агентами** (`Agent Sender ➔ Agent Receiver`) через выделенные сокеты gRPC:
      - `:50051` — HDFS Data Plane (`DataTransferService`).
@@ -327,7 +326,7 @@ stateDiagram-v2
 
 Приемник (`DataTransferServiceImpl`) развертывается на каждом узле кластера назначения:
 1. **Динамический выбор узла назначения**: Если целевой агент недоступен по gRPC, Sender запрашивает у Оркестратора альтернативный узел назначения из топологии кластера (`GET /api/v1/clusters/{id}/nodes`).
-2. **Очистка незавершенных файлов (Staging Cleanup)**: При аварийном обрыве gRPC соединения временный файл в staging-директории удаляется сборщиком мусора приемника (`cleanupStagingOrphans()`), предотвращая утечку дискового пространства.
+2. **Специализированный сборщик мусора (`HdfsStagingReaper`)**: При аварийных обрывах соединения, сетевых таймаутах и внезапных перезапусках агентов сервис `HdfsStagingReaper` гарантированно сканирует целевые пути HDFS и локальной ФС, удаляя осиротевшие временные staging-файлы (`*._staging_*`) по критериям `jobId` и возрасту (`olderThanMillis`).
 3. **Безопасная отмена gRPC-потока (Cancel Handler & Worker Cancellation)**:
    - В обработчиках `TransferFileObserver` и `TarStreamObserver` зарегистрирован `serverCallStreamObserver.setOnCancelHandler(...)`.
    - При получении сигнала отмены от клиента (`CANCELLED`) или обрыве сети (`onError`):
@@ -336,6 +335,10 @@ stateDiagram-v2
      3. Для всех активных параллельных задач записи на целевой HDFS вызывается `fut.cancel(true)`.
      4. Воркеры проверяют флаг отмены перед `writeDirect` и перед `renameFile`, предотвращая появление мусорных файлов и гонки между очисткой staging и финализацией.
      5. Все временные staging-файлы немедленно удаляются из целевой файловой системы.
+4. **Отказоустойчивая аутентификация и изоляция Kerberos (`KerberosUgiProvider`)**:
+   - Обеспечивает безопасное создание и кэширование контекстов `UserGroupInformation` (UGI) и doAs-имперсонации для аудита в Apache Ranger.
+   - Механизм `validatePrincipalSafety` предотвращает Path Traversal и Privilege Escalation атаки под учетными записями `root`, `bin`, `daemon` и др.
+   - Реализует многоуровневый fallback для бесшовной работы на современных LTS и будущих версиях Java (включая JDK 21+), где устаревший `Subject.getSubject` ограничен платформой.
 
 ---
 

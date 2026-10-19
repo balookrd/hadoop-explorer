@@ -31,6 +31,9 @@ public class ReplicatorMetricsTest {
     @Autowired
     private JobService jobService;
 
+    @Autowired
+    private org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository kafkaReplicationJobRepository;
+
     @Test
     @DisplayName("Проверка экспорта метрик Prometheus на эндпоинте /metrics")
     void testScrapeMetricsEndpoint() throws Exception {
@@ -50,13 +53,28 @@ public class ReplicatorMetricsTest {
         hb.setStagingOrphansCleaned(5L);
         agentRegistry.heartbeat(hb, "replicator-secure-agent-secret-key-12345");
 
-        // Создаем тестовую джобу
+        // Создаем тестовую джобу HDFS
         CreateJobRequest req = new CreateJobRequest(
                 "/data/metrics/src", "/backup/metrics/dst", "dc1", "dc2",
                 10485760L, "hdfs@REALM.LOCAL", true, false,
                 null, 10, "STANDARD", null
         );
         jobService.createJob(req, "metrics-tester");
+
+        // Создаем тестовую джобу Kafka
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity kJob =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity();
+        kJob.setId("kafka-job-metrics-1");
+        kJob.setName("Orders & Payments Stream");
+        kJob.setSourceDc("DC1");
+        kJob.setTargetDc("DC2");
+        kJob.setStatus("ACTIVE");
+        kJob.setMessagesReplicated(150000L);
+        kJob.setBytesReplicated(75000000L);
+        kJob.setCurrentLagMs(12L);
+        kJob.setBandwidthLimitMb(80.0);
+        kJob.setTopicsJson("[]");
+        kafkaReplicationJobRepository.save(kJob);
 
         mockMvc.perform(get("/metrics"))
                 .andExpect(status().isOk())
@@ -88,6 +106,15 @@ public class ReplicatorMetricsTest {
                 .andExpect(content().string(containsString("replicator_staging_active_files{agent_id=\"agent-metrics-node1\"")))
                 .andExpect(content().string(containsString("replicator_staging_active_bytes 3145728")))
                 .andExpect(content().string(containsString("replicator_staging_orphans_cleaned_total 5")))
+                // Метрики потоковой Kafka-репликации
+                .andExpect(content().string(containsString("replicator_kafka_jobs_total{status=\"ACTIVE\"} 1")))
+                .andExpect(content().string(containsString("kafka_replicated_messages_total 150000")))
+                .andExpect(content().string(containsString("kafka_replicated_bytes_total 75000000")))
+                .andExpect(content().string(containsString("kafka_current_lag_ms 12")))
+                .andExpect(content().string(containsString("replicator_kafka_job_messages_total{job_id=\"kafka-job-metrics-1\"")))
+                .andExpect(content().string(containsString("replicator_kafka_job_bytes_total{job_id=\"kafka-job-metrics-1\"")))
+                .andExpect(content().string(containsString("replicator_kafka_job_lag_ms{job_id=\"kafka-job-metrics-1\"")))
+                .andExpect(content().string(containsString("replicator_kafka_bandwidth_limit_mb{job_id=\"kafka-job-metrics-1\"")))
                 // Убеждаемся в отсутствии устаревших legacy-алиасов
                 .andExpect(content().string(not(containsString("# HELP replication_bytes_total"))))
                 .andExpect(content().string(not(containsString("# HELP replication_jobs_total"))))

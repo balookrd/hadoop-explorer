@@ -74,11 +74,38 @@ groups:
           description: "Более 10% задач репликации завершаются со статусом FAILED."
 
       - alert: ReplicationWorkerStarvation
-        expr: active_workers == 0 and sum(replication_jobs_total{status=~"RUNNING|QUEUED"}) > 0
+        expr: replicator_active_workers == 0 and sum(replicator_jobs_total{status=~"RUNNING|QUEUED"}) > 0
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Отсутствуют активные воркеры при наличии задач репликации"
           description: "В очереди находятся задачи репликации, но ни один воркер gRPC не выполняет передачу."
+
+      - alert: KafkaReplicationHighLag
+        expr: kafka_current_lag_ms > 1000
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий сквозной лаг репликации Kafka (> 1 с)"
+          description: "Сквозной лаг потоковой репликации Kafka (kafka_current_lag_ms) превышает 1000 мс в течение 1 минуты."
+
+      - alert: KafkaReplicationCriticalLag
+        expr: kafka_current_lag_ms > 5000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Критический сквозной лаг репликации Kafka (> 5 с)"
+          description: "Сквозной лаг потоковой репликации Kafka превышает 5000 мс в течение 2 минут. Возможна задержка данных в целевом кластере."
+
+      - alert: KafkaReplicationJobPaused
+        expr: replicator_kafka_jobs_total{status="PAUSED"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Приостановлена задача потоковой репликации Kafka"
+          description: "Одна или несколько задач репликации Kafka находятся в статусе PAUSED более 5 минут."
 

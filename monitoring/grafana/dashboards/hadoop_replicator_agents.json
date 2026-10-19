@@ -52,6 +52,17 @@
       "title": "HMS Репликация & DR",
       "type": "link",
       "url": "/d/hadoop-replicator-hms-dr"
+    },
+    {
+      "asDropdown": false,
+      "icon": "cloud-download",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": ["replicator", "kafka"],
+      "targetBlank": false,
+      "title": "📨 Потоковая репликация Kafka",
+      "type": "link",
+      "url": "/d/hadoop-replicator-kafka"
     }
   ],
   "liveNow": false,
