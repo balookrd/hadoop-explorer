@@ -52,6 +52,17 @@
       "title": "Агенты и воркеры",
       "type": "link",
       "url": "/d/hadoop-replicator-agents"
+    },
+    {
+      "asDropdown": false,
+      "icon": "cloud-download",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": ["replicator", "kafka"],
+      "targetBlank": false,
+      "title": "📨 Потоковая репликация Kafka",
+      "type": "link",
+      "url": "/d/hadoop-replicator-kafka"
     }
   ],
   "liveNow": false,
