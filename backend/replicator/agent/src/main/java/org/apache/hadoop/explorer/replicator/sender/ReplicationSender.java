@@ -30,6 +30,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -67,12 +68,70 @@ public class ReplicationSender implements AutoCloseable {
 
     // Локальный буфер сетевых токенов (Hierarchical Token Bucket batching)
     private final ConcurrentHashMap<String, AtomicLong> tokenBatchLease = new ConcurrentHashMap<>();
-    private static final long DEFAULT_TOKEN_BATCH_BYTES = 2 * 1024 * 1024L; // 2 MB на батч
+    public static final long DEFAULT_MIN_TOKEN_BATCH_BYTES = 2 * 1024 * 1024L; // 2 MB на батч
+    public static final long DEFAULT_MAX_TOKEN_BATCH_BYTES = 16 * 1024 * 1024L; // 16 MB на батч
+    public static final long DEFAULT_TOKEN_BATCH_BYTES = DEFAULT_MIN_TOKEN_BATCH_BYTES; // Обратная совместимость
+
+    private static final ConcurrentHashMap<String, DynamicRouteInfo> SHARED_ROUTE_INFOS = new ConcurrentHashMap<>();
+
+    private final long minTokenBatchBytes;
+    private final long maxTokenBatchBytes;
+    private final ConcurrentHashMap<String, DynamicRouteInfo> dynamicRouteInfos = new ConcurrentHashMap<>();
+
+    /**
+     * Состояние динамического адаптивного лизинга токенов для конкретного маршрута (source -> target).
+     * Реализует масштабирование размера батча (AIMD / Dynamic Step Escalation) в зависимости от задержек сети.
+     */
+    public static class DynamicRouteInfo {
+        private final AtomicLong currentBatchSize;
+        private final AtomicLong lastAcquireNanos;
+        private final AtomicInteger consecutiveFastAcquires;
+
+        public DynamicRouteInfo(long initialBatchBytes) {
+            this.currentBatchSize = new AtomicLong(initialBatchBytes);
+            this.lastAcquireNanos = new AtomicLong(System.nanoTime());
+            this.consecutiveFastAcquires = new AtomicInteger(0);
+        }
+
+        public long getCurrentBatchSize() {
+            return currentBatchSize.get();
+        }
+
+        public void escalate(long maxBatchBytes) {
+            currentBatchSize.updateAndGet(curr -> Math.min(maxBatchBytes, curr * 2));
+        }
+
+        public void throttleReset(long minBatchBytes) {
+            currentBatchSize.set(minBatchBytes);
+            consecutiveFastAcquires.set(0);
+        }
+
+        public int recordFastAcquire(long thresholdIntervalNanos) {
+            long now = System.nanoTime();
+            long prev = lastAcquireNanos.getAndSet(now);
+            long elapsed = now - prev;
+            if (elapsed <= thresholdIntervalNanos) {
+                return consecutiveFastAcquires.incrementAndGet();
+            } else {
+                consecutiveFastAcquires.set(1);
+                return 1;
+            }
+        }
+
+        public int getConsecutiveFastAcquires() {
+            return consecutiveFastAcquires.get();
+        }
+    }
 
     public long getTotalBytesTransferred() { return totalBytesTransferred.get(); }
     public long getTotalTransferErrors() { return totalTransferErrors.get(); }
     public DirectoryDiffEngine getDiffEngine() { return diffEngine; }
     public TarStreamPipeline getTarPipeline() { return tarPipeline; }
+    public long getMinTokenBatchBytes() { return minTokenBatchBytes; }
+    public long getMaxTokenBatchBytes() { return maxTokenBatchBytes; }
+    public ConcurrentHashMap<String, DynamicRouteInfo> getDynamicRouteInfos() { return dynamicRouteInfos; }
+    public static ConcurrentHashMap<String, DynamicRouteInfo> getSharedRouteInfos() { return SHARED_ROUTE_INFOS; }
+    public static void resetSharedRouteInfos() { SHARED_ROUTE_INFOS.clear(); }
 
     public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
                              LocalBandwidthLimiter bandwidthLimiter, int chunkSize) {
@@ -122,6 +181,22 @@ public class ReplicationSender implements AutoCloseable {
                              long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles,
                              CompressionCodec defaultCompressionCodec, int compressionLevel,
                              String agentSecret) {
+        this(workerId, orchestratorClient, fsManager, bandwidthLimiter, chunkSize, tlsEnabled,
+                trustCertCollectionPath, clientCertChainPath, clientPrivateKeyPath, insecureSkipVerify,
+                smallFileThresholdBytes, bundleTargetSizeBytes, maxBundleFiles,
+                defaultCompressionCodec, compressionLevel, agentSecret,
+                DEFAULT_MIN_TOKEN_BATCH_BYTES, DEFAULT_MAX_TOKEN_BATCH_BYTES);
+    }
+
+    public ReplicationSender(String workerId, OrchestratorGrpcClient orchestratorClient, HadoopFsManager fsManager,
+                             LocalBandwidthLimiter bandwidthLimiter, int chunkSize,
+                             boolean tlsEnabled, String trustCertCollectionPath,
+                             String clientCertChainPath, String clientPrivateKeyPath,
+                             boolean insecureSkipVerify,
+                             long smallFileThresholdBytes, long bundleTargetSizeBytes, int maxBundleFiles,
+                             CompressionCodec defaultCompressionCodec, int compressionLevel,
+                             String agentSecret,
+                             long minTokenBatchBytes, long maxTokenBatchBytes) {
         this.workerId = workerId;
         this.orchestratorClient = orchestratorClient;
         this.fsManager = fsManager;
@@ -138,6 +213,8 @@ public class ReplicationSender implements AutoCloseable {
         this.defaultCompressionCodec = defaultCompressionCodec != null ? defaultCompressionCodec : CompressionCodec.COMPRESSION_ZSTD;
         this.compressionLevel = compressionLevel > 0 ? compressionLevel : WireCompressor.DEFAULT_ZSTD_LEVEL;
         this.agentSecret = agentSecret;
+        this.minTokenBatchBytes = minTokenBatchBytes > 0 ? minTokenBatchBytes : DEFAULT_MIN_TOKEN_BATCH_BYTES;
+        this.maxTokenBatchBytes = maxTokenBatchBytes >= this.minTokenBatchBytes ? maxTokenBatchBytes : Math.max(this.minTokenBatchBytes, DEFAULT_MAX_TOKEN_BATCH_BYTES);
         this.diffEngine = new DirectoryDiffEngine(this.fsManager, this.orchestratorClient, objectMapper,
                 this.smallFileThresholdBytes, this.bundleTargetSizeBytes, this.maxBundleFiles);
         this.tarPipeline = new TarStreamPipeline(objectMapper);
@@ -640,10 +717,12 @@ public class ReplicationSender implements AutoCloseable {
 
     /**
      * Пакетный запрос токенов оркестратора (Hierarchical Token Bucket).
-     * Существенно сокращает количество HTTP-запросов к оркестратору за счет локального лизинга порциями по 2 МБ.
+     * Адаптивно масштабирует размер батча (Dynamic Token Lease) от minTokenBatchBytes до maxTokenBatchBytes,
+     * устраняя gRPC contention и шторм запросов на высокоскоростных каналах WAN.
      */
     public void acquireNetworkTokens(long wireBytes, String sourceClusterId, String targetClusterId) {
-        acquireNetworkTokens(this.tokenBatchLease, this.orchestratorClient, this.workerId, wireBytes, sourceClusterId, targetClusterId);
+        acquireNetworkTokens(this.tokenBatchLease, this.dynamicRouteInfos, this.orchestratorClient, this.workerId,
+                wireBytes, sourceClusterId, targetClusterId, this.minTokenBatchBytes, this.maxTokenBatchBytes);
     }
 
     public static void acquireNetworkTokens(ConcurrentHashMap<String, AtomicLong> tokenLeaseMap,
@@ -652,12 +731,29 @@ public class ReplicationSender implements AutoCloseable {
                                             long wireBytes,
                                             String sourceClusterId,
                                             String targetClusterId) {
+        acquireNetworkTokens(tokenLeaseMap, SHARED_ROUTE_INFOS, orchestratorClient, workerId,
+                wireBytes, sourceClusterId, targetClusterId, DEFAULT_MIN_TOKEN_BATCH_BYTES, DEFAULT_MAX_TOKEN_BATCH_BYTES);
+    }
+
+    public static void acquireNetworkTokens(ConcurrentHashMap<String, AtomicLong> tokenLeaseMap,
+                                            ConcurrentHashMap<String, DynamicRouteInfo> dynamicRouteInfoMap,
+                                            OrchestratorGrpcClient orchestratorClient,
+                                            String workerId,
+                                            long wireBytes,
+                                            String sourceClusterId,
+                                            String targetClusterId,
+                                            long minBatchBytes,
+                                            long maxBatchBytes) {
         if (wireBytes <= 0 || orchestratorClient == null || workerId == null) {
             return;
         }
         ConcurrentHashMap<String, AtomicLong> leases = tokenLeaseMap != null ? tokenLeaseMap : new ConcurrentHashMap<>();
+        ConcurrentHashMap<String, DynamicRouteInfo> routeInfos = dynamicRouteInfoMap != null ? dynamicRouteInfoMap : SHARED_ROUTE_INFOS;
         String routeKey = (sourceClusterId != null ? sourceClusterId : "") + "->" + (targetClusterId != null ? targetClusterId : "");
         AtomicLong lease = leases.computeIfAbsent(routeKey, k -> new AtomicLong(0));
+        long safeMin = minBatchBytes > 0 ? minBatchBytes : DEFAULT_MIN_TOKEN_BATCH_BYTES;
+        long safeMax = maxBatchBytes >= safeMin ? maxBatchBytes : Math.max(safeMin, DEFAULT_MAX_TOKEN_BATCH_BYTES);
+        DynamicRouteInfo routeInfo = routeInfos.computeIfAbsent(routeKey, k -> new DynamicRouteInfo(safeMin));
 
         while (true) {
             long current = lease.get();
@@ -666,16 +762,26 @@ public class ReplicationSender implements AutoCloseable {
                     return; // Взято из локального пакета без вызова HTTP
                 }
             } else {
-                long requestBytes = Math.max(wireBytes, DEFAULT_TOKEN_BATCH_BYTES);
+                long currentBatch = routeInfo.getCurrentBatchSize();
+                long requestBytes = Math.max(wireBytes, currentBatch);
                 double waitSec = orchestratorClient.requestNetworkTokens(
                         new TokenRequest(workerId, requestBytes, sourceClusterId, targetClusterId)
                 );
-                if (waitSec > 0) {
+                if (waitSec > 0.05) {
+                    // Троттлинг со стороны оркестратора: канал перегружен.
+                    // Немедленно сбрасываем размер лизинга к минимуму (AIMD backoff)
+                    routeInfo.throttleReset(safeMin);
                     try {
                         Thread.sleep((long) (waitSec * 1000));
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return;
+                    }
+                } else {
+                    // Канал свободен, оцениваем частоту запросов (интервал < 1000 мс)
+                    int fastCount = routeInfo.recordFastAcquire(1_000_000_000L);
+                    if (fastCount >= 2) {
+                        routeInfo.escalate(safeMax);
                     }
                 }
                 long remainingToAdd = requestBytes - wireBytes;

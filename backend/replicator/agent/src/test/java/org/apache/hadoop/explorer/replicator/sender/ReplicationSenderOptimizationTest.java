@@ -96,4 +96,73 @@ class ReplicationSenderOptimizationTest {
         long remaining = leaseMap.get(routeKey).get();
         assertEquals(2 * 1024 * 1024L - (11 * 64 * 1024L), remaining);
     }
+
+    @Test
+    @DisplayName("PERF-05: Адаптивный динамический лизинг токенов (AIMD эскалация до maxBatchBytes и сброс при троттлинге)")
+    void testDynamicTokenLeaseEscalationAndThrottlingReset() {
+        OrchestratorGrpcClient orchestratorClient = mock(OrchestratorGrpcClient.class);
+        when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.0);
+
+        ConcurrentHashMap<String, AtomicLong> leaseMap = new ConcurrentHashMap<>();
+        ConcurrentHashMap<String, ReplicationSender.DynamicRouteInfo> routeInfos = new ConcurrentHashMap<>();
+
+        long minBatch = 2 * 1024 * 1024L; // 2 MB
+        long maxBatch = 16 * 1024 * 1024L; // 16 MB
+        String routeKey = "clusterA->clusterB";
+
+        // 1. Первый запрос на 2 МБ: запрашивает minBatch (2 МБ), batchSize остается 2 МБ
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", minBatch, "clusterA", "clusterB", minBatch, maxBatch
+        );
+        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+                req.getRequestedBytes() == 2 * 1024 * 1024L
+        ));
+        assertEquals(2 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
+
+        // 2. Второй быстрый запрос на 2 МБ (без троттлинга): размер батча эскалирует до 4 МБ
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", minBatch, "clusterA", "clusterB", minBatch, maxBatch
+        );
+        verify(orchestratorClient, times(2)).requestNetworkTokens(argThat(req ->
+                req.getRequestedBytes() == 2 * 1024 * 1024L
+        ));
+        assertEquals(4 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
+
+        // 3. Третий запрос на 4 МБ: теперь запрашивается уже 4 МБ, и размер эскалирует до 8 МБ
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", 4 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
+        );
+        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+                req.getRequestedBytes() == 4 * 1024 * 1024L
+        ));
+        assertEquals(8 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
+
+        // 4. Четвертый запрос на 8 МБ: запрашивается 8 МБ, и размер эскалирует до 16 МБ (max)
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", 8 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
+        );
+        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+                req.getRequestedBytes() == 8 * 1024 * 1024L
+        ));
+        assertEquals(16 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
+
+        // 5. Пятый запрос на 16 МБ: запрашивается 16 МБ, потолок maxBatch не превышается
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", 16 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
+        );
+        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+                req.getRequestedBytes() == 16 * 1024 * 1024L
+        ));
+        assertEquals(16 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
+
+        // 6. Шестой запрос: оркестратор сигнализирует о троттлинге (waitSec > 0.05)
+        when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.06);
+        ReplicationSender.acquireNetworkTokens(
+                leaseMap, routeInfos, orchestratorClient, "w1", 16 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
+        );
+
+        // Размер батча должен немедленно сброситься обратно к minBatch (2 МБ)
+        assertEquals(minBatch, routeInfos.get(routeKey).getCurrentBatchSize(),
+                "При троттлинге размер батча должен немедленно откатиться к minTokenBatchBytes");
+    }
 }

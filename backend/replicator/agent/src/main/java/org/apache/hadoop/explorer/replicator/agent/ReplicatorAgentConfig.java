@@ -60,6 +60,8 @@ public class ReplicatorAgentConfig {
     private long inotifyFlushIntervalMs = 200L;
     private long inotifyBackpressureMaxDelayMs = 5000L;
     private int orchestratorMaxPendingTasksThreshold = 5000;
+    private long tokenBatchMinBytes = 2 * 1024 * 1024L; // 2 MB (PERF-05)
+    private long tokenBatchMaxBytes = 16 * 1024 * 1024L; // 16 MB (PERF-05)
 
     public static ReplicatorAgentConfig fromEnv() {
         ReplicatorAgentConfig config = new ReplicatorAgentConfig();
@@ -160,6 +162,19 @@ public class ReplicatorAgentConfig {
         config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
         config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "false"));
         config.localSandboxDir = getEnv("REPLICATOR_LOCAL_SANDBOX", getEnv("LOCAL_SANDBOX_DIR", null));
+
+        String minBatch = getEnv("REPLICATOR_TOKEN_BATCH_MIN_BYTES", null);
+        if (minBatch != null && !minBatch.isBlank()) {
+            try {
+                config.tokenBatchMinBytes = Long.parseLong(minBatch);
+            } catch (NumberFormatException ignored) {}
+        }
+        String maxBatch = getEnv("REPLICATOR_TOKEN_BATCH_MAX_BYTES", null);
+        if (maxBatch != null && !maxBatch.isBlank()) {
+            try {
+                config.tokenBatchMaxBytes = Long.parseLong(maxBatch);
+            } catch (NumberFormatException ignored) {}
+        }
 
         return config;
     }
@@ -321,4 +336,11 @@ public class ReplicatorAgentConfig {
 
     public String getLocalSandboxDir() { return localSandboxDir; }
     public void setLocalSandboxDir(String localSandboxDir) { this.localSandboxDir = localSandboxDir; }
+
+    public long getTokenBatchMinBytes() { return tokenBatchMinBytes; }
+    public void setTokenBatchMinBytes(long tokenBatchMinBytes) { this.tokenBatchMinBytes = tokenBatchMinBytes; }
+
+    public long getTokenBatchMaxBytes() { return tokenBatchMaxBytes; }
+    public void setTokenBatchMaxBytes(long tokenBatchMaxBytes) { this.tokenBatchMaxBytes = tokenBatchMaxBytes; }
 }
+

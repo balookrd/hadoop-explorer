@@ -105,7 +105,9 @@ public class ReplicatorAgent {
                 config.getMaxBundleFiles(),
                 config.getWireCompressionCodec(),
                 config.getWireCompressionLevel(),
-                config.getAgentSecret()
+                config.getAgentSecret(),
+                config.getTokenBatchMinBytes(),
+                config.getTokenBatchMaxBytes()
         );
 
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
