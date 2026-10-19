@@ -19,6 +19,8 @@
 | **HDFS NameNode (Source/Target)** | Падение Active NameNode | Hadoop Client `ConfiguredFailoverProxyProvider` | Прозрачный failover клиента на Standby NameNode по виртуальному URI `hdfs://nameservice1`. | **1–3 сек** | **0** (JournalNodes кворум) |
 | **HMS Replicator** | Падение агента синхронизации схемы | Истечение Distributed Lease в `HmsCoordinatorService` | Авто-failover задачи на резервный агент кластера. Чтение CDC продолжается с `last_event_id`. | **5–10 сек** | **0** (At-least-once DDL лог) |
 | **Kafka Replicator (Data Plane)** | Деградация локального брокера Kafka / переполнение буфера | Задержка подтверждения ack, тайм-аут продюсера | Offload в пул виртуальных потоков Java 21, координация in-flight батчей и onCancelHandler (Netty EventLoop не блокируется) | **0 сек (non-blocking)** | **0 (retry/backpressure)** |
+| **gRPC Sender (Outbound Data Plane)** | Деградация сетевого канала WAN / переполнение исходящего буфера Netty | Сигнал `clientCallStreamObserver.isReady() == false` | Приостановка чтения с диска HDFS (`awaitStreamReady`), блокировка отправки чанков до опорожнения TCP/Netty буфера (Zero Heap Overflow) | **0 сек (реактивный backpressure)** | **0** |
+| **Token Throttler (Orchestrator)** | Шторм сотен параллельных воркеров при исчерпании токенов маршрута | Конкурентные обращения к RPC `RequestTokens` | Single-Flight дедупликация: ровно один RPC-запрос на маршрут, остальные потоки ожидают локально на `routeRefillLocks` (устранение Thundering Herd) | **0 сек** | **0** |
 
 ---
 
@@ -634,6 +636,151 @@ java -jar /opt/replicator-agent/replicator-agent.jar
    - При активации настройки `hadoop.replicator.enforce-cluster-whitelist=true` оркестратор проверяет `clusterId` агента по реестру топологии `TopologyRegistry`.
    - Регистрация в неизвестных или произвольных кластерах категорически блокируется, исключая появление неконтролируемых узлов (Rogue Nodes).
 
+---
 
+## 13. Высокопроизводительная потоковая обработка и управление противодавлением (Performance, Zero-Copy & Backpressure Architecture)
 
+Для масштабирования репликации на каналы 10–40 Гбит/с и предотвращения исчерпания памяти (OOM) при асимметрии скоростей чтения с HDFS и медленных WAN-сетей реализован комплекс оптимизаций уровня ядра транспорта.
 
+### 13.1 Исходящий Flow Control и Backpressure в gRPC клиенте (`ReplicationSender`)
+
+В высоконагруженных сценариях при медленном канале связи или сетевых задержках непрерывное чтение данных из исходного HDFS со скоростью сотен мегабайт в секунду способно переполнить сетевые буферы Netty и привести к фатальному `OutOfMemoryError` из-за накопления неотправленных сообщений в оперативной памяти.
+
+1. **Интеграция с `ClientResponseObserver`**:
+   - Отправка потоковых чанков файлов (`transferSingleFileWithSync`), потоковых бандлов (`TarChunkingOutputStream`) и прямых стримов файлов переведена на использование `io.grpc.stub.ClientResponseObserver`.
+   - В методе жизненного цикла `beforeStart(ClientCallStreamObserver<Req> stream)` регистрируется канонический обработчик готовности `setOnReadyHandler`:
+     ```java
+     @Override
+     public void beforeStart(ClientCallStreamObserver<DataTransferRequest> stream) {
+         clientObserverRef.set(stream);
+         stream.setOnReadyHandler(() -> {
+             synchronized (readyLock) {
+                 readyLock.notifyAll();
+             }
+         });
+     }
+     ```
+2. **Блокирующий шлюз `awaitStreamReady`**:
+   - Перед считыванием каждого очередного чанка из HDFS поток проверяет состояние сетевого сокета:
+     ```java
+     while (!stream.isReady() && !responseFuture.isDone()) {
+         readyLock.wait(100);
+     }
+     ```
+   - Если сокет Netty насыщен (`isReady() == false`), поток приостанавливает чтение с диска до тех пор, пока Netty не сбросит накопленный буфер в TCP-сокет и не вызовет `onReadyHandler`.
+   - Это гарантирует нулевое накопление буферов в Heap (Heap-Safe Streaming) при любой пропускной способности WAN.
+
+### 13.2 Zero-Copy чтение и запись чанков (`DataTransferServiceImpl`)
+
+1. **Прямой сброс Protobuf ByteString в целевой HDFS**:
+   - Для чанков с алгоритмами `COMPRESSION_NONE` и `UNRECOGNIZED` (основной объем данных Parquet, ORC, Snappy, GZ, TAR) полностью исключено промежуточное создание массивов байт `data.toByteArray()`.
+   - Сброс в целевой HDFS `OutputStream` выполняется напрямую через `data.writeTo(outputStream)`.
+2. **Zero-Copy расчет контрольной суммы SHA-256**:
+   - Хеширование выполняется через список доступных буферов `data.asReadOnlyByteBufferList()` без копирования и аллокации промежуточных массивов в куче.
+3. **Безопасная декомпрессия (`WireCompressor`)**:
+   - Метод `decompress(ByteString, CompressionCodec, int uncompressedSize)` осуществляет распаковку с предвыделением целевого буфера точного размера, исключая повторные реаллокации.
+
+### 13.3 Неблокирующий Fast-Path и кэш маршрутов в Throttler (`TokenBucketThrottler`)
+
+1. **Lock-Free обновление лимитов**:
+   - Параметр `limitBytesPerSec` переведен в `volatile double`.
+   - В методе `SingleBucket.updateLimit` внедрен fast-path: при повторном поступлении неизменного значения лимита (`Math.abs(limit - newLimit) < 1e-6`) метод завершается мгновенно без захвата `ReentrantLock`.
+2. **Кэширование топологических связок (`RouteBinding`)**:
+   - Введен потокобезопасный кэш `ConcurrentHashMap<String, RouteBinding> routeCache`.
+   - Разрешение маршрутов (`sourceClusterId -> targetClusterId`) к идентификаторам ЦОД выполняется один раз, исключая постоянные блокировки в `TopologyRegistry` и аллокации строк на каждый пакет токенов.
+
+### 13.4 Паттерн Single-Flight для пополнения пула токенов (`routeRefillLocks`)
+
+При конкурентной передаче десятков файлов между одной парой кластеров исчерпание локального лизинга токенов (порции 2 МБ) ранее приводило к шторму одновременных RPC-запросов к оркестратору (`RequestTokens`).
+
+1. **Дедупликация запросов по маршрутам**:
+   - В `ReplicationSender` введена статическая таблица блокировок маршрутов:
+     ```java
+     private static final ConcurrentHashMap<String, Object> routeRefillLocks = new ConcurrentHashMap<>();
+     ```
+2. **Double-Checked Locking**:
+   - Первый поток, обнаруживший исчерпание токенов, захватывает монитор маршрута и запрашивает пакет у оркестратора.
+   - Параллельные потоки блокируются на локальном мониторе. После пополнения пула первым потоком они мгновенно списывают необходимые токены из локальной пачки без отправки паразитных сетевых RPC.
+   - Это снижает сетевую нагрузку на Control Plane оркестратора в 10–50 раз при пиковых нагрузках.
+
+---
+
+## 14. Отказоустойчивость и барьеры согласованности репликации Hive Metastore (HMS Replicator Hardening)
+
+Репликация метаданных Hive Metastore (HMS) связывает логические DDL-описания таблиц и партиций с физическими файлами данных в HDFS. Для исключения повреждения каталогов, рассогласования состояний и блокировок конвейера реализован комплекс отказоустойчивых механизмов.
+
+### 14.1 Матрица состояний и строгий конечный автомат (FSM) задачи (`HmsJobStatus`)
+
+Жизненный цикл задачи репликации формализован строгим конечным автоматом с белым списком допустимых переходов `ALLOWED_TRANSITIONS`:
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> QUEUED
+    CREATED --> FAILED
+    QUEUED --> ACTIVE
+    QUEUED --> WAITING_FOR_AGENTS
+    QUEUED --> STOPPED
+    QUEUED --> FAILED
+    WAITING_FOR_AGENTS --> QUEUED
+    WAITING_FOR_AGENTS --> STOPPED
+    WAITING_FOR_AGENTS --> FAILED
+    ACTIVE --> COMPLETED
+    ACTIVE --> FAILED
+    ACTIVE --> STOPPED
+    STOPPED --> QUEUED
+    STOPPED --> [*]
+    COMPLETED --> [*]
+    FAILED --> [*]
+```
+
+- Любая попытка невалидного перехода (например, из терминального `COMPLETED` в `ACTIVE`) немедленно пресекается `IllegalStateException` на уровне доменной модели `HmsReplicationJobEntity` и контроллера.
+- Повторные переходы в то же самое состояние (идемпотентность) разрешены без генерации ошибок.
+
+### 14.2 Барьер согласованности "Данные прежде схемы" (Data-First Consistency Barrier)
+
+Классическая проблема асинхронной репликации Lakehouse — опережающее создание таблицы или партиции в целевом Hive Metastore до завершения физического копирования файлов в HDFS, что приводит к чтению неполных или пустых данных аналитическими движками (Trino, Spark, Hive).
+
+1. **Координация зависимостей HDFS и HMS**:
+   - При создании DDL-задачи репликации агент связывает создание сущности с идентификатором фоновой задачи копирования данных HDFS (`subjobId`).
+2. **Синхронный барьер `awaitSubjobCompletion`**:
+   - В `OrchestratorGrpcClient` реализован метод `awaitSubjobCompletion(subjobId, timeoutSeconds)`.
+   - В `HmsTaskExecutor` перед вызовами `applyTable` и `applyPartitionBatch` агент запрашивает статус HDFS-подзадачи. Создание сущностей в целевом HMS выполняется **строго после** перехода подзадачи в статус `COMPLETED`.
+   - В случае ошибки HDFS-задачи (`FAILED`) операция DDL отменяется, предотвращая появление "фантомных" пустых партиций.
+
+### 14.3 Карантин и Dead-Letter Queue (DLQ) для ядовитых CDC DDL-событий
+
+При потоковой репликации событий Hive Notification Log синтаксически некорректные или неподдерживаемые целевым кластером DDL (например, специфичные SerDe, недоступные форматы хранения, ошибки прав) ранее приводили к бесконечному циклу ретраев и полному зависанию репликации всей БД.
+
+1. **Изоляция после `maxEventRetries` (по умолчанию 3)**:
+   - В `HmsTaskExecutor` ведется счетчик сбоев `eventFailureCounts` для каждого `eventId`.
+   - При превышении порога событие маркируется статусом `"DLQ_ISOLATED"`, а информация о сбое отправляется в Оркестратор в цикле `updateJobProgress`.
+   - Курсор CDC продвигается дальше (`lastEventId = event.getEventId()`), исключая зависание конвейера репликации базы данных.
+2. **Персистентность и аудит (`HmsDeadLetterEventEntity`)**:
+   - Оркестратор сохраняет проблемные события в таблицу `HmsDeadLetterEventEntity` с полным контекстом: `jobId`, `eventId`, `eventType`, `dbName`, `tableName`, `errorMessage`, `eventPayloadJson`.
+3. **Операционный REST API**:
+   - `GET /api/v1/hms/jobs/{id}/dlq` — просмотр очереди отравленных событий с фильтрацией по статусу (`NEW`, `IGNORED`, `REPLAYED`).
+   - `POST /api/v1/hms/jobs/{id}/dlq/{dlqId}/skip` — подтверждение пропуска события оператором.
+   - `POST /api/v1/hms/jobs/{id}/dlq/{dlqId}/replay` — принудительный перезапуск применения события после устранения причины в целевом кластере.
+
+### 14.4 Preemptive Fencing и предотвращение Split-Brain при катастрофах (Disaster Recovery)
+
+В случае переключения нагрузки на резервный ЦОД (Disaster Recovery Failover) критически важно мгновенно нейтрализовать агентов в старом первичном ЦОД, чтобы исключить конкурентную запись (Split-Brain).
+
+1. **Preemptive Fencing в управляющем цикле**:
+   - При переводе задачи в статус `STOPPED` (например, оператором или автоматикой DR) оркестратор возвращает `false` на все последующие вызовы `updateJobProgress`.
+2. **Немедленное прерывание на агенте**:
+   - `HmsTaskExecutor` проверяет результат отчета прогресса. При получении `false` агент немедленно выставляет флаг `jobFencedFlags.put(jobId, true)` и прерывает фоновые потоки Bootstrap и CDC.
+   - Лизинг на задачу аннулируется, предотвращая отправку устаревших изменений.
+
+### 14.5 Детектор дрейфа схем и сверка метаданных (Schema Drift Detector)
+
+Для регулярной верификации целостности реплицированных данных реализован автономный сканер `HmsSchemaDriftDetector`.
+
+1. **Комплексный анализ схемы таблицы**:
+   - Сверка состава, типов и порядка колонок (`FieldSchema`);
+   - Сверка ключей и типов партиционирования (`partitionKeys`);
+   - Проверка формата хранения (`InputFormat`, `OutputFormat`) и параметров SerDe (`serializationLib`, параметры `serialization.format`).
+2. **Формирование отчета `HmsSchemaDriftReport`**:
+   - Структурированный отчет классифицирует расхождения: `missingTargetColumns`, `unexpectedTargetColumns`, `columnTypeMismatches`, `partitionKeyMismatches`, `storageFormatMismatches`.
+   - Результаты доступны через эндпоинт `GET /api/v1/hms/jobs/{id}/drift`.
