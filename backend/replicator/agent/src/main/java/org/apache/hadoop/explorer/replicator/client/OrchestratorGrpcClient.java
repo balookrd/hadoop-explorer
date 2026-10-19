@@ -566,6 +566,23 @@ public class OrchestratorGrpcClient implements Closeable {
         return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, null);
     }
 
+    /**
+     * Получение активных задач репликации Kafka для дата-центра.
+     */
+    public List<KafkaJobItemProto> getActiveKafkaJobs(String dcId) {
+        try {
+            var protoReq = GetActiveKafkaJobsRequest.newBuilder()
+                    .setDcId(dcId != null ? dcId : "")
+                    .build();
+
+            var resp = stub().getActiveKafkaJobs(protoReq);
+            return resp.getJobsList();
+        } catch (Exception e) {
+            log.warn("Ошибка gRPC получения активных Kafka задач для ДЦ '{}': {}", dcId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     public String getTargetAddress() {
         return targetAddress;
     }

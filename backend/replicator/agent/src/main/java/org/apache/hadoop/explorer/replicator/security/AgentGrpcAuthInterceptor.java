@@ -20,9 +20,19 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
             Metadata.Key.of("x-agent-secret", Metadata.ASCII_STRING_MARSHALLER);
 
     private final String expectedSecret;
+    private final boolean allowAnonymous;
 
     public AgentGrpcAuthInterceptor(String expectedSecret) {
+        this(expectedSecret, false);
+    }
+
+    public AgentGrpcAuthInterceptor(String expectedSecret, boolean allowAnonymous) {
         this.expectedSecret = expectedSecret;
+        this.allowAnonymous = allowAnonymous;
+    }
+
+    public boolean isAllowAnonymous() {
+        return allowAnonymous;
     }
 
     @Override
@@ -32,6 +42,12 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
             ServerCallHandler<ReqT, RespT> next) {
 
         if (expectedSecret == null || expectedSecret.isBlank()) {
+            if (!allowAnonymous) {
+                log.error("Отклонен gRPC вызов '{}': интерцептор настроен в защищенном режиме Fail-Closed, но x-agent-secret не сконфигурирован",
+                        call.getMethodDescriptor().getFullMethodName());
+                call.close(Status.UNAUTHENTICATED.withDescription("Agent authentication is unconfigured (Fail-Closed)"), new Metadata());
+                return new ServerCall.Listener<ReqT>() {};
+            }
             return next.startCall(call, headers);
         }
 

@@ -48,17 +48,25 @@ import org.apache.hadoop.explorer.replicator.orchestrator.dto.JobResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.service.HmsCoordinatorService;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
+import org.apache.hadoop.explorer.replicator.orchestrator.service.KafkaReplicationOrchestratorService;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.StreamingLeaseCoordinator;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.TaskService;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
+import org.apache.hadoop.explorer.replicator.generated.control.GetActiveKafkaJobsRequest;
+import org.apache.hadoop.explorer.replicator.generated.control.GetActiveKafkaJobsResponse;
+import org.apache.hadoop.explorer.replicator.generated.control.KafkaJobItemProto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Высокопроизводительная реализация gRPC Control Plane сервиса Оркестратора.
@@ -78,6 +86,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     private final JobService jobService;
     private final TopologyRegistry topologyRegistry;
     private final HmsCoordinatorService hmsCoordinatorService;
+    private final KafkaReplicationOrchestratorService kafkaOrchestratorService;
 
     @Autowired
     public OrchestratorControlPlaneServiceImpl(
@@ -87,7 +96,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             StreamingLeaseCoordinator streamingLeaseCoordinator,
             JobService jobService,
             TopologyRegistry topologyRegistry,
-            @Autowired(required = false) HmsCoordinatorService hmsCoordinatorService
+            @Autowired(required = false) HmsCoordinatorService hmsCoordinatorService,
+            @Autowired(required = false) KafkaReplicationOrchestratorService kafkaOrchestratorService
     ) {
         this.agentRegistry = agentRegistry;
         this.taskService = taskService;
@@ -96,6 +106,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
         this.jobService = jobService;
         this.topologyRegistry = topologyRegistry;
         this.hmsCoordinatorService = hmsCoordinatorService;
+        this.kafkaOrchestratorService = kafkaOrchestratorService;
     }
 
     @Override
@@ -546,6 +557,54 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             responseObserver.onCompleted();
         } catch (Exception e) {
             log.error("Ошибка gRPC createHdfsSubjob для parent '{}': {}", request.getParentJobId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void getActiveKafkaJobs(GetActiveKafkaJobsRequest request, StreamObserver<GetActiveKafkaJobsResponse> responseObserver) {
+        try {
+            if (kafkaOrchestratorService == null) {
+                responseObserver.onNext(GetActiveKafkaJobsResponse.newBuilder().build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            List<KafkaReplicationJobDto> jobs = kafkaOrchestratorService.getActiveJobsForDc(request.getDcId());
+            GetActiveKafkaJobsResponse.Builder respBuilder = GetActiveKafkaJobsResponse.newBuilder();
+
+            for (KafkaReplicationJobDto job : jobs) {
+                List<String> topics = job.getTopics() != null
+                        ? job.getTopics().stream()
+                                .map(CreateKafkaJobRequest.TopicSetting::getTopic)
+                                .filter(Objects::nonNull)
+                                .toList()
+                        : Collections.emptyList();
+
+                KafkaJobItemProto item = KafkaJobItemProto.newBuilder()
+                        .setJobId(job.getId() != null ? job.getId() : "")
+                        .setName(job.getName() != null ? job.getName() : "")
+                        .setSourceDc(job.getSourceDc() != null ? job.getSourceDc() : "")
+                        .setTargetDc(job.getTargetDc() != null ? job.getTargetDc() : "")
+                        .setDirection(job.getDirection() != null ? job.getDirection() : "")
+                        .addAllTopics(topics)
+                        .addAllConsumerGroups(job.getConsumerGroups() != null ? job.getConsumerGroups() : Collections.emptyList())
+                        .setSourceBootstrapServers(job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : "")
+                        .setTargetBootstrapServers(job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : "")
+                        .addAllTargetEndpoints(job.getTargetEndpoints() != null ? job.getTargetEndpoints() : Collections.emptyList())
+                        .setBatchSize(job.getBatchSize() != null ? job.getBatchSize() : 2000)
+                        .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
+                        .setBandwidthLimitMb(job.getBandwidthLimitMb() != null ? job.getBandwidthLimitMb() : 0.0)
+                        .setStatus(job.getStatus() != null ? job.getStatus() : "")
+                        .build();
+
+                respBuilder.addJobs(item);
+            }
+
+            responseObserver.onNext(respBuilder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC getActiveKafkaJobs для DC '{}': {}", request.getDcId(), e.getMessage(), e);
             responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
         }
     }

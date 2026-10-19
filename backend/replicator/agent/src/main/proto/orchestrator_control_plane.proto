@@ -53,6 +53,9 @@ service OrchestratorControlPlaneService {
 
   // Создание дочерней HDFS-подзадачи переноса данных для таблицы HMS
   rpc CreateHdfsSubjob (CreateHdfsSubjobRequest) returns (CreateHdfsSubjobResponse);
+
+  // Получение активных задач репликации Kafka для ДЦ
+  rpc GetActiveKafkaJobs (GetActiveKafkaJobsRequest) returns (GetActiveKafkaJobsResponse);
 }
 
 // -------------------------------------------------------------
@@ -340,4 +343,29 @@ message CreateHdfsSubjobRequest {
 message CreateHdfsSubjobResponse {
   string job_id = 1;
   bool success = 2;
+}
+
+message GetActiveKafkaJobsRequest {
+  string dc_id = 1;
+}
+
+message KafkaJobItemProto {
+  string job_id = 1;
+  string name = 2;
+  string source_dc = 3;
+  string target_dc = 4;
+  string direction = 5;
+  repeated string topics = 6;
+  repeated string consumer_groups = 7;
+  string source_bootstrap_servers = 8;
+  string target_bootstrap_servers = 9;
+  repeated string target_endpoints = 10;
+  int32 batch_size = 11;
+  int32 consumer_threads = 12;
+  double bandwidth_limit_mb = 13;
+  string status = 14;
+}
+
+message GetActiveKafkaJobsResponse {
+  repeated KafkaJobItemProto jobs = 1;
 }

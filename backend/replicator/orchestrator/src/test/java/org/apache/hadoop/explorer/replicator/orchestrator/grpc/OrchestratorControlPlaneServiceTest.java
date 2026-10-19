@@ -11,6 +11,9 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.service.HmsCoordinatorService;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
+import org.apache.hadoop.explorer.replicator.orchestrator.service.KafkaReplicationOrchestratorService;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.StreamingLeaseCoordinator;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.TaskService;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
@@ -44,6 +47,7 @@ public class OrchestratorControlPlaneServiceTest {
     private JobService jobService;
     private TopologyRegistry topologyRegistry;
     private HmsCoordinatorService hmsCoordinatorService;
+    private KafkaReplicationOrchestratorService kafkaOrchestratorService;
 
     private static final String TEST_SECRET = "super-secret-token-xyz";
 
@@ -60,6 +64,7 @@ public class OrchestratorControlPlaneServiceTest {
         jobService = mock(JobService.class);
         topologyRegistry = mock(TopologyRegistry.class);
         hmsCoordinatorService = mock(HmsCoordinatorService.class);
+        kafkaOrchestratorService = mock(KafkaReplicationOrchestratorService.class);
 
         OrchestratorControlPlaneServiceImpl service = new OrchestratorControlPlaneServiceImpl(
                 agentRegistry,
@@ -68,7 +73,8 @@ public class OrchestratorControlPlaneServiceTest {
                 streamingLeaseCoordinator,
                 jobService,
                 topologyRegistry,
-                hmsCoordinatorService
+                hmsCoordinatorService,
+                kafkaOrchestratorService
         );
 
         AgentGrpcAuthInterceptor authInterceptor = new AgentGrpcAuthInterceptor(TEST_SECRET);
@@ -303,5 +309,49 @@ public class OrchestratorControlPlaneServiceTest {
         UpdateJobProgressResponse resp = stub.updateJobProgress(req);
         assertFalse(resp.getSuccess());
         assertEquals("Job not found", resp.getMessage());
+    }
+
+    @Test
+    @DisplayName("gRPC: Получение активных задач Kafka для дата-центра")
+    void testGetActiveKafkaJobs() {
+        KafkaReplicationJobDto job = new KafkaReplicationJobDto();
+        job.setId("job-kafka-1");
+        job.setName("Kafka Sync DC1 -> DC2");
+        job.setSourceDc("dc1");
+        job.setTargetDc("dc2");
+        job.setDirection("PUSH");
+        job.setStatus("ACTIVE");
+        CreateKafkaJobRequest.TopicSetting ts = new CreateKafkaJobRequest.TopicSetting();
+        ts.setTopic("telemetry");
+        job.setTopics(List.of(ts));
+        job.setConsumerGroups(List.of("cg-telemetry"));
+        job.setSourceBootstrapServers("dc1-kafka:9092");
+        job.setTargetBootstrapServers("dc2-kafka:9092");
+        job.setTargetEndpoints(List.of("dc2-agent:50052"));
+        job.setBatchSize(5000);
+        job.setConsumerThreads(4);
+        job.setBandwidthLimitMb(120.0);
+
+        when(kafkaOrchestratorService.getActiveJobsForDc("dc1")).thenReturn(List.of(job));
+
+        GetActiveKafkaJobsRequest req = GetActiveKafkaJobsRequest.newBuilder()
+                .setDcId("dc1")
+                .build();
+
+        GetActiveKafkaJobsResponse resp = stub.getActiveKafkaJobs(req);
+        assertNotNull(resp);
+        assertEquals(1, resp.getJobsCount());
+
+        KafkaJobItemProto item = resp.getJobs(0);
+        assertEquals("job-kafka-1", item.getJobId());
+        assertEquals("Kafka Sync DC1 -> DC2", item.getName());
+        assertEquals("dc1", item.getSourceDc());
+        assertEquals("dc2", item.getTargetDc());
+        assertEquals(List.of("telemetry"), item.getTopicsList());
+        assertEquals(List.of("cg-telemetry"), item.getConsumerGroupsList());
+        assertEquals("dc1-kafka:9092", item.getSourceBootstrapServers());
+        assertEquals(5000, item.getBatchSize());
+        assertEquals(4, item.getConsumerThreads());
+        assertEquals(120.0, item.getBandwidthLimitMb());
     }
 }

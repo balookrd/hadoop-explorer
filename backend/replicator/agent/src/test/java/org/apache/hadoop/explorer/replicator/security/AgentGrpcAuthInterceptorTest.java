@@ -79,9 +79,31 @@ class AgentGrpcAuthInterceptorTest {
     }
 
     @Test
-    @DisplayName("Пропуск вызова если ожидаемый секрет не сконфигурирован (null или пустой)")
-    void testAllowedWhenNoSecretConfigured() {
+    @DisplayName("Отклонение вызова если ожидаемый секрет не сконфигурирован в режиме Fail-Closed (по умолчанию)")
+    void testRejectedWhenNoSecretConfiguredFailClosed() {
         AgentGrpcAuthInterceptor interceptor = new AgentGrpcAuthInterceptor(null);
+        ServerCall<String, String> serverCall = mock(ServerCall.class);
+        MethodDescriptor<String, String> methodDesc = mock(MethodDescriptor.class);
+        when(methodDesc.getFullMethodName()).thenReturn("DataTransferService/transferFile");
+        when(serverCall.getMethodDescriptor()).thenReturn(methodDesc);
+
+        ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
+        Metadata headers = new Metadata();
+
+        ServerCall.Listener<String> result = interceptor.interceptCall(serverCall, headers, nextHandler);
+
+        assertNotNull(result);
+        verify(nextHandler, never()).startCall(any(), any());
+        ArgumentCaptor<Status> statusCaptor = ArgumentCaptor.forClass(Status.class);
+        verify(serverCall).close(statusCaptor.capture(), any(Metadata.class));
+        assertEquals(Status.Code.UNAUTHENTICATED, statusCaptor.getValue().getCode());
+        assertTrue(statusCaptor.getValue().getDescription().contains("Fail-Closed"));
+    }
+
+    @Test
+    @DisplayName("Пропуск вызова если ожидаемый секрет не сконфигурирован, но включен allowAnonymous")
+    void testAllowedWhenNoSecretConfiguredWithAllowAnonymous() {
+        AgentGrpcAuthInterceptor interceptor = new AgentGrpcAuthInterceptor(null, true);
         ServerCall<String, String> serverCall = mock(ServerCall.class);
         ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
         ServerCall.Listener<String> expectedListener = mock(ServerCall.Listener.class);

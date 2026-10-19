@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
+import org.apache.hadoop.explorer.replicator.generated.control.KafkaJobItemProto;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest;
 import org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor;
@@ -204,11 +205,15 @@ public class KafkaReplicatorAgentMain {
         }
 
         // 2. Инициализация отправителя (Sender / Dual)
-        if (("sender".equals(role) || "dual".equals(role)) && !topics.isBlank()) {
-            List<String> topicList = Arrays.stream(topics.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
+        boolean hasCliTopics = !topics.isBlank();
+        boolean hasOrchestrator = orchestratorGrpc != null && !orchestratorGrpc.isBlank();
+        if (("sender".equals(role) || "dual".equals(role)) && (hasCliTopics || hasOrchestrator)) {
+            List<String> topicList = hasCliTopics
+                    ? Arrays.stream(topics.split(","))
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .toList()
+                    : List.of();
 
             List<String> targetList;
             if (!targetEndpoints.isBlank()) {
@@ -240,7 +245,9 @@ public class KafkaReplicatorAgentMain {
                 org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(consProps, krbConfig);
 
                 KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consProps);
-                consumer.subscribe(topicList);
+                if (!topicList.isEmpty()) {
+                    consumer.subscribe(topicList);
+                }
                 consumers.add(consumer);
             }
 
@@ -303,6 +310,7 @@ public class KafkaReplicatorAgentMain {
             final String finalDcId = dcId;
             final String finalRole = role;
             final String finalAdvAddr = advertisedGrpcAddress;
+            final org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool finalPool = consumerPool;
 
             heartbeatExecutor.scheduleAtFixedRate(() -> {
                 try {
@@ -314,6 +322,25 @@ public class KafkaReplicatorAgentMain {
                             finalRole
                     );
                     finalOrch.heartbeat(hbReq);
+
+                    // Опрос Control Plane для динамического обнаружения задач и обновления топиков
+                    if (finalPool != null) {
+                        try {
+                            List<KafkaJobItemProto> activeJobs = finalOrch.getActiveKafkaJobs(finalDcId);
+                            if (activeJobs != null) {
+                                List<String> dynamicTopics = activeJobs.stream()
+                                        .flatMap(j -> j.getTopicsList().stream())
+                                        .filter(t -> t != null && !t.isBlank())
+                                        .distinct()
+                                        .toList();
+                                if (!dynamicTopics.isEmpty()) {
+                                    finalPool.updateSubscribedTopics(dynamicTopics);
+                                }
+                            }
+                        } catch (Exception jobEx) {
+                            log.debug("Не удалось обновить активные топики Kafka из оркестратора: {}", jobEx.getMessage());
+                        }
+                    }
                 } catch (Exception e) {
                     log.debug("Ошибка отправки heartbeat в оркестратор: {}", e.getMessage());
                 }

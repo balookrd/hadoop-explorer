@@ -52,7 +52,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private ExecutorService executor;
     private final java.util.concurrent.atomic.AtomicReference<List<String>> subscribedTopics =
             new java.util.concurrent.atomic.AtomicReference<>(Collections.emptyList());
-    private final AtomicBoolean topicsChanged = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong topicsVersion =
+            new java.util.concurrent.atomic.AtomicLong(1);
 
     public KafkaBatchConsumerPool(KafkaConsumer<byte[], byte[]> consumer,
                                   KafkaReplicationClient replicationClient,
@@ -177,6 +178,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final Map<String, InFlightBatch> inFlightBatches = new ConcurrentHashMap<>();
         private final Map<TopicPartition, Long> pendingCommittedOffsets = new ConcurrentHashMap<>();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
+        private long localTopicsVersion = 1;
 
         ConsumerWorker(int workerId, KafkaConsumer<byte[], byte[]> workerConsumer) {
             this.workerId = workerId;
@@ -251,12 +253,16 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         }
                     }
 
-                    if (topicsChanged.get()) {
+                    if (localTopicsVersion != topicsVersion.get()) {
+                        localTopicsVersion = topicsVersion.get();
                         List<String> newTopics = subscribedTopics.get();
+                        drainAndCommitPendingOffsets();
                         if (newTopics != null && !newTopics.isEmpty()) {
-                            drainAndCommitPendingOffsets();
                             workerConsumer.subscribe(newTopics);
                             log.info("[Worker {}] Динамически переподписан на топики: {}", workerId, newTopics);
+                        } else {
+                            workerConsumer.unsubscribe();
+                            log.info("[Worker {}] Отписан от топиков (список пуст)", workerId);
                         }
                     }
 
@@ -267,12 +273,16 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         if (!running.get()) {
                             break;
                         }
-                        if (topicsChanged.get()) {
+                        if (localTopicsVersion != topicsVersion.get()) {
+                            localTopicsVersion = topicsVersion.get();
                             List<String> newTopics = subscribedTopics.get();
+                            drainAndCommitPendingOffsets();
                             if (newTopics != null && !newTopics.isEmpty()) {
-                                drainAndCommitPendingOffsets();
                                 workerConsumer.subscribe(newTopics);
                                 log.info("[Worker {}] Обработан сигнал Wakeup: переподписка на топики: {}", workerId, newTopics);
+                            } else {
+                                workerConsumer.unsubscribe();
+                                log.info("[Worker {}] Обработан сигнал Wakeup: отписка от топиков", workerId);
                             }
                         }
                         continue;
@@ -426,9 +436,19 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     }
 
     public void updateSubscribedTopics(List<String> newTopics) {
-        if (newTopics != null && !newTopics.isEmpty()) {
+        if (newTopics != null) {
+            List<String> sorted = new ArrayList<>(newTopics);
+            Collections.sort(sorted);
+            List<String> current = subscribedTopics.get();
+            if (current != null) {
+                List<String> sortedCurrent = new ArrayList<>(current);
+                Collections.sort(sortedCurrent);
+                if (sortedCurrent.equals(sorted)) {
+                    return;
+                }
+            }
             this.subscribedTopics.set(new ArrayList<>(newTopics));
-            this.topicsChanged.set(true);
+            this.topicsVersion.incrementAndGet();
             for (KafkaConsumer<byte[], byte[]> c : consumers) {
                 try {
                     c.wakeup();
@@ -436,6 +456,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 }
             }
         }
+    }
+
+    public List<String> getSubscribedTopics() {
+        return Collections.unmodifiableList(subscribedTopics.get());
     }
 
     @Override

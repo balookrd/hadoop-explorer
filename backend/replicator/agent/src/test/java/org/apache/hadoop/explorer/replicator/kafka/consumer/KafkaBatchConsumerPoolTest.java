@@ -210,4 +210,39 @@ class KafkaBatchConsumerPoolTest {
 
         pool.close();
     }
+
+    @Test
+    @DisplayName("Динамическое обновление подписки на топики через updateSubscribedTopics")
+    void testDynamicTopicResubscription() throws Exception {
+        KafkaConsumer<byte[], byte[]> consumer = mock(KafkaConsumer.class);
+        KafkaReplicationClient client = mock(KafkaReplicationClient.class);
+        when(consumer.subscription()).thenReturn(new HashSet<>(List.of("old-topic")));
+
+        KafkaBatchConsumerPool pool = new KafkaBatchConsumerPool(
+                consumer,
+                client,
+                new LoopPreventionFilter("dc1", "dc2"),
+                new PayloadFormatClassifier(),
+                transcoder,
+                "dc1",
+                "dc2",
+                PayloadFormat.PAYLOAD_PASSTHROUGH,
+                PayloadFormat.PAYLOAD_PASSTHROUGH
+        );
+
+        assertEquals(List.of("old-topic"), pool.getSubscribedTopics());
+
+        // Обновляем топики
+        pool.updateSubscribedTopics(List.of("new-topic-1", "new-topic-2"));
+
+        assertEquals(List.of("new-topic-1", "new-topic-2"), pool.getSubscribedTopics());
+        verify(consumer, atLeastOnce()).wakeup();
+
+        // Повторный вызов с тем же составом не должен вызывать wakeup повторно
+        reset(consumer);
+        pool.updateSubscribedTopics(List.of("new-topic-2", "new-topic-1"));
+        verify(consumer, never()).wakeup();
+
+        pool.close();
+    }
 }
