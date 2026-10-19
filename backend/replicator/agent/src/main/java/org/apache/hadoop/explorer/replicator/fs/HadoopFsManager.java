@@ -22,8 +22,11 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -52,6 +55,21 @@ public class HadoopFsManager {
     private final KerberosUgiProvider ugiProvider;
     private final HdfsStagingReaper stagingReaper;
     private volatile boolean kerberosLoggedIn = false;
+
+    /**
+     * Потокобезопасный Bounded LRU-кэш проверенных родительских директорий (до 5000 путей)
+     * для исключения избыточных вызовов fs.exists/mkdirs к NameNode (PERF-04).
+     */
+    private final Set<String> verifiedDirectoriesGlobalCache = Collections.synchronizedSet(
+            Collections.newSetFromMap(
+                    new LinkedHashMap<String, Boolean>(5000, 0.75f, true) {
+                        @Override
+                        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                            return size() > 5000;
+                        }
+                    }
+            )
+    );
 
     public HadoopFsManager(String defaultFsUri, String keytabPath, String principal, String localSandboxDir) {
         this.conf = new Configuration();
@@ -809,9 +827,61 @@ public class HadoopFsManager {
     }
 
     /**
-     * Прямая запись байтов файла в HDFS или локальную ФС без создания временного staging-файла на локальном диске (Zero-Staging).
+     * Обеспечивает существование родительской директории с использованием двухуровневого кэша:
+     * локального для бандла/сессии (sessionVerifiedDirs) и глобального LRU-кэша (verifiedDirectoriesGlobalCache).
+     * Устраняет до 99% синхронных RPC-вызовов fs.exists/mkdirs к NameNode (PERF-04).
      */
-    public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+    public void ensureParentDirectoryExists(Path parentDir, FileSystem fs, Set<String> sessionVerifiedDirs) throws IOException {
+        if (parentDir == null) return;
+        String pathStr = parentDir.toString();
+        if (sessionVerifiedDirs != null && sessionVerifiedDirs.contains(pathStr)) {
+            return;
+        }
+        if (verifiedDirectoriesGlobalCache.contains(pathStr)) {
+            if (sessionVerifiedDirs != null) {
+                sessionVerifiedDirs.add(pathStr);
+            }
+            return;
+        }
+        if (!fs.exists(parentDir)) {
+            fs.mkdirs(parentDir);
+        }
+        verifiedDirectoriesGlobalCache.add(pathStr);
+        if (sessionVerifiedDirs != null) {
+            sessionVerifiedDirs.add(pathStr);
+        }
+    }
+
+    public void ensureParentDirectoryExists(File parentDir, Set<String> sessionVerifiedDirs) {
+        if (parentDir == null) return;
+        String pathStr = parentDir.getAbsolutePath();
+        if (sessionVerifiedDirs != null && sessionVerifiedDirs.contains(pathStr)) {
+            return;
+        }
+        if (verifiedDirectoriesGlobalCache.contains(pathStr)) {
+            if (sessionVerifiedDirs != null) {
+                sessionVerifiedDirs.add(pathStr);
+            }
+            return;
+        }
+        if (!parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        verifiedDirectoriesGlobalCache.add(pathStr);
+        if (sessionVerifiedDirs != null) {
+            sessionVerifiedDirs.add(pathStr);
+        }
+    }
+
+    public void clearVerifiedDirectoriesCache() {
+        verifiedDirectoriesGlobalCache.clear();
+    }
+
+    /**
+     * Прямая запись байтов файла в HDFS или локальную ФС без создания временного staging-файла на локальном диске (Zero-Staging)
+     * с поддержкой сессионного кэширования родительских каталогов (PERF-04).
+     */
+    public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount, Set<String> sessionVerifiedDirs) throws Exception {
         validateSandboxAccess(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
@@ -820,10 +890,7 @@ public class HadoopFsManager {
             ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
                 Path hdfsTarget = new Path(targetPath);
                 FileSystem fs = hdfsTarget.getFileSystem(conf);
-                Path parentDir = hdfsTarget.getParent();
-                if (parentDir != null && !fs.exists(parentDir)) {
-                    fs.mkdirs(parentDir);
-                }
+                ensureParentDirectoryExists(hdfsTarget.getParent(), fs, sessionVerifiedDirs);
                 try (OutputStream out = fs.create(hdfsTarget, true)) {
                     out.write(content);
                 }
@@ -834,17 +901,18 @@ public class HadoopFsManager {
 
         // Локальная файловая система (только если путь явно локальный)
         File destFile = new File(targetPath);
-        File parentDir = destFile.getParentFile();
-        if (parentDir != null && !parentDir.exists()) {
-            parentDir.mkdirs();
-        }
+        ensureParentDirectoryExists(destFile.getParentFile(), sessionVerifiedDirs);
         Files.write(destFile.toPath(), content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
+    public void writeDirect(String targetPath, byte[] content, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        writeDirect(targetPath, content, executionPrincipal, runAsServiceAccount, null);
+    }
+
     /**
-     * Открытие потока вывода для записи файла напрямую в HDFS или локальную ФС.
+     * Открытие потока вывода для записи файла напрямую в HDFS или локальную ФС с кэшированием директорий.
      */
-    public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+    public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount, Set<String> sessionVerifiedDirs) throws Exception {
         validateSandboxAccess(targetPath);
         boolean targetIsHdfs = targetPath.startsWith("hdfs://") || (defaultFsUri != null && !isLocalPath(targetPath));
 
@@ -853,20 +921,18 @@ public class HadoopFsManager {
             return ugi.doAs((PrivilegedExceptionAction<OutputStream>) () -> {
                 Path hdfsTarget = new Path(targetPath);
                 FileSystem fs = hdfsTarget.getFileSystem(conf);
-                Path parentDir = hdfsTarget.getParent();
-                if (parentDir != null && !fs.exists(parentDir)) {
-                    fs.mkdirs(parentDir);
-                }
+                ensureParentDirectoryExists(hdfsTarget.getParent(), fs, sessionVerifiedDirs);
                 return fs.create(hdfsTarget, true);
             });
         }
 
         File destFile = new File(targetPath);
-        File parentDir = destFile.getParentFile();
-        if (parentDir != null && !parentDir.exists()) {
-            parentDir.mkdirs();
-        }
+        ensureParentDirectoryExists(destFile.getParentFile(), sessionVerifiedDirs);
         return new FileOutputStream(destFile);
+    }
+
+    public OutputStream openOutputStreamForWrite(String targetPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
+        return openOutputStreamForWrite(targetPath, executionPrincipal, runAsServiceAccount, null);
     }
 
     /**
@@ -883,10 +949,7 @@ public class HadoopFsManager {
                 Path src = new Path(srcPath);
                 Path dst = new Path(dstPath);
                 FileSystem fs = dst.getFileSystem(conf);
-                Path parent = dst.getParent();
-                if (parent != null && !fs.exists(parent)) {
-                    fs.mkdirs(parent);
-                }
+                ensureParentDirectoryExists(dst.getParent(), fs, null);
                 if (fs.exists(dst)) {
                     fs.delete(dst, false);
                 }
@@ -896,9 +959,8 @@ public class HadoopFsManager {
 
         File srcFile = new File(srcPath);
         File dstFile = new File(dstPath);
-        if (dstFile.getParentFile() != null && !dstFile.getParentFile().exists()) {
-            dstFile.getParentFile().mkdirs();
-        }
+        ensureParentDirectoryExists(dstFile.getParentFile(), null);
+
         try {
             Files.move(srcFile.toPath(), dstFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             return true;

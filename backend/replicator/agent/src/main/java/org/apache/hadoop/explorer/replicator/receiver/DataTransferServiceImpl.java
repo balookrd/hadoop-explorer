@@ -530,6 +530,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private long bytesReceived = 0;
             private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
             private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
+            private final Set<String> activeWrittenPaths = ConcurrentHashMap.newKeySet();
+            private final Set<String> verifiedDirectories = ConcurrentHashMap.newKeySet();
             private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
             private final AtomicBoolean cancelled = new AtomicBoolean(false);
             private final List<CompletableFuture<Void>> commitFutures = Collections.synchronizedList(new ArrayList<>());
@@ -635,41 +637,27 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
                                     String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
                                     fsManager.validateSandboxAccess(targetPath);
-                                    String stagingPath = targetPath + "._staging_" + meta.getTaskId();
-                                    activeStagingPaths.add(stagingPath);
-                                    activeStagingSizes.put(stagingPath, (long) fileData.length);
-                                    AgentMetrics.getInstance().recordStagingFileStart();
-                                    AgentMetrics.getInstance().recordStagingBytes(fileData.length);
+                                    activeWrittenPaths.add(targetPath);
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         if (cancelled.get() || Thread.currentThread().isInterrupted()) {
-                                            activeStagingPaths.remove(stagingPath);
+                                            activeWrittenPaths.remove(targetPath);
                                             return;
                                         }
                                         try {
                                             fsManager.writeDirect(
-                                                    stagingPath,
+                                                    targetPath,
                                                     fileData,
                                                     meta.getExecutionPrincipal(),
-                                                    meta.getRunAsServiceAccount()
+                                                    meta.getRunAsServiceAccount(),
+                                                    verifiedDirectories
                                             );
                                             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                                                 try {
-                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                    fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                                 } catch (Exception ignored) {}
-                                                activeStagingPaths.remove(stagingPath);
+                                                activeWrittenPaths.remove(targetPath);
                                                 return;
-                                            }
-                                            fsManager.renameFile(
-                                                    stagingPath,
-                                                    targetPath,
-                                                    meta.getExecutionPrincipal(),
-                                                    meta.getRunAsServiceAccount()
-                                            );
-                                            activeStagingPaths.remove(stagingPath);
-                                            Long sz = activeStagingSizes.remove(stagingPath);
-                                            if (sz != null) {
-                                                AgentMetrics.getInstance().recordStagingFileComplete(sz);
                                             }
                                             committedCount.incrementAndGet();
                                             totalBytesWritten.addAndGet(fileData.length);
@@ -682,20 +670,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                         } catch (Exception e) {
                                             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                                                 try {
-                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                    fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                                 } catch (Exception ignored) {}
-                                                activeStagingPaths.remove(stagingPath);
+                                                activeWrittenPaths.remove(targetPath);
                                                 return;
                                             }
                                             logger.error("Ошибка при прямом коммите файла {} в HDFS: {}", targetPath, e.getMessage(), e);
                                             try {
-                                                fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                             } catch (Exception ignored) {}
-                                            activeStagingPaths.remove(stagingPath);
-                                            Long sz = activeStagingSizes.remove(stagingPath);
-                                            if (sz != null) {
-                                                AgentMetrics.getInstance().recordStagingFileComplete(sz);
-                                            }
+                                            activeWrittenPaths.remove(targetPath);
                                             results.add(TarFileCommitResult.newBuilder()
                                                     .setRelativePath(relPath)
                                                     .setTargetPath(targetPath)
@@ -710,6 +694,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     }, bundleCommitExecutor);
                                     commitFutures.add(fut);
                                 }
+
 
                                 try {
                                     CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0])).join();
@@ -830,6 +815,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     pipedOut.flush();
                     pipedOut.close();
                     TarStreamResponse response = unpackFuture.get(120, TimeUnit.SECONDS);
+                    if (response.getSuccess()) {
+                        activeWrittenPaths.clear();
+                    }
                     logger.info("Виртуальный TAR-стрим task_id={} завершен: успешно={}, файлов={}, байт={}",
                             metadata.getTaskId(), response.getSuccess(), response.getFilesCommitted(), response.getBytesWritten());
                     responseObserver.onNext(response);
@@ -879,6 +867,17 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     }
                 }
                 commitFutures.clear();
+                for (String path : activeWrittenPaths) {
+                    try {
+                        if (metadata != null) {
+                            fsManager.deletePath(path, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
+                        } else {
+                            fsManager.deletePath(path, null, true);
+                        }
+                        logger.debug("Очищен незавершенный файл бандла при сбое: {}", path);
+                    } catch (Exception ignored) {}
+                }
+                activeWrittenPaths.clear();
                 for (String staging : activeStagingPaths) {
                     try {
                         if (metadata != null) {
