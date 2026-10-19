@@ -113,7 +113,6 @@ hadoop:
       tls-enabled: ${REPLICATOR_GRPC_TLS_ENABLED:false}
     global-limit-bytes-per-sec: 104857600
     agent-secret: "replicator-secure-agent-secret-key-12345"
-    seed-demo-data: ${REPLICATOR_SEED_DEMO_DATA:false}
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45
     hms-poll-interval-ms: 5000
@@ -135,14 +134,20 @@ hadoop:
         network-zone: "zone-b"
     clusters:
       - id: "dc1"
-        name: "HDFS DC1 Production"
+        name: "DC1 Production Cluster"
         dc-id: "dc1"
         hdfs-rpc-address: "hdfs://namenode-dc1:8020"
         grpc-host: "agent-dc1"
         grpc-port: 50051
+        kafka-bootstrap-servers: "${KAFKA_DC1_BOOTSTRAP:kafka-dc1:9092}"
+        schema-registry-url: "${SCHEMA_REGISTRY_DC1_URL:http://schema-registry-1:8081}"
+        schema-registry-type: "HORTONWORKS"
       - id: "dc2"
-        name: "HDFS DC2 Disaster Recovery"
+        name: "DC2 Disaster Recovery Cluster"
         dc-id: "dc2"
         hdfs-rpc-address: "hdfs://namenode-dc2:8020"
         grpc-host: "agent-dc2"
         grpc-port: 50051
+        kafka-bootstrap-servers: "${KAFKA_DC2_BOOTSTRAP:kafka-dc2:9092}"
+        schema-registry-url: "${SCHEMA_REGISTRY_DC2_URL:http://schema-registry-2:8082}"
+        schema-registry-type: "CONFLUENT"

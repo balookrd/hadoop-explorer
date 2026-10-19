@@ -21,9 +21,17 @@ import java.util.Map;
 public class KafkaReplicationController {
 
     private final KafkaReplicationOrchestratorService service;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry;
+
+    public KafkaReplicationController(KafkaReplicationOrchestratorService service,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                     org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry) {
+        this.service = service;
+        this.topologyRegistry = topologyRegistry;
+    }
 
     public KafkaReplicationController(KafkaReplicationOrchestratorService service) {
-        this.service = service;
+        this(service, null);
     }
 
     private UserSession getSession() {
@@ -132,34 +140,33 @@ public class KafkaReplicationController {
         requireAuthentication();
         UserSession session = getSession();
         boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
-        String keytabDisplay = isAdmin ? "/etc/security/keytabs/kafka-replicator.keytab" : "[PROTECTED]";
 
-        return List.of(
-                Map.of(
-                        "id", "kafka-cluster-1",
-                        "name", "Kafka DC1 Primary (Москва)",
-                        "dcId", "dc1",
-                        "location", "ЦОД-1 Москва (Сколково)",
-                        "bootstrapServers", "kafka-cluster-1.demo-platform-net:9092",
-                        "srUrl", "http://schema-registry-1:8081",
-                        "srType", "HORTONWORKS",
-                        "kerberosEnabled", true,
-                        "principal", "kafka-replicator@COMPANY.LOCAL",
-                        "keytabPath", keytabDisplay
-                ),
-                Map.of(
-                        "id", "kafka-cluster-2",
-                        "name", "Kafka DC2 Disaster Recovery (СПб)",
-                        "dcId", "dc2",
-                        "location", "ЦОД-2 Санкт-Петербург (Пулково)",
-                        "bootstrapServers", "kafka-cluster-2.demo-platform-net:9092",
-                        "srUrl", "http://schema-registry-2:8082",
-                        "srType", "CONFLUENT",
-                        "kerberosEnabled", true,
-                        "principal", "kafka-replicator@COMPANY.LOCAL",
-                        "keytabPath", keytabDisplay
-                )
-        );
+        if (topologyRegistry == null) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+        for (var c : topologyRegistry.getClusters()) {
+            var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+            if (cfg == null) continue;
+            String keytabDisplay = isAdmin && cfg.getKeytabPath() != null
+                    ? cfg.getKeytabPath()
+                    : "[PROTECTED]";
+
+            Map<String, Object> map = new java.util.LinkedHashMap<>();
+            map.put("id", cfg.getId());
+            map.put("name", cfg.getName() != null ? cfg.getName() : cfg.getId());
+            map.put("dcId", cfg.getDcId() != null ? cfg.getDcId() : "");
+            map.put("location", cfg.getDcId() != null ? cfg.getDcId() : "");
+            map.put("bootstrapServers", cfg.getKafkaBootstrapServers() != null ? cfg.getKafkaBootstrapServers() : "");
+            map.put("srUrl", cfg.getSchemaRegistryUrl() != null ? cfg.getSchemaRegistryUrl() : "");
+            map.put("srType", cfg.getSchemaRegistryType() != null ? cfg.getSchemaRegistryType() : "CONFLUENT");
+            map.put("kerberosEnabled", cfg.isKerberosEnabled());
+            map.put("principal", cfg.getPrincipal() != null ? cfg.getPrincipal() : "");
+            map.put("keytabPath", keytabDisplay);
+            list.add(map);
+        }
+        return list;
     }
 
     /**
@@ -168,47 +175,21 @@ public class KafkaReplicationController {
     @GetMapping("/discovery/topics")
     public List<Map<String, Object>> discoverTopics(
             @RequestParam(required = false) String dc,
+            @RequestParam(required = false) String clusterId,
+            @RequestParam(required = false) String bootstrapServers,
             @RequestParam(required = false) String search) {
         requireAuthentication();
-        List<Map<String, Object>> all = List.of(
-                // Orders domain
-                Map.of("name", "orders-v1", "partitions", 12, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
-                Map.of("name", "orders-avro", "partitions", 6, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                Map.of("name", "orders-dlq", "partitions", 3, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "orders-checkout-events", "partitions", 8, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                // Payments domain
-                Map.of("name", "payments-raw", "partitions", 6, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "payments-clearing-avro", "partitions", 12, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                Map.of("name", "payments-fraud-alerts", "partitions", 4, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
-                // Billing domain
-                Map.of("name", "billing-invoices", "partitions", 8, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                Map.of("name", "billing-subscription-events", "partitions", 4, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
-                Map.of("name", "billing-audit-trail", "partitions", 2, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                // Telemetry & Metrics
-                Map.of("name", "telemetry-stream", "partitions", 16, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "telemetry-iot-sensors", "partitions", 32, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "metrics-raw", "partitions", 16, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "metrics-aggregated-1m", "partitions", 8, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                // Users & Customers
-                Map.of("name", "user-events", "partitions", 8, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
-                Map.of("name", "user-cache-sync", "partitions", 4, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "customer-notifications", "partitions", 6, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                Map.of("name", "customer-profiles-cdc", "partitions", 12, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                // Inventory & Supply Chain
-                Map.of("name", "inventory-stock-updates", "partitions", 8, "detectedFormat", "AUTO_DETECT", "hasSchema", true),
-                Map.of("name", "inventory-warehouse-events", "partitions", 6, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                // CDC & DB streams
-                Map.of("name", "cdc-postgres-accounts", "partitions", 12, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                Map.of("name", "cdc-mysql-merchants", "partitions", 8, "detectedFormat", "SCHEMA_REGISTRY", "hasSchema", true),
-                // System & Audit
-                Map.of("name", "system-audit-logs", "partitions", 4, "detectedFormat", "PASSTHROUGH", "hasSchema", false),
-                Map.of("name", "system-health-heartbeats", "partitions", 2, "detectedFormat", "PASSTHROUGH", "hasSchema", false)
-        );
+        String effectiveBootstrap = resolveBootstrap(dc, clusterId, bootstrapServers);
+        List<Map<String, Object>> all = service.discoverTopics(effectiveBootstrap, false, null, null, null);
         if (search == null || search.isBlank()) {
             return all;
         }
         String q = search.toLowerCase();
         return all.stream().filter(t -> ((String) t.get("name")).toLowerCase().contains(q)).toList();
+    }
+
+    public List<Map<String, Object>> discoverTopics(String dc, String search) {
+        return discoverTopics(dc, null, null, search);
     }
 
     /**
@@ -217,39 +198,45 @@ public class KafkaReplicationController {
     @GetMapping("/discovery/groups")
     public List<Map<String, Object>> discoverGroups(
             @RequestParam(required = false) String dc,
+            @RequestParam(required = false) String clusterId,
+            @RequestParam(required = false) String bootstrapServers,
             @RequestParam(required = false) String search) {
         requireAuthentication();
-        List<Map<String, Object>> all = List.of(
-                // Billing groups
-                Map.of("groupId", "billing-service-prod", "state", "STABLE", "members", 4, "lag", 12),
-                Map.of("groupId", "billing-invoicing-worker", "state", "STABLE", "members", 2, "lag", 5),
-                Map.of("groupId", "billing-archiver-cron", "state", "EMPTY", "members", 0, "lag", 340),
-                // Orders & Fraud
-                Map.of("groupId", "orders-fulfillment-engine", "state", "STABLE", "members", 8, "lag", 3),
-                Map.of("groupId", "fraud-detection-engine", "state", "STABLE", "members", 6, "lag", 0),
-                Map.of("groupId", "fraud-alerts-telegram-bot", "state", "STABLE", "members", 1, "lag", 1),
-                // Analytics & ML
-                Map.of("groupId", "analytics-stream-processor", "state", "STABLE", "members", 6, "lag", 8),
-                Map.of("groupId", "analytics-clickhouse-sink", "state", "STABLE", "members", 12, "lag", 25),
-                Map.of("groupId", "ml-feature-store-loader", "state", "STABLE", "members", 3, "lag", 0),
-                Map.of("groupId", "ml-realtime-scoring-worker", "state", "STABLE", "members", 4, "lag", 2),
-                // Notifications & Dispatchers
-                Map.of("groupId", "notification-dispatcher", "state", "STABLE", "members", 5, "lag", 19),
-                Map.of("groupId", "push-notification-gateway", "state", "STABLE", "members", 4, "lag", 7),
-                // Search & Indexing
-                Map.of("groupId", "search-indexing-pipeline", "state", "STABLE", "members", 8, "lag", 2),
-                Map.of("groupId", "elasticsearch-cdc-sync", "state", "STABLE", "members", 4, "lag", 11),
-                // Legacy & Maintenance
-                Map.of("groupId", "audit-archiver-service", "state", "EMPTY", "members", 0, "lag", 450),
-                Map.of("groupId", "legacy-reports-exporter", "state", "EMPTY", "members", 0, "lag", 1250),
-                Map.of("groupId", "gdpr-compliance-scanner", "state", "EMPTY", "members", 0, "lag", 0),
-                Map.of("groupId", "dev-test-consumer-group", "state", "EMPTY", "members", 0, "lag", 88)
-        );
+        String effectiveBootstrap = resolveBootstrap(dc, clusterId, bootstrapServers);
+        List<Map<String, Object>> all = service.discoverConsumerGroups(effectiveBootstrap, false, null, null, null);
         if (search == null || search.isBlank()) {
             return all;
         }
         String q = search.toLowerCase();
         return all.stream().filter(g -> ((String) g.get("groupId")).toLowerCase().contains(q)).toList();
+    }
+
+    public List<Map<String, Object>> discoverGroups(String dc, String search) {
+        return discoverGroups(dc, null, null, search);
+    }
+
+    private String resolveBootstrap(String dc, String clusterId, String bootstrapServers) {
+        if (bootstrapServers != null && !bootstrapServers.isBlank()) {
+            return bootstrapServers;
+        }
+        if (topologyRegistry == null) {
+            return null;
+        }
+        if (clusterId != null && !clusterId.isBlank()) {
+            var cfg = topologyRegistry.getCluster(clusterId).orElse(null);
+            if (cfg != null && cfg.getKafkaBootstrapServers() != null && !cfg.getKafkaBootstrapServers().isBlank()) {
+                return cfg.getKafkaBootstrapServers();
+            }
+        }
+        if (dc != null && !dc.isBlank()) {
+            for (var c : topologyRegistry.getClusters()) {
+                var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+                if (cfg != null && dc.equalsIgnoreCase(cfg.getDcId()) && cfg.getKafkaBootstrapServers() != null && !cfg.getKafkaBootstrapServers().isBlank()) {
+                    return cfg.getKafkaBootstrapServers();
+                }
+            }
+        }
+        return null;
     }
 }
 

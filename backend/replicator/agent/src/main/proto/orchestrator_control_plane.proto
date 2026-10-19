@@ -96,6 +96,9 @@ message AgentHeartbeatRequest {
   int32 staging_active_files = 15;
   int64 staging_active_bytes = 16;
   int64 staging_orphans_cleaned = 17;
+  int64 kafka_messages_replicated = 18;
+  int64 kafka_bytes_replicated = 19;
+  int64 kafka_current_lag_ms = 20;
 }
 
 message AgentHeartbeatResponse {

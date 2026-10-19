@@ -65,6 +65,15 @@ public class AgentHeartbeatRequest {
     @JsonProperty("staging_orphans_cleaned")
     private long stagingOrphansCleaned = 0;
 
+    @JsonProperty("kafka_messages_replicated")
+    private long kafkaMessagesReplicated = 0;
+
+    @JsonProperty("kafka_bytes_replicated")
+    private long kafkaBytesReplicated = 0;
+
+    @JsonProperty("kafka_current_lag_ms")
+    private long kafkaCurrentLagMs = 0;
+
     public AgentHeartbeatRequest() {}
 
     public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers) {
@@ -133,4 +142,13 @@ public class AgentHeartbeatRequest {
 
     public long getStagingOrphansCleaned() { return stagingOrphansCleaned; }
     public void setStagingOrphansCleaned(long stagingOrphansCleaned) { this.stagingOrphansCleaned = stagingOrphansCleaned; }
+
+    public long getKafkaMessagesReplicated() { return kafkaMessagesReplicated; }
+    public void setKafkaMessagesReplicated(long kafkaMessagesReplicated) { this.kafkaMessagesReplicated = kafkaMessagesReplicated; }
+
+    public long getKafkaBytesReplicated() { return kafkaBytesReplicated; }
+    public void setKafkaBytesReplicated(long kafkaBytesReplicated) { this.kafkaBytesReplicated = kafkaBytesReplicated; }
+
+    public long getKafkaCurrentLagMs() { return kafkaCurrentLagMs; }
+    public void setKafkaCurrentLagMs(long kafkaCurrentLagMs) { this.kafkaCurrentLagMs = kafkaCurrentLagMs; }
 }

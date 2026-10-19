@@ -30,7 +30,6 @@ public class ReplicatorProperties {
 
     private List<DatacenterConfig> datacenters = new ArrayList<>();
     private List<ClusterConfig> clusters = new ArrayList<>();
-    private boolean seedDemoData = false;
 
     public long getGlobalLimitBytesPerSec() { return globalLimitBytesPerSec; }
     public void setGlobalLimitBytesPerSec(long globalLimitBytesPerSec) { this.globalLimitBytesPerSec = globalLimitBytesPerSec; }
@@ -70,8 +69,6 @@ public class ReplicatorProperties {
     public void setDatacenters(List<DatacenterConfig> datacenters) { this.datacenters = datacenters; }
     public List<ClusterConfig> getClusters() { return clusters; }
     public void setClusters(List<ClusterConfig> clusters) { this.clusters = clusters; }
-    public boolean isSeedDemoData() { return seedDemoData; }
-    public void setSeedDemoData(boolean seedDemoData) { this.seedDemoData = seedDemoData; }
 
     public static class DatacenterConfig {
         private String id;
@@ -100,6 +97,12 @@ public class ReplicatorProperties {
         private String hdfsRpcAddress;
         private String grpcHost;
         private int grpcPort = 50051;
+        private String kafkaBootstrapServers;
+        private String schemaRegistryUrl;
+        private String schemaRegistryType = "CONFLUENT";
+        private boolean kerberosEnabled = false;
+        private String principal;
+        private String keytabPath;
 
         public ClusterConfig() {}
         public ClusterConfig(String id, String name, String dcId, String hdfsRpcAddress, String grpcHost, int grpcPort) {
@@ -123,6 +126,18 @@ public class ReplicatorProperties {
         public void setGrpcHost(String grpcHost) { this.grpcHost = grpcHost; }
         public int getGrpcPort() { return grpcPort; }
         public void setGrpcPort(int grpcPort) { this.grpcPort = grpcPort; }
+        public String getKafkaBootstrapServers() { return kafkaBootstrapServers; }
+        public void setKafkaBootstrapServers(String kafkaBootstrapServers) { this.kafkaBootstrapServers = kafkaBootstrapServers; }
+        public String getSchemaRegistryUrl() { return schemaRegistryUrl; }
+        public void setSchemaRegistryUrl(String schemaRegistryUrl) { this.schemaRegistryUrl = schemaRegistryUrl; }
+        public String getSchemaRegistryType() { return schemaRegistryType; }
+        public void setSchemaRegistryType(String schemaRegistryType) { this.schemaRegistryType = schemaRegistryType; }
+        public boolean isKerberosEnabled() { return kerberosEnabled; }
+        public void setKerberosEnabled(boolean kerberosEnabled) { this.kerberosEnabled = kerberosEnabled; }
+        public String getPrincipal() { return principal; }
+        public void setPrincipal(String principal) { this.principal = principal; }
+        public String getKeytabPath() { return keytabPath; }
+        public void setKeytabPath(String keytabPath) { this.keytabPath = keytabPath; }
     }
 
     private List<FederationMappingConfig> federationMappings = new ArrayList<>();

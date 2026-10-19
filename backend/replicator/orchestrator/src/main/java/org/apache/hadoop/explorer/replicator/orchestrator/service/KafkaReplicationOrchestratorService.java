@@ -8,12 +8,14 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicatio
 import org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaTopicProvisioner;
 import org.apache.hadoop.explorer.replicator.orchestrator.kafka.TopicProvisioningResult;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository;
+import org.apache.kafka.clients.admin.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class KafkaReplicationOrchestratorService {
@@ -24,24 +26,34 @@ public class KafkaReplicationOrchestratorService {
     private final KafkaReplicationJobRepository repository;
     private final KafkaTopicProvisioner topicProvisioner;
     private final org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory;
 
     @org.springframework.beans.factory.annotation.Autowired
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
                                                KafkaTopicProvisioner topicProvisioner,
                                                @org.springframework.beans.factory.annotation.Autowired(required = false)
-                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
+                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry,
+                                               @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                               org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory) {
         this.repository = repository;
         this.topicProvisioner = topicProvisioner != null ? topicProvisioner : new KafkaTopicProvisioner();
         this.agentRegistry = agentRegistry;
+        this.adminClientFactory = adminClientFactory != null ? adminClientFactory : new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory();
+    }
+
+    public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
+                                               KafkaTopicProvisioner topicProvisioner,
+                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
+        this(repository, topicProvisioner, agentRegistry, new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory());
     }
 
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
                                                KafkaTopicProvisioner topicProvisioner) {
-        this(repository, topicProvisioner, null);
+        this(repository, topicProvisioner, null, new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory());
     }
 
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository) {
-        this(repository, new KafkaTopicProvisioner(), null);
+        this(repository, new KafkaTopicProvisioner(), null, new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory());
     }
 
     @Transactional(readOnly = true)
@@ -346,5 +358,131 @@ public class KafkaReplicationOrchestratorService {
             repository.save(entity);
             return res;
         }).orElse(TopicProvisioningResult.warning("Задача не найдена: " + jobId));
+    }
+
+    /**
+     * Динамическое обнаружение топиков из кластера Kafka.
+     * При недоступности брокера или пустом bootstrapServers возвращает пустой список.
+     */
+    public List<Map<String, Object>> discoverTopics(String bootstrapServers,
+                                                    boolean kerberosEnabled,
+                                                    String principal,
+                                                    String keytabPath,
+                                                    String serviceName) {
+        if (bootstrapServers == null || bootstrapServers.isBlank()) {
+            return Collections.emptyList();
+        }
+        try (AdminClient adminClient = adminClientFactory.createAdminClient(bootstrapServers, kerberosEnabled, principal, keytabPath, serviceName)) {
+            ListTopicsResult listResult = adminClient.listTopics(new ListTopicsOptions().timeoutMs(5000));
+            Set<String> topicNames = listResult.names().get(5, TimeUnit.SECONDS);
+            if (topicNames == null || topicNames.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            DescribeTopicsResult describeResult = adminClient.describeTopics(topicNames, new DescribeTopicsOptions().timeoutMs(5000));
+            Map<String, TopicDescription> descriptions = describeResult.allTopicNames().get(5, TimeUnit.SECONDS);
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Map.Entry<String, TopicDescription> entry : descriptions.entrySet()) {
+                String name = entry.getKey();
+                TopicDescription desc = entry.getValue();
+                if (desc.isInternal()) {
+                    continue;
+                }
+                int partitions = desc.partitions() != null ? desc.partitions().size() : 0;
+                boolean hasSchema = name.contains("avro") || name.contains("schema");
+                String format = hasSchema ? "SCHEMA_REGISTRY" : "AUTO_DETECT";
+                result.add(Map.of(
+                        "name", name,
+                        "partitions", partitions,
+                        "detectedFormat", format,
+                        "hasSchema", hasSchema
+                ));
+            }
+            result.sort(Comparator.comparing(m -> (String) m.get("name")));
+            return result;
+        } catch (Exception e) {
+            log.warn("Не удалось получить список топиков из Kafka кластера ({}): {}",
+                    bootstrapServers, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Динамическое обнаружение консьюмер-групп из кластера Kafka.
+     * При недоступности брокера или пустом bootstrapServers возвращает пустой список.
+     */
+    public List<Map<String, Object>> discoverConsumerGroups(String bootstrapServers,
+                                                           boolean kerberosEnabled,
+                                                           String principal,
+                                                           String keytabPath,
+                                                           String serviceName) {
+        if (bootstrapServers == null || bootstrapServers.isBlank()) {
+            return Collections.emptyList();
+        }
+        try (AdminClient adminClient = adminClientFactory.createAdminClient(bootstrapServers, kerberosEnabled, principal, keytabPath, serviceName)) {
+            ListConsumerGroupsResult listResult = adminClient.listConsumerGroups(new ListConsumerGroupsOptions().timeoutMs(5000));
+            Collection<ConsumerGroupListing> listings = listResult.all().get(5, TimeUnit.SECONDS);
+            if (listings == null || listings.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<String> groupIds = listings.stream().map(ConsumerGroupListing::groupId).toList();
+
+            DescribeConsumerGroupsResult describeResult = adminClient.describeConsumerGroups(groupIds, new DescribeConsumerGroupsOptions().timeoutMs(5000));
+            Map<String, ConsumerGroupDescription> descriptions = describeResult.allTopicNames() != null
+                    ? describeResult.all().get(5, TimeUnit.SECONDS)
+                    : Collections.emptyMap();
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Map.Entry<String, ConsumerGroupDescription> entry : descriptions.entrySet()) {
+                String groupId = entry.getKey();
+                ConsumerGroupDescription desc = entry.getValue();
+                String state = desc.state() != null ? desc.state().name() : "UNKNOWN";
+                int members = desc.members() != null ? desc.members().size() : 0;
+                result.add(Map.of(
+                        "groupId", groupId,
+                        "state", state,
+                        "members", members,
+                        "lag", 0L
+                ));
+            }
+            result.sort(Comparator.comparing(m -> (String) m.get("groupId")));
+            return result;
+        } catch (Exception e) {
+            log.warn("Не удалось получить список консьюмер-групп из Kafka кластера ({}): {}",
+                    bootstrapServers, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Обновление агрегированных счетчиков телеметрии Kafka (сообщения, байты, лаг)
+     * из периодического keepalive heartbeat агента.
+     */
+    @Transactional
+    public void updateMetricsFromHeartbeat(String dcId, String agentId, long messagesReplicated, long bytesReplicated, long currentLagMs) {
+        if (dcId == null || dcId.isBlank()) {
+            return;
+        }
+        String dc = dcId.trim();
+        List<KafkaReplicationJobEntity> activeJobs = repository.findAll().stream()
+                .filter(job -> "ACTIVE".equalsIgnoreCase(job.getStatus()))
+                .filter(job -> dc.equalsIgnoreCase(job.getSourceDc()) ||
+                        ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection()) && dc.equalsIgnoreCase(job.getTargetDc())))
+                .toList();
+
+        for (KafkaReplicationJobEntity job : activeJobs) {
+            if (messagesReplicated > 0) {
+                job.setMessagesReplicated(Math.max(job.getMessagesReplicated() != null ? job.getMessagesReplicated() : 0L, messagesReplicated));
+            }
+            if (bytesReplicated > 0) {
+                job.setBytesReplicated(Math.max(job.getBytesReplicated() != null ? job.getBytesReplicated() : 0L, bytesReplicated));
+            }
+            if (currentLagMs >= 0) {
+                job.setCurrentLagMs(currentLagMs);
+            }
+            job.setUpdatedAt(Instant.now());
+            repository.save(job);
+        }
     }
 }
