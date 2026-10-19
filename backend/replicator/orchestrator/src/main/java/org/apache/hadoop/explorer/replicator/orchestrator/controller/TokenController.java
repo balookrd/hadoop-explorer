@@ -16,11 +16,23 @@ public class TokenController {
 
     private final TokenBucketThrottler throttler;
     private final org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.service.OrchestratorClusterCoordinator coordinator;
 
     public TokenController(TokenBucketThrottler throttler,
                            org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService) {
+        this(throttler, metricsService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TokenController(
+            TokenBucketThrottler throttler,
+            org.apache.hadoop.explorer.replicator.orchestrator.metrics.ReplicatorMetricsService metricsService,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            org.apache.hadoop.explorer.replicator.orchestrator.service.OrchestratorClusterCoordinator coordinator
+    ) {
         this.throttler = throttler;
         this.metricsService = metricsService;
+        this.coordinator = coordinator;
     }
 
     private void requireAdmin(Authentication auth) {
@@ -38,9 +50,13 @@ public class TokenController {
 
     @GetMapping("/api/v1/tokens/limit")
     public ResponseEntity<Map<String, Object>> getLimit() {
+        double configured = throttler.getGlobalConfiguredLimit();
+        double effective = throttler.getGlobalLimit();
         return ResponseEntity.ok(Map.of(
-            "global_limit_bytes_per_sec", throttler.getGlobalLimit(),
-            "global_limit_mb_s", Math.round((throttler.getGlobalLimit() / (1024.0 * 1024.0)) * 10.0) / 10.0
+            "global_limit_bytes_per_sec", configured > 0 ? configured : effective,
+            "global_limit_mb_s", Math.round(((configured > 0 ? configured : effective) / (1024.0 * 1024.0)) * 10.0) / 10.0,
+            "effective_limit_bytes_per_sec", effective,
+            "active_orchestrator_nodes", throttler.getActiveNodeCount()
         ));
     }
 
@@ -52,10 +68,15 @@ public class TokenController {
         requireAdmin(auth);
         Number limit = (Number) body.get("global_limit_bytes_per_sec");
         if (limit != null) {
-            throttler.setGlobalLimit(limit.longValue());
+            if (coordinator != null) {
+                coordinator.persistAndApplyLimit("global", limit.longValue());
+            } else {
+                throttler.setGlobalLimit(limit.longValue());
+            }
             return ResponseEntity.ok(Map.of(
                 "status", "updated",
-                "global_limit_bytes_per_sec", limit.longValue()
+                "global_limit_bytes_per_sec", limit.longValue(),
+                "active_orchestrator_nodes", throttler.getActiveNodeCount()
             ));
         }
         return ResponseEntity.badRequest().body(Map.of("error", "global_limit_bytes_per_sec required"));

@@ -237,8 +237,24 @@ CREATE TABLE IF NOT EXISTS replication_agents (
 CREATE INDEX IF NOT EXISTS idx_agents_cluster_id ON replication_agents (cluster_id);
 CREATE INDEX IF NOT EXISTS idx_agents_status ON replication_agents (status);
 
+-- 5. Таблицы координации узлов Orchestrator и распределенных квот (Active-Active Token Bucket)
+CREATE TABLE IF NOT EXISTS replication_orchestrator_nodes (
+    node_id VARCHAR(64) PRIMARY KEY,
+    host_name VARCHAR(128) NOT NULL,
+    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'
+);
+
+CREATE INDEX IF NOT EXISTS idx_orch_nodes_heartbeat ON replication_orchestrator_nodes (last_heartbeat, status);
+
+CREATE TABLE IF NOT EXISTS replication_bandwidth_limits (
+    limit_key VARCHAR(128) PRIMARY KEY,
+    limit_bytes_per_sec BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
--- 5. Хранимая функция автоматического создания будущих помесячных партиций
+-- 6. Хранимая функция автоматического создания будущих помесячных партиций
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION create_future_tasks_partition(months_ahead INT DEFAULT 1)
 RETURNS VOID AS $$
