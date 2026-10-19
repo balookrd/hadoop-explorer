@@ -4,7 +4,6 @@ import org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
 import java.util.Objects;
 
 /**
@@ -76,18 +75,15 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        int sourceId = ByteBuffer.wrap(payload, 1, 4).getInt();
+        int sourceId = readInt(payload, 1);
         int targetId = schemaResolver.resolveConfluentToConfluent(topic, sourceId);
 
         if (sourceId == targetId) {
             return payload; // ID полностью совпали, замена не требуется
         }
 
-        // Zero-copy: in-place замена ID схемы в бинарном заголовке без дублирования байтов в куче
-        payload[1] = (byte) (targetId >>> 24);
-        payload[2] = (byte) (targetId >>> 16);
-        payload[3] = (byte) (targetId >>> 8);
-        payload[4] = (byte) targetId;
+        // Zero-copy & Zero-allocation: in-place замена ID схемы в бинарном заголовке без дублирования байтов в куче
+        writeInt(payload, 1, targetId);
         return payload;
     }
 
@@ -96,15 +92,15 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        long sourceId = ByteBuffer.wrap(payload, 1, 8).getLong();
+        long sourceId = readLong(payload, 1);
         long targetId = schemaResolver.resolveHwxToHwx(topic, sourceId);
 
         if (sourceId == targetId) {
             return payload;
         }
 
-        // Zero-copy: in-place замена 8-байтного Long ID без клонирования payload
-        ByteBuffer.wrap(payload, 1, 8).putLong(targetId);
+        // Zero-copy & Zero-allocation: in-place замена 8-байтного Long ID без клонирования payload
+        writeLong(payload, 1, targetId);
         return payload;
     }
 
@@ -113,17 +109,14 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        long hwxVersionId = ByteBuffer.wrap(payload, 1, 8).getLong();
+        long hwxVersionId = readLong(payload, 1);
         int confluentId = schemaResolver.resolveHwxToConfluent(topic, hwxVersionId);
 
         int avroBodyLen = payload.length - HWX_HDR_LEN;
         byte[] target = new byte[CONFLUENT_HDR_LEN + avroBodyLen];
 
         target[0] = CONFLUENT_MAGIC;
-        target[1] = (byte) (confluentId >>> 24);
-        target[2] = (byte) (confluentId >>> 16);
-        target[3] = (byte) (confluentId >>> 8);
-        target[4] = (byte) confluentId;
+        writeInt(target, 1, confluentId);
 
         System.arraycopy(payload, HWX_HDR_LEN, target, CONFLUENT_HDR_LEN, avroBodyLen);
         return target;
@@ -134,16 +127,52 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        int confluentId = ByteBuffer.wrap(payload, 1, 4).getInt();
+        int confluentId = readInt(payload, 1);
         long hwxVersionId = schemaResolver.resolveConfluentToHwx(topic, confluentId);
 
         int avroBodyLen = payload.length - CONFLUENT_HDR_LEN;
         byte[] target = new byte[HWX_HDR_LEN + avroBodyLen];
 
         target[0] = HWX_PROTOCOL_V2;
-        ByteBuffer.wrap(target, 1, 8).putLong(hwxVersionId);
+        writeLong(target, 1, hwxVersionId);
 
         System.arraycopy(payload, CONFLUENT_HDR_LEN, target, HWX_HDR_LEN, avroBodyLen);
         return target;
+    }
+
+    private static int readInt(byte[] b, int offset) {
+        return ((b[offset] & 0xFF) << 24)
+                | ((b[offset + 1] & 0xFF) << 16)
+                | ((b[offset + 2] & 0xFF) << 8)
+                | (b[offset + 3] & 0xFF);
+    }
+
+    private static void writeInt(byte[] b, int offset, int val) {
+        b[offset] = (byte) (val >>> 24);
+        b[offset + 1] = (byte) (val >>> 16);
+        b[offset + 2] = (byte) (val >>> 8);
+        b[offset + 3] = (byte) val;
+    }
+
+    private static long readLong(byte[] b, int offset) {
+        return (((long) b[offset] & 0xFF) << 56)
+                | (((long) b[offset + 1] & 0xFF) << 48)
+                | (((long) b[offset + 2] & 0xFF) << 40)
+                | (((long) b[offset + 3] & 0xFF) << 32)
+                | (((long) b[offset + 4] & 0xFF) << 24)
+                | (((long) b[offset + 5] & 0xFF) << 16)
+                | (((long) b[offset + 6] & 0xFF) << 8)
+                | ((long) b[offset + 7] & 0xFF);
+    }
+
+    private static void writeLong(byte[] b, int offset, long val) {
+        b[offset] = (byte) (val >>> 56);
+        b[offset + 1] = (byte) (val >>> 48);
+        b[offset + 2] = (byte) (val >>> 40);
+        b[offset + 3] = (byte) (val >>> 32);
+        b[offset + 4] = (byte) (val >>> 24);
+        b[offset + 5] = (byte) (val >>> 16);
+        b[offset + 6] = (byte) (val >>> 8);
+        b[offset + 7] = (byte) val;
     }
 }
