@@ -20,14 +20,17 @@ class AgentGrpcAuthInterceptorTest {
         ServerCall<String, String> serverCall = mock(ServerCall.class);
         ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
         ServerCall.Listener<String> expectedListener = mock(ServerCall.Listener.class);
-        when(nextHandler.startCall(any(), any())).thenReturn(expectedListener);
+        when(nextHandler.startCall(any(), any())).thenAnswer(inv -> {
+            assertEquals("super-secret-token", AgentGrpcAuthInterceptor.getAuthenticatedSecret());
+            return expectedListener;
+        });
 
         Metadata headers = new Metadata();
         headers.put(AgentGrpcAuthInterceptor.AGENT_SECRET_HEADER, "super-secret-token");
 
         ServerCall.Listener<String> result = interceptor.interceptCall(serverCall, headers, nextHandler);
 
-        assertSame(expectedListener, result);
+        assertNotNull(result);
         verify(nextHandler).startCall(serverCall, headers);
         verify(serverCall, never()).close(any(), any());
     }
@@ -112,7 +115,7 @@ class AgentGrpcAuthInterceptorTest {
         Metadata headers = new Metadata();
         ServerCall.Listener<String> result = interceptor.interceptCall(serverCall, headers, nextHandler);
 
-        assertSame(expectedListener, result);
+        assertNotNull(result);
         verify(nextHandler).startCall(serverCall, headers);
     }
 

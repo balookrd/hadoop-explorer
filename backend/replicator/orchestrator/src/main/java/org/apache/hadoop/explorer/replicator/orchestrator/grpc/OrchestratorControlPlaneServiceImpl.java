@@ -53,6 +53,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.service.StreamingLease
 import org.apache.hadoop.explorer.replicator.orchestrator.service.TaskService;
 import org.apache.hadoop.explorer.replicator.orchestrator.throttler.TokenBucketThrottler;
 import org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry;
+import org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.generated.control.GetActiveKafkaJobsRequest;
@@ -122,7 +123,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                             request.getMaxBandwidthMbS() > 0 ? request.getMaxBandwidthMbS() : null
                     );
 
-            boolean ok = agentRegistry.register(domainReq, null);
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.register(domainReq, secret);
             AgentRegisterResponse resp = AgentRegisterResponse.newBuilder()
                     .setStatus(ok ? "registered" : "failed")
                     .setAgentId(request.getAgentId())
@@ -164,7 +166,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             domainReq.setStagingActiveBytes(request.getStagingActiveBytes());
             domainReq.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
 
-            boolean ok = agentRegistry.heartbeat(domainReq, null);
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.heartbeat(domainReq, secret);
             AgentHeartbeatResponse resp = AgentHeartbeatResponse.newBuilder()
                     .setStatus(ok ? "acknowledged" : "unknown_agent")
                     .setAcknowledged(ok)
@@ -181,7 +184,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     @Override
     public void unregisterAgent(AgentUnregisterRequest request, StreamObserver<AgentUnregisterResponse> responseObserver) {
         try {
-            boolean ok = agentRegistry.unregister(request.getAgentId(), null);
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.unregister(request.getAgentId(), secret);
             if (ok) {
                 taskService.failoverTasksForAgent(request.getAgentId(), "Агент дерегистрирован (Graceful stop via gRPC)");
             }

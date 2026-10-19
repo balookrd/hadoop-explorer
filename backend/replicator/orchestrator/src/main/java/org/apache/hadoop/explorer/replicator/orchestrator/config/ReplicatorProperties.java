@@ -8,10 +8,13 @@ import java.util.List;
 @ConfigurationProperties(prefix = "hadoop.replicator")
 public class ReplicatorProperties {
 
+    public static final String DEFAULT_AGENT_SECRET = "replicator-secure-agent-secret-key-12345";
+
     private long globalLimitBytesPerSec = 100L * 1024 * 1024; // 100 MB/s
-    private String agentSecret = "replicator-secure-agent-secret-key-12345";
+    private String agentSecret = DEFAULT_AGENT_SECRET;
     private boolean enforceAgentSecret = false;
     private boolean enforceClusterWhitelist = false;
+    private boolean allowLoopbackAgents = true;
     private int agentHeartbeatTimeoutSeconds = 15;
     private int agentOfflineTimeoutSeconds = 45;
     private int taskRetentionDays = 7;
@@ -33,12 +36,20 @@ public class ReplicatorProperties {
 
     public long getGlobalLimitBytesPerSec() { return globalLimitBytesPerSec; }
     public void setGlobalLimitBytesPerSec(long globalLimitBytesPerSec) { this.globalLimitBytesPerSec = globalLimitBytesPerSec; }
-    public String getAgentSecret() { return agentSecret; }
+    public String getAgentSecret() {
+        String envSecret = System.getenv("REPLICATOR_AGENT_SECRET");
+        if (envSecret != null && !envSecret.isBlank()) {
+            return envSecret;
+        }
+        return agentSecret;
+    }
     public void setAgentSecret(String agentSecret) { this.agentSecret = agentSecret; }
     public boolean isEnforceAgentSecret() { return enforceAgentSecret; }
     public void setEnforceAgentSecret(boolean enforceAgentSecret) { this.enforceAgentSecret = enforceAgentSecret; }
     public boolean isEnforceClusterWhitelist() { return enforceClusterWhitelist; }
     public void setEnforceClusterWhitelist(boolean enforceClusterWhitelist) { this.enforceClusterWhitelist = enforceClusterWhitelist; }
+    public boolean isAllowLoopbackAgents() { return allowLoopbackAgents; }
+    public void setAllowLoopbackAgents(boolean allowLoopbackAgents) { this.allowLoopbackAgents = allowLoopbackAgents; }
     public int getAgentHeartbeatTimeoutSeconds() { return agentHeartbeatTimeoutSeconds; }
     public void setAgentHeartbeatTimeoutSeconds(int agentHeartbeatTimeoutSeconds) { this.agentHeartbeatTimeoutSeconds = agentHeartbeatTimeoutSeconds; }
     public int getAgentOfflineTimeoutSeconds() { return agentOfflineTimeoutSeconds; }

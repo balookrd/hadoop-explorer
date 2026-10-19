@@ -264,6 +264,11 @@
     - **Специализированная валидация путей Kerberos (`validateKerberosPathSafety`)**: разрешает легитимные пути конфигурации (`/etc/krb5.conf`, `/etc/security/keytabs/...`, `/var/run/secrets/...`), но блокирует попытки Path Traversal (`..`), Null Byte Injection (`\0`), системные псевдо-ФС ядра (`/proc`, `/sys`, `/dev`) и чувствительные файлы/ключи (`/etc/shadow`, `/etc/passwd`, `/etc/sudoers`, `/.ssh`, `/.gnupg`, `/.env`).
     - **Настраиваемая взаимная аутентификация SPNEGO (SEC-15)**: в `KafkaKerberosConfig` и `KerberosSpnegoAuthenticator` добавлена поддержка флага `srMutualAuth` (`context.requestMutualAuth(config.isSrMutualAuth())`) для защищенного подтверждения подлинности Schema Registry сервиса клиентом.
 
+36. **Сквозная аутентификация gRPC Control Plane, устранение хардкода секрета и SSRF Loopback (SEC-12, SEC-13, SEC-16)**:
+    - **Сквозной gRPC Context токена агента (SEC-16)**: в `AgentGrpcAuthInterceptor` реализован `AGENT_SECRET_CONTEXT_KEY`. Токен из входящего заголовка `x-agent-secret` автоматически помещается в gRPC контекст текущего вызова (`Contexts.interceptCall`). В `OrchestratorControlPlaneServiceImpl` вызовы `registerAgent`, `heartbeat` и `unregisterAgent` извлекают секрет через `AgentGrpcAuthInterceptor.getAuthenticatedSecret()` и передают в `agentRegistry`, устраняя рассинхронизацию между gRPC-интерцептором и доменным реестром.
+    - **Устранение хардкода и защищенный Enforcement секрета (SEC-12)**: в `ReplicatorProperties` константа `DEFAULT_AGENT_SECRET` снабжена поддержкой приоритетного считывания из переменной окружения `REPLICATOR_AGENT_SECRET` (`getAgentSecret()`). При `enforceAgentSecret = true` или наличии вшитого ключа по умолчанию в журнал выводится `SECURITY ALERT` с требованием переопределения для продуктивных инсталляций. При выключенном enforcement сохранена обратная совместимость для локальных тестовых сред.
+    - **Защита от SSRF Loopback и валидация FQDN (SEC-13)**: в `AgentRegistry.validateGrpcAddress` внедрен контроль loopback-адресов (`allowLoopbackAgents`), блокирующий регистрацию агентов на `127.0.0.1`, `::1`, `localhost` в строгом режиме. При неразрешенном DNS хосте проводится синтаксическая валидация имени на соответствие спецификации FQDN и блокировка фиктивных IP-адресов.
+
 ---
 
 ## 2. Быстрый запуск

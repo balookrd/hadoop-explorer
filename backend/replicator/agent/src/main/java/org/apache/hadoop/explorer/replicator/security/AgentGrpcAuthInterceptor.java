@@ -19,6 +19,16 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
     public static final Metadata.Key<String> AGENT_SECRET_HEADER =
             Metadata.Key.of("x-agent-secret", Metadata.ASCII_STRING_MARSHALLER);
 
+    public static final Context.Key<String> AGENT_SECRET_CONTEXT_KEY =
+            Context.key("x-agent-secret");
+
+    /**
+     * Возвращает секрет агента, переданный в текущем gRPC запросе, из gRPC Context.
+     */
+    public static String getAuthenticatedSecret() {
+        return AGENT_SECRET_CONTEXT_KEY.get();
+    }
+
     private final String expectedSecret;
     private final boolean allowAnonymous;
 
@@ -41,6 +51,7 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
             Metadata headers,
             ServerCallHandler<ReqT, RespT> next) {
 
+        String clientSecret = headers.get(AGENT_SECRET_HEADER);
         if (expectedSecret == null || expectedSecret.isBlank()) {
             if (!allowAnonymous) {
                 log.error("Отклонен gRPC вызов '{}': интерцептор настроен в защищенном режиме Fail-Closed, но x-agent-secret не сконфигурирован",
@@ -48,10 +59,10 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
                 call.close(Status.UNAUTHENTICATED.withDescription("Agent authentication is unconfigured (Fail-Closed)"), new Metadata());
                 return new ServerCall.Listener<ReqT>() {};
             }
-            return next.startCall(call, headers);
+            Context ctx = Context.current().withValue(AGENT_SECRET_CONTEXT_KEY, clientSecret);
+            return Contexts.interceptCall(ctx, call, headers, next);
         }
 
-        String clientSecret = headers.get(AGENT_SECRET_HEADER);
         if (clientSecret == null || !MessageDigest.isEqual(
                 expectedSecret.getBytes(StandardCharsets.UTF_8),
                 clientSecret.getBytes(StandardCharsets.UTF_8))) {
@@ -62,7 +73,8 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
             return new ServerCall.Listener<ReqT>() {};
         }
 
-        return next.startCall(call, headers);
+        Context ctx = Context.current().withValue(AGENT_SECRET_CONTEXT_KEY, clientSecret);
+        return Contexts.interceptCall(ctx, call, headers, next);
     }
 
     /**

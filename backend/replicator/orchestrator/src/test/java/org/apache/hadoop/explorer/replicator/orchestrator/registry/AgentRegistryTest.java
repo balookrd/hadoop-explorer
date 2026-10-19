@@ -136,4 +136,56 @@ class AgentRegistryTest {
 
         assertEquals("gateway.prod.corp:50051", customTopology.getClusterGrpcAddress("prod-hdfs"));
     }
+
+    @Test
+    @DisplayName("SEC-13: Должен блокировать Loopback адреса при allowLoopbackAgents=false")
+    void shouldBlockLoopbackWhenDisallowed() {
+        ReplicatorProperties customProps = new ReplicatorProperties();
+        customProps.setAgentSecret("secret-123");
+        customProps.setAllowLoopbackAgents(false);
+
+        AgentRegistry secureRegistry = new AgentRegistry(customProps, new TopologyRegistry(customProps));
+
+        SecurityException ex1 = assertThrows(SecurityException.class, () -> secureRegistry.validateGrpcAddress("127.0.0.1:50051"));
+        assertTrue(ex1.getMessage().contains("Loopback"));
+
+        SecurityException ex2 = assertThrows(SecurityException.class, () -> secureRegistry.validateGrpcAddress("localhost:50051"));
+        assertTrue(ex2.getMessage().contains("Loopback"));
+
+        SecurityException ex3 = assertThrows(SecurityException.class, () -> secureRegistry.validateGrpcAddress("[::1]:50051"));
+        assertTrue(ex3.getMessage().contains("Loopback"));
+    }
+
+    @Test
+    @DisplayName("SEC-13: Должен блокировать некорректный синтаксис FQDN и недопустимые IP адреса")
+    void shouldBlockInvalidFqdnAndIpSyntax() {
+        assertThrows(SecurityException.class, () -> registry.validateGrpcAddress("malicious..host:50051"));
+        assertThrows(SecurityException.class, () -> registry.validateGrpcAddress(".malicious.host:50051"));
+        assertThrows(SecurityException.class, () -> registry.validateGrpcAddress("malicious.host.:50051"));
+        assertThrows(SecurityException.class, () -> registry.validateGrpcAddress("999.999.999.999:50051"));
+    }
+
+    @Test
+    @DisplayName("SEC-12 & SEC-16: Проверка строгого режима аутентификации агентов (enforceAgentSecret)")
+    void shouldEnforceAgentSecretModes() {
+        ReplicatorProperties enforcedProps = new ReplicatorProperties();
+        enforcedProps.setAgentSecret("custom-super-secret-key-67890");
+        enforcedProps.setEnforceAgentSecret(true);
+
+        AgentRegistry enforcedRegistry = new AgentRegistry(enforcedProps, new TopologyRegistry(enforcedProps));
+
+        // В строгом режиме отсутствие заголовка вызывает отказ
+        SecurityException exMissing = assertThrows(SecurityException.class, () ->
+                enforcedRegistry.register(new AgentRegisterRequest("agent-x", "dc1", "all", "node1:50051", "node1", 50.0), null));
+        assertTrue(exMissing.getMessage().contains("Отсутствует X-Agent-Secret"));
+
+        // Неверный токен отклоняется
+        SecurityException exInvalid = assertThrows(SecurityException.class, () ->
+                enforcedRegistry.register(new AgentRegisterRequest("agent-x", "dc1", "all", "node1:50051", "node1", 50.0), "bad-token"));
+        assertTrue(exInvalid.getMessage().contains("Неверный X-Agent-Secret"));
+
+        // Корректный токен успешно проходит регистрацию
+        assertTrue(enforcedRegistry.register(
+                new AgentRegisterRequest("agent-x", "dc1", "all", "node1:50051", "node1", 50.0), "custom-super-secret-key-67890"));
+    }
 }

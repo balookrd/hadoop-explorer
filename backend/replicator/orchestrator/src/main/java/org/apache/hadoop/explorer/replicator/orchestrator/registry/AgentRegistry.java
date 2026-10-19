@@ -125,6 +125,11 @@ public class AgentRegistry {
     @PostConstruct
     public void initSecurityValidation() {
         String secret = properties.getAgentSecret();
+        if (ReplicatorProperties.DEFAULT_AGENT_SECRET.equals(secret)) {
+            log.warn("[SECURITY ALERT] В кодовой базе активен дефолтный секретный токен агента ('{}'). " +
+                    "В производственных средах обязательно задайте уникальный секрет через свойство hadoop.replicator.agent-secret " +
+                    "или переменную окружения REPLICATOR_AGENT_SECRET.", secret);
+        }
         if (properties.isEnforceAgentSecret()) {
             if (secret == null || secret.isBlank() || secret.trim().length() < 16) {
                 throw new IllegalStateException("В защищенном режиме (enforce-agent-secret=true) hadoop.replicator.agent-secret должен быть задан и содержать минимум 16 символов");
@@ -175,8 +180,21 @@ public class AgentRegistry {
             throw new SecurityException("SSRF защита: запрещен анонс облачных эндпоинтов метаданных и link-local адресов (" + hostPart + ")");
         }
 
+        if (!properties.isAllowLoopbackAgents()) {
+            if (hostLower.equals("localhost")
+                    || hostLower.equals("127.0.0.1")
+                    || hostLower.equals("::1")
+                    || hostLower.startsWith("127.")
+                    || hostLower.equals("0.0.0.0")) {
+                throw new SecurityException("SSRF защита: анонс Loopback адресов запрещен политикой allowLoopbackAgents=false (" + hostPart + ")");
+            }
+        }
+
         try {
             InetAddress inet = InetAddress.getByName(cleanHost);
+            if (!properties.isAllowLoopbackAgents() && inet.isLoopbackAddress()) {
+                throw new SecurityException("SSRF защита: анонс Loopback адресов запрещен политикой allowLoopbackAgents=false (" + hostPart + ")");
+            }
             if (inet.isLinkLocalAddress()) {
                 throw new SecurityException("SSRF защита: запрещен анонс Link-Local адресов (" + hostPart + ")");
             }
@@ -195,7 +213,13 @@ public class AgentRegistry {
                 throw new SecurityException("SSRF защита: запрещен анонс IPv4-mapped IPv6 диапазона 169.254.0.0/16 (" + hostPart + ")");
             }
         } catch (UnknownHostException ignored) {
-            // Имя хоста не может быть разрешено локальным DNS (например, узел внутреннего кластера)
+            // Если хост неизвестен локальному DNS, проводим проверку синтаксиса FQDN
+            if (cleanHost.startsWith(".") || cleanHost.endsWith(".") || cleanHost.contains("..")) {
+                throw new SecurityException("Некорректный синтаксис неразрешенного FQDN хоста: " + cleanHost);
+            }
+            if (cleanHost.chars().allMatch(c -> Character.isDigit(c) || c == '.')) {
+                throw new SecurityException("Недопустимый IP адрес хоста: " + cleanHost);
+            }
         }
     }
 
@@ -234,7 +258,9 @@ public class AgentRegistry {
     }
 
     public boolean register(AgentRegisterRequest request, String secretHeader) {
-        verifySecret(secretHeader);
+        if (properties.isEnforceAgentSecret() || secretHeader != null) {
+            verifySecret(secretHeader);
+        }
         validateGrpcAddress(request.getGrpcAddress());
 
         String agentId = request.getAgentId();
@@ -273,7 +299,9 @@ public class AgentRegistry {
     }
 
     public boolean heartbeat(AgentHeartbeatRequest request, String secretHeader) {
-        verifySecret(secretHeader);
+        if (properties.isEnforceAgentSecret() || secretHeader != null) {
+            verifySecret(secretHeader);
+        }
         String agentId = request.getAgentId();
         if (agentId == null || agentId.isBlank()) {
             return false;
@@ -351,7 +379,9 @@ public class AgentRegistry {
     }
 
     public boolean unregister(String agentId, String secretHeader) {
-        verifySecret(secretHeader);
+        if (properties.isEnforceAgentSecret() || secretHeader != null) {
+            verifySecret(secretHeader);
+        }
         AgentEntry entry = agents.remove(agentId);
         if (entry != null) {
             log.info("Agent unregistered: id={}", agentId);
@@ -475,7 +505,7 @@ public class AgentRegistry {
         }
         if (expected == null || expected.isBlank()) {
             if (properties.isEnforceAgentSecret()) {
-                throw new SecurityException("Секрет агента обязателен, но не сконфигурирован на сервере");
+                throw new SecurityException("Секрет агента обязателен в защищенном режиме, но не сконфигурирован на сервере");
             }
             return;
         }
