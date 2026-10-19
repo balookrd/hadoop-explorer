@@ -10,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -137,23 +139,97 @@ public class AgentRegistry {
     public void validateGrpcAddress(String address) {
         if (address == null || address.isBlank()) return;
         String trimmed = address.trim();
-        String[] parts = trimmed.split(":");
-        if (parts.length != 2) {
+        int lastColon = trimmed.lastIndexOf(':');
+        if (lastColon <= 0 || lastColon == trimmed.length() - 1) {
             throw new IllegalArgumentException("gRPC адрес должен быть в формате host:port (получено: " + address + ")");
         }
+
+        String hostPart = trimmed.substring(0, lastColon);
+        String portPart = trimmed.substring(lastColon + 1);
+
         int port;
         try {
-            port = Integer.parseInt(parts[1]);
+            port = Integer.parseInt(portPart);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Некорректный порт: " + parts[1]);
+            throw new IllegalArgumentException("Некорректный порт: " + portPart);
         }
         if (port < 1 || port > 65535) {
             throw new IllegalArgumentException("Порт вне диапазона 1-65535: " + port);
         }
 
-        String hostLower = parts[0].toLowerCase();
-        if (hostLower.startsWith("169.254.") || hostLower.startsWith("fe80:") || hostLower.contains("metadata")) {
-            throw new SecurityException("SSRF защита: запрещен анонс облачных эндпоинтов метаданных (" + parts[0] + ")");
+        String cleanHost = hostPart.startsWith("[") && hostPart.endsWith("]")
+                ? hostPart.substring(1, hostPart.length() - 1)
+                : hostPart;
+
+        if (!cleanHost.matches("^[a-zA-Z0-9.\\-_:]+$")) {
+            throw new IllegalArgumentException("Недопустимые символы в адресе хоста: " + cleanHost);
+        }
+
+        String hostLower = cleanHost.toLowerCase(Locale.ROOT);
+        if (hostLower.contains("metadata")
+                || hostLower.startsWith("169.254.")
+                || hostLower.contains(".169.254.")
+                || hostLower.startsWith("fe80:")
+                || hostLower.equals("100.100.100.200")
+                || hostLower.contains("::ffff:169.254.")) {
+            throw new SecurityException("SSRF защита: запрещен анонс облачных эндпоинтов метаданных и link-local адресов (" + hostPart + ")");
+        }
+
+        try {
+            InetAddress inet = InetAddress.getByName(cleanHost);
+            if (inet.isLinkLocalAddress()) {
+                throw new SecurityException("SSRF защита: запрещен анонс Link-Local адресов (" + hostPart + ")");
+            }
+            if (inet.isMulticastAddress()) {
+                throw new SecurityException("SSRF защита: запрещен анонс Multicast адресов (" + hostPart + ")");
+            }
+            if (inet.isAnyLocalAddress()) {
+                throw new SecurityException("SSRF защита: запрещен анонс AnyLocal wildcard адресов (" + hostPart + ")");
+            }
+            byte[] raw = inet.getAddress();
+            if (raw.length == 4 && (raw[0] & 0xFF) == 169 && (raw[1] & 0xFF) == 254) {
+                throw new SecurityException("SSRF защита: запрещен анонс диапазона 169.254.0.0/16 (" + hostPart + ")");
+            }
+            if (raw.length == 16 && raw[10] == (byte) 0xFF && raw[11] == (byte) 0xFF
+                    && (raw[12] & 0xFF) == 169 && (raw[13] & 0xFF) == 254) {
+                throw new SecurityException("SSRF защита: запрещен анонс IPv4-mapped IPv6 диапазона 169.254.0.0/16 (" + hostPart + ")");
+            }
+        } catch (UnknownHostException ignored) {
+            // Имя хоста не может быть разрешено локальным DNS (например, узел внутреннего кластера)
+        }
+    }
+
+    public void validateClusterAssignment(String agentId, String requestedClusterId) {
+        if (agentId == null || agentId.isBlank()) {
+            throw new IllegalArgumentException("agentId не может быть пустым");
+        }
+        String effectiveClusterId = requestedClusterId != null && !requestedClusterId.isBlank()
+                ? requestedClusterId.trim()
+                : "default";
+
+        // Защита от Cluster Hijacking: запрет несанкционированной смены кластера для активного агента
+        AgentEntry existing = agents.get(agentId);
+        if (existing != null && !matchesCluster(existing.getClusterId(), effectiveClusterId)) {
+            log.error("Обнаружена попытка смены кластера (Cluster Hijacking) для агента '{}': текущий кластер '{}', запрошенный '{}'",
+                    agentId, existing.getClusterId(), effectiveClusterId);
+            throw new SecurityException("Попытка смены кластера для агента '" + agentId +
+                    "': агент уже зарегистрирован в кластере '" + existing.getClusterId() +
+                    "', переключение на '" + effectiveClusterId + "' запрещено без явной дерегистрации");
+        }
+
+        // Проверка белого списка кластеров (enforce-cluster-whitelist)
+        if (properties.isEnforceClusterWhitelist()) {
+            List<org.apache.hadoop.explorer.replicator.model.ClusterDto> knownClusters = topologyRegistry.getClusters();
+            if (!knownClusters.isEmpty()) {
+                boolean match = knownClusters.stream().anyMatch(c -> matchesCluster(c.getId(), effectiveClusterId));
+                if (!match) {
+                    List<String> allowedIds = knownClusters.stream().map(org.apache.hadoop.explorer.replicator.model.ClusterDto::getId).toList();
+                    log.error("Отклонена регистрация агента '{}' в неразрешенном кластере '{}'. Допустимые кластеры: {}",
+                            agentId, effectiveClusterId, allowedIds);
+                    throw new SecurityException("Кластер '" + effectiveClusterId +
+                            "' не разрешен политикой enforce-cluster-whitelist. Допустимые кластеры: " + allowedIds);
+                }
+            }
         }
     }
 
@@ -162,15 +238,20 @@ public class AgentRegistry {
         validateGrpcAddress(request.getGrpcAddress());
 
         String agentId = request.getAgentId();
-        String clusterId = request.getClusterId() != null ? request.getClusterId() : "default";
+        String clusterId = request.getClusterId() != null && !request.getClusterId().isBlank()
+                ? request.getClusterId() : "default";
+
+        validateClusterAssignment(agentId, clusterId);
 
         String host = "localhost";
         int port = 50051;
         String grpcAddress = request.getGrpcAddress();
         if (grpcAddress != null && grpcAddress.contains(":")) {
-            String[] parts = grpcAddress.split(":");
-            host = parts[0];
-            port = Integer.parseInt(parts[1]);
+            int lastColon = grpcAddress.lastIndexOf(':');
+            host = grpcAddress.substring(0, lastColon);
+            try {
+                port = Integer.parseInt(grpcAddress.substring(lastColon + 1));
+            } catch (NumberFormatException ignored) {}
         } else {
             grpcAddress = host + ":" + port;
         }
@@ -198,20 +279,27 @@ public class AgentRegistry {
             return false;
         }
 
+        String clusterId = request.getClusterId() != null && !request.getClusterId().isBlank()
+                ? request.getClusterId() : "default";
+
+        validateClusterAssignment(agentId, clusterId);
+        if (request.getGrpcAddress() != null && !request.getGrpcAddress().isBlank()) {
+            validateGrpcAddress(request.getGrpcAddress());
+        }
+
         AgentEntry entry = agents.get(agentId);
         String mode = (request.getMode() != null && !request.getMode().isBlank())
                 ? request.getMode()
                 : (agentId.toLowerCase().startsWith("streamer") ? "streamer" : "all");
         if (entry == null) {
-            String clusterId = request.getClusterId() != null ? request.getClusterId() : "default";
             String host = "localhost";
             int port = 50051;
             String grpcAddress = request.getGrpcAddress();
             if (grpcAddress != null && grpcAddress.contains(":")) {
-                String[] parts = grpcAddress.split(":");
-                host = parts[0];
+                int lastColon = grpcAddress.lastIndexOf(':');
+                host = grpcAddress.substring(0, lastColon);
                 try {
-                    port = Integer.parseInt(parts[1]);
+                    port = Integer.parseInt(grpcAddress.substring(lastColon + 1));
                 } catch (NumberFormatException ignored) {}
             } else {
                 grpcAddress = host + ":" + port;
