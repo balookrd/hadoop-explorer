@@ -21,18 +21,30 @@ echo ""
 echo "=== Инициализация демонстрационных таблиц Hive (Cluster 1 & Cluster 2) ==="
 "$ROOT_DIR/demo/sql/hive/init-demo-data.sh" || true
 
-
+echo ""
+echo "=== Ожидание готовности Hadoop Replicator Orchestrator ==="
+REPL_WAIT=0
+until curl -sf http://localhost:8005/health >/dev/null || curl -sf http://localhost:8005/actuator/health >/dev/null || [ $REPL_WAIT -ge 15 ]; do
+    REPL_WAIT=$((REPL_WAIT + 1))
+    echo " -> Ожидание готовности Replicator Orchestrator ($REPL_WAIT/15)..."
+    sleep 2
+done
 
 echo ""
 echo "========================================================="
 echo "   Hadoop Explorer Демо Стенды успешно запущены!"
 echo "========================================================="
-echo "   🎛️ YARN Explorer:     http://localhost:8001"
-echo "   📁 HDFS Explorer:     http://localhost:8002"
-echo "   📊 SQL Explorer:      http://localhost:8003"
-echo "   ⚡ Spark Explorer:    http://localhost:8004"
+echo "   🎛️ YARN Explorer:       http://localhost:8001"
+echo "   📁 HDFS Explorer:       http://localhost:8002"
+echo "   📊 SQL Explorer:        http://localhost:8003"
+echo "   ⚡ Spark Explorer:      http://localhost:8004"
+echo "   🔄 Replicator Explorer: http://localhost:8005"
 echo "---------------------------------------------------------"
-echo "   📈 Grafana Dashboard: http://localhost:3000"
-echo "   🎯 Prometheus UI:     http://localhost:9090"
+echo "   ⚡ Control Plane gRPC:  localhost:50050"
+echo "   🤖 Agent DC1 gRPC:      localhost:50051"
+echo "   🤖 Agent DC2 gRPC:      localhost:50052"
+echo "---------------------------------------------------------"
+echo "   📈 Grafana Dashboard:   http://localhost:3000"
+echo "   🎯 Prometheus UI:       http://localhost:9090"
 echo "========================================================="
 

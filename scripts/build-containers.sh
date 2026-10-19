@@ -37,6 +37,7 @@ case "$TARGET" in
     ;;
   replicator)
     build_app replicator-orchestrator
+    build_app replicator-agent
     ;;
   all)
     build_app yarn
@@ -44,6 +45,7 @@ case "$TARGET" in
     build_app sql
     build_app spark
     build_app replicator-orchestrator
+    build_app replicator-agent
     echo "=========================================="
     echo "🎉 Все контейнеры платформы успешно собраны!"
     echo "=========================================="

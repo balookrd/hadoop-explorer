@@ -1,6 +1,6 @@
 # 🌐 Объединенный демонстрационный стенд платформы (demo/all)
 
-Единое демонстрационное окружение Docker Compose, развертывающее полный стек **Hadoop Explorer Platform** со всеми 4 сервисами и общей инфраструктурой безопасности (Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy).
+Единое демонстрационное окружение Docker Compose, развертывающее полный стек **Hadoop Explorer Platform** со всеми 5 сервисами и общей инфраструктурой безопасности (Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy, Replicator Orchestrator & Agents).
 
 ---
 
@@ -21,8 +21,11 @@
 | **`trino-coordinator`** | Trino Coordinator с Hive/TPCH коннекторами | `8080` | `8080` |
 | **`spark-livy-1`** | Apache Livy Server 1 REST API для Spark (Cluster 1) | `8998` | `8998` |
 | **`spark-livy-2`** | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
-| **`prometheus`** | Prometheus Server (Сбор метрик) | `9090` | `9090` |
-| **`grafana`** | Grafana Dashboard (Дашборды мониторинга) | `3000` | `3000` |
+| **`orchestrator`** | **Replicator Orchestrator & Web UI (Control Plane)** | `8005`, `50050` | **`8005`**, `50050` |
+| **`agent-dc1`** | **Replicator gRPC Data Worker (DC1 Sender/Receiver)** | `50051` | `50051` |
+| **`agent-dc2`** | **Replicator gRPC Data Worker (DC2 Sender/Receiver)** | `50051` | `50052` |
+| **`prometheus`** | Prometheus Server (Сбор метрик со всех 5 сервисов) | `9090` | `9090` |
+| **`grafana`** | Grafana Dashboard (Дашборды мониторинга платформы) | `3000` | `3000` |
 | **`yarn-explorer`** | **YARN Web Explorer UI & Backend** | `8000` | **`8001`** |
 | **`hdfs-explorer`** | **HDFS Web Explorer UI & Backend** | `8000` | **`8002`** |
 | **`sql-explorer`** | **SQL Web Explorer UI & Backend** | `8003` | **`8003`** |
@@ -46,13 +49,16 @@ cd demo/all && ./start-all-demo.sh
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
 5. Инициализирует демо-таблицы в Hive Metastore (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`) через Livy.
-6. Запускает 4 веб-сервиса Hadoop Explorer.
+6. Запускает 5 веб-сервисов Hadoop Explorer Platform, включая Replicator Orchestrator и агенты.
 
 ### Веб-интерфейсы приложений:
 - 🎛️ **YARN Explorer**: [http://localhost:8001](http://localhost:8001)
 - 📁 **HDFS Explorer**: [http://localhost:8002](http://localhost:8002)
 - 📊 **SQL Web Explorer**: [http://localhost:8003](http://localhost:8003)
 - ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
+- 🔄 **Replicator Explorer**: [http://localhost:8005](http://localhost:8005)
+- 📈 **Grafana Monitoring**: [http://localhost:3000](http://localhost:3000) (Дашборды YARN, HDFS, Replicator, Kafka, HMS DR)
+- 🎯 **Prometheus UI**: [http://localhost:9090](http://localhost:9090)
 
 ---
 
