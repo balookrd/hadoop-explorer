@@ -38,8 +38,8 @@ flowchart TD
     end
 
     subgraph LB["⚖️ Балансировщик нагрузки (High Availability)"]
-        VIP_REST["🌐 Keepalived VIP: 8005<br/>(HTTPS / REST: Web UI & HDFS Task Claim)"]
-        VIP_GRPC["⚡ gRPC Load Balancer: 50050<br/>(HTTP/2 Control Plane: Kafka Heartbeat & Dispatch)"]
+        VIP_REST["🌐 Keepalived VIP: 8005<br/>(HTTPS / REST: Web UI Console & Admin API)"]
+        VIP_GRPC["⚡ gRPC Load Balancer: 50050<br/>(HTTP/2 Control Plane: Task Claim, Heartbeat & Quotas)"]
     end
 
     subgraph Orchestrators["🎯 Пул инстансов Оркестратора (Active-Active Control Plane)"]
@@ -58,8 +58,7 @@ flowchart TD
     end
 
     WebUI --> VIP_REST
-    AgentsCtrl -->|REST :8005| VIP_REST
-    AgentsCtrl -->|gRPC :50050| VIP_GRPC
+    AgentsCtrl -->|gRPC :50050 (HTTP/2 Control Plane)| VIP_GRPC
     VIP_REST -->|Round-Robin / Failover| Orch1
     VIP_REST -->|Round-Robin / Failover| Orch2
     VIP_GRPC -->|HTTP/2 Round-Robin| Orch1
@@ -74,8 +73,8 @@ flowchart TD
 
 ### 2.1. Разделение сетевых плоскостей и балансировка запросов
 1. **Control Plane (Управление и координация)**:
-   - **REST API (порт `:8005`)**: Обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, CRUD задач репликации и запросы токенов пропускной способности (`POST /api/v1/tokens/request`). Доступ защищен Keepalived VIP `https://replicator.company.local:8005`.
-   - **gRPC Control Plane (порт `:50050`)**: Сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Используется распределенными агентами (включая Kafka Replicator) для легковесной регистрации, периодического heartbeat и динамического получения активных задач (`GetActiveKafkaJobs`) без накладных расходов JSON/HTTP.
+   - **REST API (порт `:8005`)**: Обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, административный CRUD задач репликации и DR-сценарии. Доступ защищен Keepalived VIP `https://replicator.company.local:8005`.
+   - **gRPC Control Plane (порт `:50050`)**: Сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Используется всеми распределенными агентами (HDFS, HMS, Kafka) для легковесной регистрации, периодического heartbeat, захвата задач из очереди (`claimTasks`), подтверждения финализации (`completeTask`), запроса квот Token Bucket (`requestTokens`) и лизинга стримеров без накладных расходов JSON/HTTP.
 2. **Data Plane (Межцодовая передача данных)**:
    - Потоковая передача данных (файлы HDFS, виртуальные TAR-архивы, батчи Kafka) идет **напрямую между агентами** (`Agent Sender ➔ Agent Receiver`) через выделенные сокеты gRPC:
      - `:50051` — HDFS Data Plane (`DataTransferService`).
