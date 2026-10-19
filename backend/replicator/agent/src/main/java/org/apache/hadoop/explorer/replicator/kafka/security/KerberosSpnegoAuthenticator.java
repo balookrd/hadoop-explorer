@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.kafka.security;
 
+import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
 import org.ietf.jgss.GSSContext;
 import org.ietf.jgss.GSSException;
 import org.ietf.jgss.GSSManager;
@@ -56,6 +57,9 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
             return null;
         }
 
+        HadoopFsManager.validatePrincipalSafety(principal);
+        KafkaSecurityConfigBuilder.validateKerberosPathSafety(keytabPath, "keytabPath");
+
         File keytabFile = new File(keytabPath);
         if (!keytabFile.exists() || !keytabFile.canRead()) {
             log.warn("Keytab файл не найден или недоступен для чтения: {}", keytabPath);
@@ -63,10 +67,7 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
         }
 
         if (config.getKrb5ConfPath() != null && !config.getKrb5ConfPath().isBlank()) {
-            String existingKrb5Conf = System.getProperty("java.security.krb5.conf");
-            if (existingKrb5Conf == null || !existingKrb5Conf.equals(config.getKrb5ConfPath())) {
-                System.setProperty("java.security.krb5.conf", config.getKrb5ConfPath());
-            }
+            KafkaSecurityConfigBuilder.initializeKrb5ConfSafely(config.getKrb5ConfPath());
         }
 
         try {
@@ -87,7 +88,7 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
                         GSSContext.DEFAULT_LIFETIME
                 );
                 try {
-                    context.requestMutualAuth(false);
+                    context.requestMutualAuth(config.isSrMutualAuth());
                     context.requestCredDeleg(false);
                     byte[] token = context.initSecContext(new byte[0], 0, 0);
                     return "Negotiate " + Base64.getEncoder().encodeToString(token);

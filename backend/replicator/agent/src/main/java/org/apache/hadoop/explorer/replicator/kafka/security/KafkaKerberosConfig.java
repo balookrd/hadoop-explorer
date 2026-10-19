@@ -17,6 +17,7 @@ public class KafkaKerberosConfig implements Serializable {
     private String truststorePassword;
     private boolean srKerberosEnabled = false;          // Включение Kerberos SPNEGO для Schema Registry
     private String srServiceName = "HTTP";              // SPN префикс для Schema Registry (по умолчанию 'HTTP')
+    private boolean srMutualAuth = false;               // Опциональная взаимная аутентификация SPNEGO (SEC-15)
 
     public KafkaKerberosConfig() {
     }
@@ -105,6 +106,14 @@ public class KafkaKerberosConfig implements Serializable {
 
     public void setSrServiceName(String srServiceName) {
         this.srServiceName = srServiceName;
+    }
+
+    public boolean isSrMutualAuth() {
+        return srMutualAuth;
+    }
+
+    public void setSrMutualAuth(boolean srMutualAuth) {
+        this.srMutualAuth = srMutualAuth;
     }
 
     @Override

@@ -259,6 +259,11 @@
     - **Защита от Null Byte Injection и Path Traversal**: блокируются любые байты `\0` и относительные переходы (`..`).
     - **Расширенный черный список системных каталогов ОС**: блокировка доступа к `/bin`, `/sbin`, `/usr`, `/lib`, `/lib64`, `/opt`, `/boot`, `/etc`, `/proc`, `/sys`, `/dev`, `/root`, `/System`, `/Library`, `/Applications`, системным директориям `/var` (`/var/run`, `/var/spool`, `/var/log`, `/var/lib`, `/var/mail`, `/var/root`, `/var/db`, `/var/cron`), а также чувствительным конфигурациям пользователей хоста (`/.ssh`, `/.gnupg`, `/.bashrc`, `/.zshrc`, `/.profile`, `/.bash_profile`, `/.bash_history`, `/.zsh_history`, `/.env`, `crontab`).
 
+35. **Устранение мутации глобального системного свойства `krb5.conf` и взаимная аутентификация SPNEGO (SEC-11 & SEC-15)**:
+    - **Предотвращение деструктивной мутации JVM (SEC-11)**: в `KafkaSecurityConfigBuilder.initializeKrb5ConfSafely` реализована потокобезопасная установка `java.security.krb5.conf`. Если свойство уже задано в JVM (например, UGI/HDFS, аргументами JVM или другим кластером), повторная перезапись блокируется с предупреждением в логе, что исключает сброс настроек KDC и разрыв соединений с другими Kerberos Realm в мультикластерных средах.
+    - **Специализированная валидация путей Kerberos (`validateKerberosPathSafety`)**: разрешает легитимные пути конфигурации (`/etc/krb5.conf`, `/etc/security/keytabs/...`, `/var/run/secrets/...`), но блокирует попытки Path Traversal (`..`), Null Byte Injection (`\0`), системные псевдо-ФС ядра (`/proc`, `/sys`, `/dev`) и чувствительные файлы/ключи (`/etc/shadow`, `/etc/passwd`, `/etc/sudoers`, `/.ssh`, `/.gnupg`, `/.env`).
+    - **Настраиваемая взаимная аутентификация SPNEGO (SEC-15)**: в `KafkaKerberosConfig` и `KerberosSpnegoAuthenticator` добавлена поддержка флага `srMutualAuth` (`context.requestMutualAuth(config.isSrMutualAuth())`) для защищенного подтверждения подлинности Schema Registry сервиса клиентом.
+
 ---
 
 ## 2. Быстрый запуск
