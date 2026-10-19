@@ -99,6 +99,7 @@ public class DisasterRecoveryService {
     private final TokenBucketThrottler throttler;
     private final HmsCoordinatorService hmsCoordinatorService;
     private final DrSnapshotRepository drSnapshotRepository;
+    private final DistributedLockService lockService;
     private final ObjectMapper objectMapper;
 
     public DisasterRecoveryService(
@@ -112,7 +113,22 @@ public class DisasterRecoveryService {
             HmsCoordinatorService hmsCoordinatorService
     ) {
         this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
-                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null);
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, null);
+    }
+
+    public DisasterRecoveryService(
+            JobRepository jobRepository,
+            JobRunRepository jobRunRepository,
+            TaskRepository taskRepository,
+            HmsReplicationJobRepository hmsReplicationJobRepository,
+            AgentRegistry agentRegistry,
+            TopologyRegistry topologyRegistry,
+            TokenBucketThrottler throttler,
+            HmsCoordinatorService hmsCoordinatorService,
+            DrSnapshotRepository drSnapshotRepository
+    ) {
+        this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, drSnapshotRepository, null);
     }
 
     @Autowired
@@ -125,7 +141,8 @@ public class DisasterRecoveryService {
             TopologyRegistry topologyRegistry,
             TokenBucketThrottler throttler,
             HmsCoordinatorService hmsCoordinatorService,
-            @Autowired(required = false) DrSnapshotRepository drSnapshotRepository
+            @Autowired(required = false) DrSnapshotRepository drSnapshotRepository,
+            @Autowired(required = false) DistributedLockService lockService
     ) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
@@ -136,6 +153,7 @@ public class DisasterRecoveryService {
         this.throttler = throttler;
         this.hmsCoordinatorService = hmsCoordinatorService;
         this.drSnapshotRepository = drSnapshotRepository;
+        this.lockService = lockService;
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
@@ -436,6 +454,27 @@ public class DisasterRecoveryService {
      */
     @Transactional
     public DrActionResponse emergencyStop(DrEmergencyStopRequest req, String username) {
+        String clusterId = req != null && req.clusterId() != null ? req.clusterId() : "default";
+        if (lockService != null) {
+            String lockKey = "dr_emergency_" + clusterId.toLowerCase();
+            final DrActionResponse[] result = new DrActionResponse[1];
+            lockService.runWithLock(lockKey, java.time.Duration.ofSeconds(15), epoch -> {
+                result[0] = doEmergencyStop(req, username);
+            });
+            if (result[0] != null) {
+                return result[0];
+            } else {
+                return DrActionResponse.error(
+                        "Аварийный останов для кластера '" + clusterId +
+                                "' уже выполняется другим инстансом Orchestrator (блокировка удерживается)"
+                );
+            }
+        } else {
+            return doEmergencyStop(req, username);
+        }
+    }
+
+    private DrActionResponse doEmergencyStop(DrEmergencyStopRequest req, String username) {
         String clusterId = req.clusterId();
         String operator = username != null ? username : "operator";
         String note = req.reason() != null && !req.reason().isBlank() ? ": " + req.reason() : "";
@@ -550,6 +589,27 @@ public class DisasterRecoveryService {
      */
     @Transactional
     public DrActionResponse rollbackEmergencyStop(DrEmergencyRollbackRequest req, String username) {
+        String clusterId = req != null && req.clusterId() != null ? req.clusterId() : "default";
+        if (lockService != null) {
+            String lockKey = "dr_emergency_" + clusterId.toLowerCase();
+            final DrActionResponse[] result = new DrActionResponse[1];
+            lockService.runWithLock(lockKey, java.time.Duration.ofSeconds(15), epoch -> {
+                result[0] = doRollbackEmergencyStop(req, username);
+            });
+            if (result[0] != null) {
+                return result[0];
+            } else {
+                return DrActionResponse.error(
+                        "Откат аварийного останова для кластера '" + clusterId +
+                                "' уже выполняется другим инстансом Orchestrator (блокировка удерживается)"
+                );
+            }
+        } else {
+            return doRollbackEmergencyStop(req, username);
+        }
+    }
+
+    private DrActionResponse doRollbackEmergencyStop(DrEmergencyRollbackRequest req, String username) {
         String clusterId = req.clusterId();
         String operator = username != null ? username : "operator";
         EmergencySnapshot snapshot = activeSnapshots.remove(clusterId.toLowerCase());
@@ -649,6 +709,28 @@ public class DisasterRecoveryService {
      */
     @Transactional
     public DrActionResponse reverseReplication(DrReverseRequest req, String username) {
+        String fromClusterId = req != null && req.fromClusterId() != null ? req.fromClusterId() : "src";
+        String toClusterId = req != null && req.toClusterId() != null ? req.toClusterId() : "dst";
+        if (lockService != null) {
+            String lockKey = "dr_reverse_" + fromClusterId.toLowerCase() + "_" + toClusterId.toLowerCase();
+            final DrActionResponse[] result = new DrActionResponse[1];
+            lockService.runWithLock(lockKey, java.time.Duration.ofSeconds(20), epoch -> {
+                result[0] = doReverseReplication(req, username);
+            });
+            if (result[0] != null) {
+                return result[0];
+            } else {
+                return DrActionResponse.error(
+                        "Операция обратной репликации между " + fromClusterId + " и " + toClusterId +
+                                " уже выполняется другим инстансом Orchestrator (блокировка удерживается)"
+                );
+            }
+        } else {
+            return doReverseReplication(req, username);
+        }
+    }
+
+    private DrActionResponse doReverseReplication(DrReverseRequest req, String username) {
         String fromClusterId = req.fromClusterId();
         String toClusterId = req.toClusterId();
         String operator = username != null ? username : "dr_operator";

@@ -335,5 +335,70 @@ class DisasterRecoveryServiceTest {
         assertEquals(0, resp.reversedHdfsJobs(), "Не должно создаваться реверсов для несовпадающего кластера dc10");
         assertEquals("RUNNING", otherJob.getStatus(), "Статус dc10 не должен меняться");
     }
+
+    @Test
+    @DisplayName("RES-08: emergencyStop должен использовать DistributedLockService и выполняться при успешном захвате блокировки")
+    void shouldExecuteEmergencyStopWithDistributedLock() {
+        DistributedLockService mockLockService = mock(DistributedLockService.class);
+        doAnswer(invocation -> {
+            java.util.function.Consumer<Long> action = invocation.getArgument(2);
+            action.accept(1L);
+            return null;
+        }).when(mockLockService).runWithLock(eq("dr_emergency_dc1"), any(java.time.Duration.class), any(java.util.function.Consumer.class));
+
+        DisasterRecoveryService lockedDrService = new DisasterRecoveryService(
+                jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, mockLockService
+        );
+
+        when(jobRepository.findAll()).thenReturn(List.of());
+        when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
+
+        DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Тестовый аварийный останов", true);
+        DrActionResponse resp = lockedDrService.emergencyStop(req, "admin_user");
+
+        assertTrue(resp.success());
+        verify(mockLockService).runWithLock(eq("dr_emergency_dc1"), any(java.time.Duration.class), any(java.util.function.Consumer.class));
+    }
+
+    @Test
+    @DisplayName("RES-08: emergencyStop должен отклоняться при удержании блокировки другим инстансом Orchestrator")
+    void shouldRejectEmergencyStopWhenLockHeldByAnotherNode() {
+        DistributedLockService mockLockService = mock(DistributedLockService.class);
+        // runWithLock не выполняет action, имитируя невозможность взять блокировку
+        doNothing().when(mockLockService).runWithLock(eq("dr_emergency_dc1"), any(java.time.Duration.class), any(java.util.function.Consumer.class));
+
+        DisasterRecoveryService lockedDrService = new DisasterRecoveryService(
+                jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, mockLockService
+        );
+
+        DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Параллельный аварийный останов", true);
+        DrActionResponse resp = lockedDrService.emergencyStop(req, "admin_user");
+
+        assertFalse(resp.success());
+        assertTrue(resp.message().contains("уже выполняется другим инстансом Orchestrator"));
+        verify(jobRepository, never()).findAll();
+    }
+
+    @Test
+    @DisplayName("RES-08: reverseReplication должен отклоняться при удержании блокировки другим инстансом Orchestrator")
+    void shouldRejectReverseReplicationWhenLockHeldByAnotherNode() {
+        DistributedLockService mockLockService = mock(DistributedLockService.class);
+        // runWithLock не выполняет action, имитируя параллельную инверсию другим инстансом
+        doNothing().when(mockLockService).runWithLock(eq("dr_reverse_dc2_dc1"), any(java.time.Duration.class), any(java.util.function.Consumer.class));
+
+        DisasterRecoveryService lockedDrService = new DisasterRecoveryService(
+                jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, mockLockService
+        );
+
+        DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, false, true);
+        DrActionResponse resp = lockedDrService.reverseReplication(req, "admin_user");
+
+        assertFalse(resp.success());
+        assertTrue(resp.message().contains("уже выполняется другим инстансом Orchestrator"));
+        verify(jobRepository, never()).findAll();
+    }
 }
 
