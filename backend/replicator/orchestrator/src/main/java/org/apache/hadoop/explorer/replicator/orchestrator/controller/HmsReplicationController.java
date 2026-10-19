@@ -211,7 +211,7 @@ public class HmsReplicationController {
         checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
-                    job.setStatus("PAUSED");
+                    job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED);
                     jobRepository.save(job);
                     return ResponseEntity.ok(job);
                 })
@@ -223,7 +223,7 @@ public class HmsReplicationController {
         checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
-                    job.setStatus("ACTIVE");
+                    job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE);
                     jobRepository.save(job);
                     return ResponseEntity.ok(job);
                 })

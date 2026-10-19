@@ -301,7 +301,14 @@ public class HmsCoordinatorService {
         HmsReplicationJobEntity job = optJob.get();
 
         if (report.status() != null && !report.status().isBlank()) {
-            job.setStatus(report.status());
+            org.apache.hadoop.explorer.replicator.model.HmsJobStatus targetStatus =
+                    org.apache.hadoop.explorer.replicator.model.HmsJobStatus.fromString(report.status());
+            if (job.getJobStatus().canTransitionTo(targetStatus)) {
+                job.transitionTo(targetStatus);
+            } else {
+                log.warn("[HmsCoordinator] Проигнорирован невалидный переход статуса задачи {}: '{}' -> '{}'",
+                        jobId, job.getStatus(), targetStatus);
+            }
         }
         if (report.totalTables() > 0) {
             job.setTotalTables(report.totalTables());
