@@ -63,6 +63,8 @@ public final class KafkaSecurityConfigBuilder {
         String jaasTemplate = "com.sun.security.auth.module.Krb5LoginModule required " +
                 "useKeyTab=true " +
                 "storeKey=true " +
+                "doNotPrompt=true " +
+                "refreshKrb5Config=true " +
                 "keyTab=\"%s\" " +
                 "principal=\"%s\";";
         String jaasConfig = String.format(jaasTemplate, sanitizedKeytab, sanitizedPrincipal);
@@ -70,8 +72,11 @@ public final class KafkaSecurityConfigBuilder {
 
         // 3. krb5.conf (если указан)
         if (krbConfig.getKrb5ConfPath() != null && !krbConfig.getKrb5ConfPath().isBlank()) {
-            System.setProperty("java.security.krb5.conf", krbConfig.getKrb5ConfPath());
-            log.info("Установлено системное свойство java.security.krb5.conf = {}", krbConfig.getKrb5ConfPath());
+            String existingKrb5Conf = System.getProperty("java.security.krb5.conf");
+            if (existingKrb5Conf == null || !existingKrb5Conf.equals(krbConfig.getKrb5ConfPath())) {
+                System.setProperty("java.security.krb5.conf", krbConfig.getKrb5ConfPath());
+                log.info("Установлено системное свойство java.security.krb5.conf = {}", krbConfig.getKrb5ConfPath());
+            }
         }
 
         // 4. SSL параметры для SASL_SSL

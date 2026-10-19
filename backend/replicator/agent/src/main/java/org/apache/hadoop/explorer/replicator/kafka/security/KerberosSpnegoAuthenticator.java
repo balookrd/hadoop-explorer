@@ -15,11 +15,10 @@ import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
 import java.io.File;
 import java.net.URI;
-import java.security.PrivilegedActionException;
-import java.security.PrivilegedExceptionAction;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 
 /**
  * Реализация SPNEGO Negotiate аутентификатора для Schema Registry на базе GSS-API и JAAS (Krb5LoginModule).
@@ -64,7 +63,10 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
         }
 
         if (config.getKrb5ConfPath() != null && !config.getKrb5ConfPath().isBlank()) {
-            System.setProperty("java.security.krb5.conf", config.getKrb5ConfPath());
+            String existingKrb5Conf = System.getProperty("java.security.krb5.conf");
+            if (existingKrb5Conf == null || !existingKrb5Conf.equals(config.getKrb5ConfPath())) {
+                System.setProperty("java.security.krb5.conf", config.getKrb5ConfPath());
+            }
         }
 
         try {
@@ -73,7 +75,7 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
                     ? targetUri.getHost()
                     : "localhost";
 
-            return Subject.doAs(subject, (PrivilegedExceptionAction<String>) () -> {
+            return Subject.callAs(subject, () -> {
                 GSSManager manager = GSSManager.getInstance();
                 Oid spnegoOid = new Oid(SPNEGO_OID);
                 String spn = servicePrefix + "@" + host;
@@ -96,8 +98,9 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
                     }
                 }
             });
-        } catch (PrivilegedActionException pae) {
-            log.error("Ошибка формирования SPNEGO билета для {}: {}", targetUri, pae.getException().getMessage());
+        } catch (CompletionException ce) {
+            Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
+            log.error("Ошибка формирования SPNEGO билета для {}: {}", targetUri, cause.getMessage());
             return null;
         } catch (Exception e) {
             log.error("Ошибка аутентификации Kerberos SPNEGO для {}: {}", targetUri, e.getMessage());

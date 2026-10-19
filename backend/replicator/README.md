@@ -223,6 +223,11 @@
     - **Динамический Control Plane диспетчер задач Kafka на агентах (P1-2)**: в `orchestrator_control_plane.proto` и `OrchestratorControlPlaneService` реализован контракт `GetActiveKafkaJobs(dc_id)`. Агент (`KafkaReplicatorAgentMain`) в цикле Heartbeat опрашивает оркестратор и динамически обнаруживает задачи.
     - **Версионированная потокобезопасная переподписка без ребалансировок**: в `KafkaBatchConsumerPool` реализована версионная синхронизация топиков (`AtomicLong topicsVersion`), предотвращающая ложные пробуждения и паразитные rebalance-штормы. Воркеры безопасно подхватывают новые топики на лету без перезапуска CLI-демона.
 
+30. **Оптимизация Zero-Copy и модернизация безопасности Java 21 (P2 / P3)**:
+    - **Истинный Zero-Copy транскодинг Wire-форматов схем (P2-2)**: в `ZeroCopyWireTranscoder` устранены аллокации `payload.clone()`. При сопоставлении схем Confluent/Hortonworks замена ID схемы выполняется in-place напрямую в буфере заголовка (0 байт аллокаций в куче на пакет), снимая избыточную нагрузку на сборщик мусора GC.
+    - **Изоляция конфигурации Kerberos и защита krb5.conf (P2-1)**: в `KafkaSecurityConfigBuilder` и `KerberosSpnegoAuthenticator` внедрена защита от взаимного затирания `java.security.krb5.conf`. В JAAS-шаблон Krb5LoginModule добавлены директивы `doNotPrompt=true` и `refreshKrb5Config=true`.
+    - **Переход на стандарт безопасности Java 21 (P3)**: в `KerberosSpnegoAuthenticator` устаревший и помеченный к удалению `@Deprecated(forRemoval=true)` API `Subject.doAs(...)` полностью заменен на современный стандарт Java 21 LTS `Subject.callAs(...)` с обработкой `CompletionException`.
+
 ---
 
 ## 2. Быстрый запуск

@@ -72,7 +72,7 @@ public class ZeroCopyWireTranscoder {
     }
 
     private byte[] transcodeConfluentToConfluent(String topic, byte[] payload) {
-        if (payload.length < CONFLUENT_HDR_LEN) {
+        if (payload == null || payload.length < CONFLUENT_HDR_LEN) {
             return payload;
         }
 
@@ -83,16 +83,16 @@ public class ZeroCopyWireTranscoder {
             return payload; // ID полностью совпали, замена не требуется
         }
 
-        byte[] result = payload.clone();
-        result[1] = (byte) (targetId >>> 24);
-        result[2] = (byte) (targetId >>> 16);
-        result[3] = (byte) (targetId >>> 8);
-        result[4] = (byte) targetId;
-        return result;
+        // Zero-copy: in-place замена ID схемы в бинарном заголовке без дублирования байтов в куче
+        payload[1] = (byte) (targetId >>> 24);
+        payload[2] = (byte) (targetId >>> 16);
+        payload[3] = (byte) (targetId >>> 8);
+        payload[4] = (byte) targetId;
+        return payload;
     }
 
     private byte[] transcodeHwxToHwx(String topic, byte[] payload) {
-        if (payload.length < HWX_HDR_LEN) {
+        if (payload == null || payload.length < HWX_HDR_LEN) {
             return payload;
         }
 
@@ -103,9 +103,9 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        byte[] result = payload.clone();
-        ByteBuffer.wrap(result, 1, 8).putLong(targetId);
-        return result;
+        // Zero-copy: in-place замена 8-байтного Long ID без клонирования payload
+        ByteBuffer.wrap(payload, 1, 8).putLong(targetId);
+        return payload;
     }
 
     private byte[] transcodeHwxToConfluent(String topic, byte[] payload) {
