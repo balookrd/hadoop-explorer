@@ -123,10 +123,7 @@
   let topicSearchQuery = $state('');
   let topicFilterFormat = $state<'ALL' | 'SCHEMA_REGISTRY' | 'PASSTHROUGH'>('ALL');
   let topicFilterSelectedOnly = $state(false);
-  let selectedTopics = $state<TopicSetting[]>([
-    { topic: 'orders-v1', payloadMode: 'AUTO_DETECT' },
-    { topic: 'payments-raw', payloadMode: 'PASSTHROUGH' }
-  ]);
+  let selectedTopics = $state<TopicSetting[]>([]);
 
   // Режимы выбора Consumer Groups: 'REGEX' (для сотен и тысяч) или 'CATALOG' (ручной)
   let groupsSelectionMode = $state<'REGEX' | 'CATALOG'>('REGEX');
@@ -138,7 +135,7 @@
   let groupSearchQuery = $state('');
   let groupFilterState = $state<'ALL' | 'STABLE' | 'EMPTY'>('ALL');
   let groupFilterSelectedOnly = $state(false);
-  let selectedGroups = $state<string[]>(['billing-service-prod', 'fraud-detection-engine']);
+  let selectedGroups = $state<string[]>([]);
 
   // Schema Registry
   let enableSchemaTranscoding = $state(true);
@@ -241,55 +238,29 @@
   let totalMessages = $derived(jobs.reduce((acc, j) => acc + (j.messagesReplicated || 0), 0));
   let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
 
-  onMount(async () => {
-    await Promise.all([loadJobs(), loadClusters(), loadDiscovery('dc1')]);
+  onMount(() => {
+    loadJobs();
+    loadClusters();
+    loadDiscovery('dc1');
+    const interval = setInterval(() => {
+      // Фоновое обновление телеметрии задач без мерцания индикатора
+      api.getKafkaJobs().then(data => {
+        if (Array.isArray(data)) {
+          jobs = data;
+        }
+      }).catch(() => {});
+    }, 4000);
+    return () => clearInterval(interval);
   });
 
   async function loadJobs() {
     jobsLoading = true;
     try {
       const data = await api.getKafkaJobs();
-      if (Array.isArray(data) && data.length > 0) {
-        jobs = data;
-      } else {
-        // Fallback демонстрационный список
-        jobs = [
-          {
-            id: 'kafka-job-orders',
-            name: 'Межцодовая репликация Orders & Payments',
-            sourceDc: 'DC1 (Москва Сколково)',
-            targetDc: 'DC2 (СПб Пулково)',
-            direction: 'BIDIRECTIONAL',
-            topics: [
-              { topic: 'orders-v1', payloadMode: 'AUTO_DETECT' },
-              { topic: 'payments-raw', payloadMode: 'PASSTHROUGH' },
-              { topic: 'billing-invoices', payloadMode: 'SCHEMA_REGISTRY' }
-            ],
-            consumerGroups: ['billing-service-prod', 'fraud-detection-engine'],
-            schemaTranscodingEnabled: true,
-            sourceSrType: 'HORTONWORKS',
-            targetSrType: 'CONFLUENT',
-            sourceSrUrl: 'http://schema-registry-1:8081',
-            targetSrUrl: 'http://schema-registry-2:8082',
-            sourceSrKerberosEnabled: true,
-            targetSrKerberosEnabled: true,
-            sourceKerberosEnabled: true,
-            sourcePrincipal: 'kafka-replicator@COMPANY.LOCAL',
-            sourceKeytabPath: '/etc/security/keytabs/kafka-replicator.keytab',
-            targetKerberosEnabled: true,
-            targetPrincipal: 'kafka-replicator@COMPANY.LOCAL',
-            targetKeytabPath: '/etc/security/keytabs/kafka-replicator.keytab',
-            bandwidthLimitMb: 60.0,
-            offsetSyncIntervalSec: 5,
-            status: 'ACTIVE',
-            messagesReplicated: 1845200,
-            bytesReplicated: 924500000,
-            currentLagMs: 8
-          }
-        ];
-      }
+      jobs = Array.isArray(data) ? data : [];
     } catch (e: any) {
       console.warn('Не удалось загрузить задачи Kafka из API:', e);
+      jobs = [];
     } finally {
       jobsLoading = false;
     }
@@ -699,7 +670,9 @@
                 <span>•</span>
                 <span>Батч: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.batchSize ?? 2000}</strong></span>
                 <span>•</span>
-                <span>Сквозной лаг: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">{job.currentLagMs} мс</strong></span>
+                <span>Сквозной лаг: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">{job.currentLagMs ?? 0} мс</strong></span>
+                <span>•</span>
+                <span>Передано: <strong class="text-sky-600 dark:text-sky-400 font-mono">{job.messagesReplicated?.toLocaleString() ?? 0} сообщ. ({((job.bytesReplicated ?? 0) / (1024 * 1024)).toFixed(2)} МБ)</strong></span>
                 <span>•</span>
                 <span>Синхронизация смещений: <strong class="font-mono">{job.offsetSyncIntervalSec}с</strong></span>
               </div>
