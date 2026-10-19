@@ -205,7 +205,7 @@ public class HmsCoordinatorService {
      */
     @Transactional
     public List<HmsPendingJobDto> getPendingJobsForCluster(String clusterId, String requestingAgentId) {
-        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
+        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findByStatusIn(List.of("QUEUED", "BOOTSTRAPPING", "ACTIVE"));
         List<HmsPendingJobDto> result = new ArrayList<>();
         Instant now = Instant.now();
         long leaseSec = getLeaseDurationSeconds();
@@ -459,7 +459,9 @@ public class HmsCoordinatorService {
      */
     @Transactional
     public void checkAndFailoverOrphanedHmsJobs() {
-        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
+        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findByAssignedAgentIdIsNotNullAndStatusIn(
+                List.of("BOOTSTRAPPING", "ACTIVE", "QUEUED")
+        );
         Instant now = Instant.now();
 
         for (HmsReplicationJobEntity job : allJobs) {

@@ -304,6 +304,19 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                     .addAllRecords(chunk)
                                     .build();
 
+                            // Проверка готовности сетевого буфера gRPC (Client-side Backpressure Flow Control)
+                            if (targetStream instanceof io.grpc.stub.ClientCallStreamObserver<?> clientCallStreamObserver) {
+                                while (running.get() && !clientCallStreamObserver.isReady()) {
+                                    drainAndCommitPendingOffsets();
+                                    try {
+                                        Thread.sleep(5);
+                                    } catch (InterruptedException e) {
+                                        Thread.currentThread().interrupt();
+                                        break;
+                                    }
+                                }
+                            }
+
                             inFlightBatches.put(batchRequest.getBatchId(),
                                     new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
                             inFlightCount.incrementAndGet();

@@ -13,22 +13,34 @@ import java.util.Objects;
 /**
  * Реализация gRPC-сервиса KafkaDataTransferService на узле-приемнике.
  * <p>
- * Обеспечивает прием потоковых пакетов записей, вызов безопасного коммита оффсетов и heartbeat.
+ * Обеспечивает высокопроизводительный потоковый прием пакетов записей с поддержкой
+ * скользящего окна упреждения (Pipelining / Sliding Window Flow Control),
+ * вызов безопасного коммита оффсетов и heartbeat.
  */
 public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.KafkaDataTransferServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaDataTransferServiceImpl.class);
+    public static final int DEFAULT_PIPELINE_WINDOW = 16;
 
     private final KafkaBatchProducer batchProducer;
     private final SafetyCommitManager safetyCommitManager;
     private final String localDcId;
+    private final int pipelineWindow;
 
     public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
-                                       SafetyCommitManager safetyCommitManager,
-                                       String localDcId) {
+                                        SafetyCommitManager safetyCommitManager,
+                                        String localDcId) {
+        this(batchProducer, safetyCommitManager, localDcId, DEFAULT_PIPELINE_WINDOW);
+    }
+
+    public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
+                                        SafetyCommitManager safetyCommitManager,
+                                        String localDcId,
+                                        int pipelineWindow) {
         this.batchProducer = Objects.requireNonNull(batchProducer, "batchProducer must not be null");
         this.safetyCommitManager = safetyCommitManager;
         this.localDcId = localDcId != null ? localDcId : "LOCAL_DC";
+        this.pipelineWindow = Math.max(1, pipelineWindow);
     }
 
     @Override
@@ -41,8 +53,9 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             serverCallStreamObserver.setOnCancelHandler(() -> {
                 log.warn("Клиент прервал (CANCELLED) gRPC соединение streamBatches");
             });
-            // Запрашиваем первый входящий пакет сообщений
-            serverCallStreamObserver.request(1);
+            // Инициализируем скользящее окно (sliding window) упреждающих пакетов для устранения stop-and-wait задержек
+            serverCallStreamObserver.request(pipelineWindow);
+            log.debug("gRPC streamBatches: инициализирован конвейер со скользящим окном pipelineWindow={}", pipelineWindow);
         }
 
         final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
