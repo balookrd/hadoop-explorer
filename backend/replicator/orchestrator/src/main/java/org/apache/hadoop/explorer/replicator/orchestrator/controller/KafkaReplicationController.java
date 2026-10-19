@@ -63,6 +63,12 @@ public class KafkaReplicationController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/jobs/active")
+    public List<KafkaReplicationJobDto> getActiveJobs(@RequestParam String dcId) {
+        requireAuthentication();
+        return service.getActiveJobsForDc(dcId);
+    }
+
     @PostMapping("/jobs")
     public ResponseEntity<KafkaReplicationJobDto> createJob(@jakarta.validation.Valid @RequestBody CreateKafkaJobRequest request) {
         requireWriterOrAdmin();

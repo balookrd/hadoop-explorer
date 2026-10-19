@@ -56,6 +56,23 @@ public class KafkaReplicationOrchestratorService {
         return repository.findById(id).map(this::toDto);
     }
 
+    /**
+     * Возвращает список активных задач репликации Kafka для указанного ДЦ.
+     */
+    @Transactional(readOnly = true)
+    public List<KafkaReplicationJobDto> getActiveJobsForDc(String dcId) {
+        if (dcId == null || dcId.isBlank()) {
+            return Collections.emptyList();
+        }
+        String dc = dcId.trim();
+        return repository.findAll().stream()
+                .filter(job -> "ACTIVE".equalsIgnoreCase(job.getStatus()))
+                .filter(job -> dc.equalsIgnoreCase(job.getSourceDc()) ||
+                        ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection()) && dc.equalsIgnoreCase(job.getTargetDc())))
+                .map(this::toDto)
+                .toList();
+    }
+
     @Transactional
     public KafkaReplicationJobDto createJob(CreateKafkaJobRequest request) {
         String id = "kafka-job-" + UUID.randomUUID().toString().substring(0, 8);
