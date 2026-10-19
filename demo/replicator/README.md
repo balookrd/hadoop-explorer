@@ -103,7 +103,7 @@ docker compose -f demo/replicator/docker-compose.yml --profile test run --rm smo
 ### ⚡ Запуск E2E Smoke-тестов Kafka Replicator (Kerberos SASL & SPNEGO SR):
 ```bash
 # 1. Запуск керберизованных кластеров Kafka и Schema Registry (DC1 и DC2)
-docker compose -f demo/infra/docker-compose.infra.yml up -d kdc
+docker compose -f demo/infra/docker-compose.infra.yml up -d kdc ldap
 docker compose -f demo/replicator/docker-compose.kafka.yml up -d
 
 # 2. Выполнение полного E2E Smoke-теста Data Plane & Control Plane:
