@@ -317,7 +317,7 @@ flowchart TD
 
 ---
 
-### 1.7 Партиционирование PostgreSQL в высоконагруженных средах (High-Scale Table Partitioning)
+### 1.6 Партиционирование PostgreSQL в высоконагруженных средах (High-Scale Table Partitioning)
 
 При непрерывной потоковой репликации через Inotify и периодической синхронизации петабайтных каталогов HDFS с десятками миллионов файлов таблица подзадач `replication_tasks` и история `job_runs` накапливают миллионы строк. 
 
@@ -355,7 +355,7 @@ flowchart TD
 
 ---
 
-### 1.6 Модель поставки и готовые дистрибутивы (Distribution & No-Build Deployment)
+### 1.7 Модель поставки и готовые дистрибутивы (Distribution & No-Build Deployment)
 
 Платформа **Hadoop Explorer** поставляется в виде полностью скомпилированных, готовых к промышленной эксплуатации релизных артефактов и Docker-образов.
 
@@ -1195,7 +1195,7 @@ yarn application -kill application_1728460000000_0042
 
 Replicator Orchestrator спроектирован для обеспечения надежной работы и непрерывности бизнес-процессов при аварийном завершении процессов (SIGKILL, OOM Killer), сбоях физического оборудования или плановом перезапуске (Zero Data Loss, At-Least-Once семантика).
 
-#### Поведение ключевых подсистем при перезапуске Оркестратора и агентов:
+#### 2.7.1 Поведение ключевых подсистем при перезапуске Оркестратора и агентов:
 
 1. **Строгое разделение Control Plane и Metadata Plane (Source-to-Target HMS Pipe)**:
    - **Оркестратор (Control Plane)**: не содержит толстых Hadoop Client и Hive Thrift библиотек, не обращается напрямую в HDFS и не держит Thrift RPC соединений. Оркестратор хранит состояние задач в реляционной БД, диспетчеризует задачи агентам через `AgentRegistry`, принимает отчеты о прогрессе и сохраняет журнал DDL-событий через REST API.
@@ -1465,7 +1465,7 @@ docker compose logs -f orchestrator
 
 Развертывание в Kubernetes с использованием готовых образов из GitHub Container Registry (GHCR).
 
-### 4.0 Настройка доступа к GHCR (ImagePullSecret)
+### 4.1 Настройка доступа к GHCR (ImagePullSecret)
 Если репозиторий контейнеров приватный, создайте секрет для вытягивания образов:
 ```bash
 kubectl create namespace hadoop-replicator --dry-run=client -o yaml | kubectl apply -f -
@@ -1477,7 +1477,7 @@ kubectl create secret docker-registry ghcr-secret \
     --docker-password="<github-token-with-read:packages>"
 ```
 
-### 4.1 Манифесты Kubernetes (Raw Manifests)
+### 4.2 Манифесты Kubernetes (Raw Manifests)
 
 #### 1. Namespace, Secret и ConfigMap
 ```yaml

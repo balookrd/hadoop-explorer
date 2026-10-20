@@ -157,14 +157,14 @@ ansible/
 
 ## 4. Настройка серверов YARN ResourceManager
 
-### 1. Доступ пользователя в ОС (`sudoers`)
+### 4.1 Доступ пользователя в ОС (`sudoers`)
 Пользователь `deployer` должен иметь право переключаться на пользователя `yarn` без ввода пароля:
 ```bash
 # /etc/sudoers.d/deployer
 deployer ALL=(yarn) NOPASSWD: ALL
 ```
 
-### 2. Права администратора в YARN (`yarn-site.xml`)
+### 4.2 Права администратора в YARN (`yarn-site.xml`)
 Учетная запись, от имени которой выполняется `yarn rmadmin`, должна входить в список `yarn.admin.acl`:
 ```xml
 <property>
@@ -173,7 +173,7 @@ deployer ALL=(yarn) NOPASSWD: ALL
 </property>
 ```
 
-### 3. Kerberos Keytab
+### 4.3 Kerberos Keytab
 Сервисный keytab `yarn.service.keytab` должен находиться по указанному в переменных пути (например, `/etc/security/keytabs/yarn.service.keytab`) с правами `0400` и владельцем `yarn:hadoop`.
 
 ---
