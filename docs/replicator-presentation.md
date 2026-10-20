@@ -32,6 +32,7 @@
 
 <div align="center">
   <img src="images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator" width="100%" />
+  <p><em>Генеральная архитектура: порты Control Plane (TCP :8005 / :50050), межЦОДного WAN Data Plane (TCP :50051 / :50052) и кластерного LAN</em></p>
 </div>
 
 ### Разбор физических контуров и направлений трафика

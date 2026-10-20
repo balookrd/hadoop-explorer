@@ -242,15 +242,15 @@ def generate_presentation(output_pptx_path):
     add_card(slide1, Inches(4.8), Inches(3.8), Inches(3.7), Inches(2.8),
              "🌐 Как ходит трафик данных?",
              [
-                 "Прямой gRPC WAN стрим: Agent DC1 ➔ Agent DC2 (:50051) минуя Оркестратор!",
-                 "Оркестратор НЕ качает байты через себя (чистый координатор Control Plane).",
+                 "Прямой gRPC WAN стрим: Agent DC1 ➔ Agent DC2 (:50051 HDFS/HMS, :50052 Kafka) минуя Оркестратор!",
+                 "Оркестратор НЕ качает байты через себя (чистый координатор Control Plane :50050).",
                  "Чанки по 4 МБ, Tar-Streaming с Directory Cache NameNode, HMAC аттестация, SHA-256."
              ], ACCENT_GREEN)
 
     add_card(slide1, Inches(8.8), Inches(3.8), Inches(3.7), Inches(2.8),
              "🛡️ Сеть и Disaster Recovery",
              [
-                 "В межЦОДном фаерволе открывается ТОЛЬКО один порт: TCP 50051 (mTLS).",
+                 "В межЦОДном фаерволе открываются ровно два порта: TCP 50051 (HDFS/HMS) и TCP 50052 (Kafka) с mTLS.",
                  "Иерархический шейпер Token Bucket с кластерным скейлингом и адаптивным лизингом.",
                  "Авария и DR: Fencing Tokens, Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1)."
              ], ACCENT_CYAN)

@@ -294,10 +294,10 @@
       <p>Физическое размещение компонентов («Что где располагается»), порты фаервола и направления сетевых потоков</p>
     </div>
     <div class="legend">
-      <div class="legend-item"><span class="legend-line leg-control"></span> Управление REST / SSE (:8005)</div>
-      <div class="legend-item"><span class="legend-line leg-data"></span> Прямой gRPC WAN Data Stream (:50051)</div>
-      <div class="legend-item"><span class="legend-line leg-local"></span> Локальный LAN Hadoop (:8020, :9866, :9083)</div>
-      <div class="legend-item"><span class="legend-line leg-dr"></span> Reverse Stream в аварии (:50051)</div>
+      <div class="legend-item"><span class="legend-line leg-control"></span> Управление REST (:8005) & gRPC Control (:50050)</div>
+      <div class="legend-item"><span class="legend-line leg-data"></span> Прямой gRPC WAN (:50051 HDFS/HMS, :50052 Kafka)</div>
+      <div class="legend-item"><span class="legend-line leg-local"></span> Локальный LAN (:8020, :9866, :9083, :9092, :8081)</div>
+      <div class="legend-item"><span class="legend-line leg-dr"></span> Reverse Stream в аварии (:50051, :50052)</div>
     </div>
   </div>
 
@@ -343,15 +343,15 @@
         <span class="install-tag tag-install-orch">УСТАНАВЛИВАЕТСЯ: Orchestrator JAR</span>
         <div class="node-header">
           <span class="node-name">⚙️ Replicator Orchestrator</span>
-          <span class="node-port">:8005 HTTP/REST</span>
+          <span class="node-port">:8005 REST / :50050 gRPC</span>
         </div>
         <div class="node-desc">Java 21 LTS / Spring Boot 3.3.4 (Чистый координатор).</div>
         <ul class="node-list">
-          <li><strong>Cron Scheduler</strong>: планирование периодических задач</li>
-          <li><strong>Agent Registry</strong>: учет адресов и heartbeat воркеров</li>
-          <li><strong>Token Bucket</strong>: выдача квот полосы пропускания</li>
+          <li><strong>gRPC Control Plane (:50050)</strong>: Heartbeat, регистрация, HMAC-выдача подзадач</li>
+          <li><strong>Token Bucket</strong>: выдача квот полосы и кластерная координация</li>
           <li><strong>Inotify Lease HA</strong>: координатор распределенной аренды HMS</li>
-          <li><strong>Disaster Recovery Hub</strong>: Kill-Switch & Unfence</li>
+          <li><strong>Kafka Balancer</strong>: Partition-Pinned координация и карантин агентов</li>
+          <li><strong>Disaster Recovery Hub</strong>: экстренный Kill-Switch & Unfence</li>
         </ul>
       </div>
 
@@ -382,47 +382,46 @@
         <span class="install-tag tag-install-agent">УСТАНАВЛИВАЕТСЯ: Agent Daemon</span>
         <div class="node-header">
           <span class="node-name">🟢 Replicator Agent (DC1)</span>
-          <span class="node-port">:50051 gRPC</span>
+          <span class="node-port">:50051/:50052 gRPC</span>
         </div>
         <div class="node-desc">На узлах DataNode (Colocated) или Edge Gateway. Java 21 Netty демон.</div>
         <ul class="node-list">
-          <li><strong>Worker Loop</strong>: разбор пула подзадач из оркестратора</li>
-          <li><strong>Fast Diff</strong>: in-memory diff по манифесту каталога</li>
-          <li><strong>Tar-Streaming</strong>: упаковка мелких файлов &lt; 1 МБ в RAM</li>
-          <li><strong>Chunked Sender</strong>: стриминг блоков 4 МБ со сжатием Zstd</li>
-          <li><strong>HMS CDC Streamer</strong>: опрос NOTIFICATION_LOG Hive</li>
+          <li><strong>Control Plane (:50050)</strong>: Claim подзадач из оркестратора с HMAC-аттестацией</li>
+          <li><strong>HDFS Fast Diff & Tar</strong>: блочный стриминг и Tar мелких файлов</li>
+          <li><strong>HMS CDC Streamer</strong>: опрос NOTIFICATION_LOG Hive по Thrift :9083</li>
+          <li><strong>Kafka Mirroring</strong>: Partition-Pinned вычитка и стриминг (:50052)</li>
           <li><strong>Rate Limiter</strong>: шейпинг по токенам Token Bucket</li>
         </ul>
       </div>
 
-      <!-- NameNode DC1 -->
+      <!-- HDFS Cluster DC1 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
+        <span class="install-tag tag-native-hadoop">Hadoop Хранилище</span>
         <div class="node-header">
-          <span class="node-name">🏛️ HDFS NameNode (DC1)</span>
-          <span class="node-port">:8020/:9000 RPC</span>
+          <span class="node-name">🏛️ HDFS NameNode & DataNodes</span>
+          <span class="node-port">:8020 RPC / :9866 DTP</span>
         </div>
-        <div class="node-desc">Листинг каталогов, метаданные блоков, снимки Snapshot-Diff.</div>
-      </div>
-
-      <!-- DataNodes DC1 -->
-      <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
-        <div class="node-header">
-          <span class="node-name">💾 HDFS DataNodes (DC1)</span>
-          <span class="node-port">:9866 DTP / SASL</span>
-        </div>
-        <div class="node-desc">Прямое вычитывание блоков от имени UGI автора задачи (`doAs`).</div>
+        <div class="node-desc">Листинг каталогов, чтение блоков под UGI (doAs), Snapshot-Diff.</div>
       </div>
 
       <!-- Hive Metastore & KDC DC1 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
+        <span class="install-tag tag-native-hadoop">Hadoop Метаданные</span>
         <div class="node-header">
           <span class="node-name">🐝 Hive Metastore & KDC</span>
           <span class="node-port">:9083 Thrift / :88</span>
         </div>
         <div class="node-desc">Thrift API вычитка NOTIFICATION_LOG; Kerberos keytab авторизация.</div>
+      </div>
+
+      <!-- Kafka Brokers & Schema Registry DC1 -->
+      <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Streaming Платформа</span>
+        <div class="node-header">
+          <span class="node-name">📨 Kafka Brokers & Schema Registry</span>
+          <span class="node-port">:9092/:9093 / :8081</span>
+        </div>
+        <div class="node-desc">Параллельная вычитка сообщений пулом воркеров, кэш схем данных.</div>
       </div>
     </div>
 
@@ -432,21 +431,21 @@
       <div class="wan-badge">
         🌐 WAN Канал<br/>1–10 Gbps<br/>(MTU 9000)
       </div>
-      <div style="font-size: 0.66rem; color: #cbd5e1; margin: 6px 0;">
+      <div style="font-size: 0.65rem; color: #cbd5e1; margin: 4px 0;">
         Прямой gRPC WAN:<br/>
         <strong>DC1 ➔ DC2</strong><br/>
-        (mTLS, 4MB Chunks)
+        (mTLS v1.3, 4MB Chunks)
       </div>
-      <div class="wan-firewall">
-        🛡️ Firewall Port:<br/>
-        <strong>TCP :50051</strong><br/>
-        (Единственный порт)
+      <div class="wan-firewall" style="line-height: 1.35; padding: 5px 3px;">
+        🛡️ WAN Firewall Ports:<br/>
+        <strong style="color: #67e8f9;">TCP :50051</strong> (HDFS/HMS)<br/>
+        <strong style="color: #6ee7b7;">TCP :50052</strong> (Kafka Data)
       </div>
-      <div style="margin-top: 10px; font-size: 0.63rem; color: #ef4444; border-top: 1px dashed rgba(239,68,68,0.4); padding-top: 5px;">
+      <div style="margin-top: 8px; font-size: 0.63rem; color: #ef4444; border-top: 1px dashed rgba(239,68,68,0.4); padding-top: 5px;">
         🛑 Kill-Switch:<br/>Лимит 0 МБ/с
       </div>
-      <div style="margin-top: 6px; font-size: 0.63rem; color: #38bdf8;">
-        🔄 Reverse:<br/>DC2 ➔ DC1
+      <div style="margin-top: 5px; font-size: 0.63rem; color: #38bdf8;">
+        🔄 Reverse:<br/>DC2 ➔ DC1 (:50051/:50052)
       </div>
     </div>
 
@@ -462,46 +461,46 @@
         <span class="install-tag tag-install-agent">УСТАНАВЛИВАЕТСЯ: Agent Daemon</span>
         <div class="node-header">
           <span class="node-name">🔵 Replicator Agent (DC2)</span>
-          <span class="node-port">:50051 gRPC</span>
+          <span class="node-port">:50051/:50052 gRPC</span>
         </div>
         <div class="node-desc">На узлах DataNode или Edge Gateway. Java 21 Netty демон (приемник).</div>
         <ul class="node-list">
-          <li><strong>Receiver Service</strong>: прием 4 МБ чанков, расчет хеша SHA-256</li>
-          <li><strong>Tar Stream Extractor</strong>: распаковка мелких файлов прямо в HDFS</li>
+          <li><strong>Receiver Service (:50051)</strong>: прием 4 МБ чанков, расчет хеша SHA-256</li>
           <li><strong>Zero-Staging Writer</strong>: запись в `._staging_` + атомарный rename</li>
           <li><strong>HMS DDL Applier</strong>: применение DDL (deleteData=false)</li>
-          <li><strong>Staging Reaper</strong>: очистка сирот `._staging_*` старше 24ч</li>
+          <li><strong>Kafka Receiver (:50052)</strong>: Zero-Copy транскодинг wire-схем</li>
+          <li><strong>At-Least-Once Ack</strong>: подтверждение батчей и коммит оффсетов</li>
         </ul>
       </div>
 
-      <!-- NameNode DC2 -->
+      <!-- HDFS Cluster DC2 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
+        <span class="install-tag tag-native-hadoop">Hadoop Хранилище</span>
         <div class="node-header">
-          <span class="node-name">🏛️ HDFS NameNode (DC2)</span>
-          <span class="node-port">:8020/:9000 RPC</span>
+          <span class="node-name">🏛️ HDFS NameNode & DataNodes</span>
+          <span class="node-port">:8020 RPC / :9866 DTP</span>
         </div>
         <div class="node-desc">Создание staging файлов, атомарный rename в чистовой путь.</div>
       </div>
 
-      <!-- DataNodes DC2 -->
-      <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
-        <div class="node-header">
-          <span class="node-name">💾 HDFS DataNodes (DC2)</span>
-          <span class="node-port">:9866 DTP / SASL</span>
-        </div>
-        <div class="node-desc">Прямая запись блоков данных через Data Transfer Protocol.</div>
-      </div>
-
       <!-- Hive Metastore & KDC DC2 -->
       <div class="node-box" style="border-left: 3px solid #f59e0b;">
-        <span class="install-tag tag-native-hadoop">Hadoop Сервис</span>
+        <span class="install-tag tag-native-hadoop">Hadoop Метаданные</span>
         <div class="node-header">
           <span class="node-name">🐝 Hive Metastore & KDC</span>
           <span class="node-port">:9083 Thrift / :88</span>
         </div>
         <div class="node-desc">Накатывание схем и партиций; Kerberos keytab авторизация.</div>
+      </div>
+
+      <!-- Kafka Brokers & Schema Registry DC2 -->
+      <div class="node-box" style="border-left: 3px solid #f59e0b;">
+        <span class="install-tag tag-native-hadoop">Streaming Платформа</span>
+        <div class="node-header">
+          <span class="node-name">📨 Kafka Brokers & Schema Registry</span>
+          <span class="node-port">:9092/:9093 / :8081</span>
+        </div>
+        <div class="node-desc">Прием батчей, Zero-Copy замена Confluent Magic Byte, запись в топики.</div>
       </div>
     </div>
 
@@ -511,15 +510,15 @@
   <div class="footer-summary">
     <div class="summary-item">
       <span>🟣 <strong>Control Plane</strong>:</span>
-      <span>Браузер ➔ Orchestrator (:8005 HTTP/S) &nbsp;|&nbsp; Agents ➔ Orchestrator (:8005 REST Heartbeat / Claim / Lease)</span>
+      <span>Браузер ➔ Orchestrator (:8005 HTTP/S) &nbsp;|&nbsp; Agents ➔ Orchestrator (:8005 REST / :50050 gRPC Control Plane)</span>
     </div>
     <div class="summary-item">
       <span>🟢 <strong>Data Plane WAN</strong>:</span>
-      <span>Agent DC1 ➔ Agent DC2 (:50051 gRPC mTLS) — Прямая передача данных без захода в Оркестратор</span>
+      <span>Agent DC1 ➔ Agent DC2 (:50051 HDFS/HMS, :50052 Kafka gRPC mTLS) — Прямая передача данных без захода в Оркестратор</span>
     </div>
     <div class="summary-item">
-      <span>🟠 <strong>Hadoop LAN</strong>:</span>
-      <span>Агенты обращаются к NameNode (:8020), DataNodes (:9866) и HMS (:9083) строго внутри своего ЦОД</span>
+      <span>🟠 <strong>Cluster LAN</strong>:</span>
+      <span>HDFS (:8020/:9866), HMS (:9083), Kafka (:9092) и Schema Registry (:8081) строго внутри своего ЦОД</span>
     </div>
   </div>
 

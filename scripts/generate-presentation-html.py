@@ -531,7 +531,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <div class="slide-header">
         <div class="slide-subtitle">Генеральная архитектурная схема • Топология и размещение компонентов</div>
         <h1 class="slide-title">Hadoop gRPC Replicator: Что где располагается</h1>
-        <p class="slide-desc">Физическое размещение Orchestrator, Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes, Kafka Brokers и сквозной gRPC WAN :50051/:50052</p>
+        <p class="slide-desc">Физическое размещение Orchestrator (:8005/:50050), Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes, Kafka и сквозной gRPC WAN :50051/:50052</p>
       </div>
       <div class="slide-body">
         <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">

@@ -512,6 +512,7 @@
 <div class="slide-header-block"><div class="slide-section-badge">СЕКЦИЯ 1 / 13 • ТЕХНИЧЕСКИЙ РЕГЛАМЕНТ</div><h2 class="slide-h2">Слайд 1: Генеральная схема развертывания: Что где располагается (Топология и сетевые потоки)</h2></div>
 <div align="center">
   <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator" width="100%" />
+  <p><em>Генеральная архитектура: порты Control Plane (TCP :8005 / :50050), межЦОДного WAN Data Plane (TCP :50051 / :50052) и кластерного LAN</em></p>
 </div><h3>Разбор физических контуров и направлений трафика</h3>
 <ol>
 <li><strong>Контур потребителей данных (Clients / Workloads)</strong>:<ul>
