@@ -41,29 +41,33 @@
    - **Аварийный режим (DR)**: при объявлении аварии переключаются на ЦОД-2 Standby (Санкт-Петербург) через смену DNS/VIP или переключение конфигураций JDBC/HDFS.
 2. **Контур управления (Management Zone / Control Plane)**:
    - Развертывается на выделенной виртуальной машине (VM) или в Kubernetes Pod в управляющем сегменте сети (Management VLAN).
-   - **Устанавливается**: `hadoop-grpc-replicator-orchestrator.jar` (Spring Boot 3.3.4, Java 21, `TCP :8005`).
-   - Предоставляет REST API и Web-консоль управления на порту `:8005` (Kerberos SPNEGO SSO, LDAP, RBAC).
-   - Хранилище состояния: PostgreSQL 14+ или H2 (`TCP :5432` / embedded).
-   - Общается с агентами обоих ЦОДов (обоих дата-центров) по протоколу HTTP/REST (регистрация агентов, heartbeat каждые 5 с, выдача квот подзадач, распределенный арбитраж Inotify Lease HA).
+   - **Устанавливается**: `hadoop-grpc-replicator-orchestrator.jar` (Spring Boot 3.3.4, Java 21, `TCP :8005` и `TCP :50050`).
+   - Предоставляет REST API и Web-консоль управления на порту `:8005` (Kerberos SPNEGO SSO, LDAP, RBAC), а также высокоскоростной gRPC Control Plane на порту `:50050` (`orchestrator_control_plane.proto`).
+   - Хранилище состояния: PostgreSQL 14+ (`TCP :5432` / Patroni HA) с персистентным реестром агентов `agent_registry` (`AgentEntity`), таблицей лимитов `bandwidth_limits` и блокировками `cluster_locks` с монотонными fencing tokens.
+   - **Stateless Active-Active кластер**: несколько реплик оркестратора работают совместно без локального in-memory состояния; квоты Token Bucket автоматически распределяются координатором `OrchestratorClusterCoordinator`.
+   - Общается с агентами обоих ЦОДов по gRPC Control Plane (`:50050`) и REST API (`:8005`) (регистрация агентов, heartbeat каждые 3–5 с, криптографическая выдача подзадач с HMAC-токенами, распределенный арбитраж Inotify Lease HA).
    - **⚠️ Архитектурный инвариант**: Оркестратор **НЕ прокачивает байты файлов через себя**, работая исключительно как координатор метаданных.
 3. **Контур ЦОД-1 Primary (Москва)**:
-   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (Java 21, Netty 4.1).
+   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (Java 21, Netty 4.1 на Virtual Threads).
    - Варианты размещения: Colocated на узлах Hadoop DataNode (для Short-Circuit Local Read) либо на выделенных серверах Edge Gateway.
    - Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют со штатными сервисами Hadoop (без изменений ядра):
      - **NameNode** (`TCP :8020/:9000`) — получение структуры директорий, списков файлов и снапшотов (`SnapshotDiffReport`);
      - **DataNodes** (`TCP :9866`) — прямое вычитывание блоков HDFS по протоколу SASL Data Transfer Protocol от имени пользователя (`doAs`);
      - **Hive Metastore** (`TCP :9083 Thrift`) — периодический опрос таблицы `NOTIFICATION_LOG` для вычитки DDL/DML событий;
      - **Kerberos KDC** (`TCP/UDP :88`) — билетная аутентификация по ключевому файлу (`keytab`).
+   - **Безопасность и песочница**: локальные файловые пути изолированы в Chroot-песочнице `localSandboxDir` (`REPLICATOR_LOCAL_SANDBOX`) с блокировкой системных каталогов ОС (`FORBIDDEN_OS_PREFIXES`).
 4. **МежЦОДная магистраль WAN (Москва ➔ Санкт-Петербург)**:
    - **Единственный порт в межсетевом экране**: **`TCP :50051` (gRPC / HTTP/2, mTLS v1.3, MTU 9000)**.
    - Трафик данных идет **напрямую peer-to-peer от Agent DC1 к Agent DC2**, минуя оркестратор и кластерные порты Hadoop.
-   - Скорость канала жестко регулируется сетевым шейпером Token Bucket (например, потолок 100 МБ/с).
-   - При аварии активен сетевой Kill-Switch: сброс полосы в 0 МБ/с для предотвращения эффекта Split-Brain.
+   - Скорость канала жестко регулируется сетевым шейпером Token Bucket с адаптивным масштабированием лизинга (Adaptive Token Lease Scaling) под RTT и WAN throughput.
+   - При аварии активен сетевой Kill-Switch: сброс полосы в 0 МБ/с и монотонный Fencing Token для предотвращения эффекта Split-Brain.
 5. **Контур ЦОД-2 Standby / DR (Санкт-Петербург)**:
    - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` в режиме приемника (`receiver`).
-   - Слушают входящий порт `TCP :50051`.
+   - Слушают входящий порт `TCP :50051`. Сервер Netty переведен на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`).
+   - Валидируют криптографическую подпись HMAC-SHA256 задачи (`TaskAttestationValidator`) перед созданием целевых файлов.
    - Принимают чанки данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы `._staging_<jobId>` локальной HDFS (`TCP :9866`).
    - При успешной проверке контрольной суммы вызывают атомарный `fs.rename()` в целевой путь через NameNode DC2 (`TCP :8020`).
+   - Мелкие файлы распаковываются из потокового TAR-стрима в выделенном пуле виртуальных потоков `tarUnpackExecutor` с двухфазным коммитом и кэшированием каталогов NameNode `directoryCache` (экономия до 90% RPC).
    - Принимают Hive DDL-пакеты, переписывают URI путей NameService и накатывают схему в локальный Hive Metastore DC2 (`TCP :9083`) с флагом `deleteData=false`.
 
 ---
@@ -77,11 +81,11 @@
 | Параметр | Control Plane (Оркестратор) | Data Plane (Агенты репликации) |
 | :--- | :--- | :--- |
 | **Бинарный пакет** | `hadoop-grpc-replicator-orchestrator.jar` | `hadoop-grpc-replicator-agent.jar` |
-| **Среда исполнения** | Java 21 LTS (Spring Boot 3.3.4) | Java 21 LTS (Netty 4.1 gRPC Daemon) |
-| **Сетевые интерфейсы** | `TCP :8005` (HTTP/REST API, SSE шина, Web UI) | `TCP :50051` (gRPC HTTP/2, mTLS v1.3 Full-Duplex) |
-| **База метаданных** | PostgreSQL 14+ / H2 (in-memory/file) | Отсутствует (Stateless воркеры) |
-| **Аутентификация** | Kerberos SPNEGO SSO, LDAP Bind, JWT HttpOnly | Kerberos Keytab (`hdfs.headless.keytab`), mTLS x509 |
-| **Целевые системы** | Браузеры операторов, Prometheus scraper | Hadoop 3.x (RPC :8020/:9000, DTP :9866), Hive Metastore (:9083) |
+| **Среда исполнения** | Java 21 LTS (Spring Boot 3.3.4) | Java 21 LTS (Netty 4.1 на Virtual Threads, tarUnpackExecutor) |
+| **Сетевые интерфейсы** | `TCP :8005` (REST, SSE, Web UI), `TCP :50050` (gRPC Control Plane) | `TCP :50051` (gRPC HDFS/HMS), `TCP :50052` (Kafka Data Plane) |
+| **База метаданных** | PostgreSQL 14+ (`agent_registry`, `bandwidth_limits`, `cluster_locks`) | Отсутствует (Stateless воркеры) |
+| **Аутентификация** | Kerberos SPNEGO SSO, LDAP Bind, JWT HttpOnly, Agent Secret | Kerberos Keytab (`hdfs.headless.keytab`), mTLS x509, HMAC Attestation |
+| **Целевые системы** | Браузеры операторов, Prometheus scraper | Hadoop 3.x (RPC :8020/:9000, DTP :9866), Hive Metastore (:9083), Kafka |
 
 ### Базовые архитектурные факты и инварианты
 
@@ -91,10 +95,14 @@
 2. **Прямой Peer-to-Peer обмен между агентами по WAN**:
    - Передача данных выполняется напрямую между демонами `replicator-agent-dc1` и `replicator-agent-dc2` по порту `TCP :50051`.
    - В фаерволе между ЦОД открывается ровно один порт. Кластерные порты Hadoop (NameNode, DataNodes) наружу не выставляются.
-3. **Stateless-архитектура воркеров**:
-   - Агенты не сохраняют локальное состояние задач на диск. При перезапуске или сбое воркера подзадачи мгновенно перехватываются соседними агентами кластера.
-4. **Zero-Staging транзакционность**:
-   - Файлы на стороне приемника никогда не перезаписываются напрямую. Запись ведется в `._staging_*`, и только после верификации SHA-256 атомарно переименовывается в NameNode.
+3. **Stateless-архитектура воркеров и Active-Active Orchestration**:
+   - Агенты не сохраняют локальное состояние задач на диск. Реестр агентов хранится в БД (`agent_registry`), позволяя запускать оркестраторы в пуле Active-Active с динамическим распределением токенов через `OrchestratorClusterCoordinator`.
+4. **Zero-Staging транзакционность и двухфазный коммит**:
+   - Файлы на стороне приемника никогда не перезаписываются напрямую. Запись ведется в `._staging_*`, и только после верификации SHA-256 атомарно переименовывается в NameNode. Для TAR-бандлов мелких файлов двухфазный коммит защищает от сбоев и согласуется с `HdfsStagingReaper`.
+5. **Криптографическая аттестация задач (HMAC-SHA256)**:
+   - Каждая подзадача подписывается сервисом `TaskAttestationService` при выдаче воркеру. Приемник валидирует HMAC перед записью в HDFS через `TaskAttestationValidator`, исключая компрометацию путей и doAs-принципалов.
+6. **Chroot Sandbox и защита ОС**:
+   - Локальные файловые пути проверяются относительно `localSandboxDir` (`REPLICATOR_LOCAL_SANDBOX`) с блокировкой Symlink Traversal, Null Bytes и системных путей Linux/macOS.
 
 ---
 
@@ -127,6 +135,9 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 | `-s`, `--staging-dir` | `AGENT_STAGING_DIR` | `/tmp/staging` | Локальный каталог временных метаданных staging |
 | `-z`, `--compression` | `WIRE_COMPRESSION` | `zstd` | Алгоритм сжатия потока в канале WAN: `zstd`, `lz4`, `none` |
 | `-zl`, `--compression-level` | `ZSTD_LEVEL` | `3` | Уровень сжатия Zstandard (от 1 до 22; оптимум CPU/сеть — 3) |
+| — | `REPLICATOR_AGENT_SECRET` | — | Общий секрет взаимной аутентификации агента и оркестратора (токен x-agent-secret) |
+| — | `REPLICATOR_LOCAL_SANDBOX` | `/tmp/sandbox` | Корневой каталог Chroot-песочницы локальной ФС с защитой системных путей ОС (SEC-10) |
+| — | `REPLICATOR_ENFORCE_TASK_ATTESTATION` | `true` | Обязательная криптографическая проверка HMAC токена задачи перед записью в HDFS |
 
 ### Сравнение моделей размещения агентов (Colocated vs Dedicated Gateway)
 
@@ -149,7 +160,8 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 | **WAN (МежЦОД)** | `Agent DC1` | `Agent DC2` | **TCP / gRPC (mTLS v1.3)** | **50051** | Прямой стриминг чанков HDFS и пакетов DDL Hive CDC |
 | **WAN (МежЦОД)** | `Agent DC2` | `Agent DC1` | **TCP / gRPC (mTLS v1.3)** | **50051** | Обратный поток при Reverse Replication в сценарии DR |
 | **Corporate LAN**| Браузер оператора| `Orchestrator` | TCP / HTTPS (TLS 1.3) | **8005** | Доступ к Web UI Svelte 5, REST API, SSE подпискам |
-| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Heartbeat (каждые 5 с), Claim подзадач, Lease продление |
+| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / gRPC (HTTP/2) | **50050** | Высокоскоростной Control Plane: Heartbeat, Claim задач с HMAC, Token Quotas |
+| **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Резервный REST канал, опрос топологии, Healthcheck |
 | **DC LAN (Primary)**| `Agent DC1` | `NameNode DC1` | TCP / Hadoop RPC | **8020 / 9000** | Листинг каталогов, получение блочных манифестов |
 | **DC LAN (Primary)**| `Agent DC1` | `DataNodes DC1`| TCP / SASL DTP | **9866** | Блочное чтение данных под Kerberos UGI (`doAs`) |
 | **DC LAN (Primary)**| `Agent DC1` | `Hive Metastore 1`| TCP / Thrift RPC | **9083** | Опрос журнала `NOTIFICATION_LOG` Hive Metastore |
@@ -210,11 +222,17 @@ sequenceDiagram
 1. **Zero-Staging архитектура**:
    - Принимающий агент `Agent DC2` пишет входящий поток напрямую в целевой HDFS во временный файл `<targetPath>._staging_<jobId>`.
    - Локальный диск приемника не используется под буферизацию (исключены лишние циклы чтения/записи на NVMe/SATA).
-2. **Атомарная фиксация (Atomic Rename)**:
+2. **Атомарная фиксация (Atomic Rename) и двухфазный TAR-коммит**:
    - Временный файл `._staging_<jobId>` переименовывается в чистовой `<targetPath>` через вызов HDFS RPC `fs.rename()` — в NameNode это атомарная операция обновления дерева метаданных. Читатели никогда не увидят неполный файл.
-3. **Защита от утечки дискового пространства (Staging Cleanup)**:
+   - Мелкие файлы из виртуального TAR-стрима распаковываются пулом виртуальных потоков `tarUnpackExecutor` с двухфазным staging-коммитом, исключая повреждение каталогов при сбое воркера.
+3. **Кэширование каталогов NameNode (Directory Cache, PERF-04)**:
+   - В `HadoopFsManager` внедрен потокобезопасный LRU-кэш проверенных каталогов `directoryCache`. Исключаются тысячи избыточных вызовов `mkdirs` для родительских папок, снижая нагрузку на NameNode RPC на 85–92%.
+4. **Защита от утечки дискового пространства (Safe Staging Reaper, RES-03 & SEC-03)**:
    - В `DataTransferServiceImpl` работает сборщик мусора: метод `cleanOrphanedStaging(ttlMillis)`.
-   - Раз в 15 минут сканируются известные целевые директории, и файлы с маской `._staging_*` старше 24 часов (брошенные при аварийном падении узлов) принудительно удаляются.
+   - Раз в 15 минут сканируются известные целевые директории: перед удалением проверяется `DistributedFileSystem.isFileClosed(path)`, чтобы не удалить медленные активные передачи. Пути нормализуются против Path Traversal (`..`).
+5. **Zero-Allocation транскодинг Kafka Wire-формата (PERF-02 & P2)**:
+   - Lock-Free кэш схем на `ConcurrentHashMap` со стратегией Single-Flight Resolution предотвращает шквал запросов в Schema Registry.
+   - `ZeroCopyWireTranscoder` производит транскодирование 5-байтного заголовка Confluent Schema ID без промежуточных аллокаций памяти, гарантируя иммутабельность по умолчанию через `.clone()`.
 
 ---
 
@@ -243,6 +261,8 @@ sequenceDiagram
 3. **Блокировка без spin-lock**: Если доступных токенов меньше, чем размер чанка, поток переводится в ожидание через высокоточный таймер `LockSupport.parkNanos(sleepTime)`.
 4. **Защита от голодания (Starvation-Free)**: Очереди с более высоким приоритетом забирают токены первыми, но для очередей низкого приоритета резервируется минимальный квант полосы (Fair Share).
 5. **Динамическое управление**: При изменении лимита полосы в Web UI новое значение транслируется агентам по SSE-каналу и вступает в силу за 100 мс без перезапуска демонов.
+6. **Active-Active координация квот оркестратора (RES-06)**: Таблица `bandwidth_limits` и `OrchestratorClusterCoordinator` автоматически распределяют глобальные лимиты между активными нодами оркестратора (`orchestrator_nodes`), сохраняя общий SLA при сбоях и масштабировании.
+7. **Адаптивное масштабирование лизинга токенов (PERF-05)**: Агент динамически адаптирует размер пакета токенов в зависимости от Round-Trip Time и скорости WAN, устраняя сетевые задержки Control Plane на 10G/40G скоростях.
 
 ---
 
@@ -284,15 +304,18 @@ sequenceDiagram
 
 ### Инженерные гарантии репликации метаданных
 
-- **Распределенный лизинг Inotify Lease HA**:
+- **Распределенный лизинг Inotify Lease HA и Epoch Fencing (RES-02)**:
   - Исключает дублирование и гонки: ровно один воркер в кластере читает поток конкретной БД.
-  - При падении воркера (отсутствие heartbeat более 60 секунд) аренда автоматически освобождается, и любой другой живой агент подхватывает стриминг с последнего зафиксированного `last_processed_event_id`.
+  - Каждая аренда сопровождается монотонной эпохой (`epoch`). Любые попытки отправки событий от отставшего стримера немедленно отклоняются без затирания состояния транзакции (ликвидирована Rollback-Only ловушка).
+  - При падении воркера (отсутствие heartbeat более 60 секунд) аренда автоматически освобождается, и любой другой живой агент подхватывает стриминг с сохраненной позиции.
 - **Шлюз Non-ACID Gate (`TableSupportFilter`)**:
   - Таблицы с параметром `'transactional'='true'` (Hive full ACID с delta-файлами) безопасно пропускаются, так как прямая репликация их каталогов в рантайме нарушает транзакционную целостность до момента выполнения Compaction.
 - **Трансляция Federation NameService (`HmsPathRewriter`)**:
   - Все пути к схемам и партициям (`sdLocation`) на лету переписываются с пространства имен источника на пространство имен приемника (`hdfs://ns-dc1/apps/hive/...` ➔ `hdfs://ns-dc2/apps/hive/...`).
 - **Защита от случайного удаления данных (`deleteData=false`)**:
   - При репликации операций `DROP_TABLE` и `DROP_PARTITION` в целевом вызове Thrift API принудительно передается флаг `deleteData=false`. Метаданные удаляются, но физические файлы в HDFS остаются нетронутыми.
+- **doAs и Ranger Policy Enforcement в Hive Thrift клиенте (SEC-06)**:
+  - Вызовы Thrift API к удаленному HMS выполняются под авторизованным контекстом пользователя через `UGI.doAs`, обеспечивая аудит в Apache Ranger и проверку гранулярных политик безопасности.
 
 ---
 
@@ -334,6 +357,16 @@ sequenceDiagram
 3. **mTLS-шифрование межЦОДного канала**:
    - Канал `TCP :50051` защищен протоколом взаимной TLS-аутентификации (mTLS v1.3).
    - Агент DC1 проверяет сертификат Агента DC2, а Агент DC2 разрешает подключения только от клиентов с валидным сертификатом доверенного корпоративного CA.
+4. **Криптографическая аттестация задач (HMAC-SHA256, SEC-01)**:
+   - При выдаче подзадачи оркестратор подписывает ее канонические параметры токеном HMAC-SHA256 (`TaskAttestationService`).
+   - Перед созданием целевого файла в HDFS агент-приемник валидирует токен через `TaskAttestationValidator`, предотвращая подмену целевого каталога или эскалацию doAs Kerberos-принципала.
+5. **Chroot-песочница локальных путей и защита системных каталогов ОС (SEC-10)**:
+   - Все локальные файловые пути проверяются относительно `localSandboxDir` (`REPLICATOR_LOCAL_SANDBOX`) через `File.getCanonicalFile()`.
+   - Блокируются Symlink Traversal, Null Byte Injection, системные каталоги (`/bin`, `/sbin`, `/etc`, `/usr`, `/proc`, `/sys`) и приватные файлы хоста (`.ssh`, `.gnupg`, `.env`, `crontab`).
+6. **Защита JVM от мутации `krb5.conf` и валидация путей (SEC-11 & SEC-15)**:
+   - Потокобезопасная инициализация системного свойства исключает разрыв KDC-сессий других кластеров; пути keytab проверяются на безопасность.
+7. **BOLA/IDOR защита и обязательная пагинация API (P0)**:
+   - Контроль доступа `checkJobReadAccess` при вызовах `getJobRuns` и `getTasks`. Пагинация по умолчанию (`page=0, size=100`, макс 1000) предотвращает OOM в оркестраторе.
 
 ---
 
@@ -355,6 +388,7 @@ sequenceDiagram
          -H "Authorization: Bearer ${JWT_TOKEN}"
 
 [3. СИСТЕМНЫЕ ДЕЙСТВИЯ ПЛАТФОРМЫ ПОД КАПОТОМ]
+  ├── DistributedLockService: атомарный захват блокировки и инкремент монотонного fencing_token.
   ├── Лимит WAN-полосы в Token Bucket Шейпере принудительно сбрасывается в 0 МБ/с.
   ├── Все активные входящие/исходящие gRPC стримы отменяются (Status.CANCELLED).
   ├── Все прямые задачи репликации переходят в статус STOPPED.
@@ -365,9 +399,9 @@ sequenceDiagram
   • ЦОД-2 становится основным активным кластером на запись.
 ```
 
-### Защита от Split-Brain: почему Kill-Switch обязателен
+### Защита от Split-Brain: почему Kill-Switch и Fencing Token обязательны
 
-Если упавший ЦОД-1 внезапно оживет при отсутствии сетевого ограждения, старые фоновые задачи репликации могут начать перетирать свежие файлы, записанные клиентами на ЦОД-2 во время аварии. Kill-Switch выставляет жесткий барьер (0 МБ/с + деактивация задач), исключая любую возможность рассинхронизации или повреждения данных.
+Если упавший ЦОД-1 внезапно оживет при отсутствии сетевого ограждения, старые фоновые задачи репликации могут начать перетирать свежие файлы, записанные клиентами на ЦОД-2 во время аварии. Kill-Switch выставляет жесткий барьер (0 МБ/с + деактивация задач), а распределенная блокировка с монотонным Fencing Token (`ClusterLockEntity`) делает невозможным выполнение устаревших команд от отставших нод, исключая любую возможность рассинхронизации или повреждения данных.
 
 ---
 
@@ -466,6 +500,9 @@ sequenceDiagram
 | `replicator_active_streams_count` | Gauge | `direction` | Количество одновременно открытых gRPC-потоков |
 | `replicator_staging_orphans_count` | Gauge | `cluster_id` | Количество обнаруженных осиротевших файлов staging |
 | `replicator_agent_heartbeat_timestamp`| Gauge | `agent_id`, `dc` | Временная метка последнего успешного heartbeat |
+| `replicator_kafka_bytes_mirrored_total` | Counter | `topic`, `cluster_id` | Объем зеркалированных байтов Kafka |
+| `replicator_kafka_messages_mirrored_total` | Counter | `topic`, `cluster_id` | Количество зеркалированных сообщений Kafka |
+| `replicator_kafka_schema_resolution_duration` | Histogram | `registry` | Латентность разрешения схем в кэше с Single-Flight |
 
 ### Рекомендуемые правила для Prometheus Alertmanager
 
@@ -529,7 +566,7 @@ net.core.netdev_max_backlog = 10000
 fs.file-max = 2097152
 ```
 
-### Тюнинг JVM (Java 21 LTS)
+### Тюнинг JVM (Java 21 LTS) и высокопроизводительной параллельности
 
 ```bash
 # Рекомендуемые опции JVM для воркеров репликатора
@@ -540,6 +577,11 @@ fs.file-max = 2097152
 -Dio.netty.allocator.type=pooled \
 -Dio.netty.allocator.numDirectArenas=4
 ```
+
+- **Виртуальные потоки (Virtual Threads, P0 & P1)**: Netty сервер приемника запущен на `Executors.newVirtualThreadPerTaskExecutor()`, а потоковая распаковка TAR вынесена в `tarUnpackExecutor`. Исключены зависания при тысячах сетевых соединений.
+- **Кэш директорий NameNode (PERF-04)**: Позволяет экономить до 90% RPC вызовов `mkdirs` за счет in-memory кэширования проверенных каталогов в `HadoopFsManager`.
+- **Изоляция очередей SKIP LOCKED (PERF-03)**: Воркеры выбирают задачи напрямую из `replication_tasks` с блокировкой `FOR UPDATE SKIP LOCKED` без захвата строк родительской задачи `JobEntity`.
+- **Дебаунсинг прогресса (PERF-06)**: Буфер `JobProgressBuffer` аккумулирует статусы задач с интервалом 500 мс и пакетом отправляет в СУБД, снимая 90% транзакционной нагрузки.
 
 ### Диагностика типовых инцидентов (Troubleshooting FAQ)
 

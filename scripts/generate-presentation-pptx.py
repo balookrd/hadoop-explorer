@@ -234,8 +234,8 @@ def generate_presentation(output_pptx_path):
     add_card(slide1, Inches(0.8), Inches(3.8), Inches(3.7), Inches(2.8),
              "🏢 Что куда устанавливается?",
              [
-                 "Control Plane (Orchestrator): отдельный сервер управления / K8s / VM. Порт 8005 (REST + Web UI).",
-                 "Data Plane (Replicator Agents): устанавливаются в каждом ЦОД на узлы DataNode или Edge/Gateway.",
+                 "Control Plane (Orchestrator): Stateless Active-Active кластер (VM / K8s). Порты 8005 (REST/UI) и 50050 (gRPC).",
+                 "Data Plane (Replicator Agents): устанавливаются в каждом ЦОД на узлы DataNode или Edge/Gateway на Virtual Threads.",
                  "Hadoop узлы: NameNode, DataNodes, HMS работают в штатном режиме без плагинов."
              ], ACCENT_INDIGO)
 
@@ -243,16 +243,16 @@ def generate_presentation(output_pptx_path):
              "🌐 Как ходит трафик данных?",
              [
                  "Прямой gRPC WAN стрим: Agent DC1 ➔ Agent DC2 (:50051) минуя Оркестратор!",
-                 "Оркестратор НЕ качает байты через себя (чистый Control Plane).",
-                 "Чанки по 4 МБ, Tar-Streaming мелких файлов, сквозной хэш SHA-256."
+                 "Оркестратор НЕ качает байты через себя (чистый координатор Control Plane).",
+                 "Чанки по 4 МБ, Tar-Streaming с Directory Cache NameNode, HMAC аттестация, SHA-256."
              ], ACCENT_GREEN)
 
     add_card(slide1, Inches(8.8), Inches(3.8), Inches(3.7), Inches(2.8),
              "🛡️ Сеть и Disaster Recovery",
              [
                  "В межЦОДном фаерволе открывается ТОЛЬКО один порт: TCP 50051 (mTLS).",
-                 "Иерархический шейпер Token Bucket: жесткий контроль полосы WAN.",
-                 "Авария и DR: Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1)."
+                 "Иерархический шейпер Token Bucket с кластерным скейлингом и адаптивным лизингом.",
+                 "Авария и DR: Fencing Tokens, Kill-Switch (0 МБ/с) и разворот Reverse Replication (DC2 ➔ DC1)."
              ], ACCENT_CYAN)
 
     # =========================================================================
@@ -278,31 +278,31 @@ def generate_presentation(output_pptx_path):
     add_card(slide3, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.4),
              "1. Control Plane Host (Orchestrator)",
              [
-                 "Где работает: Выделенная виртуальная машина или Kubernetes Pod.",
+                 "Где работает: Active-Active кластер на VM или Kubernetes Pods.",
                  "Процесс: replicator-orchestrator (Java 21 LTS / Spring Boot 3).",
-                 "Порт: 8005 (HTTP/REST API, SSE подписки, веб-консоль Svelte 5).",
-                 "База данных: PostgreSQL / H2 (хранение задач, cron расписаний, истории).",
-                 "⚠️ Роль: Только координация и лимиты. Файлы через него НЕ идут!"
+                 "Порты: 8005 (REST API, SSE, UI Svelte 5) и 50050 (gRPC Control Plane).",
+                 "База данных: PostgreSQL с таблицами agent_registry, bandwidth_limits, cluster_lock.",
+                 "⚠️ Роль: Координация, HMAC аттестация и Fencing Tokens. Файлы через него НЕ идут!"
              ], ACCENT_INDIGO)
 
     add_card(slide3, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.4),
              "2. ЦОД-1 Узлы (Primary — Москва)",
              [
                  "Где работает: Узлы DataNode кластера или выделенные Edge Gateway узлы.",
-                 "Процесс: replicator-agent-dc1 (Java 21 / Netty gRPC демон).",
+                 "Процесс: replicator-agent-dc1 (Java 21 Virtual Threads / Netty gRPC демон).",
                  "Порт: 50051 (gRPC Server, Full-Duplex режим).",
-                 "Kerberos: Системный keytab hdfs-cluster-1.keytab.",
-                 "Роль: Анализ Diff, чтение из HDFS pod UGI doAs, опрос HMS NOTIFICATION_LOG, отправка в WAN."
+                 "Безопасность: Chroot Sandbox путей, неизменяемый krb5.conf, keytab hdfs-cluster-1.",
+                 "Роль: Анализ Diff, Directory Cache, чтение pod UGI doAs, опрос NOTIFICATION_LOG, стриминг в WAN."
              ], ACCENT_GREEN)
 
     add_card(slide3, Inches(0.8), Inches(4.45), Inches(5.7), Inches(2.35),
              "3. ЦОД-2 Узлы (Standby / DR — Санкт-Петербург)",
              [
                  "Где работает: Узлы DataNode кластера или Edge Gateway узлы DC2.",
-                 "Процесс: replicator-agent-dc2 (Java 21 / Netty gRPC демон).",
+                 "Процесс: replicator-agent-dc2 (Java 21 Virtual Threads / Netty gRPC демон).",
                  "Порт: 50051 (gRPC Server, Full-Duplex режим).",
-                 "Kerberos: Системный keytab hdfs-cluster-2.keytab.",
-                 "Роль: Прием 4 МБ чанков, запись в ._staging_, атомарный rename, накат DDL в HMS DC2."
+                 "Безопасность: Chroot Sandbox путей, неизменяемый krb5.conf, keytab hdfs-cluster-2.",
+                 "Роль: Прием 4 МБ чанков, tarUnpackExecutor, проверка isFileClosed, атомарный rename, DDL в HMS DC2."
              ], ACCENT_CYAN)
 
     add_card(slide3, Inches(6.8), Inches(4.45), Inches(5.7), Inches(2.35),
@@ -311,7 +311,7 @@ def generate_presentation(output_pptx_path):
                  "Где работает: Браузер пользователя (Chrome, Safari, Firefox).",
                  "Сетевой доступ: HTTPS :8005 к Orchestrator.",
                  "Аутентификация: Kerberos SPNEGO SSO в 1 клик или LDAP логин/пароль.",
-                 "Роли RBAC: ADMIN (полный доступ + DR), WRITER (свои задачи), READER (аудит)."
+                 "Защита API: BOLA/IDOR проверка владения задачами и постраничная пагинация (page/size)."
              ], ACCENT_AMBER)
 
     # =========================================================================
@@ -326,8 +326,8 @@ def generate_presentation(output_pptx_path):
         ["Agent DC1 ➔ Agent DC2", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Прямая передача блоков HDFS и DDL пакетов HMS", "WAN (МежЦОД)"],
         ["Agent DC2 ➔ Agent DC1", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Обратная репликация Reverse Replication в DR", "WAN (МежЦОД)"],
         ["Браузер ➔ Orchestrator", "HTTPS / HTTP", "TCP 8005", "Доступ к UI Svelte 5, REST API, SSE событиям", "Corporate LAN"],
-        ["Agents ➔ Orchestrator", "HTTP REST", "TCP 8005", "Heartbeat (5с), Claim подзадач, Lease продление", "Management LAN"],
-        ["Agent ➔ NameNode (локально)", "Hadoop RPC", "TCP 9000 / 8020", "Листинг каталогов, метаданные блоков, атомарный rename", "DC LAN (Внутри ЦОД)"],
+        ["Agents ➔ Orchestrator", "HTTP REST / gRPC", "TCP 8005 / 50050", "Heartbeat, Claim с HMAC аттестацией, координация квот", "Management LAN"],
+        ["Agent ➔ NameNode (локально)", "Hadoop RPC", "TCP 9000 / 8020", "Листинг каталогов, Directory Cache, атомарный rename", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ DataNodes (локально)", "Data Transfer Protocol", "TCP 9866 (SASL)", "Прямое чтение и запись блоков HDFS", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ Hive Metastore", "Thrift RPC", "TCP 9083", "Чтение NOTIFICATION_LOG (DC1) и применение DDL (DC2)", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ Kerberos KDC", "Kerberos AS/TGS", "TCP/UDP 88", "Получение тикетов по keytab техучетки", "DC LAN (Внутри ЦОД)"]
@@ -345,8 +345,8 @@ def generate_presentation(output_pptx_path):
     add_card(slide5, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.35),
              "Шаг 1. Анализ дельты и планирование",
              [
-                 "1. Воркер в DC1 забирает подзадачу из Orchestrator (:8005 /tasks/claim).",
-                 "2. Запрашивает манифест у локальной NameNode DC1 (:9000).",
+                 "1. Воркер в DC1 забирает подзадачу с валидацией HMAC-SHA256 подписи.",
+                 "2. Запрашивает манифест у NameNode с кэшированием структуры в Directory Cache.",
                  "3. Одним gRPC вызовом GetDirectoryManifest запрашивает манифест у Agent DC2.",
                  "4. В памяти строится O(N) Diff: неизмененные файлы пропускаются (0 байт WAN!)."
              ], ACCENT_INDIGO)
@@ -356,26 +356,26 @@ def generate_presentation(output_pptx_path):
              [
                  "5. Агент DC1 читает блоки из DataNodes DC1 (:9866) под UGI автора задачи (doAs).",
                  "6. Запрашивает разрешение на передачу у Token Bucket шейпера полосы.",
-                 "7. Файлы < 1 МБ упаковываются в виртуальный Tar-Stream на лету.",
+                 "7. Файлы < 1 МБ пакуются в Tar-Stream с двухфазным коммитом через ._staging_<jobId>.",
                  "8. Файлы >= 1 МБ нарезаются на чанки по 4 МБ со сжатием Zstd/LZ4."
              ], ACCENT_GREEN)
 
     add_card(slide5, Inches(0.8), Inches(4.35), Inches(5.7), Inches(2.45),
              "Шаг 3. Прямой gRPC WAN стриминг",
              [
-                 "9. Агент DC1 стримит чанки НАПРЯМУЮ в Agent DC2 (:50051 gRPC, mTLS).",
+                 "9. Агент DC1 стримит чанки НАПРЯМУЮ в Agent DC2 (:50051 Netty Virtual Threads).",
                  "10. Никакие байты файлов НЕ проходят через Оркестратор!",
                  "11. Потоковое вычисление контрольной суммы SHA-256 на обеих сторонах.",
-                 "12. Скорость строго удерживается шейпером Token Bucket."
+                 "12. Скорость строго удерживается шейпером Token Bucket с кластерной координацией."
              ], ACCENT_CYAN)
 
     add_card(slide5, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
              "Шаг 4. Zero-Staging и фиксация в HDFS",
              [
-                 "13. Агент DC2 пишет блоки в DataNodes DC2 (:9866) во временный файл ._staging_.",
+                 "13. Агент DC2 пишет блоки в DataNodes DC2 (:9866), проверяя isFileClosed.",
                  "14. Сверка хэша SHA-256: при совпадении вызывается атомарный fs.rename().",
-                 "15. Для мелких файлов Tar-Stream распаковывается прямо в HDFS без диска.",
-                 "16. Агент DC1 отправляет рапорт в Orchestrator (:8005 /progress) с обновлением ETA."
+                 "15. Для мелких файлов Tar-Stream распаковывается виртуальными потоками tarUnpackExecutor.",
+                 "16. Агент отправляет рапорты в Orchestrator через debounced буфер JobProgressBuffer."
              ], ACCENT_AMBER)
 
     # =========================================================================
@@ -389,7 +389,7 @@ def generate_presentation(output_pptx_path):
              "1. Захват эксклюзивной аренды (Lease)",
              [
                  "Агент DC1 запрашивает аренду схемы: POST /hms/lease/claim (Оркестратор).",
-                 "Оркестратор выдает эксклюзивный токен аренды на 60 секунд.",
+                 "Оркестратор выдает токен аренды с монотонным Epoch Fencing (RES-02).",
                  "Исключены гонки: ровно один воркер в кластере читает CDC-поток схемы.",
                  "При сбое воркера аренда протухает, и другой агент подхватывает стрим."
              ], ACCENT_INDIGO)
@@ -415,7 +415,7 @@ def generate_presentation(output_pptx_path):
     add_card(slide6, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
              "4. Применение DDL и подтверждение",
              [
-                 "Агент DC2 по LAN Thrift :9083 накатывает DDL в Hive Metastore DC2.",
+                 "Агент DC2 по LAN Thrift :9083 накатывает DDL в Hive Metastore DC2 с Ranger UGI doAs.",
                  "Безопасность: при DROP_TABLE флаг deleteData=false (файлы не стираются!).",
                  "Агент DC2 подтверждает накат ➔ Агент DC1 рапортует прогресс в Orchestrator.",
                  "Фиксация last_processed_event_id: позиция гарантированно сохранена."
@@ -433,8 +433,8 @@ def generate_presentation(output_pptx_path):
              [
                  "Трафик клиентов: Направлен на DC1.",
                  "Data Plane WAN: Поток идет от Agent DC1 в Agent DC2 (:50051).",
-                 "Шейпер: Лимит 100 МБ/с.",
-                 "HMS CDC: Стриминг дельты в DC2.",
+                 "Шейпер: Лимит 100 МБ/с с адаптивным лизингом и кластерным скейлингом.",
+                 "HMS CDC: Стриминг дельты в DC2 под Epoch Fencing.",
                  "DC2 выступает пассивным Standby-приемником."
              ], ACCENT_GREEN)
 
@@ -443,9 +443,10 @@ def generate_presentation(output_pptx_path):
              [
                  "Событие: DC1 упал. Клиенты переключены на DC2.",
                  "Действие оператора: Нажатие 🛑 Kill-Switch.",
+                 "Fencing Tokens: Монотонный токен эпохи в DistributedLockService.",
                  "WAN сетевой барьер: Лимит канала ➔ 0 МБ/с (Fencing).",
                  "Задачи: Все прямые задачи заморожены (STOPPED, Cron OFF).",
-                 "Защита от Split-Brain: При оживании DC1 старые задачи НЕ запустятся и не затрут свежие данные DC2!"
+                 "Защита от Split-Brain: При оживании DC1 старые задачи НЕ запустятся!"
              ], ACCENT_RED)
 
     add_card(slide7, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
@@ -552,33 +553,33 @@ def generate_presentation(output_pptx_path):
     add_card(slide13, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "🖥️ Сайзинг Orchestrator",
              [
-                 "Размещение: Выделенная VM / K8s Pod.",
-                 "CPU: 4–8 vCPU.",
-                 "RAM: 8–16 GB Heap (Java 21).",
-                 "Диск: 50–100 GB NVMe (для PostgreSQL БД истории).",
-                 "Сеть: 1 Gbps LAN.",
-                 "High Availability: Active-Passive с плавающим IP или K8s Deployment с 1 репликой и persistent volume."
+                 "Размещение: Выделенная VM или Kubernetes Pods (Active-Active).",
+                 "CPU: 4–8 vCPU (Java 21 Virtual Threads).",
+                 "RAM: 8–16 GB Heap.",
+                 "Диск: 50–100 GB NVMe (PostgreSQL: agent_registry, bandwidth_limits, locks).",
+                 "Сеть: 1 Gbps LAN (REST :8005 + gRPC :50050).",
+                 "High Availability: Active-Active кластер с Fencing Tokens и общим пулом агентов."
              ], ACCENT_INDIGO)
 
     add_card(slide13, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "⚡ Сайзинг Replicator Agents",
              [
-                 "Вариант 1 (Colocated): На узлах DataNode. Максимальный Zero-Copy перформанс локального HDFS.",
-                 "Вариант 2 (Gateway): Выделенные Edge-серверы 2–4 шт на ЦОД с 25G/40G сетевыми картами.",
-                 "CPU: 8–16 vCPU на агента.",
-                 "RAM: 16–32 GB Heap (Netty off-heap буферы).",
+                 "Вариант 1 (Colocated): На DataNode узлах. Максимальный Zero-Copy перформанс.",
+                 "Вариант 2 (Gateway): Edge-серверы 2–4 шт на ЦОД с 25G/40G сетевыми картами.",
+                 "CPU: 8–16 vCPU (Netty gRPC на Virtual Threads + tarUnpackExecutor).",
+                 "RAM: 16–32 GB Heap (Directory Cache NameNode + Netty off-heap).",
                  "Сеть: 10G / 25G / 40G NIC.",
-                 "Масштабирование: Добавление агентов в кластер линейно ускоряет параллельный перенос."
+                 "Масштабирование: Линейный скейлинг через персистентный реестр agent_registry."
              ], ACCENT_GREEN)
 
     add_card(slide13, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "🛡️ Чеклист фаервола и ИБ",
              [
-                 "WAN межЦОД: Открыть TCP 50051 между пулами агентов DC1 и DC2.",
-                 "mTLS: Включить взаимную аутентификацию по X.509 сертификатам.",
-                 "Kerberos: Сгенерировать keytab hdfs-replicator с правами Proxy User в core-site.xml.",
-                 "SASL: Включить dfs.data.transfer.protection = privacy.",
-                 "Ranger: Настроить политики доступа на уровне UGI авторов задач."
+                 "WAN межЦОД: Открыть TCP 50051 (mTLS X.509 шифрование).",
+                 "HMAC аттестация: SHA-256 подпись задач (TaskAttestationValidator).",
+                 "Chroot Sandbox: Защита локальных путей (validateSandboxAccess).",
+                 "Kerberos: Защита JVM krb5.conf и keytab с UGI Proxy doAs.",
+                 "Ranger & BOLA: Контроль политик и проверка прав владения в REST API."
              ], ACCENT_CYAN)
 
     prs.save(output_pptx_path)

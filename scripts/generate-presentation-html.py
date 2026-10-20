@@ -557,19 +557,19 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="card-title">⚙️ Control Plane (Orchestrator Host)</div>
             <ul class="card-list">
               <li><strong>Стек:</strong> Java 21 LTS, Spring Boot 3.3.4, Spring Data JPA.</li>
-              <li><strong>Порт:</strong> <code>TCP :8005</code> (REST API, SSE Event Bus, Svelte 5 SPA).</li>
-              <li><strong>БД метаданных:</strong> PostgreSQL 14+ / H2 (таблицы jobs, tasks, hms_jobs, lease).</li>
-              <li><strong>Координация:</strong> Распределение квот Token Bucket, арбитраж Inotify Lease HA.</li>
+              <li><strong>Порты:</strong> <code>TCP :8005</code> (REST / Web UI) и <code>TCP :50050</code> (gRPC Control Plane).</li>
+              <li><strong>Stateless Active-Active:</strong> Персистентный реестр <code>agent_registry</code> в PostgreSQL, кластерный скейлинг токенов <code>bandwidth_limits</code>.</li>
+              <li><strong>Координация:</strong> Токены шейпера Token Bucket, арбитраж Inotify Lease HA, монотонные Fencing Tokens.</li>
               <li><strong>⚠️ Инвариант:</strong> Оркестратор <strong>НЕ прокачивает байты файлов</strong> через себя!</li>
             </ul>
           </div>
           <div class="card card-accent-green">
             <div class="card-title">🚀 Data Plane (DC1 Primary Nodes)</div>
             <ul class="card-list">
-              <li><strong>Стек:</strong> Java 21 LTS, Netty 4.1 gRPC Daemon (Full-Duplex).</li>
+              <li><strong>Стек:</strong> Java 21 LTS, Netty 4.1 gRPC Daemon на Virtual Threads.</li>
               <li><strong>Порт приемника:</strong> <code>TCP :50051</code> (gRPC HTTP/2, mTLS v1.3).</li>
               <li><strong>Протоколы LAN:</strong> Hadoop RPC (<code>:8020/:9000</code>), SASL DTP (<code>:9866</code>), Thrift (<code>:9083</code>).</li>
-              <li><strong>Авторизация:</strong> Системный keytab + Kerberos <code>doAs</code> Impersonation.</li>
+              <li><strong>Безопасность:</strong> Системный keytab + Kerberos <code>doAs</code> + HMAC Task Attestation + Chroot Sandbox.</li>
               <li><strong>Сжатие в канале:</strong> Потоковый Zstandard (level 3) или LZ4.</li>
             </ul>
           </div>
@@ -577,8 +577,8 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="card-title">🛡️ Standby & Storage (DC2 Receiver & DB)</div>
             <ul class="card-list">
               <li><strong>МежЦОДный фаервол:</strong> Ровно 1 открытый порт — <code>TCP :50051</code>.</li>
-              <li><strong>Zero-Staging транзакции:</strong> запись в <code>._staging_*</code> + атомарный rename в NameNode.</li>
-              <li><strong>Авария DC1 (Fencing):</strong> Сброс WAN в 0 МБ/с, остановка задач, защита от Split-Brain.</li>
+              <li><strong>Zero-Staging транзакции:</strong> запись в <code>._staging_*</code> + двухфазный коммит TAR-бандлов + Safe Reaper (<code>isFileClosed</code>).</li>
+              <li><strong>Авария DC1 (Fencing):</strong> Сброс WAN в 0 МБ/с, Fencing Tokens, остановка задач, защита от Split-Brain.</li>
               <li><strong>Восстановление:</strong> Unfence без автозапуска + 1-Click Reverse Replication (DC2 ➔ DC1).</li>
             </ul>
           </div>
@@ -741,12 +741,12 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             </ul>
           </div>
           <div class="card card-accent-green">
-            <div class="card-title">2. Tar-Streaming и Zero-Staging коммит</div>
+            <div class="card-title">2. Tar-Streaming, Directory Cache и Zero-Staging</div>
             <ul class="card-list">
-              <li><strong>Виртуальный Tar-Streaming (&lt; 1 МБ):</strong> Метод <code>TransferTarStream()</code> упаковывает сотни мелких файлов в непрерывный поток в RAM. Приемник потоково пишет файлы прямо в HDFS (8 параллельных потоков). <strong>0 шторма RPC к NameNode!</strong></li>
-              <li><strong>Zero-Staging коммит:</strong> Приемник пишет поток напрямую в целевой HDFS: <code>&lt;path&gt;._staging_&lt;jobId&gt;</code> без локального диска.</li>
-              <li><strong>Атомарный <code>fs.rename()</code>:</strong> Чистовой файл фиксируется атомарным RPC переименованием NameNode.</li>
-              <li><strong>Staging Garbage Collection:</strong> Демон удаляет осиротевшие файлы <code>._staging_*</code> старше 24ч раз в 15 минут.</li>
+              <li><strong>Виртуальный Tar-Streaming (&lt; 1 МБ):</strong> Метод <code>TransferTarStream()</code> упаковывает сотни мелких файлов в непрерывный поток в RAM. Распаковка изолирована в пуле виртуальных потоков <code>tarUnpackExecutor</code> (Java 21).</li>
+              <li><strong>NameNode Directory Cache (PERF-04):</strong> LRU-кэш проверенных директорий в <code>HadoopFsManager</code> устраняет до 90% повторных RPC вызовов <code>mkdirs</code>.</li>
+              <li><strong>Двухфазный Staging коммит:</strong> Приемник пишет во временный файл <code>&lt;path&gt;._staging_&lt;jobId&gt;</code> с атомарным <code>fs.rename()</code>. Безопасный сборщик <code>HdfsStagingReaper</code> проверяет <code>isFileClosed</code>.</li>
+              <li><strong>Zero-Allocation Kafka Transcoding (PERF-02):</strong> Lock-Free кэш Schema Registry с Single-Flight resolution и замена wire-заголовков схем без аллокаций памяти.</li>
             </ul>
           </div>
         </div>
@@ -778,13 +778,13 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             </ul>
           </div>
           <div class="card card-accent-amber">
-            <div class="card-title">Механизм троттлинга (LocalBandwidthLimiter)</div>
+            <div class="card-title">Механизм троттлинга и Active-Active скейлинг</div>
             <ul class="card-list">
+              <li><strong>Active-Active координатор (RES-06):</strong> <code>OrchestratorClusterCoordinator</code> делит квоты между живыми репликами оркестратора по таблице <code>orchestrator_nodes</code>.</li>
+              <li><strong>Адаптивный лизинг токенов (PERF-05):</strong> Динамическая подстройка размера пакета токенов под RTT и полосу WAN снижает задержки Control Plane.</li>
               <li><strong>Пополнение корзины:</strong> Каждую миллисекунду корзина токенов пополняется на <code>allowedBytesPerSec / 1000</code>.</li>
-              <li><strong>Троттлинг потока:</strong> Перед отправкой чанка вызывается <code>limiter.throttle(chunkSize)</code>.</li>
-              <li><strong>Высокоточная пауза:</strong> При нехватке токенов поток усыпляется через <code>LockSupport.parkNanos()</code>.</li>
+              <li><strong>Высокоточная пауза:</strong> При нехватке токенов поток усыпляется через <code>LockSupport.parkNanos()</code> без блокировки системных тредов.</li>
               <li><strong>HTTP/2 Flow Control:</strong> Обратное давление (Backpressure) удерживает Netty буферы от переполнения.</li>
-              <li><strong>Гарантия без голодания:</strong> Низкоприоритетные очереди получают гарантированный квант полосы.</li>
             </ul>
           </div>
         </div>
@@ -803,11 +803,12 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">1. Вычитка событий и Inotify Lease HA</div>
+            <div class="card-title">1. Вычитка событий, Lease HA и Epoch Fencing</div>
             <ul class="card-list">
               <li><strong>Опрос NOTIFICATION_LOG:</strong> Агент опрашивает Thrift <code>:9083</code> методом <code>get_next_notification()</code>.</li>
-              <li><strong>Распределенный лизинг (Lease HA):</strong> Оркестратор выдает эксклюзивный токен аренды потока схемы на 60 сек (heartbeat раз в 20 сек). Ровно 1 воркер читает поток схемы.</li>
-              <li><strong>Автоматический Failover воркера:</strong> При падении держателя аренда протухает через 60 сек, и поток подхватывает соседний агент с позиции <code>last_processed_event_id</code>.</li>
+              <li><strong>Lease HA & Epoch Fencing (RES-02):</strong> Монотонные эпохи лизинга исключают гонки и ловушку Rollback-Only при перехвате стрима другим воркером.</li>
+              <li><strong>Автоматический Failover:</strong> При падении держателя аренда протухает через 60 сек, и поток подхватывает соседний агент с сохраненной позиции.</li>
+              <li><strong>Ranger & doAs в Thrift (SEC-06):</strong> Вызовы к удаленному HMS выполняются под авторизованным UGI пользователя.</li>
               <li><strong>Non-ACID Gate:</strong> Таблицы с <code>transactional=true</code> отфильтровываются, исключая повреждение дельт.</li>
             </ul>
           </div>
@@ -836,23 +837,21 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-cyan">
-            <div class="card-title">Kerberos Proxy User doAs Impersonation</div>
+            <div class="card-title">Kerberos Impersonation, HMAC Attestation & Sandbox</div>
             <ul class="card-list">
-              <li><strong>Системный Keytab:</strong> Агент стартует под техучеткой <code>hdfs-replicator/node@REALM</code> (прописана в <code>hadoop.proxyuser.hosts</code>).</li>
-              <li><strong>Выполнение под UGI автора:</strong> Чтение и запись в HDFS производятся строго от имени автора задачи:
-                <br/><code>UGI.createProxyUser(jobAuthor, systemUGI).doAs(...)</code>.
-              </li>
-              <li><strong>Apache Ranger Audit:</strong> В аудит-логах HDFS фиксируется реальный автор (например, <code>ivan_de</code>), а не техническая учетная запись.</li>
-              <li><strong>Сохранение POSIX прав:</strong> В <code>FileMetadata</code> передаются <code>file_mode</code>, <code>owner</code>, <code>group</code>. На приемнике права выставляются через <code>fs.setPermission()</code>.</li>
+              <li><strong>Kerberos Proxy User doAs:</strong> Чтение и запись в HDFS производятся строго от имени автора задачи под <code>UGI.createProxyUser(jobAuthor, systemUGI).doAs(...)</code> с аудитом в Apache Ranger.</li>
+              <li><strong>HMAC-SHA256 Task Attestation (SEC-01):</strong> Каждая задача подписывается при выдаче; <code>TaskAttestationValidator</code> проверяет токен перед открытием OutputStream.</li>
+              <li><strong>Chroot Sandbox (SEC-10):</strong> Изоляция путей в <code>localSandboxDir</code> с защитой от Symlink Traversal и черным списком системных файлов ОС.</li>
+              <li><strong>JVM krb5.conf Safety (SEC-11):</strong> Потокобезопасная проверка системных свойств исключает разрыв соединений с другими KDC.</li>
             </ul>
           </div>
           <div class="card card-accent-amber">
-            <div class="card-title">Аутентификация и сетевое шифрование</div>
+            <div class="card-title">Сетевое шифрование, SSO и BOLA/IDOR Guard</div>
             <ul class="card-list">
               <li><strong>mTLS v1.3:</strong> МежЦОДное gRPC соединение защищено взаимными x509 сертификатами с валидацией корпоративным CA.</li>
-              <li><strong>Web UI SSO:</strong> Вход в веб-интерфейс через Kerberos SPNEGO SSO в 1 клик (Negotiate header) или LDAP Bind.</li>
-              <li><strong>JWT Сессии:</strong> Безопасные HttpOnly / SameSite Lax Cookie с валидацией ролей (ADMIN, WRITER, READER).</li>
-              <li><strong>Защита секретов:</strong> Ключи агентов и токены передаются в защищенных заголовках <code>X-Replicator-Agent-Secret</code>.</li>
+              <li><strong>Web UI SSO:</strong> Вход в веб-интерфейс через Kerberos SPNEGO SSO в 1 клик или LDAP Bind.</li>
+              <li><strong>BOLA/IDOR Защита & Пагинация (P0):</strong> Эндпоинты задач защищены контролем прав <code>checkJobReadAccess</code>; принудительная пагинация (до 1000) защищает от OOM.</li>
+              <li><strong>Защита секретов:</strong> Ключи агентов передаются в защищенных gRPC контекстах и заголовках <code>x-agent-secret</code>.</li>
             </ul>
           </div>
         </div>
@@ -885,10 +884,11 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             </ul>
           </div>
           <div class="card card-accent-amber">
-            <div class="card-title">Защита от Split-Brain: Физический барьер</div>
+            <div class="card-title">Защита от Split-Brain и Fencing Tokens</div>
             <ul class="card-list">
               <li><strong>В чем риск:</strong> Если упавший ЦОД-1 внезапно оживет без сетевого ограждения, старые фоновые задачи репликации перетерли бы новые данные, записанные клиентами на ЦОД-2!</li>
-              <li><strong>Как решено:</strong> Kill-Switch ставит двойной барьер — программный (заморозка задач) и сетевой (квота шейпера 0 МБ/с). Ни один байт не покидает периметр.</li>
+              <li><strong>Fencing Tokens (RES-07 & RES-08):</strong> При переключении захватывается распределенная блокировка <code>DistributedLockService</code> с монотонным <code>fencing_token</code> в таблице <code>cluster_locks</code>.</li>
+              <li><strong>Как решено:</strong> Kill-Switch ставит тройной барьер — программный (заморозка задач), сетевой (квота шейпера 0 МБ/с) и монотонный токен, исключающий исполнение устаревших команд.</li>
             </ul>
           </div>
         </div>
@@ -977,14 +977,15 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-cyan">
-            <div class="card-title">Реестр ключевых метрик Prometheus</div>
+            <div class="card-title">Реестр ключевых метрик Prometheus & Observability</div>
             <ul class="card-list">
               <li><code>replicator_throughput_bytes_total</code> (Counter): Суммарный объем переданных байт по WAN.</li>
               <li><code>replicator_throughput_bytes_per_second</code> (Gauge): Текущая мгновенная скорость передачи.</li>
               <li><code>replicator_task_duration_seconds</code> (Histogram): Длительность выполнения задач.</li>
               <li><code>replicator_hms_lag_events</code> (Gauge): Отставание CDC в событиях NOTIFICATION_LOG.</li>
+              <li><code>replicator_kafka_bytes_mirrored_total</code> (Counter): Зеркалированные байты Kafka Mirroring.</li>
               <li><code>replicator_active_streams_count</code> (Gauge): Количество открытых параллельных gRPC стримов.</li>
-              <li><code>replicator_staging_orphans_count</code> (Gauge): Количество обнаруженных осиротевших staging файлов.</li>
+              <li><code>JobProgressBuffer (PERF-06):</code> Буферизация статусов в RAM с дебаунсингом (500 мс) и пакетным коммитом в СУБД.</li>
             </ul>
             <div class="code-box"># Эндпоинты сбора метрик:
 GET http://orchestrator:8005/actuator/prometheus
@@ -1022,13 +1023,14 @@ GET http://orchestrator:8005/actuator/health</div>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">Тюнинг ядра Linux для 10G/40G WAN (/etc/sysctl.conf)</div>
+            <div class="card-title">Тюнинг Linux и параллельность Java 21</div>
             <ul class="card-list">
               <li><code>net.core.rmem_max = 67108864</code> (64MB сетевой буфер приема).</li>
               <li><code>net.core.wmem_max = 67108864</code> (64MB сетевой буфер отправки).</li>
-              <li><code>net.ipv4.tcp_rmem = 4096 87380 33554432</code> (TCP авто-окно).</li>
-              <li><code>net.ipv4.tcp_wmem = 4096 65536 33554432</code> (TCP авто-окно).</li>
-              <li><code>net.core.somaxconn = 4096</code>, <code>fs.file-max = 2097152</code>.</li>
+              <li><code>net.ipv4.tcp_rmem / tcp_wmem</code> (автотюнинг TCP окна).</li>
+              <li><strong>Virtual Threads (P0 & P1):</strong> Netty сервер приемника на виртуальных потоках Java 21, распаковка TAR в выделенном <code>tarUnpackExecutor</code>.</li>
+              <li><strong>Directory Cache (PERF-04):</strong> LRU кэш каталогов экономит 90% RPC NameNode.</li>
+              <li><strong>FOR UPDATE SKIP LOCKED (PERF-03):</strong> Изоляция очередей задач без строчных блокировок jobs.</li>
             </ul>
             <div class="code-box"># Рекомендуемые опции JVM (Java 21):
 -XX:+UseG1GC -XX:MaxGCPauseMillis=50

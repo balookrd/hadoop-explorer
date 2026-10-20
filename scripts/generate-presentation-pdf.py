@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import html
+import tempfile
 import subprocess
 
 def main():
@@ -29,14 +30,18 @@ def main():
 
     # Конвертируем Markdown в HTML через npx marked
     print("⚙️ Парсинг GFM через marked...")
-    res = subprocess.run(
-        ["npx", "--yes", "marked", "--gfm"],
-        input=md_text,
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    raw_html = res.stdout
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp_out:
+        tmp_out_path = tmp_out.name
+    try:
+        subprocess.run(
+            ["npx", "--yes", "marked", "-i", md_path, "-o", tmp_out_path, "--gfm"],
+            check=True
+        )
+        with open(tmp_out_path, "r", encoding="utf-8") as f:
+            raw_html = f.read()
+    finally:
+        if os.path.exists(tmp_out_path):
+            os.remove(tmp_out_path)
 
     # 1. Пост-обработка Mermaid блоков:
     # marked превращает ```mermaid в <pre><code class="language-mermaid">...</code></pre>
