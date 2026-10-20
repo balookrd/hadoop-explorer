@@ -28,7 +28,7 @@ ACCENT_RED = RGBColor(239, 68, 68)       # #EF4444 красный
 TABLE_HEADER_BG = RGBColor(30, 41, 59)   # #1E293B заголовок таблицы
 TABLE_ROW_ALT = RGBColor(17, 24, 39)     # #111827 альт. строка
 
-TOTAL_SLIDES = 13
+TOTAL_SLIDES = 14
 
 def set_shape_bg(shape, color, border_color=None, border_width=Pt(1)):
     shape.fill.solid()
@@ -185,7 +185,7 @@ def add_table_custom(slide, left, top, width, height, headers, rows, col_widths=
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             p = cell.text_frame.paragraphs[0]
             p.text = val
-            p.font.size = Pt(9.2)
+            p.font.size = Pt(8.5)
             p.font.color.rgb = TEXT_WHITE if col_idx == 0 else TEXT_MUTED
 
 def generate_presentation(output_pptx_path):
@@ -198,7 +198,7 @@ def generate_presentation(output_pptx_path):
     logo_path = os.path.join(base_dir, "images", "logo_white.png")
     arch_img_path = os.path.join(img_dir, "architecture_deployment_traffic.png")
 
-    print(f"🚀 Генерация 13 слайдов с архитектурными схемами в {output_pptx_path}...")
+    print(f"🚀 Генерация 14 слайдов с архитектурными схемами в {output_pptx_path}...")
 
     # =========================================================================
     # СЛАЙД 1: ТИТУЛЬНЫЙ
@@ -324,12 +324,16 @@ def generate_presentation(output_pptx_path):
     headers4 = ["Направление трафика", "Протокол", "Порт", "Назначение", "Сетевой сегмент"]
     rows4 = [
         ["Agent DC1 ➔ Agent DC2", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Прямая передача блоков HDFS и DDL пакетов HMS", "WAN (МежЦОД)"],
+        ["Agent DC1 ➔ Agent DC2", "gRPC / HTTP/2 (mTLS)", "TCP 50052", "Потоковая передача сообщений Kafka и транскодирование схем", "WAN (МежЦОД)"],
         ["Agent DC2 ➔ Agent DC1", "gRPC / HTTP/2 (mTLS)", "TCP 50051", "Обратная репликация Reverse Replication в DR", "WAN (МежЦОД)"],
+        ["Agent DC2 ➔ Agent DC1", "gRPC / HTTP/2 (mTLS)", "TCP 50052", "Обратная репликация топиков Kafka в сценарии DR", "WAN (МежЦОД)"],
         ["Браузер ➔ Orchestrator", "HTTPS / HTTP", "TCP 8005", "Доступ к UI Svelte 5, REST API, SSE событиям", "Corporate LAN"],
         ["Agents ➔ Orchestrator", "HTTP REST / gRPC", "TCP 8005 / 50050", "Heartbeat, Claim с HMAC аттестацией, координация квот", "Management LAN"],
         ["Agent ➔ NameNode (локально)", "Hadoop RPC", "TCP 9000 / 8020", "Листинг каталогов, Directory Cache, атомарный rename", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ DataNodes (локально)", "Data Transfer Protocol", "TCP 9866 (SASL)", "Прямое чтение и запись блоков HDFS", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ Hive Metastore", "Thrift RPC", "TCP 9083", "Чтение NOTIFICATION_LOG (DC1) и применение DDL (DC2)", "DC LAN (Внутри ЦОД)"],
+        ["Agent ➔ Kafka Brokers", "Kafka Protocol", "TCP 9092 / 9093", "Параллельная вычитка (DC1) и запись (DC2) пулами воркеров", "DC LAN (Внутри ЦОД)"],
+        ["Agent ➔ Schema Registry", "HTTP REST", "TCP 8081", "Кэширование и Single-Flight резолвинг wire-схем", "DC LAN (Внутри ЦОД)"],
         ["Agent ➔ Kerberos KDC", "Kerberos AS/TGS", "TCP/UDP 88", "Получение тикетов по keytab техучетки", "DC LAN (Внутри ЦОД)"]
     ]
     add_table_custom(slide4, Inches(0.8), Inches(1.85), Inches(11.733), Inches(4.8), headers4, rows4,
@@ -422,55 +426,98 @@ def generate_presentation(output_pptx_path):
              ], ACCENT_CYAN)
 
     # =========================================================================
-    # СЛАЙД 7: ТРАФИК В DISASTER RECOVERY
+    # СЛАЙД 7: ЖИЗНЕННЫЙ ЦИКЛ ПОТОКОВОЙ РЕПЛИКАЦИИ KAFKA
     # =========================================================================
-    slide7 = create_base_slide(prs, 7, "Disaster Recovery Traffic",
+    slide7 = create_base_slide(prs, 7, "Kafka Data Flow",
+                               "Как ходит трафик при репликации Apache Kafka (Kafka Streaming Data Plane)",
+                               "Multi-Agent Partition-Pinned балансировка, Zero-Copy wire-транскодинг и At-Least-Once")
+
+    add_card(slide7, Inches(0.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "1. Multi-Agent Partition-Pinned & Balancer",
+             [
+                 "KafkaTargetBalancer распределяет партиции: hash(topic, partition) % active_agents.",
+                 "Каждая партиция строго привязана к агенту — гарантия сохранения порядка сообщений.",
+                 "Карантин агентов: при сетевом сбое агент изолируется на 10 сек с ребалансировкой.",
+                 "Оркестратор координирует назначение агентов через персистентный реестр."
+             ], ACCENT_INDIGO)
+
+    add_card(slide7, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.35),
+             "2. Consumer Pool и чтение из DC1",
+             [
+                 "KafkaBatchConsumerPool: изолированные пулы воркеров на каждый назначенный топик.",
+                 "Пакетная вычитка с динамической подпиской без Stop-the-World ребаланса кластера.",
+                 "Kerberos SASL_PLAINTEXT / SASL_SSL аутентификация в брокерах DC1 (:9092/:9093).",
+                 "Потоковое формирование батчей с контролем максимального размера пачки."
+             ], ACCENT_AMBER)
+
+    add_card(slide7, Inches(0.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "3. gRPC WAN стриминг и Backpressure",
+             [
+                 "Агент DC1 передает батчи в Agent DC2 по WAN :50052 (KafkaDataTransferService).",
+                 "Двусторонний Backpressure: disableAutoInboundFlowControl + лимит inFlightBatches.",
+                 "Защита памяти воркеров от OOM при всплесках трафика и отставании целевого брокера.",
+                 "Сквозное mTLS шифрование трафика и управление полосой через Token Bucket."
+             ], ACCENT_CYAN)
+
+    add_card(slide7, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
+             "4. Zero-Copy Transcoding и запись в DC2",
+             [
+                 "Zero-Copy Wire Transcoder (PERF-02): замена Confluent Schema ID без перекодирования payload.",
+                 "Single-Flight Schema Resolution: Lock-Free кэш защищает Schema Registry :8081.",
+                 "KafkaBatchProducer публикует сообщения в брокеры DC2 на виртуальных потоках Java 21.",
+                 "At-Least-Once: коммит оффсета в источнике ТОЛЬКО после сквозного gRPC KafkaBatchAck."
+             ], ACCENT_GREEN)
+
+    # =========================================================================
+    # СЛАЙД 8: ТРАФИК В DISASTER RECOVERY
+    # =========================================================================
+    slide8 = create_base_slide(prs, 8, "Disaster Recovery Traffic",
                                "Потоки трафика в Disaster Recovery: Штатно vs Kill-Switch vs Reverse",
                                "Как ведет себя сеть при аварии основного ЦОД и как разворачивается поток данных")
 
-    add_card(slide7, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide8, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "1. Штатный режим (DC1 ➔ DC2)",
              [
                  "Трафик клиентов: Направлен на DC1.",
-                 "Data Plane WAN: Поток идет от Agent DC1 в Agent DC2 (:50051).",
+                 "Data Plane WAN: Поток идет от Agent DC1 в Agent DC2 (:50051/:50052).",
                  "Шейпер: Лимит 100 МБ/с с адаптивным лизингом и кластерным скейлингом.",
-                 "HMS CDC: Стриминг дельты в DC2 под Epoch Fencing.",
+                 "HMS CDC & Kafka: Стриминг дельты и топиков в DC2 под Epoch Fencing.",
                  "DC2 выступает пассивным Standby-приемником."
              ], ACCENT_GREEN)
 
-    add_card(slide7, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide8, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "2. Авария DC1 и Kill-Switch",
              [
                  "Событие: DC1 упал. Клиенты переключены на DC2.",
                  "Действие оператора: Нажатие 🛑 Kill-Switch.",
                  "Fencing Tokens: Монотонный токен эпохи в DistributedLockService.",
                  "WAN сетевой барьер: Лимит канала ➔ 0 МБ/с (Fencing).",
-                 "Задачи: Все прямые задачи заморожены (STOPPED, Cron OFF).",
+                 "Задачи: Остановка прямых задач (STOPPED, Cron OFF, пауза Kafka).",
                  "Защита от Split-Brain: При оживании DC1 старые задачи НЕ запустятся!"
              ], ACCENT_RED)
 
-    add_card(slide7, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide8, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "3. Оживание DC1 и Reverse",
              [
                  "Unfence: Снятие изоляции открывает сеть (100 МБ/с), задачи остаются STOPPED.",
                  "Reverse Replication: Нажатие 🔄 Reverse Replication.",
-                 "РАЗВОРОТ ТРАФИКА: Agent DC2 становится Sender ➔ Agent DC1 (:50051 Receiver).",
-                 "Догон дельты: DC2 выкачивает накопленные изменения обратно в DC1 до RPO=0.",
+                 "РАЗВОРОТ ТРАФИКА: Agent DC2 становится Sender ➔ Agent DC1 (:50051/:50052).",
+                 "Догон дельты: DC2 выкачивает файлы, схемы и топики обратно в DC1 до RPO=0.",
                  "Failback: Возврат клиентов на DC1, отзыв зеркал."
              ], ACCENT_CYAN)
 
     # =========================================================================
-    # СЛАЙД 8: СКРИНШОТ ТОПОЛОГИИ И ШЕЙПЕРА
+    # СЛАЙД 9: СКРИНШОТ ТОПОЛОГИИ И ШЕЙПЕРА
     # =========================================================================
-    slide8 = create_base_slide(prs, 8, "Интерфейс оператора",
+    slide9 = create_base_slide(prs, 9, "Интерфейс оператора",
                                "Топология ЦОД и управление полосой WAN в интерфейсе",
                                "Рантайм-управление квотами пропускной способности без перезапуска воркеров")
 
-    add_image_card(slide8, Inches(0.8), Inches(1.85), Inches(7.5), Inches(4.8),
+    add_image_card(slide9, Inches(0.8), Inches(1.85), Inches(7.5), Inches(4.8),
                    os.path.join(img_dir, "04_topology_bandwidth.png"),
                    "Консоль «Топология ЦОД и Полоса»: шейпер Token Bucket (DC-DC, HDFS-HDFS, Global)")
 
-    add_card(slide8, Inches(8.5), Inches(1.85), Inches(4.0), Inches(4.8),
+    add_card(slide9, Inches(8.5), Inches(1.85), Inches(4.0), Inches(4.8),
              "⚡ Физика шейпинга в Data Plane",
              [
                  "Где работает: Внутри процесса каждого Replicator Agent перед отправкой 4 МБ чанка.",
@@ -480,77 +527,77 @@ def generate_presentation(output_pptx_path):
              ], ACCENT_CYAN)
 
     # =========================================================================
-    # СЛАЙД 9: СКРИНШОТ ГЛАВНОГО ДАШБОРДА
+    # СЛАЙД 10: СКРИНШОТ ГЛАВНОГО ДАШБОРДА
     # =========================================================================
-    slide9 = create_base_slide(prs, 9, "Интерфейс оператора",
-                               "Главная панель управления HDFS и создание задач",
-                               "Мониторинг скорости в реальном времени (⚡ МБ/с), расчет ETA и Kerberos doAs")
+    slide10 = create_base_slide(prs, 10, "Интерфейс оператора",
+                                "Главная панель управления HDFS и создание задач",
+                                "Мониторинг скорости в реальном времени (⚡ МБ/с), расчет ETA и Kerberos doAs")
 
-    add_image_card(slide9, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide10, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "02_main_dashboard.png"),
                    "Главная панель HDFS Replication: статус задач, скорость (⚡), ETA и фильтры")
 
-    add_image_card(slide9, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide10, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "03_create_job_modal.png"),
                    "Мастер создания задачи: пути, расписание Cron, UGI doAs имперсонация")
 
     # =========================================================================
-    # СЛАЙД 10: СКРИНШОТ HMS REPLICATION
+    # СЛАЙД 11: СКРИНШОТ HMS REPLICATION
     # =========================================================================
-    slide10 = create_base_slide(prs, 10, "Интерфейс оператора",
+    slide11 = create_base_slide(prs, 11, "Интерфейс оператора",
                                 "Консоль репликации Hive Metastore (HMS Replication)",
                                 "Мониторинг стримеров CDC, Event Lag и мастер создания схемы")
 
-    add_image_card(slide10, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide11, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "06_hms_replication_dashboard.png"),
                    "Консоль HMS Replication: статус CDC-стримеров, Event Lag и список схем")
 
-    add_image_card(slide10, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide11, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "07_create_hms_modal.png"),
                    "Мастер создания схемы: выбор баз, фильтр таблиц, Reconciliation опции")
 
     # =========================================================================
-    # СЛАЙД 11: СКРИНШОТ DR HUB И KILL-SWITCH
+    # СЛАЙД 12: СКРИНШОТ DR HUB И KILL-SWITCH
     # =========================================================================
-    slide11 = create_base_slide(prs, 11, "Интерфейс Disaster Recovery",
+    slide12 = create_base_slide(prs, 12, "Интерфейс Disaster Recovery",
                                 "DR Hub, экстренный Kill-Switch и состояние сетевого ограждения",
                                 "Интуитивный интерфейс дежурной смены при аварии дата-центра")
 
-    add_image_card(slide11, Inches(0.8), Inches(1.85), Inches(6.2), Inches(4.8),
+    add_image_card(slide12, Inches(0.8), Inches(1.85), Inches(6.2), Inches(4.8),
                    os.path.join(img_dir, "08_disaster_recovery_dashboard.png"),
                    "Консоль DR & Failover Hub: доступность ЦОД, направление потока и суммарный лаг дельты")
 
-    add_image_card(slide11, Inches(7.3), Inches(1.85), Inches(5.2), Inches(2.3),
+    add_image_card(slide12, Inches(7.3), Inches(1.85), Inches(5.2), Inches(2.3),
                    os.path.join(img_dir, "09_emergency_kill_switch_modal.png"),
                    "Модальное окно Kill-Switch: подтверждение останова и сетевое ограждение (0 МБ/с)")
 
-    add_image_card(slide11, Inches(7.3), Inches(4.35), Inches(5.2), Inches(2.3),
+    add_image_card(slide12, Inches(7.3), Inches(4.35), Inches(5.2), Inches(2.3),
                    os.path.join(img_dir, "10_disaster_recovery_fenced_state.png"),
                    "Индикация подавленного кластера: бейдж «ПОДАВЛЕН 🔒» и тревожный баннер")
 
     # =========================================================================
-    # СЛАЙД 12: СКРИНШОТ UNFENCE И REVERSE REPLICATION
+    # СЛАЙД 13: СКРИНШОТ UNFENCE И REVERSE REPLICATION
     # =========================================================================
-    slide12 = create_base_slide(prs, 12, "Интерфейс Disaster Recovery",
+    slide13 = create_base_slide(prs, 13, "Интерфейс Disaster Recovery",
                                 "Безопасный откат (Unfence) и запуск Reverse Replication (DC2 ➔ DC1)",
                                 "Восстановление сети без перезаписи резерва и автоматический разворот потока данных")
 
-    add_image_card(slide12, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide13, Inches(0.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "11_rollback_unfence_modal.png"),
                    "Модальное окно Unfence: снятие сетевого барьера без запуска старых задач")
 
-    add_image_card(slide12, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
+    add_image_card(slide13, Inches(6.8), Inches(1.85), Inches(5.7), Inches(4.8),
                    os.path.join(img_dir, "12_reverse_replication_modal.png"),
                    "Мастер Reverse Replication: разворот потока данных DC2 ➔ DC1 с подтверждением")
 
     # =========================================================================
-    # СЛАЙД 13: РЕКОМЕНДАЦИИ ПО САЙЗИНГУ И РАЗВЕРТЫВАНИЮ
+    # СЛАЙД 14: РЕКОМЕНДАЦИИ ПО САЙЗИНГУ И РАЗВЕРТЫВАНИЮ
     # =========================================================================
-    slide13 = create_base_slide(prs, 13, "Внедрение в Production",
+    slide14 = create_base_slide(prs, 14, "Внедрение в Production",
                                 "Рекомендации по сайзингу, развертыванию и фаерволу",
                                 "Оптимальные архитектурные конфигурации для промышленного внедрения")
 
-    add_card(slide13, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide14, Inches(0.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "🖥️ Сайзинг Orchestrator",
              [
                  "Размещение: Выделенная VM или Kubernetes Pods (Active-Active).",
@@ -561,21 +608,21 @@ def generate_presentation(output_pptx_path):
                  "High Availability: Active-Active кластер с Fencing Tokens и общим пулом агентов."
              ], ACCENT_INDIGO)
 
-    add_card(slide13, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide14, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "⚡ Сайзинг Replicator Agents",
              [
-                 "Вариант 1 (Colocated): На DataNode узлах. Максимальный Zero-Copy перформанс.",
-                 "Вариант 2 (Gateway): Edge-серверы 2–4 шт на ЦОД с 25G/40G сетевыми картами.",
-                 "CPU: 8–16 vCPU (Netty gRPC на Virtual Threads + tarUnpackExecutor).",
-                 "RAM: 16–32 GB Heap (Directory Cache NameNode + Netty off-heap).",
+                 "HDFS/HMS Агенты: Colocated на DataNode или Edge Gateway 25G/40G.",
+                 "Kafka Агенты: Выделенные демоны (8–16 vCPU, 8–16 GB RAM) на виртуальных потоках.",
+                 "Производительность: До 1,000,000 msg/s при Zero-Copy Wire Transcoding.",
+                 "CPU & RAM: 8–16 vCPU, 16–32 GB Heap (Directory Cache + Netty off-heap).",
                  "Сеть: 10G / 25G / 40G NIC.",
-                 "Масштабирование: Линейный скейлинг через персистентный реестр agent_registry."
+                 "Масштабирование: Линейный скейлинг через реестр agent_registry."
              ], ACCENT_GREEN)
 
-    add_card(slide13, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
+    add_card(slide14, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "🛡️ Чеклист фаервола и ИБ",
              [
-                 "WAN межЦОД: Открыть TCP 50051 (mTLS X.509 шифрование).",
+                 "WAN межЦОД: Открыть TCP 50051 (HDFS/HMS) и TCP 50052 (Kafka) с mTLS.",
                  "HMAC аттестация: SHA-256 подпись задач (TaskAttestationValidator).",
                  "Chroot Sandbox: Защита локальных путей (validateSandboxAccess).",
                  "Kerberos: Защита JVM krb5.conf и keytab с UGI Proxy doAs.",

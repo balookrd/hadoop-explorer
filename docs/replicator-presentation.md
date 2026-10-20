@@ -18,12 +18,13 @@
 5. [Слайд 5: Протокол HDFS Data Plane: Wire-формат, чанкирование и Zero-Staging](#слайд-5-протокол-hdfs-data-plane-wire-формат-чанкирование-и-zero-staging)
 6. [Слайд 6: Алгоритм сетевого шейпинга: Иерархический Token Bucket](#слайд-6-алгоритм-сетевого-шейпинга-иерархический-token-bucket)
 7. [Слайд 7: Протокол Hive Metastore CDC, распределенный лизинг и Non-ACID Gate](#слайд-7-протокол-hive-metastore-cdc-распределенный-лизинг-и-non-acid-gate)
-8. [Слайд 8: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit](#слайд-8-безопасность-kerberos-impersonation-doas-и-apache-ranger-audit)
-9. [Слайд 9: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)](#слайд-9-sre-runbook-авария-основного-цод-и-сетевое-ограждение-fencing-kill-switch)
-10. [Слайд 10: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication](#слайд-10-sre-runbook-восстановление-безопасный-unfence-и-reverse-replication)
-11. [Слайд 11: Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub](#слайд-11-управление-платформой-в-web-ui-топология-задачи-hms-и-dr-hub)
-12. [Слайд 12: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты](#слайд-12-наблюдаемость-observability-метрики-prometheus-healthcheck-и-алерты)
-13. [Слайд 13: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг](#слайд-13-сайзинг-оборудования-тюнинг-ос-linux-jvm-и-траблшутинг)
+8. [Слайд 8: Потоковая репликация Apache Kafka (Kafka Streaming Data Plane & Mirroring)](#слайд-8-потоковая-репликация-apache-kafka-kafka-streaming-data-plane--mirroring)
+9. [Слайд 9: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit](#слайд-9-безопасность-kerberos-impersonation-doas-и-apache-ranger-audit)
+10. [Слайд 10: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)](#слайд-10-sre-runbook-авария-основного-цод-и-сетевое-ограждение-fencing-kill-switch)
+11. [Слайд 11: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication](#слайд-11-sre-runbook-восстановление-безопасный-unfence-и-reverse-replication)
+12. [Слайд 12: Управление платформой в Web UI: Топология, Задачи, HMS, Kafka и DR Hub](#слайд-12-управление-платформой-в-web-ui-топология-задачи-hms-kafka-и-dr-hub)
+13. [Слайд 13: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты](#слайд-13-наблюдаемость-observability-метрики-prometheus-healthcheck-и-алерты)
+14. [Слайд 14: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг](#слайд-14-сайзинг-оборудования-тюнинг-ос-linux-jvm-и-траблшутинг)
 
 ---
 
@@ -48,27 +49,30 @@
    - Общается с агентами обоих ЦОДов по gRPC Control Plane (`:50050`) и REST API (`:8005`) (регистрация агентов, heartbeat каждые 3–5 с, криптографическая выдача подзадач с HMAC-токенами, распределенный арбитраж Inotify Lease HA).
    - **⚠️ Архитектурный инвариант**: Оркестратор **НЕ прокачивает байты файлов через себя**, работая исключительно как координатор метаданных.
 3. **Контур ЦОД-1 Primary (Москва)**:
-   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (Java 21, Netty 4.1 на Virtual Threads).
-   - Варианты размещения: Colocated на узлах Hadoop DataNode (для Short-Circuit Local Read) либо на выделенных серверах Edge Gateway.
-   - Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют со штатными сервисами Hadoop (без изменений ядра):
+   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (HDFS/HMS) и `kafka-replicator-agent` (Kafka Streaming Data Plane).
+   - Варианты размещения: Colocated на узлах Hadoop DataNode и брокерах Kafka либо на выделенных серверах Edge Gateway.
+   - Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют со штатными сервисами:
      - **NameNode** (`TCP :8020/:9000`) — получение структуры директорий, списков файлов и снапшотов (`SnapshotDiffReport`);
      - **DataNodes** (`TCP :9866`) — прямое вычитывание блоков HDFS по протоколу SASL Data Transfer Protocol от имени пользователя (`doAs`);
      - **Hive Metastore** (`TCP :9083 Thrift`) — периодический опрос таблицы `NOTIFICATION_LOG` для вычитки DDL/DML событий;
+     - **Kafka Brokers** (`TCP :9092/:9093`) — параллельная вычитка сообщений пулом `KafkaBatchConsumerPool` с поддержкой Kerberos SASL;
+     - **Schema Registry** (`TCP :8081`) — получение схем данных Avro/Protobuf/JSON;
      - **Kerberos KDC** (`TCP/UDP :88`) — билетная аутентификация по ключевому файлу (`keytab`).
    - **Безопасность и песочница**: локальные файловые пути изолированы в Chroot-песочнице `localSandboxDir` (`REPLICATOR_LOCAL_SANDBOX`) с блокировкой системных каталогов ОС (`FORBIDDEN_OS_PREFIXES`).
 4. **МежЦОДная магистраль WAN (Москва ➔ Санкт-Петербург)**:
-   - **Единственный порт в межсетевом экране**: **`TCP :50051` (gRPC / HTTP/2, mTLS v1.3, MTU 9000)**.
-   - Трафик данных идет **напрямую peer-to-peer от Agent DC1 к Agent DC2**, минуя оркестратор и кластерные порты Hadoop.
+   - **Единственные порты в межсетевом экране**: **`TCP :50051` (HDFS/HMS gRPC)** и **`TCP :50052` (Kafka Data Plane gRPC, mTLS v1.3, MTU 9000)**.
+   - Трафик данных идет **напрямую peer-to-peer от Agent DC1 к Agent DC2**, минуя оркестратор и внутренние кластерные порты.
    - Скорость канала жестко регулируется сетевым шейпером Token Bucket с адаптивным масштабированием лизинга (Adaptive Token Lease Scaling) под RTT и WAN throughput.
    - При аварии активен сетевой Kill-Switch: сброс полосы в 0 МБ/с и монотонный Fencing Token для предотвращения эффекта Split-Brain.
 5. **Контур ЦОД-2 Standby / DR (Санкт-Петербург)**:
-   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` в режиме приемника (`receiver`).
-   - Слушают входящий порт `TCP :50051`. Сервер Netty переведен на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`).
+   - **Устанавливается**: демоны `hadoop-grpc-replicator-agent.jar` (приемник HDFS/HMS на `:50051`) и `kafka-replicator-agent` (приемник Kafka на `:50052`).
+   - Слушают входящие порты `TCP :50051` и `TCP :50052`. Серверы Netty переведены на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`).
    - Валидируют криптографическую подпись HMAC-SHA256 задачи (`TaskAttestationValidator`) перед созданием целевых файлов.
-   - Принимают чанки данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы `._staging_<jobId>` локальной HDFS (`TCP :9866`).
+   - Принимают чанки HDFS данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы `._staging_<jobId>` локальной HDFS (`TCP :9866`).
    - При успешной проверке контрольной суммы вызывают атомарный `fs.rename()` в целевой путь через NameNode DC2 (`TCP :8020`).
    - Мелкие файлы распаковываются из потокового TAR-стрима в выделенном пуле виртуальных потоков `tarUnpackExecutor` с двухфазным коммитом и кэшированием каталогов NameNode `directoryCache` (экономия до 90% RPC).
    - Принимают Hive DDL-пакеты, переписывают URI путей NameService и накатывают схему в локальный Hive Metastore DC2 (`TCP :9083`) с флагом `deleteData=false`.
+   - Принимают батчи Kafka по порту `TCP :50052`, транскодируют заголовки схем (`ZeroCopyWireTranscoder`), регистрируют схемы в целевом Schema Registry (`:8081`) и асинхронно записывают сообщения в локальную Kafka (`TCP :9092/:9093`) через `KafkaBatchProducer`.
 
 ---
 
@@ -76,7 +80,7 @@
 
 ### Назначение и стек технологий
 
-`Hadoop gRPC Replicator` — специализированный сервис репликации данных HDFS и метаданных Apache Hive Metastore между изолированными дата-центрами (On-Premises, Private Cloud, Hybrid Cloud) с аппаратным контролем полосы WAN и защитой от Split-Brain.
+`Hadoop gRPC Replicator` — специализированный сервис межкластерной репликации файлов HDFS, метаданных Hive Metastore (HMS CDC) и очередей Apache Kafka между изолированными дата-центрами (On-Premises, Private Cloud, Hybrid Cloud) с аппаратным контролем полосы WAN и защитой от Split-Brain.
 
 | Параметр | Control Plane (Оркестратор) | Data Plane (Агенты репликации) |
 | :--- | :--- | :--- |
@@ -159,20 +163,26 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **WAN (МежЦОД)** | `Agent DC1` | `Agent DC2` | **TCP / gRPC (mTLS v1.3)** | **50051** | Прямой стриминг чанков HDFS и пакетов DDL Hive CDC |
 | **WAN (МежЦОД)** | `Agent DC2` | `Agent DC1` | **TCP / gRPC (mTLS v1.3)** | **50051** | Обратный поток при Reverse Replication в сценарии DR |
+| **WAN (МежЦОД)** | `Kafka Agent DC1` | `Kafka Agent DC2` | **TCP / gRPC (mTLS v1.3)** | **50052** | Потоковая репликация батчей Kafka, Zero-Copy транскодинг схем |
+| **WAN (МежЦОД)** | `Kafka Agent DC2` | `Kafka Agent DC1` | **TCP / gRPC (mTLS v1.3)** | **50052** | Обратный поток репликации Kafka при Reverse Replication в DR |
 | **Corporate LAN**| Браузер оператора| `Orchestrator` | TCP / HTTPS (TLS 1.3) | **8005** | Доступ к Web UI Svelte 5, REST API, SSE подпискам |
 | **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / gRPC (HTTP/2) | **50050** | Высокоскоростной Control Plane: Heartbeat, Claim задач с HMAC, Token Quotas |
 | **Management LAN**| Агенты DC1/DC2 | `Orchestrator` | TCP / HTTP REST | **8005** | Резервный REST канал, опрос топологии, Healthcheck |
 | **DC LAN (Primary)**| `Agent DC1` | `NameNode DC1` | TCP / Hadoop RPC | **8020 / 9000** | Листинг каталогов, получение блочных манифестов |
 | **DC LAN (Primary)**| `Agent DC1` | `DataNodes DC1`| TCP / SASL DTP | **9866** | Блочное чтение данных под Kerberos UGI (`doAs`) |
 | **DC LAN (Primary)**| `Agent DC1` | `Hive Metastore 1`| TCP / Thrift RPC | **9083** | Опрос журнала `NOTIFICATION_LOG` Hive Metastore |
+| **DC LAN (Primary)**| `Kafka Agent DC1` | `Kafka Brokers 1` | TCP / Kafka Protocol | **9092 / 9093** | Вычитка сообщений пулом `KafkaBatchConsumerPool` (SASL/SSL) |
+| **DC LAN (Primary)**| `Kafka Agent DC1` | `Schema Registry 1` | TCP / HTTP(S) | **8081** | Выгрузка схем данных (Avro / Protobuf / JSON) |
 | **DC LAN (Standby)**| `Agent DC2` | `NameNode DC2` | TCP / Hadoop RPC | **8020 / 9000** | Создание каталогов, атомарный `fs.rename()` |
 | **DC LAN (Standby)**| `Agent DC2` | `DataNodes DC2`| TCP / SASL DTP | **9866** | Запись блоков данных в целевую HDFS |
 | **DC LAN (Standby)**| `Agent DC2` | `Hive Metastore 2`| TCP / Thrift RPC | **9083** | Применение DDL-изменений схемы (`deleteData=false`) |
+| **DC LAN (Standby)**| `Kafka Agent DC2` | `Kafka Brokers 2` | TCP / Kafka Protocol | **9092 / 9093** | Асинхронная запись пакетов `KafkaBatchProducer` на Virtual Threads |
+| **DC LAN (Standby)**| `Kafka Agent DC2` | `Schema Registry 2` | TCP / HTTP(S) | **8081** | Авторегистрация и трансляция Schema ID в целевом реестре |
 | **DC LAN (Оба ЦОДа)**| Агенты DC1/DC2 | `Kerberos KDC` | TCP/UDP / Kerberos | **88** | Получение TGT-билетов по системному keytab |
 
 ### Сетевые рекомендации
-- **Jumbo Frames (MTU 9000)**: Настоятельно рекомендуется включить MTU 9000 на межЦОДной оптической магистрали для уменьшения оверхеда прерываний сетевой карты при передаче 4 МБ чанков.
-- **Изоляция портов**: Ни один внутренний порт Hadoop (`9000`, `9866`, `9083`, `88`) **не требует открытия в WAN**. Вся передача мультиплексируется через gRPC HTTP/2 соединение по порту `50051`.
+- **Jumbo Frames (MTU 9000)**: Настоятельно рекомендуется включить MTU 9000 на межЦОДной оптической магистрали для уменьшения оверхеда прерываний сетевой карты при передаче 4 МБ чанков и streaming-пакетов Kafka.
+- **Изоляция портов**: В межсетевом экране WAN открываются исключительно защищенные порты `50051` (HDFS/HMS) и `50052` (Kafka Streaming). Внутренние порты брокеров Kafka (`9092/9093`) и Hadoop (`9000`, `9866`, `9083`, `88`) наружу не выставляются.
 
 ---
 
@@ -319,7 +329,67 @@ sequenceDiagram
 
 ---
 
-## Слайд 8: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit
+## Слайд 8: Потоковая репликация Apache Kafka (Kafka Streaming Data Plane & Mirroring)
+
+### Архитектура потокового зеркалирования топиков и транскодинга схем
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K1 as 📦 Kafka Broker DC1 (:9092)
+    participant SR1 as 📋 Schema Registry DC1 (:8081)
+    participant A1 as ⚡ Kafka Agent DC1 (Sender)
+    participant Orch as ⚙️ Orchestrator (:8005/:50050)
+    participant A2 as 🎯 Kafka Agent DC2 (Receiver :50052)
+    participant SR2 as 📋 Schema Registry DC2 (:8081)
+    participant K2 as 📦 Kafka Broker DC2 (:9092)
+
+    Note over A1,Orch: ЭТАП 1: Получение топологии и динамическая подписка
+    A1->>Orch: GetActiveKafkaJobs(dc1) / gRPC Control Plane (:50050)
+    Orch-->>A1: KafkaJobItemProto[] (topics, partitions, target_endpoints)
+    Note over A1: KafkaBatchConsumerPool: параллельная вычитка (до 64 потоков)
+
+    Note over A1,K1: ЭТАП 2: Вычитка батчей и Zero-Copy транскодинг схем
+    A1->>K1: poll(max.poll.records=1000) под Kerberos SASL
+    K1-->>A1: ConsumerRecords[] (ключи, значения, заголовки, оффсеты)
+    A1->>SR1: Fetch Schema ID (Single-Flight Cache, 0 лишних HTTP)
+    A1->>A1: ZeroCopyWireTranscoder: замена Magic Byte & Schema ID в памяти
+    Note over A1: Шейпер Token Bucket: проверка квоты полосы WAN
+
+    Note over A1,A2: ЭТАП 3: gRPC WAN Стриминг (TCP :50052, mTLS)
+    A1->>A2: gRPC StreamKafkaBatches: KafkaBatchRequest(batch_id, records)
+    Note over A2: Серверный Backpressure: disableAutoInboundFlowControl()
+    A2->>SR2: Авторегистрация схемы в целевом Schema Registry (:8081)
+    A2->>K2: KafkaBatchProducer: асинхронный send() на Virtual Threads
+    K2-->>A2: RecordMetadata (topic, partition, target_offset)
+    A2-->>A1: KafkaBatchAck(batch_id, status=OK, committed_offset)
+
+    Note over A1,K1: ЭТАП 4: Гарантия At-Least-Once
+    A1->>K1: commitSync(offset) — оффсет коммитится строго после Ack
+```
+
+### Ключевые механизмы потокового Data Plane
+
+1. **Шардирование Multi-Agent Partition-Pinned Load Balancing**:
+   - Консистентное хэширование топиков и номеров партиций распределяет нагрузку по пулу агентов-отправителей с единым `group.id`, исключая дублирование вычитки и межпотоковые блокировки.
+   - Клиентская балансировка на стороне приемников `KafkaTargetBalancer` с автоматическим обнаружением узлов через REST API Оркестратора (`/api/v1/replicator/kafka/agents/receivers`).
+   - Автоматический карантин узлов: при сбое целевого агента он изолируется на 10 секунд, а партиции мгновенно перераспределяются по оставшимся активным узлам без остановки репликации и потери данных.
+2. **Многопоточный пул потребителей `KafkaBatchConsumerPool`**:
+   - Пул из параллельных потоков вычитки (`consumerThreads`, до 64 потоков) с поддержкой Kerberos SASL_PLAINTEXT / SASL_SSL.
+   - Динамическая переподписка (`resubscribe`): при добавлении или изменении состава топиков в оркестраторе пул переподписывается на лету без перезапуска JVM агента.
+3. **Асинхронная запись на Java 21 Virtual Threads**:
+   - Продюсер `KafkaBatchProducer` и обработчик `KafkaDataTransferServiceImpl` отправляют батчи в целевой кластер через неблокирующие callback'и `producer.send(...)` с пулом виртуальных потоков Java 21, исключая блокировки сетевых EventLoop-потоков Netty.
+   - Семантика At-Least-Once: подтверждение оффсетов (`commitSync`) на источнике выполняется только после получения `KafkaBatchAck` от целевого брокера.
+4. **Двусторонний Backpressure**:
+   - Серверный Backpressure: отключен автопоток Netty (`disableAutoInboundFlowControl()`), запрос следующего батча `callStream.request(1)` выполняется строго после подтверждения локальным `KafkaProducer`.
+   - Клиентский Backpressure: ограничение окна незавершенных батчей (`inFlightBatches`, до 16 шт) защищает от переполнения кучи (OOM).
+5. **Автопровижнинг топиков и Zero-Copy Wire Transcoding**:
+   - Автопровижнинг `KafkaTopicProvisioner`: автоматическое создание топиков в целевом кластере с сохранением числа партиций, фактора репликации и конфигураций (`min.insync.replicas`, `cleanup.policy`, `retention.ms`).
+   - Синхронизация Schema Registry (Confluent / Aiven, порт 8081): транскодер `ZeroCopyWireTranscoder` производит замену Magic Byte и Schema ID в заголовках Avro/Protobuf без аллокаций в памяти с Single-Flight resolution в `ConcurrentHashMap`.
+
+---
+
+## Слайд 9: Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit
 
 ### Архитектура сквозной аутентификации и авторизации
 
@@ -370,7 +440,7 @@ sequenceDiagram
 
 ---
 
-## Слайд 9: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)
+## Слайд 10: SRE Runbook: Авария основного ЦОД и сетевое ограждение (Fencing Kill-Switch)
 
 ### Пошаговый сценарий действий при падении DC1
 
@@ -405,7 +475,7 @@ sequenceDiagram
 
 ---
 
-## Слайд 10: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication
+## Слайд 11: SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication
 
 ### Пошаговый алгоритм безопасного возврата ЦОД-1 в строй
 
@@ -437,7 +507,7 @@ sequenceDiagram
 
 ---
 
-## Слайд 11: Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub
+## Слайд 12: Управление платформой в Web UI: Топология, Задачи, HMS, Kafka и DR Hub
 
 ### Рабочие экраны администратора и инженера данных
 
@@ -465,7 +535,12 @@ sequenceDiagram
 
 ---
 
-#### 4. Центр катастрофоустойчивости DR Hub в режиме изоляции Kill-Switch
+#### 4. Консоль потоковой репликации Apache Kafka
+*Интерфейс управления репликацией топиков: мониторинг потребителей, скорости в msg/s и МБ/с, лага партиций, трансляции схем Confluent/Aiven Schema Registry и автобалансировки узлов.*
+
+---
+
+#### 5. Центр катастрофоустойчивости DR Hub в режиме изоляции Kill-Switch
 <div align="center">
   <img src="images/replicator/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
 </div>
@@ -473,7 +548,7 @@ sequenceDiagram
 
 ---
 
-#### 5. Мастер безопасного снятия изоляции и 1-Click Reverse Replication
+#### 6. Мастер безопасного снятия изоляции и 1-Click Reverse Replication
 <div align="center">
   <img src="images/replicator/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
 </div>
@@ -481,7 +556,7 @@ sequenceDiagram
 
 ---
 
-## Слайд 12: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты
+## Слайд 13: Наблюдаемость (Observability): Метрики Prometheus, Healthcheck и Алерты
 
 ### Эндпоинты мониторинга
 
@@ -537,7 +612,7 @@ groups:
 
 ---
 
-## Слайд 13: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг
+## Слайд 14: Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг
 
 ### Рекомендации по ресурсам и аппаратному обеспечению
 
@@ -546,6 +621,7 @@ groups:
 | **Orchestrator Host** | 4–8 vCPU | 8–16 GB | 1 Gbps / 10 Gbps | 50 GB SSD (NVMe) под базу данных |
 | **Agent Colocated** | 4 vCPU | 8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с DataNode Hadoop |
 | **Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps | 200 GB SSD под системные журналы |
+| **Kafka Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 10 Gbps / 25 Gbps | До 1M msg/s throughput (Virtual Threads) |
 
 ### Тюнинг ядра Linux для 10G/40G WAN-каналов (`/etc/sysctl.conf`)
 

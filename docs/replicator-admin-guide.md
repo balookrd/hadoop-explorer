@@ -283,7 +283,7 @@ flowchart TD
   ```
   v1|taskId|jobId|targetPath|executionPrincipal|runAsServiceAccount|expiresAt
   ```
-- **Сквозная передача в gRPC-контрактах**: токен `task_token` передается в метаданных вызовов `FileMetadata` и `TarStreamMetadata` по межЦОДному WAN-каналу :50051.
+- **Сквозная передача в gRPC-контрактах**: токен `task_token` передается в метаданных вызовов `FileMetadata` и `TarStreamMetadata` по межЦОДному WAN-каналу (порт 50051).
 - **Валидация на стороне приемника (`TaskAttestationValidator`)**: перед открытием выходного потока в HDFS (`DataTransferServiceImpl`) приемник извлекает токен и выполняет строгую проверку подписи общим секретом `agentSecret`.
 - **Защита от подмены**: любая модификация `targetPath` (попытка записи в чужой каталог), подмена `executionPrincipal` (эскалация прав в doAs) или использование просроченного токена приводит к немедленному отклонению операции со статусом `Status.PERMISSION_DENIED` и фиксации инцидента безопасности в логе.
 - **Управление enforcement**: параметр `hadoop.replicator.enforce-task-attestation=true` активен по умолчанию.

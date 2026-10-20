@@ -5,7 +5,7 @@
 2. **HDFS Explorer** — распределенный файловый менеджер.
 3. **SQL Explorer** — редактор распределенных аналитических запросов к Trino и Hive с поддержкой ИИ.
 4. **Spark Explorer** — веб-студия аналитики и интерактивных вычислений (PySpark, Scala Spark, Spark SQL).
-5. **Hadoop gRPC Replicator** — высокопроизводительная система межкластерной репликации HDFS (DC1 → DC2) с глобальным контролем полосы пропускания (Token Bucket), атомарным rename, Snapshot Diff и Kerberos-изоляцией.
+5. **Hadoop gRPC Replicator** — высокопроизводительная система межкластерной репликации данных HDFS, метаданных Hive Metastore (HMS CDC) и потоков событий Apache Kafka между изолированными ЦОД с глобальным контролем полосы пропускания (Hierarchical Token Bucket), Fencing Tokens и Kerberos-изоляцией.
 
 ---
 
@@ -316,15 +316,36 @@
   - **Изоляция подзадач**: задачи переноса HDFS для партиций создаются со статусом `job_type = 'HMS_SUBJOB'` и полностью скрыты из регламентного раздела «HDFS Replication».
   - **Non-ACID Gate**: реплицируются External таблицы и Managed Non-Transactional таблицы (`MANAGED_TABLE`, `transactional != true`); ACID-таблицы безопасно фильтруются (`SKIPPED_ACID`).
   - **HDFS Federation и URI Translation**: трехуровневая трансляция физических путей HDFS (`HmsPathRewriter`) через `TARGET_HDFS_DEFAULT_FS`, сопоставление NameService/Cluster ID через `federation-mappings` и интеллектуальные эвристики имен кластеров, обеспечивающие корректную перелинковку `sdLocation` на целевой кластер и генерацию межкластерных HDFS-подзадач.
-  - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, репортуя прогресс в Оркестратор.
+  - **Потоковый CDC (Source Agent Autonomous Poll)**: агент источника самостоятельно опрашивает `NOTIFICATION_LOG` и передает события целевому агенту по gRPC, рапортуя прогресс в Оркестратор.
   - **Распределенный эксклюзивный лизинг (Distributed Lease & Failover)**:
     - Каждая активная схема и CDC-поток захватываются ровно одним агентом-источником (`assigned_agent_id`, `lease_expires_at`), что исключает гонки и дублирование CDC-потоков при работе пула агентов в кластере.
     - Автоматическое продление аренды при отправке прогресса (`ReportHmsProgress`) и опросе очереди (`ClaimHmsTasks`) по gRPC.
     - Автоматический failover: при переходе агента в `OFFLINE` или протухании аренды фоновый планировщик Оркестратора (`checkAndFailoverOrphanedHmsJobs`) сбрасывает привязку задачи, и любой доступный агент пула мгновенно перехватывает CDC-стрим без потери позиции с сохранённого `lastProcessedEventId`.
     - Отказоустойчивость приёмника: при сбое целевого агента (Target Agent) Оркестратор динамически отдаёт адрес резервного приёмника из `AgentRegistry`, и Source-агент переключает gRPC-канал без прерывания репликации.
+- **Потоковая репликация Apache Kafka (Kafka Streaming Data Plane & Mirroring)**:
+  - Выделенный **Раздел «Kafka Replicator»** для высокопроизводительной межкластерной синхронизации очередей Apache Kafka 2.8+ / 3.x через защищенный gRPC WAN-канал с пропускной способностью 1M+ msg/s и контролем полосы пропускания (Hierarchical Token Bucket).
+  - **Архитектура Data Plane (`KafkaDataTransferService`, порт TCP 50052)**:
+    - Полнодуплексный двунаправленный стриминг `StreamKafkaBatches` поверх HTTP/2 с взаимной TLS-аутентификацией (mTLS v1.3).
+    - Выделенный процесс `kafka-replicator-agent` изолирует потоковую стриминг-нагрузку Kafka от пакетного I/O файлов HDFS и метаданных Hive.
+  - **Шардирование и балансировка (Multi-Agent Partition-Pinned Load Balancing)**:
+    - Консистентное хэширование топиков и номеров партиций по пулу агентов-отправителей с единым `group.id`, исключающее дублирование вычитки и гонки.
+    - Динамическая балансировка на стороне приемников `KafkaTargetBalancer` с автоматическим обнаружением узлов через REST API Оркестратора (`/api/v1/replicator/kafka/agents/receivers`).
+    - Автоматический карантин узлов: при сбое целевого агента он изолируется на 10 секунд, а поток партиций мгновенно перераспределяется по оставшимся активным узлам без остановки репликации и потери данных.
+  - **Многопоточный пул потребителей `KafkaBatchConsumerPool`**:
+    - Пул из параллельных потоков вычитки (`consumerThreads`, до 64 потоков) с поддержкой Kerberos SASL_PLAINTEXT / SASL_SSL.
+    - Динамическая переподписка (`resubscribe`): при добавлении или изменении состава топиков в оркестраторе пул переподписывается на лету без перезапуска JVM агента.
+  - **Асинхронный конвейер записи на Java 21 Virtual Threads**:
+    - Продюсер `KafkaBatchProducer` и обработчик `KafkaDataTransferServiceImpl` отправляют батчи в целевой кластер через неблокирующие callback'и `producer.send(...)` с пулом виртуальных потоков Java 21, исключая блокировки сетевых EventLoop-потоков Netty.
+    - Семантика At-Least-Once: подтверждение оффсетов (`commitSync`) на источнике выполняется только после получения подтверждения `KafkaBatchAck` от целевого брокера.
+  - **Двусторонний Backpressure**:
+    - Серверный Backpressure: отключен автопоток Netty (`disableAutoInboundFlowControl()`), запрос следующего батча `callStream.request(1)` выполняется строго после подтверждения локальным `KafkaProducer`.
+    - Клиентский Backpressure: ограничение окна незавершенных батчей (`inFlightBatches`, до 16 шт) защищает от переполнения кучи (OOM).
+  - **Автопровижнинг топиков и Zero-Copy Wire Transcoding**:
+    - Автопровижнинг `KafkaTopicProvisioner`: автоматическое создание топиков в целевом кластере с сохранением числа партиций, фактора репликации и конфигураций (`min.insync.replicas`, `cleanup.policy`, `retention.ms`).
+    - Синхронизация Schema Registry (Confluent / Aiven, порт 8081): транскодер `ZeroCopyWireTranscoder` производит замену Magic Byte и Schema ID в заголовках Avro/Protobuf без аллокаций в памяти с Single-Flight resolution в `ConcurrentHashMap`.
 - **Нативная Java 21 экосистема исполнения**:
   - **Java 21 / Spring Boot 3 Orchestrator (`backend/replicator/orchestrator`)**: легковесный оркестратор с мультиплексированным gRPC Control Plane (`OrchestratorControlPlaneService` на порту 50050), интеграцией `common-security-starter`, Spring Data JPA, потокобезопасным `TokenBucketThrottler`, SSRF-защищенным `AgentRegistry`, cron-шедулингом и раздачей собранного Svelte 5 SPA.
-  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`) и Hive Metastore (`HmsTransferService`), взаимодействующий с Оркестратором через `OrchestratorGrpcClient`. Архитектурное разделение потоков: выделенный независимый `replicator-hms-loop` для Bootstrap схем и CDC метаданных предотвращает блокировки при параллельной передаче тяжелых блоков данных в потоке `replicator-sender-loop`.
+  - **Нативный Java 21 Agent (`backend/replicator/agent`)**: высокоскоростной воркер для DataNode и контейнеров Apache Hadoop YARN с поддержкой HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`), взаимодействующий с Оркестратором через `OrchestratorGrpcClient`. Архитектурное разделение потоков: выделенные независимые циклы `replicator-hms-loop` и потоки Kafka предотвращают блокировки при параллельной передаче тяжелых блоков данных в потоке `replicator-sender-loop`.
   - **Единый мультимодульный Maven-проект (`backend/replicator/pom.xml`)**: связывает `agent` и `orchestrator` с общим циклом компиляции и тестирования (`make test-replicator`).
 
 ### 5.6 Архитектура и оптимизация Frontend (Svelte 5 & Tailwind 4)

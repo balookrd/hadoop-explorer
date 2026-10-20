@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Скрипт генерации строго технической интерактивной презентации docs/replicator-presentation.html
-на 13 слайдов для DevOps-инженеров, Архитекторов и Data Platform команд.
+на 14 слайдов для DevOps-инженеров, Архитекторов и Data Platform команд.
 """
 
 import os
@@ -504,7 +504,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <button class="btn" onclick="toggleOverview()" title="Сетка слайдов (Клавиша O)">
         <span>📑 Обзор</span>
       </button>
-      <div class="slide-counter" id="slideCounter">1 / 13</div>
+      <div class="slide-counter" id="slideCounter">1 / 14</div>
       <button class="btn" onclick="prevSlide()" title="Предыдущий слайд (Стрелка влево)">
         <span>◀ Назад</span>
       </button>
@@ -525,14 +525,13 @@ HTML_CONTENT = """<!DOCTYPE html>
   <main id="slideDeck">
 
     <!-- ========================================== -->
-    <!-- ========================================== -->
     <!-- СЛАЙД 1: ГЕНЕРАЛЬНАЯ АРХИТЕКТУРНАЯ СХЕМА -->
     <!-- ========================================== -->
     <div class="slide active" id="slide-1">
       <div class="slide-header">
         <div class="slide-subtitle">Генеральная архитектурная схема • Топология и размещение компонентов</div>
         <h1 class="slide-title">Hadoop gRPC Replicator: Что где располагается</h1>
-        <p class="slide-desc">Физическое размещение Orchestrator, Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes и сквозной gRPC WAN канал :50051</p>
+        <p class="slide-desc">Физическое размещение Orchestrator, Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes, Kafka Brokers и сквозной gRPC WAN :50051/:50052</p>
       </div>
       <div class="slide-body">
         <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
@@ -567,8 +566,8 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="card-title">🚀 Data Plane (DC1 Primary Nodes)</div>
             <ul class="card-list">
               <li><strong>Стек:</strong> Java 21 LTS, Netty 4.1 gRPC Daemon на Virtual Threads.</li>
-              <li><strong>Порт приемника:</strong> <code>TCP :50051</code> (gRPC HTTP/2, mTLS v1.3).</li>
-              <li><strong>Протоколы LAN:</strong> Hadoop RPC (<code>:8020/:9000</code>), SASL DTP (<code>:9866</code>), Thrift (<code>:9083</code>).</li>
+              <li><strong>Порты приемников:</strong> <code>TCP :50051</code> (HDFS/HMS) и <code>TCP :50052</code> (Kafka Mirroring).</li>
+              <li><strong>Протоколы LAN:</strong> Hadoop RPC (<code>:8020/:9000</code>), SASL DTP (<code>:9866</code>), Thrift (<code>:9083</code>), Kafka (<code>:9092/:9093</code>), Schema Registry (<code>:8081</code>).</li>
               <li><strong>Безопасность:</strong> Системный keytab + Kerberos <code>doAs</code> + HMAC Task Attestation + Chroot Sandbox.</li>
               <li><strong>Сжатие в канале:</strong> Потоковый Zstandard (level 3) или LZ4.</li>
             </ul>
@@ -576,8 +575,9 @@ HTML_CONTENT = """<!DOCTYPE html>
           <div class="card card-accent-cyan">
             <div class="card-title">🛡️ Standby & Storage (DC2 Receiver & DB)</div>
             <ul class="card-list">
-              <li><strong>МежЦОДный фаервол:</strong> Ровно 1 открытый порт — <code>TCP :50051</code>.</li>
+              <li><strong>МежЦОДный фаервол:</strong> Ровно 2 открытых порта — <code>TCP :50051</code> (HDFS/HMS) и <code>TCP :50052</code> (Kafka).</li>
               <li><strong>Zero-Staging транзакции:</strong> запись в <code>._staging_*</code> + двухфазный коммит TAR-бандлов + Safe Reaper (<code>isFileClosed</code>).</li>
+              <li><strong>Kafka Mirroring Target:</strong> Публикация в брокеры DC2 на виртуальных потоках Java 21 с Zero-Copy wire-транскодингом.</li>
               <li><strong>Авария DC1 (Fencing):</strong> Сброс WAN в 0 МБ/с, Fencing Tokens, остановка задач, защита от Split-Brain.</li>
               <li><strong>Восстановление:</strong> Unfence без автозапуска + 1-Click Reverse Replication (DC2 ➔ DC1).</li>
             </ul>
@@ -666,10 +666,24 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <td><strong>WAN (МежЦОД)</strong></td>
               </tr>
               <tr>
+                <td><strong>Agent DC1 ➔ Agent DC2</strong></td>
+                <td>TCP / gRPC (mTLS v1.3)</td>
+                <td><span class="port-badge port-wan">TCP 50052</span></td>
+                <td>Потоковая передача сообщений Kafka и транскодирование схем</td>
+                <td><strong>WAN (МежЦОД)</strong></td>
+              </tr>
+              <tr>
                 <td><strong>Agent DC2 ➔ Agent DC1</strong></td>
                 <td>TCP / gRPC (mTLS v1.3)</td>
                 <td><span class="port-badge port-wan">TCP 50051</span></td>
-                <td>Обратный поток при Reverse Replication в сценарии DR</td>
+                <td>Обратный поток HDFS/HMS при Reverse Replication в сценарии DR</td>
+                <td><strong>WAN (МежЦОД)</strong></td>
+              </tr>
+              <tr>
+                <td><strong>Agent DC2 ➔ Agent DC1</strong></td>
+                <td>TCP / gRPC (mTLS v1.3)</td>
+                <td><span class="port-badge port-wan">TCP 50052</span></td>
+                <td>Обратный поток зеркалирования Kafka при Reverse DR</td>
                 <td><strong>WAN (МежЦОД)</strong></td>
               </tr>
               <tr>
@@ -705,6 +719,20 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <td>TCP / Thrift RPC</td>
                 <td><span class="port-badge port-lan">TCP 9083</span></td>
                 <td>Опрос NOTIFICATION_LOG (DC1) и накат DDL схемы (DC2)</td>
+                <td>DC LAN (Внутри ЦОД)</td>
+              </tr>
+              <tr>
+                <td><strong>Agent ➔ Kafka Brokers</strong></td>
+                <td>TCP / Kafka Protocol</td>
+                <td><span class="port-badge port-lan">TCP 9092/9093</span></td>
+                <td>Параллельная вычитка (DC1) и запись (DC2) пулами воркеров</td>
+                <td>DC LAN (Внутри ЦОД)</td>
+              </tr>
+              <tr>
+                <td><strong>Agent ➔ Schema Registry</strong></td>
+                <td>TCP / HTTP REST</td>
+                <td><span class="port-badge port-lan">TCP 8081</span></td>
+                <td>Кэширование и Single-Flight резолвинг wire-схем</td>
                 <td>DC LAN (Внутри ЦОД)</td>
               </tr>
               <tr>
@@ -826,9 +854,42 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 8: БЕЗОПАСНОСТЬ И KERBEROS -->
+    <!-- СЛАЙД 8: KAFKA STREAMING DATA PLANE -->
     <!-- ========================================== -->
     <div class="slide" id="slide-8">
+      <div class="slide-header">
+        <div class="slide-subtitle">Потоковая репликация сообщений</div>
+        <h1 class="slide-title">Потоковая репликация Apache Kafka (Kafka Streaming Data Plane & Mirroring)</h1>
+        <p class="slide-desc">Partition-Pinned балансировка, Zero-Copy wire-транскодинг, Single-Flight Schema Registry и сквозной Backpressure</p>
+      </div>
+      <div class="slide-body">
+        <div class="grid-2">
+          <div class="card card-accent-indigo">
+            <div class="card-title">1. Multi-Agent Partition-Pinned & Consumer Pool</div>
+            <ul class="card-list">
+              <li><strong>Хэш-партиционирование:</strong> <code>KafkaTargetBalancer</code> распределяет партиции между живыми агентами: <code>hash(topic, partition) % active_agents</code>. Сохранение строгого порядка сообщений.</li>
+              <li><strong>Карантин узлов (10 с):</strong> При сетевой изоляции или сбое агент помещается в карантин на 10 секунд с бесшовной перебалансировкой.</li>
+              <li><strong><code>KafkaBatchConsumerPool</code>:</strong> Изолированные консьюмеры с динамической переподпиской без глобального Stop-the-World ребаланса.</li>
+              <li><strong>At-Least-Once семантика:</strong> Оффсеты коммитятся в источнике только после получения сквозного gRPC <code>KafkaBatchAck</code> от целевого брокера.</li>
+            </ul>
+          </div>
+          <div class="card card-accent-green">
+            <div class="card-title">2. Virtual Threads, Schema Registry & Backpressure</div>
+            <ul class="card-list">
+              <li><strong>Java 21 Virtual Threads:</strong> <code>KafkaBatchProducer</code> публикует батчи на легковесных потоках с пулом подключений и таймаутом подтверждения 30 с.</li>
+              <li><strong>Zero-Copy Wire Transcoding (PERF-02):</strong> Замена 4-байтного Confluent Magic Byte Schema ID в заголовках без перекодирования полезной нагрузки.</li>
+              <li><strong>Single-Flight Schema Resolution:</strong> Lock-Free кэш <code>ConcurrentHashMap + CompletableFuture</code> защищает Schema Registry от шквала запросов (Thundering Herd).</li>
+              <li><strong>Двусторонний Backpressure:</strong> Серверный <code>disableAutoInboundFlowControl</code> и клиентский лимит <code>inFlightBatches</code> защищают память агентов от переполнения.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- СЛАЙД 9: БЕЗОПАСНОСТЬ И KERBEROS -->
+    <!-- ========================================== -->
+    <div class="slide" id="slide-9">
       <div class="slide-header">
         <div class="slide-subtitle">Информационная безопасность</div>
         <h1 class="slide-title">Безопасность, Kerberos Impersonation (doAs) и Apache Ranger Audit</h1>
@@ -859,9 +920,9 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 9: SRE RUNBOOK - АВАРИЯ И KILL-SWITCH -->
+    <!-- СЛАЙД 10: SRE RUNBOOK - АВАРИЯ И KILL-SWITCH -->
     <!-- ========================================== -->
-    <div class="slide" id="slide-9">
+    <div class="slide" id="slide-10">
       <div class="slide-header">
         <div class="slide-subtitle">Disaster Recovery Runbook • Часть 1</div>
         <h1 class="slide-title">SRE Runbook: Авария основного ЦОД и сетевое ограждение (Kill-Switch)</h1>
@@ -896,9 +957,9 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 10: SRE RUNBOOK - ВОССТАНОВЛЕНИЕ -->
+    <!-- СЛАЙД 11: SRE RUNBOOK - ВОССТАНОВЛЕНИЕ -->
     <!-- ========================================== -->
-    <div class="slide" id="slide-10">
+    <div class="slide" id="slide-11">
       <div class="slide-header">
         <div class="slide-subtitle">Disaster Recovery Runbook • Часть 2</div>
         <h1 class="slide-title">SRE Runbook: Восстановление, безопасный Unfence и Reverse Replication</h1>
@@ -929,12 +990,12 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 11: АРХИТЕКТУРА В ИНТЕРФЕЙСЕ -->
+    <!-- СЛАЙД 12: АРХИТЕКТУРА В ИНТЕРФЕЙСЕ -->
     <!-- ========================================== -->
-    <div class="slide" id="slide-11">
+    <div class="slide" id="slide-12">
       <div class="slide-header">
         <div class="slide-subtitle">Инструменты управления платформой</div>
-        <h1 class="slide-title">Управление платформой в Web UI: Топология, Задачи, HMS и DR Hub</h1>
+        <h1 class="slide-title">Управление платформой в Web UI: Топология, Задачи, HMS, Kafka и DR Hub</h1>
         <p class="slide-desc">Рабочие экраны администратора и инженера данных для мониторинга и оперативного контроля</p>
       </div>
       <div class="slide-body">
@@ -946,6 +1007,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <li><strong>Топология ЦОД:</strong> Настройка пирамиды лимитов WAN и очередей в рантайме.</li>
                 <li><strong>Дашборд репликации:</strong> Мониторинг скорости в МБ/с, прогресс-бары и ETA.</li>
                 <li><strong>HMS Replication:</strong> Мониторинг отставания событий и статуса Lease HA.</li>
+                <li><strong>Kafka Replication:</strong> Статус потребителей, lag партиций и Zero-Copy Wire Transcoding.</li>
                 <li><strong>DR Hub:</strong> Индикация барьера Kill-Switch и мастер Reverse Replication.</li>
               </ul>
             </div>
@@ -966,9 +1028,9 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 12: НАБЛЮДАЕМОСТЬ И МЕТРИКИ -->
+    <!-- СЛАЙД 13: НАБЛЮДАЕМОСТЬ И МЕТРИКИ -->
     <!-- ========================================== -->
-    <div class="slide" id="slide-12">
+    <div class="slide" id="slide-13">
       <div class="slide-header">
         <div class="slide-subtitle">Observability & Monitoring</div>
         <h1 class="slide-title">Наблюдаемость: Метрики Prometheus, Healthcheck и Алерты</h1>
@@ -1012,9 +1074,9 @@ GET http://orchestrator:8005/actuator/health</div>
     </div>
 
     <!-- ========================================== -->
-    <!-- СЛАЙД 13: САЙЗИНГ И ТЮНИНГ -->
+    <!-- СЛАЙД 14: САЙЗИНГ И ТЮНИНГ -->
     <!-- ========================================== -->
-    <div class="slide" id="slide-13">
+    <div class="slide" id="slide-14">
       <div class="slide-header">
         <div class="slide-subtitle">Инфраструктура и тюнинг ОС</div>
         <h1 class="slide-title">Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг</h1>
@@ -1029,6 +1091,7 @@ GET http://orchestrator:8005/actuator/health</div>
               <li><code>net.core.wmem_max = 67108864</code> (64MB сетевой буфер отправки).</li>
               <li><code>net.ipv4.tcp_rmem / tcp_wmem</code> (автотюнинг TCP окна).</li>
               <li><strong>Virtual Threads (P0 & P1):</strong> Netty сервер приемника на виртуальных потоках Java 21, распаковка TAR в выделенном <code>tarUnpackExecutor</code>.</li>
+              <li><strong>Kafka Dedicated Agent:</strong> 8–16 vCPU, 8–16 GB RAM, 10/25 Gbps LAN (до 1M msg/s на виртуальных потоках).</li>
               <li><strong>Directory Cache (PERF-04):</strong> LRU кэш каталогов экономит 90% RPC NameNode.</li>
               <li><strong>FOR UPDATE SKIP LOCKED (PERF-03):</strong> Изоляция очередей задач без строчных блокировок jobs.</li>
             </ul>
