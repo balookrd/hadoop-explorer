@@ -2122,6 +2122,195 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 | **Пропускная способность** | 200,000–400,000 msg/s на агент без деградации JVM брокера | До **1,000,000 msg/s** суммарно на кластер агентов |
 | **Рекомендация** | Оптимально для средних кластеров без жестких требований изоляции | Рекомендуется для High-Load сред и при строгих политиках ИБ |
 
+### 15.5 Пошаговая настройка и запуск Kafka Replicator Agent в режиме Colocated (на узлах брокеров Kafka)
+
+В режиме **Colocated** агент запускается в виде легковесного системного сервиса `systemd` непосредственно на хосте каждого брокера Apache Kafka. 
+
+#### Архитектурные преимущества режима Colocated:
+1. **0 байт трафика в локальной сети ЦОД**: вычитка сообщений консьюмером идет по `localhost:9092` через петлевой сетевой стек ядра Linux (`lo` loopback), не загружая физические сетевые интерфейсы (10G/25G NIC) и коммутаторы ЦОД.
+2. **Отсутствие дискового I/O (Zero-Staging)**: в отличие от HDFS-файлов, потоки Kafka передаются исключительно в оперативной памяти (In-Memory Streaming). Заголовки схем транслируются транскодером `ZeroCopyWireTranscoder` на лету, поэтомуstaging-каталог на диске не требуется, освобождая NVMe/HDD диски под журнал коммитов брокера (`log.dirs`).
+3. **Легковесная изоляция на виртуальных потоках**: благодаря пулу Java 21 Virtual Threads агент потребляет всего **2–4 vCPU** и **4–8 GB RAM**, не создавая конкуренции за ресурсы операционной системы с JVM брокера Kafka.
+
+---
+
+#### Шаг 1: Подготовка каталогов и сервисного пользователя
+
+Выполните на каждом брокере кластера Kafka:
+```bash
+# Создание сервисного пользователя (если не используется учетная запись kafka)
+sudo useradd -r -m -d /var/lib/kafka-replicator -s /bin/bash kafka-replicator
+
+# Создание структуры каталогов
+sudo mkdir -p /opt/hadoop-explorer/replicator/{bin,conf,logs}
+sudo mkdir -p /var/log/kafka-replicator
+sudo chown -R kafka-replicator:kafka-replicator /var/log/kafka-replicator /opt/hadoop-explorer/replicator
+
+# Размещение исполняемого JAR-пакета (или создание симлинка)
+sudo ln -sfn /opt/hadoop-explorer/replicator/releases/replicator-agent-1.0.0-all.jar \
+  /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+```
+
+---
+
+#### Шаг 2: Создание файла конфигурации окружения (`/etc/default/kafka-replicator-agent`)
+
+Создайте файл `/etc/default/kafka-replicator-agent` с правами доступа `0640`:
+```ini
+# Сетевые параметры Data Plane
+PORT=50052
+BOOTSTRAP_SERVERS=localhost:9092
+DC_ID=DC1
+TARGET_DC=DC2
+
+# Внешний адрес узла для регистрации в Оркестраторе и приема трафика от других ЦОД
+ADVERTISED_GRPC_ADDRESS=broker-01.dc1.corp:50052
+TARGET_ENDPOINTS=broker-01.dc2.corp:50052,broker-02.dc2.corp:50052
+
+# Подключение к Orchestrator Control Plane
+ORCHESTRATOR_GRPC_ADDRESS=orchestrator.corp:50050
+AGENT_ID=kafka-agent-dc1-broker01
+AGENT_SECRET=c0rp0rate-s3cr3t-t0k3n
+ROLE=dual
+
+# Тюнинг параллельности под Colocated (2-4 ядра, без перегрузки CPU брокера)
+CONSUMER_THREADS=4
+BATCH_SIZE=2000
+
+# Список реплицируемых топиков (если задается локально, а не динамически оркестратором)
+TOPICS=orders-avro,payments-stream,telemetry-events
+
+# Аутентификация Kerberos в локальном брокере Kafka
+KERBEROS_ENABLED=true
+PRINCIPAL=kafka-replicator/broker-01.dc1.corp@CORP.LOCAL
+KEYTAB=/etc/security/keytabs/kafka-replicator.keytab
+SECURITY_PROTOCOL=SASL_PLAINTEXT
+SERVICE_NAME=kafka
+
+# МежЦОДное mTLS шифрование на порту 50052
+TLS_ENABLED=true
+TLS_CERT_CHAIN=/etc/security/certs/replicator-agent.crt
+TLS_PRIVATE_KEY=/etc/security/certs/replicator-agent.key
+TLS_TRUST_CERT=/etc/security/certs/ca.crt
+```
+
+---
+
+#### Шаг 3: Создание `systemd`-юнита с cgroups-изоляцией (`/etc/systemd/system/kafka-replicator-agent.service`)
+
+Для того чтобы агент репликации гарантированно **не мог повлиять на стабильность и SLA основного брокера Kafka**, в systemd настраиваются ограничения cgroups v2 (`CPUQuota`, `MemoryMax`, `Nice`):
+
+```ini
+[Unit]
+Description=Kafka Replicator Agent (Java 21 Colocated Daemon)
+After=network.target kafka.service
+Wants=kafka.service
+Documentation=https://github.com/balookrd/hadoop-explorer
+
+[Service]
+Type=simple
+User=kafka-replicator
+Group=kafka-replicator
+EnvironmentFile=/etc/default/kafka-replicator-agent
+
+# =========================================================================
+# Ресурсная изоляция (cgroups): защита брокера Kafka от деградации
+# =========================================================================
+# Жесткий потолок CPU: агент не может занять более 3 ядер vCPU (300%)
+CPUQuota=300%
+# Пониженный приоритет планировщика относительно брокера Kafka (Nice=10)
+Nice=10
+# Ограничения по памяти: предупреждение на 5 ГБ, жесткий потолок 6 ГБ
+MemoryHigh=5G
+MemoryMax=6G
+
+# Опции JVM (Java 21 Virtual Threads, малый heap, pooled direct буферы Netty)
+Environment="JAVA_OPTS=-Xms2g -Xmx4g \
+  -XX:+UseG1GC \
+  -XX:MaxGCPauseMillis=30 \
+  -XX:InitiatingHeapOccupancyPercent=45 \
+  -Dio.netty.allocator.type=pooled \
+  -Dio.netty.allocator.numDirectArenas=4"
+
+ExecStart=/usr/bin/java $JAVA_OPTS \
+  -cp /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+  org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain \
+  --port ${PORT} \
+  --bootstrap-servers ${BOOTSTRAP_SERVERS} \
+  --dc-id ${DC_ID} \
+  --target-dc ${TARGET_DC} \
+  --target-endpoints ${TARGET_ENDPOINTS} \
+  --orchestrator-grpc ${ORCHESTRATOR_GRPC_ADDRESS} \
+  --agent-id ${AGENT_ID} \
+  --agent-secret ${AGENT_SECRET} \
+  --advertised-grpc-address ${ADVERTISED_GRPC_ADDRESS} \
+  --role ${ROLE} \
+  --consumer-threads ${CONSUMER_THREADS} \
+  --batch-size ${BATCH_SIZE} \
+  --topics ${TOPICS} \
+  --kerberos-enabled=${KERBEROS_ENABLED} \
+  --principal ${PRINCIPAL} \
+  --keytab ${KEYTAB} \
+  --security-protocol ${SECURITY_PROTOCOL} \
+  --service-name ${SERVICE_NAME} \
+  --tls-enabled=${TLS_ENABLED} \
+  --tls-cert-chain ${TLS_CERT_CHAIN} \
+  --tls-private-key ${TLS_PRIVATE_KEY} \
+  --tls-trust-cert ${TLS_TRUST_CERT}
+
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+#### Шаг 4: Активация сервиса и проверка работоспособности
+
+```bash
+# Перечитать конфигурацию systemd и включить автозагрузку
+sudo systemctl daemon-reload
+sudo systemctl enable --now kafka-replicator-agent
+
+# Проверить статус службы
+sudo systemctl status kafka-replicator-agent
+
+# Проверить, что gRPC Data Plane порт 50052 открыт и слушает входящие соединения
+sudo ss -tulpn | grep 50052
+
+# Просмотр системного журнала службы
+sudo journalctl -u kafka-replicator-agent -f
+```
+
+---
+
+#### Шаг 5: Проверка телеметрии и интеграции с Оркестратором
+
+1. **Регистрация в Orchestrator Control Plane**:
+   ```bash
+   curl -s http://orchestrator.corp:8005/api/replicator/agents | jq .
+   ```
+   В выводе должен присутствовать агент с ID `kafka-agent-dc1-broker01`, ролью `dual` и анонсированным адресом `broker-01.dc1.corp:50052`.
+
+2. **Контроль ресурсной нагрузки cgroups**:
+   ```bash
+   # Просмотр текущей утилизации памяти и CPU процессом агента
+   systemd-cgtop
+   cat /sys/fs/cgroup/system.slice/kafka-replicator-agent.service/memory.current
+   ```
+
+3. **Проверка сквозного Backpressure и подтверждений**:
+   В журнале агента фиксируются события:
+   ```text
+   INFO [KafkaDataTransferServiceImpl] Батч топика orders-avro (2000 записей) успешно зафиксирован в локальном брокере
+   INFO [KafkaBatchConsumerPool] Получен Ack от DC2 для топика orders-avro: смещение зафиксировано
+   ```
+
+
 
 
 
