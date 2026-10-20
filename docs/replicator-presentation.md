@@ -620,9 +620,15 @@ groups:
 | Узел / Компонент | vCPU | RAM | Сетевой адаптер (NIC) | Дисковая подсистема |
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestrator Host** | 4–8 vCPU | 8–16 GB | 1 Gbps / 10 Gbps | 50 GB SSD (NVMe) под базу данных |
-| **Agent Colocated** | 4 vCPU | 8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с DataNode Hadoop |
-| **Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps | 200 GB SSD под системные журналы |
+| **HDFS/HMS Agent Colocated** | 4 vCPU | 8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с DataNode Hadoop |
+| **HDFS/HMS Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps | 200 GB SSD под системные журналы |
+| **Kafka Agent Colocated** | 2–4 vCPU | 4–8 GB JVM Heap | 10 Gbps / 25 Gbps | Совместно с брокером Kafka (in-memory, без staging) |
 | **Kafka Agent Dedicated** | 8–16 vCPU | 16–32 GB RAM | 10 Gbps / 25 Gbps | До 1M msg/s throughput (Virtual Threads) |
+
+> [!TIP]
+> **Выбор размещения Kafka Replicator Agent**:
+> - **Colocated (на узлах брокеров Kafka)**: вычитка идет локально по `localhost:9092` без дополнительной загрузки внутренней сети ЦОД. In-memory буферизация на виртуальных потоках Java 21 не требует выделенного staging-диска и потребляет всего 2–4 vCPU при скорости до 400k msg/s.
+> - **Dedicated (выделенные Edge Gateway серверы)**: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M msg/s.
 
 ### Тюнинг ядра Linux для 10G/40G WAN-каналов (`/etc/sysctl.conf`)
 

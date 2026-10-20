@@ -1091,6 +1091,7 @@ GET http://orchestrator:8005/actuator/health</div>
               <li><code>net.core.wmem_max = 67108864</code> (64MB сетевой буфер отправки).</li>
               <li><code>net.ipv4.tcp_rmem / tcp_wmem</code> (автотюнинг TCP окна).</li>
               <li><strong>Virtual Threads (P0 & P1):</strong> Netty сервер приемника на виртуальных потоках Java 21, распаковка TAR в выделенном <code>tarUnpackExecutor</code>.</li>
+              <li><strong>Kafka Colocated Agent:</strong> 2–4 vCPU, 4–8 GB RAM (на брокерах Kafka, localhost вычитка, 200k–400k msg/s).</li>
               <li><strong>Kafka Dedicated Agent:</strong> 8–16 vCPU, 8–16 GB RAM, 10/25 Gbps LAN (до 1M msg/s на виртуальных потоках).</li>
               <li><strong>Directory Cache (PERF-04):</strong> LRU кэш каталогов экономит 90% RPC NameNode.</li>
               <li><strong>FOR UPDATE SKIP LOCKED (PERF-03):</strong> Изоляция очередей задач без строчных блокировок jobs.</li>

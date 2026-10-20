@@ -1434,18 +1434,25 @@ sequenceDiagram
 <td align="left">50 GB SSD (NVMe) под базу данных</td>
 </tr>
 <tr>
-<td align="left"><strong>Agent Colocated</strong></td>
+<td align="left"><strong>HDFS/HMS Agent Colocated</strong></td>
 <td align="left">4 vCPU</td>
 <td align="left">8 GB JVM Heap</td>
 <td align="left">10 Gbps / 25 Gbps</td>
 <td align="left">Совместно с DataNode Hadoop</td>
 </tr>
 <tr>
-<td align="left"><strong>Agent Dedicated</strong></td>
+<td align="left"><strong>HDFS/HMS Agent Dedicated</strong></td>
 <td align="left">8–16 vCPU</td>
 <td align="left">16–32 GB RAM</td>
 <td align="left">25 Gbps / 40 Gbps</td>
 <td align="left">200 GB SSD под системные журналы</td>
+</tr>
+<tr>
+<td align="left"><strong>Kafka Agent Colocated</strong></td>
+<td align="left">2–4 vCPU</td>
+<td align="left">4–8 GB JVM Heap</td>
+<td align="left">10 Gbps / 25 Gbps</td>
+<td align="left">Совместно с брокером Kafka (in-memory, без staging)</td>
 </tr>
 <tr>
 <td align="left"><strong>Kafka Agent Dedicated</strong></td>
@@ -1455,6 +1462,14 @@ sequenceDiagram
 <td align="left">До 1M msg/s throughput (Virtual Threads)</td>
 </tr>
 </tbody></table></div>
+<blockquote>
+<p>[!TIP]
+<strong>Выбор размещения Kafka Replicator Agent</strong>:</p>
+<ul>
+<li><strong>Colocated (на узлах брокеров Kafka)</strong>: вычитка идет локально по <code>localhost:9092</code> без дополнительной загрузки внутренней сети ЦОД. In-memory буферизация на виртуальных потоках Java 21 не требует выделенного staging-диска и потребляет всего 2–4 vCPU при скорости до 400k msg/s.</li>
+<li><strong>Dedicated (выделенные Edge Gateway серверы)</strong>: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M msg/s.</li>
+</ul>
+</blockquote>
 <h3>Тюнинг ядра Linux для 10G/40G WAN-каналов (<code>/etc/sysctl.conf</code>)</h3>
 <pre><code class="language-ini"># Увеличение максимального размера сетевых буферов TCP для исключения потери пакетов
 net.core.rmem_max = 67108864

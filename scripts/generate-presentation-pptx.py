@@ -611,12 +611,11 @@ def generate_presentation(output_pptx_path):
     add_card(slide14, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
              "⚡ Сайзинг Replicator Agents",
              [
-                 "HDFS/HMS Агенты: Colocated на DataNode или Edge Gateway 25G/40G.",
-                 "Kafka Агенты: Выделенные демоны (8–16 vCPU, 8–16 GB RAM) на виртуальных потоках.",
-                 "Производительность: До 1,000,000 msg/s при Zero-Copy Wire Transcoding.",
-                 "CPU & RAM: 8–16 vCPU, 16–32 GB Heap (Directory Cache + Netty off-heap).",
-                 "Сеть: 10G / 25G / 40G NIC.",
-                 "Масштабирование: Линейный скейлинг через реестр agent_registry."
+                 "HDFS/HMS Colocated: 4 vCPU, 8 GB Heap (DataNode, Short-Circuit read).",
+                 "HDFS/HMS Dedicated: 8–16 vCPU, 16–32 GB RAM (Edge Gateway 25G/40G).",
+                 "Kafka Colocated: 2–4 vCPU, 4–8 GB Heap (на брокерах, 200k–400k msg/s).",
+                 "Kafka Dedicated: 8–16 vCPU, 16–32 GB RAM (до 1M msg/s на Virtual Threads).",
+                 "Сеть и скейлинг: 10G / 25G / 40G NIC, линейный скейлинг в agent_registry."
              ], ACCENT_GREEN)
 
     add_card(slide14, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
