@@ -496,7 +496,7 @@ public class DisasterRecoveryService {
         }
 
         int stoppedHdfs = 0;
-        List<JobEntity> jobs = jobRepository.findAll();
+        List<JobEntity> jobs = jobRepository.findByNormalizedSourceClusterId(clusterId);
         for (JobEntity j : jobs) {
             if (matchesCluster(j.getSourceClusterId(), clusterId)) {
                 String status = j.getStatus() != null ? j.getStatus().toUpperCase() : "";
@@ -535,7 +535,7 @@ public class DisasterRecoveryService {
         }
 
         int stoppedHms = 0;
-        List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findAll();
+        List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findByNormalizedSourceClusterId(clusterId);
         for (HmsReplicationJobEntity h : hmsJobs) {
             if (matchesCluster(h.getSourceClusterId(), clusterId)) {
                 if (!"PAUSED".equalsIgnoreCase(h.getStatus())) {
@@ -662,7 +662,7 @@ public class DisasterRecoveryService {
 
         // 2. Возобновление схем HMS
         if (Boolean.TRUE.equals(req.resumeHms())) {
-            List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findAll();
+            List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findByNormalizedSourceClusterId(clusterId);
             for (HmsReplicationJobEntity h : hmsJobs) {
                 if (matchesCluster(h.getSourceClusterId(), clusterId)) {
                     boolean wasPausedBySnapshot = snapshot != null && snapshot.getPausedHmsJobIds().contains(h.getId());
@@ -679,7 +679,7 @@ public class DisasterRecoveryService {
 
         // 3. Восстановление расписаний и состояния HDFS задач
         if (Boolean.TRUE.equals(req.resumeHdfs())) {
-            List<JobEntity> jobs = jobRepository.findAll();
+            List<JobEntity> jobs = jobRepository.findByNormalizedSourceClusterId(clusterId);
             for (JobEntity j : jobs) {
                 if (matchesCluster(j.getSourceClusterId(), clusterId)) {
                     boolean wasStoppedBySnapshot = snapshot != null && snapshot.getStoppedHdfsJobIds().contains(j.getId());

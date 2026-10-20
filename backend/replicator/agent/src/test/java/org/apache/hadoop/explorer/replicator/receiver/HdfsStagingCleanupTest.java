@@ -219,4 +219,33 @@ public class HdfsStagingCleanupTest {
             }
         }
     }
+
+    @Test
+    @DisplayName("P2 Гарантия очистки при Kill -9: брошенные staging-файлы файлов TAR-бандла успешно вычищаются HdfsStagingReaper")
+    void testOrphanedTarBundleStagingFilesCleanedByReaper() throws Exception {
+        File bundleDir = new File(tempTargetDir, "crashed_bundle");
+        bundleDir.mkdirs();
+
+        // 1. Эмулируем внезапное падение узла воркера (kill -9) в середине распаковки бандла:
+        // часть файлов бандла успела записаться на диск со staging-маркером, но воркер погиб до их переименования
+        File orphan1 = new File(bundleDir, "event1.json._staging_job-crash-999");
+        File orphan2 = new File(bundleDir, "event2.json._staging_job-crash-999");
+        File committedFile = new File(bundleDir, "existing_data.parquet");
+
+        Files.writeString(orphan1.toPath(), "partial data 1");
+        Files.writeString(orphan2.toPath(), "partial data 2");
+        Files.writeString(committedFile.toPath(), "safe data");
+
+        assertTrue(orphan1.exists());
+        assertTrue(orphan2.exists());
+        assertTrue(committedFile.exists());
+
+        // 2. Фоновый сборщик мусора HdfsStagingReaper выполняет периодическую очистку директории
+        int cleaned = fsManager.cleanStagingFiles(bundleDir.getAbsolutePath(), "job-crash-999");
+        assertEquals(2, cleaned, "Должно быть удалено ровно 2 брошенных staging-файла бандла");
+
+        assertFalse(orphan1.exists(), "Брошенный staging-файл 1 должен быть удален");
+        assertFalse(orphan2.exists(), "Брошенный staging-файл 2 должен быть удален");
+        assertTrue(committedFile.exists(), "Легитимный файл данных не должен быть поврежден");
+    }
 }

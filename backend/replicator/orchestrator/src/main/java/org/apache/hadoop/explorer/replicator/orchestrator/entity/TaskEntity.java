@@ -7,6 +7,19 @@ import jakarta.persistence.*;
 
 import java.time.Instant;
 
+/**
+ * Сущность подзадачи репликации (единичный файл или Tar-бандл мелких файлов).
+ *
+ * <p><b>Архитектурное решение по партиционированию и первичному ключу:</b>
+ * В СУБД PostgreSQL таблица {@code replication_tasks} партиционирована по диапазонам дат:
+ * {@code PARTITION BY RANGE (updated_at)}.
+ * По стандарту PostgreSQL декларативные первичные ключи на секционированных таблицах
+ * обязаны включать столбец партиционирования (т.е. {@code PRIMARY KEY (id, updated_at)}).
+ * В JPA/Hibernate поле {@code id} является единственным идентификатором ({@code @Id}),
+ * поскольку {@code updated_at} непрерывно мутирует при переходах статусов задачи
+ * (QUEUED -> RUNNING -> COMPLETED/FAILED), а мутация первичного ключа в JPA запрещена.
+ * Поиск по {@code id} в секциях обслуживается ведущей колонкой составного индекса B-Tree (Index Scan).
+ */
 @Entity
 @Table(
     name = "replication_tasks",

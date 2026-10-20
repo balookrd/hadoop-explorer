@@ -142,8 +142,10 @@ class DisasterRecoveryServiceTest {
         hmsJob.setStatus("ACTIVE");
 
         when(jobRepository.findAll()).thenReturn(List.of(activeJob));
+        when(jobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of(activeJob));
         when(jobRunRepository.findById("run-1")).thenReturn(Optional.of(activeRun));
         when(hmsReplicationJobRepository.findAll()).thenReturn(List.of(hmsJob));
+        when(hmsReplicationJobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of(hmsJob));
 
         DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Авария питания в ЦОД1", true);
         DrActionResponse resp = drService.emergencyStop(req, "admin_user");
@@ -162,6 +164,12 @@ class DisasterRecoveryServiceTest {
 
         // Проверяем сетевое ограждение
         verify(topologyRegistry, atLeastOnce()).setDcLimit(eq("dc1"), eq("dc2"), eq(0L));
+
+        // P1: Проверяем, что аварийная остановка использует точечный запрос вместо сканирования всей таблицы
+        verify(jobRepository).findByNormalizedSourceClusterId("dc1");
+        verify(hmsReplicationJobRepository).findByNormalizedSourceClusterId("dc1");
+        verify(jobRepository, never()).findAll();
+        verify(hmsReplicationJobRepository, never()).findAll();
     }
 
     @Test
@@ -352,7 +360,9 @@ class DisasterRecoveryServiceTest {
         );
 
         when(jobRepository.findAll()).thenReturn(List.of());
+        when(jobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of());
         when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
+        when(hmsReplicationJobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of());
 
         DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Тестовый аварийный останов", true);
         DrActionResponse resp = lockedDrService.emergencyStop(req, "admin_user");

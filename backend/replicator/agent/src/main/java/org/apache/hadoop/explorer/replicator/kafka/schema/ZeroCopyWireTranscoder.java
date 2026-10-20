@@ -70,6 +70,39 @@ public class ZeroCopyWireTranscoder {
         return payload;
     }
 
+    /**
+     * Высокопроизводительный вариант транскодинга с in-place модификацией заголовка.
+     * <p>
+     * <b>Внимание:</b> изменяет байты переданного массива {@code payload}. Использовать только
+     * в изолированных конвейерах, где буфер гарантированно не используется повторно другими потоками.
+     */
+    public byte[] transcodeInPlace(String topic, byte[] payload, PayloadFormat sourceFormat, PayloadFormat targetFormat) {
+        if (payload == null || sourceFormat == PayloadFormat.PAYLOAD_PASSTHROUGH || targetFormat == PayloadFormat.PAYLOAD_PASSTHROUGH) {
+            return payload;
+        }
+        if (sourceFormat == PayloadFormat.PAYLOAD_CONFLUENT_AVRO && targetFormat == PayloadFormat.PAYLOAD_CONFLUENT_AVRO) {
+            if (payload.length >= CONFLUENT_HDR_LEN) {
+                int sourceId = readInt(payload, 1);
+                int targetId = schemaResolver.resolveConfluentToConfluent(topic, sourceId);
+                if (sourceId != targetId) {
+                    writeInt(payload, 1, targetId);
+                }
+            }
+            return payload;
+        }
+        if (sourceFormat == PayloadFormat.PAYLOAD_HWX_AVRO && targetFormat == PayloadFormat.PAYLOAD_HWX_AVRO) {
+            if (payload.length >= HWX_HDR_LEN) {
+                long sourceId = readLong(payload, 1);
+                long targetId = schemaResolver.resolveHwxToHwx(topic, sourceId);
+                if (sourceId != targetId) {
+                    writeLong(payload, 1, targetId);
+                }
+            }
+            return payload;
+        }
+        return transcode(topic, payload, sourceFormat, targetFormat);
+    }
+
     private byte[] transcodeConfluentToConfluent(String topic, byte[] payload) {
         if (payload == null || payload.length < CONFLUENT_HDR_LEN) {
             return payload;
@@ -82,9 +115,10 @@ public class ZeroCopyWireTranscoder {
             return payload; // ID полностью совпали, замена не требуется
         }
 
-        // Zero-copy & Zero-allocation: in-place замена ID схемы в бинарном заголовке без дублирования байтов в куче
-        writeInt(payload, 1, targetId);
-        return payload;
+        // Иммутабельный транскодинг: защитная копия для исключения side-effects в переданном массиве
+        byte[] target = payload.clone();
+        writeInt(target, 1, targetId);
+        return target;
     }
 
     private byte[] transcodeHwxToHwx(String topic, byte[] payload) {
@@ -99,9 +133,10 @@ public class ZeroCopyWireTranscoder {
             return payload;
         }
 
-        // Zero-copy & Zero-allocation: in-place замена 8-байтного Long ID без клонирования payload
-        writeLong(payload, 1, targetId);
-        return payload;
+        // Иммутабельный транскодинг: защитная копия для исключения side-effects в переданном массиве
+        byte[] target = payload.clone();
+        writeLong(target, 1, targetId);
+        return target;
     }
 
     private byte[] transcodeHwxToConfluent(String topic, byte[] payload) {

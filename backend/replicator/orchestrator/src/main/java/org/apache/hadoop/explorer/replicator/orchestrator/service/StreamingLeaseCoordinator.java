@@ -191,14 +191,7 @@ public class StreamingLeaseCoordinator {
                 .filter(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), targetCluster))
                 .count();
 
-        long maxTxid = 0L;
-        for (JobEntity j : jobRepository.findAll()) {
-            if ("STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), targetCluster)) {
-                if (j.getLastProcessedTxid() != null && j.getLastProcessedTxid() > maxTxid) {
-                    maxTxid = j.getLastProcessedTxid();
-                }
-            }
-        }
+        long maxTxid = jobRepository.findMaxProcessedTxidByClusterId(targetCluster);
 
         long pendingTasks = calculateClusterPendingTasks(targetCluster);
         boolean queueSaturated = isClusterQueueSaturated(targetCluster, pendingTasks);

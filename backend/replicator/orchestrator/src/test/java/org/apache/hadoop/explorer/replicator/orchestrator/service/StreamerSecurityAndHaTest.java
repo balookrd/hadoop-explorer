@@ -5,8 +5,10 @@ import org.apache.hadoop.explorer.replicator.model.ClaimTasksRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.StreamingLeaseRenewRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.StreamingLeaseRenewResponse;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.StreamingLeaseEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,6 +43,9 @@ class StreamerSecurityAndHaTest {
 
     @Autowired
     private ReplicatorProperties properties;
+
+    @Autowired
+    private JobRepository jobRepository;
 
     @BeforeEach
     void setUp() {
@@ -126,5 +131,26 @@ class StreamerSecurityAndHaTest {
         );
         assertEquals(2, resp2.registeredStreamersCount());
         assertFalse(resp2.redundancyWarning(), "Предупреждение должно сняться при наличии 2+ стримеров");
+    }
+
+    @Test
+    @DisplayName("P1 Оптимизация getLeaseStatus: статус лизинга возвращает maxTxid через точечный JPQL-запрос без сканирования всех задач")
+    void shouldReturnLeaseStatusWithMaxTxidViaOptimizedQuery() {
+        JobEntity streamingJob = new JobEntity();
+        streamingJob.setId("stream-job-dc1");
+        streamingJob.setSourceClusterId("dc1");
+        streamingJob.setTargetClusterId("dc2");
+        streamingJob.setSourcePath("/stream/source");
+        streamingJob.setTargetPath("/stream/target");
+        streamingJob.setSyncMode("STREAMING_INOTIFY");
+        streamingJob.setLastProcessedTxid(1234567L);
+        streamingJob.setStatus("RUNNING");
+        jobRepository.save(streamingJob);
+
+        leaseCoordinator.renewLease(new StreamingLeaseRenewRequest("dc1", "streamer-node-1"));
+
+        var statusOpt = leaseCoordinator.getLeaseStatus("dc1");
+        assertTrue(statusOpt.isPresent());
+        assertEquals(1234567L, statusOpt.get().lastCommittedTxid());
     }
 }

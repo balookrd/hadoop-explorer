@@ -27,6 +27,12 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     """)
     long findMaxProcessedTxidByClusterId(@Param("clusterId") String clusterId);
 
+    @Query("""
+        SELECT j FROM JobEntity j
+        WHERE LOWER(REPLACE(REPLACE(j.sourceClusterId, '-', ''), '_', '')) = LOWER(REPLACE(REPLACE(:clusterId, '-', ''), '_', ''))
+    """)
+    List<JobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
+
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE JobEntity j

@@ -272,4 +272,46 @@ class JobSecurityAuthorizationTest {
         assertEquals(HttpStatus.OK, resp.getStatusCode());
         verify(jobService).getJob("job-secret-999");
     }
+
+    @Test
+    @DisplayName("BOLA/IDOR Protection: чужой пользователь не может просматривать историю запусков (403 FORBIDDEN)")
+    void testStrangerCannotReadOtherUsersJobRuns() {
+        UserSession strangerSession = new UserSession(
+                "stranger_dave", "Dave", "dave@corp.local",
+                List.of("analytics"), "LDAP", false, Role.WRITER
+        );
+        CommonAuthenticationToken strangerAuth = new CommonAuthenticationToken(strangerSession);
+
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity job =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.getJobRuns("job-secret-999", null, strangerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).getJobRuns(eq("job-secret-999"));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Protection: создатель задачи может просматривать историю своих запусков (200 OK)")
+    void testCreatorCanReadOwnJobRuns() {
+        org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity job =
+                new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJobRuns("job-secret-999")).thenReturn(List.of());
+
+        var resp = controller.getJobRuns("job-secret-999", null, writerAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJobRuns("job-secret-999");
+    }
 }

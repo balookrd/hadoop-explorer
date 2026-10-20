@@ -45,6 +45,26 @@ class ZeroCopyWireTranscoderTest {
         // Проверяем, что тело Avro в точности сохранилось
         byte[] outputAvroBody = Arrays.copyOfRange(output, 5, output.length);
         assertArrayEquals(avroBody, outputAvroBody);
+
+        // Проверяем иммутабельность исходного буфера
+        assertEquals(1, ByteBuffer.wrap(input, 1, 4).getInt(), "Исходный буфер НЕ должен мутировать (иммутабельность)");
+        assertNotSame(input, output, "При изменении ID должен возвращаться новый массив-копия");
+    }
+
+    @Test
+    @DisplayName("In-Place транскодинг: изменяет исходный буфер без аллокаций нового массива")
+    void testInPlaceTranscodingMutatesInput() {
+        resolver.putConfluentToConfluent(1, 42);
+
+        byte[] avroBody = "test".getBytes();
+        byte[] input = new byte[5 + avroBody.length];
+        input[0] = 0x00;
+        ByteBuffer.wrap(input, 1, 4).putInt(1);
+
+        byte[] output = transcoder.transcodeInPlace("orders", input, PayloadFormat.PAYLOAD_CONFLUENT_AVRO, PayloadFormat.PAYLOAD_CONFLUENT_AVRO);
+
+        assertSame(input, output, "In-place должен возвращать тот же экземпляр массива");
+        assertEquals(42, ByteBuffer.wrap(input, 1, 4).getInt(), "Исходный буфер должен быть модифицирован in-place");
     }
 
     @Test

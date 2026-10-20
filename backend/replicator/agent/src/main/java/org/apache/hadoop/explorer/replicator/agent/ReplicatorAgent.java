@@ -230,6 +230,7 @@ public class ReplicatorAgent {
         );
 
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
+                .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .addService(receiverService)
                 .maxInboundMessageSize(64 * 1024 * 1024);
 

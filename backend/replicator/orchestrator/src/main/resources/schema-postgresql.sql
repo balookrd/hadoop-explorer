@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS replication_tasks (
     file_count INT NOT NULL DEFAULT 1,
     bundle_manifest TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- В PostgreSQL партиционированные таблицы требуют включения ключа партиционирования в PK:
+    -- id является лидирующим столбцом B-Tree, гарантируя быстрый Index Scan для taskRepository.findById(id).
     PRIMARY KEY (id, updated_at)
 ) PARTITION BY RANGE (updated_at);
 

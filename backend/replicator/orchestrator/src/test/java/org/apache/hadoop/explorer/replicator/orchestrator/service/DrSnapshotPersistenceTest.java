@@ -71,7 +71,9 @@ class DrSnapshotPersistenceTest {
     @DisplayName("P1: emergencyStopCluster сохраняет снимок в БД, а rollbackEmergencyStop удаляет его")
     void shouldPersistAndRemoveSnapshotInDatabase() {
         when(jobRepository.findAll()).thenReturn(Collections.emptyList());
+        when(jobRepository.findByNormalizedSourceClusterId(any())).thenReturn(Collections.emptyList());
         when(hmsReplicationJobRepository.findAll()).thenReturn(Collections.emptyList());
+        when(hmsReplicationJobRepository.findByNormalizedSourceClusterId(any())).thenReturn(Collections.emptyList());
 
         // 1. Аварийный останов
         DrEmergencyStopRequest stopReq = new DrEmergencyStopRequest("dc1", "DataCenter fire", true);

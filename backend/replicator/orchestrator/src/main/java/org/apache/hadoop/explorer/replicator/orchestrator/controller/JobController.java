@@ -131,9 +131,12 @@ public class JobController {
         }
         UserSession session = getSession(auth);
         if (session == null) {
-            return;
+            throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "Требуется аутентификация для просмотра задачи"
+            );
         }
-        if (session.isAdmin() || session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER) {
+        if (session.isAdmin() || session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER
+                || (session.groups() != null && session.groups().contains("replicator-agents"))) {
             return;
         }
         var opt = jobService.getJobEntity(jobId);
@@ -260,7 +263,12 @@ public class JobController {
     }
 
     @GetMapping("/{jobId}/runs")
-    public ResponseEntity<List<JobRunEntity>> getJobRuns(@PathVariable String jobId) {
+    public ResponseEntity<List<JobRunEntity>> getJobRuns(
+        @PathVariable String jobId,
+        @RequestHeader(required = false, name = "X-Agent-Secret") String agentSecret,
+        Authentication auth
+    ) {
+        checkJobReadAccess(jobId, auth, agentSecret);
         return ResponseEntity.ok(jobService.getJobRuns(jobId));
     }
 }

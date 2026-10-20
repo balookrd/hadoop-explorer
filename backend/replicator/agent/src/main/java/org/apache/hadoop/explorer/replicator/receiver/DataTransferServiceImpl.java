@@ -39,6 +39,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final LocalBandwidthLimiter bandwidthLimiter;
     private final String keytabPath;
     private final ExecutorService bundleCommitExecutor;
+    private final ExecutorService tarUnpackExecutor;
     private final Set<String> knownTargetDirectories = ConcurrentHashMap.newKeySet();
     private final int bundleCommitConcurrency;
     private final int maxConcurrentTarStreams;
@@ -47,6 +48,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final long tarStreamAcquireTimeoutMs;
     private final String agentSecret;
     private final boolean enforceTaskAttestation;
+    private final org.apache.hadoop.explorer.replicator.security.TaskAttestationValidator attestationValidator;
 
     public DataTransferServiceImpl(
             String stagingDir,
@@ -70,12 +72,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         this.tarStreamAcquireTimeoutMs = tarStreamAcquireTimeoutMs > 0 ? tarStreamAcquireTimeoutMs : 60_000L;
         this.agentSecret = agentSecret;
         this.enforceTaskAttestation = enforceTaskAttestation;
+        this.attestationValidator = new org.apache.hadoop.explorer.replicator.security.TaskAttestationValidator(this.agentSecret, this.enforceTaskAttestation);
         this.tarStreamSemaphore = new Semaphore(this.maxConcurrentTarStreams, true);
         this.bundleCommitExecutor = Executors.newFixedThreadPool(this.bundleCommitConcurrency, r -> {
             Thread t = new Thread(r, "bundle-hdfs-committer");
             t.setDaemon(true);
             return t;
         });
+        this.tarUnpackExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("tar-stream-unpacker-", 0).factory()
+        );
 
         File dir = new File(this.stagingDir);
         if (!dir.exists()) {
@@ -174,62 +180,15 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     }
 
     public boolean isEnforceTaskAttestation() {
-        return enforceTaskAttestation;
+        return attestationValidator.isEnforceTaskAttestation();
     }
 
     private void validateTaskAttestation(FileMetadata metadata) {
-        validateTaskAttestationInternal(
-                metadata.getTaskToken(),
-                metadata.getTaskId(),
-                metadata.getJobId(),
-                metadata.getTargetPath(),
-                metadata.getExecutionPrincipal(),
-                metadata.getRunAsServiceAccount()
-        );
+        attestationValidator.validateTaskAttestation(metadata);
     }
 
     private void validateTaskAttestation(TarStreamMetadata metadata) {
-        validateTaskAttestationInternal(
-                metadata.getTaskToken(),
-                metadata.getTaskId(),
-                metadata.getJobId(),
-                metadata.getBaseTargetPath(),
-                metadata.getExecutionPrincipal(),
-                metadata.getRunAsServiceAccount()
-        );
-    }
-
-    private void validateTaskAttestationInternal(String token, String taskId, String jobId,
-                                                 String targetPath, String executionPrincipal,
-                                                 boolean runAsServiceAccount) {
-        boolean hasToken = token != null && !token.isBlank();
-        if (hasToken) {
-            if (agentSecret == null || agentSecret.isBlank()) {
-                logger.warn("Получен токен аттестации задачи, но секретный ключ agentSecret не сконфигурирован на Receiver сервере");
-                if (enforceTaskAttestation) {
-                    throw new SecurityException("Аттестация задачи отклонена: секретный ключ ресивера не сконфигурирован");
-                }
-                return;
-            }
-            boolean valid = org.apache.hadoop.explorer.replicator.security.TaskAttestationService.validateToken(
-                    token, taskId, jobId, targetPath, executionPrincipal, runAsServiceAccount, agentSecret
-            );
-            if (!valid) {
-                logger.error("Отказ безопасности (SEC-01): недействительный токен аттестации задачи task={}, job={}, path={}, principal={}, runAsService={}",
-                        taskId, jobId, targetPath, executionPrincipal, runAsServiceAccount);
-                throw new SecurityException("Криптографическая аттестация задачи не пройдена: токен подделан или параметры скомпрометированы");
-            }
-            logger.debug("Криптографическая аттестация задачи подтверждена: task={}, job={}, principal={}",
-                    taskId, jobId, executionPrincipal);
-        } else {
-            if (enforceTaskAttestation) {
-                logger.error("Отказ безопасности (SEC-01): отсутствует обязательный токен аттестации задачи task={}, job={}",
-                        taskId, jobId);
-                throw new SecurityException("Отклонено: требуется криптографическая аттестация задачи (Zero-Trust Task Attestation Token)");
-            }
-            logger.debug("Токен аттестации задачи отсутствует, выполнение в доверенном режиме обратной совместимости (task={}, job={})",
-                    taskId, jobId);
-        }
+        attestationValidator.validateTaskAttestation(metadata);
     }
 
     @Override
@@ -592,7 +551,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         final Semaphore memoryLimiter = new Semaphore(MAX_BUNDLE_BUFFER_BYTES);
                         final Semaphore fileCommitLimiter = new Semaphore(Math.max(2, bundleCommitConcurrency * 2));
 
-                        // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS
+                        // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS в изолированном пуле
                         unpackFuture = CompletableFuture.supplyAsync(() -> {
                             List<TarFileCommitResult> results = new CopyOnWriteArrayList<>();
                             AtomicInteger committedCount = new AtomicInteger(0);
@@ -637,16 +596,18 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
                                     String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
                                     fsManager.validateSandboxAccess(targetPath);
-                                    activeWrittenPaths.add(targetPath);
+                                    String stagingPath = targetPath + "._staging_" + meta.getJobId();
+                                    activeStagingPaths.add(stagingPath);
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         if (cancelled.get() || Thread.currentThread().isInterrupted()) {
-                                            activeWrittenPaths.remove(targetPath);
+                                            activeStagingPaths.remove(stagingPath);
                                             return;
                                         }
                                         try {
+                                            // 1. Потоковая запись в staging-файл (защита от мусора при kill -9 / OOM)
                                             fsManager.writeDirect(
-                                                    targetPath,
+                                                    stagingPath,
                                                     fileData,
                                                     meta.getExecutionPrincipal(),
                                                     meta.getRunAsServiceAccount(),
@@ -654,11 +615,22 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                             );
                                             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                                                 try {
-                                                    fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                                 } catch (Exception ignored) {}
-                                                activeWrittenPaths.remove(targetPath);
+                                                activeStagingPaths.remove(stagingPath);
                                                 return;
                                             }
+
+                                            // 2. Атомарное перемещение staging-файла в финальный targetPath
+                                            fsManager.renameFile(
+                                                    stagingPath,
+                                                    targetPath,
+                                                    meta.getExecutionPrincipal(),
+                                                    meta.getRunAsServiceAccount()
+                                            );
+                                            activeStagingPaths.remove(stagingPath);
+                                            activeWrittenPaths.add(targetPath);
+
                                             committedCount.incrementAndGet();
                                             totalBytesWritten.addAndGet(fileData.length);
                                             results.add(TarFileCommitResult.newBuilder()
@@ -670,16 +642,16 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                         } catch (Exception e) {
                                             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                                                 try {
-                                                    fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                                 } catch (Exception ignored) {}
-                                                activeWrittenPaths.remove(targetPath);
+                                                activeStagingPaths.remove(stagingPath);
                                                 return;
                                             }
-                                            logger.error("Ошибка при прямом коммите файла {} в HDFS: {}", targetPath, e.getMessage(), e);
+                                            logger.error("Ошибка при staging-коммите файла {} в HDFS: {}", targetPath, e.getMessage(), e);
                                             try {
-                                                fsManager.deletePath(targetPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
                                             } catch (Exception ignored) {}
-                                            activeWrittenPaths.remove(targetPath);
+                                            activeStagingPaths.remove(stagingPath);
                                             results.add(TarFileCommitResult.newBuilder()
                                                     .setRelativePath(relPath)
                                                     .setTargetPath(targetPath)
@@ -737,7 +709,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                         .addAllFiles(results)
                                         .build();
                             }
-                        });
+                        }, tarUnpackExecutor);
 
                         logger.info("Начат прием виртуального TAR-стрима task_id={}, job_id={}, файлов={}, суммарный объем={} (буфер: {} КБ, активно слотов: {}/{})",
                                 metadata.getTaskId(), metadata.getJobId(), metadata.getTotalFiles(), metadata.getTotalBytes(),
@@ -999,6 +971,12 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             bundleCommitExecutor.shutdown();
             try {
                 bundleCommitExecutor.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+        if (tarUnpackExecutor != null && !tarUnpackExecutor.isShutdown()) {
+            tarUnpackExecutor.shutdown();
+            try {
+                tarUnpackExecutor.awaitTermination(3, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {}
         }
     }
