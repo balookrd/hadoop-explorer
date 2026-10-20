@@ -2010,7 +2010,7 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 
 ---
 
-## 15. Подсистема репликации Apache Kafka (Kafka Replicator)
+## 8. Подсистема репликации Apache Kafka (Kafka Replicator)
 
 Подсистема **Kafka Replicator** обеспечивает масштабируемую двунаправленную репликацию топиков Apache Kafka, схем данных и оффсетов консьюмер-групп между территориально распределенными ЦОД по gRPC Data Plane с централизованным управлением через gRPC Control Plane Оркестратора.
 
@@ -2041,7 +2041,7 @@ flowchart LR
     A2 -.->|"Register & Heartbeat (:50050)"| Orch
 ```
 
-### 15.1 Ключевые возможности и архитектурные гарантии
+### 8.1 Ключевые возможности и архитектурные гарантии
 
 1. **Гарантия At-Least-Once (Zero Data Loss)**:
    - Смещения (`offsets`) в исходных партициях коммитятся консьюмером **строго асинхронно после получения положительного подтверждения от приемника** (`ack.getSuccess() == true`).
@@ -2062,7 +2062,7 @@ flowchart LR
    - Каждая запись помечается заголовком `X-Repl-Origin: <sourceDcId>`.
    - Фильтр блокирует повторную передачу сообщений, уже содержащих текущий `targetDcId` в цепочке `X-Repl-Origin`.
 
-### 15.2 Параметры командной строки демона `kafka-replicator-agent`
+### 8.2 Параметры командной строки демона `kafka-replicator-agent`
 
 ```bash
 java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain \
@@ -2103,13 +2103,13 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 | `--tls-private-key` | `TLS_PRIVATE_KEY` | - | Путь к приватному ключу сервера gRPC (`key.pem`) |
 | `--tls-trust-cert` | `TLS_TRUST_CERT` | - | Путь к доверенному корневому сертификату CA клиента (`ca.pem`) |
 
-### 15.3 Защитный гейт синхронизации оффсетов (Consumer Group Safety Gate)
+### 8.3 Защитный гейт синхронизации оффсетов (Consumer Group Safety Gate)
 
 При трансляции смещений консьюмер-групп (`OffsetSyncRequest`) система реализует двухуровневую защиту:
 1. **Проверка состояния группы**: если группа активна на целевом кластере (`STABLE` / `REBALANCING`), коммит смещений блокируется во избежание конфликтов и отката прогресса.
 2. **Защита от потери данных при lag**: если оффсет группы в источнике отстает от границы репликации (`committedOffset < endOffset`), временная метка конца топика не подставляется (`timestamp = 0`). Это предотвращает ошибочный скачок смещения вперед в целевом кластере через `offsetsForTimes` и гарантирует отсутствие потерь сообщений.
 
-### 15.4 Сайзинг и модели размещения Kafka Replicator Agent (Colocated vs Dedicated)
+### 8.4 Сайзинг и модели размещения Kafka Replicator Agent (Colocated vs Dedicated)
 
 Для подсистемы Kafka Replicator поддерживаются две основные архитектурные модели развертывания:
 
@@ -2122,7 +2122,7 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 | **Пропускная способность** | 200,000–400,000 msg/s на агент без деградации JVM брокера | До **1,000,000 msg/s** суммарно на кластер агентов |
 | **Рекомендация** | Оптимально для средних кластеров без жестких требований изоляции | Рекомендуется для High-Load сред и при строгих политиках ИБ |
 
-### 15.5 Пошаговая настройка и запуск Kafka Replicator Agent в режиме Colocated (на узлах брокеров Kafka)
+### 8.5 Пошаговая настройка и запуск Kafka Replicator Agent в режиме Colocated (на узлах брокеров Kafka)
 
 В режиме **Colocated** агент запускается в виде легковесного системного сервиса `systemd` непосредственно на хосте каждого брокера Apache Kafka. 
 
