@@ -232,4 +232,29 @@ public class KafkaReplicationOrchestratorSmokeTest {
         assertNotNull(qos.get("bottleneck"));
         assertTrue((int) qos.get("threadsPerAgent") > 0);
     }
+
+    @Test
+    void testUltraHighBandwidthQosScaling() {
+        // Тестирование масштабирования под ультра-высокие полосы 100G (5000 МБ/с) и 400G (20000 МБ/с)
+        CreateKafkaJobRequest req100G = new CreateKafkaJobRequest();
+        req100G.setName("job-100g-scale");
+        req100G.setSourceDc("dc1");
+        req100G.setTargetDc("dc2");
+        req100G.setBandwidthLimitMb(5000.0); // 100 GBit/s (5000 МБ/с)
+
+        KafkaReplicationJobDto created100G = service.createJob(req100G);
+        assertEquals(35000, created100G.getBatchSize(), "Размер батча для 5000 МБ/с должен быть 35 000");
+        // При 1 агенте sendersCount=1, Math.min(32, 167) -> 32 (защитный потолок на узел)
+        assertEquals(32, created100G.getConsumerThreads(), "Потоки на 1 агент должны быть ограничены защитным потолком 32");
+
+        CreateKafkaJobRequest req400G = new CreateKafkaJobRequest();
+        req400G.setName("job-400g-scale");
+        req400G.setSourceDc("dc1");
+        req400G.setTargetDc("dc2");
+        req400G.setBandwidthLimitMb(20000.0); // 400 GBit/s (20 000 МБ/с)
+
+        KafkaReplicationJobDto created400G = service.createJob(req400G);
+        assertEquals(50000, created400G.getBatchSize(), "Размер батча для 20 000 МБ/с должен быть 50 000");
+        assertEquals(32, created400G.getConsumerThreads(), "Потоки на 1 агент должны быть ограничены 32 тредами во избежание трэшинга JVM");
+    }
 }

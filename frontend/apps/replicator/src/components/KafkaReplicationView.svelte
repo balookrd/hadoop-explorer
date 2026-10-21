@@ -265,7 +265,7 @@
 
   let liveSendersCount = $derived(liveSenders.length > 0 ? liveSenders.length : 1);
 
-  // Расчет потоков вычитки на каждый агент-отправитель (шардинг пула с учетом 40G масштабирования)
+  // Расчет потоков вычитки на каждый агент-отправитель (шардинг пула без искусственного потолка в 40G: масштабирование на 100G, 200G, 400G+)
   let targetTotalThreads = $derived.by(() => {
     const bw = autoBandwidthMb;
     if (bw <= 50) return 8;
@@ -273,7 +273,7 @@
     if (bw <= 300) return 24;
     if (bw <= 800) return 32;
     if (bw <= 2000) return 64;
-    return 96;
+    return Math.max(64, Math.round(bw / 30.0));
   });
 
   let autoConsumerThreadsPerAgent = $derived(
@@ -288,7 +288,9 @@
     if (bw <= 200) return 5000;
     if (bw <= 800) return 10000;
     if (bw <= 1500) return 15000;
-    return 20000;
+    if (bw <= 3000) return 20000;
+    if (bw <= 6000) return 35000;
+    return 50000;
   });
 
   let autoOffsetSyncInterval = $derived.by(() => {
@@ -1578,7 +1580,7 @@
                     type="number"
                     bind:value={bandwidthLimitMb}
                     min="1"
-                    max="5000"
+                    max="100000"
                     class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold"
                   />
                   <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Ручной лимит МБ/с</div>
@@ -1630,7 +1632,7 @@
                     type="number"
                     bind:value={consumerThreads}
                     min="1"
-                    max="64"
+                    max="128"
                     class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
                   />
                   <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
@@ -1657,11 +1659,11 @@
                     type="number"
                     bind:value={batchSize}
                     min="100"
-                    max="10000"
+                    max="100000"
                     step="500"
                     class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold text-purple-600 dark:text-purple-400"
                   />
-                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Размер (100–10k)</div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Размер (100–100k)</div>
                 {/if}
               </div>
             </div>

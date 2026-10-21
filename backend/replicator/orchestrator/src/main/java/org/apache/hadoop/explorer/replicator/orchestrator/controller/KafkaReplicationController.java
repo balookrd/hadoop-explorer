@@ -215,7 +215,7 @@ public class KafkaReplicationController {
         else if (effectiveBandwidthMb <= 300.0) targetTotalThreads = 24;
         else if (effectiveBandwidthMb <= 800.0) targetTotalThreads = 32;
         else if (effectiveBandwidthMb <= 2000.0) targetTotalThreads = 64;
-        else targetTotalThreads = 96;
+        else targetTotalThreads = Math.max(64, (int) Math.round(effectiveBandwidthMb / 30.0));
 
         int threadsPerAgent = Math.min(32, Math.max(1, (int) Math.ceil((double) targetTotalThreads / Math.max(1, sendersCount))));
 
@@ -225,7 +225,9 @@ public class KafkaReplicationController {
         else if (effectiveBandwidthMb <= 200.0) batchSize = 5000;
         else if (effectiveBandwidthMb <= 800.0) batchSize = 10000;
         else if (effectiveBandwidthMb <= 1500.0) batchSize = 15000;
-        else batchSize = 20000;
+        else if (effectiveBandwidthMb <= 3000.0) batchSize = 20000;
+        else if (effectiveBandwidthMb <= 6000.0) batchSize = 35000;
+        else batchSize = 50000;
 
         int offsetSyncSec;
         if (effectiveBandwidthMb >= 1500.0) offsetSyncSec = 1;

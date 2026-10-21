@@ -166,13 +166,17 @@ public class KafkaReplicationOrchestratorService {
                 resolvedBatchSize = 10000;
             } else if (resolvedBandwidth <= 1500.0) {
                 resolvedBatchSize = 15000;
-            } else {
+            } else if (resolvedBandwidth <= 3000.0) {
                 resolvedBatchSize = 20000;
+            } else if (resolvedBandwidth <= 6000.0) {
+                resolvedBatchSize = 35000;
+            } else {
+                resolvedBatchSize = 50000;
             }
         }
         entity.setBatchSize(resolvedBatchSize);
 
-        // Автоматический расчет потоков вычитки на каждый агент-отправитель (шардинг пула с учетом 40G масштабирования)
+        // Автоматический расчет потоков вычитки на каждый агент-отправитель (шардинг пула без искусственного потолка в 40G: масштабирование на 100G, 200G, 400G+)
         Integer resolvedConsumerThreads = request.getConsumerThreads();
         if (resolvedConsumerThreads == null || resolvedConsumerThreads <= 0) {
             int targetTotalThreads;
@@ -187,7 +191,8 @@ public class KafkaReplicationOrchestratorService {
             } else if (resolvedBandwidth <= 2000.0) {
                 targetTotalThreads = 64;
             } else {
-                targetTotalThreads = 96;
+                // Динамическое линейное масштабирование для 100G/200G/400G+ сетей (~30 МБ/с на тред)
+                targetTotalThreads = Math.max(64, (int) Math.round(resolvedBandwidth / 30.0));
             }
             int sendersCount = 1;
             if (request.getSourceDc() != null) {
