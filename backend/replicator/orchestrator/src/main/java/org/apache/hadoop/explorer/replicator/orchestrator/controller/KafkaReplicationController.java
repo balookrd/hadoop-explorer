@@ -145,27 +145,36 @@ public class KafkaReplicationController {
      * Возвращает список активных адресов агентов-приемников в целевом кластере/ДЦ для балансировки нагрузки.
      */
     @GetMapping("/agents/receivers")
-    public List<String> getReceiverEndpoints(@RequestParam(defaultValue = "DC2") String clusterId) {
+    public List<String> getReceiverEndpoints(@RequestParam String clusterId) {
         requireAuthentication();
-        return service.getLiveReceiverEndpoints(clusterId);
+        if (clusterId == null || clusterId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Параметр clusterId обязателен");
+        }
+        return service.getLiveReceiverEndpoints(clusterId.trim());
     }
 
     /**
      * Возвращает список активных адресов агентов-отправителей в кластере/ДЦ источника для горизонтального шардирования.
      */
     @GetMapping("/agents/senders")
-    public List<String> getSenderEndpoints(@RequestParam(defaultValue = "DC1") String clusterId) {
+    public List<String> getSenderEndpoints(@RequestParam String clusterId) {
         requireAuthentication();
-        return service.getLiveSenderEndpoints(clusterId);
+        if (clusterId == null || clusterId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Параметр clusterId обязателен");
+        }
+        return service.getLiveSenderEndpoints(clusterId.trim());
     }
 
     /**
      * Детальная информация об агентах-отправителях источника (включая заданные при старте лимиты агентов).
      */
     @GetMapping("/agents/senders/details")
-    public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(@RequestParam(defaultValue = "DC1") String clusterId) {
+    public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(@RequestParam String clusterId) {
         requireAuthentication();
-        return service.getLiveSenderAgentDetails(clusterId);
+        if (clusterId == null || clusterId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Параметр clusterId обязателен");
+        }
+        return service.getLiveSenderAgentDetails(clusterId.trim());
     }
 
     /**
@@ -176,27 +185,31 @@ public class KafkaReplicationController {
             @RequestParam String sourceDc,
             @RequestParam String targetDc) {
         requireAuthentication();
+        if (sourceDc == null || sourceDc.isBlank() || targetDc == null || targetDc.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Параметры sourceDc и targetDc обязательны");
+        }
 
-        Double wanQuotaMb = 50.0;
+        Double wanQuotaMb = null;
         if (topologyRegistry != null) {
-            var dcLimit = topologyRegistry.getDcLimit(sourceDc, targetDc);
+            var dcLimit = topologyRegistry.getDcLimit(sourceDc.trim(), targetDc.trim());
             if (dcLimit.isPresent()) {
                 wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
             }
         }
 
-        var senders = service.getLiveSenderAgentDetails(sourceDc);
+        var senders = service.getLiveSenderAgentDetails(sourceDc.trim());
         int sendersCount = senders.size();
         Double sendersCapacityMb = null;
+        final Double effectiveWanQuota = wanQuotaMb;
         if (!senders.isEmpty()) {
             sendersCapacityMb = senders.stream()
-                    .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : 100.0)
+                    .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : (effectiveWanQuota != null ? effectiveWanQuota : 100.0))
                     .sum();
         }
 
         double effectiveBandwidthMb;
         String bottleneck;
-        if (sendersCapacityMb != null) {
+        if (wanQuotaMb != null && sendersCapacityMb != null) {
             if (wanQuotaMb < sendersCapacityMb) {
                 effectiveBandwidthMb = wanQuotaMb;
                 bottleneck = "WAN_HTB";
@@ -204,8 +217,14 @@ public class KafkaReplicationController {
                 effectiveBandwidthMb = sendersCapacityMb;
                 bottleneck = "AGENT_LIMIT";
             }
-        } else {
+        } else if (wanQuotaMb != null) {
             effectiveBandwidthMb = wanQuotaMb;
+            bottleneck = "WAN_HTB";
+        } else if (sendersCapacityMb != null) {
+            effectiveBandwidthMb = sendersCapacityMb;
+            bottleneck = "AGENT_LIMIT";
+        } else {
+            effectiveBandwidthMb = 100.0;
             bottleneck = "WAN_HTB";
         }
 

@@ -117,9 +117,9 @@
   let isCreateModalOpen = $state(false);
 
   // Основные поля задачи
-  let newJobName = $state('Межцодовая репликация Kafka DC1 <-> DC2');
-  let newSourceDc = $state('DC1 (Москва Сколково)');
-  let newTargetDc = $state('DC2 (СПб Пулково)');
+  let newJobName = $state('Межкластерная репликация Kafka');
+  let newSourceDc = $state('');
+  let newTargetDc = $state('');
   let newDirection = $state<'BIDIRECTIONAL' | 'UNIDIRECTIONAL'>('BIDIRECTIONAL');
 
   // Режимы выбора топиков: 'REGEX' (для сотен и тысяч) или 'CATALOG' (ручной выбор)
@@ -305,9 +305,7 @@
   onMount(() => {
     loadJobs();
     loadClusters();
-    loadDiscovery('dc1');
     loadTopologyLimits();
-    loadLiveAgents(newSourceDc, newTargetDc);
     const interval = setInterval(() => {
       // Фоновое обновление телеметрии задач без мерцания индикатора
       api.getKafkaJobs().then(data => {
@@ -401,6 +399,9 @@
           selectedTargetClusterId = clusters[1].id;
           applyClusterToTarget(clusters[1]);
         }
+        if (clusters[0]) {
+          loadDiscovery(clusters[0].dcId || clusters[0].id || '');
+        }
         loadLiveAgents(newSourceDc, newTargetDc);
         loadTopologyLimits();
       }
@@ -451,7 +452,7 @@
     const found = availableClusters.find(c => c.id === clusterId);
     if (found) {
       applyClusterToSource(found);
-      loadDiscovery(found.dcId || 'dc1');
+      loadDiscovery(found.dcId || found.id || '');
       loadLiveAgents(newSourceDc, newTargetDc);
       loadTopologyLimits();
     }
@@ -493,7 +494,7 @@
     targetKeytabPath = tempKeytab;
 
     const src = availableClusters.find(c => c.id === selectedSourceClusterId);
-    loadDiscovery(src?.dcId || 'dc1');
+    loadDiscovery(src?.dcId || src?.id || '');
     loadLiveAgents(newSourceDc, newTargetDc);
     loadTopologyLimits();
   }

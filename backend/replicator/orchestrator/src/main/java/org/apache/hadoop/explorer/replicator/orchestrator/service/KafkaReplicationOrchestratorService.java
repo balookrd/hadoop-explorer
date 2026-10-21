@@ -447,22 +447,30 @@ public class KafkaReplicationOrchestratorService {
     }
 
     /**
-     * Разрешает адрес брокеров Kafka по идентификатору ДЦ или явно переданному адресу.
+     * Разрешает адрес брокеров Kafka по идентификатору ДЦ/кластера из топологии или явно переданному адресу.
      */
     public String resolveBootstrapServers(String dc, String explicitServers) {
         if (explicitServers != null && !explicitServers.isBlank()) {
             return explicitServers.trim();
         }
         if (dc == null || dc.isBlank()) {
-            return "localhost:9092";
+            return null;
         }
-        String dId = dc.trim().toLowerCase();
-        if ("dc1".equals(dId)) {
-            return "kafka-dc1:9092";
-        } else if ("dc2".equals(dId)) {
-            return "kafka-dc2:9092";
+        String trimmed = dc.trim();
+        if (topologyRegistry != null) {
+            for (var c : topologyRegistry.getClusters()) {
+                var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+                if (cfg != null && (trimmed.equalsIgnoreCase(cfg.getDcId()) || trimmed.equalsIgnoreCase(cfg.getId()))) {
+                    if (cfg.getKafkaBootstrapServers() != null && !cfg.getKafkaBootstrapServers().isBlank()) {
+                        return cfg.getKafkaBootstrapServers().trim();
+                    }
+                }
+            }
         }
-        return dId + "-kafka:9092";
+        if (trimmed.contains(":")) {
+            return trimmed;
+        }
+        return null;
     }
 
     /**
