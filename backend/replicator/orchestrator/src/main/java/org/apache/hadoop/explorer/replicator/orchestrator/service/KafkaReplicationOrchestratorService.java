@@ -101,7 +101,7 @@ public class KafkaReplicationOrchestratorService {
         entity.setTargetDc(request.getTargetDc());
         entity.setDirection(request.getDirection() != null ? request.getDirection() : "BIDIRECTIONAL");
 
-        // Автоматический расчет полосы WAN из TopologyRegistry HTB и пула агентов 2x25G (если не задано вручную)
+        // Автоматический расчет полосы WAN из TopologyRegistry HTB и заданных при старте лимитов агентов (если не задано вручную)
         Double resolvedBandwidth = request.getBandwidthLimitMb();
         if ((resolvedBandwidth == null || resolvedBandwidth <= 0) && topologyRegistry != null
                 && request.getSourceDc() != null && request.getTargetDc() != null) {
@@ -112,7 +112,7 @@ public class KafkaReplicationOrchestratorService {
                 wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
             }
 
-            // Суммарная пропускная способность пула агентов-отправителей источника (2x25G клиентские интерфейсы)
+            // Суммарный лимит пула агентов-отправителей источника (задается при старте демонов DevOps)
             Double sendersCapacityMb = null;
             List<org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry> liveSenders =
                     agentRegistry != null ? agentRegistry.getLiveKafkaSendersForCluster(request.getSourceDc()) : List.of();
@@ -427,7 +427,7 @@ public class KafkaReplicationOrchestratorService {
 
     /**
      * Возвращает детальный список активных агентов-отправителей для кластера/ДЦ источника
-     * с их локальными лимитами полосы (maxBandwidthMbS) для сетевых интерфейсов 2x25G.
+     * с их локальными лимитами полосы (maxBandwidthMbS), заданными инженером при старте демонов.
      */
     public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(String clusterId) {
         if (agentRegistry == null) {

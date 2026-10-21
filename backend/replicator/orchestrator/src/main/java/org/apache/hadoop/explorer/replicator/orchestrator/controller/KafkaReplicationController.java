@@ -160,7 +160,7 @@ public class KafkaReplicationController {
     }
 
     /**
-     * Детальная информация об агентах-отправителях источника (включая лимиты клиентских интерфейсов 2x25G).
+     * Детальная информация об агентах-отправителях источника (включая заданные при старте лимиты агентов).
      */
     @GetMapping("/agents/senders/details")
     public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(@RequestParam(defaultValue = "DC1") String clusterId) {
@@ -169,7 +169,7 @@ public class KafkaReplicationController {
     }
 
     /**
-     * Автоматический расчет QoS параметров репликации (двухконтурное ограничение WAN HTB vs 2x25G агенты).
+     * Автоматический расчет QoS параметров репликации (согласование WAN HTB квоты и заданных лимитов агентов).
      */
     @GetMapping("/qos-calculation")
     public Map<String, Object> calculateQos(

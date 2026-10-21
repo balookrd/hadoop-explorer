@@ -248,7 +248,7 @@
   let totalMessages = $derived(jobs.reduce((acc, j) => acc + (j.messagesReplicated || 0), 0));
   let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
 
-  // Двухконтурное QoS регулирование: WAN HTB (40%) vs пул агентов 2x25G источников
+  // Согласованное QoS регулирование: межцодовая WAN HTB квота vs сумма явно заданных лимитов агентов источника
   let wanHtbBandwidthMb = $derived(Math.round(detectedDcLimitMb * 0.40));
   let totalSendersCapacityMb = $derived(
     liveSenderDetails.length > 0
@@ -1539,7 +1539,7 @@
                     </span>
                     {#if isAgentBottleneck}
                       <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300">
-                        Ограничено агентами (2x25G)
+                        Ограничено лимитами агентов
                       </span>
                     {:else}
                       <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300">
@@ -1550,12 +1550,12 @@
                   <p class="text-[11px] {isAgentBottleneck ? 'text-amber-800/90 dark:text-amber-300/80' : 'text-emerald-700/90 dark:text-emerald-300/80'} leading-relaxed">
                     WAN квота: <strong>{wanHtbBandwidthMb} МБ/с</strong> (40% от лимита канала {detectedDcLimitMb} МБ/с).
                     {#if totalSendersCapacityMb !== null}
-                      Суммарная емкость агентов источника: <strong>{totalSendersCapacityMb} МБ/с</strong> ({liveSendersCount} {liveSendersCount === 1 ? 'узел' : 'узла'}).
+                      Суммарный лимит подключенных агентов: <strong>{totalSendersCapacityMb} МБ/с</strong> ({liveSendersCount} {liveSendersCount === 1 ? 'узел' : 'узла'}).
                     {/if}
                     Параллелизм вычитки рассчитан индивидуально под полосу каждого узла (~{autoConsumerThreadsPerAgent} треда/узел, суммарно {autoTotalThreads}), размер пачки ~{autoBatchSize} зап., оффсеты ~{autoOffsetSyncInterval} с.
                   </p>
                   <p class="text-[10px] text-slate-500 dark:text-slate-400">
-                    ℹ️ Защита клиентских интерфейсов 2x25G активна (для продюсеров/консьюмеров). ISR репликация брокеров исключена (выделенные 2x25G).
+                    ℹ️ Соблюдаются локальные лимиты агентов (--max-bandwidth-mb-s), заданные инженером при старте демонов на узлах.
                   </p>
                 </div>
               </div>
@@ -1719,7 +1719,7 @@
                             <span class="text-[10px] text-slate-400 truncate">{s.grpc_address}</span>
                           </div>
                           <div class="flex items-center gap-1.5 shrink-0">
-                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold" title="Локальный лимит клиентского интерфейса 2x25G">
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold" title="Локальный лимит процесса агента, заданный при старте (--max-bandwidth-mb-s)">
                               {agentBw} МБ/с
                             </span>
                             <span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-semibold" title="Рекомендуемое число потоков на агент">
