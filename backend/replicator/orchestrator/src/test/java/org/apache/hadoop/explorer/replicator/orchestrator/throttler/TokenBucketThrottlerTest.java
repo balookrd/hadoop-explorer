@@ -112,4 +112,34 @@ class TokenBucketThrottlerTest {
         assertNotNull(bucket);
         assertEquals(50_000_000.0, bucket.getLimitBytesPerSec(), 1e-6);
     }
+
+    @Test
+    @DisplayName("HTB: Kafka и HDFS делят общий корневой бакет DC-to-DC и соблюдают лимит канала")
+    void shouldShareDcBucketBetweenKafkaAndHdfs() {
+        ReplicatorProperties props = new ReplicatorProperties();
+        props.setGlobalLimitBytesPerSec(100_000_000); // 100 MB/s
+        props.getClusters().add(new ReplicatorProperties.ClusterConfig("dc1", "Cluster 1", "dc1", "hdfs://nn1:8020", "agent1", 50051));
+        props.getClusters().add(new ReplicatorProperties.ClusterConfig("dc2", "Cluster 2", "dc2", "hdfs://nn2:8020", "agent2", 50051));
+
+        TopologyRegistry topology = new TopologyRegistry(props);
+        topology.setDcLimit("dc1", "dc2", 1_000_000); // 1 MB/s лимит между DC1 и DC2
+
+        TokenBucketThrottler throttler = new TokenBucketThrottler(props, topology);
+
+        // Kafka делает запрос токенов
+        double waitKafka = throttler.requestTokens(200_000, "dc1", "dc2", TokenBucketThrottler.TrafficClass.KAFKA);
+        assertEquals(0.0, waitKafka, "Первый запрос Kafka в пределах емкости должен быть без задержки");
+
+        // HDFS делает запрос токенов
+        double waitHdfs = throttler.requestTokens(300_000, "dc1", "dc2", TokenBucketThrottler.TrafficClass.HDFS);
+        assertEquals(0.0, waitHdfs, "Запрос HDFS в пределах емкости должен быть без задержки");
+
+        // Оба списали токены из общего корневого dcBucket (всего списано 500_000 из 1_000_000)
+        TokenBucketThrottler.SingleBucket dcBucket = throttler.getDcBuckets().get("dc1->dc2");
+        assertNotNull(dcBucket);
+
+        // Когда суммарный трафик превышает емкость канала (еще 600_000 байт при остатке ~500_000), появляется задержка
+        double waitExcess = throttler.requestTokens(600_000, "dc1", "dc2", TokenBucketThrottler.TrafficClass.KAFKA);
+        assertTrue(waitExcess > 0.0, "При исчерпании емкости общего канала DC-to-DC должна возникнуть задержка (throttling)");
+    }
 }

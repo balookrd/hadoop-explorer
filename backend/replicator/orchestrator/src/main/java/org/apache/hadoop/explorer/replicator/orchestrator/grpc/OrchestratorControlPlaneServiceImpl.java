@@ -596,6 +596,11 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                                 .toList()
                         : Collections.emptyList();
 
+                List<String> targetEndpoints = job.getTargetEndpoints();
+                if ((targetEndpoints == null || targetEndpoints.isEmpty()) && job.getTargetDc() != null) {
+                    targetEndpoints = kafkaOrchestratorService.getLiveReceiverEndpoints(job.getTargetDc());
+                }
+
                 KafkaJobItemProto item = KafkaJobItemProto.newBuilder()
                         .setJobId(job.getId() != null ? job.getId() : "")
                         .setName(job.getName() != null ? job.getName() : "")
@@ -606,7 +611,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .addAllConsumerGroups(job.getConsumerGroups() != null ? job.getConsumerGroups() : Collections.emptyList())
                         .setSourceBootstrapServers(job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : "")
                         .setTargetBootstrapServers(job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : "")
-                        .addAllTargetEndpoints(job.getTargetEndpoints() != null ? job.getTargetEndpoints() : Collections.emptyList())
+                        .addAllTargetEndpoints(targetEndpoints != null ? targetEndpoints : Collections.emptyList())
                         .setBatchSize(job.getBatchSize() != null ? job.getBatchSize() : 2000)
                         .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
                         .setBandwidthLimitMb(job.getBandwidthLimitMb() != null ? job.getBandwidthLimitMb() : 0.0)

@@ -59,6 +59,16 @@ public class KafkaReplicatorAgentMain {
         String agentId = System.getenv("AGENT_ID");
         String agentSecret = System.getenv("AGENT_SECRET");
         String advertisedGrpcAddress = System.getenv("ADVERTISED_GRPC_ADDRESS");
+        Double maxBandwidthMbS = null;
+        String envBw = System.getenv("AGENT_MAX_BANDWIDTH_MB_S");
+        if (envBw == null || envBw.isBlank()) {
+            envBw = System.getenv("MAX_BANDWIDTH_MB_S");
+        }
+        if (envBw != null && !envBw.isBlank()) {
+            try {
+                maxBandwidthMbS = Double.parseDouble(envBw);
+            } catch (NumberFormatException ignored) {}
+        }
         boolean tlsEnabled = "true".equalsIgnoreCase(System.getenv("TLS_ENABLED"));
         String tlsCertChain = System.getenv("TLS_CERT_CHAIN");
         String tlsPrivateKey = System.getenv("TLS_PRIVATE_KEY");
@@ -88,6 +98,8 @@ public class KafkaReplicatorAgentMain {
                 topics = args[++i];
             } else if ("--consumer-threads".equals(args[i]) && i + 1 < args.length) {
                 consumerThreads = Integer.parseInt(args[++i]);
+            } else if (("--max-bandwidth-mb-s".equals(args[i]) || "--bandwidth".equals(args[i])) && i + 1 < args.length) {
+                maxBandwidthMbS = Double.parseDouble(args[++i]);
             } else if ("--batch-size".equals(args[i]) && i + 1 < args.length) {
                 batchSize = Integer.parseInt(args[++i]);
             } else if ("--group-id".equals(args[i]) && i + 1 < args.length) {
@@ -278,6 +290,10 @@ public class KafkaReplicatorAgentMain {
                     org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH
             );
             consumerPool.setMaxBatchSize(batchSize);
+            if (maxBandwidthMbS != null && maxBandwidthMbS > 0) {
+                consumerPool.setBandwidthLimitMb(maxBandwidthMbS);
+                log.info("Установлен локальный лимит полосы пропускания агента: {} МБ/с", maxBandwidthMbS);
+            }
             consumerPool.start();
             log.info("Пул консьюмеров отправителя успешно запущен");
         }
@@ -295,7 +311,7 @@ public class KafkaReplicatorAgentMain {
                     role,
                     ("receiver".equals(role) || "dual".equals(role)) ? advertisedGrpcAddress : null,
                     null,
-                    100.0
+                    (maxBandwidthMbS != null && maxBandwidthMbS > 0) ? maxBandwidthMbS : 100.0
             );
             boolean regSuccess = orchestratorClient.register(regReq);
             log.info("Результат регистрации агента '{}' в оркестраторе: {}", agentId, regSuccess);
@@ -311,7 +327,9 @@ public class KafkaReplicatorAgentMain {
             final String finalDcId = dcId;
             final String finalRole = role;
             final String finalAdvAddr = advertisedGrpcAddress;
+            final Double finalMaxBandwidthMbS = maxBandwidthMbS;
             final org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool finalPool = consumerPool;
+            final org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient innerClient = replicationClient;
 
             heartbeatExecutor.scheduleAtFixedRate(() -> {
                 try {
@@ -322,6 +340,9 @@ public class KafkaReplicatorAgentMain {
                             0,
                             finalRole
                     );
+                    if (finalMaxBandwidthMbS != null && finalMaxBandwidthMbS > 0) {
+                        hbReq.setBandwidthLimitMbS(finalMaxBandwidthMbS);
+                    }
                     finalOrch.heartbeat(hbReq);
 
                     // Опрос Control Plane для динамического обнаружения задач и обновления топиков
@@ -336,6 +357,29 @@ public class KafkaReplicatorAgentMain {
                                         .toList();
                                 if (!dynamicTopics.isEmpty()) {
                                     finalPool.updateSubscribedTopics(dynamicTopics);
+                                }
+
+                                // Динамическое обновление лимита полосы (HTB) с учетом локального предела хоста
+                                double maxBw = activeJobs.stream()
+                                        .mapToDouble(KafkaJobItemProto::getBandwidthLimitMb)
+                                        .filter(b -> b > 0)
+                                        .max()
+                                        .orElse(0.0);
+                                if (maxBw > 0) {
+                                    double effectiveBw = (finalMaxBandwidthMbS != null && finalMaxBandwidthMbS > 0)
+                                            ? Math.min(finalMaxBandwidthMbS, maxBw)
+                                            : maxBw;
+                                    finalPool.setBandwidthLimitMb(effectiveBw);
+                                }
+
+                                // Динамическое обновление пула целевых агентов-приемников
+                                List<String> dynamicEndpoints = activeJobs.stream()
+                                        .flatMap(j -> j.getTargetEndpointsList().stream())
+                                        .filter(ep -> ep != null && !ep.isBlank())
+                                        .distinct()
+                                        .toList();
+                                if (!dynamicEndpoints.isEmpty() && innerClient != null) {
+                                    innerClient.updateEndpoints(dynamicEndpoints);
                                 }
                             }
                         } catch (Exception jobEx) {

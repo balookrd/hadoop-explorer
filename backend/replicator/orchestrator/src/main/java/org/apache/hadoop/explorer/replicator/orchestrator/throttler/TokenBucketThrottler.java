@@ -202,9 +202,16 @@ public class TokenBucketThrottler {
         public String getName() { return name; }
     }
 
+    public enum TrafficClass {
+        HDFS,
+        KAFKA
+    }
+
     private final TopologyRegistry topology;
     private final SingleBucket globalBucket;
     private final Map<String, SingleBucket> dcBuckets = new ConcurrentHashMap<>();
+    private final Map<String, SingleBucket> dcKafkaBuckets = new ConcurrentHashMap<>();
+    private final Map<String, SingleBucket> dcHdfsBuckets = new ConcurrentHashMap<>();
     private final Map<String, SingleBucket> hdfsBuckets = new ConcurrentHashMap<>();
     private volatile int activeNodeCount = 1;
 
@@ -228,6 +235,12 @@ public class TokenBucketThrottler {
         for (SingleBucket b : dcBuckets.values()) {
             b.setActiveNodeCount(sanitized);
         }
+        for (SingleBucket b : dcKafkaBuckets.values()) {
+            b.setActiveNodeCount(sanitized);
+        }
+        for (SingleBucket b : dcHdfsBuckets.values()) {
+            b.setActiveNodeCount(sanitized);
+        }
         for (SingleBucket b : hdfsBuckets.values()) {
             b.setActiveNodeCount(sanitized);
         }
@@ -243,10 +256,23 @@ public class TokenBucketThrottler {
     }
 
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster) {
+        return requestTokens(requestedBytes, srcCluster, dstCluster, TrafficClass.HDFS);
+    }
+
+    /**
+     * Иерархический запрос токенов HTB:
+     * 1) Global bucket (общий лимит всех DC).
+     * 2) Parent DC link bucket (dc:srcDc->dstDc) - общий для HDFS и Kafka, не дает забить WAN-канал.
+     * 3) Subclass bucket:
+     *    - Для KAFKA: гарантированный Floor (40% полосы DC) с правом эластичного заимствования (borrowing) до 100%.
+     *    - Для HDFS: гарантированный Floor (60% полосы DC) с правом заимствования до 100% и проверкой HDFS cluster pair.
+     */
+    public double requestTokens(long requestedBytes, String srcCluster, String dstCluster, TrafficClass trafficClass) {
         if (requestedBytes <= 0) {
             return 0.0;
         }
 
+        TrafficClass effectiveClass = trafficClass != null ? trafficClass : TrafficClass.HDFS;
         long nowNanos = System.nanoTime();
         double waitGlobal = globalBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
 
@@ -259,32 +285,57 @@ public class TokenBucketThrottler {
             if (srcC.isPresent() && dstC.isPresent()) {
                 srcDc = srcC.get().getDcId();
                 dstDc = dstC.get().getDcId();
-                dcKey = srcDc + "->" + dstDc;
+            } else {
+                for (var dc : topology.getDatacenters()) {
+                    if (dc.getId().equalsIgnoreCase(srcCluster)) srcDc = dc.getId();
+                    if (dc.getId().equalsIgnoreCase(dstCluster)) dstDc = dc.getId();
+                }
+                if (srcDc == null) srcDc = srcCluster;
+                if (dstDc == null) dstDc = dstCluster;
             }
+            dcKey = srcDc + "->" + dstDc;
         }
 
         double waitDc = 0.0;
+        double waitClass = 0.0;
         if (dcKey != null && srcDc != null && dstDc != null && topology.getDcLimit(srcDc, dstDc).isPresent()) {
             long limit = topology.getDcLimit(srcDc, dstDc).get();
             SingleBucket dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0, activeNodeCount));
             dcBucket.updateLimit(limit);
+            // Единый корневой бакет DC-DC списывает токены для ВСЕХ типов трафика (HDFS и Kafka вместе не могут превысить лимит канала)
             waitDc = dcBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+
+            // HTB Subclass: гарантированные доли и изоляция классов обслуживания
+            if (effectiveClass == TrafficClass.KAFKA) {
+                long kafkaFloorLimit = (long) (limit * 0.40); // 40% гарантированная полоса для Kafka
+                SingleBucket kafkaBucket = dcKafkaBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-kafka:" + k, kafkaFloorLimit, 1.0, activeNodeCount));
+                kafkaBucket.updateLimit(kafkaFloorLimit);
+                waitClass = kafkaBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+            } else {
+                long hdfsFloorLimit = (long) (limit * 0.60); // 60% гарантированная полоса для HDFS
+                SingleBucket hdfsBucket = dcHdfsBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-hdfs:" + k, hdfsFloorLimit, 1.0, activeNodeCount));
+                hdfsBucket.updateLimit(hdfsFloorLimit);
+                waitClass = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+            }
         }
 
-        String hdfsKey = (srcCluster != null && dstCluster != null) ? srcCluster + "->" + dstCluster : null;
-        double waitHdfs = 0.0;
-        if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
-            long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
-            SingleBucket hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0, activeNodeCount));
-            hdfsBucket.updateLimit(limit);
-            waitHdfs = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+        double waitHdfsCluster = 0.0;
+        if (effectiveClass == TrafficClass.HDFS) {
+            String hdfsKey = (srcCluster != null && dstCluster != null) ? srcCluster + "->" + dstCluster : null;
+            if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
+                long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
+                SingleBucket hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0, activeNodeCount));
+                hdfsBucket.updateLimit(limit);
+                waitHdfsCluster = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+            }
         }
 
-        double maxWait = Math.max(waitGlobal, Math.max(waitDc, waitHdfs));
+        // Общая задержка: максимум по иерархии (Global, DC общий, Class и Cluster)
+        double maxWait = Math.max(waitGlobal, Math.max(waitDc, Math.max(waitClass, waitHdfsCluster)));
 
         if (maxWait > 0.05) {
-            log.debug("Throttler requested {} bytes (src={}, dst={}): wait {} s",
-                requestedBytes, srcCluster, dstCluster, Math.round(maxWait * 1000.0) / 1000.0);
+            log.debug("Throttler [{}] requested {} bytes (src={}, dst={}): wait {} s",
+                effectiveClass, requestedBytes, srcCluster, dstCluster, Math.round(maxWait * 1000.0) / 1000.0);
         }
 
         return maxWait;

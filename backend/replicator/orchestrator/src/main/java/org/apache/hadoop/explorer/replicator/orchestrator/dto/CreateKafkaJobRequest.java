@@ -25,10 +25,10 @@ public class CreateKafkaJobRequest {
     private String targetSrUrl;
     private boolean sourceSrKerberosEnabled = false;
     private boolean targetSrKerberosEnabled = false;
-    private Double bandwidthLimitMb = 50.0;
-    private Integer offsetSyncIntervalSec = 5;
-    private Integer consumerThreads = 8;
-    private Integer batchSize = 2000;
+    private Double bandwidthLimitMb;
+    private Integer offsetSyncIntervalSec;
+    private Integer consumerThreads;
+    private Integer batchSize;
     private List<String> targetEndpoints;
 
     // Kerberos

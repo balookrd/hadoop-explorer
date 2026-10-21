@@ -509,6 +509,21 @@ public class AgentRegistry {
             .toList();
     }
 
+    /**
+     * Возвращает список всех активных агентов-отправителей для кластера Kafka репликации.
+     */
+    public List<AgentEntry> getLiveKafkaSendersForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && ("all".equalsIgnoreCase(a.getMode())
+                        || "kafka".equalsIgnoreCase(a.getMode())
+                        || "sender".equalsIgnoreCase(a.getMode())
+                        || "dual".equalsIgnoreCase(a.getMode())))
+            .toList();
+    }
+
     public Optional<AgentEntry> getAgent(String agentId) {
         if (agentId == null) return Optional.empty();
         refreshHealth();

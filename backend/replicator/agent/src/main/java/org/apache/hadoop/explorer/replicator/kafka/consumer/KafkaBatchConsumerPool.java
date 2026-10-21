@@ -50,10 +50,29 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private int maxBatchSize = 2000;
     private int maxInFlightBatches = 100;
     private ExecutorService executor;
+    private volatile org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter bandwidthLimiter;
     private final java.util.concurrent.atomic.AtomicReference<List<String>> subscribedTopics =
             new java.util.concurrent.atomic.AtomicReference<>(Collections.emptyList());
     private final java.util.concurrent.atomic.AtomicLong topicsVersion =
             new java.util.concurrent.atomic.AtomicLong(1);
+
+    public void setBandwidthLimiter(org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter bandwidthLimiter) {
+        this.bandwidthLimiter = bandwidthLimiter;
+    }
+
+    public void setBandwidthLimitMb(double limitMb) {
+        if (limitMb > 0) {
+            if (this.bandwidthLimiter == null) {
+                this.bandwidthLimiter = new org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter(limitMb);
+            } else {
+                this.bandwidthLimiter.setLimit(limitMb);
+            }
+        }
+    }
+
+    public org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter getBandwidthLimiter() {
+        return bandwidthLimiter;
+    }
 
     public KafkaBatchConsumerPool(KafkaConsumer<byte[], byte[]> consumer,
                                   KafkaReplicationClient replicationClient,
@@ -381,6 +400,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             inFlightBatches.put(batchRequest.getBatchId(),
                                     new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
                             inFlightCount.incrementAndGet();
+
+                            if (bandwidthLimiter != null) {
+                                long batchBytes = batchRequest.getSerializedSize();
+                                bandwidthLimiter.throttle(batchBytes);
+                            }
 
                             try {
                                 targetStream.onNext(batchRequest);

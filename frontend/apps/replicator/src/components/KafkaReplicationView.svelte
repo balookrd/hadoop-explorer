@@ -96,7 +96,17 @@
   let availableClusters = $state<DiscoveryCluster[]>([]);
   let selectedSourceClusterId = $state<string>('');
   let selectedTargetClusterId = $state<string>('');
-  let isCustomClusterMode = $state(false);
+
+  // QoS, HTB и автоматическое масштабирование по агентам
+  let isAutoBandwidth = $state(true);
+  let isMultiAgentScaling = $state(true);
+  let isCustomQosOpen = $state(false);
+  let isManualEndpointsOpen = $state(false);
+  let liveReceivers = $state<string[]>([]);
+  let liveSenders = $state<string[]>([]);
+  let liveSenderDetails = $state<any[]>([]);
+  let detectedDcLimitMb = $state(100);
+  let isLoadingAgents = $state(false);
 
   // Справочники обнаруженных топиков и групп
   let availableTopics = $state<DiscoveredTopic[]>([]);
@@ -238,10 +248,64 @@
   let totalMessages = $derived(jobs.reduce((acc, j) => acc + (j.messagesReplicated || 0), 0));
   let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
 
+  // Двухконтурное QoS регулирование: WAN HTB (40%) vs пул агентов 2x25G источников
+  let wanHtbBandwidthMb = $derived(Math.round(detectedDcLimitMb * 0.40));
+  let totalSendersCapacityMb = $derived(
+    liveSenderDetails.length > 0
+      ? liveSenderDetails.reduce((acc, a) => acc + (a.max_bandwidth_mb_s && a.max_bandwidth_mb_s > 0 ? a.max_bandwidth_mb_s : 100), 0)
+      : null
+  );
+  let effectiveBandwidthMb = $derived(
+    totalSendersCapacityMb !== null ? Math.min(wanHtbBandwidthMb, totalSendersCapacityMb) : wanHtbBandwidthMb
+  );
+  let autoBandwidthMb = $derived(effectiveBandwidthMb);
+  let isAgentBottleneck = $derived(
+    totalSendersCapacityMb !== null && totalSendersCapacityMb < wanHtbBandwidthMb
+  );
+
+  let liveSendersCount = $derived(liveSenders.length > 0 ? liveSenders.length : 1);
+
+  // Расчет потоков вычитки на каждый агент-отправитель (шардинг пула с учетом 40G масштабирования)
+  let targetTotalThreads = $derived.by(() => {
+    const bw = autoBandwidthMb;
+    if (bw <= 50) return 8;
+    if (bw <= 100) return 16;
+    if (bw <= 300) return 24;
+    if (bw <= 800) return 32;
+    if (bw <= 2000) return 64;
+    return 96;
+  });
+
+  let autoConsumerThreadsPerAgent = $derived(
+    Math.min(32, Math.max(1, Math.ceil(targetTotalThreads / liveSendersCount)))
+  );
+  let autoTotalThreads = $derived(autoConsumerThreadsPerAgent * liveSendersCount);
+
+  let autoBatchSize = $derived.by(() => {
+    const bw = autoBandwidthMb;
+    if (bw <= 20) return 1000;
+    if (bw <= 80) return 2000;
+    if (bw <= 200) return 5000;
+    if (bw <= 800) return 10000;
+    if (bw <= 1500) return 15000;
+    return 20000;
+  });
+
+  let autoOffsetSyncInterval = $derived.by(() => {
+    const bw = autoBandwidthMb;
+    if (bw >= 1500) return 1;
+    if (bw >= 500) return 2;
+    if (bw >= 100) return 3;
+    if (bw <= 20) return 10;
+    return 5;
+  });
+
   onMount(() => {
     loadJobs();
     loadClusters();
     loadDiscovery('dc1');
+    loadTopologyLimits();
+    loadLiveAgents(newSourceDc, newTargetDc);
     const interval = setInterval(() => {
       // Фоновое обновление телеметрии задач без мерцания индикатора
       api.getKafkaJobs().then(data => {
@@ -252,6 +316,62 @@
     }, 4000);
     return () => clearInterval(interval);
   });
+
+  async function loadTopologyLimits() {
+    try {
+      const topo = await api.getTopology();
+      if (topo && Array.isArray(topo.dc_limits)) {
+        updateBandwidthFromTopology(newSourceDc, newTargetDc, topo.dc_limits);
+      }
+    } catch (e) {
+      console.warn('Не удалось загрузить лимиты топологии:', e);
+    }
+  }
+
+  function updateBandwidthFromTopology(src: string, dst: string, limits?: any[]) {
+    if (!src || !dst) return;
+    const s = src.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const d = dst.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (limits && limits.length > 0) {
+      const found = limits.find((l: any) => {
+        const ls = (l.source_dc || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ld = (l.target_dc || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return (ls === s && ld === d) || (ls === d && ld === s);
+      });
+      if (found && found.limit_mb_per_sec) {
+        detectedDcLimitMb = found.limit_mb_per_sec;
+        if (isAutoBandwidth) {
+          bandwidthLimitMb = Math.round(found.limit_mb_per_sec * 0.40);
+        }
+        return;
+      }
+    }
+    detectedDcLimitMb = 100;
+    if (isAutoBandwidth) {
+      bandwidthLimitMb = 40;
+    }
+  }
+
+  async function loadLiveAgents(srcDc: string, dstDc: string) {
+    isLoadingAgents = true;
+    try {
+      const [senders, senderDetails, receivers] = await Promise.all([
+        api.getKafkaSenderEndpoints(srcDc).catch(() => []),
+        api.getKafkaSenderDetails(srcDc).catch(() => []),
+        api.getKafkaReceiverEndpoints(dstDc).catch(() => [])
+      ]);
+      liveSenders = Array.isArray(senders) ? senders : [];
+      liveSenderDetails = Array.isArray(senderDetails) ? senderDetails : [];
+      liveReceivers = Array.isArray(receivers) ? receivers : [];
+      if (isMultiAgentScaling && (!targetEndpointsInput || targetEndpointsInput.trim() === '')) {
+        targetEndpointsInput = liveReceivers.join(', ');
+      }
+    } catch (e) {
+      console.warn('Не удалось загрузить активных агентов:', e);
+    } finally {
+      isLoadingAgents = false;
+    }
+  }
 
   async function loadJobs() {
     jobsLoading = true;
@@ -279,6 +399,8 @@
           selectedTargetClusterId = clusters[1].id;
           applyClusterToTarget(clusters[1]);
         }
+        loadLiveAgents(newSourceDc, newTargetDc);
+        loadTopologyLimits();
       }
     } catch (e) {
       console.warn('Не удалось загрузить кластеры:', e);
@@ -328,6 +450,8 @@
     if (found) {
       applyClusterToSource(found);
       loadDiscovery(found.dcId || 'dc1');
+      loadLiveAgents(newSourceDc, newTargetDc);
+      loadTopologyLimits();
     }
   }
 
@@ -336,6 +460,8 @@
     const found = availableClusters.find(c => c.id === clusterId);
     if (found) {
       applyClusterToTarget(found);
+      loadLiveAgents(newSourceDc, newTargetDc);
+      loadTopologyLimits();
     }
   }
 
@@ -366,6 +492,8 @@
 
     const src = availableClusters.find(c => c.id === selectedSourceClusterId);
     loadDiscovery(src?.dcId || 'dc1');
+    loadLiveAgents(newSourceDc, newTargetDc);
+    loadTopologyLimits();
   }
 
   function toggleTopic(topicName: string, defaultFormat: string) {
@@ -465,13 +593,13 @@
       targetKerberosEnabled: enableKerberos,
       targetPrincipal,
       targetKeytabPath,
-      bandwidthLimitMb,
-      offsetSyncIntervalSec,
-      consumerThreads,
-      batchSize,
+      bandwidthLimitMb: isAutoBandwidth ? autoBandwidthMb : bandwidthLimitMb,
+      offsetSyncIntervalSec: isAutoBandwidth ? autoOffsetSyncInterval : offsetSyncIntervalSec,
+      consumerThreads: isAutoBandwidth ? autoConsumerThreadsPerAgent : consumerThreads,
+      batchSize: isAutoBandwidth ? autoBatchSize : batchSize,
       targetEndpoints: targetEndpointsInput.trim()
         ? targetEndpointsInput.split(',').map(s => s.trim()).filter(Boolean)
-        : undefined
+        : (isMultiAgentScaling && liveReceivers.length > 0 ? liveReceivers : undefined)
     };
 
     try {
@@ -809,79 +937,55 @@
                 <Server class="w-3.5 h-3.5 text-sky-500" />
                 <span>Кластеры Kafka и дата-центры:</span>
               </span>
-              <label class="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500">
-                <input type="checkbox" bind:checked={isCustomClusterMode} class="rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
-                <span>Указать вручную (Custom)</span>
-              </label>
+              <span class="text-[11px] text-slate-400 font-medium">Конфигурация TopologyRegistry</span>
             </div>
 
-            {#if !isCustomClusterMode}
-              <div class="grid grid-cols-1 md:grid-cols-5 gap-2.5 items-center">
-                <!-- Источник -->
-                <div class="md:col-span-2">
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">Кластер Источник (Source):</label>
-                  <select
-                    value={selectedSourceClusterId}
-                    onchange={(e) => handleSourceClusterSelect(e.currentTarget.value)}
-                    class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  >
-                    {#each availableClusters as c}
-                      <option value={c.id}>
-                        {c.name} {c.location ? `(${c.location})` : ''}
-                      </option>
-                    {/each}
-                  </select>
-                </div>
-
-                <!-- Swap кнопка ⇄ -->
-                <div class="flex justify-center pt-4">
-                  <button
-                    type="button"
-                    onclick={swapClusters}
-                    title="Поменять местами источник и приемник (⇄)"
-                    class="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-sky-600 dark:text-sky-400 font-bold transition shadow-2xs cursor-pointer flex items-center gap-1"
-                  >
-                    <ArrowLeftRight class="w-4 h-4" />
-                    <span class="text-[10px] hidden sm:inline">Swap</span>
-                  </button>
-                </div>
-
-                <!-- Приемник -->
-                <div class="md:col-span-2">
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">Кластер Приемник (Target):</label>
-                  <select
-                    value={selectedTargetClusterId}
-                    onchange={(e) => handleTargetClusterSelect(e.currentTarget.value)}
-                    class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  >
-                    {#each availableClusters as c}
-                      <option value={c.id}>
-                        {c.name} {c.location ? `(${c.location})` : ''}
-                      </option>
-                    {/each}
-                  </select>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-2.5 items-center">
+              <!-- Источник -->
+              <div class="md:col-span-2">
+                <label class="block text-[11px] font-medium text-slate-500 mb-1">Кластер Источник (Source):</label>
+                <select
+                  value={selectedSourceClusterId}
+                  onchange={(e) => handleSourceClusterSelect(e.currentTarget.value)}
+                  class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
+                >
+                  {#each availableClusters as c}
+                    <option value={c.id}>
+                      {c.name} {c.location ? `(${c.location})` : ''}
+                    </option>
+                  {/each}
+                </select>
               </div>
-            {:else}
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">ЦОД Источник:</label>
-                  <input
-                    type="text"
-                    bind:value={newSourceDc}
-                    class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">ЦОД Приемник:</label>
-                  <input
-                    type="text"
-                    bind:value={newTargetDc}
-                    class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
-                </div>
+
+              <!-- Swap кнопка ⇄ -->
+              <div class="flex justify-center pt-4">
+                <button
+                  type="button"
+                  onclick={swapClusters}
+                  title="Поменять местами источник и приемник (⇄)"
+                  class="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-sky-600 dark:text-sky-400 font-bold transition shadow-2xs cursor-pointer flex items-center gap-1"
+                >
+                  <ArrowLeftRight class="w-4 h-4" />
+                  <span class="text-[10px] hidden sm:inline">Swap</span>
+                </button>
               </div>
-            {/if}
+
+              <!-- Приемник -->
+              <div class="md:col-span-2">
+                <label class="block text-[11px] font-medium text-slate-500 mb-1">Кластер Приемник (Target):</label>
+                <select
+                  value={selectedTargetClusterId}
+                  onchange={(e) => handleTargetClusterSelect(e.currentTarget.value)}
+                  class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
+                >
+                  {#each availableClusters as c}
+                    <option value={c.id}>
+                      {c.name} {c.location ? `(${c.location})` : ''}
+                    </option>
+                  {/each}
+                </select>
+              </div>
+            </div>
           </div>
 
           <!-- 3. Топология репликации -->
@@ -1406,69 +1510,295 @@
             {/if}
           </div>
 
-          <!-- 8. ЛИМИТЫ WAN, ИНТЕРВАЛ СИНХРОНИЗАЦИИ И ПАРАЛЛЕЛИЗМ -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Полоса WAN (МБ/с):</label>
-              <input
-                type="number"
-                bind:value={bandwidthLimitMb}
-                min="1"
-                max="5000"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
-              />
+          <!-- 8. ПОЛОСА WAN И КАЧЕСТВО ОБСЛУЖИВАНИЯ (HTB QOS) -->
+          <div class="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2">
+              <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
+                <Gauge class="w-4 h-4 text-emerald-500" />
+                <span>Межкластерная полоса и QoS (Hierarchical Token Bucket):</span>
+              </span>
+              <label class="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                <input
+                  type="checkbox"
+                  bind:checked={isAutoBandwidth}
+                  class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>Авто-выделение HTB и тюнинг параметров</span>
+              </label>
             </div>
-            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Смещение (сек):</label>
-              <input
-                type="number"
-                bind:value={offsetSyncIntervalSec}
-                min="1"
-                max="60"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
-              />
-            </div>
-            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Потоки вычитки (Consumer):</label>
-              <input
-                type="number"
-                bind:value={consumerThreads}
-                min="1"
-                max="64"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-sky-600 dark:text-sky-400"
-              />
-            </div>
-            <div class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl">
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Размер батча (сообщений):</label>
-              <input
-                type="number"
-                bind:value={batchSize}
-                min="100"
-                max="10000"
-                step="500"
-                class="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
-              />
+
+            {#if isAutoBandwidth}
+              <div class="p-3 {isAgentBottleneck ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60' : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60'} border rounded-lg flex items-start gap-2.5">
+                <Zap class="w-4 h-4 {isAgentBottleneck ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} shrink-0 mt-0.5" />
+                <div class="text-xs space-y-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold {isAgentBottleneck ? 'text-amber-900 dark:text-amber-200' : 'text-emerald-900 dark:text-emerald-200'}">
+                      Двухконтурное авто-регулирование QoS: ~{autoBandwidthMb} МБ/с
+                    </span>
+                    {#if isAgentBottleneck}
+                      <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300">
+                        Ограничено агентами (2x25G)
+                      </span>
+                    {:else}
+                      <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300">
+                        Ограничено WAN HTB (40%)
+                      </span>
+                    {/if}
+                  </div>
+                  <p class="text-[11px] {isAgentBottleneck ? 'text-amber-800/90 dark:text-amber-300/80' : 'text-emerald-700/90 dark:text-emerald-300/80'} leading-relaxed">
+                    WAN квота: <strong>{wanHtbBandwidthMb} МБ/с</strong> (40% от лимита канала {detectedDcLimitMb} МБ/с).
+                    {#if totalSendersCapacityMb !== null}
+                      Суммарная емкость агентов источника: <strong>{totalSendersCapacityMb} МБ/с</strong> ({liveSendersCount} {liveSendersCount === 1 ? 'узел' : 'узла'}).
+                    {/if}
+                    Параллелизм вычитки рассчитан индивидуально под полосу каждого узла (~{autoConsumerThreadsPerAgent} треда/узел, суммарно {autoTotalThreads}), размер пачки ~{autoBatchSize} зап., оффсеты ~{autoOffsetSyncInterval} с.
+                  </p>
+                  <p class="text-[10px] text-slate-500 dark:text-slate-400">
+                    ℹ️ Защита клиентских интерфейсов 2x25G активна (для продюсеров/консьюмеров). ISR репликация брокеров исключена (выделенные 2x25G).
+                  </p>
+                </div>
+              </div>
+            {/if}
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <!-- 1. Полоса WAN -->
+              <div class="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] font-medium text-slate-500">Полоса WAN:</label>
+                  {#if isAutoBandwidth}
+                    <span class="text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.2 rounded">HTB Авто</span>
+                  {/if}
+                </div>
+                {#if isAutoBandwidth}
+                  <div class="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 py-1">
+                    ~{autoBandwidthMb} МБ/с
+                  </div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">40% квота линка</div>
+                {:else}
+                  <input
+                    type="number"
+                    bind:value={bandwidthLimitMb}
+                    min="1"
+                    max="5000"
+                    class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                  />
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Ручной лимит МБ/с</div>
+                {/if}
+              </div>
+
+              <!-- 2. Смещение (сек) -->
+              <div class="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] font-medium text-slate-500">Смещение (сек):</label>
+                  {#if isAutoBandwidth}
+                    <span class="text-[10px] font-semibold text-sky-600 bg-sky-50 dark:bg-sky-950/50 px-1.5 py-0.2 rounded">SLA Авто</span>
+                  {/if}
+                </div>
+                {#if isAutoBandwidth}
+                  <div class="text-xs font-mono font-bold text-sky-700 dark:text-sky-300 py-1">
+                    ~{autoOffsetSyncInterval} сек
+                  </div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">Синхронизация групп</div>
+                {:else}
+                  <input
+                    type="number"
+                    bind:value={offsetSyncIntervalSec}
+                    min="1"
+                    max="60"
+                    class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                  />
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Интервал (1–60 с)</div>
+                {/if}
+              </div>
+
+              <!-- 3. Потоки вычитки -->
+              <div class="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] font-medium text-slate-500">Потоки вычитки:</label>
+                  {#if isAutoBandwidth}
+                    <span class="text-[10px] font-semibold text-indigo-600 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.2 rounded">Шардинг</span>
+                  {/if}
+                </div>
+                {#if isAutoBandwidth}
+                  <div class="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 py-1">
+                    ~{autoConsumerThreadsPerAgent} / узел
+                  </div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">
+                    всего ~{autoTotalThreads} на {liveSendersCount} {liveSendersCount === 1 ? 'агент' : (liveSendersCount >= 2 && liveSendersCount <= 4 ? 'агента' : 'агентов')}
+                  </div>
+                {:else}
+                  <input
+                    type="number"
+                    bind:value={consumerThreads}
+                    min="1"
+                    max="64"
+                    class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
+                  />
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                    на узел (всего {consumerThreads * liveSendersCount})
+                  </div>
+                {/if}
+              </div>
+
+              <!-- 4. Размер батча -->
+              <div class="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] font-medium text-slate-500">Размер батча:</label>
+                  {#if isAutoBandwidth}
+                    <span class="text-[10px] font-semibold text-purple-600 bg-purple-50 dark:bg-purple-950/50 px-1.5 py-0.2 rounded">Micro-batch</span>
+                  {/if}
+                </div>
+                {#if isAutoBandwidth}
+                  <div class="text-xs font-mono font-bold text-purple-700 dark:text-purple-300 py-1">
+                    ~{autoBatchSize} зап.
+                  </div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">Пачка gRPC стрима</div>
+                {:else}
+                  <input
+                    type="number"
+                    bind:value={batchSize}
+                    min="100"
+                    max="10000"
+                    step="500"
+                    class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold text-purple-600 dark:text-purple-400"
+                  />
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Размер (100–10k)</div>
+                {/if}
+              </div>
             </div>
           </div>
 
-          <!-- 9. ПУЛ ЦЕЛЕВЫХ АГЕНТОВ-ПРИЕМНИКОВ (CROSS-AGENT LOAD BALANCING) -->
-          <div class="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2">
-            <div class="flex items-center justify-between">
+          <!-- 9. ГОРИЗОНТАЛЬНОЕ МАСШТАБИРОВАНИЕ ПО АГЕНТАМ (MULTI-AGENT LOAD BALANCING) -->
+          <div class="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2">
               <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
-                <Radio class="w-3.5 h-3.5 text-sky-500" />
-                <span>Пул целевых агентов-приемников (Multi-Agent Load Balancing):</span>
+                <Radio class="w-4 h-4 text-sky-500" />
+                <span>Распределение нагрузки по агентам (Multi-Agent Cluster Scaling):</span>
               </span>
-              <span class="text-[10px] text-slate-400">Partition-Pinned Routing (128+ партиций)</span>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onclick={() => loadLiveAgents(newSourceDc, newTargetDc)}
+                  disabled={isLoadingAgents}
+                  class="p-1 text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 transition"
+                  title="Обновить список активных агентов"
+                >
+                  <RefreshCw class="w-3.5 h-3.5 {isLoadingAgents ? 'animate-spin text-sky-500' : ''}" />
+                </button>
+                <label class="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                  <input
+                    type="checkbox"
+                    bind:checked={isMultiAgentScaling}
+                    class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  <span>Включено (Шардирование Source + Target)</span>
+                </label>
+              </div>
             </div>
-            <input
-              type="text"
-              bind:value={targetEndpointsInput}
-              placeholder="target-agent-1:50052, target-agent-2:50052, target-agent-3:50052, target-agent-4:50052"
-              class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
-            />
-            <p class="text-[11px] text-slate-500 dark:text-slate-400">
-              Каждая партиция детерминированно привязывается к своему агенту-приемнику (<code class="font-mono text-sky-600">partition % N</code>), гарантируя сохранение строгого порядка сообщений и распределение нагрузки потока в 1 000 000+ событий/сек.
-            </p>
+
+            {#if isMultiAgentScaling}
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- Пул отправителей -->
+                <div class="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                      <Server class="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Отправители ({newSourceDc}):</span>
+                    </span>
+                    <span class="text-[10px] text-slate-400">Шардинг партиций</span>
+                  </div>
+                  {#if liveSenderDetails.length > 0}
+                    <div class="space-y-1.5">
+                      {#each liveSenderDetails as s}
+                        {@const agentBw = s.max_bandwidth_mb_s || 100}
+                        {@const agentThreads = Math.min(32, Math.max(1, Math.ceil(agentBw / 35)))}
+                        <div class="flex items-center justify-between text-xs px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-100 dark:border-slate-700/60 font-mono">
+                          <div class="flex flex-col min-w-0 pr-1">
+                            <span class="font-semibold text-slate-700 dark:text-slate-300 truncate">{s.agent_id || s.grpc_address}</span>
+                            <span class="text-[10px] text-slate-400 truncate">{s.grpc_address}</span>
+                          </div>
+                          <div class="flex items-center gap-1.5 shrink-0">
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold" title="Локальный лимит клиентского интерфейса 2x25G">
+                              {agentBw} МБ/с
+                            </span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-semibold" title="Рекомендуемое число потоков на агент">
+                              {agentThreads} thr
+                            </span>
+                            <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> ONLINE
+                            </span>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else if liveSenders.length > 0}
+                    <div class="space-y-1">
+                      {#each liveSenders as sender}
+                        <div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-100 dark:border-slate-700/60 font-mono">
+                          <span>{sender}</span>
+                          <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> ONLINE
+                          </span>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else}
+                    <div class="text-[11px] text-slate-500 dark:text-slate-400 italic py-1">
+                      Агенты кластера {newSourceDc} подключатся автоматически при регистрации.
+                    </div>
+                  {/if}
+                  <p class="text-[10px] text-slate-400">
+                    Партиции распределяются между физическими нодами отправителей через общую Consumer Group <code class="text-indigo-500 font-mono">kafka-replicator-{newJobName.slice(0, 12)}</code>.
+                  </p>
+                </div>
+
+                <!-- Пул приемников -->
+                <div class="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                      <Radio class="w-3.5 h-3.5 text-sky-500" />
+                      <span>Приёмники ({newTargetDc}):</span>
+                    </span>
+                    <span class="text-[10px] text-slate-400">Partition-Pinned</span>
+                  </div>
+                  {#if liveReceivers.length > 0}
+                    <div class="space-y-1">
+                      {#each liveReceivers as receiver}
+                        <div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-100 dark:border-slate-700/60 font-mono">
+                          <span>{receiver}</span>
+                          <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> ONLINE
+                          </span>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else}
+                    <div class="text-[11px] text-slate-500 dark:text-slate-400 italic py-1">
+                      Агенты целевого кластера {newTargetDc} будут обнаружены динамически.
+                    </div>
+                  {/if}
+                  <p class="text-[10px] text-slate-400">
+                    Партиции детерминированно привязываются к узлам (<code class="text-sky-500 font-mono">partition % N</code>) с сохранением строгого порядка сообщений.
+                  </p>
+                </div>
+              </div>
+            {/if}
+
+            <details class="text-[11px] text-slate-500 pt-1">
+              <summary class="cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 transition font-medium">
+                Ручное переопределение списка целевых эндпоинтов (опционально)
+              </summary>
+              <div class="mt-2 space-y-1">
+                <input
+                  type="text"
+                  bind:value={targetEndpointsInput}
+                  placeholder="agent-1:50052, agent-2:50052"
+                  class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                />
+                <p class="text-[10px] text-slate-400">
+                  Оставьте пустым для полностью автоматического назначения живых приёмников из реестра оркестратора.
+                </p>
+              </div>
+            </details>
           </div>
         </div>
 

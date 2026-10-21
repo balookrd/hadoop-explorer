@@ -151,6 +151,103 @@ public class KafkaReplicationController {
     }
 
     /**
+     * Возвращает список активных адресов агентов-отправителей в кластере/ДЦ источника для горизонтального шардирования.
+     */
+    @GetMapping("/agents/senders")
+    public List<String> getSenderEndpoints(@RequestParam(defaultValue = "DC1") String clusterId) {
+        requireAuthentication();
+        return service.getLiveSenderEndpoints(clusterId);
+    }
+
+    /**
+     * Детальная информация об агентах-отправителях источника (включая лимиты клиентских интерфейсов 2x25G).
+     */
+    @GetMapping("/agents/senders/details")
+    public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(@RequestParam(defaultValue = "DC1") String clusterId) {
+        requireAuthentication();
+        return service.getLiveSenderAgentDetails(clusterId);
+    }
+
+    /**
+     * Автоматический расчет QoS параметров репликации (двухконтурное ограничение WAN HTB vs 2x25G агенты).
+     */
+    @GetMapping("/qos-calculation")
+    public Map<String, Object> calculateQos(
+            @RequestParam String sourceDc,
+            @RequestParam String targetDc) {
+        requireAuthentication();
+
+        Double wanQuotaMb = 50.0;
+        if (topologyRegistry != null) {
+            var dcLimit = topologyRegistry.getDcLimit(sourceDc, targetDc);
+            if (dcLimit.isPresent()) {
+                wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
+            }
+        }
+
+        var senders = service.getLiveSenderAgentDetails(sourceDc);
+        int sendersCount = senders.size();
+        Double sendersCapacityMb = null;
+        if (!senders.isEmpty()) {
+            sendersCapacityMb = senders.stream()
+                    .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : 100.0)
+                    .sum();
+        }
+
+        double effectiveBandwidthMb;
+        String bottleneck;
+        if (sendersCapacityMb != null) {
+            if (wanQuotaMb < sendersCapacityMb) {
+                effectiveBandwidthMb = wanQuotaMb;
+                bottleneck = "WAN_HTB";
+            } else {
+                effectiveBandwidthMb = sendersCapacityMb;
+                bottleneck = "AGENT_LIMIT";
+            }
+        } else {
+            effectiveBandwidthMb = wanQuotaMb;
+            bottleneck = "WAN_HTB";
+        }
+
+        int targetTotalThreads;
+        if (effectiveBandwidthMb <= 50.0) targetTotalThreads = 8;
+        else if (effectiveBandwidthMb <= 100.0) targetTotalThreads = 16;
+        else if (effectiveBandwidthMb <= 300.0) targetTotalThreads = 24;
+        else if (effectiveBandwidthMb <= 800.0) targetTotalThreads = 32;
+        else if (effectiveBandwidthMb <= 2000.0) targetTotalThreads = 64;
+        else targetTotalThreads = 96;
+
+        int threadsPerAgent = Math.min(32, Math.max(1, (int) Math.ceil((double) targetTotalThreads / Math.max(1, sendersCount))));
+
+        int batchSize;
+        if (effectiveBandwidthMb <= 20.0) batchSize = 1000;
+        else if (effectiveBandwidthMb <= 80.0) batchSize = 2000;
+        else if (effectiveBandwidthMb <= 200.0) batchSize = 5000;
+        else if (effectiveBandwidthMb <= 800.0) batchSize = 10000;
+        else if (effectiveBandwidthMb <= 1500.0) batchSize = 15000;
+        else batchSize = 20000;
+
+        int offsetSyncSec;
+        if (effectiveBandwidthMb >= 1500.0) offsetSyncSec = 1;
+        else if (effectiveBandwidthMb >= 500.0) offsetSyncSec = 2;
+        else if (effectiveBandwidthMb >= 100.0) offsetSyncSec = 3;
+        else if (effectiveBandwidthMb <= 20.0) offsetSyncSec = 10;
+        else offsetSyncSec = 5;
+
+        Map<String, Object> res = new java.util.LinkedHashMap<>();
+        res.put("wanQuotaMb", wanQuotaMb);
+        res.put("sendersCapacityMb", sendersCapacityMb);
+        res.put("effectiveBandwidthMb", effectiveBandwidthMb);
+        res.put("bottleneck", bottleneck);
+        res.put("sendersCount", sendersCount);
+        res.put("threadsPerAgent", threadsPerAgent);
+        res.put("totalThreads", threadsPerAgent * Math.max(1, sendersCount));
+        res.put("batchSize", batchSize);
+        res.put("offsetSyncSec", offsetSyncSec);
+        return res;
+    }
+
+    /**
      * Возвращает список сконфигурированных кластеров Kafka / ЦОД для выбора в UI.
      */
     @GetMapping("/discovery/clusters")

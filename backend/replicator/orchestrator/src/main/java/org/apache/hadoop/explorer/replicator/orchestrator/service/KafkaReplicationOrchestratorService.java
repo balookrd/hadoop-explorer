@@ -28,6 +28,7 @@ public class KafkaReplicationOrchestratorService {
     private final KafkaTopicProvisioner topicProvisioner;
     private final org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
     private final org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry;
 
     @org.springframework.beans.factory.annotation.Autowired
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
@@ -35,17 +36,21 @@ public class KafkaReplicationOrchestratorService {
                                                @org.springframework.beans.factory.annotation.Autowired(required = false)
                                                org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry,
                                                @org.springframework.beans.factory.annotation.Autowired(required = false)
-                                               org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory) {
+                                               org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory,
+                                               @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                               org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry) {
         this.repository = repository;
         this.topicProvisioner = topicProvisioner != null ? topicProvisioner : new KafkaTopicProvisioner();
         this.agentRegistry = agentRegistry;
         this.adminClientFactory = adminClientFactory != null ? adminClientFactory : new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory();
+        this.topologyRegistry = topologyRegistry;
     }
 
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
                                                KafkaTopicProvisioner topicProvisioner,
-                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
-        this(repository, topicProvisioner, agentRegistry, new org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory());
+                                               org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry,
+                                               org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaAdminClientFactory adminClientFactory) {
+        this(repository, topicProvisioner, agentRegistry, adminClientFactory, null);
     }
 
     public KafkaReplicationOrchestratorService(KafkaReplicationJobRepository repository,
@@ -95,10 +100,106 @@ public class KafkaReplicationOrchestratorService {
         entity.setSourceDc(request.getSourceDc());
         entity.setTargetDc(request.getTargetDc());
         entity.setDirection(request.getDirection() != null ? request.getDirection() : "BIDIRECTIONAL");
-        entity.setBandwidthLimitMb(request.getBandwidthLimitMb());
-        entity.setOffsetSyncIntervalSec(request.getOffsetSyncIntervalSec());
-        entity.setConsumerThreads(request.getConsumerThreads() != null ? request.getConsumerThreads() : 8);
-        entity.setBatchSize(request.getBatchSize() != null ? request.getBatchSize() : 2000);
+
+        // Автоматический расчет полосы WAN из TopologyRegistry HTB и пула агентов 2x25G (если не задано вручную)
+        Double resolvedBandwidth = request.getBandwidthLimitMb();
+        if ((resolvedBandwidth == null || resolvedBandwidth <= 0) && topologyRegistry != null
+                && request.getSourceDc() != null && request.getTargetDc() != null) {
+            var dcLimit = topologyRegistry.getDcLimit(request.getSourceDc(), request.getTargetDc());
+            Double wanQuotaMb = null;
+            if (dcLimit.isPresent()) {
+                // 40% гарантированная полоса HTB для Kafka (в МБ/с)
+                wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
+            }
+
+            // Суммарная пропускная способность пула агентов-отправителей источника (2x25G клиентские интерфейсы)
+            Double sendersCapacityMb = null;
+            List<org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry> liveSenders =
+                    agentRegistry != null ? agentRegistry.getLiveKafkaSendersForCluster(request.getSourceDc()) : List.of();
+            if (!liveSenders.isEmpty()) {
+                sendersCapacityMb = liveSenders.stream()
+                        .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : 100.0)
+                        .sum();
+            }
+
+            if (wanQuotaMb != null && sendersCapacityMb != null) {
+                // Двухконтурное ограничение: не превышаем WAN HTB квоту и суммарную емкость клиентских интерфейсов агентов
+                resolvedBandwidth = Math.min(wanQuotaMb, sendersCapacityMb);
+            } else if (wanQuotaMb != null) {
+                resolvedBandwidth = wanQuotaMb;
+            } else if (sendersCapacityMb != null) {
+                resolvedBandwidth = sendersCapacityMb;
+            }
+        }
+        if (resolvedBandwidth == null || resolvedBandwidth <= 0) {
+            resolvedBandwidth = 50.0; // безопасный дефолт
+        }
+        entity.setBandwidthLimitMb(resolvedBandwidth);
+
+        // Автоматический расчет интервала синхронизации оффсетов Consumer Groups
+        Integer resolvedOffsetSync = request.getOffsetSyncIntervalSec();
+        if (resolvedOffsetSync == null || resolvedOffsetSync <= 0) {
+            if (resolvedBandwidth >= 1500.0) {
+                resolvedOffsetSync = 1;
+            } else if (resolvedBandwidth >= 500.0) {
+                resolvedOffsetSync = 2;
+            } else if (resolvedBandwidth >= 100.0) {
+                resolvedOffsetSync = 3;
+            } else if (resolvedBandwidth <= 20.0) {
+                resolvedOffsetSync = 10;
+            } else {
+                resolvedOffsetSync = 5;
+            }
+        }
+        entity.setOffsetSyncIntervalSec(resolvedOffsetSync);
+
+        // Автоматический расчет размера микробатча
+        Integer resolvedBatchSize = request.getBatchSize();
+        if (resolvedBatchSize == null || resolvedBatchSize <= 0) {
+            if (resolvedBandwidth <= 20.0) {
+                resolvedBatchSize = 1000;
+            } else if (resolvedBandwidth <= 80.0) {
+                resolvedBatchSize = 2000;
+            } else if (resolvedBandwidth <= 200.0) {
+                resolvedBatchSize = 5000;
+            } else if (resolvedBandwidth <= 800.0) {
+                resolvedBatchSize = 10000;
+            } else if (resolvedBandwidth <= 1500.0) {
+                resolvedBatchSize = 15000;
+            } else {
+                resolvedBatchSize = 20000;
+            }
+        }
+        entity.setBatchSize(resolvedBatchSize);
+
+        // Автоматический расчет потоков вычитки на каждый агент-отправитель (шардинг пула с учетом 40G масштабирования)
+        Integer resolvedConsumerThreads = request.getConsumerThreads();
+        if (resolvedConsumerThreads == null || resolvedConsumerThreads <= 0) {
+            int targetTotalThreads;
+            if (resolvedBandwidth <= 50.0) {
+                targetTotalThreads = 8;
+            } else if (resolvedBandwidth <= 100.0) {
+                targetTotalThreads = 16;
+            } else if (resolvedBandwidth <= 300.0) {
+                targetTotalThreads = 24;
+            } else if (resolvedBandwidth <= 800.0) {
+                targetTotalThreads = 32;
+            } else if (resolvedBandwidth <= 2000.0) {
+                targetTotalThreads = 64;
+            } else {
+                targetTotalThreads = 96;
+            }
+            int sendersCount = 1;
+            if (request.getSourceDc() != null) {
+                int liveSenders = getLiveSenderEndpoints(request.getSourceDc()).size();
+                if (liveSenders > 0) {
+                    sendersCount = liveSenders;
+                }
+            }
+            resolvedConsumerThreads = Math.max(1, (int) Math.ceil((double) targetTotalThreads / sendersCount));
+            resolvedConsumerThreads = Math.min(32, resolvedConsumerThreads);
+        }
+        entity.setConsumerThreads(resolvedConsumerThreads);
         entity.setSchemaTranscodingEnabled(request.isSchemaTranscodingEnabled());
         entity.setSourceSrType(request.getSourceSrType());
         entity.setTargetSrType(request.getTargetSrType());
@@ -129,8 +230,12 @@ public class KafkaReplicationOrchestratorService {
         try {
             entity.setTopicsJson(mapper.writeValueAsString(request.getTopics() != null ? request.getTopics() : Collections.emptyList()));
             entity.setConsumerGroupsJson(mapper.writeValueAsString(request.getConsumerGroups() != null ? request.getConsumerGroups() : Collections.emptyList()));
-            if (request.getTargetEndpoints() != null && !request.getTargetEndpoints().isEmpty()) {
-                entity.setTargetEndpointsJson(mapper.writeValueAsString(request.getTargetEndpoints()));
+            List<String> effectiveEndpoints = request.getTargetEndpoints();
+            if ((effectiveEndpoints == null || effectiveEndpoints.isEmpty()) && request.getTargetDc() != null) {
+                effectiveEndpoints = getLiveReceiverEndpoints(request.getTargetDc());
+            }
+            if (effectiveEndpoints != null && !effectiveEndpoints.isEmpty()) {
+                entity.setTargetEndpointsJson(mapper.writeValueAsString(effectiveEndpoints));
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize topics or consumer groups to JSON", e);
@@ -299,6 +404,40 @@ public class KafkaReplicationOrchestratorService {
         var receivers = agentRegistry.getLiveKafkaReceiversForCluster(clusterId);
         return receivers.stream()
                 .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
+                .toList();
+    }
+
+    /**
+     * Возвращает список адресов активных агентов-отправителей для кластера/ДЦ источника.
+     */
+    public List<String> getLiveSenderEndpoints(String clusterId) {
+        if (agentRegistry == null) {
+            return List.of();
+        }
+        var senders = agentRegistry.getLiveKafkaSendersForCluster(clusterId);
+        return senders.stream()
+                .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
+                .toList();
+    }
+
+    /**
+     * Возвращает детальный список активных агентов-отправителей для кластера/ДЦ источника
+     * с их локальными лимитами полосы (maxBandwidthMbS) для сетевых интерфейсов 2x25G.
+     */
+    public List<org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto> getLiveSenderAgentDetails(String clusterId) {
+        if (agentRegistry == null) {
+            return List.of();
+        }
+        var senders = agentRegistry.getLiveKafkaSendersForCluster(clusterId);
+        return senders.stream()
+                .map(a -> new org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaAgentEndpointDto(
+                        a.getAgentId(),
+                        a.getGrpcAddress(),
+                        a.getClusterId(),
+                        a.getMode(),
+                        a.getStatus() != null ? a.getStatus().name() : "ONLINE",
+                        a.getMaxBandwidthMbS()
+                ))
                 .toList();
     }
 

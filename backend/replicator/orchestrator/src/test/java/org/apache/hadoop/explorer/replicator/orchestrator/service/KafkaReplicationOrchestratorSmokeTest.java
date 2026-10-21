@@ -46,8 +46,14 @@ public class KafkaReplicationOrchestratorSmokeTest {
     @Autowired
     private KafkaReplicationJobRepository repository;
 
+    @Autowired(required = false)
+    private org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
+
     @BeforeEach
     void setUpSecurity() {
+        if (agentRegistry != null) {
+            agentRegistry.clear();
+        }
         UserSession adminSession = new UserSession(
                 "kafka_admin", "Kafka Admin", "admin@kafka.local",
                 List.of("kafka-admins"), "TEST", true, Role.ADMIN
@@ -191,5 +197,39 @@ public class KafkaReplicationOrchestratorSmokeTest {
         org.springframework.web.server.ResponseStatusException ex4 =
                 assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.getReceiverEndpoints("DC2"));
         assertEquals(HttpStatus.UNAUTHORIZED, ex4.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Автоматический расчет параметров: полоса WAN из топологии HTB и эндпоинты агентов")
+    void shouldAutoResolveTopologyBandwidthAndAgentEndpoints() {
+        CreateKafkaJobRequest req = new CreateKafkaJobRequest();
+        req.setName("Auto-Tuned-Job");
+        req.setSourceDc("dc1");
+        req.setTargetDc("dc2");
+        req.setBandwidthLimitMb(null); // Автоматический расчет из топологии
+        req.setTargetEndpoints(null); // Автоматический сбор из AgentRegistry
+
+        ResponseEntity<KafkaReplicationJobDto> resp = controller.createJob(req);
+        assertEquals(HttpStatus.CREATED, resp.getStatusCode());
+        KafkaReplicationJobDto dto = resp.getBody();
+        assertNotNull(dto);
+        assertNotNull(dto.getBandwidthLimitMb());
+        assertTrue(dto.getBandwidthLimitMb() > 0, "Полоса должна быть автоматически рассчитана из TopologyRegistry HTB");
+        assertTrue(dto.getConsumerThreads() > 0, "Потоки консьюмеров должны быть автоматически рассчитаны");
+        assertTrue(dto.getBatchSize() >= 1000, "Размер батча должен быть автоматически рассчитан");
+        assertTrue(dto.getOffsetSyncIntervalSec() >= 3, "Интервал оффсетов должен быть автоматически рассчитан");
+
+        // Проверка эндпоинтов отправки и приема
+        List<String> senders = controller.getSenderEndpoints("dc1");
+        assertNotNull(senders);
+        List<String> receivers = controller.getReceiverEndpoints("dc2");
+        assertNotNull(receivers);
+
+        // Проверка расчета двухконтурного QoS
+        Map<String, Object> qos = controller.calculateQos("dc1", "dc2");
+        assertNotNull(qos);
+        assertNotNull(qos.get("effectiveBandwidthMb"));
+        assertNotNull(qos.get("bottleneck"));
+        assertTrue((int) qos.get("threadsPerAgent") > 0);
     }
 }

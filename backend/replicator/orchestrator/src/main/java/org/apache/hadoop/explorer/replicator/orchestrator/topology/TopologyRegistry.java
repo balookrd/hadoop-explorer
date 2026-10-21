@@ -95,11 +95,20 @@ public class TopologyRegistry {
     }
 
     public Optional<Long> getDcLimit(String srcDc, String dstDc) {
-        Long val = dcLimits.get(srcDc + "->" + dstDc);
-        if (val == null) {
-            val = dcLimits.get(dstDc + "->" + srcDc);
+        if (srcDc == null || dstDc == null) return Optional.empty();
+        String s = srcDc.trim().toLowerCase();
+        String d = dstDc.trim().toLowerCase();
+        for (var entry : dcLimits.entrySet()) {
+            String[] parts = entry.getKey().split("->");
+            if (parts.length == 2) {
+                String kSrc = parts[0].trim().toLowerCase();
+                String kDst = parts[1].trim().toLowerCase();
+                if ((kSrc.equals(s) && kDst.equals(d)) || (kSrc.equals(d) && kDst.equals(s))) {
+                    return Optional.of(entry.getValue());
+                }
+            }
         }
-        return Optional.ofNullable(val);
+        return Optional.of(100L * 1024 * 1024);
     }
 
     public void setHdfsLimit(String srcCluster, String dstCluster, long limitBytesPerSec) {

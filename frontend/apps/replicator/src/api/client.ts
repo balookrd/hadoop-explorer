@@ -335,6 +335,18 @@ export class ReplicatorApiClient extends BaseApiClient {
   async getKafkaReceiverEndpoints(clusterId = 'DC2'): Promise<string[]> {
     return this.request<string[]>(`/replicator/kafka/agents/receivers?clusterId=${encodeURIComponent(clusterId)}`);
   }
+
+  async getKafkaSenderEndpoints(clusterId = 'DC1'): Promise<string[]> {
+    return this.request<string[]>(`/replicator/kafka/agents/senders?clusterId=${encodeURIComponent(clusterId)}`);
+  }
+
+  async getKafkaSenderDetails(clusterId = 'DC1'): Promise<any[]> {
+    return this.request<any[]>(`/replicator/kafka/agents/senders/details?clusterId=${encodeURIComponent(clusterId)}`);
+  }
+
+  async getKafkaQosCalculation(sourceDc: string, targetDc: string): Promise<any> {
+    return this.request<any>(`/replicator/kafka/qos-calculation?sourceDc=${encodeURIComponent(sourceDc)}&targetDc=${encodeURIComponent(targetDc)}`);
+  }
 }
 
 export const api = new ReplicatorApiClient();

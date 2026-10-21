@@ -22,7 +22,9 @@ public class KafkaReplicationClient implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(KafkaReplicationClient.class);
 
     private final String agentSecret;
-    private final KafkaTargetBalancer balancer;
+    private final boolean tlsEnabled;
+    private final String trustCertPath;
+    private volatile KafkaTargetBalancer balancer;
     private final List<ManagedChannel> channels;
     private final List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> asyncStubs;
     private final List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> blockingStubs;
@@ -58,6 +60,8 @@ public class KafkaReplicationClient implements Closeable {
             throw new IllegalArgumentException("targetEndpoints list must not be null or empty");
         }
         this.agentSecret = agentSecret;
+        this.tlsEnabled = tlsEnabled;
+        this.trustCertPath = trustCertPath;
         this.balancer = new KafkaTargetBalancer(targetEndpoints);
         this.channels = new ArrayList<>();
         this.asyncStubs = new ArrayList<>();
@@ -68,40 +72,77 @@ public class KafkaReplicationClient implements Closeable {
                 : null;
 
         for (String ep : targetEndpoints) {
-            String[] parts = ep.trim().split(":");
-            String host = parts[0];
-            int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 50052;
-
-            ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port)
-                    .maxInboundMessageSize(64 * 1024 * 1024);
-
-            if (tlsEnabled) {
-                if (trustCertPath != null && !trustCertPath.isBlank()) {
-                    java.io.File trustFile = new java.io.File(trustCertPath);
-                    if (trustFile.exists() && trustFile.canRead()) {
-                        builder.useTransportSecurity();
-                    } else {
-                        log.warn("Сертификат доверия TLS не найден по пути: {}, используется системный TLS trust", trustCertPath);
-                        builder.useTransportSecurity();
-                    }
-                } else {
-                    builder.useTransportSecurity();
-                }
-            } else {
-                builder.usePlaintext();
-            }
-
-            ManagedChannel ch = builder.build();
-            this.channels.add(ch);
-            io.grpc.Channel targetChannel = (authInterceptor != null)
-                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
-                    : ch;
-
-            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
-            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
+            initEndpoint(ep, authInterceptor);
         }
         log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={}, tls={})",
                 channels.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()), tlsEnabled);
+    }
+
+    private void initEndpoint(String ep, io.grpc.ClientInterceptor authInterceptor) {
+        String[] parts = ep.trim().split(":");
+        String host = parts[0];
+        int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 50052;
+
+        ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port)
+                .maxInboundMessageSize(64 * 1024 * 1024);
+
+        if (tlsEnabled) {
+            if (trustCertPath != null && !trustCertPath.isBlank()) {
+                java.io.File trustFile = new java.io.File(trustCertPath);
+                if (trustFile.exists() && trustFile.canRead()) {
+                    builder.useTransportSecurity();
+                } else {
+                    log.warn("Сертификат доверия TLS не найден по пути: {}, используется системный TLS trust", trustCertPath);
+                    builder.useTransportSecurity();
+                }
+            } else {
+                builder.useTransportSecurity();
+            }
+        } else {
+            builder.usePlaintext();
+        }
+
+        ManagedChannel ch = builder.build();
+        this.channels.add(ch);
+        io.grpc.Channel targetChannel = (authInterceptor != null)
+                ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
+                : ch;
+
+        this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
+        this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
+    }
+
+    /**
+     * Динамическое обновление пула целевых агентов-приемников без перезапуска агента-отправителя.
+     */
+    public synchronized void updateEndpoints(List<String> newEndpoints) {
+        if (newEndpoints == null || newEndpoints.isEmpty()) {
+            return;
+        }
+        List<String> current = balancer.getEndpoints();
+        if (current.equals(newEndpoints)) {
+            return;
+        }
+        log.info("[KafkaReplicationClient] Обновление пула целевых эндпоинтов: {} -> {}", current, newEndpoints);
+
+        for (ManagedChannel ch : channels) {
+            try {
+                ch.shutdown();
+            } catch (Exception ignored) {}
+        }
+        channels.clear();
+        asyncStubs.clear();
+        blockingStubs.clear();
+
+        io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
+                ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
+                : null;
+
+        for (String ep : newEndpoints) {
+            initEndpoint(ep, authInterceptor);
+        }
+
+        this.balancer = new KafkaTargetBalancer(newEndpoints);
     }
 
     /**
@@ -119,6 +160,8 @@ public class KafkaReplicationClient implements Closeable {
             throw new IllegalArgumentException("endpointNames must match channels size");
         }
         this.agentSecret = agentSecret;
+        this.tlsEnabled = false;
+        this.trustCertPath = null;
         this.balancer = new KafkaTargetBalancer(endpointNames);
         this.channels = new ArrayList<>(channels);
         this.asyncStubs = new ArrayList<>();
