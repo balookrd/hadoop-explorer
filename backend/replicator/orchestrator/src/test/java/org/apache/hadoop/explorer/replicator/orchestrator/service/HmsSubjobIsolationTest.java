@@ -194,4 +194,24 @@ public class HmsSubjobIsolationTest {
         assertNotNull(hmsJob.getEstimatedCompletionAt(), "Расчетное время окончания (ETA) должно быть вычислено");
         assertTrue(hmsJob.getEstimatedCompletionAt().isAfter(now), "ETA должно быть в будущем");
     }
+
+    @Test
+    @DisplayName("Дедупликация: findReusableSubjob возвращает существующую подзадачу вместо создания дубликата")
+    void testFindReusableSubjobDeduplication() {
+        String parentHmsJobId = "hms-job-dedup-" + UUID.randomUUID();
+        String src = "hdfs://dc1:8020/warehouse/db/tbl";
+        String dst = "hdfs://dc2:8020/warehouse/db/tbl";
+
+        // Создаем первую подзадачу
+        var req = new CreateJobRequest(
+                src, dst, "dc1", "dc2", 1024L, "admin", true, false, null, 7, "HMS_SUBJOB", parentHmsJobId
+        );
+        JobResponse created = jobService.createJob(req, "system_agent");
+        assertNotNull(created);
+
+        // Повторный запрос должен найти уже существующую подзадачу
+        var found = jobService.findReusableSubjob(parentHmsJobId, src, dst);
+        assertTrue(found.isPresent(), "Должна быть найдена существующая активная подзадача");
+        assertEquals(created.id(), found.get().id(), "ID подзадачи должен совпадать (дедупликация)");
+    }
 }

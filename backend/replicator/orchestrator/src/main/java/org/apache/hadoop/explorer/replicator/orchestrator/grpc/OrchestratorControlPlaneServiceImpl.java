@@ -38,6 +38,7 @@ import org.apache.hadoop.explorer.replicator.generated.control.TokenResponse;
 import org.apache.hadoop.explorer.replicator.generated.control.UpdateJobProgressRequest;
 import org.apache.hadoop.explorer.replicator.generated.control.UpdateJobProgressResponse;
 import org.apache.hadoop.explorer.replicator.model.ClusterDto;
+import org.apache.hadoop.explorer.replicator.model.HmsEventReportDto;
 import org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto;
 import org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest;
 import org.apache.hadoop.explorer.replicator.model.TaskCreateItem;
@@ -505,6 +506,10 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                             .setStatus(job.status() != null ? job.status() : "")
                             .setSyncData(true)
                             .setExecutionPrincipal(job.executionPrincipal() != null ? job.executionPrincipal() : "")
+                            .setLastProcessedEventId(job.lastProcessedEventId() != null ? job.lastProcessedEventId() : 0L)
+                            .setDropExtraneousTables(job.dropExtraneousTables())
+                            .setDropExtraneousPartitions(job.dropExtraneousPartitions())
+                            .setAssignedAgentId(job.assignedAgentId() != null ? job.assignedAgentId() : "")
                             .build());
                 }
             }
@@ -521,17 +526,36 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     public void reportHmsProgress(ReportHmsProgressRequest request, StreamObserver<ReportHmsProgressResponse> responseObserver) {
         try {
             if (hmsCoordinatorService != null) {
+                List<HmsEventReportDto> domainEvents = null;
+                if (request.getEventsCount() > 0) {
+                    domainEvents = new ArrayList<>(request.getEventsCount());
+                    for (var ev : request.getEventsList()) {
+                        domainEvents.add(new HmsEventReportDto(
+                                ev.getEventId(),
+                                ev.getEventType(),
+                                ev.getTableName(),
+                                ev.getPartitionName().isEmpty() ? null : ev.getPartitionName(),
+                                ev.getSourceUri().isEmpty() ? null : ev.getSourceUri(),
+                                ev.getTargetUri().isEmpty() ? null : ev.getTargetUri(),
+                                ev.getSubjobId().isEmpty() ? null : ev.getSubjobId(),
+                                ev.getStatus(),
+                                ev.getErrorMessage().isEmpty() ? null : ev.getErrorMessage()
+                        ));
+                    }
+                }
+
                 HmsProgressReportRequest domainReq = new HmsProgressReportRequest(
                         request.getStatus(),
-                        0,
+                        request.getTotalTables(),
                         request.getTablesSynced(),
-                        0,
+                        request.getTotalPartitions(),
                         request.getPartitionsSynced(),
                         request.getLastEventId(),
-                        null,
-                        null,
+                        request.getBootstrapEventId() != 0L ? request.getBootstrapEventId() : null,
+                        request.getEventLag(),
                         request.getMessage(),
-                        null
+                        domainEvents,
+                        request.getAgentId().isEmpty() ? null : request.getAgentId()
                 );
                 hmsCoordinatorService.updateJobProgress(request.getJobId(), domainReq);
             }
@@ -562,10 +586,13 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     request.getParentJobId()
             );
 
-            JobResponse created = jobService.createJob(domainReq, "system_agent");
+            // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC
+            JobResponse subjob = jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
+                    .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
+
             CreateHdfsSubjobResponse resp = CreateHdfsSubjobResponse.newBuilder()
-                    .setJobId(created != null ? created.id() : "")
-                    .setSuccess(created != null)
+                    .setJobId(subjob != null ? subjob.id() : "")
+                    .setSuccess(subjob != null)
                     .build();
 
             responseObserver.onNext(resp);

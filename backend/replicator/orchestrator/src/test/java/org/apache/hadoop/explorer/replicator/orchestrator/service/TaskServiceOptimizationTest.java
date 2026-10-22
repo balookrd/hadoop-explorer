@@ -241,4 +241,37 @@ class TaskServiceOptimizationTest {
         // Проверяем, что выполнен ровно 1 агрегированный инкремент (300 байт, 2 файла) вместо 2 отдельных транзакций
         verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(300L), eq(2), any(java.time.Instant.class));
     }
+
+    @Test
+    @DisplayName("PERF-07: In-Memory Fast-Path для claimTasks предотвращает паразитные SQL-запросы при пустой очереди")
+    void testClaimTasksInMemoryFastPath() {
+        taskService.clearEmptyQueueCooldowns();
+        String agentId = "worker-fastpath-1";
+        String clusterId = "dc1";
+
+        when(agentRegistry.getAgent(agentId)).thenReturn(Optional.of(
+                new AgentRegistry.AgentEntry(agentId, clusterId, "localhost", 50051, "localhost:50051", "all", null)
+        ));
+
+        // 1. Первый вызов на пустой очереди: обращается к БД
+        when(taskRepository.findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        var res1 = taskService.claimTasks(new ClaimTasksRequest(agentId, clusterId, 5));
+        assertTrue(res1.isEmpty());
+        verify(taskRepository, times(1)).findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class));
+
+        // 2. Второй вызов: Fast-Path возвращает пустой список из памяти, не дергая репозиторий повторно!
+        var res2 = taskService.claimTasks(new ClaimTasksRequest(agentId, clusterId, 5));
+        assertTrue(res2.isEmpty());
+        verify(taskRepository, times(1)).findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class));
+
+        // 3. Появились новые задачи -> инвалидация кулдауна
+        taskService.notifyNewTasksAvailable(clusterId);
+
+        // 4. Третий вызов: кулдаун сброшен, снова опрашивает репозиторий
+        var res3 = taskService.claimTasks(new ClaimTasksRequest(agentId, clusterId, 5));
+        assertTrue(res3.isEmpty());
+        verify(taskRepository, times(2)).findPendingTasksForClusterSkipLocked(eq("QUEUED"), eq(clusterId), any(Pageable.class));
+    }
 }

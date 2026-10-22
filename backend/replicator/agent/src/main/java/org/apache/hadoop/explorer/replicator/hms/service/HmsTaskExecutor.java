@@ -48,6 +48,7 @@ public class HmsTaskExecutor implements Closeable {
 
     // Расширения надежности и консистентности:
     private final ConcurrentMap<Long, AtomicInteger> eventFailureCounts = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, AtomicBoolean> jobLagSynchronized = new ConcurrentHashMap<>();
     private final int maxEventRetries;
     private final boolean dataBarrierEnabled;
     private final long dataBarrierTimeoutSeconds;
@@ -507,14 +508,36 @@ public class HmsTaskExecutor implements Closeable {
         long lastEventId = job.lastProcessedEventId() != null ? job.lastProcessedEventId() : 0L;
         List<HmsNotificationEventDto> events = hmsClient.getNextNotifications(lastEventId, 50);
         if (events.isEmpty()) {
+            AtomicBoolean synced = jobLagSynchronized.computeIfAbsent(job.id(), k -> new AtomicBoolean(false));
+            if (!synced.get()) {
+                long currentMax = hmsClient.getCurrentNotificationEventId();
+                long lag = Math.max(0, currentMax - lastEventId);
+                if (lag == 0) {
+                    synced.set(true);
+                    int curTables = 0;
+                    try {
+                        curTables = hmsClient.getAllTables(job.sourceDbName()).size();
+                    } catch (Exception ignored) {}
+                    int curParts = totalPartitionsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0)).get();
+                    int cumulativeEvents = syncedCdcEventsPerJob.computeIfAbsent(job.id(), k -> new AtomicInteger(0)).get();
+                    orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+                            "ACTIVE", curTables, curTables, curParts, curParts, lastEventId, null, 0L,
+                            String.format("Синхронизировано %d событий CDC. Текущее отставание: 0 событий.", cumulativeEvents),
+                            Collections.emptyList(), agentId
+                    ));
+                }
+            }
             return 0;
         }
+        jobLagSynchronized.computeIfAbsent(job.id(), k -> new AtomicBoolean(false)).set(false);
 
         List<HmsEventReportDto> eventLog = new ArrayList<>();
         int processed = 0;
 
         long lastCommittedEventId = lastEventId;
         boolean batchHasFailures = false;
+        long failedEventId = -1;
+        String batchFailureReason = null;
 
         try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
             for (HmsNotificationEventDto event : events) {
@@ -679,6 +702,8 @@ public class HmsTaskExecutor implements Closeable {
                         log.error("[HmsTaskExecutor] Сбой применения события CDC id={}, тип={}, таблица={} (попытка {}/{}): {}. Остановка пачки для повтора.",
                                 event.eventId(), eventType, tbl, attempts, maxEventRetries, failureReason);
                         batchHasFailures = true;
+                        failedEventId = event.eventId();
+                        batchFailureReason = failureReason;
                         break;
                     }
                 }
@@ -703,7 +728,10 @@ public class HmsTaskExecutor implements Closeable {
             int cumulativeEvents = (processed > 0) ? counter.addAndGet(processed) : counter.get();
 
             String statusMessage = batchHasFailures
-                    ? String.format("Приостановка CDC на событии %d из-за ошибки. Отставание: %d событий.", lastCommittedEventId, lag)
+                    ? String.format("Сбой на событии %d: %s. Повтор пачки CDC (отставание: %d событий).",
+                            failedEventId > 0 ? failedEventId : lastCommittedEventId + 1,
+                            batchFailureReason != null ? batchFailureReason : "ошибка применения",
+                            lag)
                     : String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.",
                             cumulativeEvents > 0 ? cumulativeEvents : processed, lag);
 

@@ -940,9 +940,23 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (base == null || base.isEmpty()) base = "/";
         if (rel == null || rel.isEmpty()) return base;
 
+        String uriPrefix = "";
+        String basePathStr = base;
+        int schemeIdx = base.indexOf("://");
+        if (schemeIdx != -1) {
+            int firstSlashAfterScheme = base.indexOf('/', schemeIdx + 3);
+            if (firstSlashAfterScheme != -1) {
+                uriPrefix = base.substring(0, firstSlashAfterScheme);
+                basePathStr = base.substring(firstSlashAfterScheme);
+            } else {
+                uriPrefix = base;
+                basePathStr = "/";
+            }
+        }
+
         // Защита от Path Traversal / Zip Slip (CWE-22):
         String cleanRel = rel.replace('\\', '/').replaceAll("^/+", "");
-        java.nio.file.Path basePath = java.nio.file.Paths.get(base).normalize();
+        java.nio.file.Path basePath = java.nio.file.Paths.get(basePathStr).normalize();
         java.nio.file.Path resolvedPath = basePath.resolve(cleanRel).normalize();
 
         if (!resolvedPath.startsWith(basePath)) {
@@ -951,10 +965,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         }
 
         String result = resolvedPath.toString().replace('\\', '/');
-        if (base.startsWith("/") && !result.startsWith("/")) {
+        if (basePathStr.startsWith("/") && !result.startsWith("/")) {
             result = "/" + result;
         }
-        return result;
+        return uriPrefix + result;
     }
 
     private static String bytesToHex(byte[] bytes) {

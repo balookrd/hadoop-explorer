@@ -319,10 +319,26 @@ message HmsPendingJobItemProto {
   string status = 8;
   bool sync_data = 9;
   string execution_principal = 10;
+  int64 last_processed_event_id = 11;
+  bool drop_extraneous_tables = 12;
+  bool drop_extraneous_partitions = 13;
+  string assigned_agent_id = 14;
 }
 
 message GetPendingHmsJobsResponse {
   repeated HmsPendingJobItemProto jobs = 1;
+}
+
+message HmsEventReportProto {
+  int64 event_id = 1;
+  string event_type = 2;
+  string table_name = 3;
+  string partition_name = 4;
+  string source_uri = 5;
+  string target_uri = 6;
+  string subjob_id = 7;
+  string status = 8;
+  string error_message = 9;
 }
 
 message ReportHmsProgressRequest {
@@ -332,6 +348,12 @@ message ReportHmsProgressRequest {
   int32 tables_synced = 4;
   int32 partitions_synced = 5;
   int64 last_event_id = 6;
+  repeated HmsEventReportProto events = 7;
+  int64 bootstrap_event_id = 8;
+  int64 event_lag = 9;
+  int32 total_tables = 10;
+  int32 total_partitions = 11;
+  string agent_id = 12;
 }
 
 message ReportHmsProgressResponse {

@@ -64,6 +64,7 @@ public class ReplicatorAgent {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger activeTransfers = new AtomicInteger(0);
+    private final AtomicInteger recentHmsEventsProcessed = new AtomicInteger(0);
 
     // Кэш gRPC адресов целевых кластеров
     private final Map<String, String> clusterAddressCache = new ConcurrentHashMap<>();
@@ -361,9 +362,14 @@ public class ReplicatorAgent {
     }
 
     private void runHmsLoop() {
-        logger.info("Выделенный цикл репликации Hive Metastore (Bootstrap & CDC) запущен: cluster='{}'", config.getClusterId());
+        double baseIntervalSec = Math.max(2.0, config.getPollIntervalSec());
+        double maxIdleIntervalSec = Math.max(baseIntervalSec, 15.0);
+        double currentIntervalSec = baseIntervalSec;
+
+        logger.info("Выделенный цикл репликации Hive Metastore (Bootstrap & CDC) запущен: cluster='{}' (базовый интервал: {}с, макс. idle: {}с)",
+                config.getClusterId(), baseIntervalSec, maxIdleIntervalSec);
+
         while (running.get()) {
-            boolean didWork = false;
             try {
                 if (hmsTaskExecutor != null) {
                     List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto> hmsJobs =
@@ -372,13 +378,18 @@ public class ReplicatorAgent {
                         if (!running.get()) break;
                         String jobId = hJob.id();
                         if (activeRunningHmsJobs.add(jobId)) {
-                            didWork = true;
                             hmsTaskPool.submit(() -> {
                                 try {
                                     if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
-                                        hmsTaskExecutor.runBootstrap(hJob);
+                                        boolean ok = hmsTaskExecutor.runBootstrap(hJob);
+                                        if (ok) {
+                                            recentHmsEventsProcessed.incrementAndGet();
+                                        }
                                     } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
-                                        hmsTaskExecutor.pollAndSyncCdc(hJob);
+                                        int processed = hmsTaskExecutor.pollAndSyncCdc(hJob);
+                                        if (processed > 0) {
+                                            recentHmsEventsProcessed.addAndGet(processed);
+                                        }
                                     }
                                 } catch (Throwable t) {
                                     logger.error("[HMS Worker] Ошибка обработки задачи {}: {}", jobId, t.getMessage(), t);
@@ -393,16 +404,23 @@ public class ReplicatorAgent {
                 logger.error("Ошибка в цикле HMS репликации: {}", t.getMessage(), t);
             }
 
-            if (!didWork) {
+            int events = recentHmsEventsProcessed.getAndSet(0);
+            if (events > 0) {
+                // Если были реальные события CDC или завершился Bootstrap, сбрасываем интервал к базовому
+                currentIntervalSec = baseIntervalSec;
                 try {
-                    Thread.sleep(1500L);
+                    Thread.sleep(500L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             } else {
                 try {
-                    Thread.sleep(200L);
+                    // Адаптивный Idle Backoff с Jitter ±20% для предотвращения Thundering Herd
+                    double jitter = 0.8 + (ThreadLocalRandom.current().nextDouble() * 0.4);
+                    long sleepMs = (long) (currentIntervalSec * jitter * 1000);
+                    Thread.sleep(Math.max(1000, sleepMs));
+                    currentIntervalSec = Math.min(maxIdleIntervalSec, currentIntervalSec * 1.5);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -412,8 +430,12 @@ public class ReplicatorAgent {
     }
 
     private void runSenderLoop() {
-        logger.info("Цикл Sender/Worker запущен: mode='{}' (опрос очереди каждые {}с)",
-                config.getMode(), config.getPollIntervalSec());
+        double baseIntervalSec = Math.max(1.0, config.getPollIntervalSec());
+        double maxIdleIntervalSec = Math.max(baseIntervalSec, 15.0);
+        double currentIntervalSec = baseIntervalSec;
+
+        logger.info("Цикл Sender/Worker запущен: mode='{}' (базовый интервал: {}с, макс. idle бэкофф: {}с с Jitter)",
+                config.getMode(), baseIntervalSec, maxIdleIntervalSec);
 
         boolean canAnalyze = "all".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode());
         boolean canWork = "all".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()) || "worker".equalsIgnoreCase(config.getMode());
@@ -488,9 +510,17 @@ public class ReplicatorAgent {
                 logger.error("Ошибка в цикле Sender/Worker: {}", t.getMessage(), t);
             }
 
-            if (!didWork) {
+            if (didWork) {
+                // При наличии активных задач сбрасываем интервал к базовому
+                currentIntervalSec = baseIntervalSec;
+            } else {
                 try {
-                    Thread.sleep((long) (config.getPollIntervalSec() * 1000));
+                    // Адаптивный Idle Backoff с Jitter ±20% для предотвращения Thundering Herd при сотнях агентов
+                    double jitter = 0.8 + (ThreadLocalRandom.current().nextDouble() * 0.4);
+                    long sleepMs = (long) (currentIntervalSec * jitter * 1000);
+                    Thread.sleep(Math.max(500, sleepMs));
+                    // Экспоненциальный рост до maxIdleIntervalSec (15 сек)
+                    currentIntervalSec = Math.min(maxIdleIntervalSec, currentIntervalSec * 1.5);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;

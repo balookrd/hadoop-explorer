@@ -527,19 +527,17 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         sd.setCols(cols);
         t.setSd(sd);
 
+        List<FieldSchema> pks = new ArrayList<>();
         if (dto.partitionKeyFields() != null && !dto.partitionKeyFields().isEmpty()) {
-            List<FieldSchema> pks = new ArrayList<>(dto.partitionKeyFields().size());
             for (HmsFieldSchemaDto pk : dto.partitionKeyFields()) {
                 pks.add(new FieldSchema(pk.name(), pk.type(), pk.comment()));
             }
-            t.setPartitionKeys(pks);
         } else if (dto.partitionKeys() != null && !dto.partitionKeys().isEmpty()) {
-            List<FieldSchema> pks = new ArrayList<>(dto.partitionKeys().size());
             for (String pk : dto.partitionKeys()) {
                 pks.add(new FieldSchema(pk, "string", "partition key"));
             }
-            t.setPartitionKeys(pks);
         }
+        t.setPartitionKeys(pks);
 
         return t;
     }

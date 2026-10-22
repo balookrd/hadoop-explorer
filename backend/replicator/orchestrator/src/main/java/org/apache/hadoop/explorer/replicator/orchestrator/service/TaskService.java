@@ -41,6 +41,8 @@ public class TaskService {
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository;
     private final JobProgressBuffer progressBuffer = new JobProgressBuffer();
+    private final java.util.concurrent.atomic.AtomicInteger reconciliationTick = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.ConcurrentMap<String, Long> emptyQueueCooldownUntil = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Autowired
     public TaskService(TaskRepository taskRepository,
@@ -179,11 +181,13 @@ public class TaskService {
             job.setTotalBytes(totalBytes);
             job.setCopiedBytes(skippedBytes);
 
-            if (skippedObjectsCount == totalObjectsCount && totalObjectsCount > 0) {
-                // Все файлы уже актуальны
+            if (totalObjectsCount == 0 || skippedObjectsCount == totalObjectsCount) {
+                // Все файлы уже актуальны или каталог пуст
                 job.setStatus("COMPLETED");
                 job.setCompletedAt(Instant.now());
-                job.setMessage(String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", totalObjectsCount));
+                job.setMessage(totalObjectsCount == 0
+                        ? "Синхронизация завершена: каталог пуст (0 объектов)"
+                        : String.format("Синхронизация завершена: все %d объектов актуальны (инкрементальный пропуск)", totalObjectsCount));
             } else {
                 job.setStatus("RUNNING");
                 if (job.getStartedAt() == null) {
@@ -196,6 +200,7 @@ public class TaskService {
 
         updateActiveRun(job);
         jobRepository.save(job);
+        notifyNewTasksAvailable(job.getSourceClusterId());
 
         log.info("Для job '{}' сформирован пул из {} задач (всего объектов: {}, к передаче: {}, пропущено: {})",
                 jobId, items.size(), totalObjectsCount, totalObjectsCount - skippedObjectsCount, skippedObjectsCount);
@@ -291,6 +296,15 @@ public class TaskService {
             );
         }
 
+        // In-Memory Fast-Path (PERF-07): если очередь кластера пуста и активен кулдаун,
+        // мгновенно возвращаем emptyList() без блокировок, SQL-запросов и нагрузки на пул соединений
+        String clusterKey = (clusterId != null && !clusterId.isBlank()) ? clusterId.trim().toLowerCase() : "*";
+        long now = System.currentTimeMillis();
+        Long cooldownUntil = emptyQueueCooldownUntil.get(clusterKey);
+        if (cooldownUntil != null && now < cooldownUntil) {
+            return Collections.emptyList();
+        }
+
         // Запрашиваем ограниченную пачку кандидатов QUEUED с пагинацией и блокировкой SKIP LOCKED для предотвращения состояния гонки (Race Condition)
         int batchSize = Math.max(limit * 3, 20);
         List<TaskEntity> queuedTasks;
@@ -300,8 +314,13 @@ public class TaskService {
             queuedTasks = taskRepository.findByStatusForUpdateSkipLocked("QUEUED", PageRequest.of(0, batchSize));
         }
         if (queuedTasks.isEmpty()) {
+            emptyQueueCooldownUntil.put(clusterKey, now + 1500L);
             return Collections.emptyList();
         }
+
+        // Если задачи найдены — инвалидируем кулдаун для немедленной раздачи остальным агентам
+        emptyQueueCooldownUntil.remove(clusterKey);
+        emptyQueueCooldownUntil.remove("*");
 
         Map<String, JobEntity> cachedJobs = new HashMap<>();
         List<TaskItemDto> claimed = new ArrayList<>(limit);
@@ -587,6 +606,7 @@ public class TaskService {
                         task.getRetryCount(), maxRetries, activeRemaining));
                 updateActiveRun(job);
                 jobRepository.save(job);
+                notifyNewTasksAvailable(job.getSourceClusterId());
             });
 
             return true;
@@ -626,6 +646,23 @@ public class TaskService {
     }
 
     /**
+     * Оповещение об изменении пула задач для мгновенной инвалидации Fast-Path кулдауна.
+     */
+    public void notifyNewTasksAvailable(String clusterId) {
+        if (clusterId != null && !clusterId.isBlank()) {
+            emptyQueueCooldownUntil.remove(clusterId.trim().toLowerCase());
+        }
+        emptyQueueCooldownUntil.remove("*");
+    }
+
+    /**
+     * Очистка Fast-Path кэша очередей (для тестирования и сброса).
+     */
+    public void clearEmptyQueueCooldowns() {
+        emptyQueueCooldownUntil.clear();
+    }
+
+    /**
      * Эвакуация задач при явном отключении/дерегистрации агента.
      */
     @Transactional
@@ -648,7 +685,7 @@ public class TaskService {
      * Оптимизирован под 200+ агентов: сканирует только задачи с истекшим таймаутом обновления
      * или потерявшие назначение агента (0.1 мс при нормальной работе).
      */
-    @Scheduled(fixedDelay = 3000)
+    @Scheduled(fixedDelayString = "${hadoop.replicator.orphan-task-check-ms:10000}")
     public void checkAndFailoverOrphanedTasks() {
         if (lockService != null) {
             lockService.runWithLock("orphan_task_failover_lock", java.time.Duration.ofSeconds(5), this::executeCheckAndFailoverOrphanedTasks);
@@ -808,21 +845,42 @@ public class TaskService {
     @Transactional
     public void flushPendingProgress() {
         Map<String, long[]> drained = progressBuffer.drain();
-        if (drained.isEmpty()) {
-            return;
-        }
         Instant now = Instant.now();
-        for (Map.Entry<String, long[]> entry : drained.entrySet()) {
-            String jobId = entry.getKey();
-            long[] delta = entry.getValue();
-            long bytes = delta[0];
-            int files = (int) delta[1];
-            if (bytes > 0 || files > 0) {
-                try {
-                    jobRepository.incrementProgress(jobId, bytes, files, now);
-                } catch (Exception e) {
-                    log.error("Ошибка сброса буферизованного прогресса для задания '{}': {}", jobId, e.getMessage(), e);
+        if (!drained.isEmpty()) {
+            for (Map.Entry<String, long[]> entry : drained.entrySet()) {
+                String jobId = entry.getKey();
+                long[] delta = entry.getValue();
+                long bytes = delta[0];
+                int files = (int) delta[1];
+                if (bytes > 0 || files > 0) {
+                    try {
+                        jobRepository.incrementProgress(jobId, bytes, files, now);
+                    } catch (Exception e) {
+                        log.error("Ошибка сброса буферизованного прогресса для задания '{}': {}", jobId, e.getMessage(), e);
+                    }
                 }
+                if (!taskRepository.existsByJobIdAndStatusIn(jobId, List.of("QUEUED", "RUNNING"))) {
+                    finalizeJobCompletion(jobId, now);
+                }
+            }
+        }
+
+        // Авто-реконсиляция (Self-Healing Reconciliation): финализация заданий, чьи подзадачи уже завершены пулом воркеров.
+        // На холостом ходу не дергаем БД каждую секунду — выполняем опрос раз в 5 секунд или при наличии активного сброса.
+        if (!drained.isEmpty() || reconciliationTick.incrementAndGet() % 5 == 0) {
+            try {
+                List<JobEntity> runningJobs = jobRepository.findByStatus("RUNNING");
+                for (JobEntity j : runningJobs) {
+                    if (!"STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode())) {
+                        if (j.getTotalObjects() >= 0 && (j.getTransferredObjects() + j.getSkippedObjects() + j.getFailedObjects() >= j.getTotalObjects())) {
+                            if (!taskRepository.existsByJobIdAndStatusIn(j.getId(), List.of("QUEUED", "RUNNING"))) {
+                                finalizeJobCompletion(j.getId(), now);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Ошибка периодической сверки завершения заданий: {}", e.getMessage(), e);
             }
         }
     }

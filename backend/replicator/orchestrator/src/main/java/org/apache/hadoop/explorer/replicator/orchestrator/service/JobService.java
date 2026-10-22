@@ -168,6 +168,38 @@ public class JobService {
         return JobResponse.fromEntity(entity, jobRunRepository.countByJobId(id));
     }
 
+    /**
+     * Поиск активной или недавно завершенной HDFS-подзадачи для предотвращения дублирования при ретраях CDC событий.
+     */
+    public Optional<JobResponse> findReusableSubjob(String parentJobId, String sourcePath, String targetPath) {
+        if (parentJobId == null || parentJobId.isBlank()) {
+            return Optional.empty();
+        }
+        List<JobEntity> list = jobRepository.findByParentJobIdAndSourcePathAndTargetPath(parentJobId, sourcePath, targetPath);
+        if (list == null || list.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // 1. Приоритет: активная подзадача (QUEUED, ANALYZING, RUNNING)
+        for (JobEntity j : list) {
+            String s = j.getStatus();
+            if ("RUNNING".equalsIgnoreCase(s) || "QUEUED".equalsIgnoreCase(s) || "ANALYZING".equalsIgnoreCase(s)) {
+                return Optional.of(JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())));
+            }
+        }
+
+        // 2. Недавно завершенная подзадача (за последние 10 минут)
+        Instant cutoff = Instant.now().minusSeconds(600);
+        for (JobEntity j : list) {
+            if ("COMPLETED".equalsIgnoreCase(j.getStatus())
+                    && (j.getCompletedAt() == null || j.getCompletedAt().isAfter(cutoff))) {
+                return Optional.of(JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())));
+            }
+        }
+
+        return Optional.empty();
+    }
+
     public List<JobResponse> listJobs(String status, String username, boolean isAdmin, boolean isReader) {
         return listJobs(status, username, isAdmin, isReader, false);
     }

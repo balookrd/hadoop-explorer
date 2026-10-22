@@ -15,15 +15,15 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Управление жизненным циклом (SmartLifecycle) gRPC сервера Control Plane в Оркестраторе.
  *
- * <p>Поддерживает виртуальные потоки Java 21, L7-аутентификацию по X-Agent-Secret
- * и конфигурируемый TLS.
+ * <p>Поддерживает выделенный пул платформенных потоков (предотвращающий Carrier Thread Pinning
+ * при транзакциях JPA / H2), L7-аутентификацию по X-Agent-Secret и конфигурируемый TLS.
  */
 @Component
 public class OrchestratorGrpcServer implements SmartLifecycle {
@@ -34,6 +34,7 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
     private final OrchestratorControlPlaneServiceImpl service;
 
     private Server grpcServer;
+    private ExecutorService grpcExecutor;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public OrchestratorGrpcServer(ReplicatorProperties properties, OrchestratorControlPlaneServiceImpl service) {
@@ -52,9 +53,27 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
         int port = grpcConfig.getPort();
         log.info("Инициализация Orchestrator gRPC Control Plane на порту {}...", port);
 
+        int poolSize = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
+        this.grpcExecutor = new ThreadPoolExecutor(
+                poolSize,
+                Math.max(64, poolSize * 2),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(1000),
+                new ThreadFactory() {
+                    private final AtomicInteger counter = new AtomicInteger(1);
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "grpc-orchestrator-" + counter.getAndIncrement());
+                        t.setDaemon(true);
+                        return t;
+                    }
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+
         try {
             NettyServerBuilder builder = NettyServerBuilder.forPort(port)
-                    .executor(Executors.newVirtualThreadPerTaskExecutor())
+                    .executor(grpcExecutor)
                     .addService(service)
                     .maxInboundMessageSize(grpcConfig.getMaxInboundMessageSize())
                     .keepAliveTime(30, TimeUnit.SECONDS)
@@ -124,6 +143,9 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
                 grpcServer.shutdownNow();
                 Thread.currentThread().interrupt();
             } finally {
+                if (grpcExecutor != null) {
+                    grpcExecutor.shutdown();
+                }
                 isRunning.set(false);
                 log.info("Orchestrator gRPC Control Plane остановлен");
             }

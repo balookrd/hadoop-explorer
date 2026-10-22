@@ -244,7 +244,7 @@ export interface HmsEventLog {
   source_uri?: string;
   target_uri?: string;
   subjob_id?: string;
-  status: 'PENDING_DATA' | 'DATA_COPIED' | 'APPLIED' | 'SKIPPED_ACID' | 'FAILED';
+  status: 'PENDING_DATA' | 'DATA_COPIED' | 'APPLIED' | 'SKIPPED_ACID' | 'FAILED' | 'DLQ_ISOLATED' | (string & {});
   error_message?: string;
   created_at: string;
 }

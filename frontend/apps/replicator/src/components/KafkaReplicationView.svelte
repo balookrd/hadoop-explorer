@@ -25,6 +25,9 @@
   interface TopicSetting {
     topic: string;
     payloadMode: 'PASSTHROUGH' | 'AUTO_DETECT' | 'SCHEMA_REGISTRY';
+    lag?: number;
+    lagMs?: number;
+    messagesReplicated?: number;
   }
 
   interface KafkaJob {
@@ -245,6 +248,58 @@
   );
 
   // Статистика
+  function normalizeKafkaJob(raw: any): KafkaJob {
+    if (!raw) return {} as KafkaJob;
+    return {
+      id: raw.id || '',
+      name: raw.name || '',
+      sourceDc: raw.source_dc || raw.sourceDc || '',
+      targetDc: raw.target_dc || raw.targetDc || '',
+      direction: raw.direction || 'UNIDIRECTIONAL',
+      topics: Array.isArray(raw.topics)
+        ? raw.topics.map((t: any) => ({
+            topic: typeof t === 'string' ? t : (t.topic || ''),
+            payloadMode: (t.payload_mode || t.payloadMode || 'AUTO_DETECT') as any,
+            lag: Number(t.lag ?? (typeof t.current_lag === 'number' ? t.current_lag : 0)),
+            lagMs: Number(t.lag_ms ?? t.lagMs ?? 0),
+            messagesReplicated: Number(t.messages_replicated ?? t.messagesReplicated ?? 0)
+          }))
+        : [],
+      consumerGroups: Array.isArray(raw.consumer_groups)
+        ? raw.consumer_groups
+        : Array.isArray(raw.consumerGroups)
+          ? raw.consumerGroups
+          : [],
+      schemaTranscodingEnabled: Boolean(raw.schema_transcoding_enabled ?? raw.schemaTranscodingEnabled),
+      sourceSrType: raw.source_sr_type || raw.sourceSrType,
+      targetSrType: raw.target_sr_type || raw.targetSrType,
+      sourceSrUrl: raw.source_sr_url || raw.sourceSrUrl,
+      targetSrUrl: raw.target_sr_url || raw.targetSrUrl,
+      sourceSrKerberosEnabled: Boolean(raw.source_sr_kerberos_enabled ?? raw.sourceSrKerberosEnabled),
+      targetSrKerberosEnabled: Boolean(raw.target_sr_kerberos_enabled ?? raw.targetSrKerberosEnabled),
+      bandwidthLimitMb: Number(raw.bandwidth_limit_mb ?? raw.bandwidthLimitMb ?? 40),
+      offsetSyncIntervalSec: Number(raw.offset_sync_interval_sec ?? raw.offsetSyncIntervalSec ?? 5),
+      consumerThreads: Number(raw.consumer_threads ?? raw.consumerThreads ?? 4),
+      batchSize: Number(raw.batch_size ?? raw.batchSize ?? 2000),
+      targetEndpoints: Array.isArray(raw.target_endpoints)
+        ? raw.target_endpoints
+        : Array.isArray(raw.targetEndpoints)
+          ? raw.targetEndpoints
+          : [],
+      sourceKerberosEnabled: Boolean(raw.source_kerberos_enabled ?? raw.sourceKerberosEnabled),
+      sourcePrincipal: raw.source_principal || raw.sourcePrincipal,
+      sourceKeytabPath: raw.source_keytab_path || raw.sourceKeytabPath,
+      targetKerberosEnabled: Boolean(raw.target_kerberos_enabled ?? raw.targetKerberosEnabled),
+      targetPrincipal: raw.target_principal || raw.targetPrincipal,
+      targetKeytabPath: raw.target_keytab_path || raw.targetKeytabPath,
+      status: raw.status || 'ACTIVE',
+      messagesReplicated: Number(raw.messages_replicated ?? raw.messagesReplicated ?? 0),
+      bytesReplicated: Number(raw.bytes_replicated ?? raw.bytesReplicated ?? 0),
+      currentLagMs: Number(raw.current_lag_ms ?? raw.currentLagMs ?? 0),
+      lastErrorMessage: raw.last_error_message || raw.lastErrorMessage
+    };
+  }
+
   let totalMessages = $derived(jobs.reduce((acc, j) => acc + (j.messagesReplicated || 0), 0));
   let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
 
@@ -310,7 +365,7 @@
       // Фоновое обновление телеметрии задач без мерцания индикатора
       api.getKafkaJobs().then(data => {
         if (Array.isArray(data)) {
-          jobs = data;
+          jobs = data.map(normalizeKafkaJob);
         }
       }).catch(() => {});
     }, 4000);
@@ -377,7 +432,7 @@
     jobsLoading = true;
     try {
       const data = await api.getKafkaJobs();
-      jobs = Array.isArray(data) ? data : [];
+      jobs = Array.isArray(data) ? data.map(normalizeKafkaJob) : [];
     } catch (e: any) {
       console.warn('Не удалось загрузить задачи Kafka из API:', e);
       jobs = [];
@@ -608,7 +663,7 @@
     try {
       const created = await api.createKafkaJob(payload);
       if (created) {
-        jobs = [created, ...jobs.filter(j => j.id !== created.id)];
+        jobs = [normalizeKafkaJob(created), ...jobs.filter(j => j.id !== created.id)];
       } else {
         await loadJobs();
       }
@@ -846,24 +901,39 @@
             </div>
           </div>
 
+          {#if job.lastErrorMessage}
+            <div class="px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+              <AlertCircle class="w-4 h-4 text-amber-500 shrink-0" />
+              <span class="font-mono truncate">{job.lastErrorMessage}</span>
+            </div>
+          {/if}
+
           <!-- Детали: топики и группы (строгий нейтральный стиль) -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
             <!-- Топики -->
-            <div class="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-2">
+            <div class="bg-slate-50 dark:bg-slate-950/60 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-2.5">
               <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
                 <span class="flex items-center gap-1.5">
                   <Radio class="w-3.5 h-3.5 text-sky-500" />
-                  <span>Реплицируемые топики ({job.topics.length}):</span>
+                  <span>Реплицируемые топики ({job.topics?.length ?? 0}):</span>
                 </span>
+                <span class="text-[11px] text-slate-400 font-normal">Сквозной лаг по топикам</span>
               </div>
-              <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                {#each job.topics as t}
-                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-800 dark:text-slate-200 shadow-2xs">
-                    <span>{t.topic}</span>
-                    <span class="text-[9px] font-bold px-1 rounded {t.payloadMode === 'PASSTHROUGH' ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400' : 'bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-400'}">
+              <div class="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
+                {#each (job.topics || []) as t}
+                  <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-xs text-slate-800 dark:text-slate-200 shadow-2xs hover:border-slate-300 dark:hover:border-slate-700 transition">
+                    <span class="font-semibold text-slate-900 dark:text-slate-100">{t.topic}</span>
+                    <span class="text-[9px] font-bold px-1.5 py-0.5 rounded {t.payloadMode === 'PASSTHROUGH' ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400' : 'bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-400'}">
                       {t.payloadMode}
                     </span>
-                  </span>
+                    <span
+                      class="text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 {(t.lag ?? 0) === 0 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800'}"
+                      title="Лаг: {t.lag ?? 0} сообщений{(t.lagMs ?? 0) > 0 ? ` (${t.lagMs} мс)` : ''}"
+                    >
+                      <span class="w-1.5 h-1.5 rounded-full {(t.lag ?? 0) === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}"></span>
+                      <span>lag: {(t.lag ?? 0).toLocaleString()}</span>
+                    </span>
+                  </div>
                 {/each}
               </div>
             </div>
@@ -873,16 +943,19 @@
               <div class="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
                 <span class="flex items-center gap-1.5">
                   <Clock class="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Синхронизируемые Consumer Groups ({job.consumerGroups.length}):</span>
+                  <span>Синхронизируемые Consumer Groups ({job.consumerGroups?.length ?? 0}):</span>
                 </span>
               </div>
               <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                {#each job.consumerGroups as group}
+                {#each (job.consumerGroups || []) as group}
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-800 dark:text-slate-200 shadow-2xs">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                     <span>{group}</span>
                   </span>
                 {/each}
+                {#if (job.consumerGroups?.length ?? 0) === 0}
+                  <span class="text-xs text-slate-400 dark:text-slate-500 italic">Все консьюмер-группы кластера</span>
+                {/if}
               </div>
             </div>
           </div>

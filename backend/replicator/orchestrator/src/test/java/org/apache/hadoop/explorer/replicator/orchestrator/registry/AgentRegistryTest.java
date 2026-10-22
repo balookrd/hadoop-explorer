@@ -207,10 +207,13 @@ class AgentRegistryTest {
         assertTrue(repoRegistry.register(reg, "secret-123"));
         verify(mockRepo, times(1)).save(any(AgentEntity.class));
 
-        // Heartbeat -> save
+        // Heartbeat -> пометка dirty (Write-Behind) и отложенный пакетный сброс в БД
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-db-1", "dc1", "node1:50051", 3);
         assertTrue(repoRegistry.heartbeat(hb, "secret-123"));
-        verify(mockRepo, times(2)).save(any(AgentEntity.class));
+        verify(mockRepo, times(1)).save(any(AgentEntity.class)); // save не должен вызываться синхронно на heartbeat
+        int flushed = repoRegistry.flushDirtyAgentsToDatabase();
+        assertEquals(1, flushed, "Должен быть сброшен 1 dirty-агент");
+        verify(mockRepo, times(1)).saveAll(any()); // сброс происходит через пакетный saveAll
 
         // Unregister -> deleteById
         assertTrue(repoRegistry.unregister("agent-db-1", "secret-123"));

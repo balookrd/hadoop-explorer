@@ -572,10 +572,9 @@ public class HmsCoordinatorService {
     }
 
     /**
-    /**
      * Фоновый периодический мониторинг зависших или брошенных HMS задач с защитой от параллельного запуска.
      */
-    @Scheduled(fixedDelayString = "${hadoop.replicator.hms-failover-check-ms:3000}")
+    @Scheduled(fixedDelayString = "${hadoop.replicator.hms-failover-check-ms:10000}")
     public void scheduledCheckAndFailoverOrphanedHmsJobs() {
         if (lockService != null) {
             lockService.runWithLock("hms_failover_check_lock", java.time.Duration.ofSeconds(4), this::checkAndFailoverOrphanedHmsJobs);

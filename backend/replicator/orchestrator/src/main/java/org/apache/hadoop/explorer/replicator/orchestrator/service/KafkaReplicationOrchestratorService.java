@@ -384,7 +384,18 @@ public class KafkaReplicationOrchestratorService {
 
         try {
             if (entity.getTopicsJson() != null) {
-                dto.setTopics(mapper.readValue(entity.getTopicsJson(), new TypeReference<>() {}));
+                List<CreateKafkaJobRequest.TopicSetting> topics = mapper.readValue(entity.getTopicsJson(), new TypeReference<>() {});
+                if (topics != null) {
+                    for (CreateKafkaJobRequest.TopicSetting t : topics) {
+                        if (t.getLag() == null) {
+                            t.setLag(0L);
+                        }
+                        if (t.getLagMs() == null) {
+                            t.setLagMs(entity.getCurrentLagMs() != null ? entity.getCurrentLagMs() : 0L);
+                        }
+                    }
+                }
+                dto.setTopics(topics);
             }
             if (entity.getConsumerGroupsJson() != null) {
                 dto.setConsumerGroups(mapper.readValue(entity.getConsumerGroupsJson(), new TypeReference<>() {}));

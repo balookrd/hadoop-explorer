@@ -552,13 +552,13 @@ public class OrchestratorGrpcClient implements Closeable {
                         j.getSourceDb(),
                         j.getTargetDb(),
                         j.getTablePattern(),
-                        false,
-                        false,
+                        j.getDropExtraneousTables(),
+                        j.getDropExtraneousPartitions(),
                         j.getTargetAgentGrpcAddress(),
                         j.getStatus(),
-                        0L,
-                        j.getJobId(),
-                        j.getExecutionPrincipal()
+                        j.getLastProcessedEventId(),
+                        j.getAssignedAgentId().isEmpty() ? null : j.getAssignedAgentId(),
+                        j.getExecutionPrincipal().isEmpty() ? null : j.getExecutionPrincipal()
                 ));
             }
             return list;
@@ -577,16 +577,36 @@ public class OrchestratorGrpcClient implements Closeable {
      */
     public boolean reportHmsProgress(String jobId, HmsProgressReportRequest report) {
         try {
-            var protoReq = ReportHmsProgressRequest.newBuilder()
+            var protoReqBuilder = ReportHmsProgressRequest.newBuilder()
                     .setJobId(jobId != null ? jobId : "")
                     .setStatus(report.status() != null ? report.status() : "")
                     .setMessage(report.message() != null ? report.message() : "")
                     .setTablesSynced(report.replicatedTables())
                     .setPartitionsSynced(report.replicatedPartitions())
                     .setLastEventId(report.lastProcessedEventId() != null ? report.lastProcessedEventId() : 0L)
-                    .build();
+                    .setBootstrapEventId(report.bootstrapEventId() != null ? report.bootstrapEventId() : 0L)
+                    .setEventLag(report.eventLag() != null ? report.eventLag() : 0L)
+                    .setTotalTables(report.totalTables())
+                    .setTotalPartitions(report.totalPartitions())
+                    .setAgentId(report.agentId() != null ? report.agentId() : "");
 
-            var resp = stub().reportHmsProgress(protoReq);
+            if (report.events() != null && !report.events().isEmpty()) {
+                for (var ev : report.events()) {
+                    protoReqBuilder.addEvents(HmsEventReportProto.newBuilder()
+                            .setEventId(ev.eventId())
+                            .setEventType(ev.eventType() != null ? ev.eventType() : "")
+                            .setTableName(ev.tableName() != null ? ev.tableName() : "")
+                            .setPartitionName(ev.partitionName() != null ? ev.partitionName() : "")
+                            .setSourceUri(ev.sourceUri() != null ? ev.sourceUri() : "")
+                            .setTargetUri(ev.targetUri() != null ? ev.targetUri() : "")
+                            .setSubjobId(ev.subjobId() != null ? ev.subjobId() : "")
+                            .setStatus(ev.status() != null ? ev.status() : "")
+                            .setErrorMessage(ev.errorMessage() != null ? ev.errorMessage() : "")
+                            .build());
+                }
+            }
+
+            var resp = stub().reportHmsProgress(protoReqBuilder.build());
             return resp.getSuccess();
         } catch (Exception e) {
             log.warn("Ошибка gRPC отправки прогресса HMS задачи '{}': {}", jobId, e.getMessage());

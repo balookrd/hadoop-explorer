@@ -16,6 +16,7 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     List<JobEntity> findByJobTypeAndStatus(String jobType, String status);
     List<JobEntity> findByParentJobId(String parentJobId);
     List<JobEntity> findByParentJobIdIn(java.util.Collection<String> parentJobIds);
+    List<JobEntity> findByParentJobIdAndSourcePathAndTargetPath(String parentJobId, String sourcePath, String targetPath);
     List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(Instant now);
     long countByStatus(String status);
     long countByStatusAndParentJobIdIsNull(String status);

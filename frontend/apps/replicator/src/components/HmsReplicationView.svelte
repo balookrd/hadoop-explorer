@@ -1423,9 +1423,32 @@
                       {ev.source_uri || '—'}
                     </td>
                     <td class="py-2.5 px-3">
-                      <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                        ● {ev.status}
-                      </span>
+                      {#if ev.status === 'APPLIED'}
+                        <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          APPLIED
+                        </span>
+                      {:else if ev.status === 'FAILED'}
+                        <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400 cursor-help" title={ev.error_message || 'Сбой применения события'}>
+                          <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                          FAILED
+                        </span>
+                      {:else if ev.status === 'DLQ_ISOLATED'}
+                        <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 cursor-help" title={ev.error_message || 'Изолировано в Dead-Letter Queue'}>
+                          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                          DLQ_ISOLATED
+                        </span>
+                      {:else if ev.status?.startsWith('SKIPPED')}
+                        <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400" title={ev.error_message || 'Пропущено'}>
+                          <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                          {ev.status}
+                        </span>
+                      {:else}
+                        <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400" title={ev.error_message || ''}>
+                          <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+                          {ev.status}
+                        </span>
+                      {/if}
                     </td>
                     <td class="py-2.5 px-3 text-right text-slate-400 text-[10px]">
                       {formatTime(ev.created_at)}
@@ -1435,7 +1458,7 @@
               </tbody>
             </table>
           {/if}
-        {:else}
+        {:else if detailsTab === 'subtasks'}
           {@const mMetrics = getBootstrapMetrics(modalJob, subtasks)}
           {#if modalJob.status === 'BOOTSTRAPPING' || mMetrics.subtasksCount > 0}
             <div class="p-3 bg-gradient-to-r from-amber-50/80 via-sky-50/60 to-indigo-50/80 dark:from-amber-950/30 dark:via-sky-950/30 dark:to-indigo-950/30 border-b border-slate-200 dark:border-slate-800 space-y-2">

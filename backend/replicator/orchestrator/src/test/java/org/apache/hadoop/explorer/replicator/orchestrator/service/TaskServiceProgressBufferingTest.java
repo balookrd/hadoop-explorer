@@ -242,4 +242,30 @@ class TaskServiceProgressBufferingTest {
         verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(9999L), eq(4), any(Instant.class));
         assertFalse(taskService.getProgressBuffer().hasPendingProgress(jobId));
     }
+
+    @Test
+    @DisplayName("Self-Healing: flushPendingProgress автоматически финализирует задание с завершенными задачами")
+    void testFlushPendingProgressFinalizesCompletedJob() {
+        String jobId = "job-self-heal";
+        taskService.getProgressBuffer().record(jobId, 500L, 2);
+
+        JobEntity job = new JobEntity();
+        job.setId(jobId);
+        job.setStatus("RUNNING");
+        job.setTotalObjects(2);
+        job.setTransferredObjects(2);
+        job.setCopiedBytes(500L);
+        job.setTotalBytes(500L);
+
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(taskRepository.existsByJobIdAndStatusIn(eq(jobId), anyCollection())).thenReturn(false);
+        when(taskRepository.countByJobIdAndStatus(eq(jobId), eq("FAILED"))).thenReturn(0L);
+
+        taskService.flushPendingProgress();
+
+        verify(jobRepository, times(1)).incrementProgress(eq(jobId), eq(500L), eq(2), any(Instant.class));
+        assertEquals("COMPLETED", job.getStatus());
+        assertNotNull(job.getCompletedAt());
+        verify(jobRepository, atLeastOnce()).save(job);
+    }
 }

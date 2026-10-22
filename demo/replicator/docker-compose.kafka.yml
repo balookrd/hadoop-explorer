@@ -204,7 +204,7 @@ services:
       - kafka-cluster-1
       - orchestrator
     ports:
-      - "50052:50052"
+      - "50054:50052"
     environment:
       KRB5_CONFIG: "/shared/conf/krb5.conf"
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"

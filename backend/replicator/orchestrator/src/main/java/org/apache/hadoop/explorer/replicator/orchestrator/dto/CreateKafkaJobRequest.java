@@ -49,12 +49,22 @@ public class CreateKafkaJobRequest {
     public static class TopicSetting {
         private String topic;
         private String payloadMode = "AUTO_DETECT"; // PASSTHROUGH, AUTO_DETECT, SCHEMA_REGISTRY
+        private Long lag = 0L;
+        private Long lagMs = 0L;
+        private Long messagesReplicated = 0L;
+        private Long bytesReplicated = 0L;
 
         public TopicSetting() {}
 
         public TopicSetting(String topic, String payloadMode) {
+            this(topic, payloadMode, 0L, 0L);
+        }
+
+        public TopicSetting(String topic, String payloadMode, Long lag, Long lagMs) {
             this.topic = topic;
             this.payloadMode = payloadMode;
+            this.lag = lag != null ? lag : 0L;
+            this.lagMs = lagMs != null ? lagMs : 0L;
         }
 
         public String getTopic() {
@@ -71,6 +81,38 @@ public class CreateKafkaJobRequest {
 
         public void setPayloadMode(String payloadMode) {
             this.payloadMode = payloadMode;
+        }
+
+        public Long getLag() {
+            return lag != null ? lag : 0L;
+        }
+
+        public void setLag(Long lag) {
+            this.lag = lag;
+        }
+
+        public Long getLagMs() {
+            return lagMs != null ? lagMs : 0L;
+        }
+
+        public void setLagMs(Long lagMs) {
+            this.lagMs = lagMs;
+        }
+
+        public Long getMessagesReplicated() {
+            return messagesReplicated != null ? messagesReplicated : 0L;
+        }
+
+        public void setMessagesReplicated(Long messagesReplicated) {
+            this.messagesReplicated = messagesReplicated;
+        }
+
+        public Long getBytesReplicated() {
+            return bytesReplicated != null ? bytesReplicated : 0L;
+        }
+
+        public void setBytesReplicated(Long bytesReplicated) {
+            this.bytesReplicated = bytesReplicated;
         }
     }
 

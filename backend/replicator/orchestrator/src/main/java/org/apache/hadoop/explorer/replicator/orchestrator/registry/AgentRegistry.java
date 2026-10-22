@@ -120,6 +120,7 @@ public class AgentRegistry {
     private final TopologyRegistry topologyRegistry;
     private final AgentRepository agentRepository;
     private final Map<String, AgentEntry> agents = new ConcurrentHashMap<>();
+    private final java.util.Set<String> dirtyAgentIds = ConcurrentHashMap.newKeySet();
 
     public AgentRegistry(ReplicatorProperties properties, TopologyRegistry topologyRegistry) {
         this(properties, topologyRegistry, null);
@@ -168,6 +169,7 @@ public class AgentRegistry {
     }
 
     public void clear() {
+        dirtyAgentIds.clear();
         agents.clear();
     }
 
@@ -347,6 +349,7 @@ public class AgentRegistry {
         }
 
         AgentEntry entry = agents.get(agentId);
+        boolean isNewAgent = (entry == null);
         String mode = (request.getMode() != null && !request.getMode().isBlank())
                 ? request.getMode()
                 : (agentId.toLowerCase().startsWith("streamer") ? "streamer" : "all");
@@ -367,6 +370,7 @@ public class AgentRegistry {
             agents.put(agentId, entry);
             topologyRegistry.updateClusterGrpcAddress(clusterId, grpcAddress);
             log.info("Agent auto-registered via heartbeat: id={}, cluster={}, grpc={}, mode={}", agentId, clusterId, grpcAddress, mode);
+            persistAgent(entry);
         } else if (request.getMode() != null && !request.getMode().isBlank()) {
             entry.setMode(request.getMode());
         }
@@ -406,7 +410,14 @@ public class AgentRegistry {
         if (request.getStagingOrphansCleaned() > 0) {
             entry.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
         }
-        persistAgent(entry);
+
+        // Write-Behind Cache: при повторном heartbeat от известного агента помечаем узел dirty
+        // и сбрасываем батчем в фоне, предотвращая лавину синхронных транзакций к БД на 300+ агентах
+        if (isNewAgent) {
+            persistAgent(entry);
+        } else {
+            dirtyAgentIds.add(agentId);
+        }
         return true;
     }
 
@@ -414,6 +425,7 @@ public class AgentRegistry {
         if (properties.isEnforceAgentSecret() || secretHeader != null) {
             verifySecret(secretHeader);
         }
+        dirtyAgentIds.remove(agentId);
         AgentEntry entry = agents.remove(agentId);
         if (entry != null) {
             deleteAgentFromDb(agentId);
@@ -421,6 +433,40 @@ public class AgentRegistry {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Фоновый сброс накопленных состояний агентов в БД (Write-Behind Cache).
+     * Срабатывает раз в 10 секунд, заменяя сотни синхронных UPDATE на одиночный пакетный saveAll.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelayString = "${hadoop.replicator.agent-registry-flush-interval-ms:10000}")
+    public int flushDirtyAgentsToDatabase() {
+        if (agentRepository == null || dirtyAgentIds.isEmpty()) {
+            return 0;
+        }
+        List<AgentEntity> toSave = new ArrayList<>();
+        List<String> ids = new ArrayList<>(dirtyAgentIds);
+        for (String id : ids) {
+            dirtyAgentIds.remove(id);
+            AgentEntry entry = agents.get(id);
+            if (entry != null) {
+                toSave.add(toEntity(entry));
+            }
+        }
+        if (!toSave.isEmpty()) {
+            try {
+                agentRepository.saveAll(toSave);
+                return toSave.size();
+            } catch (Exception e) {
+                log.warn("Ошибка фонового сброса dirty-агентов в БД: {}", e.getMessage());
+            }
+        }
+        return 0;
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void shutdown() {
+        flushDirtyAgentsToDatabase();
     }
 
     public List<AgentEntry> getAgents() {

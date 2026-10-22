@@ -4,6 +4,7 @@ import io.grpc.*;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import org.apache.hadoop.explorer.replicator.generated.control.*;
+import org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto;
 import org.apache.hadoop.explorer.replicator.model.TaskItemDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.JobResponse;
@@ -353,5 +354,109 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals(5000, item.getBatchSize());
         assertEquals(4, item.getConsumerThreads());
         assertEquals(120.0, item.getBandwidthLimitMb());
+    }
+
+    @Test
+    @DisplayName("reportHmsProgress корректно передает DDL события в hmsCoordinatorService")
+    void testReportHmsProgressWithEvents() {
+        ReportHmsProgressRequest req = ReportHmsProgressRequest.newBuilder()
+                .setJobId("hms-job-test-123")
+                .setStatus("ACTIVE")
+                .setMessage("Синхронизировано 2 событий CDC")
+                .setTablesSynced(5)
+                .setPartitionsSynced(10)
+                .setLastEventId(1052L)
+                .setBootstrapEventId(1000L)
+                .setEventLag(0L)
+                .setTotalTables(5)
+                .setTotalPartitions(10)
+                .setAgentId("agent-dc1")
+                .addEvents(HmsEventReportProto.newBuilder()
+                        .setEventId(1051L)
+                        .setEventType("ADD_PARTITION")
+                        .setTableName("sales")
+                        .setPartitionName("dt=2026-10-22")
+                        .setStatus("APPLIED")
+                        .build())
+                .addEvents(HmsEventReportProto.newBuilder()
+                        .setEventId(1052L)
+                        .setEventType("CREATE_TABLE")
+                        .setTableName("orders")
+                        .setStatus("APPLIED")
+                        .build())
+                .build();
+
+        ReportHmsProgressResponse resp = stub.reportHmsProgress(req);
+        assertNotNull(resp);
+        assertTrue(resp.getSuccess());
+
+        verify(hmsCoordinatorService).updateJobProgress(eq("hms-job-test-123"), argThat(report -> {
+            assertNotNull(report);
+            assertEquals("ACTIVE", report.status());
+            assertEquals(5, report.replicatedTables());
+            assertEquals(10, report.replicatedPartitions());
+            assertEquals(1052L, report.lastProcessedEventId());
+            assertEquals(1000L, report.bootstrapEventId());
+            assertEquals(0L, report.eventLag());
+            assertEquals("agent-dc1", report.agentId());
+            assertNotNull(report.events());
+            assertEquals(2, report.events().size());
+            assertEquals(1051L, report.events().get(0).eventId());
+            assertEquals("ADD_PARTITION", report.events().get(0).eventType());
+            assertEquals("sales", report.events().get(0).tableName());
+            assertEquals("dt=2026-10-22", report.events().get(0).partitionName());
+            assertEquals("APPLIED", report.events().get(0).status());
+            assertEquals(1052L, report.events().get(1).eventId());
+            assertEquals("CREATE_TABLE", report.events().get(1).eventType());
+            assertEquals("orders", report.events().get(1).tableName());
+            return true;
+        }));
+    }
+
+    @Test
+    @DisplayName("getPendingHmsJobs: корректная передача lastProcessedEventId, drop-флагов и assignedAgentId")
+    void testGetPendingHmsJobs_ReturnsAllFieldsIncludingLastProcessedEventId() {
+        HmsPendingJobDto jobDto = new HmsPendingJobDto(
+                "hms-job-xyz",
+                "dc1",
+                "dc2",
+                "analytics_dw",
+                "analytics_dw",
+                "sales.*",
+                true,
+                true,
+                "replicator-agent-dc2:50051",
+                "ACTIVE",
+                4242L,
+                "agent-dc1-worker",
+                "hdfs/hadoop@REALM"
+        );
+
+        when(hmsCoordinatorService.getPendingJobsForCluster("dc1", "agent-dc1-worker"))
+                .thenReturn(List.of(jobDto));
+
+        GetPendingHmsJobsRequest req = GetPendingHmsJobsRequest.newBuilder()
+                .setClusterId("dc1")
+                .setAgentId("agent-dc1-worker")
+                .build();
+
+        GetPendingHmsJobsResponse resp = stub.getPendingHmsJobs(req);
+        assertNotNull(resp);
+        assertEquals(1, resp.getJobsCount());
+
+        HmsPendingJobItemProto jobProto = resp.getJobs(0);
+        assertEquals("hms-job-xyz", jobProto.getJobId());
+        assertEquals("dc1", jobProto.getSourceCluster());
+        assertEquals("dc2", jobProto.getTargetCluster());
+        assertEquals("analytics_dw", jobProto.getSourceDb());
+        assertEquals("analytics_dw", jobProto.getTargetDb());
+        assertEquals("sales.*", jobProto.getTablePattern());
+        assertEquals("ACTIVE", jobProto.getStatus());
+        assertEquals("replicator-agent-dc2:50051", jobProto.getTargetAgentGrpcAddress());
+        assertEquals(4242L, jobProto.getLastProcessedEventId());
+        assertTrue(jobProto.getDropExtraneousTables());
+        assertTrue(jobProto.getDropExtraneousPartitions());
+        assertEquals("agent-dc1-worker", jobProto.getAssignedAgentId());
+        assertEquals("hdfs/hadoop@REALM", jobProto.getExecutionPrincipal());
     }
 }

@@ -30,6 +30,7 @@ public class StreamingLeaseCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(StreamingLeaseCoordinator.class);
     private static final Duration DEFAULT_LEASE_DURATION = Duration.ofSeconds(10);
+    private final Map<String, Instant> lastRedundancyWarningLog = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final StreamingLeaseRepository leaseRepository;
     private final JobRepository jobRepository;
@@ -149,8 +150,12 @@ public class StreamingLeaseCoordinator {
 
         boolean redundancyWarning = streamersCount < 2;
         if (redundancyWarning) {
-            log.warn("[Streamer HA Warning] Для кластера '{}' обнаружено всего {} стример(ов). Отсутствует резерв (NO_REDUNDANCY)!",
-                    clusterId, streamersCount);
+            Instant lastLog = lastRedundancyWarningLog.get(clusterId);
+            if (lastLog == null || Duration.between(lastLog, now).toSeconds() >= 60) {
+                lastRedundancyWarningLog.put(clusterId, now);
+                log.warn("[Streamer HA Warning] Для кластера '{}' обнаружено всего {} стример(ов). Отсутствует резерв (NO_REDUNDANCY)!",
+                        clusterId, streamersCount);
+            }
         }
 
         // 4. Поиск максимального lastProcessedTxid для задач стриминга кластера через точечный JPQL запрос
