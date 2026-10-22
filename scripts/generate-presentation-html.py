@@ -605,7 +605,7 @@ HTML_CONTENT = """<!DOCTYPE html>
               <li><code>--mode &lt;all|sender|receiver&gt;</code>: Режим работы (default: <code>all</code>).</li>
               <li><code>--orchestrator &lt;url&gt;</code>: URL оркестратора (<code>http://orch:8005</code>).</li>
               <li><code>--port &lt;50051&gt;</code>: Порт входящего gRPC Netty сервера.</li>
-              <li><code>--bandwidth &lt;MB/s&gt;</code>: Локальный лимит полосы пропускания.</li>
+              <li><code>--bandwidth / --max-bandwidth-mb-s &lt;MB/s&gt;</code>: Лимит процесса агента (транслируется оркестратору в Heartbeat).</li>
               <li><code>--compression &lt;zstd|lz4|none&gt;</code>: Кодек сжатия (default: <code>zstd</code>).</li>
               <li><code>--compression-level &lt;1-22&gt;</code>: Уровень сжатия Zstd (default: <code>3</code>).</li>
             </ul>
@@ -614,7 +614,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
   -jar replicator-agent.jar \
   --agent-id=agent-dc1-01 --cluster-id=dc1 \
   --mode=all --orchestrator=http://orch:8005 \
-  --port=50051 --bandwidth=100 --compression=zstd</div>
+  --port=50051 --max-bandwidth-mb-s=2500 --compression=zstd</div>
           </div>
           <div class="card card-accent-green">
             <div class="card-title">Сравнение моделей размещения агентов</div>
@@ -625,7 +625,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <br/>• Требует: 2–4 vCPU, 4–8 GB JVM Heap на узел DataNode.
               </li>
               <li><strong>Модель 2: Dedicated Edge Gateway:</strong>
-                <br/>• Агенты вынесены на 2–4 отдельных шлюзовых сервера с 25G/40G NIC.
+                <br/>• Агенты вынесены на 2–4 отдельных шлюзовых сервера с 25G / 40G / 100G+ NIC.
                 <br/>• Чтение блоков идет по сети LAN ЦОД через Data Transfer Protocol (:9866).
                 <br/>• Полная изоляция от production-узлов Hadoop.
               </li>
@@ -793,7 +793,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-cyan">
-            <div class="card-title">Иерархия лимитов полосы</div>
+            <div class="card-title">Иерархия лимитов полосы и модель агентов</div>
             <ul class="card-list">
               <li><strong>Уровень 1 (Global Limit):</strong> Суммарная планка всей платформы (например, 200 МБ/с).</li>
               <li><strong>Уровень 2 (DC Channel Limit):</strong> Лимит физического WAN канала между площадками (150 МБ/с).</li>
@@ -802,6 +802,8 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <br/>• <code>BATCH</code> (Ночные синки сырых слоев): Лимит 80 МБ/с.
                 <br/>• <code>BACKGROUND</code> (Архивы, бэкапы): Best Effort (20 МБ/с).
               </li>
+              <li><strong>Унифицированная модель полосы:</strong> Оркестратор согласует <code>min(wanQuota, sum(agentConfiguredBandwidth))</code> без моделирования физики хостов. Лимит задается DevOps в CLI/env.</li>
+              <li><strong>Изоляция ISR-трафика:</strong> Брокерный ISR Kafka циркулирует по локальным линкам (2x25G) и исключен из WAN HTB.</li>
               <li><strong>Динамическое изменение:</strong> Новые лимиты применяются через SSE за 100 мс без рестарта демонов.</li>
             </ul>
           </div>
@@ -809,7 +811,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             <div class="card-title">Механизм троттлинга и Active-Active скейлинг</div>
             <ul class="card-list">
               <li><strong>Active-Active координатор (RES-06):</strong> <code>OrchestratorClusterCoordinator</code> делит квоты между живыми репликами оркестратора по таблице <code>orchestrator_nodes</code>.</li>
-              <li><strong>Адаптивный лизинг токенов (PERF-05):</strong> Динамическая подстройка размера пакета токенов под RTT и полосу WAN снижает задержки Control Plane.</li>
+              <li><strong>Адаптивный лизинг токенов (PERF-05):</strong> Динамическая подстройка размера пакета токенов под RTT и полосу WAN для каналов 10G/40G/100G/200G/400G+.</li>
               <li><strong>Пополнение корзины:</strong> Каждую миллисекунду корзина токенов пополняется на <code>allowedBytesPerSec / 1000</code>.</li>
               <li><strong>Высокоточная пауза:</strong> При нехватке токенов поток усыпляется через <code>LockSupport.parkNanos()</code> без блокировки системных тредов.</li>
               <li><strong>HTTP/2 Flow Control:</strong> Обратное давление (Backpressure) удерживает Netty буферы от переполнения.</li>
@@ -868,8 +870,10 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             <div class="card-title">1. Multi-Agent Partition-Pinned & Consumer Pool</div>
             <ul class="card-list">
               <li><strong>Хэш-партиционирование:</strong> <code>KafkaTargetBalancer</code> распределяет партиции между живыми агентами: <code>hash(topic, partition) % active_agents</code>. Сохранение строгого порядка сообщений.</li>
+              <li><strong>Адаптивный параллелизм (без потолка 40G):</strong> <code>targetTotalThreads = max(64, ceil(bandwidth / 30.0))</code> с защитой &le; 32 потоков на JVM агента. До 417..667+ потоков суммарно на 100G/200G+ скоростях.</li>
+              <li><strong>Микробатчи до 50k:</strong> Размер пакета динамически масштабируется от 10 000 до 50 000 записей (до 16 МБ) для сверхвысоких скоростей.</li>
+              <li><strong>Динамический резолвинг топологии:</strong> Брокеры разрешаются по <code>clusterId</code> через <code>TopologyRegistry</code> без хардкодных дефолтов (устранен defaultValue=DC1).</li>
               <li><strong>Карантин узлов (10 с):</strong> При сетевой изоляции или сбое агент помещается в карантин на 10 секунд с бесшовной перебалансировкой.</li>
-              <li><strong><code>KafkaBatchConsumerPool</code>:</strong> Изолированные консьюмеры с динамической переподпиской без глобального Stop-the-World ребаланса.</li>
               <li><strong>At-Least-Once семантика:</strong> Оффсеты коммитятся в источнике только после получения сквозного gRPC <code>KafkaBatchAck</code> от целевого брокера.</li>
             </ul>
           </div>
@@ -1007,7 +1011,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
                 <li><strong>Топология ЦОД:</strong> Настройка пирамиды лимитов WAN и очередей в рантайме.</li>
                 <li><strong>Дашборд репликации:</strong> Мониторинг скорости в МБ/с, прогресс-бары и ETA.</li>
                 <li><strong>HMS Replication:</strong> Мониторинг отставания событий и статуса Lease HA.</li>
-                <li><strong>Kafka Replication:</strong> Статус потребителей, lag партиций и Zero-Copy Wire Transcoding.</li>
+                <li><strong>Kafka Replication:</strong> Суммарный лимит подключенных агентов и процессов, масштабирование 100G+ без потолка 5000 МБ/с, lag партиций и транскодинг схем.</li>
                 <li><strong>DR Hub:</strong> Индикация барьера Kill-Switch и мастер Reverse Replication.</li>
               </ul>
             </div>
@@ -1080,7 +1084,7 @@ GET http://orchestrator:8005/actuator/health</div>
       <div class="slide-header">
         <div class="slide-subtitle">Инфраструктура и тюнинг ОС</div>
         <h1 class="slide-title">Сайзинг оборудования, тюнинг ОС Linux, JVM и траблшутинг</h1>
-        <p class="slide-desc">Рекомендации по sysctl сетевого стека для 10G/40G WAN, опции JVM и разбор типовых инцидентов</p>
+        <p class="slide-desc">Рекомендации по sysctl сетевого стека для 10G/40G/100G/200G/400G+ WAN, опции JVM и разбор типовых инцидентов</p>
       </div>
       <div class="slide-body">
         <div class="grid-2">
@@ -1089,10 +1093,11 @@ GET http://orchestrator:8005/actuator/health</div>
             <ul class="card-list">
               <li><code>net.core.rmem_max = 67108864</code> (64MB сетевой буфер приема).</li>
               <li><code>net.core.wmem_max = 67108864</code> (64MB сетевой буфер отправки).</li>
-              <li><code>net.ipv4.tcp_rmem / tcp_wmem</code> (автотюнинг TCP окна).</li>
+              <li><code>net.ipv4.tcp_rmem / tcp_wmem</code> (автотюнинг TCP окна для 100G+).</li>
               <li><strong>Virtual Threads (P0 & P1):</strong> Netty сервер приемника на виртуальных потоках Java 21, распаковка TAR в выделенном <code>tarUnpackExecutor</code>.</li>
               <li><strong>Kafka Colocated Agent:</strong> 2–4 vCPU, 4–8 GB RAM (на брокерах Kafka, localhost вычитка, 200k–400k msg/s).</li>
-              <li><strong>Kafka Dedicated Agent:</strong> 8–16 vCPU, 8–16 GB RAM, 10/25 Gbps LAN (до 1M msg/s на виртуальных потоках).</li>
+              <li><strong>Kafka Dedicated Agent:</strong> 8–16 vCPU, 16–32 GB RAM, 25/40/100 Gbps LAN (до 1M+ msg/s на виртуальных потоках).</li>
+              <li><strong>Изоляция ISR:</strong> локальный ISR-трафик брокеров (2x25G) не конкурирует с WAN HTB репликатором.</li>
               <li><strong>Directory Cache (PERF-04):</strong> LRU кэш каталогов экономит 90% RPC NameNode.</li>
               <li><strong>FOR UPDATE SKIP LOCKED (PERF-03):</strong> Изоляция очередей задач без строчных блокировок jobs.</li>
             </ul>

@@ -806,15 +806,18 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ---
 
-### 7.8 Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)
+### 7.8 Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`) и модель согласования WAN
 
 При установке Replicator Agent непосредственно на узлы Hadoop (DataNode Co-location) или общие Edge Nodes для защиты от деградации сетевых карт и дисковых массивов настраивается локальный шейпинг:
-- **Переменная `AGENT_MAX_BANDWIDTH_MB_S`**: задает предел полосы пропускания конкретного экземпляра агента в МБ/с (по умолчанию `0` — без ограничений).
+- **Переменная `AGENT_MAX_BANDWIDTH_MB_S` / аргумент `--max-bandwidth-mb-s` (`-b`)**: задает предел полосы пропускания конкретного процесса агента в МБ/с (по умолчанию `0` — без ограничений).
+- **Согласование емкости пула агентов и WAN HTB**: агент передает свой настроенный лимит в тело регистрации и периодические Heartbeat (`configuredBandwidthMbS`). Оркестратор не моделирует физическую сетевую топологию хостов (4x25G, бонды, специфические L3-маршруты), а рассчитывает эффективную доступную полосу репликации как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
+- **Изоляция локального ISR-трафика брокеров**: межброкерная репликация Kafka (ISR) работает внутри каждого дата-центра локально по выделенным L2/L3-интерфейсам кластера (например, 2x25G) и полностью исключена из расчетов межЦОДного WAN HTB шейпинга.
+- **Динамический параллелизм и микробатчи (100G/200G/400G+)**: для потоковой репликации Kafka оркестратор рассчитывает пул потоков вычитки по адаптивной формуле $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$ с защитным потолком $\le 32$ потоков на отдельную JVM агента (защита от исчерпания сокетов и конкуренции CPU). Размер микробатчей масштабируется от 10 000 до 50 000 сообщений (с `batch.max.bytes` до 16 МБ).
 - **Алгоритм**: асинхронный Token Bucket (`LocalBandwidthLimiter`) с поддержкой burst-буфера 0.5 с.
 - **Двусторонний троттлинг**:
   1. *Sender*: задержка при вызове `request_network_tokens()` перед отправкой каждого блока в сокет gRPC;
   2. *Receiver*: пауза при чтении чанков в `TransferFile()`, активирующая штатное TCP Window Backpressure по HTTP/2 и притормаживающая удаленного отправителя.
-- **Видимость в UI**: лимит передается Оркестратору в теле регистрации и отображается в карточке узла.
+- **Видимость в UI**: отображается честный «Суммарный лимит подключенных агентов» и «Лимит процесса агента», снят искусственный потолок в 5000 МБ/с.
 
 ---
 
@@ -841,6 +844,7 @@ topology:
       dc_id: "dc1"
       webhdfs_url: "http://localhost:9870/webhdfs/v1"
       default_path: "/data/production"
+      kafka_bootstrap: "kafka-dc1-broker1:9092,kafka-dc1-broker2:9092"
       is_read_only: false
       description: "Основной HDFS-кластер оперативных данных в DC1"
 
@@ -849,6 +853,7 @@ topology:
       dc_id: "dc1"
       webhdfs_url: "http://localhost:9872/webhdfs/v1"
       default_path: "/data/analytics"
+      kafka_bootstrap: "kafka-dc1-broker3:9092"
       is_read_only: false
       description: "Аналитический HDFS-кластер в DC1"
 
@@ -857,6 +862,7 @@ topology:
       dc_id: "dc2"
       webhdfs_url: "http://dr-namenode:9870/webhdfs/v1"
       default_path: "/backup/mirror"
+      kafka_bootstrap: "kafka-dc2-broker1:9092,kafka-dc2-broker2:9092"
       is_read_only: false
       description: "Катастрофоустойчивое зеркало в DC2"
 

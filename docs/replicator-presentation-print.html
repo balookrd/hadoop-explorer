@@ -692,10 +692,10 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 <td align="left">Порт локального gRPC Netty-сервера для приема входящего WAN трафика</td>
 </tr>
 <tr>
-<td align="left"><code>-b</code>, <code>--bandwidth</code></td>
-<td align="left"><code>AGENT_MAX_BANDWIDTH</code></td>
+<td align="left"><code>-b</code>, <code>--bandwidth</code>, <code>--max-bandwidth-mb-s</code></td>
+<td align="left"><code>AGENT_MAX_BANDWIDTH_MB_S</code> / <code>AGENT_MAX_BANDWIDTH</code></td>
 <td align="left"><code>0</code> (unlimited)</td>
-<td align="left">Локальный лимит пропускной способности агента в МБ/с</td>
+<td align="left">Локальный лимит процесса агента в МБ/с. Передается в Heartbeat оркестратору (<code>configuredBandwidthMbS</code>) для расчета суммарной емкости пула</td>
 </tr>
 <tr>
 <td align="left"><code>-s</code>, <code>--staging-dir</code></td>
@@ -746,7 +746,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 <tbody><tr>
 <td align="left"><strong>Физическое размещение</strong></td>
 <td align="left">Устанавливается на физические DataNode кластера</td>
-<td align="left">Выделенные 2–4 сервера в стойке с 25G/40G NIC</td>
+<td align="left">Выделенные 2–4 сервера в стойке с 25G / 40G / 100G+ NIC</td>
 </tr>
 <tr>
 <td align="left"><strong>Локальность данных</strong></td>
@@ -1024,7 +1024,9 @@ sequenceDiagram
 <li><strong>Защита от голодания (Starvation-Free)</strong>: Очереди с более высоким приоритетом забирают токены первыми, но для очередей низкого приоритета резервируется минимальный квант полосы (Fair Share).</li>
 <li><strong>Динамическое управление</strong>: При изменении лимита полосы в Web UI новое значение транслируется агентам по SSE-каналу и вступает в силу за 100 мс без перезапуска демонов.</li>
 <li><strong>Active-Active координация квот оркестратора (RES-06)</strong>: Таблица <code>bandwidth_limits</code> и <code>OrchestratorClusterCoordinator</code> автоматически распределяют глобальные лимиты между активными нодами оркестратора (<code>orchestrator_nodes</code>), сохраняя общий SLA при сбоях и масштабировании.</li>
-<li><strong>Адаптивное масштабирование лизинга токенов (PERF-05)</strong>: Агент динамически адаптирует размер пакета токенов в зависимости от Round-Trip Time и скорости WAN, устраняя сетевые задержки Control Plane на 10G/40G скоростях.</li>
+<li><strong>Адаптивное масштабирование лизинга токенов (PERF-05)</strong>: Агент динамически адаптирует размер пакета токенов в зависимости от Round-Trip Time и скорости WAN, устраняя сетевые задержки Control Plane на магистралях 10G / 40G / 100G / 200G / 400G+.</li>
+<li><strong>Унифицированная модель полосы агентов и WAN HTB</strong>: Оркестратор не моделирует физическую сетевую топологию хостов (4x25G, L3 бондинг, специфическую маршрутизацию интерфейсов), а согласует WAN HTB квоту и явно заданный оператором лимит процесса <code>--max-bandwidth-mb-s</code> (<code>AGENT_MAX_BANDWIDTH_MB_S</code>). Эффективная полоса пула агентов рассчитывается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$, гарантируя соблюдение как глобальных WAN-квот, так и безопасных лимитов конкретных хостов.</li>
+<li><strong>Изоляция локального ISR-трафика брокеров</strong>: Межброкерная синхронизация реплик Kafka (ISR) изолирована внутри каждого дата-центра на выделенных локальных сетевых адаптерах кластера (например, 2x25G) и полностью исключена из расчетов межЦОДного WAN HTB шейпинга.</li>
 </ol>
 <hr>
 <div class="page-break"></div>
@@ -1102,12 +1104,12 @@ sequenceDiagram
     participant K2 as 📦 Kafka Broker DC2 (:9092)
 
     Note over A1,Orch: ЭТАП 1: Получение топологии и динамическая подписка
-    A1->>Orch: GetActiveKafkaJobs(dc1) / gRPC Control Plane (:50050)
+    A1->>Orch: GetActiveKafkaJobs(clusterId) / gRPC Control Plane (:50050)
     Orch-->>A1: KafkaJobItemProto[] (topics, partitions, target_endpoints)
-    Note over A1: KafkaBatchConsumerPool: параллельная вычитка (до 64 потоков)
+    Note over A1: KafkaBatchConsumerPool: адаптивный параллелизм (динамически до 417..667+ потоков)
 
     Note over A1,K1: ЭТАП 2: Вычитка батчей и Zero-Copy транскодинг схем
-    A1->>K1: poll(max.poll.records=1000) под Kerberos SASL
+    A1->>K1: poll(max.poll.records=1000..50000) под Kerberos SASL
     K1-->>A1: ConsumerRecords[] (ключи, значения, заголовки, оффсеты)
     A1->>SR1: Fetch Schema ID (Single-Flight Cache, 0 лишних HTTP)
     A1->>A1: ZeroCopyWireTranscoder: замена Magic Byte & Schema ID в памяти
@@ -1132,8 +1134,10 @@ sequenceDiagram
 <li>Автоматический карантин узлов: при сбое целевого агента он изолируется на 10 секунд, а партиции мгновенно перераспределяются по оставшимся активным узлам без остановки репликации и потери данных.</li>
 </ul>
 </li>
-<li><strong>Многопоточный пул потребителей <code>KafkaBatchConsumerPool</code></strong>:<ul>
-<li>Пул из параллельных потоков вычитки (<code>consumerThreads</code>, до 64 потоков) с поддержкой Kerberos SASL_PLAINTEXT / SASL_SSL.</li>
+<li><strong>Многопоточный адаптивный пул потребителей <code>KafkaBatchConsumerPool</code></strong>:<ul>
+<li>Динамический параллелизм без ограничений 40 GBit/s: целевое количество потоков вычитки вычисляется по линейной адаптивной формуле $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$ с защитным потолком $\le 32$ потоков на отдельную JVM агента (защита от исчерпания сокетов и конкуренции CPU). Для каналов 80G/100G/200G+ суммарный пул автоматически масштабируется до 334..667+ потоков по кластеру агентов.</li>
+<li>Адаптивный размер микробатчей: динамически масштабируется от 10 000 до 50 000 записей (с <code>batch.max.bytes</code> до 16 МБ) на скоростях 100G+, исключая сетевые паузы и задержки при передаче сверхвысоких объемов данных.</li>
+<li>Динамический резолвинг брокеров и топиков: брокеры Kafka разрешаются через <code>TopologyRegistry</code> по <code>clusterId</code> без зашитых дефолтных констант (<code>defaultValue = &quot;DC1&quot;</code> ликвидирован; обязательная валидация параметра <code>clusterId</code>).</li>
 <li>Динамическая переподписка (<code>resubscribe</code>): при добавлении или изменении состава топиков в оркестраторе пул переподписывается на лету без перезапуска JVM агента.</li>
 </ul>
 </li>
@@ -1291,7 +1295,7 @@ sequenceDiagram
 </div>
 *Мониторинг отставания событий (Lag), статуса распределенной аренды Inotify Lease HA и журнала трансляции DDL.*</div><hr>
 <h4>4. Консоль потоковой репликации Apache Kafka</h4>
-<p><em>Интерфейс управления репликацией топиков: мониторинг потребителей, скорости в msg/s и МБ/с, лага партиций, трансляции схем Confluent/Aiven Schema Registry и автобалансировки узлов.</em></p>
+<p><em>Интерфейс управления репликацией топиков: отображение суммарного лимита подключенных агентов и лимитов процессов агентов, динамическое управление полосой для каналов 100G/200G/400G+ без искусственного потолка в 5000 МБ/с, мониторинг скорости в msg/s и МБ/с, лага партиций, трансляции схем Confluent/Aiven Schema Registry и балансировки узлов.</em></p>
 <hr>
 <div class="screen-card"><h4>5. Центр катастрофоустойчивости DR Hub в режиме изоляции Kill-Switch</h4>
 <div align="center">
@@ -1444,7 +1448,7 @@ sequenceDiagram
 <td align="left"><strong>HDFS/HMS Agent Dedicated</strong></td>
 <td align="left">8–16 vCPU</td>
 <td align="left">16–32 GB RAM</td>
-<td align="left">25 Gbps / 40 Gbps</td>
+<td align="left">25 Gbps / 40 Gbps / 100 Gbps+</td>
 <td align="left">200 GB SSD под системные журналы</td>
 </tr>
 <tr>
@@ -1458,8 +1462,8 @@ sequenceDiagram
 <td align="left"><strong>Kafka Agent Dedicated</strong></td>
 <td align="left">8–16 vCPU</td>
 <td align="left">16–32 GB RAM</td>
-<td align="left">10 Gbps / 25 Gbps</td>
-<td align="left">До 1M msg/s throughput (Virtual Threads)</td>
+<td align="left">25 Gbps / 40 Gbps / 100 Gbps+</td>
+<td align="left">До 1M+ msg/s throughput (Virtual Threads)</td>
 </tr>
 </tbody></table></div>
 <blockquote>
@@ -1467,11 +1471,12 @@ sequenceDiagram
 <strong>Выбор размещения Kafka Replicator Agent</strong>:</p>
 <ul>
 <li><strong>Colocated (на узлах брокеров Kafka)</strong>: вычитка идет локально по <code>localhost:9092</code> без дополнительной загрузки внутренней сети ЦОД. In-memory буферизация на виртуальных потоках Java 21 не требует выделенного staging-диска и потребляет всего 2–4 vCPU при скорости до 400k msg/s.</li>
-<li><strong>Dedicated (выделенные Edge Gateway серверы)</strong>: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M msg/s.</li>
+<li><strong>Dedicated (выделенные Edge Gateway серверы)</strong>: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M+ msg/s.</li>
+<li><strong>Изоляция брокерного ISR-трафика</strong>: внутрикластерная синхронизация реплик (ISR) циркулирует по локальным интерфейсам (например, 2x25G) и физически не конкурирует с WAN-трафиком репликации.</li>
 <li><em>Пошаговый регламент развертывания Colocated с готовым systemd-юнитом и cgroups-изоляцией</em>: <a href="replicator-admin-guide.md#85-%D0%BF%D0%BE%D1%88%D0%B0%D0%B3%D0%BE%D0%B2%D0%B0%D1%8F-%D0%BD%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0-%D0%B8-%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA-kafka-replicator-agent-%D0%B2-%D1%80%D0%B5%D0%B6%D0%B8%D0%BC%D0%B5-colocated-%D0%BD%D0%B0-%D1%83%D0%B7%D0%BB%D0%B0%D1%85-%D0%B1%D1%80%D0%BE%D0%BA%D0%B5%D1%80%D0%BE%D0%B2-kafka">Руководство администратора, разд. 8.5</a>.</li>
 </ul>
 </blockquote>
-<h3>Тюнинг ядра Linux для 10G/40G WAN-каналов (<code>/etc/sysctl.conf</code>)</h3>
+<h3>Тюнинг ядра Linux для высокоскоростных 10G / 40G / 100G / 200G / 400G+ WAN-каналов (<code>/etc/sysctl.conf</code>)</h3>
 <pre><code class="language-ini"># Увеличение максимального размера сетевых буферов TCP для исключения потери пакетов
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864

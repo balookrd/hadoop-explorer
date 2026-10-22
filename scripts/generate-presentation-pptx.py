@@ -437,26 +437,26 @@ def generate_presentation(output_pptx_path):
              [
                  "KafkaTargetBalancer распределяет партиции: hash(topic, partition) % active_agents.",
                  "Каждая партиция строго привязана к агенту — гарантия сохранения порядка сообщений.",
-                 "Карантин агентов: при сетевом сбое агент изолируется на 10 сек с ребалансировкой.",
-                 "Оркестратор координирует назначение агентов через персистентный реестр."
+                 "Динамический резолвинг брокеров по clusterId через TopologyRegistry (без хардкода DC1/DC2).",
+                 "Карантин агентов: при сетевом сбое агент изолируется на 10 сек с ребалансировкой."
              ], ACCENT_INDIGO)
 
     add_card(slide7, Inches(6.8), Inches(1.85), Inches(5.7), Inches(2.35),
-             "2. Consumer Pool и чтение из DC1",
+             "2. Consumer Pool и адаптивный параллелизм",
              [
-                 "KafkaBatchConsumerPool: изолированные пулы воркеров на каждый назначенный топик.",
-                 "Пакетная вычитка с динамической подпиской без Stop-the-World ребаланса кластера.",
-                 "Kerberos SASL_PLAINTEXT / SASL_SSL аутентификация в брокерах DC1 (:9092/:9093).",
-                 "Потоковое формирование батчей с контролем максимального размера пачки."
+                 "Линейный параллелизм без потолка 40G: targetThreads = max(64, ceil(BW / 30)) (до 667+ потоков).",
+                 "Защитный потолок <= 32 потоков на JVM агента от сокетного и процессорного истощения.",
+                 "Микробатчи до 50 000 сообщений (до 16 МБ) для сверхвысоких скоростей 100G/200G/400G+.",
+                 "Kerberos SASL_PLAINTEXT / SASL_SSL аутентификация в брокерах источников (:9092/:9093)."
              ], ACCENT_AMBER)
 
     add_card(slide7, Inches(0.8), Inches(4.35), Inches(5.7), Inches(2.45),
              "3. gRPC WAN стриминг и Backpressure",
              [
-                 "Агент DC1 передает батчи в Agent DC2 по WAN :50052 (KafkaDataTransferService).",
-                 "Двусторонний Backpressure: disableAutoInboundFlowControl + лимит inFlightBatches.",
-                 "Защита памяти воркеров от OOM при всплесках трафика и отставании целевого брокера.",
-                 "Сквозное mTLS шифрование трафика и управление полосой через Token Bucket."
+                 "Агент источника передает батчи в Agent приемника по WAN :50052 (KafkaDataTransferService).",
+                 "Согласование полосы: min(wanQuota, sum(agentLimit)) без моделирования физики хостов.",
+                 "Изоляция брокерного ISR: локальная репликация (2x25G) не влияет на межЦОДный WAN.",
+                 "Двусторонний Backpressure: disableAutoInboundFlowControl + лимит inFlightBatches."
              ], ACCENT_CYAN)
 
     add_card(slide7, Inches(6.8), Inches(4.35), Inches(5.7), Inches(2.45),
@@ -612,10 +612,11 @@ def generate_presentation(output_pptx_path):
              "⚡ Сайзинг Replicator Agents",
              [
                  "HDFS/HMS Colocated: 4 vCPU, 8 GB Heap (DataNode, Short-Circuit read).",
-                 "HDFS/HMS Dedicated: 8–16 vCPU, 16–32 GB RAM (Edge Gateway 25G/40G).",
+                 "HDFS/HMS Dedicated: 8–16 vCPU, 16–32 GB RAM (Edge Gateway 25G/40G/100G+).",
                  "Kafka Colocated: 2–4 vCPU, 4–8 GB Heap (на брокерах, 200k–400k msg/s).",
-                 "Kafka Dedicated: 8–16 vCPU, 16–32 GB RAM (до 1M msg/s на Virtual Threads).",
-                 "Сеть и скейлинг: 10G / 25G / 40G NIC, линейный скейлинг в agent_registry."
+                 "Kafka Dedicated: 8–16 vCPU, 16–32 GB RAM (до 1M+ msg/s на Virtual Threads).",
+                 "Сеть и скейлинг: 10G/25G/40G/100G+ NIC, адаптивный параллелизм до 667+ потоков.",
+                 "Физика хоста: брокерный ISR (2x25G) изолирован, учет явного лимита процесса."
              ], ACCENT_GREEN)
 
     add_card(slide14, Inches(8.8), Inches(1.85), Inches(3.7), Inches(4.8),
