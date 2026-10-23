@@ -14,6 +14,7 @@ public class ReplicatorAgentConfig {
     private String mode;
     private String orchestratorUrl;
     private String orchestratorGrpcAddress;
+    private java.util.List<String> orchestratorGrpcAddresses = new java.util.ArrayList<>();
     private String receiverHost;
     private int receiverPort;
     private String stagingDir;
@@ -72,13 +73,21 @@ public class ReplicatorAgentConfig {
         config.clusterId = getEnv("AGENT_CLUSTER_ID", getEnv("CLUSTER_ID", null));
         config.mode = getEnv("AGENT_MODE", "all").toLowerCase();
         config.orchestratorUrl = getEnv("ORCHESTRATOR_URL", "http://localhost:8005");
-        String envGrpcAddr = getEnv("ORCHESTRATOR_GRPC_ADDRESS", getEnv("ORCHESTRATOR_GRPC_URL", null));
-        if (envGrpcAddr != null && !envGrpcAddr.isBlank()) {
-            config.orchestratorGrpcAddress = envGrpcAddr;
+        String envAddresses = getEnv("ORCHESTRATOR_GRPC_ADDRESSES", null);
+        String envSingle = getEnv("ORCHESTRATOR_GRPC_ADDRESS", getEnv("ORCHESTRATOR_GRPC_URL", null));
+        String rawAddress = (envAddresses != null && !envAddresses.isBlank())
+                ? envAddresses
+                : envSingle;
+
+        if (rawAddress != null && !rawAddress.isBlank()) {
+            config.orchestratorGrpcAddress = rawAddress;
+            config.orchestratorGrpcAddresses = org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient.parseEndpoints(rawAddress);
         } else if (config.orchestratorUrl != null && config.orchestratorUrl.contains("orchestrator")) {
             config.orchestratorGrpcAddress = "orchestrator:50050";
+            config.orchestratorGrpcAddresses = java.util.List.of("orchestrator:50050");
         } else {
             config.orchestratorGrpcAddress = "localhost:50050";
+            config.orchestratorGrpcAddresses = java.util.List.of("localhost:50050");
         }
         config.receiverHost = getEnv("RECEIVER_HOST", "0.0.0.0");
         config.receiverPort = Integer.parseInt(getEnv("RECEIVER_PORT", "50051"));
@@ -197,7 +206,20 @@ public class ReplicatorAgentConfig {
     public void setOrchestratorUrl(String orchestratorUrl) { this.orchestratorUrl = orchestratorUrl; }
 
     public String getOrchestratorGrpcAddress() { return orchestratorGrpcAddress; }
-    public void setOrchestratorGrpcAddress(String orchestratorGrpcAddress) { this.orchestratorGrpcAddress = orchestratorGrpcAddress; }
+    public void setOrchestratorGrpcAddress(String orchestratorGrpcAddress) {
+        this.orchestratorGrpcAddress = orchestratorGrpcAddress;
+        if (orchestratorGrpcAddress != null && !orchestratorGrpcAddress.isBlank()) {
+            this.orchestratorGrpcAddresses = org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient.parseEndpoints(orchestratorGrpcAddress);
+        }
+    }
+
+    public java.util.List<String> getOrchestratorGrpcAddresses() { return orchestratorGrpcAddresses; }
+    public void setOrchestratorGrpcAddresses(java.util.List<String> orchestratorGrpcAddresses) {
+        this.orchestratorGrpcAddresses = orchestratorGrpcAddresses != null ? orchestratorGrpcAddresses : new java.util.ArrayList<>();
+        if (!this.orchestratorGrpcAddresses.isEmpty()) {
+            this.orchestratorGrpcAddress = String.join(",", this.orchestratorGrpcAddresses);
+        }
+    }
 
     public String getReceiverHost() { return receiverHost; }
     public void setReceiverHost(String receiverHost) { this.receiverHost = receiverHost; }

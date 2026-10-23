@@ -46,6 +46,10 @@ public class AgentRegisterRequest {
         this.maxBandwidthMbS = maxBandwidthMbS;
     }
 
+    public AgentRegisterRequest(String agentId, String clusterId, String mode, String grpcAddress, Double maxBandwidthMbS) {
+        this(agentId, clusterId, mode, grpcAddress, null, maxBandwidthMbS);
+    }
+
     public String getAgentId() { return agentId; }
     public void setAgentId(String agentId) { this.agentId = agentId; }
 

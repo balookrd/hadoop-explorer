@@ -55,7 +55,13 @@ public class KafkaReplicatorAgentMain {
         int consumerThreads = 8;
         int batchSize = 2000;
         String groupId = null;
-        String orchestratorGrpc = System.getenv("ORCHESTRATOR_GRPC_ADDRESS");
+        String orchestratorGrpc = System.getenv("ORCHESTRATOR_GRPC_ADDRESSES");
+        if (orchestratorGrpc == null || orchestratorGrpc.isBlank()) {
+            orchestratorGrpc = System.getenv("ORCHESTRATOR_GRPC_ADDRESS");
+        }
+        if (orchestratorGrpc == null || orchestratorGrpc.isBlank()) {
+            orchestratorGrpc = System.getenv("ORCHESTRATOR_GRPC_URL");
+        }
         String agentId = System.getenv("AGENT_ID");
         String agentSecret = System.getenv("AGENT_SECRET");
         String advertisedGrpcAddress = System.getenv("ADVERTISED_GRPC_ADDRESS");
@@ -104,7 +110,7 @@ public class KafkaReplicatorAgentMain {
                 batchSize = Integer.parseInt(args[++i]);
             } else if ("--group-id".equals(args[i]) && i + 1 < args.length) {
                 groupId = args[++i];
-            } else if ("--orchestrator-grpc".equals(args[i]) && i + 1 < args.length) {
+            } else if (("--orchestrator-grpc".equals(args[i]) || "--orchestrator-grpc-addresses".equals(args[i])) && i + 1 < args.length) {
                 orchestratorGrpc = args[++i];
             } else if ("--agent-id".equals(args[i]) && i + 1 < args.length) {
                 agentId = args[++i];
