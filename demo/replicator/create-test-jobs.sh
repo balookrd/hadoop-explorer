@@ -17,6 +17,16 @@ if ! curl -sf "${ORCHESTRATOR_URL}/health" > /dev/null; then
     exit 1
 fi
 
+echo "==> 0. Авторизация в платформе (admin_user)..."
+ADMIN_TOKEN=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin_user","password":"password123"}' | grep -o '"access_token":"[^"]*' | cut -d'"' -f4 || true)
+
+AUTH_HEADER=()
+if [[ -n "$ADMIN_TOKEN" ]]; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
+fi
+
 echo "==> 1. Генерация тестовых файлов данных в общем томе..."
 # Генерируем 5 МБ файл для DC1 -> DC2
 docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv"
@@ -33,6 +43,7 @@ echo "   Создан /tmp/data/events_stream_dc1.json (2 MB) в DC1"
 echo ""
 echo "==> 2. Создание задачи №1: Инженер данных (@writer_user, DC1 ➔ DC2)..."
 JOB1_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/tmp/data/prod_sales_dc1.csv",
@@ -51,6 +62,7 @@ echo "      Маршрут: dc1 (Java 21) -> dc2 (Java 21), автор: writer_u
 echo ""
 echo "==> 3. Создание задачи №2: Data Engineer (@de_user, DC2 ➔ DC1)..."
 JOB2_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/tmp/data/analytics_report_dc2.parquet",
@@ -69,6 +81,7 @@ echo "      Маршрут: dc2 (Java 21) -> dc1 (Java 21), автор: de_user"
 echo ""
 echo "==> 4. Создание задачи №3: Аналитик данных (@reader_user, DC1 ➔ DC2)..."
 JOB3_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/tmp/data/events_stream_dc1.json",
@@ -87,6 +100,7 @@ echo "      Маршрут: dc1 (Java 21) -> dc2 (Java 21), автор: reader_u
 echo ""
 echo "==> 5. Создание задачи №4: Администратор платформы (@admin_user, DC2 ➔ DC1)..."
 JOB4_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/data/production/events/2026-10",
@@ -105,6 +119,7 @@ echo "      Маршрут: dc2 (Java 21) -> dc1 (Java 21), автор: admin_us
 echo ""
 echo "==> 6. Создание задачи №5: Периодическая задача по расписанию (@system_operator)..."
 JOB5_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "source_path": "/data/warehouse/sync_delta",
