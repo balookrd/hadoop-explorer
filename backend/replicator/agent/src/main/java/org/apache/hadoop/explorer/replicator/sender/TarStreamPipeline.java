@@ -30,6 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Конвейер потоковой сборки, сжатия и передачи виртуальных TAR-бандлов (Tar-Streaming Pipeline).
@@ -87,15 +89,19 @@ public class TarStreamPipeline {
             DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(channel);
             CompletableFuture<TarStreamResponse> responseFuture = new CompletableFuture<>();
             AtomicReference<ClientCallStreamObserver<TarStreamRequest>> clientObserverRef = new AtomicReference<>();
-            Object readyLock = new Object();
+            ReentrantLock readyLock = new ReentrantLock();
+            Condition readyCondition = readyLock.newCondition();
 
             requestObserver = stub.transferTarStream(new ClientResponseObserver<TarStreamRequest, TarStreamResponse>() {
                 @Override
                 public void beforeStart(ClientCallStreamObserver<TarStreamRequest> stream) {
                     clientObserverRef.set(stream);
                     stream.setOnReadyHandler(() -> {
-                        synchronized (readyLock) {
-                            readyLock.notifyAll();
+                        readyLock.lock();
+                        try {
+                            readyCondition.signalAll();
+                        } finally {
+                            readyLock.unlock();
                         }
                     });
                 }
@@ -108,8 +114,11 @@ public class TarStreamPipeline {
                 @Override
                 public void onError(Throwable t) {
                     responseFuture.completeExceptionally(t);
-                    synchronized (readyLock) {
-                        readyLock.notifyAll();
+                    readyLock.lock();
+                    try {
+                        readyCondition.signalAll();
+                    } finally {
+                        readyLock.unlock();
                     }
                 }
 
@@ -156,7 +165,8 @@ public class TarStreamPipeline {
                     tokenBatchLease,
                     clientObserverRef,
                     responseFuture,
-                    readyLock
+                    readyLock,
+                    readyCondition
             );
 
             try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
@@ -229,7 +239,8 @@ public class TarStreamPipeline {
         private long offset = 0;
         private final AtomicReference<ClientCallStreamObserver<TarStreamRequest>> clientObserverRef;
         private final CompletableFuture<?> responseFuture;
-        private final Object readyLock;
+        private final ReentrantLock readyLock;
+        private final Condition readyCondition;
 
         public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
                                        int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
@@ -274,6 +285,23 @@ public class TarStreamPipeline {
                                        AtomicReference<ClientCallStreamObserver<TarStreamRequest>> clientObserverRef,
                                        CompletableFuture<?> responseFuture,
                                        Object readyLock) {
+            this(taskId, requestObserver, chunkSize, bandwidthLimiter, orchestratorClient, workerId,
+                    codec, compressionLevel, sourceClusterId, targetClusterId, tokenBatchLease,
+                    clientObserverRef, responseFuture,
+                    readyLock instanceof ReentrantLock ? (ReentrantLock) readyLock : null,
+                    null);
+        }
+
+        public TarChunkingOutputStream(String taskId, StreamObserver<TarStreamRequest> requestObserver,
+                                       int chunkSize, LocalBandwidthLimiter bandwidthLimiter,
+                                       OrchestratorGrpcClient orchestratorClient, String workerId,
+                                       CompressionCodec codec, int compressionLevel,
+                                       String sourceClusterId, String targetClusterId,
+                                       ConcurrentHashMap<String, AtomicLong> tokenBatchLease,
+                                       AtomicReference<ClientCallStreamObserver<TarStreamRequest>> clientObserverRef,
+                                       CompletableFuture<?> responseFuture,
+                                       ReentrantLock readyLock,
+                                       Condition readyCondition) {
             this.taskId = taskId;
             this.requestObserver = requestObserver;
             this.chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
@@ -288,7 +316,8 @@ public class TarStreamPipeline {
             this.buffer = new byte[this.chunkSize];
             this.clientObserverRef = clientObserverRef;
             this.responseFuture = responseFuture;
-            this.readyLock = readyLock != null ? readyLock : new Object();
+            this.readyLock = readyLock != null ? readyLock : new ReentrantLock();
+            this.readyCondition = readyCondition != null ? readyCondition : this.readyLock.newCondition();
         }
 
         @Override
@@ -319,19 +348,22 @@ public class TarStreamPipeline {
         private void flushBuffer() throws IOException {
             if (count == 0) return;
 
-            // Flow Control backpressure: ожидаем готовности сокета Netty
-            if (clientObserverRef != null && responseFuture != null) {
+            // Flow Control backpressure: ожидаем готовности сокета Netty без thread pinning на виртуальных потоках
+            if (clientObserverRef != null && responseFuture != null && readyLock != null && readyCondition != null) {
                 ClientCallStreamObserver<TarStreamRequest> stream = clientObserverRef.get();
                 if (stream != null) {
-                    synchronized (readyLock) {
+                    readyLock.lock();
+                    try {
                         while (!stream.isReady() && !responseFuture.isDone()) {
                             try {
-                                readyLock.wait(100);
+                                readyCondition.await(100, TimeUnit.MILLISECONDS);
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                                 throw new IOException("Поток отправки TAR был прерван при ожидании сокета", e);
                             }
                         }
+                    } finally {
+                        readyLock.unlock();
                     }
                 }
             }

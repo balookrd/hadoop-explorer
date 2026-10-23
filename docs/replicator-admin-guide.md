@@ -1897,6 +1897,7 @@ flowchart LR
 2. **Виртуальные потоки Java 21 в Netty Receiver и выделенный TAR-распаковщик (P0 & P1)**:
    - Сервер входящих соединений `NettyServerBuilder` gRPC-приемника переведен на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`). Блокирующий ввод-вывод при приеме сотен параллельных стримов больше не блокирует системные потоки платформы.
    - Процесс распаковки входящих потоков TAR изолирован в выделенный пул виртуальных потоков `tarUnpackExecutor` (`tar-stream-unpacker-*`). Это устраняет конкуренцию за вычислительные ресурсы с общим системным пулом `ForkJoinPool.commonPool()`.
+   - **Устранение Carrier Thread Pinning (Loom Zero-Pinning)**: во всех конвейерах потоковой передачи данных и Flow Control (`TarStreamPipeline`, `KafkaDataTransferServiceImpl`, `LocalBandwidthLimiter`) примитивы `synchronized` и `wait/notify` заменены на `ReentrantLock` и `Condition.await(timeout)`. Это гарантирует, что при ожидании сокета Netty или троттлинге полосы виртуальные потоки корректно размонтируются (`unmount`) от несущих потоков `ForkJoinPool`, предотвращая исчерпание пула потоков-носителей на Java 21 LTS.
 
 3. **Буферизация прогресса задач и пакетный коммит (PERF-06)**:
    - Компонент `JobProgressBuffer` аккумулирует обновления прогресса в памяти с дебаунсингом (500 мс / до 1000 записей).

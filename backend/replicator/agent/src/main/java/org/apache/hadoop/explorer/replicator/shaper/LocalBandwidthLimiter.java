@@ -3,6 +3,8 @@ package org.apache.hadoop.explorer.replicator.shaper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
  * Локальный Token Bucket шейпер для ограничения пропускной способности агента репликации.
  *
@@ -18,7 +20,7 @@ public class LocalBandwidthLimiter {
     private double capacity;
     private double tokens;
     private long lastUpdateNano;
-    private final Object lock = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
 
     public LocalBandwidthLimiter(double limitMbPerSec) {
         this(limitMbPerSec, 0.5);
@@ -41,7 +43,8 @@ public class LocalBandwidthLimiter {
      * Динамическое изменение лимита пропускной способности (в МБ/с).
      */
     public void setLimit(double limitMbPerSec) {
-        synchronized (lock) {
+        lock.lock();
+        try {
             this.limitBytesPerSec = Math.max(0.0, limitMbPerSec) * 1024.0 * 1024.0;
             if (this.limitBytesPerSec > 0) {
                 this.capacity = this.limitBytesPerSec * this.burstSeconds;
@@ -51,6 +54,8 @@ public class LocalBandwidthLimiter {
                 this.tokens = 0.0;
             }
             this.lastUpdateNano = System.nanoTime();
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -66,7 +71,8 @@ public class LocalBandwidthLimiter {
         }
 
         double waitSeconds = 0.0;
-        synchronized (lock) {
+        lock.lock();
+        try {
             long now = System.nanoTime();
             double elapsedSec = (now - lastUpdateNano) / 1_000_000_000.0;
             if (elapsedSec > 0) {
@@ -82,6 +88,8 @@ public class LocalBandwidthLimiter {
             double deficit = bytesCount - this.tokens;
             waitSeconds = deficit / this.limitBytesPerSec;
             this.tokens -= bytesCount;
+        } finally {
+            lock.unlock();
         }
 
         if (waitSeconds > 0) {

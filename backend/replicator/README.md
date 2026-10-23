@@ -333,6 +333,11 @@
     - **Защитный гейт на этапе коммита (`SafetyCommitManager`)**: при попытке применить оффсеты служебных групп в целевом ДЦ запрос немедленно отклоняется с информативным кодом ошибки.
     - **Фильтрация в Live Discovery и создании задач (`KafkaReplicationOrchestratorService`)**: из списков обнаружения `/api/v1/kafka/consumer-groups` и при создании заданий паразитные группы автоматически отфильтровываются.
 
+45. **Ликвидация Carrier Thread Pinning в конвейерах Data Plane и Flow Control (Loom Zero-Pinning)**:
+    - **Неблокирующий Flow Control в TarStreamPipeline**: ожидание готовности сокета Netty `stream.isReady()` переведено с монитора `synchronized (readyLock)` с `wait/notify` на `ReentrantLock` и `Condition.await(100, TimeUnit.MILLISECONDS)`, полностью устраняя блокировку потоков-носителей ForkJoinPool при перегрузке сокета.
+    - **Потокобезопасный gRPC Ack в KafkaDataTransferServiceImpl**: отправка подтверждений `responseObserver.onNext(ack)` из пула виртуальных потоков продюсера изолирована отдельным `ReentrantLock responseLock`, исключая захват монитора StreamObserver в виртуальном потоке.
+    - **Аппаратный шейпер LocalBandwidthLimiter**: критическая секция вычисления дефицита токенов переведена с `synchronized (lock)` на `ReentrantLock lock`, защищая высококонкурентные обращения параллельных виртуальных потоков передачи.
+
 ---
 
 ## 2. Быстрый запуск

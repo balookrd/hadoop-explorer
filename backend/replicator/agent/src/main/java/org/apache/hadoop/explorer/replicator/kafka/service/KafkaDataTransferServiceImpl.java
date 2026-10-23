@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Реализация gRPC-сервиса KafkaDataTransferService на узле-приемнике.
@@ -92,6 +93,7 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
         final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
         final java.util.concurrent.atomic.AtomicBoolean clientCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final ReentrantLock responseLock = new ReentrantLock();
 
         return new StreamObserver<>() {
             @Override
@@ -101,8 +103,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
                 inFlightBatches.incrementAndGet();
                 batchProducer.writeBatchAsync(batch).thenAccept(ack -> {
-                    synchronized (responseObserver) {
+                    responseLock.lock();
+                    try {
                         responseObserver.onNext(ack);
+                    } finally {
+                        responseLock.unlock();
                     }
                     if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
                         serverCallStreamObserver.request(1);
@@ -117,8 +122,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                             .setErrorMessage(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName())
                             .setReceiveTimestampMs(System.currentTimeMillis())
                             .build();
-                    synchronized (responseObserver) {
+                    responseLock.lock();
+                    try {
                         responseObserver.onNext(errorAck);
+                    } finally {
+                        responseLock.unlock();
                     }
                     if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
                         serverCallStreamObserver.request(1);
@@ -131,8 +139,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             private void checkCompletion() {
                 if (inFlightBatches.decrementAndGet() == 0 && clientCompleted.get()) {
                     batchProducer.flush();
-                    synchronized (responseObserver) {
+                    responseLock.lock();
+                    try {
                         responseObserver.onCompleted();
+                    } finally {
+                        responseLock.unlock();
                     }
                 }
             }
@@ -140,8 +151,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             @Override
             public void onError(Throwable t) {
                 log.error("Ошибка в gRPC потоке streamBatches: {}", t.getMessage());
-                synchronized (responseObserver) {
+                responseLock.lock();
+                try {
                     responseObserver.onError(t);
+                } finally {
+                    responseLock.unlock();
                 }
             }
 
@@ -150,8 +164,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 clientCompleted.set(true);
                 if (inFlightBatches.get() == 0) {
                     batchProducer.flush();
-                    synchronized (responseObserver) {
+                    responseLock.lock();
+                    try {
                         responseObserver.onCompleted();
+                    } finally {
+                        responseLock.unlock();
                     }
                 }
             }
