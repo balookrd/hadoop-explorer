@@ -46,6 +46,9 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Map<TopicPartition, Long> lastObservedTimestamps = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong totalMessagesReplicated = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong totalBytesReplicated = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong currentLagMs = new java.util.concurrent.atomic.AtomicLong(0);
 
     private int maxBatchSize = 2000;
     private int maxInFlightBatches = 100;
@@ -193,7 +196,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final KafkaConsumer<byte[], byte[]> workerConsumer;
         private final Map<Integer, StreamObserver<KafkaBatchRequest>> activeStreams = new ConcurrentHashMap<>();
 
-        private record InFlightBatch(String batchId, TopicPartition topicPartition, long maxSourceOffset, int recordCount) {}
+        private record InFlightBatch(String batchId, TopicPartition topicPartition, long maxSourceOffset, int recordCount, long bytesSize) {}
         private final Map<String, InFlightBatch> inFlightBatches = new ConcurrentHashMap<>();
         private final Map<TopicPartition, Long> pendingCommittedOffsets = new ConcurrentHashMap<>();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
@@ -214,8 +217,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             inFlightCount.decrementAndGet();
                         }
                         if (ack.getSuccess()) {
-                            log.trace("[Worker {} -> Target {}] Успешно зафиксирован пакет {} в топике {}: {} записей",
-                                    workerId, idx, ack.getBatchId(), ack.getTopic(), ack.getCommittedRecords());
+                            int records = inFlight != null ? inFlight.recordCount() : ack.getCommittedRecords();
+                            long bytes = inFlight != null ? inFlight.bytesSize() : 0L;
+                            totalMessagesReplicated.addAndGet(records);
+                            totalBytesReplicated.addAndGet(bytes);
+
+                            log.trace("[Worker {} -> Target {}] Успешно зафиксирован пакет {} в топике {}: {} записей ({} байт)",
+                                    workerId, idx, ack.getBatchId(), ack.getTopic(), records, bytes);
                             if (inFlight != null) {
                                 // Безопасное смещение: maxSourceOffset + 1 (At-least-once watermark)
                                 pendingCommittedOffsets.merge(
@@ -316,8 +324,12 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         continue;
                     }
                     if (records.isEmpty()) {
+                        currentLagMs.set(0);
                         continue;
                     }
+
+                    long now = System.currentTimeMillis();
+                    long maxRecordLag = 0;
 
                     // Группировка строго по TopicPartition для сохранения порядка при балансировке по агентам
                     Map<TopicPartition, List<KafkaRecord>> recordsByTp = new LinkedHashMap<>();
@@ -325,6 +337,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     for (ConsumerRecord<byte[], byte[]> record : records) {
                         TopicPartition tp = new TopicPartition(record.topic(), record.partition());
                         lastObservedTimestamps.put(tp, record.timestamp());
+                        long recLag = Math.max(0, now - record.timestamp());
+                        if (recLag > maxRecordLag) {
+                            maxRecordLag = recLag;
+                        }
 
                         // 1. Проверяем на бесконечную петлю (Loop / Echo)
                         if (!loopFilter.shouldReplicate(record)) {
@@ -360,6 +376,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         recordsByTp.computeIfAbsent(tp, k -> new ArrayList<>())
                                 .add(recBuilder.build());
                     }
+                    currentLagMs.set(maxRecordLag);
 
                     // 4. Отправляем батчи по партициям в соответствующие gRPC-стримы
                     for (Map.Entry<TopicPartition, List<KafkaRecord>> entry : recordsByTp.entrySet()) {
@@ -397,12 +414,12 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 }
                             }
 
+                            long batchBytes = batchRequest.getSerializedSize();
                             inFlightBatches.put(batchRequest.getBatchId(),
-                                    new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
+                                    new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size(), batchBytes));
                             inFlightCount.incrementAndGet();
 
                             if (bandwidthLimiter != null) {
-                                long batchBytes = batchRequest.getSerializedSize();
                                 bandwidthLimiter.throttle(batchBytes);
                             }
 
@@ -417,7 +434,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 activeStreams.remove(targetIdx);
                                 int fallbackIdx = replicationClient.selectTargetIndex(tp.partition());
                                 inFlightBatches.put(batchRequest.getBatchId(),
-                                        new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size()));
+                                        new InFlightBatch(batchRequest.getBatchId(), tp, maxChunkOffset, chunk.size(), batchBytes));
                                 inFlightCount.incrementAndGet();
                                 getOrCreateStream(fallbackIdx).onNext(batchRequest);
                             }
@@ -462,6 +479,18 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 });
             }
         }
+    }
+
+    public long getTotalMessagesReplicated() {
+        return totalMessagesReplicated.get();
+    }
+
+    public long getTotalBytesReplicated() {
+        return totalBytesReplicated.get();
+    }
+
+    public long getCurrentLagMs() {
+        return currentLagMs.get();
     }
 
     public Map<TopicPartition, Long> getLastObservedTimestamps() {

@@ -166,9 +166,34 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             domainReq.setStagingActiveFiles(request.getStagingActiveFiles());
             domainReq.setStagingActiveBytes(request.getStagingActiveBytes());
             domainReq.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
+            domainReq.setKafkaMessagesReplicated(request.getKafkaMessagesReplicated());
+            domainReq.setKafkaBytesReplicated(request.getKafkaBytesReplicated());
+            domainReq.setKafkaCurrentLagMs(request.getKafkaCurrentLagMs());
 
             String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
             boolean ok = agentRegistry.heartbeat(domainReq, secret);
+
+            boolean isKafkaAgent = (request.getMode() != null &&
+                    (request.getMode().equalsIgnoreCase("consumer") ||
+                     request.getMode().equalsIgnoreCase("producer") ||
+                     request.getMode().equalsIgnoreCase("dual") ||
+                     request.getMode().toLowerCase().contains("kafka"))) ||
+                    request.getKafkaMessagesReplicated() > 0 ||
+                    request.getKafkaBytesReplicated() > 0;
+
+            if (ok && kafkaOrchestratorService != null && isKafkaAgent) {
+                try {
+                    kafkaOrchestratorService.updateMetricsFromHeartbeat(
+                            request.getClusterId(),
+                            request.getAgentId(),
+                            request.getKafkaMessagesReplicated(),
+                            request.getKafkaBytesReplicated(),
+                            request.getKafkaCurrentLagMs()
+                    );
+                } catch (Exception ex) {
+                    log.warn("Не удалось обновить метрики Kafka из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());
+                }
+            }
             AgentHeartbeatResponse resp = AgentHeartbeatResponse.newBuilder()
                     .setStatus(ok ? "acknowledged" : "unknown_agent")
                     .setAcknowledged(ok)

@@ -207,6 +207,8 @@ class KafkaBatchConsumerPoolTest {
         Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> committed = captor.getValue();
         assertNotNull(committed.get(tp));
         assertEquals(43L, committed.get(tp).offset(), "Смещение должно быть сдвинуто на 42 + 1 = 43");
+        assertEquals(1L, pool.getTotalMessagesReplicated(), "Счетчик переданных сообщений должен быть равен 1");
+        assertTrue(pool.getTotalBytesReplicated() > 0, "Счетчик переданных байт должен быть больше 0");
 
         pool.close();
     }

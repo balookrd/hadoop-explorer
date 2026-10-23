@@ -349,6 +349,11 @@ public class KafkaReplicatorAgentMain {
                     if (finalMaxBandwidthMbS != null && finalMaxBandwidthMbS > 0) {
                         hbReq.setBandwidthLimitMbS(finalMaxBandwidthMbS);
                     }
+                    if (finalPool != null) {
+                        hbReq.setKafkaMessagesReplicated(finalPool.getTotalMessagesReplicated());
+                        hbReq.setKafkaBytesReplicated(finalPool.getTotalBytesReplicated());
+                        hbReq.setKafkaCurrentLagMs(finalPool.getCurrentLagMs());
+                    }
                     finalOrch.heartbeat(hbReq);
 
                     // Опрос Control Plane для динамического обнаружения задач и обновления топиков

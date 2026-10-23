@@ -152,12 +152,18 @@ public class OrchestratorControlPlaneServiceTest {
 
         AgentHeartbeatRequest hbReq = AgentHeartbeatRequest.newBuilder()
                 .setAgentId("agent-dc1")
+                .setClusterId("dc1")
+                .setMode("dual")
+                .setKafkaMessagesReplicated(100L)
+                .setKafkaBytesReplicated(4096L)
+                .setKafkaCurrentLagMs(15L)
                 .setActiveTransfers(2)
                 .build();
 
         AgentHeartbeatResponse hbResp = stub.heartbeat(hbReq);
         assertTrue(hbResp.getAcknowledged());
         assertEquals("acknowledged", hbResp.getStatus());
+        verify(kafkaOrchestratorService).updateMetricsFromHeartbeat("dc1", "agent-dc1", 100L, 4096L, 15L);
     }
 
     @Test
