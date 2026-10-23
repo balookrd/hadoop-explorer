@@ -36,6 +36,7 @@ public class OrchestratorClusterCoordinator {
     private final BandwidthLimitRepository limitRepository;
     private final TokenBucketThrottler throttler;
     private final TopologyRegistry topologyRegistry;
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
     private final String nodeId;
     private final String hostName;
 
@@ -45,12 +46,14 @@ public class OrchestratorClusterCoordinator {
             @Autowired(required = false) BandwidthLimitRepository limitRepository,
             TokenBucketThrottler throttler,
             TopologyRegistry topologyRegistry,
-            @Autowired(required = false) DistributedLockService lockService
+            @Autowired(required = false) DistributedLockService lockService,
+            @Autowired(required = false) org.springframework.transaction.PlatformTransactionManager transactionManager
     ) {
         this.nodeRepository = nodeRepository;
         this.limitRepository = limitRepository;
         this.throttler = throttler;
         this.topologyRegistry = topologyRegistry;
+        this.txTemplate = transactionManager != null ? new org.springframework.transaction.support.TransactionTemplate(transactionManager) : null;
         this.nodeId = lockService != null ? lockService.getNodeId() : "orch-standalone-" + System.currentTimeMillis();
         String host = "localhost";
         try {
@@ -58,6 +61,16 @@ public class OrchestratorClusterCoordinator {
         } catch (Exception ignored) {
         }
         this.hostName = host;
+    }
+
+    public OrchestratorClusterCoordinator(
+            OrchestratorNodeRepository nodeRepository,
+            BandwidthLimitRepository limitRepository,
+            TokenBucketThrottler throttler,
+            TopologyRegistry topologyRegistry,
+            DistributedLockService lockService
+    ) {
+        this(nodeRepository, limitRepository, throttler, topologyRegistry, lockService, null);
     }
 
     public String getNodeId() {
@@ -96,7 +109,11 @@ public class OrchestratorClusterCoordinator {
     public void scheduledCoordination() {
         if (nodeRepository != null) {
             try {
-                sendHeartbeatAndRebalance();
+                if (txTemplate != null) {
+                    txTemplate.executeWithoutResult(status -> sendHeartbeatAndRebalance());
+                } else {
+                    sendHeartbeatAndRebalance();
+                }
                 syncLimitsFromDatabase();
             } catch (Exception e) {
                 log.warn("Ошибка цикла координации Active-Active Orchestrator: {}", e.getMessage());

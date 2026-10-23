@@ -35,4 +35,40 @@ class ReplicationSchedulerTest {
         Instant every10m = ReplicationScheduler.computeNextRun("*/10 * * * *", base);
         assertEquals(base.plus(Duration.ofMinutes(10)), every10m);
     }
+
+    @Test
+    @DisplayName("Должен инициировать запуск запланированной задачи, переводить в QUEUED и вычислять следующий запуск")
+    void shouldTriggerScheduledJobWhenDue() {
+        var jobRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class);
+        var runRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class);
+
+        var scheduler = new ReplicationScheduler(jobRepo, runRepo, null, null);
+
+        var job = new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("cron-job-1");
+        job.setStatus("SCHEDULED");
+        job.setScheduled(true);
+        job.setCronExpression("@every_5m");
+        job.setNextRunAt(Instant.now().minusSeconds(10));
+        job.setTotalBytes(1024L);
+
+        org.mockito.Mockito.when(jobRepo.findByIsScheduledTrueAndNextRunAtLessThanEqual(org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(java.util.List.of(job));
+        org.mockito.Mockito.when(runRepo.findMaxRunNumberByJobId("cron-job-1")).thenReturn(0);
+
+        scheduler.executeScheduledRuns();
+
+        assertEquals("QUEUED", job.getStatus());
+        assertNotNull(job.getActiveRunId());
+        assertNotNull(job.getLastRunAt());
+        assertTrue(job.getNextRunAt().isAfter(Instant.now()));
+
+        org.mockito.Mockito.verify(runRepo).save(org.mockito.ArgumentMatchers.argThat(run ->
+                "cron-job-1".equals(run.getJobId())
+                        && "QUEUED".equals(run.getStatus())
+                        && "SCHEDULED".equals(run.getTriggerType())
+                        && run.getRunNumber() == 1
+        ));
+        org.mockito.Mockito.verify(jobRepo, org.mockito.Mockito.atLeastOnce()).save(job);
+    }
 }

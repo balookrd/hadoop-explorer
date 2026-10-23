@@ -17,7 +17,14 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     List<JobEntity> findByParentJobId(String parentJobId);
     List<JobEntity> findByParentJobIdIn(java.util.Collection<String> parentJobIds);
     List<JobEntity> findByParentJobIdAndSourcePathAndTargetPath(String parentJobId, String sourcePath, String targetPath);
-    List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(Instant now);
+
+    @Query("""
+        SELECT j FROM JobEntity j
+        WHERE j.isScheduled = true
+          AND j.nextRunAt IS NOT NULL
+          AND j.nextRunAt <= :now
+    """)
+    List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(@Param("now") Instant now);
     long countByStatus(String status);
     long countByStatusAndParentJobIdIsNull(String status);
 

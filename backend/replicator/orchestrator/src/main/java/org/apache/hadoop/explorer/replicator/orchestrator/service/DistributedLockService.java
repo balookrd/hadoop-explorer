@@ -4,14 +4,18 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.ClusterLockEnti
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.ClusterLockRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Сервис распределенных блокировок для обеспечения высокой доступности (Orchestrator HA)
@@ -30,14 +34,29 @@ public class DistributedLockService {
     }
 
     private final ClusterLockRepository lockRepository;
+    private final TransactionTemplate txTemplate;
     private final String nodeId = "orch-node-" + UUID.randomUUID().toString().substring(0, 8);
 
-    public DistributedLockService(ClusterLockRepository lockRepository) {
+    @Autowired
+    public DistributedLockService(ClusterLockRepository lockRepository,
+                                  @Autowired(required = false) PlatformTransactionManager transactionManager) {
         this.lockRepository = lockRepository;
+        this.txTemplate = transactionManager != null ? new TransactionTemplate(transactionManager) : null;
+    }
+
+    public DistributedLockService(ClusterLockRepository lockRepository) {
+        this(lockRepository, (PlatformTransactionManager) null);
     }
 
     public String getNodeId() {
         return nodeId;
+    }
+
+    private <T> T inTransaction(Supplier<T> action) {
+        if (txTemplate != null) {
+            return txTemplate.execute(status -> action.get());
+        }
+        return action.get();
     }
 
     /**
@@ -52,28 +71,30 @@ public class DistributedLockService {
         Instant now = Instant.now();
         Instant until = now.plus(duration);
 
-        try {
-            int updated = lockRepository.tryAcquireOrRenew(lockName, nodeId, until, now);
-            if (updated > 0) {
-                long epoch = lockRepository.findEpochByLockName(lockName).orElse(1L);
-                return new LockHandle(true, epoch, lockName, nodeId);
-            }
-
-            // Если записи еще не было, вставляем новую
-            if (!lockRepository.existsById(lockName)) {
-                try {
-                    ClusterLockEntity saved = lockRepository.saveAndFlush(new ClusterLockEntity(lockName, nodeId, until, 1L));
-                    return new LockHandle(true, saved.getEpoch(), lockName, nodeId);
-                } catch (Exception e) {
-                    // Конкурентная вставка другим инстансом
-                    return LockHandle.failed(lockName, nodeId);
+        return inTransaction(() -> {
+            try {
+                int updated = lockRepository.tryAcquireOrRenew(lockName, nodeId, until, now);
+                if (updated > 0) {
+                    long epoch = lockRepository.findEpochByLockName(lockName).orElse(1L);
+                    return new LockHandle(true, epoch, lockName, nodeId);
                 }
+
+                // Если записи еще не было, вставляем новую
+                if (!lockRepository.existsById(lockName)) {
+                    try {
+                        ClusterLockEntity saved = lockRepository.saveAndFlush(new ClusterLockEntity(lockName, nodeId, until, 1L));
+                        return new LockHandle(true, saved.getEpoch(), lockName, nodeId);
+                    } catch (Exception e) {
+                        // Конкурентная вставка другим инстансом
+                        return LockHandle.failed(lockName, nodeId);
+                    }
+                }
+                return LockHandle.failed(lockName, nodeId);
+            } catch (Exception e) {
+                log.debug("[DistributedLock] Ошибка при попытке захвата блокировки {}: {}", lockName, e.getMessage());
+                return LockHandle.failed(lockName, nodeId);
             }
-            return LockHandle.failed(lockName, nodeId);
-        } catch (Exception e) {
-            log.debug("[DistributedLock] Ошибка при попытке захвата блокировки {}: {}", lockName, e.getMessage());
-            return LockHandle.failed(lockName, nodeId);
-        }
+        });
     }
 
     /**
@@ -112,11 +133,14 @@ public class DistributedLockService {
      */
     @Transactional
     public void releaseLock(String lockName) {
-        try {
-            lockRepository.releaseLock(lockName, nodeId);
-        } catch (Exception e) {
-            log.debug("[DistributedLock] Ошибка при освобождении блокировки {}: {}", lockName, e.getMessage());
-        }
+        inTransaction(() -> {
+            try {
+                lockRepository.releaseLock(lockName, nodeId);
+            } catch (Exception e) {
+                log.debug("[DistributedLock] Ошибка при освобождении блокировки {}: {}", lockName, e.getMessage());
+            }
+            return null;
+        });
     }
 
     @Transactional

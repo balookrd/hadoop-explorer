@@ -27,18 +27,34 @@ if [[ -n "$ADMIN_TOKEN" ]]; then
   AUTH_HEADER=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
 fi
 
-echo "==> 1. Генерация тестовых файлов данных в общем томе..."
-# Генерируем 5 МБ файл для DC1 -> DC2
-docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv"
-echo "   Создан /tmp/data/prod_sales_dc1.csv (5 MB) в DC1"
+echo "==> 1. Генерация тестовых файлов данных в общем томе и HDFS..."
+# 1.1 Локальные файлы в контейнерах агентов
+docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv" || true
+docker exec replicator-agent-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet" || true
+docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json" || true
 
-# Генерируем 3 МБ файл для DC2 -> DC1
-docker exec replicator-agent-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet"
-echo "   Создан /tmp/data/analytics_report_dc2.parquet (3 MB) в DC2"
+# 1.2 Создание каталогов и загрузка тестовых файлов в HDFS DC1 (hdfs-cluster-1)
+echo "   Подготовка HDFS кластера DC1..."
+docker exec hdfs-cluster-1 sh -c "
+  kinit -kt /etc/security/keytabs/hdfs.keytab nn/hdfs-cluster-1@COMPANY.LOCAL && \
+  hdfs dfs -mkdir -p /tmp/data /backup/mirror /data/warehouse/sync_delta && \
+  head -c 5242880 /dev/urandom | hdfs dfs -put -f - /tmp/data/prod_sales_dc1.csv && \
+  head -c 2097152 /dev/urandom | hdfs dfs -put -f - /tmp/data/events_stream_dc1.json && \
+  head -c 1048576 /dev/urandom | hdfs dfs -put -f - /data/warehouse/sync_delta/delta.bin && \
+  hdfs dfs -chmod -R 777 /tmp/data /backup /data/warehouse
+" || true
+echo "   Созданы /tmp/data/prod_sales_dc1.csv, events_stream_dc1.json, /data/warehouse/sync_delta в HDFS DC1"
 
-# Генерируем 2 МБ файл для отчетов
-docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json"
-echo "   Создан /tmp/data/events_stream_dc1.json (2 MB) в DC1"
+# 1.3 Создание каталогов и загрузка тестовых файлов в HDFS DC2 (hdfs-cluster-2)
+echo "   Подготовка HDFS кластера DC2..."
+docker exec hdfs-cluster-2 sh -c "
+  kinit -kt /etc/security/keytabs/hdfs.keytab nn/hdfs-cluster-2@COMPANY.LOCAL && \
+  hdfs dfs -mkdir -p /tmp/data /backup/warehouse /data/production/events/2026-10 && \
+  head -c 3145728 /dev/urandom | hdfs dfs -put -f - /tmp/data/analytics_report_dc2.parquet && \
+  head -c 2097152 /dev/urandom | hdfs dfs -put -f - /data/production/events/2026-10/events.bin && \
+  hdfs dfs -chmod -R 777 /tmp/data /backup /data/production
+" || true
+echo "   Созданы /tmp/data/analytics_report_dc2.parquet, /data/production/events/2026-10 в HDFS DC2"
 
 echo ""
 echo "==> 2. Создание задачи №1: Инженер данных (@writer_user, DC1 ➔ DC2)..."

@@ -26,17 +26,21 @@ public class ReplicationScheduler {
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository,
-                                org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService) {
+                                org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
+                                @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                org.springframework.transaction.PlatformTransactionManager transactionManager) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.lockService = lockService;
+        this.txTemplate = transactionManager != null ? new org.springframework.transaction.support.TransactionTemplate(transactionManager) : null;
     }
 
     public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository) {
-        this(jobRepository, jobRunRepository, null);
+        this(jobRepository, jobRunRepository, null, null);
     }
 
     public static Instant computeNextRun(String cronExpr, Instant baseTime) {
@@ -80,6 +84,14 @@ public class ReplicationScheduler {
 
     @Transactional
     public void executeScheduledRuns() {
+        if (txTemplate != null) {
+            txTemplate.executeWithoutResult(status -> doExecuteScheduledRuns());
+        } else {
+            doExecuteScheduledRuns();
+        }
+    }
+
+    private void doExecuteScheduledRuns() {
         Instant now = Instant.now();
         List<JobEntity> dueJobs = jobRepository.findByIsScheduledTrueAndNextRunAtLessThanEqual(now);
 
