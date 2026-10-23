@@ -132,7 +132,9 @@ public class JobService {
                 entity.setHistoryRetentionRuns(req.historyRetentionRuns());
             }
             entity.setStatus("SCHEDULED");
-            entity.setNextRunAt(ReplicationScheduler.computeNextRun(req.cronExpression(), Instant.now()));
+            // Немедленный первый запуск: планировщик (тик каждые 5 сек) сразу выполнит первый запуск,
+            // а затем рассчитает время следующего запуска на основе cronExpression
+            entity.setNextRunAt(Instant.now());
             jobRepository.save(entity);
         } else {
             entity.setSyncMode("MANUAL");
@@ -335,7 +337,13 @@ public class JobService {
             if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
                 job.setExecutionPrincipal(req.executionPrincipal());
             }
-            if (req.isScheduled() != null) job.setScheduled(req.isScheduled());
+            if (req.isScheduled() != null) {
+                boolean wasScheduled = job.isScheduled();
+                job.setScheduled(req.isScheduled());
+                if (req.isScheduled() && (!wasScheduled || job.getNextRunAt() == null)) {
+                    job.setNextRunAt(Instant.now());
+                }
+            }
             if (req.cronExpression() != null) job.setCronExpression(req.cronExpression());
             if (req.historyRetentionRuns() != null) job.setHistoryRetentionRuns(req.historyRetentionRuns());
             jobRepository.save(job);

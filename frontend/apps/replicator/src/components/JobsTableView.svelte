@@ -167,6 +167,9 @@
   }
 
   function formatEta(job: Job): string {
+    if (job.status === 'SCHEDULED') {
+      return job.next_run_at ? formatTime(job.next_run_at) : 'По расписанию';
+    }
     if (job.status === 'COMPLETED') {
       return formatTime(job.completed_at || job.updated_at);
     }
@@ -566,7 +569,7 @@
                     <div class="flex items-center justify-between">
                       <span class="flex items-center gap-1 text-slate-400">
                         <Play class="w-2.5 h-2.5 text-sky-500 shrink-0" />
-                        <span>Старт:</span>
+                        <span>{job.status === 'SCHEDULED' ? (!job.started_at ? 'Создана:' : 'Посл. старт:') : 'Старт:'}</span>
                       </span>
                       <span class="font-mono text-slate-700 dark:text-slate-300 font-medium">
                         {formatTime(job.started_at || job.created_at)}
@@ -576,12 +579,24 @@
                     <div class="flex items-center justify-between">
                       <span class="flex items-center gap-1 text-slate-400">
                         <Clock class="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                        <span>{job.status === 'COMPLETED' ? 'Финиш:' : 'ETA:'}</span>
+                        <span>{job.status === 'SCHEDULED' ? 'След. запуск:' : job.status === 'COMPLETED' ? 'Финиш:' : 'ETA:'}</span>
                       </span>
                       <span class="font-mono text-slate-700 dark:text-slate-300 font-medium truncate max-w-[150px]" title={formatEta(job)}>
                         {formatEta(job)}
                       </span>
                     </div>
+
+                    {#if job.status !== 'SCHEDULED' && job.is_scheduled && job.next_run_at}
+                      <div class="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
+                        <span class="flex items-center gap-1">
+                          <Calendar class="w-2.5 h-2.5 shrink-0" />
+                          <span>След. запуск:</span>
+                        </span>
+                        <span class="font-mono font-medium">
+                          {formatTime(job.next_run_at)}
+                        </span>
+                      </div>
+                    {/if}
 
                     <div class="flex items-center justify-between">
                       <span class="flex items-center gap-1 text-slate-400">

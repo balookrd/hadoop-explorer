@@ -182,6 +182,62 @@ echo "      Статус: ACTIVE (первичный Bootstrap выполнен,
 echo "      Связанные задачи HDFS помечены как HMS_SUBJOB и изолированы от обычного списка задач"
 
 echo ""
+echo "==> 8. Создание задачи №7: Репликация Kafka (DC1 ➔ DC2)..."
+if docker ps --format '{{.Names}}' | grep -q "kafka-cluster-1"; then
+  # Инициализация топиков если контейнеры доступны
+  docker exec kafka-cluster-1 bash -c 'echo "security.protocol=SASL_PLAINTEXT
+sasl.mechanism=GSSAPI
+sasl.kerberos.service.name=kafka
+sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true keyTab=\"/etc/security/keytabs/kafka-cluster-1.keytab\" principal=\"kafka/kafka-cluster-1.demo-platform-net@COMPANY.LOCAL\";" > /etc/kafka/client.properties' 2>/dev/null || true
+
+  docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+    kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
+    --command-config /etc/kafka/client.properties \
+    --create --if-not-exists --topic orders-avro --partitions 3 --replication-factor 1 >/dev/null 2>&1 || true
+
+  docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+    kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
+    --command-config /etc/kafka/client.properties \
+    --create --if-not-exists --topic metrics-raw --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+
+  docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+    kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
+    --command-config /etc/kafka/client.properties \
+    --create --if-not-exists --topic user-cache --partitions 1 --replication-factor 1 \
+    --config cleanup.policy=compact >/dev/null 2>&1 || true
+
+  KAFKA_JOB_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" \
+    "${AUTH_HEADER[@]}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "demo-kafka-replication-dc1-dc2",
+      "sourceDc": "DC1",
+      "targetDc": "DC2",
+      "direction": "UNIDIRECTIONAL",
+      "sourceBootstrapServers": "kafka-cluster-1.demo-platform-net:9092",
+      "targetBootstrapServers": "kafka-cluster-2.demo-platform-net:9092",
+      "topics": [
+        {"topic": "orders-avro", "payloadMode": "SCHEMA_REGISTRY"},
+        {"topic": "metrics-raw", "payloadMode": "PASSTHROUGH"},
+        {"topic": "user-cache", "payloadMode": "PASSTHROUGH"}
+      ],
+      "consumerGroups": ["billing-group", "analytics-group"],
+      "schemaTranscodingEnabled": false,
+      "sourceKerberosEnabled": true,
+      "targetKerberosEnabled": true,
+      "bandwidthLimitMb": 50.0,
+      "offsetSyncIntervalSec": 2
+    }')
+
+  KAFKA_JOB_ID=$(echo "$KAFKA_JOB_RESP" | grep -o '"id":"[^"]*' | cut -d'"' -f4 || echo "unknown")
+  echo "   ✅ Задача Kafka репликации создана: ID=${KAFKA_JOB_ID}"
+  echo "      Топики: orders-avro, metrics-raw, user-cache (DC1 -> DC2)"
+  echo "      Консьюмер-группы: billing-group, analytics-group"
+else
+  echo "   ℹ️ Контейнеры Kafka не запущены (docker-compose.kafka.yml). Шаг репликации Kafka пропущен."
+fi
+
+echo ""
 echo "========================================================================"
 echo "🎉 Демонстрационные задачи успешно созданы и готовы к проверке!"
 echo ""
@@ -189,9 +245,10 @@ echo "👉 Откройте веб-консоль:"
 echo "   URL: http://localhost:8005"
 echo ""
 echo "   Разделы веб-консоли:"
-echo "   1. «HMS Replication»  — репликация метаданных Hive, статус CDC, аудит событий"
+echo "   1. «Kafka Replication» — активные потоки репликации топиков и смещений групп"
+echo "   2. «HMS Replication»   — репликация метаданных Hive, статус CDC, аудит событий"
 echo "      и дочерние скрытые задачи передачи партиций (HMS_SUBJOB)"
-echo "   2. «HDFS Replication» — стандартные регламентные задачи копирования данных"
-echo "   3. «Топология ЦОД и Полоса» — лимиты полосы и статус агентов DC1 / DC2"
-echo "   4. «Disaster Recovery» — консоль аварийного переключения DC1 ⇄ DC2 и Kill-Switch"
+echo "   3. «HDFS Replication»  — стандартные регламентные задачи копирования данных"
+echo "   4. «Топология ЦОД и Полоса» — лимиты полосы и статус агентов DC1 / DC2"
+echo "   5. «Disaster Recovery»  — консоль аварийного переключения DC1 ⇄ DC2 и Kill-Switch"
 echo "========================================================================"
