@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.kafka.offset;
 
+import org.apache.hadoop.explorer.replicator.kafka.filter.ConsumerGroupBlacklistFilter;
 import org.apache.hadoop.explorer.replicator.kafka.generated.OffsetSyncRequest;
 import org.apache.hadoop.explorer.replicator.kafka.generated.TopicPartitionOffset;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -26,11 +27,30 @@ public class ConsumerGroupOffsetScanner {
     private final AdminClient sourceAdminClient;
     private final String sourceDcId;
     private final String targetDcId;
+    private final ConsumerGroupBlacklistFilter blacklistFilter;
 
     public ConsumerGroupOffsetScanner(AdminClient sourceAdminClient, String sourceDcId, String targetDcId) {
+        this(sourceAdminClient, sourceDcId, targetDcId, ConsumerGroupBlacklistFilter.defaultFilter());
+    }
+
+    public ConsumerGroupOffsetScanner(AdminClient sourceAdminClient, String sourceDcId, String targetDcId,
+                                      ConsumerGroupBlacklistFilter blacklistFilter) {
         this.sourceAdminClient = Objects.requireNonNull(sourceAdminClient, "sourceAdminClient must not be null");
         this.sourceDcId = Objects.requireNonNull(sourceDcId, "sourceDcId must not be null");
         this.targetDcId = Objects.requireNonNull(targetDcId, "targetDcId must not be null");
+        this.blacklistFilter = Objects.requireNonNull(blacklistFilter, "blacklistFilter must not be null");
+    }
+
+    public ConsumerGroupBlacklistFilter getBlacklistFilter() {
+        return blacklistFilter;
+    }
+
+    public boolean isExcludedGroup(String groupId) {
+        return blacklistFilter.isExcluded(groupId);
+    }
+
+    public List<String> filterAllowedGroups(Collection<String> groupIds) {
+        return blacklistFilter.filterAllowed(groupIds);
     }
 
     /**
@@ -70,6 +90,14 @@ public class ConsumerGroupOffsetScanner {
                                                    Map<TopicPartition, Map<Long, Long>> exactOffsetTimestamps,
                                                    Map<TopicPartition, Long> directTargetOffsets,
                                                    boolean forceCommit) {
+        if (groupId == null || groupId.isBlank()) {
+            return Optional.empty();
+        }
+        if (blacklistFilter.isExcluded(groupId)) {
+            log.info("Сканирование оффсетов для группы '{}' пропущено: группа находится в черном списке служебных/инфраструктурных групп ({})",
+                    groupId, blacklistFilter.getRegexString());
+            return Optional.empty();
+        }
         try {
             ListConsumerGroupOffsetsResult result = sourceAdminClient.listConsumerGroupOffsets(groupId);
             Map<TopicPartition, OffsetAndMetadata> groupOffsets = result.partitionsToOffsetAndMetadata().get(5, TimeUnit.SECONDS);
@@ -167,6 +195,29 @@ public class ConsumerGroupOffsetScanner {
             log.warn("Не удалось просканировать оффсеты для группы '{}': {}", groupId, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Пакетное сканирование множества групп с автоматическим исключением групп из черного списка.
+     */
+    public List<OffsetSyncRequest> scanOffsetsForGroups(Collection<String> groupIds,
+                                                        Set<String> topicFilter,
+                                                        Map<TopicPartition, Long> lastTimestampMap,
+                                                        Map<TopicPartition, Long> lastReplicatedOffsetMap,
+                                                        Map<TopicPartition, Map<Long, Long>> exactOffsetTimestamps,
+                                                        Map<TopicPartition, Long> directTargetOffsets,
+                                                        boolean forceCommit) {
+        if (groupIds == null || groupIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> allowed = blacklistFilter.filterAllowed(groupIds);
+        List<OffsetSyncRequest> requests = new ArrayList<>();
+        for (String gid : allowed) {
+            scanOffsets(gid, topicFilter, lastTimestampMap, lastReplicatedOffsetMap,
+                    exactOffsetTimestamps, directTargetOffsets, forceCommit)
+                    .ifPresent(requests::add);
+        }
+        return requests;
     }
 
     private Map<TopicPartition, Long> fetchEndOffsets(Set<TopicPartition> partitions) {

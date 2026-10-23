@@ -327,6 +327,12 @@
     - **Устранение Carrier Thread Pinning в gRPC Control Plane**: в `OrchestratorGrpcServer` экзекутор Netty переведен с `Executors.newVirtualThreadPerTaskExecutor()` на управляемый пул платформенных потоков `ThreadPoolExecutor` с очередью `LinkedBlockingQueue` и graceful shutdown. Ликвидирована блокировка несущих потоков `ForkJoinPool` при транзакциях JPA / JDBC / H2, прекращен лавинообразный рост carrier-потоков и устранен busy-spin в `awaitWork()`.
     - **Адаптивный Idle Backoff в цикле HMS репликатора**: в `ReplicatorAgent.runHmsLoop` внедрен экспоненциальный бэкофф с джиттером $\pm 20\%$ (базовый интервал 2.0с, максимальный 15.0с) при отсутствии новых CDC-событий, ликвидировавший холостой опрос с задержкой 200 мс. Утилизация CPU оркестратора в режиме покоя снизилась с 81.6%–114% до 0.1%–5%, а дисковый Block I/O сокращен с 13.5 GB до 150 KB.
 
+44. **Изоляция и черный список консьюмер-групп Kafka (Consumer Group Blacklist Gate)**:
+    - **Исключение служебных и инфраструктурных групп**: в `ConsumerGroupBlacklistFilter` реализован регулярный шаблон исключения `^(kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`.
+    - **Защита на этапе сканирования (`ConsumerGroupOffsetScanner`)**: при синхронизации смещений служебные группы отсекаются до запроса оффсетов у Kafka AdminClient, исключая лишнюю нагрузку и предотвращая повреждение оффсетов локальных консьюмеров агента.
+    - **Защитный гейт на этапе коммита (`SafetyCommitManager`)**: при попытке применить оффсеты служебных групп в целевом ДЦ запрос немедленно отклоняется с информативным кодом ошибки.
+    - **Фильтрация в Live Discovery и создании задач (`KafkaReplicationOrchestratorService`)**: из списков обнаружения `/api/v1/kafka/consumer-groups` и при создании заданий паразитные группы автоматически отфильтровываются.
+
 ---
 
 ## 2. Быстрый запуск

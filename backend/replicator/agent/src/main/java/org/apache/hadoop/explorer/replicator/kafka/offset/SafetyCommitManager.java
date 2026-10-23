@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.kafka.offset;
 
+import org.apache.hadoop.explorer.replicator.kafka.filter.ConsumerGroupBlacklistFilter;
 import org.apache.hadoop.explorer.replicator.kafka.generated.OffsetSyncRequest;
 import org.apache.hadoop.explorer.replicator.kafka.generated.OffsetSyncResponse;
 import org.apache.hadoop.explorer.replicator.kafka.generated.TopicPartitionOffset;
@@ -29,11 +30,18 @@ public class SafetyCommitManager {
 
     private final AdminClient targetAdminClient;
     private final KafkaConsumer<?, ?> timeResolverConsumer;
+    private final ConsumerGroupBlacklistFilter blacklistFilter;
     private final java.util.concurrent.locks.ReentrantLock timeResolverLock = new java.util.concurrent.locks.ReentrantLock();
 
     public SafetyCommitManager(AdminClient targetAdminClient, KafkaConsumer<?, ?> timeResolverConsumer) {
+        this(targetAdminClient, timeResolverConsumer, ConsumerGroupBlacklistFilter.defaultFilter());
+    }
+
+    public SafetyCommitManager(AdminClient targetAdminClient, KafkaConsumer<?, ?> timeResolverConsumer,
+                               ConsumerGroupBlacklistFilter blacklistFilter) {
         this.targetAdminClient = Objects.requireNonNull(targetAdminClient, "targetAdminClient must not be null");
         this.timeResolverConsumer = Objects.requireNonNull(timeResolverConsumer, "timeResolverConsumer must not be null");
+        this.blacklistFilter = Objects.requireNonNull(blacklistFilter, "blacklistFilter must not be null");
     }
 
     /**
@@ -45,6 +53,17 @@ public class SafetyCommitManager {
     public OffsetSyncResponse applyOffsetsSafely(OffsetSyncRequest request) {
         String groupId = request.getGroupId();
         boolean force = request.getForceCommit();
+
+        if (blacklistFilter.isExcluded(groupId)) {
+            log.warn("Синхронизация оффсетов группы '{}' отклонена: группа находится в черном списке служебных групп ({})",
+                    groupId, blacklistFilter.getRegexString());
+            return OffsetSyncResponse.newBuilder()
+                    .setGroupId(groupId != null ? groupId : "unknown")
+                    .setSuccess(false)
+                    .setBypassedActiveGroup(false)
+                    .setErrorMessage("Group is blacklisted as internal/infrastructure group: " + groupId)
+                    .build();
+        }
 
         try {
             // 1. Проверяем статус группы в целевом кластере

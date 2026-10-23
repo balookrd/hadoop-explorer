@@ -2,6 +2,7 @@ package org.apache.hadoop.explorer.replicator.orchestrator.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hadoop.explorer.replicator.kafka.filter.ConsumerGroupBlacklistFilter;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
@@ -234,7 +235,16 @@ public class KafkaReplicationOrchestratorService {
 
         try {
             entity.setTopicsJson(mapper.writeValueAsString(request.getTopics() != null ? request.getTopics() : Collections.emptyList()));
-            entity.setConsumerGroupsJson(mapper.writeValueAsString(request.getConsumerGroups() != null ? request.getConsumerGroups() : Collections.emptyList()));
+
+            ConsumerGroupBlacklistFilter groupFilter = ConsumerGroupBlacklistFilter.defaultFilter();
+            List<String> rawGroups = request.getConsumerGroups() != null ? request.getConsumerGroups() : Collections.emptyList();
+            List<String> filteredGroups = groupFilter.filterAllowed(rawGroups);
+            Set<String> excludedGroups = groupFilter.filterExcluded(rawGroups);
+            if (!excludedGroups.isEmpty()) {
+                log.warn("При создании задачи репликации служебные/инфраструктурные консьюмер-группы исключены из синхронизации: {}", excludedGroups);
+            }
+            entity.setConsumerGroupsJson(mapper.writeValueAsString(filteredGroups));
+
             List<String> effectiveEndpoints = request.getTargetEndpoints();
             if ((effectiveEndpoints == null || effectiveEndpoints.isEmpty()) && request.getTargetDc() != null) {
                 effectiveEndpoints = getLiveReceiverEndpoints(request.getTargetDc());
@@ -590,7 +600,12 @@ public class KafkaReplicationOrchestratorService {
             if (listings == null || listings.isEmpty()) {
                 return Collections.emptyList();
             }
-            List<String> groupIds = listings.stream().map(ConsumerGroupListing::groupId).toList();
+            List<String> rawGroupIds = listings.stream().map(ConsumerGroupListing::groupId).toList();
+            ConsumerGroupBlacklistFilter groupFilter = ConsumerGroupBlacklistFilter.defaultFilter();
+            List<String> groupIds = groupFilter.filterAllowed(rawGroupIds);
+            if (groupIds.isEmpty()) {
+                return Collections.emptyList();
+            }
 
             DescribeConsumerGroupsResult describeResult = adminClient.describeConsumerGroups(groupIds, new DescribeConsumerGroupsOptions().timeoutMs(5000));
             Map<String, ConsumerGroupDescription> descriptions = describeResult.all() != null

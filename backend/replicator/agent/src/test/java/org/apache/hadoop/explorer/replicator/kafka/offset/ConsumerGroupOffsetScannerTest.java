@@ -206,4 +206,57 @@ class ConsumerGroupOffsetScannerTest {
         // Поскольку 150 < 300, сканер определил lag и не подставил lastTimestamp
         assertEquals(0L, tpo.getTimestamp(), "Автоматически обнаружен lag через AdminClient: timestamp должен быть 0");
     }
+
+    @Test
+    @DisplayName("Исключение служебных/инфраструктурных консьюмер-групп из сканирования (Blacklist)")
+    void shouldSkipBlacklistedConsumerGroups() {
+        List<String> blacklistedGroups = List.of(
+                "kafka-replicator-dc1",
+                "kafka-replicator-time-resolver-dc1",
+                "replicator-agent-01",
+                "hadoop-replicator-job-99",
+                "__consumer_offsets",
+                "schema-registry-dc1",
+                "connect-cluster-01",
+                "console-consumer-94812",
+                "kafka-exporter-core"
+        );
+
+        for (String blacklisted : blacklistedGroups) {
+            Optional<OffsetSyncRequest> req = scanner.scanOffsets(
+                    blacklisted,
+                    Set.of(TOPIC),
+                    Map.of(TP0, 1000L),
+                    false
+            );
+            assertTrue(req.isEmpty(), "Группа '" + blacklisted + "' должна быть исключена из сканирования!");
+        }
+
+        // Проверяем, что к mockAdminClient для blacklisted групп не было обращений
+        verify(mockAdminClient, never()).listConsumerGroupOffsets(anyString());
+    }
+
+    @Test
+    @DisplayName("Пакетное сканирование групп scanOffsetsForGroups фильтрует группы черного списка")
+    void shouldFilterBlacklistedGroupsInBatchScan() {
+        Map<TopicPartition, OffsetAndMetadata> groupOffsets = Map.of(
+                TP0, new OffsetAndMetadata(500L)
+        );
+        ListConsumerGroupOffsetsResult listGroupResult = mock(ListConsumerGroupOffsetsResult.class);
+        when(listGroupResult.partitionsToOffsetAndMetadata()).thenReturn(KafkaFuture.completedFuture(groupOffsets));
+        when(mockAdminClient.listConsumerGroupOffsets("allowed-orders-group")).thenReturn(listGroupResult);
+
+        List<OffsetSyncRequest> requests = scanner.scanOffsetsForGroups(
+                List.of("kafka-replicator-dc1", "allowed-orders-group", "__consumer_offsets", "schema-registry-dc2"),
+                Set.of(TOPIC),
+                Map.of(TP0, 1000L),
+                Map.of(TP0, 500L),
+                null,
+                null,
+                false
+        );
+
+        assertEquals(1, requests.size(), "Должна быть обработана ровно одна разрешенная группа");
+        assertEquals("allowed-orders-group", requests.get(0).getGroupId());
+    }
 }

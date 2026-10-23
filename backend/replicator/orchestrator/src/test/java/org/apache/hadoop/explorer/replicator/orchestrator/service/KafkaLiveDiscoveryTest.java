@@ -92,13 +92,21 @@ public class KafkaLiveDiscoveryTest {
     }
 
     @Test
-    @DisplayName("Live Discovery: успешное обнаружение консьюмер-групп из кластера Kafka")
+    @DisplayName("Live Discovery: успешное обнаружение консьюмер-групп из кластера Kafka с фильтрацией служебного черного списка")
     void shouldDiscoverGroupsFromLiveCluster() throws Exception {
         ListConsumerGroupsResult listGroupsResult = mock(ListConsumerGroupsResult.class);
         KafkaFuture<Collection<ConsumerGroupListing>> listingFuture = mock(KafkaFuture.class);
         ConsumerGroupListing listing1 = new ConsumerGroupListing("billing-worker-grp", false);
         ConsumerGroupListing listing2 = new ConsumerGroupListing("analytics-grp", false);
-        when(listingFuture.get(anyLong(), any())).thenReturn(List.of(listing1, listing2));
+        ConsumerGroupListing listingRepl = new ConsumerGroupListing("kafka-replicator-dc1", false);
+        ConsumerGroupListing listingConnect = new ConsumerGroupListing("connect-mirror-maker", false);
+        ConsumerGroupListing listingSr = new ConsumerGroupListing("schema-registry-dc2", false);
+        ConsumerGroupListing listingSys = new ConsumerGroupListing("__consumer_offsets", false);
+        ConsumerGroupListing listingConsole = new ConsumerGroupListing("console-consumer-99999", false);
+
+        when(listingFuture.get(anyLong(), any())).thenReturn(List.of(
+                listing1, listing2, listingRepl, listingConnect, listingSr, listingSys, listingConsole
+        ));
         when(listGroupsResult.all()).thenReturn(listingFuture);
         when(adminClient.listConsumerGroups(any(ListConsumerGroupsOptions.class))).thenReturn(listGroupsResult);
 
@@ -115,7 +123,7 @@ public class KafkaLiveDiscoveryTest {
 
         List<Map<String, Object>> groups = service.discoverConsumerGroups("live-kafka:9092", false, null, null, null);
 
-        assertEquals(2, groups.size());
+        assertEquals(2, groups.size(), "Служебные группы репликатора, schema-registry, connect и __consumer_offsets должны быть отфильтрованы");
         Map<String, Object> billingGroup = groups.stream()
                 .filter(g -> "billing-worker-grp".equals(g.get("groupId")))
                 .findFirst()
