@@ -7,3 +7,37 @@ hadoop:
     # поскольку тесты регистрируют агентов в произвольных идентификаторах кластеров.
     agent-secret: "test-orchestrator-agent-secret-0123456789"
     enforce-cluster-whitelist: false
+    # Топология тестов. dc1/dc2 — рабочая пара ЦОД, которую используют сценарии репликации.
+    # dc10 и кластеры prod-a/prod-b добавлены для проверки строгого сопоставления:
+    # идентификаторы dc1 и dc10 намеренно похожи.
+    datacenters:
+      - id: "dc1"
+        name: "Primary DC"
+      - id: "dc2"
+        name: "Secondary DC"
+      - id: "dc10"
+        name: "Lookalike DC"
+    clusters:
+      - id: "dc1"
+        name: "DC1 Cluster"
+        dc-id: "dc1"
+        kafka-bootstrap-servers: "kafka-dc1:9092"
+      - id: "dc2"
+        name: "DC2 Cluster"
+        dc-id: "dc2"
+        kafka-bootstrap-servers: "kafka-dc2:9092"
+      - id: "prod-a"
+        name: "Cluster A"
+        dc-id: "dc1"
+      - id: "prod-b"
+        name: "Cluster B"
+        dc-id: "dc10"
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        generate_statistics: true
+        # Перехват SQL для точных утверждений в тестах (см. CapturingStatementInspector)
+        session_factory:
+          statement_inspector: org.apache.hadoop.explorer.replicator.orchestrator.repository.CapturingStatementInspector

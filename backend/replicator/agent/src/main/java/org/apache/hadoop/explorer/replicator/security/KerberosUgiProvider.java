@@ -31,6 +31,12 @@ public class KerberosUgiProvider {
     private final String servicePrincipal;
     private final String keytabPath;
     private final Configuration conf;
+
+    /** Кэш proxy-UGI по имени имперсонируемого пользователя для текущей техучетки. */
+    private final java.util.concurrent.ConcurrentMap<String, UserGroupInformation> proxyUgiCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final Object proxyUgiLock = new Object();
+    private volatile UserGroupInformation proxyUgiBase;
     private volatile boolean kerberosLoggedIn = false;
 
     public KerberosUgiProvider(Configuration conf, String servicePrincipal, String keytabPath) {
@@ -162,9 +168,33 @@ public class KerberosUgiProvider {
 
         // Выполнение с doAs имперсонацией конечного пользователя
         String impersonateUser = extractUsername(executionPrincipal);
-        logger.debug("Создание Hadoop Proxy User doAs контекста для '{}' (техучетка: '{}')",
-                impersonateUser, baseUgi.getUserName());
-        return UserGroupInformation.createProxyUser(impersonateUser, baseUgi);
+        return proxyUserFor(impersonateUser, baseUgi);
+    }
+
+    /**
+     * Proxy-UGI для имперсонации пользователя поверх системной техучетки.
+     *
+     * <p>UGI кэшируется по паре (пользователь, техучетка): {@code FileSystem.Cache} ключуется
+     * по UGI, а {@code UGI.equals} сравнивает {@code Subject} по ссылке, поэтому новый proxy-UGI
+     * на каждую операцию навсегда оставлял в кэше новый {@code DistributedFileSystem} с
+     * собственными сокетами и lease-renewer-потоком. Кэш сбрасывается при смене техучетки
+     * (перелогин по keytab), чтобы не удерживать устаревшие билеты.
+     */
+    UserGroupInformation proxyUserFor(String impersonateUser, UserGroupInformation baseUgi) {
+        UserGroupInformation cachedBase = proxyUgiBase;
+        if (cachedBase != baseUgi) {
+            synchronized (proxyUgiLock) {
+                if (proxyUgiBase != baseUgi) {
+                    proxyUgiCache.clear();
+                    proxyUgiBase = baseUgi;
+                }
+            }
+        }
+        return proxyUgiCache.computeIfAbsent(impersonateUser, user -> {
+            logger.debug("Создание Hadoop Proxy User doAs контекста для '{}' (техучетка: '{}')",
+                    user, baseUgi.getUserName());
+            return UserGroupInformation.createProxyUser(user, baseUgi);
+        });
     }
 
     public String getServicePrincipal() {

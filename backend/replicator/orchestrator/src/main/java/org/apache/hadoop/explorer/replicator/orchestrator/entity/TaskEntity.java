@@ -32,11 +32,24 @@ import java.time.Instant;
     }
 )
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public class TaskEntity {
+public class TaskEntity implements org.springframework.data.domain.Persistable<String> {
 
     @Id
     @Column(name = "id", length = 64)
     private String id;
+
+    /**
+     * Признак еще не сохраненной задачи.
+     *
+     * <p>Идентификатор задачи присваивается кодом, поэтому без {@code Persistable} Spring Data
+     * считает сущность «возможно существующей» и сохраняет ее через {@code em.merge()}:
+     * перед каждой вставкой выполняется SELECT. На пакете анализа из десятков тысяч файлов
+     * это такое же число одиночных запросов, и JDBC-батчинг ускоряет только сам INSERT.
+     * Флаг транзиентный: после сохранения или загрузки сущность перестает быть новой.
+     */
+    @Transient
+    @JsonIgnore
+    private boolean persisted = false;
 
     @Column(name = "job_id", nullable = false, length = 64)
     private String jobId;
@@ -133,4 +146,16 @@ public class TaskEntity {
 
     public String getBundleManifest() { return bundleManifest; }
     public void setBundleManifest(String bundleManifest) { this.bundleManifest = bundleManifest; }
+
+    @Override
+    @JsonIgnore
+    public boolean isNew() {
+        return !persisted;
+    }
+
+    @jakarta.persistence.PostPersist
+    @jakarta.persistence.PostLoad
+    void markPersisted() {
+        this.persisted = true;
+    }
 }

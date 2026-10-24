@@ -997,19 +997,24 @@ public class DisasterRecoveryService {
         throw new IllegalArgumentException("Задача с ID '" + jobId + "' не найдена");
     }
 
-    private static boolean matchesReversePath(JobEntity rj, JobEntity direct) {
+    /**
+     * Является ли задача зеркалом прямой: требуется инверсия обоих путей.
+     *
+     * <p>Прежний ранний возврат по совпадению одного пути вырождал условие в «совпал хотя бы
+     * один путь по суффиксу»: произвольная чужая задача выглядела как уже существующий реверс,
+     * и при failover обратная репликация не создавалась вовсе.
+     */
+    boolean matchesReversePath(JobEntity rj, JobEntity direct) {
         if (rj == null || direct == null) return false;
-        // Основной режим: кластеры и пути инвертированы (source <-> target)
-        if (isSameOrFlippedPath(rj.getSourcePath(), direct.getTargetPath())
-                && isSameOrFlippedPath(rj.getTargetPath(), direct.getSourcePath())) {
+        // Основной режим: пути инвертированы (source <-> target)
+        if (isSamePath(rj.getSourcePath(), direct.getTargetPath())
+                && isSamePath(rj.getTargetPath(), direct.getSourcePath())) {
             return true;
         }
-        if (isSameOrFlippedPath(rj.getSourcePath(), direct.getTargetPath())) {
-            return true;
-        }
-        // Поддержка случаев, когда пути на обоих кластерах совпадали
-        return isSameOrFlippedPath(rj.getSourcePath(), direct.getSourcePath())
-                && isSameOrFlippedPath(rj.getTargetPath(), direct.getTargetPath());
+        // Пути совпадают на обоих кластерах: зеркальность определяется кластерами,
+        // которые проверяются вызывающей стороной
+        return isSamePath(rj.getSourcePath(), direct.getSourcePath())
+                && isSamePath(rj.getTargetPath(), direct.getTargetPath());
     }
 
     private static boolean matchesCluster(String c1, String c2) {
@@ -1020,15 +1025,43 @@ public class DisasterRecoveryService {
         return c1n.equals(c2n);
     }
 
-    private static boolean matchesDc(String clusterOrDc, String dc) {
+    /**
+     * Принадлежность кластера (или самого идентификатора ЦОД) указанному ЦОД.
+     *
+     * <p>Сопоставление строгое: либо идентификаторы совпадают, либо кластер явно объявлен
+     * в топологии с этим {@code dcId}. Сравнение подстрокой считало `dc10` тем же самым
+     * ЦОД, что и `dc1`, из-за чего ограждение Kill-Switch пропускало соседний датацентр,
+     * а агенты похожих кластеров попадали в чужую статистику.
+     */
+    boolean matchesDc(String clusterOrDc, String dc) {
         if (clusterOrDc == null || dc == null) return false;
-        String cNorm = clusterOrDc.toLowerCase();
-        String dNorm = dc.toLowerCase();
-        return cNorm.contains(dNorm) || dNorm.contains(cNorm);
+        if (matchesCluster(clusterOrDc, dc)) {
+            return true;
+        }
+        if (topologyRegistry == null) {
+            return false;
+        }
+        return topologyRegistry.getClusters().stream()
+                .filter(cluster -> matchesCluster(cluster.getId(), clusterOrDc))
+                .anyMatch(cluster -> matchesCluster(cluster.getDcId(), dc));
     }
 
-    private static boolean isSameOrFlippedPath(String p1, String p2) {
+    /**
+     * Равенство путей репликации.
+     *
+     * <p>Только полное совпадение (с точностью до завершающего слэша). Сравнение по суффиксу
+     * считало `/sales` тем же путем, что `/warehouse/sales`.
+     */
+    private static boolean isSamePath(String p1, String p2) {
         if (p1 == null || p2 == null) return false;
-        return p1.equalsIgnoreCase(p2) || p1.endsWith(p2) || p2.endsWith(p1);
+        return normalizePath(p1).equalsIgnoreCase(normalizePath(p2));
+    }
+
+    private static String normalizePath(String path) {
+        String trimmed = path.trim();
+        while (trimmed.length() > 1 && trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 }

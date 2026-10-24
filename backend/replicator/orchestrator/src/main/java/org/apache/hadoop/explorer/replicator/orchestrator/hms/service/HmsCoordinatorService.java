@@ -797,12 +797,19 @@ public class HmsCoordinatorService {
                 .orElse(false);
     }
 
+    /**
+     * Сопоставление идентификаторов кластеров: нормализация разделителей и регистра,
+     * но без сравнения подстрокой.
+     *
+     * <p>Проверка {@code contains} позволяла агенту кластера `prod-dc1-backup` забрать задачу
+     * кластера `prod-dc1`: он читал CDC чужого метастора и применял DDL в чужом датацентре.
+     */
     private boolean matchesCluster(String c1, String c2) {
         if (c1 == null || c2 == null) return false;
         if (c1.equalsIgnoreCase(c2)) return true;
         String n1 = c1.toLowerCase().replace("-", "").replace("_", "");
         String n2 = c2.toLowerCase().replace("-", "").replace("_", "");
-        return n1.equals(n2) || n1.contains(n2) || n2.contains(n1);
+        return n1.equals(n2);
     }
 
     /**

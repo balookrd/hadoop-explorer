@@ -9,6 +9,21 @@ import java.util.List;
 @Table(name = "replication_jobs")
 public class JobEntity {
 
+    /**
+     * Версия для оптимистичной блокировки.
+     *
+     * <p>Статус и счетчики задачи обновляются read-modify-write одновременно из gRPC-вызовов
+     * агентов, планировщиков и REST, в том числе с разных узлов active-active. Без версии
+     * последняя запись молча затирала предыдущую: параллельные отказы терялись в счетчике,
+     * а финализация задачи перетирала статус failover-а.
+     */
+    @Version
+    @Column(name = "version")
+    private Long version;
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
+
     @Id
     @Column(name = "id", length = 64)
     private String id;
