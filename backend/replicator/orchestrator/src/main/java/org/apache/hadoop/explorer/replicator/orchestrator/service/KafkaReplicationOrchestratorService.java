@@ -92,7 +92,6 @@ public class KafkaReplicationOrchestratorService {
                 .toList();
     }
 
-    @Transactional
     public KafkaReplicationJobDto createJob(CreateKafkaJobRequest request) {
         String id = "kafka-job-" + UUID.randomUUID().toString().substring(0, 8);
         KafkaReplicationJobEntity entity = new KafkaReplicationJobEntity();
@@ -256,57 +255,86 @@ public class KafkaReplicationOrchestratorService {
             throw new RuntimeException("Failed to serialize topics or consumer groups to JSON", e);
         }
 
-        // Автоматическая предварительная проверка и создание топиков на целевом брокере
+        // Задача записывается до обращения к брокерам: провижининг топиков — блокирующий
+        // вызов AdminClient с Kerberos-логином, и внутри транзакции он удерживал соединение
+        // Hikari на весь таймаут, а недоступный брокер откатывал создание задачи целиком.
+        KafkaReplicationJobEntity saved = repository.save(entity);
+
+        String provisioningSummary = provisionTopicsOutsideTransaction(request, saved);
+        if (provisioningSummary != null) {
+            saved.setTopicProvisioningSummary(provisioningSummary);
+            saved = repository.save(saved);
+        }
+
+        log.info("Создана новая задача репликации Kafka '{}' ({}) [{} <-> {}], провижининг топиков: {}",
+                saved.getName(), saved.getId(), saved.getSourceDc(), saved.getTargetDc(), saved.getTopicProvisioningSummary());
+        return toDto(saved);
+    }
+
+
+    /**
+     * Провижининг топиков вне транзакции создания задачи.
+     *
+     * <p>Вызов блокирующий (AdminClient к обоим брокерам, при BIDIRECTIONAL дважды, с
+     * Kerberos-логином), поэтому выполняется после фиксации задачи. Сбой брокера не отменяет
+     * созданную задачу: топики можно досоздать позже, а причина сохраняется в сводке.
+     */
+    private String provisionTopicsOutsideTransaction(CreateKafkaJobRequest request, KafkaReplicationJobEntity entity) {
+        String sourceBootstrap = entity.getSourceBootstrapServers();
+        String targetBootstrap = entity.getTargetBootstrapServers();
+        try {
         if (request.isAutoCreateTopics() && request.getTopics() != null && !request.getTopics().isEmpty()) {
-            List<String> topicNames = request.getTopics().stream()
-                    .map(CreateKafkaJobRequest.TopicSetting::getTopic)
-                    .filter(Objects::nonNull)
-                    .toList();
+                List<String> topicNames = request.getTopics().stream()
+                        .map(CreateKafkaJobRequest.TopicSetting::getTopic)
+                        .filter(Objects::nonNull)
+                        .toList();
 
-            TopicProvisioningResult forwardResult = topicProvisioner.provisionTopics(
-                    sourceBootstrap,
-                    request.isSourceKerberosEnabled(),
-                    request.getSourcePrincipal(),
-                    request.getSourceKeytabPath(),
-                    request.getSourceServiceName(),
-                    targetBootstrap,
-                    request.isTargetKerberosEnabled(),
-                    request.getTargetPrincipal(),
-                    request.getTargetKeytabPath(),
-                    request.getTargetServiceName(),
-                    topicNames,
-                    false
-            );
-
-            String summary = forwardResult.toSummaryString();
-
-            // При двунаправленной репликации проверяем топики и в обратную сторону
-            if ("BIDIRECTIONAL".equalsIgnoreCase(entity.getDirection())) {
-                TopicProvisioningResult reverseResult = topicProvisioner.provisionTopics(
-                        targetBootstrap,
-                        request.isTargetKerberosEnabled(),
-                        request.getTargetPrincipal(),
-                        request.getTargetKeytabPath(),
-                        request.getTargetServiceName(),
+                TopicProvisioningResult forwardResult = topicProvisioner.provisionTopics(
                         sourceBootstrap,
                         request.isSourceKerberosEnabled(),
                         request.getSourcePrincipal(),
                         request.getSourceKeytabPath(),
                         request.getSourceServiceName(),
+                        targetBootstrap,
+                        request.isTargetKerberosEnabled(),
+                        request.getTargetPrincipal(),
+                        request.getTargetKeytabPath(),
+                        request.getTargetServiceName(),
                         topicNames,
                         false
                 );
-                if (!reverseResult.createdTopics().isEmpty() || !reverseResult.expandedTopics().isEmpty()) {
-                    summary = summary + " [Обратная репликация: " + reverseResult.toSummaryString() + "]";
-                }
-            }
-            entity.setTopicProvisioningSummary(summary);
-        }
 
-        KafkaReplicationJobEntity saved = repository.save(entity);
-        log.info("Создана новая задача репликации Kafka '{}' ({}) [{} <-> {}], провижининг топиков: {}",
-                saved.getName(), saved.getId(), saved.getSourceDc(), saved.getTargetDc(), saved.getTopicProvisioningSummary());
-        return toDto(saved);
+                String summary = forwardResult.toSummaryString();
+
+                // При двунаправленной репликации проверяем топики и в обратную сторону
+                if ("BIDIRECTIONAL".equalsIgnoreCase(entity.getDirection())) {
+                    TopicProvisioningResult reverseResult = topicProvisioner.provisionTopics(
+                            targetBootstrap,
+                            request.isTargetKerberosEnabled(),
+                            request.getTargetPrincipal(),
+                            request.getTargetKeytabPath(),
+                            request.getTargetServiceName(),
+                            sourceBootstrap,
+                            request.isSourceKerberosEnabled(),
+                            request.getSourcePrincipal(),
+                            request.getSourceKeytabPath(),
+                            request.getSourceServiceName(),
+                            topicNames,
+                            false
+                    );
+                    if (!reverseResult.createdTopics().isEmpty() || !reverseResult.expandedTopics().isEmpty()) {
+                        summary = summary + " [Обратная репликация: " + reverseResult.toSummaryString() + "]";
+                    }
+                }
+                return summary;
+            }
+
+
+        } catch (Exception e) {
+            log.error("Провижининг топиков для задачи '{}' не выполнен: {}", entity.getId(), e.getMessage());
+            return "Ошибка провижининга топиков: " + e.getMessage();
+        }
+        return null;
     }
 
     @Transactional

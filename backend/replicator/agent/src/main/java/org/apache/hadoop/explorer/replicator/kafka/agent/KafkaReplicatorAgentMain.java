@@ -171,13 +171,8 @@ public class KafkaReplicatorAgentMain {
 
         // 1. Инициализация приемника (Receiver / Dual)
         if ("receiver".equals(role) || "dual".equals(role)) {
-            Properties prodProps = new Properties();
-            prodProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-            prodProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-            prodProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-            prodProps.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
-            prodProps.put(ProducerConfig.ACKS_CONFIG, "all");
-            prodProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
+            Properties prodProps = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                    .producerProps(bootstrapServers);
             org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(prodProps, krbConfig);
 
             producer = new KafkaProducer<>(prodProps);
@@ -188,11 +183,8 @@ public class KafkaReplicatorAgentMain {
             org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(adminProps, krbConfig);
             adminClient = AdminClient.create(adminProps);
 
-            Properties resolverProps = new Properties();
-            resolverProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-            resolverProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-            resolverProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-            resolverProps.put(ConsumerConfig.GROUP_ID_CONFIG, "kafka-replicator-time-resolver-" + dcId);
+            Properties resolverProps = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                    .utilityConsumerProps(bootstrapServers, "kafka-replicator-time-resolver-" + dcId);
             org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(resolverProps, krbConfig);
             resolverConsumer = new KafkaConsumer<>(resolverProps);
 
@@ -256,16 +248,8 @@ public class KafkaReplicatorAgentMain {
 
             List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
             for (int i = 0; i < consumerThreads; i++) {
-                Properties consProps = new Properties();
-                consProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-                consProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-                consProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-                consProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-                consProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-                consProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-                consProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1);
-                consProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 50);
-                consProps.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 2097152); // 2 MB
+                Properties consProps = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                        .consumerProps(bootstrapServers, groupId, batchSize);
                 org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(consProps, krbConfig);
 
                 KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consProps);

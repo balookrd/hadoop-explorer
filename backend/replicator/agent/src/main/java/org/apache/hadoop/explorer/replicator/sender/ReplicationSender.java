@@ -40,6 +40,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ReplicationSender implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(ReplicationSender.class);
+
+    /** Предел ожидания готовности исходящего сокета перед отправкой чанка. */
+    private static final long CHUNK_READY_TIMEOUT_MS = 120_000L;
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final String workerId;
@@ -382,6 +385,7 @@ public class ReplicationSender implements AutoCloseable {
                 public void onCompleted() {
                 }
             });
+            StreamReadinessGate readinessGate = StreamReadinessGate.attach(requestObserver);
 
             // Метаданные файла
             boolean asService = runAsServiceAccount != null && runAsServiceAccount;
@@ -434,6 +438,12 @@ public class ReplicationSender implements AutoCloseable {
                             .setCompressionCodec(payload.appliedCodec())
                             .setUncompressedSize(bytesRead)
                             .build();
+
+                    // Flow Control: не отправляем, пока исходящий сокет не принимает данные,
+                    // иначе очередь Netty растет со скоростью чтения источника
+                    if (readinessGate != null) {
+                        readinessGate.awaitReady(CHUNK_READY_TIMEOUT_MS);
+                    }
 
                     long chunkSendStart = System.nanoTime();
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
@@ -629,6 +639,7 @@ public class ReplicationSender implements AutoCloseable {
                 public void onCompleted() {
                 }
             });
+            StreamReadinessGate readinessGate = StreamReadinessGate.attach(requestObserver);
 
             // Метаданные файла
             CompressionCodec effectiveCodec = WireCompressor.resolveCodecForPath(sourcePath, defaultCompressionCodec);
@@ -677,6 +688,12 @@ public class ReplicationSender implements AutoCloseable {
                             .setCompressionCodec(payload.appliedCodec())
                             .setUncompressedSize(bytesRead)
                             .build();
+
+                    // Flow Control: не отправляем, пока исходящий сокет не принимает данные,
+                    // иначе очередь Netty растет со скоростью чтения источника
+                    if (readinessGate != null) {
+                        readinessGate.awaitReady(CHUNK_READY_TIMEOUT_MS);
+                    }
 
                     long chunkSendStart = System.nanoTime();
                     requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(chunk).build());
