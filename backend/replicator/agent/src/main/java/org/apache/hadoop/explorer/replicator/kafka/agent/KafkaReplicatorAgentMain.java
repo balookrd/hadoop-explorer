@@ -167,6 +167,7 @@ public class KafkaReplicatorAgentMain {
         AdminClient adminClient = null;
         KafkaConsumer<byte[], byte[]> resolverConsumer = null;
         org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool consumerPool = null;
+        KafkaJobPoolManager jobPoolManager = null;
         org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient replicationClient = null;
 
         // 1. Инициализация приемника (Receiver / Dual)
@@ -298,6 +299,10 @@ public class KafkaReplicatorAgentMain {
         ScheduledExecutorService heartbeatExecutor = null;
 
         if (orchestratorGrpc != null && !orchestratorGrpc.isBlank()) {
+            // Задачи, приходящие из Control Plane, обслуживаются отдельными пулами:
+            // своя consumer-группа на задачу вместо общей группы на весь агент
+            jobPoolManager = new KafkaJobPoolManager(dcId, jobPoolFactory(
+                    bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS));
             log.info("Регистрация в Orchestrator Control Plane: {} (agentId={})", orchestratorGrpc, agentId);
             orchestratorClient = new OrchestratorGrpcClient(orchestratorGrpc, agentSecret);
             AgentRegisterRequest regReq = new AgentRegisterRequest(
@@ -324,6 +329,7 @@ public class KafkaReplicatorAgentMain {
             final String finalAdvAddr = advertisedGrpcAddress;
             final Double finalMaxBandwidthMbS = maxBandwidthMbS;
             final org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool finalPool = consumerPool;
+            final KafkaJobPoolManager finalJobPools = jobPoolManager;
             final org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient innerClient = replicationClient;
 
             heartbeatExecutor.scheduleAtFixedRate(() -> {
@@ -345,70 +351,26 @@ public class KafkaReplicatorAgentMain {
                     }
                     finalOrch.heartbeat(hbReq);
 
-                    // Опрос Control Plane для динамического обнаружения задач и обновления топиков
-                    if (finalPool != null) {
-                        try {
-                            List<KafkaJobItemProto> activeJobs = finalOrch.getActiveKafkaJobs(finalDcId);
-                            if (activeJobs != null) {
-                                List<String> dynamicTopics = activeJobs.stream()
-                                        .flatMap(j -> j.getTopicsList().stream())
-                                        .filter(t -> t != null && !t.isBlank())
-                                        .distinct()
-                                        .toList();
-                                if (!dynamicTopics.isEmpty()) {
-                                    finalPool.updateSubscribedTopics(dynamicTopics);
-                                }
-
-                                // Динамическое обновление лимита полосы (HTB) с учетом локального предела хоста
-                                double maxBw = activeJobs.stream()
-                                        .mapToDouble(KafkaJobItemProto::getBandwidthLimitMb)
-                                        .filter(b -> b > 0)
-                                        .max()
-                                        .orElse(0.0);
-                                if (maxBw > 0) {
-                                    double effectiveBw = (finalMaxBandwidthMbS != null && finalMaxBandwidthMbS > 0)
-                                            ? Math.min(finalMaxBandwidthMbS, maxBw)
-                                            : maxBw;
-                                    finalPool.setBandwidthLimitMb(effectiveBw);
-                                }
-
-                                // Динамическое обновление пула целевых агентов-приемников
-                                List<String> dynamicEndpoints = activeJobs.stream()
-                                        .flatMap(j -> j.getTargetEndpointsList().stream())
-                                        .filter(ep -> ep != null && !ep.isBlank())
-                                        .distinct()
-                                        .toList();
-                                if (!dynamicEndpoints.isEmpty() && innerClient != null) {
-                                    innerClient.updateEndpoints(dynamicEndpoints);
-
-                                    // Маршруты «топик — приемники его задачи»: пул общий, но
-                                    // топик не должен уходить в целевой кластер чужой задачи
-                                    java.util.Map<String, List<String>> routes = new java.util.HashMap<>();
-                                    for (KafkaJobItemProto job : activeJobs) {
-                                        List<String> jobEndpoints = job.getTargetEndpointsList().stream()
-                                                .filter(ep -> ep != null && !ep.isBlank())
-                                                .distinct()
-                                                .toList();
-                                        if (jobEndpoints.isEmpty()) {
-                                            continue;
-                                        }
-                                        for (String topic : job.getTopicsList()) {
-                                            if (topic != null && !topic.isBlank()) {
-                                                routes.merge(topic, jobEndpoints, (existing, added) -> {
-                                                    java.util.LinkedHashSet<String> merged =
-                                                            new java.util.LinkedHashSet<>(existing);
-                                                    merged.addAll(added);
-                                                    return List.copyOf(merged);
-                                                });
-                                            }
-                                        }
-                                    }
-                                    innerClient.updateTopicRoutes(routes);
-                                }
-                            }
-                        } catch (Exception jobEx) {
-                            log.debug("Не удалось обновить активные топики Kafka из оркестратора: {}", jobEx.getMessage());
+                    // Опрос Control Plane: состав задач отражается на составе пулов
+                    try {
+                        List<KafkaJobItemProto> activeJobs = finalOrch.getActiveKafkaJobs(finalDcId);
+                        if (activeJobs != null && finalJobPools != null) {
+                            finalJobPools.sync(activeJobs);
                         }
+                        if (activeJobs != null && finalPool != null) {
+                            // Статический пул (запуск без Control Plane) продолжает работать
+                            // по объединенному списку топиков своей задачи
+                            List<String> dynamicTopics = activeJobs.stream()
+                                    .flatMap(j -> j.getTopicsList().stream())
+                                    .filter(t -> t != null && !t.isBlank())
+                                    .distinct()
+                                    .toList();
+                            if (!dynamicTopics.isEmpty()) {
+                                finalPool.updateSubscribedTopics(dynamicTopics);
+                            }
+                        }
+                    } catch (Exception jobEx) {
+                        log.debug("Не удалось синхронизировать задачи Kafka из оркестратора: {}", jobEx.getMessage());
                     }
                 } catch (Exception e) {
                     log.debug("Ошибка отправки heartbeat в оркестратор: {}", e.getMessage());
@@ -425,6 +387,7 @@ public class KafkaReplicatorAgentMain {
         final OrchestratorGrpcClient finalOrchestratorClient = orchestratorClient;
         final ScheduledExecutorService finalHeartbeatExecutor = heartbeatExecutor;
         final String finalShutdownAgentId = agentId;
+        final KafkaJobPoolManager finalJobPoolsForShutdown = jobPoolManager;
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Остановка kafka-replicator-agent...");
@@ -439,6 +402,9 @@ public class KafkaReplicatorAgentMain {
                         log.debug("Ошибка unregister агента: {}", e.getMessage());
                     }
                     finalOrchestratorClient.close();
+                }
+                if (finalJobPoolsForShutdown != null) {
+                    finalJobPoolsForShutdown.close();
                 }
                 if (finalPool != null) {
                     finalPool.close();
@@ -470,5 +436,67 @@ public class KafkaReplicatorAgentMain {
                 Thread.sleep(10000);
             }
         }
+    }
+
+    /**
+     * Фабрика пулов задач: у каждой задачи свой консьюмер-пул, своя consumer-группа,
+     * свой клиент приемников и свой peer-DC для фильтра петель.
+     */
+    private static java.util.function.Function<KafkaJobPoolManager.JobPoolSpec,
+            org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool> jobPoolFactory(
+            String bootstrapServers,
+            org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig,
+            String agentSecret,
+            boolean tlsEnabled,
+            String tlsTrustCert,
+            Double hostBandwidthLimitMbS) {
+        return spec -> {
+            org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client =
+                    new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
+                            spec.targetEndpoints(), agentSecret, tlsEnabled, tlsTrustCert);
+
+            List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
+            for (int i = 0; i < spec.consumerThreads(); i++) {
+                Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                        .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
+                org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
+                        .applyKerberos(props, krbConfig);
+                KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props);
+                consumer.subscribe(spec.topics());
+                consumers.add(consumer);
+            }
+
+            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver passthroughResolver =
+                    new org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver() {
+                        @Override public int resolveConfluentToConfluent(String topic, int sourceId) { return sourceId; }
+                        @Override public int resolveHwxToConfluent(String topic, long hwxVersionId) { return (int) hwxVersionId; }
+                        @Override public long resolveConfluentToHwx(String topic, int confluentId) { return confluentId; }
+                        @Override public long resolveHwxToHwx(String topic, long sourceHwxId) { return sourceHwxId; }
+                    };
+
+            org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool =
+                    new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
+                            consumers,
+                            client,
+                            new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(
+                                    spec.sourceDc(), spec.targetDc()),
+                            new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier(),
+                            new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(passthroughResolver),
+                            spec.sourceDc(),
+                            spec.targetDc(),
+                            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH,
+                            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH);
+            pool.setMaxBatchSize(spec.batchSize());
+            pool.updateSubscribedTopics(spec.topics());
+
+            double limit = spec.bandwidthLimitMb();
+            if (hostBandwidthLimitMbS != null && hostBandwidthLimitMbS > 0) {
+                limit = (limit > 0) ? Math.min(limit, hostBandwidthLimitMbS) : hostBandwidthLimitMbS;
+            }
+            if (limit > 0) {
+                pool.setBandwidthLimitMb(limit);
+            }
+            return pool;
+        };
     }
 }
