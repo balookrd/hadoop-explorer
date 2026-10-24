@@ -644,11 +644,8 @@ public class KafkaReplicationOrchestratorService {
             return;
         }
         String dc = dcId.trim();
-        List<KafkaReplicationJobEntity> activeJobs = repository.findAll().stream()
-                .filter(job -> "ACTIVE".equalsIgnoreCase(job.getStatus()))
-                .filter(job -> dc.equalsIgnoreCase(job.getSourceDc()) ||
-                        ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection()) && dc.equalsIgnoreCase(job.getTargetDc())))
-                .toList();
+        // Точечная выборка вместо чтения всей таблицы задач на каждый heartbeat агента
+        List<KafkaReplicationJobEntity> activeJobs = repository.findActiveJobsReportedByDc(dc);
 
         for (KafkaReplicationJobEntity job : activeJobs) {
             if (messagesReplicated > 0) {

@@ -718,9 +718,11 @@ public class HmsCoordinatorService {
                 reason = "Агент '" + assignedAgent + "' не зарегистрирован в реестре";
             } else {
                 var agent = agentOpt.get();
-                if (agent.getStatus() == AgentRegistry.AgentStatus.OFFLINE) {
+                // Решение по самому heartbeat: поле статуса обновляет планировщик
+                // с задержкой, и failover не должен ее ждать
+                if (!agentRegistry.isAgentLive(assignedAgent)) {
                     shouldFailover = true;
-                    reason = "Агент '" + assignedAgent + "' перешел в статус OFFLINE";
+                    reason = "Агент '" + assignedAgent + "' не присылает heartbeat дольше порога OFFLINE";
                 } else if (job.getLeaseExpiresAt() != null && job.getLeaseExpiresAt().isBefore(now)) {
                     shouldFailover = true;
                     reason = "Истекла аренда (lease) задачи более " + getLeaseDurationSeconds() + "с";
@@ -790,11 +792,14 @@ public class HmsCoordinatorService {
                 : 30L;
     }
 
+    /**
+     * Доступность агента по времени последнего heartbeat.
+     *
+     * <p>Поле статуса в реестре обновляет периодический планировщик, поэтому для failover
+     * и выдачи задач оно может отставать. Решение принимается по самому heartbeat.
+     */
     private boolean isAgentOnline(String agentId) {
-        if (agentId == null) return false;
-        return agentRegistry.getAgent(agentId)
-                .map(a -> a.getStatus() == AgentRegistry.AgentStatus.ONLINE)
-                .orElse(false);
+        return agentRegistry.isAgentLive(agentId);
     }
 
     /**

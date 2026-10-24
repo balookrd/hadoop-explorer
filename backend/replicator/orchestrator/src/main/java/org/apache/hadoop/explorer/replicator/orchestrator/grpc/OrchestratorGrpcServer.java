@@ -53,23 +53,7 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
         int port = grpcConfig.getPort();
         log.info("Инициализация Orchestrator gRPC Control Plane на порту {}...", port);
 
-        int poolSize = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
-        this.grpcExecutor = new ThreadPoolExecutor(
-                poolSize,
-                Math.max(64, poolSize * 2),
-                60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(1000),
-                new ThreadFactory() {
-                    private final AtomicInteger counter = new AtomicInteger(1);
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        Thread t = new Thread(r, "grpc-orchestrator-" + counter.getAndIncrement());
-                        t.setDaemon(true);
-                        return t;
-                    }
-                },
-                new ThreadPoolExecutor.CallerRunsPolicy()
-        );
+        this.grpcExecutor = createGrpcExecutor();
 
         try {
             NettyServerBuilder builder = NettyServerBuilder.forPort(port)
@@ -175,5 +159,33 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
 
     public int getPort() {
         return grpcServer != null ? grpcServer.getPort() : properties.getGrpc().getPort();
+    }
+
+    /**
+     * Пул обработки вызовов Control Plane.
+     *
+     * <p>Политика отказа важнее размера пула: с {@code CallerRunsPolicy} переполнение очереди
+     * приводило к исполнению вызова в потоке Netty event loop, то есть к остановке транспорта
+     * для всех остальных агентов. Отказ ({@code AbortPolicy}) превращает перегрузку в честный
+     * {@code UNAVAILABLE} конкретному вызывающему, который повторит запрос.
+     */
+    static ThreadPoolExecutor createGrpcExecutor() {
+        int poolSize = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
+        return new ThreadPoolExecutor(
+                poolSize,
+                Math.max(64, poolSize * 2),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(1000),
+                new ThreadFactory() {
+                    private final AtomicInteger counter = new AtomicInteger(1);
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "grpc-orchestrator-" + counter.getAndIncrement());
+                        t.setDaemon(true);
+                        return t;
+                    }
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 }

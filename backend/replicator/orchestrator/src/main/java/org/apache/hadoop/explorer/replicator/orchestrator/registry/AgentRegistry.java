@@ -39,8 +39,8 @@ public class AgentRegistry {
         private String mode;
         private int activeTransfers;
         private Double maxBandwidthMbS;
-        private AgentStatus status;
-        private Instant lastHeartbeat;
+        private volatile AgentStatus status;
+        private volatile Instant lastHeartbeat;
         private long transferredBytes;
         private long transferErrors;
         private long compressionRawBytes = 0L;
@@ -524,17 +524,15 @@ public class AgentRegistry {
     }
 
     public Optional<AgentEntry> getLiveAgentForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
-            .filter(a -> matchesCluster(a.getClusterId(), clusterId) && a.getStatus() == AgentStatus.ONLINE)
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId) && isLive(a))
             .findAny();
     }
 
     public Optional<AgentEntry> getLiveHmsAgentForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && ("all".equalsIgnoreCase(a.getMode()) || "hms".equalsIgnoreCase(a.getMode())))
             .findAny();
     }
@@ -543,10 +541,9 @@ public class AgentRegistry {
      * Поиск активного агента-стримера HDFS Inotify для кластера.
      */
     public Optional<AgentEntry> getLiveStreamerForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && "streamer".equalsIgnoreCase(a.getMode()))
             .findAny();
     }
@@ -555,10 +552,9 @@ public class AgentRegistry {
      * Список всех активных агентов-стримеров HDFS Inotify для кластера.
      */
     public List<AgentEntry> getLiveStreamersForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && "streamer".equalsIgnoreCase(a.getMode()))
             .toList();
     }
@@ -581,10 +577,9 @@ public class AgentRegistry {
      * Поиск наименее загруженного агента в целевом кластере для балансировки входящего трафика.
      */
     public Optional<AgentEntry> getLeastLoadedAgentForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> a.getClusterId().equalsIgnoreCase(clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && ("all".equalsIgnoreCase(a.getMode()) || "receiver".equalsIgnoreCase(a.getMode())))
             .min(Comparator.comparingInt(AgentEntry::getActiveTransfers));
     }
@@ -593,10 +588,9 @@ public class AgentRegistry {
      * Возвращает список всех активных агентов-приемников для кластера Kafka репликации.
      */
     public List<AgentEntry> getLiveKafkaReceiversForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && ("all".equalsIgnoreCase(a.getMode())
                         || "kafka".equalsIgnoreCase(a.getMode())
                         || "receiver".equalsIgnoreCase(a.getMode())
@@ -608,10 +602,9 @@ public class AgentRegistry {
      * Возвращает список всех активных агентов-отправителей для кластера Kafka репликации.
      */
     public List<AgentEntry> getLiveKafkaSendersForCluster(String clusterId) {
-        refreshHealth();
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId)
-                    && a.getStatus() == AgentStatus.ONLINE
+                    && isLive(a)
                     && ("all".equalsIgnoreCase(a.getMode())
                         || "kafka".equalsIgnoreCase(a.getMode())
                         || "sender".equalsIgnoreCase(a.getMode())
@@ -621,15 +614,13 @@ public class AgentRegistry {
 
     public Optional<AgentEntry> getAgent(String agentId) {
         if (agentId == null) return Optional.empty();
-        refreshHealth();
         return Optional.ofNullable(agents.get(agentId));
     }
 
     public boolean hasOtherOnlineAgentsForCluster(String clusterId, String excludeAgentId) {
-        refreshHealth();
         return agents.values().stream()
                 .anyMatch(a -> matchesCluster(a.getClusterId(), clusterId)
-                        && a.getStatus() == AgentStatus.ONLINE
+                        && isLive(a)
                         && !a.getAgentId().equalsIgnoreCase(excludeAgentId));
     }
 
@@ -662,7 +653,37 @@ public class AgentRegistry {
         }
     }
 
-    private void refreshHealth() {
+    /**
+     * Живость агента по времени последнего heartbeat, без записи в общее состояние.
+     *
+     * <p>Горячие пути (забор задач, выбор приемника) вызывались десятки тысяч раз за секунду,
+     * и каждый из них прогонял {@code refreshHealth()} — полный проход по всем агентам с
+     * мутацией их статусов. Проверка на лету стоит одно сравнение и ничего не пишет.
+     */
+    public boolean isAgentLive(String agentId) {
+        if (agentId == null) return false;
+        return isLive(agents.get(agentId));
+    }
+
+    private boolean isLive(AgentEntry agent) {
+        if (agent == null || agent.getLastHeartbeat() == null) {
+            return false;
+        }
+        long elapsed = Instant.now().getEpochSecond() - agent.getLastHeartbeat().getEpochSecond();
+        return elapsed < properties.getAgentOfflineTimeoutSeconds();
+    }
+
+    /**
+     * Периодическое обновление статусов в реестре и в БД.
+     *
+     * <p>Статус нужен интерфейсу и отчетам; горячие пути используют {@link #isLive(AgentEntry)}.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000, initialDelay = 5000)
+    public void scheduledHealthRefresh() {
+        refreshHealth();
+    }
+
+    void refreshHealth() {
         Instant now = Instant.now();
         int suspectTimeout = properties.getAgentHeartbeatTimeoutSeconds();
         int offlineTimeout = properties.getAgentOfflineTimeoutSeconds();

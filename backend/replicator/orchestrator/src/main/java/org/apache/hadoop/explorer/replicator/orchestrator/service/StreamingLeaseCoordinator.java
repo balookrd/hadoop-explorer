@@ -102,7 +102,7 @@ public class StreamingLeaseCoordinator {
         // Проверяем, что агент имеет режим streamer, если в кластере есть выделенные стримеры
         boolean hasDedicatedStreamers = agentRegistry.getAgents().stream()
                 .anyMatch(a -> "streamer".equalsIgnoreCase(a.getMode())
-                        && a.getStatus() == AgentRegistry.AgentStatus.ONLINE
+                        && agentRegistry.isAgentLive(a.getAgentId())
                         && matchesCluster(a.getClusterId(), clusterId));
         boolean isAgentStreamer = agentRegistry.getAgents().stream()
                 .filter(a -> a.getAgentId().equalsIgnoreCase(agentId))
