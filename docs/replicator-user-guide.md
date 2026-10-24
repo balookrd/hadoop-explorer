@@ -769,6 +769,17 @@ topology:
    - Демоны-консьюмеры `KafkaBatchConsumerPool` аккумулируют подтвержденные удаленным приемником метрики (`totalMessagesReplicated`, `totalBytesReplicated`) и текущую задержку вычитки (`currentLagMs`).
    - В фоновом цикле gRPC Keepalive (`heartbeat`) агент непрерывно передает актуальные счетчики в оркестратор (`OrchestratorControlPlaneService`).
    - Оркестратор агрегирует показатели активных задач в единой панели репликации в реальном времени (`messagesReplicated`, `bytesReplicated`, `currentLagMs`), обеспечивая прозрачный мониторинг объема переданных сообщений и своевременное выявление задержек.
+14. **Комплексные Smoke-тесты двунаправленной (Active-Active) репликации**:
+   - **Интеграционный Java E2E Smoke-тест (`KafkaActiveActiveReplicationSmokeTest`)**:
+     - Включает сквозную верификацию одновременной перекрестной передачи потоков (DC1 $\longleftrightarrow$ DC2) через in-process gRPC каналы.
+     - Проверяет математическую гарантию отсечения циклического размножения (0% эхо) через `LoopPreventionFilter` по меткам `X-Repl-Origin` и инкременту счетчика `X-Repl-Hop`.
+     - Проверяет сквозную доставку Tombstone-сообщений (`null payload`) в обоих встречных направлениях.
+     - Тестирует барьер защиты от зацикливания при сложной кольцевой топологии (Max Hops Barrier).
+     - Проверяет защитный гейт коммита смещений Consumer Groups в Active-Active режиме (`SafetyCommitManager.applyOffsetsSafely`).
+   - **Сквозной Demo Live Smoke-скрипт (`run-kafka-smoke-tests.sh` / `make demo-kafka-smoke`)**:
+     - Выполняет 12 автоматизированных проверок в живом Kerberos SASL + SPNEGO кластере:
+       - Проверки 1–7: Unidirectional репликация, Schema Registry SPNEGO, Tombstones, Failover safety gate;
+       - Проверки 8–12: Создание Active-Active топиков (`active-orders`), регистрация задачи `BIDIRECTIONAL`, встречная параллельная публикация сообщений в DC1 и DC2, валидация доставки всех записей в обоих направлениях и проверка отсутствия паразитного эха (строго по 6 записей в обоих кластерах без зацикливания).
 
 ---
 

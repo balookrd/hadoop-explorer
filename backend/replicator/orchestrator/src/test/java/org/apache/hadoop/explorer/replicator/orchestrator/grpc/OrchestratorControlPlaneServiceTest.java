@@ -363,6 +363,43 @@ public class OrchestratorControlPlaneServiceTest {
     }
 
     @Test
+    @DisplayName("getActiveKafkaJobs корректно инвертирует топологию и эндпоинты для Active-Active (BIDIRECTIONAL) обратного направления")
+    void testGetActiveKafkaJobsBidirectionalReverse() {
+        KafkaReplicationJobDto job = new KafkaReplicationJobDto();
+        job.setId("job-kafka-active-active");
+        job.setName("Kafka Active-Active DC1 <-> DC2");
+        job.setSourceDc("dc1");
+        job.setTargetDc("dc2");
+        job.setDirection("BIDIRECTIONAL");
+        job.setStatus("ACTIVE");
+        CreateKafkaJobRequest.TopicSetting ts = new CreateKafkaJobRequest.TopicSetting();
+        ts.setTopic("orders-active");
+        job.setTopics(List.of(ts));
+        job.setSourceBootstrapServers("dc1-kafka:9092");
+        job.setTargetBootstrapServers("dc2-kafka:9092");
+
+        when(kafkaOrchestratorService.getActiveJobsForDc("dc2")).thenReturn(List.of(job));
+        when(kafkaOrchestratorService.getLiveReceiverEndpoints("dc1")).thenReturn(List.of("dc1-agent:50052"));
+
+        GetActiveKafkaJobsRequest req = GetActiveKafkaJobsRequest.newBuilder()
+                .setDcId("dc2")
+                .build();
+
+        GetActiveKafkaJobsResponse resp = stub.getActiveKafkaJobs(req);
+        assertNotNull(resp);
+        assertEquals(1, resp.getJobsCount());
+
+        KafkaJobItemProto item = resp.getJobs(0);
+        assertEquals("job-kafka-active-active", item.getJobId());
+        assertEquals("dc2", item.getSourceDc(), "Для обратного агента в DC2 источником должен быть DC2");
+        assertEquals("dc1", item.getTargetDc(), "Для обратного агента в DC2 целью должен быть DC1");
+        assertEquals("dc2-kafka:9092", item.getSourceBootstrapServers());
+        assertEquals("dc1-kafka:9092", item.getTargetBootstrapServers());
+        assertEquals(List.of("dc1-agent:50052"), item.getTargetEndpointsList(), "Эндпоинты должны указывать на приемники в DC1");
+        assertEquals("BIDIRECTIONAL", item.getDirection());
+    }
+
+    @Test
     @DisplayName("reportHmsProgress корректно передает DDL события в hmsCoordinatorService")
     void testReportHmsProgressWithEvents() {
         ReportHmsProgressRequest req = ReportHmsProgressRequest.newBuilder()

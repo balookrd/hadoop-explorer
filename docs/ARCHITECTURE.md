@@ -526,7 +526,7 @@ Spring Boot фильтр `ShallowEtagHeaderFilter`:
 | **HDFS Explorer** | **16 тестов (Java 21)** | NameNode HA Failover при `StandbyException`, Kerberos Proxy User doAs имперсонация, API операций, Parquet/ORC Preview со schema footer reader, MockHdfsClient, Circuit Breaker, Rate Limiter |
 | **SQL Explorer** | **10 тестов (Java 21)** | Catalog API валидация и эндпоинты, Trino/Hive движки, MockStorage, AI-ассистент, токены, CSRF, ролевой доступ к кластерам, User Workspace |
 | **Spark Explorer** | **12 тестов (Java 21)** | REST-клиент Apache Livy, DAG-валидация циклов (алгоритм Кана), MockSparkEngine, User Workspace, ролевой доступ, сессии и выполнение statements |
-| **Hadoop gRPC Replicator** | **73 теста (Java 21)** | Hierarchical Token Bucket, Stateless Active-Active Orchestration, Persistent Agent Registry, Fencing Tokens, Task Attestation HMAC, Chroot Sandbox, DataTransfer & HmsTransfer gRPC, Direct TAR commit & Directory Cache, Schema Registry Single-Flight, Prometheus & Kafka Mirroring Smoke |
+| **Hadoop gRPC Replicator** | **78+ тестов (Java 21)** | Hierarchical Token Bucket, Stateless Active-Active Orchestration, Persistent Agent Registry, Fencing Tokens, Task Attestation HMAC, Chroot Sandbox, DataTransfer & HmsTransfer gRPC, Direct TAR commit & Directory Cache, Schema Registry Single-Flight, Prometheus & Kafka Active-Active Mirroring Smoke |
 | **Frontend UI Suite** | **95 тестов (Vitest)** | Компонентное тестирование Svelte 5 на базе Vitest и `@testing-library/svelte` во всех 5 SPA и общем ядре: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast), строгая проверка типов `svelte-check` |
 
 ### 11.2 Тестирование отказоустойчивости (Resilience Testing)

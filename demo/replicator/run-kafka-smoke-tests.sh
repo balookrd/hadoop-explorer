@@ -276,7 +276,148 @@ run_check "Защитный гейт: коммит смещений при ав�
 
 
 # ------------------------------------------------------------------------------
-# 8. Итоговый отчет
+# 8. Двунаправленная (Active-Active) репликация: подготовка топиков
+# ------------------------------------------------------------------------------
+echo "\n${BLUE}▶ Шаг 8: Инициализация симметричных Active-Active топиков (DC1 <-> DC2)${NC}"
+
+create_active_active_topics() {
+    # Топик active-orders в DC1
+    docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+        kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
+        --command-config /etc/kafka/client.properties \
+        --create --if-not-exists --topic active-orders --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+
+    # Симметричный топик active-orders в DC2
+    docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+        kafka-topics --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
+        --command-config /etc/kafka/client.properties \
+        --create --if-not-exists --topic active-orders --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+    return 0
+}
+run_check "Создание симметричного топика active-orders в DC1 и DC2" create_active_active_topics
+
+
+# ------------------------------------------------------------------------------
+# 9. Регистрация двунаправленной (BIDIRECTIONAL) задачи в Orchestrator
+# ------------------------------------------------------------------------------
+echo "\n${BLUE}▶ Шаг 9: Запуск двунаправленной задачи репликации (Active-Active BIDIRECTIONAL)${NC}"
+
+ACTIVE_JOB_ID=""
+create_active_active_job() {
+    local payload='{
+        "name": "e2e-smoke-active-active-orders",
+        "sourceDc": "DC1",
+        "targetDc": "DC2",
+        "direction": "BIDIRECTIONAL",
+        "sourceBootstrapServers": "kafka-cluster-1.demo-platform-net:9092",
+        "targetBootstrapServers": "kafka-cluster-2.demo-platform-net:9092",
+        "topics": [
+            {"topic": "active-orders", "payloadMode": "PASSTHROUGH"}
+        ],
+        "sourceKerberosEnabled": true,
+        "targetKerberosEnabled": true,
+        "bandwidthLimitMb": 60.0,
+        "offsetSyncIntervalSec": 2
+    }'
+
+    local response=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" -H "Content-Type: application/json" \
+        "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" -d "$payload")
+
+    ACTIVE_JOB_ID=$(echo "$response" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    [ -n "$ACTIVE_JOB_ID" ]
+}
+run_check "Создание Active-Active задачи в Control Plane (direction=BIDIRECTIONAL)" create_active_active_job
+
+
+# ------------------------------------------------------------------------------
+# 10. Параллельная встречная публикация сообщений в DC1 и DC2
+# ------------------------------------------------------------------------------
+printf "\n${BLUE}▶ Шаг 10: Одновременная встречная публикация данных в DC1 и DC2${NC}\n"
+
+produce_active_active_records() {
+    # Даем агентам DC1 и DC2 время (цикл опроса 3 сек) для подписки на топик active-orders
+    sleep 4
+
+    # 1. Запись 3 сообщений локально в DC1
+    docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+        bash -c "kafka-console-producer --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
+        --producer.config /etc/kafka/client.properties --topic active-orders" <<EOF
+{"order_id":"DC1-ORD-101","producer_dc":"DC1","amount":150.0}
+{"order_id":"DC1-ORD-102","producer_dc":"DC1","amount":250.0}
+{"order_id":"DC1-ORD-103","producer_dc":"DC1","amount":350.0}
+EOF
+
+    # 2. Запись 3 встречных сообщений локально в DC2
+    docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+        bash -c "kafka-console-producer --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
+        --producer.config /etc/kafka/client.properties --topic active-orders" <<EOF
+{"order_id":"DC2-ORD-201","producer_dc":"DC2","amount":990.0}
+{"order_id":"DC2-ORD-202","producer_dc":"DC2","amount":880.0}
+{"order_id":"DC2-ORD-203","producer_dc":"DC2","amount":770.0}
+EOF
+    return 0
+}
+run_check "Публикация 3 сообщений в DC1 и 3 сообщений в DC2" produce_active_active_records
+
+
+# ------------------------------------------------------------------------------
+# 11. Проверка взаимной сквозной доставки DC1 -> DC2 и DC2 -> DC1
+# ------------------------------------------------------------------------------
+echo "\n${BLUE}▶ Шаг 11: Проверка взаимной сквозной репликации в обоих направлениях${NC}"
+
+verify_active_active_cross_delivery() {
+    local dc2_count=0
+    local dc1_count=0
+
+    # Ожидаем репликации DC1 -> DC2 (всего 3 локальных + 3 отреплицированных = 6)
+    for i in $(seq 1 15); do
+        dc2_count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+            bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+
+        dc1_count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+            bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+            --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+
+        if [ -n "$dc2_count" ] && [ "$dc2_count" -ge 6 ] && [ -n "$dc1_count" ] && [ "$dc1_count" -ge 6 ] 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+run_check "Сквозная доставка: в обоих кластерах присутствует полный набор (>=6 записей)" verify_active_active_cross_delivery
+
+
+# ------------------------------------------------------------------------------
+# 12. Валидация LoopPreventionFilter (Anti-Echo / Защита от бесконечного цикла)
+# ------------------------------------------------------------------------------
+echo "\n${BLUE}▶ Шаг 12: Валидация LoopPreventionFilter и отсутствие паразитного эха${NC}"
+
+verify_loop_prevention_no_echo() {
+    # Даем 4 секунды на возможные ложные срабатывания или эхо-циклы
+    sleep 4
+
+    local dc1_final=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
+        bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+        --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+
+    local dc2_final=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
+        bash -c "kafka-run-class kafka.tools.GetOffsetShell \
+        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+
+    # Точно по 6 сообщений: 3 локальных + 3 отреплицированных. Без паразитного дублирования!
+    if [ "$dc1_final" = "6" ] && [ "$dc2_final" = "6" ]; then
+        return 0
+    fi
+    # Допустимо >= 6, но не более 6 при строго изолированном прогоне
+    [ -n "$dc1_final" ] && [ "$dc1_final" -eq 6 ] && [ -n "$dc2_final" ] && [ "$dc2_final" -eq 6 ]
+}
+run_check "Anti-Echo: отсутствие циклического размножения сообщений (ровно 6 в DC1 и DC2)" verify_loop_prevention_no_echo
+
+
+# ------------------------------------------------------------------------------
+# 13. Итоговый отчет
 # ------------------------------------------------------------------------------
 echo "\n========================================================================"
 echo "📊 ИТОГОВЫЙ ОТЧЕТ E2E SMOKE ТЕСТА KAFKA REPLICATOR"

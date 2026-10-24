@@ -659,21 +659,26 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                                 .toList()
                         : Collections.emptyList();
 
-                List<String> targetEndpoints = job.getTargetEndpoints();
-                if ((targetEndpoints == null || targetEndpoints.isEmpty()) && job.getTargetDc() != null) {
-                    targetEndpoints = kafkaOrchestratorService.getLiveReceiverEndpoints(job.getTargetDc());
+                boolean isReverse = "BIDIRECTIONAL".equalsIgnoreCase(job.getDirection())
+                        && request.getDcId() != null
+                        && request.getDcId().trim().equalsIgnoreCase(job.getTargetDc());
+
+                String peerDc = isReverse ? job.getSourceDc() : job.getTargetDc();
+                List<String> targetEndpoints = isReverse ? Collections.emptyList() : job.getTargetEndpoints();
+                if ((targetEndpoints == null || targetEndpoints.isEmpty()) && peerDc != null) {
+                    targetEndpoints = kafkaOrchestratorService.getLiveReceiverEndpoints(peerDc);
                 }
 
                 KafkaJobItemProto item = KafkaJobItemProto.newBuilder()
                         .setJobId(job.getId() != null ? job.getId() : "")
                         .setName(job.getName() != null ? job.getName() : "")
-                        .setSourceDc(job.getSourceDc() != null ? job.getSourceDc() : "")
-                        .setTargetDc(job.getTargetDc() != null ? job.getTargetDc() : "")
+                        .setSourceDc(isReverse ? (job.getTargetDc() != null ? job.getTargetDc() : "") : (job.getSourceDc() != null ? job.getSourceDc() : ""))
+                        .setTargetDc(isReverse ? (job.getSourceDc() != null ? job.getSourceDc() : "") : (job.getTargetDc() != null ? job.getTargetDc() : ""))
                         .setDirection(job.getDirection() != null ? job.getDirection() : "")
                         .addAllTopics(topics)
                         .addAllConsumerGroups(job.getConsumerGroups() != null ? job.getConsumerGroups() : Collections.emptyList())
-                        .setSourceBootstrapServers(job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : "")
-                        .setTargetBootstrapServers(job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : "")
+                        .setSourceBootstrapServers(isReverse ? (job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : "") : (job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : ""))
+                        .setTargetBootstrapServers(isReverse ? (job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : "") : (job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : ""))
                         .addAllTargetEndpoints(targetEndpoints != null ? targetEndpoints : Collections.emptyList())
                         .setBatchSize(job.getBatchSize() != null ? job.getBatchSize() : 2000)
                         .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
