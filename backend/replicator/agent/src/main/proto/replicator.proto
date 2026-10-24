@@ -235,6 +235,9 @@ message HmsPartitionProto {
   map<string, string> parameters = 6;
   repeated HmsFieldSchemaProto columns = 7;
   map<string, string> serde_parameters = 8;
+  string input_format = 9;                // Формат чтения партиции (Parquet/ORC/Text)
+  string output_format = 10;              // Формат записи партиции
+  string serde_lib = 11;                  // Библиотека сериализации партиции
 }
 
 // Пакетная вставка партиций

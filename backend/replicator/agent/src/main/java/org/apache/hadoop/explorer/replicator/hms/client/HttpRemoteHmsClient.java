@@ -10,6 +10,7 @@ import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -26,6 +27,9 @@ import java.util.*;
 public class HttpRemoteHmsClient implements HmsClient {
 
     private static final Logger log = LoggerFactory.getLogger(HttpRemoteHmsClient.class);
+
+    /** Предельная длина фрагмента тела ответа, попадающего в сообщение об ошибке. */
+    private static final int MAX_ERROR_BODY_CHARS = 500;
 
     private final String baseUrl;
     private final String clusterId;
@@ -159,120 +163,141 @@ public class HttpRemoteHmsClient implements HmsClient {
 
     @Override
     public void createDatabase(String dbName, String locationUri) {
-        try {
-            Map<String, Object> req = new LinkedHashMap<>();
-            req.put("db_name", dbName);
-            req.put("location_uri", locationUri);
-            String json = objectMapper.writeValueAsString(req);
-            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/databases")
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            log.error("[HttpRemoteHmsClient {}] Сбой создания базы '{}': {}", clusterId, dbName, e.getMessage());
-        }
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("db_name", dbName);
+        req.put("location_uri", locationUri);
+        HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/databases")
+                .POST(jsonBody(req))
+                .build();
+        sendMutating(request, String.format("создание базы '%s'", dbName));
     }
 
     @Override
     public void createTable(HmsTableDto table) {
-        try {
-            Map<String, Object> req = new LinkedHashMap<>();
-            req.put("db_name", table.dbName());
-            req.put("table_name", table.tableName());
-            req.put("table_type", table.tableType());
-            req.put("location", table.sdLocation());
-            req.put("parameters", table.parameters());
-            req.put("partition_keys", table.partitionKeys());
-            req.put("input_format", table.inputFormat());
-            req.put("output_format", table.outputFormat());
-            req.put("serde_lib", table.serdeLib());
-            req.put("emit_cdc_event", false);
-            req.put("create_sample_data", false);
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("db_name", table.dbName());
+        req.put("table_name", table.tableName());
+        req.put("table_type", table.tableType());
+        req.put("location", table.sdLocation());
+        req.put("parameters", table.parameters());
+        req.put("partition_keys", table.partitionKeys());
+        req.put("input_format", table.inputFormat());
+        req.put("output_format", table.outputFormat());
+        req.put("serde_lib", table.serdeLib());
+        req.put("emit_cdc_event", false);
+        req.put("create_sample_data", false);
 
-            String json = objectMapper.writeValueAsString(req);
-            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables")
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            log.error("[HttpRemoteHmsClient {}] Сбой создания таблицы '{}.{}': {}", clusterId, table.dbName(), table.tableName(), e.getMessage());
-        }
+        HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables")
+                .POST(jsonBody(req))
+                .build();
+        sendMutating(request, String.format("создание таблицы '%s.%s'", table.dbName(), table.tableName()));
     }
 
     @Override
     public void alterTable(HmsTableDto table) {
-        try {
-            Map<String, Object> req = new LinkedHashMap<>();
-            req.put("db_name", table.dbName());
-            req.put("table_name", table.tableName());
-            req.put("table_type", table.tableType());
-            req.put("location", table.sdLocation());
-            req.put("parameters", table.parameters());
-            req.put("partition_keys", table.partitionKeys());
-            req.put("input_format", table.inputFormat());
-            req.put("output_format", table.outputFormat());
-            req.put("serde_lib", table.serdeLib());
-            req.put("emit_cdc_event", false);
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("db_name", table.dbName());
+        req.put("table_name", table.tableName());
+        req.put("table_type", table.tableType());
+        req.put("location", table.sdLocation());
+        req.put("parameters", table.parameters());
+        req.put("partition_keys", table.partitionKeys());
+        req.put("input_format", table.inputFormat());
+        req.put("output_format", table.outputFormat());
+        req.put("serde_lib", table.serdeLib());
+        req.put("emit_cdc_event", false);
 
-            String json = objectMapper.writeValueAsString(req);
-            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(table.dbName()) + "/" + encode(table.tableName()))
-                    .PUT(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            log.error("[HttpRemoteHmsClient {}] Сбой обновления таблицы '{}.{}': {}", clusterId, table.dbName(), table.tableName(), e.getMessage());
-        }
+        HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(table.dbName()) + "/" + encode(table.tableName()))
+                .PUT(jsonBody(req))
+                .build();
+        sendMutating(request, String.format("обновление таблицы '%s.%s'", table.dbName(), table.tableName()));
     }
 
     @Override
     public void addPartitions(String dbName, String tableName, List<HmsPartitionDto> partitions) {
         if (partitions == null || partitions.isEmpty()) return;
         for (HmsPartitionDto p : partitions) {
-            try {
-                Map<String, Object> req = new LinkedHashMap<>();
-                req.put("values", p.values());
-                req.put("location", p.location());
-                req.put("parameters", p.parameters());
-                req.put("emit_cdc_event", false);
+            Map<String, Object> req = new LinkedHashMap<>();
+            req.put("values", p.values());
+            req.put("location", p.location());
+            req.put("parameters", p.parameters());
+            req.put("input_format", p.inputFormat());
+            req.put("output_format", p.outputFormat());
+            req.put("serde_lib", p.serdeLib());
+            req.put("emit_cdc_event", false);
 
-                String json = objectMapper.writeValueAsString(req);
-                HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "/partitions")
-                        .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                        .build();
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            } catch (Exception e) {
-                log.error("[HttpRemoteHmsClient {}] Сбой добавления партиции {} в '{}.{}': {}", clusterId, p.values(), dbName, tableName, e.getMessage());
-            }
+            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "/partitions")
+                    .POST(jsonBody(req))
+                    .build();
+            sendMutating(request, String.format("добавление партиции %s в '%s.%s'", p.values(), dbName, tableName));
         }
     }
 
     @Override
     public void dropTable(String dbName, String tableName, boolean deleteData) {
-        try {
-            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "?deleteData=" + deleteData + "&emitCdcEvent=false")
-                    .DELETE()
-                    .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            log.error("[HttpRemoteHmsClient {}] Сбой удаления таблицы '{}.{}': {}", clusterId, dbName, tableName, e.getMessage());
-        }
+        HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "?deleteData=" + deleteData + "&emitCdcEvent=false")
+                .DELETE()
+                .build();
+        sendMutating(request, String.format("удаление таблицы '%s.%s'", dbName, tableName));
     }
 
     @Override
     public void dropPartition(String dbName, String tableName, List<String> partVals, boolean deleteData) {
-        try {
-            Map<String, Object> req = new LinkedHashMap<>();
-            req.put("values", partVals);
-            req.put("delete_data", deleteData);
-            req.put("emit_cdc_event", false);
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("values", partVals);
+        req.put("delete_data", deleteData);
+        req.put("emit_cdc_event", false);
 
-            String json = objectMapper.writeValueAsString(req);
-            HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "/partitions")
-                    .method("DELETE", HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpRequest request = newRequestBuilder("/api/v1/hms/clusters/" + encode(clusterId) + "/tables/" + encode(dbName) + "/" + encode(tableName) + "/partitions")
+                .method("DELETE", jsonBody(req))
+                .build();
+        sendMutating(request, String.format("удаление партиции %s из '%s.%s'", partVals, dbName, tableName));
+    }
+
+    /**
+     * Сериализация тела запроса. Ошибка сериализации — дефект кода, а не удаленной стороны,
+     * поэтому она поднимается наверх, а не подменяется «успехом».
+     */
+    private HttpRequest.BodyPublisher jsonBody(Map<String, Object> payload) {
+        try {
+            return HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            log.error("[HttpRemoteHmsClient {}] Сбой удаления партиции {} из '{}.{}': {}", clusterId, partVals, dbName, tableName, e.getMessage());
+            throw new IllegalStateException("[HttpRemoteHmsClient " + clusterId + "] Не удалось сериализовать тело запроса: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Выполнение мутирующего запроса к координатору с обязательной проверкой кода ответа.
+     *
+     * <p>Любой не-2xx код и любой сетевой сбой поднимаются исключением: вызывающая сторона
+     * ({@code HmsTransferServiceImpl}) превращает его в {@code success=false}, и оркестратор
+     * не продвигает {@code lastProcessedEventId} по непримененному событию. Молчаливое
+     * проглатывание ошибки здесь означало бы безвозвратную потерю событий метаданных.
+     */
+    private void sendMutating(HttpRequest request, String operation) {
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int code = response.statusCode();
+            if (code < 200 || code >= 300) {
+                String body = response.body() != null ? response.body().strip() : "";
+                if (body.length() > MAX_ERROR_BODY_CHARS) {
+                    body = body.substring(0, MAX_ERROR_BODY_CHARS) + "…";
+                }
+                String message = String.format("[HttpRemoteHmsClient %s] Отказ координатора при %s: HTTP %d%s",
+                        clusterId, operation, code, body.isEmpty() ? "" : " — " + body);
+                log.error(message);
+                throw new IllegalStateException(message);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            String message = String.format("[HttpRemoteHmsClient %s] Вызов прерван при %s", clusterId, operation);
+            log.error(message);
+            throw new IllegalStateException(message, e);
+        } catch (IOException e) {
+            String message = String.format("[HttpRemoteHmsClient %s] Сетевой сбой при %s: %s",
+                    clusterId, operation, e.getMessage());
+            log.error(message);
+            throw new IllegalStateException(message, e);
         }
     }
 

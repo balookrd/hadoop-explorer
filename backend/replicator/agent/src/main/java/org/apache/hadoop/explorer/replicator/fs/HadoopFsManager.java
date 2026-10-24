@@ -3,6 +3,7 @@ package org.apache.hadoop.explorer.replicator.fs;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
@@ -938,6 +939,43 @@ public class HadoopFsManager {
     /**
      * Атомарное переименование файла в целевой ФС (HDFS или локальной).
      */
+    /**
+     * Коммит файла атомарным переименованием с перезаписью существующего целевого пути.
+     *
+     * <p>Схема {@code exists → delete → rename} здесь недопустима: между удалением и
+     * переименованием существует окно, в котором прежняя версия целевого файла уже уничтожена,
+     * а новая еще не записана. Сбой в этот момент (failover NameNode, пропавший staging,
+     * отказ прав) означает безвозвратную потерю данных. HDFS и FileContext поддерживают
+     * атомарный rename с флагом OVERWRITE — используем его.
+     */
+    static boolean atomicRenameOverwrite(FileSystem fs, Path src, Path dst) throws IOException {
+        try {
+            if (!fs.exists(src)) {
+                logger.warn("Коммит отменен: исходный файл '{}' отсутствует, целевой '{}' не затронут", src, dst);
+                return false;
+            }
+            if (fs instanceof DistributedFileSystem dfs) {
+                // HDFS: единственный по-настоящему атомарный overwrite-rename
+                dfs.rename(src, dst, Options.Rename.OVERWRITE);
+                return true;
+            }
+            // Прочие ФС: сначала пробуем переименование без удаления цели, и только если
+            // оно отвергнуто существующим файлом — перезаписываем. Цель удаляется лишь
+            // тогда, когда источник заведомо на месте.
+            if (fs.rename(src, dst)) {
+                return true;
+            }
+            if (fs.exists(dst)) {
+                fs.delete(dst, false);
+                return fs.rename(src, dst);
+            }
+            return false;
+        } catch (FileNotFoundException e) {
+            logger.warn("Коммит отменен: исходный файл '{}' отсутствует, целевой '{}' не затронут", src, dst);
+            return false;
+        }
+    }
+
     public boolean renameFile(String srcPath, String dstPath, String executionPrincipal, boolean runAsServiceAccount) throws Exception {
         validateSandboxAccess(srcPath);
         validateSandboxAccess(dstPath);
@@ -950,10 +988,7 @@ public class HadoopFsManager {
                 Path dst = new Path(dstPath);
                 FileSystem fs = dst.getFileSystem(conf);
                 ensureParentDirectoryExists(dst.getParent(), fs, null);
-                if (fs.exists(dst)) {
-                    fs.delete(dst, false);
-                }
-                return fs.rename(src, dst);
+                return atomicRenameOverwrite(fs, src, dst);
             });
         }
 

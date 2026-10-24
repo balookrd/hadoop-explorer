@@ -839,17 +839,14 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     }
                 }
                 commitFutures.clear();
-                for (String path : activeWrittenPaths) {
-                    try {
-                        if (metadata != null) {
-                            fsManager.deletePath(path, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
-                        } else {
-                            fsManager.deletePath(path, null, true);
-                        }
-                        logger.debug("Очищен незавершенный файл бандла при сбое: {}", path);
-                    } catch (Exception ignored) {}
+                // Закоммиченные через rename файлы НЕ удаляются: они уже принадлежат целевому
+                // кластеру, а их удаление уничтожило бы и прежнюю версию пользовательских данных.
+                // Повторная передача бандла идемпотентна и перезапишет их штатным путем.
+                if (!activeWrittenPaths.isEmpty()) {
+                    logger.info("Откат бандла: {} уже закоммиченных файлов сохранены, будут перезаписаны при повторной передаче",
+                            activeWrittenPaths.size());
+                    activeWrittenPaths.clear();
                 }
-                activeWrittenPaths.clear();
                 for (String staging : activeStagingPaths) {
                     try {
                         if (metadata != null) {

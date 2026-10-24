@@ -199,4 +199,117 @@ public class ThriftHmsClientTest {
         assertThrows(SecurityException.class, () ->
                 thriftHmsClient.executeAs("../bad_user", () -> thriftHmsClient.getAllDatabases()));
     }
+
+    private static HmsPartitionDto part(String value, String location) {
+        return new HmsPartitionDto("hive", "analytics", "sales_daily", List.of(value), location, Map.of());
+    }
+
+    private static final String PARQUET_INPUT = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+    private static final String PARQUET_OUTPUT = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+    private static final String PARQUET_SERDE = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+
+    private static Partition parquetSourcePartition() {
+        SerDeInfo serde = new SerDeInfo();
+        serde.setName("sales_daily");
+        serde.setSerializationLib(PARQUET_SERDE);
+        serde.setParameters(Map.of("serialization.format", "1"));
+
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setLocation("hdfs://ns-dc1:8020/warehouse/analytics.db/sales_daily/dt=2026-10-24");
+        sd.setInputFormat(PARQUET_INPUT);
+        sd.setOutputFormat(PARQUET_OUTPUT);
+        sd.setSerdeInfo(serde);
+        sd.setCols(List.of(new FieldSchema("amount", "double", null)));
+
+        Partition p = new Partition();
+        p.setCatName("hive");
+        p.setDbName("analytics");
+        p.setTableName("sales_daily");
+        p.setValues(List.of("2026-10-24"));
+        p.setParameters(Map.of("numRows", "1000"));
+        p.setSd(sd);
+        return p;
+    }
+
+    @Test
+    @DisplayName("Формат партиции переносится без подмены на Text/LazySimpleSerDe")
+    void testPartitionStorageFormatSurvivesConversion() {
+        Partition source = parquetSourcePartition();
+
+        HmsPartitionDto dto = ThriftHmsClient.toDto(source);
+        Partition applied = ThriftHmsClient.toThrift(dto);
+
+        assertEquals(PARQUET_INPUT, applied.getSd().getInputFormat(),
+                "inputFormat партиции обязан сохраниться, иначе Hive читает Parquet как текст");
+        assertEquals(PARQUET_OUTPUT, applied.getSd().getOutputFormat(),
+                "outputFormat партиции обязан сохраниться");
+        assertEquals(PARQUET_SERDE, applied.getSd().getSerdeInfo().getSerializationLib(),
+                "serde партиции обязан сохраниться");
+    }
+
+    @Test
+    @DisplayName("При отсутствии формата у источника применяется текстовый дефолт (обратная совместимость)")
+    void testPartitionFormatFallsBackToTextWhenSourceHasNone() {
+        Partition applied = ThriftHmsClient.toThrift(part("2026-10-24", "hdfs://ns/warehouse/sales_daily/dt=2026-10-24"));
+
+        assertEquals("org.apache.hadoop.mapred.TextInputFormat", applied.getSd().getInputFormat());
+        assertEquals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+                applied.getSd().getSerdeInfo().getSerializationLib());
+    }
+
+    @Test
+    @DisplayName("Добавление партиций идемпотентно: батч с коллизией применяется целиком (ifNotExists)")
+    void testAddPartitionsAppliesWholeBatchDespiteCollision() throws Exception {
+        List<HmsPartitionDto> batch = List.of(
+                part("2026-10-23", "hdfs://ns/warehouse/sales_daily/dt=2026-10-23"),
+                part("2026-10-24", "hdfs://ns/warehouse/sales_daily/dt=2026-10-24")
+        );
+        // HMS добавил только вторую: первая уже существовала
+        when(mockClient1.add_partitions(anyList(), eq(true), eq(true)))
+                .thenAnswer(inv -> {
+                    List<Partition> requested = inv.getArgument(0);
+                    return List.of(requested.get(1));
+                });
+
+        thriftHmsClient.addPartitions("analytics", "sales_daily", batch);
+
+        verify(mockClient1).add_partitions(anyList(), eq(true), eq(true));
+        verify(mockClient1, never()).add_partitions(anyList());
+    }
+
+    @Test
+    @DisplayName("Уже существующая партиция обновляется (upsert), а не отбрасывается молча")
+    void testAddPartitionsUpsertsExistingPartition() throws Exception {
+        List<HmsPartitionDto> batch = List.of(
+                part("2026-10-23", "hdfs://ns-new/warehouse/sales_daily/dt=2026-10-23"),
+                part("2026-10-24", "hdfs://ns-new/warehouse/sales_daily/dt=2026-10-24")
+        );
+        // Ни одна партиция не добавлена: обе уже есть в метасторе
+        when(mockClient1.add_partitions(anyList(), eq(true), eq(true))).thenReturn(List.of());
+
+        thriftHmsClient.addPartitions("analytics", "sales_daily", batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Partition>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mockClient1).alter_partitions(eq("analytics"), eq("sales_daily"), captor.capture());
+        List<Partition> altered = captor.getValue();
+        assertEquals(2, altered.size(), "Обе существующие партиции должны быть обновлены");
+        assertEquals("hdfs://ns-new/warehouse/sales_daily/dt=2026-10-23",
+                altered.get(0).getSd().getLocation(),
+                "Обновление обязано донести новый location, иначе ALTER_PARTITION теряется");
+    }
+
+    @Test
+    @DisplayName("Отказ метастора при добавлении партиций не выдается за успех")
+    void testAddPartitionsPropagatesMetastoreFailure() throws Exception {
+        List<HmsPartitionDto> batch = List.of(part("2026-10-24", "hdfs://ns/warehouse/sales_daily/dt=2026-10-24"));
+        when(mockClient1.add_partitions(anyList(), eq(true), eq(true)))
+                .thenThrow(new MetaException("metastore is down"));
+        when(mockClient2.add_partitions(anyList(), eq(true), eq(true)))
+                .thenThrow(new MetaException("metastore is down"));
+
+        assertThrows(RuntimeException.class,
+                () -> thriftHmsClient.addPartitions("analytics", "sales_daily", batch),
+                "Сбой метастора обязан подниматься наверх, иначе позиция CDC уйдет вперед по непримененному событию");
+    }
 }

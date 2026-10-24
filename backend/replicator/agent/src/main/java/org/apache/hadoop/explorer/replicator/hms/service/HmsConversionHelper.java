@@ -131,6 +131,15 @@ public final class HmsConversionHelper {
         if (dto.serdeParameters() != null) {
             b.putAllSerdeParameters(dto.serdeParameters());
         }
+        if (dto.inputFormat() != null) {
+            b.setInputFormat(dto.inputFormat());
+        }
+        if (dto.outputFormat() != null) {
+            b.setOutputFormat(dto.outputFormat());
+        }
+        if (dto.serdeLib() != null) {
+            b.setSerdeLib(dto.serdeLib());
+        }
         return b.build();
     }
 
@@ -150,8 +159,16 @@ public final class HmsConversionHelper {
                 proto.getLocation(),
                 new HashMap<>(proto.getParametersMap()),
                 cols,
-                new HashMap<>(proto.getSerdeParametersMap())
+                new HashMap<>(proto.getSerdeParametersMap()),
+                emptyToNull(proto.getInputFormat()),
+                emptyToNull(proto.getOutputFormat()),
+                emptyToNull(proto.getSerdeLib())
         );
+    }
+
+    /** Protobuf не различает «не задано» и пустую строку — приводим к null для DTO. */
+    private static String emptyToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value;
     }
 
     public static HmsNotificationEventProto toProto(HmsNotificationEventDto dto) {

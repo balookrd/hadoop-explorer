@@ -21,7 +21,10 @@ public record HmsPartitionDto(
         String location,
         Map<String, String> parameters,
         List<HmsFieldSchemaDto> columns,
-        Map<String, String> serdeParameters
+        Map<String, String> serdeParameters,
+        String inputFormat,
+        String outputFormat,
+        String serdeLib
 ) {
     public HmsPartitionDto {
         if (catName == null || catName.isBlank()) catName = "hive";
@@ -45,6 +48,22 @@ public record HmsPartitionDto(
             Map<String, String> parameters
     ) {
         this(catName, dbName, tableName, values, location, parameters, Collections.emptyList(), Collections.emptyMap());
+    }
+
+    /**
+     * Конструктор обратной совместимости (8 аргументов, без формата хранения).
+     */
+    public HmsPartitionDto(
+            String catName,
+            String dbName,
+            String tableName,
+            List<String> values,
+            String location,
+            Map<String, String> parameters,
+            List<HmsFieldSchemaDto> columns,
+            Map<String, String> serdeParameters
+    ) {
+        this(catName, dbName, tableName, values, location, parameters, columns, serdeParameters, null, null, null);
     }
 
     public String getPartitionName(List<String> partKeys) {

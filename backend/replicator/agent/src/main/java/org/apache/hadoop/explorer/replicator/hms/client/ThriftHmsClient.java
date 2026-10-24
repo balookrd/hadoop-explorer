@@ -407,24 +407,77 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         });
     }
 
+    /**
+     * Идемпотентное применение батча партиций (upsert).
+     *
+     * <p>Используется {@code add_partitions(parts, ifNotExists=true, needResults=true)}: при коллизии
+     * хотя бы одной партиции HMS не отбрасывает весь батч, а возвращает фактически добавленные.
+     * Партиции, которые уже существовали, обновляются через {@code alter_partitions} — иначе
+     * события {@code ALTER_PARTITION} (смена location или параметров) молча терялись бы, а ретрай
+     * частично примененного батча никогда не доносил бы остаток.
+     */
     @Override
     public void addPartitions(String dbName, String tableName, List<HmsPartitionDto> partitions) {
         if (partitions == null || partitions.isEmpty()) return;
         executeWithRetry(c -> {
+            List<Partition> thriftPartitions = new ArrayList<>(partitions.size());
+            for (HmsPartitionDto pDto : partitions) {
+                thriftPartitions.add(toThrift(pDto));
+            }
+
+            List<Partition> added;
             try {
-                List<Partition> thriftPartitions = new ArrayList<>(partitions.size());
-                for (HmsPartitionDto pDto : partitions) {
-                    thriftPartitions.add(toThrift(pDto));
-                }
-                c.add_partitions(thriftPartitions);
-                log.info("[ThriftHmsClient:{}] {} партиций добавлено в '{}.{}' Hive Metastore",
-                        clusterId, thriftPartitions.size(), dbName, tableName);
+                added = c.add_partitions(thriftPartitions, true, true);
             } catch (AlreadyExistsException e) {
-                log.info("[ThriftHmsClient:{}] Партиции уже существуют в '{}.{}', добавление пропущено (идемпотентность)",
+                // Метастор не поддержал ifNotExists: считаем, что не добавлено ничего, и обновляем все.
+                log.info("[ThriftHmsClient:{}] Метастор отклонил батч как существующий в '{}.{}', переходим к обновлению",
                         clusterId, dbName, tableName);
+                added = List.of();
+            }
+
+            int addedCount = added != null ? added.size() : 0;
+            log.info("[ThriftHmsClient:{}] {} из {} партиций добавлено в '{}.{}' Hive Metastore",
+                    clusterId, addedCount, thriftPartitions.size(), dbName, tableName);
+
+            List<Partition> existing = partitionsNotAdded(thriftPartitions, added);
+            if (!existing.isEmpty()) {
+                c.alter_partitions(dbName, tableName, existing);
+                log.info("[ThriftHmsClient:{}] {} уже существовавших партиций обновлено (upsert) в '{}.{}'",
+                        clusterId, existing.size(), dbName, tableName);
             }
             return null;
         });
+    }
+
+    /** Дефолтный формат партиции для агентов, не передающих формат в gRPC-контракте. */
+    private static final String DEFAULT_PARTITION_INPUT_FORMAT = "org.apache.hadoop.mapred.TextInputFormat";
+    private static final String DEFAULT_PARTITION_OUTPUT_FORMAT = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+    private static final String DEFAULT_PARTITION_SERDE_LIB = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+
+    private static String firstNonBlank(String value, String fallback) {
+        return (value != null && !value.isBlank()) ? value : fallback;
+    }
+
+    /**
+     * Партиции запрошенного батча, которых нет в списке фактически добавленных HMS, —
+     * то есть те, что уже существовали и требуют обновления метаданных.
+     */
+    private static List<Partition> partitionsNotAdded(List<Partition> requested, List<Partition> added) {
+        if (added == null || added.isEmpty()) {
+            return requested;
+        }
+        Set<List<String>> addedValues = new HashSet<>();
+        for (Partition p : added) {
+            addedValues.add(p.getValues() != null ? p.getValues() : List.of());
+        }
+        List<Partition> notAdded = new ArrayList<>();
+        for (Partition p : requested) {
+            List<String> values = p.getValues() != null ? p.getValues() : List.of();
+            if (!addedValues.contains(values)) {
+                notAdded.add(p);
+            }
+        }
+        return notAdded;
     }
 
     @Override
@@ -571,6 +624,11 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         Map<String, String> serdeParams = (p.getSd() != null && p.getSd().getSerdeInfo() != null && p.getSd().getSerdeInfo().getParameters() != null)
                 ? new HashMap<>(p.getSd().getSerdeInfo().getParameters()) : Collections.emptyMap();
 
+        String inputFormat = (p.getSd() != null) ? p.getSd().getInputFormat() : null;
+        String outputFormat = (p.getSd() != null) ? p.getSd().getOutputFormat() : null;
+        String serdeLib = (p.getSd() != null && p.getSd().getSerdeInfo() != null)
+                ? p.getSd().getSerdeInfo().getSerializationLib() : null;
+
         return new HmsPartitionDto(
                 p.getCatName() != null ? p.getCatName() : "hive",
                 p.getDbName(),
@@ -579,7 +637,10 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 location,
                 p.getParameters() != null ? new HashMap<>(p.getParameters()) : Collections.emptyMap(),
                 cols,
-                serdeParams
+                serdeParams,
+                inputFormat,
+                outputFormat,
+                serdeLib
         );
     }
 
@@ -598,12 +659,14 @@ public class ThriftHmsClient implements HmsClient, Closeable {
 
         StorageDescriptor sd = new StorageDescriptor();
         sd.setLocation(dto.location());
-        sd.setInputFormat("org.apache.hadoop.mapred.TextInputFormat");
-        sd.setOutputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
+        // Формат хранения берется у партиции источника; текстовые значения — только дефолт
+        // для старых агентов, которые еще не передают формат в контракте.
+        sd.setInputFormat(firstNonBlank(dto.inputFormat(), DEFAULT_PARTITION_INPUT_FORMAT));
+        sd.setOutputFormat(firstNonBlank(dto.outputFormat(), DEFAULT_PARTITION_OUTPUT_FORMAT));
 
         SerDeInfo serde = new SerDeInfo();
         serde.setName(dto.tableName());
-        serde.setSerializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        serde.setSerializationLib(firstNonBlank(dto.serdeLib(), DEFAULT_PARTITION_SERDE_LIB));
         if (dto.serdeParameters() != null && !dto.serdeParameters().isEmpty()) {
             serde.setParameters(new HashMap<>(dto.serdeParameters()));
         }
