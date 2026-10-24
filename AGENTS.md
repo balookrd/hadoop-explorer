@@ -17,6 +17,8 @@ hadoop-explorer/
 │   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons
+│       ├── proto/            # Общие wire-контракты: схемы .proto и сгенерированные gRPC-стабы
+│       ├── model/            # Общие DTO, HMS-модель, аттестация задач (без Hadoop / Hive / Kafka)
 │       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
 │       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
@@ -74,6 +76,9 @@ hadoop-explorer/
   * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)
   * Сервис Spark: `mvn test -f backend/spark/pom.xml` (или `make test-spark`)
   * Сервис Replicator: `mvn test -f backend/replicator/pom.xml`
+  * Отдельный модуль Replicator — только через реактор родителя, иначе общие
+    `proto`/`model` берутся из локального репозитория устаревшими:
+    `mvn test -f backend/replicator/pom.xml -pl agent -am`
 * **Фронтенд тесты (Svelte 5 / Vitest)**:
   * `make test-ui`
 * **Сборка Docker-контейнеров**:

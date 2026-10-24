@@ -11,9 +11,11 @@
     <packaging>pom</packaging>
 
     <name>Hadoop gRPC Replicator :: Parent</name>
-    <description>Единый стек Hadoop gRPC Replicator на Java: Агент и Оркестратор</description>
+    <description>Единый стек Hadoop gRPC Replicator на Java: общие контракты (proto, model), Агент и Оркестратор</description>
 
     <modules>
+        <module>proto</module>
+        <module>model</module>
         <module>agent</module>
         <module>orchestrator</module>
     </modules>

@@ -36,10 +36,17 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- Replicator Agent (Protobuf models, gRPC, FS manager, Local Bandwidth Limiter) -->
+        <!-- Общие wire-контракты: control plane и data plane .proto -->
         <dependency>
             <groupId>org.apache.hadoop.explorer</groupId>
-            <artifactId>replicator-agent</artifactId>
+            <artifactId>replicator-proto</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!-- Общие с агентом DTO, HMS-модель, аттестация задач -->
+        <dependency>
+            <groupId>org.apache.hadoop.explorer</groupId>
+            <artifactId>replicator-model</artifactId>
             <version>1.0.0</version>
         </dependency>
 
@@ -122,6 +129,38 @@
 
     <build>
         <plugins>
+            <!--
+                The orchestrator must never link against the agent. The agent carries the
+                Hadoop, Hive Thrift and Kafka client stacks plus its own runtime; pulling it
+                into the control plane put all of that on the orchestrator's classpath and
+                let a change meant for one node break the other. Shared wire contracts live
+                in replicator-proto and replicator-model instead.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>ban-agent-dependency</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>org.apache.hadoop.explorer:replicator-agent</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>replicator-orchestrator must not depend on replicator-agent: share code through replicator-proto / replicator-model</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

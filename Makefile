@@ -79,10 +79,10 @@ test-replicator:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml
 
 test-replicator-agent:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/agent/pom.xml
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml -pl agent -am
 
 test-replicator-orchestrator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/orchestrator/pom.xml
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml -pl orchestrator -am
 
 test-replicator-agent-java: test-replicator-agent
 test-replicator-orchestrator-java: test-replicator-orchestrator
@@ -126,10 +126,10 @@ build-replicator:
 	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml
 
 build-replicator-agent:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/agent/pom.xml
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
 
 build-replicator-orchestrator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/orchestrator/pom.xml
+	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
 
 build-replicator-agent-java: build-replicator-agent
 build-replicator-orchestrator-java: build-replicator-orchestrator

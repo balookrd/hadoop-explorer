@@ -65,7 +65,7 @@
 
 11. **Высокопроизводительный Java 21 / Spring Boot 3 Оркестратор (`orchestrator`)**:
     - Полная реализация оркестратора репликации на Java 21 LTS и Spring Boot 3.3.4.
-    - Единое мультимодульное Maven-дерево (`pom.xml`) объединяет агент (`agent`) и оркестратор (`orchestrator`).
+    - Единое мультимодульное Maven-дерево (`pom.xml`) объединяет общие контракты (`proto`, `model`), агент (`agent`) и оркестратор (`orchestrator`).
     - Бесшовная интеграция с общим ядром безопасности `common-security-starter` (SPNEGO SSO, LDAP, JWT, CSRF, Rate Limiting, Audit).
     - Иерархический Token Bucket шейпинг, динамический реестр агентов с SSRF-защитой и планировщик периодических репликаций.
     - Встроенная раздача собранного Svelte 5 SPA фронтенда.
@@ -353,7 +353,8 @@ open http://localhost:8005
 make build-replicator
 make test-replicator
 
-# Тестирование отдельных модулей
+# Тестирование отдельных модулей (через реактор родителя: общие proto/model
+# пересобираются вместе с модулем, а не берутся из локального репозитория)
 make test-replicator-agent
 make test-replicator-orchestrator
 ```

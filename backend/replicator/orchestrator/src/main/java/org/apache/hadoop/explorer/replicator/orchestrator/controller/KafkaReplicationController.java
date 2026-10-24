@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
+import org.apache.hadoop.explorer.replicator.security.PrincipalSafety;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateKafkaJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.KafkaReplicationOrchestratorService;
@@ -91,10 +92,10 @@ public class KafkaReplicationController {
                         "Задание путей к файлам keytab разрешено исключительно администраторам платформы");
             }
             if (request.getSourcePrincipal() != null && !request.getSourcePrincipal().isBlank()) {
-                org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(request.getSourcePrincipal());
+                PrincipalSafety.validate(request.getSourcePrincipal());
             }
             if (request.getTargetPrincipal() != null && !request.getTargetPrincipal().isBlank()) {
-                org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider.validatePrincipalSafety(request.getTargetPrincipal());
+                PrincipalSafety.validate(request.getTargetPrincipal());
             }
             applyTopologyDefaultsForNonAdmin(request);
         }
