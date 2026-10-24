@@ -35,6 +35,46 @@ class OrchestratorIntegrationTest {
     private org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
 
     @Test
+    @DisplayName("Устаревшие агентские REST-эндпоинты отключены: Control Plane переведен на gRPC")
+    void legacyAgentRestEndpointsAreRetired() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("admin", "secret");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(loginRequest)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie authCookie = loginResult.getResponse().getCookie("access_token");
+        assertNotNull(authCookie);
+
+        // Отчет о прогрессе HMS-задачи: gRPC ReportHmsProgress
+        mockMvc.perform(post("/api/v1/hms/jobs/job-1/progress")
+                .cookie(authCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"ACTIVE\",\"last_processed_event_id\":999999}"))
+            .andExpect(status().isNotFound());
+
+        // Выдача ожидающих HMS-задач: gRPC GetPendingHmsJobs
+        mockMvc.perform(get("/api/v1/hms/jobs/pending")
+                .cookie(authCookie)
+                .param("clusterId", "dc1")
+                .param("agentId", "agent-dc1-1"))
+            .andExpect(status().isNotFound());
+
+        // Продление аренды стримера: gRPC RenewStreamingLease
+        mockMvc.perform(post("/api/v1/streaming/lease/renew")
+                .cookie(authCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"clusterId\":\"dc1\",\"agentId\":\"streamer-dc1-1\"}"))
+            .andExpect(status().isNotFound());
+
+        // Чтение статуса аренды остается: его использует Web UI
+        mockMvc.perform(get("/api/v1/streaming/lease/all").cookie(authCookie))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("Сквозной интеграционный сценарий Оркестратора: Login -> Topology -> Agents -> Jobs Lifecycle -> Token Bucket")
     void fullOrchestratorWorkflowTest() throws Exception {
         // 1. Health Check
@@ -63,13 +103,13 @@ class OrchestratorIntegrationTest {
         // 4. Проверка отключения устаревшего REST эндпоинта регистрации агентов (Control Plane переведен на gRPC)
         AgentRegisterRequest agentReg = new AgentRegisterRequest("agent-dc1-node1", "dc1", "all", "node1:50051", "node1", 100.0);
         mockMvc.perform(post("/api/v1/agents/register")
-                .header("X-Agent-Secret", "replicator-secure-agent-secret-key-12345")
+                .header("X-Agent-Secret", "test-orchestrator-agent-secret-0123456789")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(agentReg)))
             .andExpect(status().isNotFound());
 
         // Регистрация агента в реестре (как это делает gRPC Control Plane)
-        agentRegistry.register(agentReg, "replicator-secure-agent-secret-key-12345");
+        agentRegistry.register(agentReg, "test-orchestrator-agent-secret-0123456789");
 
         // Проверка получения зарегистрированных агентов через UI REST API
         mockMvc.perform(get("/api/v1/agents").cookie(authCookie))
@@ -79,7 +119,7 @@ class OrchestratorIntegrationTest {
         // 5. Проверка отключения устаревшего REST эндпоинта запроса квоты (Token Bucket переведен на gRPC)
         TokenRequest tokenReq = new TokenRequest("agent-dc1-node1", 1048576, "dc1", "dc2");
         mockMvc.perform(post("/api/v1/tokens/request")
-                .header("X-Agent-Secret", "replicator-secure-agent-secret-key-12345")
+                .header("X-Agent-Secret", "test-orchestrator-agent-secret-0123456789")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(tokenReq)))
             .andExpect(status().isNotFound());

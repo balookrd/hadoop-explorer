@@ -138,15 +138,26 @@ public class AgentRegistry {
     @PostConstruct
     public void initSecurityValidation() {
         String secret = properties.getAgentSecret();
-        if (ReplicatorProperties.DEFAULT_AGENT_SECRET.equals(secret)) {
-            log.warn("[SECURITY ALERT] В кодовой базе активен дефолтный секретный токен агента ('{}'). " +
-                    "В производственных средах обязательно задайте уникальный секрет через свойство hadoop.replicator.agent-secret " +
-                    "или переменную окружения REPLICATOR_AGENT_SECRET.", secret);
-        }
         if (properties.isEnforceAgentSecret()) {
             if (secret == null || secret.isBlank() || secret.trim().length() < 16) {
-                throw new IllegalStateException("В защищенном режиме (enforce-agent-secret=true) hadoop.replicator.agent-secret должен быть задан и содержать минимум 16 символов");
+                throw new IllegalStateException("В защищенном режиме (enforce-agent-secret=true) "
+                        + "hadoop.replicator.agent-secret должен быть задан и содержать минимум 16 символов");
             }
+            // Унаследованный ключ из репозитория известен публично, поэтому в защищенном
+            // режиме он равнозначен отсутствию секрета.
+            if (ReplicatorProperties.LEGACY_DEFAULT_AGENT_SECRET.equals(secret.trim())) {
+                throw new IllegalStateException("hadoop.replicator.agent-secret равен публично известному "
+                        + "значению из репозитория: задайте уникальный секрет через свойство "
+                        + "hadoop.replicator.agent-secret или переменную окружения REPLICATOR_AGENT_SECRET");
+            }
+        } else if (secret == null || secret.isBlank()) {
+            log.warn("[SECURITY ALERT] Секрет агента не задан, а enforce-agent-secret выключен: "
+                    + "gRPC Control Plane будет отклонять вызовы агентов (Fail-Closed), "
+                    + "а REST-аутентификация агентов недоступна");
+        } else if (ReplicatorProperties.LEGACY_DEFAULT_AGENT_SECRET.equals(secret.trim())) {
+            log.warn("[SECURITY ALERT] Активен публично известный секрет агента из репозитория. "
+                    + "Задайте уникальный секрет через hadoop.replicator.agent-secret "
+                    + "или REPLICATOR_AGENT_SECRET.");
         }
         loadAgentsFromDatabase();
     }

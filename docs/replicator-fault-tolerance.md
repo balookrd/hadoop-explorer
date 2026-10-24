@@ -136,22 +136,22 @@ sequenceDiagram
     participant Orch as Orchestrator (Lease Table)
 
     Note over S1,Orch: Штатный режим работы (Epoch = 10)
-    S1->>Orch: POST /api/v1/streaming/lease/renew (txid=1500, lag=0)
-    Orch-->>S1: 200 OK (role=ACTIVE, lease_ttl=10s, epoch=10)
+    S1->>Orch: RenewStreamingLease (txid=1500, lag=0)
+    Orch-->>S1: granted=true (role=ACTIVE, lease_ttl=10s, epoch=10)
     S1->>NN: poll(1s) -> Читает события EditLog
     S1->>Orch: batchCreateTasks(изменившиеся файлы)
 
-    S2->>Orch: POST /api/v1/streaming/lease/renew (standby poll)
-    Orch-->>S2: 200 OK (role=STANDBY, active_leader=Streamer-01)
+    S2->>Orch: RenewStreamingLease (standby poll)
+    Orch-->>S2: granted=false (role=STANDBY, active_leader=Streamer-01)
     Note over S2: Сокет к NameNode ЗАКРЫТ (0 RPC нагрузки)
 
     Note over S1: 💥 Авария Streamer-01 (Сбой узла / OOM / Сеть)
     Note over Orch: Проходит 10 секунд -> Аренда Streamer-01 истекает!
 
     Note over S2,Orch: Автоматический Failover на Standby
-    S2->>Orch: POST /api/v1/streaming/lease/renew
+    S2->>Orch: RenewStreamingLease
     Note over Orch: Атомарный UPDATE lease: leader=Streamer-02, epoch=11
-    Orch-->>S2: 200 OK (role=ACTIVE, last_txid=1500, epoch=11)
+    Orch-->>S2: granted=true (role=ACTIVE, last_txid=1500, epoch=11)
     S2->>NN: getInotifyEventStream(txid=1501)
     Note over S2: Чтение возобновлено без потери событий (RPO = 0)!
 ```

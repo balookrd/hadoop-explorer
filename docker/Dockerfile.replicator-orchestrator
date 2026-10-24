@@ -28,7 +28,10 @@ ENV APP_NAME="replicator-orchestrator" \
     FRONTEND_DIST="/app/frontend/dist" \
     SERVER_PORT="8005"
 
-# Запуск от root для совместимости с монтируемыми томами данных
+# Запуск от непривилегированного пользователя: сервис распаковывает внешние
+# архивы и ходит в HDFS с doAs, поэтому права root в контейнере избыточны.
+USER appuser
+
 EXPOSE 8005 50050
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

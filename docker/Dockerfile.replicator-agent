@@ -9,13 +9,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Создание директорий для данных и staging
-RUN mkdir -p /tmp/staging /tmp/data /app/data
+# Создание директорий для данных и staging и непривилегированного пользователя:
+# агент распаковывает TAR-бандлы из сети, поэтому не должен работать от root.
+RUN mkdir -p /tmp/staging /tmp/data /app/data && \
+    groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -m -s /bin/bash appuser && \
+    touch /etc/krb5.conf && \
+    chown -R appuser:appuser /tmp/staging /tmp/data /app /etc/krb5.conf
 
 # Копирование собранного Shaded Fat JAR Java Replicator Agent
 COPY backend/replicator/agent/target/replicator-agent-1.0.0-all.jar /app/replicator-agent.jar
 
+USER appuser
+
 EXPOSE 50051 50052 50053
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD bash -c "</dev/tcp/127.0.0.1/50051" || exit 1
 
 
 ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent.jar"]

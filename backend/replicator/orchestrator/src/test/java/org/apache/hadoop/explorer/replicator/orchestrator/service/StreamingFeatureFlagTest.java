@@ -132,7 +132,7 @@ class StreamingFeatureFlagTest {
     @DisplayName("При наличии AgentRegistry создание STREAMING_INOTIFY должно отклоняться если на кластере нет streamer-агента")
     void shouldRejectStreamingJobWhenNoStreamerAgentOnCluster() {
         properties.getStreaming().setEnabled(true);
-        properties.setAgentSecret("secret-123");
+        properties.setAgentSecret("test-agent-secret-0123456789");
         var agentRegistry = new org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry(
                 properties,
                 new org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry(properties)
@@ -164,14 +164,14 @@ class StreamingFeatureFlagTest {
         // 2. Регистрируем обычного агента (mode=all) - всё равно отклоняется
         agentRegistry.register(
             new org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest("agent-all", "dc1", "all", "node1:50051", "node1", 100.0),
-            "secret-123"
+            "test-agent-secret-0123456789"
         );
         assertThrows(IllegalArgumentException.class, () -> registryAwareJobService.createJob(req, "de_user"));
 
         // 3. Регистрируем streamer-агента (mode=streamer) - создание успешно разрешается
         agentRegistry.register(
             new org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest("streamer-1", "dc1", "streamer", "streamer1:50051", "streamer1", 100.0),
-            "secret-123"
+            "test-agent-secret-0123456789"
         );
         JobResponse response = registryAwareJobService.createJob(req, "de_user");
         assertNotNull(response);

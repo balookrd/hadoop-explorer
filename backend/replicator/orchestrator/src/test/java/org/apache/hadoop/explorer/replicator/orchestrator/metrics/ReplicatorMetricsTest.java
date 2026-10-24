@@ -51,7 +51,7 @@ public class ReplicatorMetricsTest {
         hb.setStagingActiveFiles(3);
         hb.setStagingActiveBytes(3145728L);
         hb.setStagingOrphansCleaned(5L);
-        agentRegistry.heartbeat(hb, "replicator-secure-agent-secret-key-12345");
+        agentRegistry.heartbeat(hb, "test-orchestrator-agent-secret-0123456789");
 
         // Создаем тестовую джобу HDFS
         CreateJobRequest req = new CreateJobRequest(

@@ -104,6 +104,59 @@ class AgentGrpcAuthInterceptorTest {
     }
 
     @Test
+    @DisplayName("Серверный интерцептор отклоняет анонимные вызовы при незаданном секрете")
+    void testForServerIsFailClosedWhenSecretMissing() {
+        AgentGrpcAuthInterceptor interceptor = AgentGrpcAuthInterceptor.forServer(null);
+        ServerCall<String, String> serverCall = mock(ServerCall.class);
+        MethodDescriptor<String, String> methodDesc = mock(MethodDescriptor.class);
+        when(methodDesc.getFullMethodName()).thenReturn("OrchestratorControlPlaneService/registerAgent");
+        when(serverCall.getMethodDescriptor()).thenReturn(methodDesc);
+        ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
+
+        interceptor.interceptCall(serverCall, new Metadata(), nextHandler);
+
+        ArgumentCaptor<Status> statusCaptor = ArgumentCaptor.forClass(Status.class);
+        verify(serverCall).close(statusCaptor.capture(), any());
+        assertEquals(Status.Code.UNAUTHENTICATED, statusCaptor.getValue().getCode(),
+                "Незаданный секрет не должен открывать control plane анонимным вызовам");
+        verify(nextHandler, never()).startCall(any(), any());
+    }
+
+    @Test
+    @DisplayName("Серверный интерцептор отклоняет анонимные вызовы при пустом секрете")
+    void testForServerIsFailClosedWhenSecretBlank() {
+        AgentGrpcAuthInterceptor interceptor = AgentGrpcAuthInterceptor.forServer("   ");
+        ServerCall<String, String> serverCall = mock(ServerCall.class);
+        MethodDescriptor<String, String> methodDesc = mock(MethodDescriptor.class);
+        when(methodDesc.getFullMethodName()).thenReturn("KafkaDataTransferService/streamBatches");
+        when(serverCall.getMethodDescriptor()).thenReturn(methodDesc);
+        ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
+
+        interceptor.interceptCall(serverCall, new Metadata(), nextHandler);
+
+        ArgumentCaptor<Status> statusCaptor = ArgumentCaptor.forClass(Status.class);
+        verify(serverCall).close(statusCaptor.capture(), any());
+        assertEquals(Status.Code.UNAUTHENTICATED, statusCaptor.getValue().getCode());
+    }
+
+    @Test
+    @DisplayName("Серверный интерцептор пропускает вызов с верным секретом")
+    void testForServerAllowsCallWithValidSecret() {
+        AgentGrpcAuthInterceptor interceptor = AgentGrpcAuthInterceptor.forServer("super-secret-token");
+        ServerCall<String, String> serverCall = mock(ServerCall.class);
+        ServerCallHandler<String, String> nextHandler = mock(ServerCallHandler.class);
+        ServerCall.Listener<String> expectedListener = mock(ServerCall.Listener.class);
+        when(nextHandler.startCall(any(), any())).thenReturn(expectedListener);
+
+        Metadata headers = new Metadata();
+        headers.put(AgentGrpcAuthInterceptor.AGENT_SECRET_HEADER, "super-secret-token");
+
+        interceptor.interceptCall(serverCall, headers, nextHandler);
+
+        verify(serverCall, never()).close(any(), any());
+    }
+
+    @Test
     @DisplayName("Пропуск вызова если ожидаемый секрет не сконфигурирован, но включен allowAnonymous")
     void testAllowedWhenNoSecretConfiguredWithAllowAnonymous() {
         AgentGrpcAuthInterceptor interceptor = new AgentGrpcAuthInterceptor(null, true);

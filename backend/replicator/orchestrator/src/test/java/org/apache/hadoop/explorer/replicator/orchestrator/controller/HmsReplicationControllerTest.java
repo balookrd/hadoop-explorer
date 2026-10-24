@@ -34,6 +34,7 @@ public class HmsReplicationControllerTest {
     private CommonAuthenticationToken adminAuth;
     private CommonAuthenticationToken ownerAuth;
     private CommonAuthenticationToken strangerAuth;
+    private CommonAuthenticationToken agentAuth;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +62,13 @@ public class HmsReplicationControllerTest {
                 List.of("engineers"), "LDAP", false, Role.WRITER
         );
         strangerAuth = new CommonAuthenticationToken(strangerSession);
+
+        // Сессия, которую выставляет AgentSecretAuthenticationFilter по заголовку X-Agent-Secret
+        UserSession agentSession = new UserSession(
+                "system_agent", "Replicator Agent Daemon", "agent@cluster.local",
+                List.of("replicator-agents"), "agent-secret", false, Role.WRITER
+        );
+        agentAuth = new CommonAuthenticationToken(agentSession);
     }
 
     private HmsReplicationJobEntity createJobEntity(String id, String owner) {
@@ -155,45 +163,48 @@ public class HmsReplicationControllerTest {
         verify(coordinatorService, times(1)).deleteReplicationJob("job-100");
     }
 
+
+
+
     @Test
-    @DisplayName("Аутентификация /progress: неаутентифицированный вызов отклоняется 401 UNAUTHORIZED")
-    void unauthenticatedCannotUpdateProgress() {
-        var report = new org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest(
-                "ACTIVE", 1, 1, 10, 10, 100L, null, 0L, "ok", List.of(), "agent-1"
-        );
+    @DisplayName("Чтение событий чужой задачи отклоняется 403 (BOLA/IDOR)")
+    void strangerCannotReadEventsOfForeignJob() {
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
+
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
-                controller.updateProgress("job-100", report, null)
+                controller.getEvents("job-100", 100, strangerAuth)
         );
-        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
-        verify(coordinatorService, never()).updateJobProgress(anyString(), any());
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
     }
 
     @Test
-    @DisplayName("Аутентификация /progress: авторизованный агент успешно передает прогресс")
-    void authenticatedCanUpdateProgress() {
-        var report = new org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest(
-                "ACTIVE", 1, 1, 10, 10, 100L, null, 0L, "ok", List.of(), "agent-1"
-        );
-        ResponseEntity<Map<String, Object>> resp = controller.updateProgress("job-100", report, ownerAuth);
-        assertEquals(HttpStatus.OK, resp.getStatusCode());
-        verify(coordinatorService, times(1)).updateJobProgress("job-100", report);
-    }
+    @DisplayName("Чтение подзадач чужой задачи отклоняется 403")
+    void strangerCannotReadSubtasksOfForeignJob() {
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
 
-    @Test
-    @DisplayName("Аутентификация /pending: неаутентифицированный вызов отклоняется 401 UNAUTHORIZED")
-    void unauthenticatedCannotGetPendingJobs() {
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
-                controller.getPendingJobs("dc1", "agent-1", null)
+                controller.getSubtasks("job-100", strangerAuth)
         );
-        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
-        verify(coordinatorService, never()).getPendingJobsForCluster(anyString(), anyString());
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
     }
 
     @Test
-    @DisplayName("Аутентификация /pending: авторизованный запрос возвращает список задач")
-    void authenticatedCanGetPendingJobs() {
-        ResponseEntity<?> resp = controller.getPendingJobs("dc1", "agent-1", ownerAuth);
-        assertEquals(HttpStatus.OK, resp.getStatusCode());
-        verify(coordinatorService, times(1)).getPendingJobsForCluster("dc1", "agent-1");
+    @DisplayName("Владелец читает события своей задачи")
+    void ownerCanReadEventsOfOwnJob() {
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
+        when(eventLogRepository.findByHmsJobIdOrderByCreatedAtDesc(anyString(), any())).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> controller.getEvents("job-100", 100, ownerAuth));
     }
+
+    @Test
+    @DisplayName("Администратор читает события любой задачи")
+    void adminCanReadEventsOfAnyJob() {
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
+        when(eventLogRepository.findByHmsJobIdOrderByCreatedAtDesc(anyString(), any())).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> controller.getEvents("job-100", 100, adminAuth));
+    }
+
+
 }

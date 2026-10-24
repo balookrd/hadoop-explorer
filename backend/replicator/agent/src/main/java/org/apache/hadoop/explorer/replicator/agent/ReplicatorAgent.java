@@ -240,11 +240,11 @@ public class ReplicatorAgent {
             logger.info("gRPC сервис HmsTransferService успешно зарегистрирован на Receiver сервере");
         }
 
+        serverBuilder.intercept(
+                org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.forServer(config.getAgentSecret()));
         if (config.getAgentSecret() != null && !config.getAgentSecret().isBlank()) {
-            serverBuilder.intercept(new org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor(config.getAgentSecret()));
             logger.info("Включена gRPC L7 аутентификация по X-Agent-Secret на Receiver сервере");
         } else {
-            serverBuilder.intercept(new org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor(null, false));
             logger.warn("ВНИМАНИЕ: X-Agent-Secret не задан! gRPC Receiver сервер запущен в режиме Fail-Closed (все запросы будут отклоняться)");
         }
 

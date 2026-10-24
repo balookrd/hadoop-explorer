@@ -51,7 +51,7 @@ public class ReplicatorAgentConfig {
     private boolean stagingCleanupEnabled = true;
     private long stagingCleanupIntervalMinutes = 15;
     private long stagingTtlMinutes = 30;
-    private boolean enforceTaskAttestation = false;
+    private boolean enforceTaskAttestation = true;
     private org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec = org.apache.hadoop.explorer.replicator.generated.CompressionCodec.COMPRESSION_ZSTD;
     private int wireCompressionLevel = 3;
     private int inotifyQueueCapacity = 10000;
@@ -118,7 +118,10 @@ public class ReplicatorAgentConfig {
             config.advertisedGrpcAddress = host + ":" + config.receiverPort;
         }
 
-        config.agentSecret = getEnv("REPLICATOR_AGENT_SECRET", getEnv("AGENT_SECRET", "replicator-secure-agent-secret-key-12345"));
+        // Секрета по умолчанию нет: зашитый в код ключ был единым публично известным
+        // значением для всех установок. Без секрета gRPC-серверы агента работают
+        // в режиме Fail-Closed.
+        config.agentSecret = getEnv("REPLICATOR_AGENT_SECRET", getEnv("AGENT_SECRET", null));
 
         String bw = getEnv("AGENT_MAX_BANDWIDTH_MB_S", null);
         if (bw != null && !bw.isBlank()) {
@@ -169,7 +172,7 @@ public class ReplicatorAgentConfig {
         config.inotifyFlushIntervalMs = Long.parseLong(getEnv("INOTIFY_FLUSH_INTERVAL_MS", "200"));
         config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
         config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
-        config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "false"));
+        config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "true"));
         config.localSandboxDir = getEnv("REPLICATOR_LOCAL_SANDBOX", getEnv("LOCAL_SANDBOX_DIR", null));
 
         String minBatch = getEnv("REPLICATOR_TOKEN_BATCH_MIN_BYTES", null);

@@ -1,0 +1,66 @@
+# =============================================================================
+# Продуктивный профиль Replicator Orchestrator (SPRING_PROFILES_ACTIVE=prod)
+#
+# Дефолтный профиль рассчитан на локальную разработку: H2 в памяти,
+# ddl-auto: update и mock-аутентификация. Этот профиль задает значения,
+# пригодные для продуктива; все секреты приходят только из окружения.
+# =============================================================================
+
+spring:
+  datasource:
+    url: "jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:replicator}"
+    driver-class-name: org.postgresql.Driver
+    username: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    hikari:
+      pool-name: ReplicatorHikariPool
+      maximum-pool-size: ${POSTGRES_POOL_MAX:60}
+      minimum-idle: ${POSTGRES_POOL_MIN:10}
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      leak-detection-threshold: 30000
+  jpa:
+    hibernate:
+      # Схема управляется миграциями и schema-postgresql.sql, приложение ее не меняет:
+      # автоматическое обновление скрывало бы дрейф модели и отключало секционирование.
+      ddl-auto: validate
+    show-sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      # Детали состояния компонентов (включая СУБД) не раскрываются анонимно
+      show-details: when-authorized
+
+hadoop:
+  security:
+    debug: false
+    auth:
+      # Боевая аутентификация: kerberos (SPNEGO) или ldap, но не mock
+      mode: "${HADOOP_AUTH_MODE:kerberos}"
+    jwt:
+      secret-key: "${JWT_SECRET_KEY}"
+      expiration-minutes: ${JWT_EXPIRATION_MINUTES:480}
+    cookie:
+      secure: true
+      same-site: "Strict"
+
+  replicator:
+    # Секрет агента и TLS обязательны: канал control plane несет x-agent-secret
+    agent-secret: "${REPLICATOR_AGENT_SECRET}"
+    enforce-agent-secret: true
+    enforce-cluster-whitelist: true
+    allow-loopback-agents: false
+    grpc:
+      port: ${REPLICATOR_GRPC_PORT:50050}
+      enabled: true
+      tls-enabled: ${REPLICATOR_GRPC_TLS_ENABLED:true}
+      cert-chain-path: "${REPLICATOR_GRPC_CERT_CHAIN:}"
+      private-key-path: "${REPLICATOR_GRPC_PRIVATE_KEY:}"
+      trust-cert-collection-path: "${REPLICATOR_GRPC_TRUST_CERTS:}"
+      client-auth: "${REPLICATOR_GRPC_CLIENT_AUTH:REQUIRE}"

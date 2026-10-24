@@ -79,11 +79,16 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS);
 
-            // Аутентификация по X-Agent-Secret
+            // Аутентификация по X-Agent-Secret: интерцептор ставится всегда (fail-closed).
+            // При незаданном секрете все вызовы отклоняются, иначе control plane был бы
+            // полностью открыт анонимным агентам.
             String secret = properties.getAgentSecret();
+            builder.intercept(AgentGrpcAuthInterceptor.forServer(secret));
             if (secret != null && !secret.isBlank()) {
-                builder.intercept(new AgentGrpcAuthInterceptor(secret));
                 log.info("Включена gRPC L7 аутентификация по X-Agent-Secret в Control Plane");
+            } else {
+                log.error("X-Agent-Secret не сконфигурирован: Control Plane запущен в режиме Fail-Closed, "
+                        + "все вызовы агентов будут отклоняться");
             }
 
             // TLS конфигурация (опционально)

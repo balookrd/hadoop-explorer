@@ -3,3 +3,7 @@ hadoop:
     grpc:
       port: 0
       enabled: true
+    # Тестовое окружение: уникальный секрет и выключенный белый список кластеров,
+    # поскольку тесты регистрируют агентов в произвольных идентификаторах кластеров.
+    agent-secret: "test-orchestrator-agent-secret-0123456789"
+    enforce-cluster-whitelist: false

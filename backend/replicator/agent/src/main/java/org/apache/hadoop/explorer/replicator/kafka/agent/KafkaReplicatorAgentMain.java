@@ -212,9 +212,14 @@ public class KafkaReplicatorAgentMain {
                 }
             }
 
+            // Интерцептор ставится всегда: без него приемник Kafka-батчей принимал бы
+            // анонимную запись в целевые топики и коммит оффсетов чужих групп.
+            serverBuilder.intercept(AgentGrpcAuthInterceptor.forServer(agentSecret));
             if (agentSecret != null && !agentSecret.isBlank()) {
-                serverBuilder.intercept(new AgentGrpcAuthInterceptor(agentSecret));
                 log.info("Включена gRPC L7 аутентификация сервера через x-agent-secret");
+            } else {
+                log.error("x-agent-secret не задан: приемник Kafka-батчей запущен в режиме Fail-Closed, "
+                        + "все входящие вызовы будут отклоняться");
             }
 
             server = serverBuilder.build().start();

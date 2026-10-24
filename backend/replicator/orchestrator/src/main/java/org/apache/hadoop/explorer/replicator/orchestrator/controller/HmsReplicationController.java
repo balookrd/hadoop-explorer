@@ -51,6 +51,41 @@ public class HmsReplicationController {
         return session != null ? session.username() : "system";
     }
 
+    /** Признак сессии, выставленной фильтром аутентификации агента. */
+    private static final String AGENT_AUTH_METHOD = "agent-secret";
+
+    /**
+     * Проверка права на чтение деталей задачи (события CDC, подзадачи, DLQ).
+     *
+     * <p>Детали раскрывают структуру данных источника: имена баз и таблиц, пути HDFS,
+     * идентификаторы агентов. Без проверки владельца любой аутентифицированный пользователь
+     * мог перечислить их по идентификатору чужой задачи (BOLA/IDOR).
+     */
+    private void checkHmsJobReadAccess(String jobId, Authentication auth) {
+        UserSession session = getSession(auth);
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
+            );
+        }
+        if (session.isAdmin() || AGENT_AUTH_METHOD.equalsIgnoreCase(session.authMethod())) {
+            return;
+        }
+        var opt = jobRepository.findById(jobId);
+        if (opt.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Задача репликации не найдена: " + jobId
+            );
+        }
+        String createdBy = opt.get().getCreatedBy();
+        if (createdBy == null || createdBy.equalsIgnoreCase(session.username())) {
+            return;
+        }
+        throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.FORBIDDEN, "Недостаточно прав для просмотра задачи репликации другого пользователя"
+        );
+    }
+
     public record CreateHmsJobRequest(
             String source_cluster_id,
             String target_cluster_id,
@@ -126,45 +161,29 @@ public class HmsReplicationController {
     }
 
     @GetMapping
-    public ResponseEntity<List<HmsReplicationJobEntity>> listJobs() {
+    public ResponseEntity<List<HmsReplicationJobEntity>> listJobs(Authentication auth) {
+        UserSession session = getSession(auth);
+        if (session == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
+            );
+        }
         List<HmsReplicationJobEntity> jobs = jobRepository.findAll();
+        // Непривилегированный пользователь видит только свои задачи: список раскрывает
+        // имена баз, таблиц и кластеров источника.
+        if (!session.isAdmin() && !AGENT_AUTH_METHOD.equalsIgnoreCase(session.authMethod())) {
+            jobs = jobs.stream()
+                    .filter(job -> job.getCreatedBy() == null
+                            || job.getCreatedBy().equalsIgnoreCase(session.username()))
+                    .toList();
+        }
         coordinatorService.enrichAllWithSubtasksMetrics(jobs);
         return ResponseEntity.ok(jobs);
     }
 
-    @GetMapping("/pending")
-    public ResponseEntity<List<org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto>> getPendingJobs(
-            @RequestParam(required = false) String clusterId,
-            @RequestParam(required = false) String agentId,
-            Authentication auth
-    ) {
-        UserSession session = getSession(auth);
-        if (session == null) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                HttpStatus.UNAUTHORIZED, "Требуется аутентификация агента или оператора"
-            );
-        }
-        return ResponseEntity.ok(coordinatorService.getPendingJobsForCluster(clusterId, agentId));
-    }
-
-    @PostMapping("/{id}/progress")
-    public ResponseEntity<Map<String, Object>> updateProgress(
-            @PathVariable String id,
-            @RequestBody org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest report,
-            Authentication auth
-    ) {
-        UserSession session = getSession(auth);
-        if (session == null) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                HttpStatus.UNAUTHORIZED, "Требуется аутентификация агента или оператора для обновления прогресса"
-            );
-        }
-        coordinatorService.updateJobProgress(id, report);
-        return ResponseEntity.ok(Map.of("success", true));
-    }
-
     @GetMapping("/{id}")
-    public ResponseEntity<HmsReplicationJobEntity> getJob(@PathVariable String id) {
+    public ResponseEntity<HmsReplicationJobEntity> getJob(@PathVariable String id, Authentication auth) {
+        checkHmsJobReadAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
                     coordinatorService.enrichWithSubtasksMetrics(job);
@@ -181,15 +200,18 @@ public class HmsReplicationController {
     @GetMapping("/{id}/events")
     public ResponseEntity<List<HmsEventLogEntity>> getEvents(
             @PathVariable String id,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            Authentication auth
     ) {
+        checkHmsJobReadAccess(id, auth);
         return ResponseEntity.ok(
                 eventLogRepository.findByHmsJobIdOrderByCreatedAtDesc(id, PageRequest.of(0, Math.min(limit, 500)))
         );
     }
 
     @GetMapping("/{id}/subtasks")
-    public ResponseEntity<List<JobResponse>> getSubtasks(@PathVariable String id) {
+    public ResponseEntity<List<JobResponse>> getSubtasks(@PathVariable String id, Authentication auth) {
+        checkHmsJobReadAccess(id, auth);
         return ResponseEntity.ok(jobService.listSubjobsByParentId(id));
     }
 
@@ -272,8 +294,10 @@ public class HmsReplicationController {
     public ResponseEntity<List<org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsDeadLetterEventEntity>> getDlqEvents(
             @PathVariable String id,
             @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            Authentication auth
     ) {
+        checkHmsJobReadAccess(id, auth);
         return ResponseEntity.ok(coordinatorService.getDeadLetterEvents(id, status, limit));
     }
 

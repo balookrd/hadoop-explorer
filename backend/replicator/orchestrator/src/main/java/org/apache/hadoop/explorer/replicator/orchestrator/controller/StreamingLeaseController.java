@@ -1,6 +1,5 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.controller;
 
-import org.apache.hadoop.explorer.replicator.orchestrator.dto.StreamingLeaseRenewRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.StreamingLeaseRenewResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.StreamingLeaseCoordinator;
 import org.springframework.http.ResponseEntity;
@@ -16,11 +15,6 @@ public class StreamingLeaseController {
 
     public StreamingLeaseController(StreamingLeaseCoordinator leaseCoordinator) {
         this.leaseCoordinator = leaseCoordinator;
-    }
-
-    @PostMapping("/renew")
-    public ResponseEntity<StreamingLeaseRenewResponse> renewLease(@RequestBody StreamingLeaseRenewRequest req) {
-        return ResponseEntity.ok(leaseCoordinator.renewLease(req));
     }
 
     @GetMapping("/status")

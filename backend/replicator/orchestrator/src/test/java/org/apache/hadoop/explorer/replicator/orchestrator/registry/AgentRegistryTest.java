@@ -23,7 +23,7 @@ class AgentRegistryTest {
 
     AgentRegistryTest() {
         this.props = new ReplicatorProperties();
-        this.props.setAgentSecret("secret-123");
+        this.props.setAgentSecret("test-agent-secret-0123456789");
         this.registry = new AgentRegistry(props, new TopologyRegistry(props));
     }
 
@@ -31,7 +31,7 @@ class AgentRegistryTest {
     @DisplayName("Должен успешно регистрировать агента и принимать heartbeat")
     void shouldRegisterAndHeartbeat() {
         AgentRegisterRequest reg = new AgentRegisterRequest("agent-1", "dc1", "all", "node1:50051", "node1", 100.0);
-        boolean registered = registry.register(reg, "secret-123");
+        boolean registered = registry.register(reg, "test-agent-secret-0123456789");
         assertTrue(registered);
 
         assertEquals(1, registry.getAgents().size());
@@ -39,11 +39,11 @@ class AgentRegistryTest {
 
         // Heartbeat
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-1", "dc1", "node1:50051", 2);
-        boolean heartbeated = registry.heartbeat(hb, "secret-123");
+        boolean heartbeated = registry.heartbeat(hb, "test-agent-secret-0123456789");
         assertTrue(heartbeated);
 
         // Unregister
-        boolean unregistered = registry.unregister("agent-1", "secret-123");
+        boolean unregistered = registry.unregister("agent-1", "test-agent-secret-0123456789");
         assertTrue(unregistered);
         assertEquals(0, registry.getAgents().size());
     }
@@ -77,16 +77,16 @@ class AgentRegistryTest {
     @DisplayName("Должен блокировать смену кластера для активного агента (Cluster Hijacking)")
     void shouldBlockClusterHijacking() {
         AgentRegisterRequest reg1 = new AgentRegisterRequest("agent-hijack", "dc-source", "all", "node1:50051", "node1", 100.0);
-        assertTrue(registry.register(reg1, "secret-123"));
+        assertTrue(registry.register(reg1, "test-agent-secret-0123456789"));
 
         // Попытка зарегистрировать тот же agentId в другом кластере
         AgentRegisterRequest reg2 = new AgentRegisterRequest("agent-hijack", "dc-target", "all", "node1:50051", "node1", 100.0);
-        SecurityException exReg = assertThrows(SecurityException.class, () -> registry.register(reg2, "secret-123"));
+        SecurityException exReg = assertThrows(SecurityException.class, () -> registry.register(reg2, "test-agent-secret-0123456789"));
         assertTrue(exReg.getMessage().contains("Попытка смены кластера"));
 
         // Попытка смены кластера через heartbeat
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-hijack", "dc-target", "node1:50051", 1);
-        SecurityException exHb = assertThrows(SecurityException.class, () -> registry.heartbeat(hb, "secret-123"));
+        SecurityException exHb = assertThrows(SecurityException.class, () -> registry.heartbeat(hb, "test-agent-secret-0123456789"));
         assertTrue(exHb.getMessage().contains("Попытка смены кластера"));
     }
 
@@ -94,7 +94,7 @@ class AgentRegistryTest {
     @DisplayName("Должен блокировать регистрацию в неразрешенном кластере при enforceClusterWhitelist")
     void shouldEnforceClusterWhitelistWhenEnabled() {
         ReplicatorProperties customProps = new ReplicatorProperties();
-        customProps.setAgentSecret("secret-123");
+        customProps.setAgentSecret("test-agent-secret-0123456789");
         customProps.setEnforceClusterWhitelist(true);
 
         ReplicatorProperties.ClusterConfig allowedCluster = new ReplicatorProperties.ClusterConfig();
@@ -107,11 +107,11 @@ class AgentRegistryTest {
 
         // Регистрация в разрешенном кластере
         AgentRegisterRequest valid = new AgentRegisterRequest("valid-agent", "prod-hdfs", "all", "node1:50051", "node1", 100.0);
-        assertTrue(customRegistry.register(valid, "secret-123"));
+        assertTrue(customRegistry.register(valid, "test-agent-secret-0123456789"));
 
         // Регистрация в неизвестном кластере
         AgentRegisterRequest invalid = new AgentRegisterRequest("rogue-agent", "unknown-cluster", "all", "node2:50051", "node2", 100.0);
-        SecurityException ex = assertThrows(SecurityException.class, () -> customRegistry.register(invalid, "secret-123"));
+        SecurityException ex = assertThrows(SecurityException.class, () -> customRegistry.register(invalid, "test-agent-secret-0123456789"));
         assertTrue(ex.getMessage().contains("enforce-cluster-whitelist"));
     }
 
@@ -119,14 +119,14 @@ class AgentRegistryTest {
     @DisplayName("Должен блокировать SSRF адреса, переданные в heartbeat")
     void shouldBlockSsrfInHeartbeat() {
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("hb-agent", "dc1", "169.254.169.254:50051", 0);
-        assertThrows(SecurityException.class, () -> registry.heartbeat(hb, "secret-123"));
+        assertThrows(SecurityException.class, () -> registry.heartbeat(hb, "test-agent-secret-0123456789"));
     }
 
     @Test
     @DisplayName("Должен защищать статический gRPC адрес кластера от перезаписи динамическим агентом")
     void shouldProtectStaticClusterGrpcAddressFromHijacking() {
         ReplicatorProperties customProps = new ReplicatorProperties();
-        customProps.setAgentSecret("secret-123");
+        customProps.setAgentSecret("test-agent-secret-0123456789");
 
         ReplicatorProperties.ClusterConfig allowedCluster = new ReplicatorProperties.ClusterConfig();
         allowedCluster.setId("prod-hdfs");
@@ -139,7 +139,7 @@ class AgentRegistryTest {
         AgentRegistry customRegistry = new AgentRegistry(customProps, customTopology);
 
         AgentRegisterRequest agentReg = new AgentRegisterRequest("node-1", "prod-hdfs", "all", "node-1:50051", "node-1", 100.0);
-        assertTrue(customRegistry.register(agentReg, "secret-123"));
+        assertTrue(customRegistry.register(agentReg, "test-agent-secret-0123456789"));
 
         assertEquals("gateway.prod.corp:50051", customTopology.getClusterGrpcAddress("prod-hdfs"));
     }
@@ -148,7 +148,7 @@ class AgentRegistryTest {
     @DisplayName("SEC-13: Должен блокировать Loopback адреса при allowLoopbackAgents=false")
     void shouldBlockLoopbackWhenDisallowed() {
         ReplicatorProperties customProps = new ReplicatorProperties();
-        customProps.setAgentSecret("secret-123");
+        customProps.setAgentSecret("test-agent-secret-0123456789");
         customProps.setAllowLoopbackAgents(false);
 
         AgentRegistry secureRegistry = new AgentRegistry(customProps, new TopologyRegistry(customProps));
@@ -204,19 +204,19 @@ class AgentRegistryTest {
 
         // Регистрация -> save
         AgentRegisterRequest reg = new AgentRegisterRequest("agent-db-1", "dc1", "all", "node1:50051", "node1", 100.0);
-        assertTrue(repoRegistry.register(reg, "secret-123"));
+        assertTrue(repoRegistry.register(reg, "test-agent-secret-0123456789"));
         verify(mockRepo, times(1)).save(any(AgentEntity.class));
 
         // Heartbeat -> пометка dirty (Write-Behind) и отложенный пакетный сброс в БД
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-db-1", "dc1", "node1:50051", 3);
-        assertTrue(repoRegistry.heartbeat(hb, "secret-123"));
+        assertTrue(repoRegistry.heartbeat(hb, "test-agent-secret-0123456789"));
         verify(mockRepo, times(1)).save(any(AgentEntity.class)); // save не должен вызываться синхронно на heartbeat
         int flushed = repoRegistry.flushDirtyAgentsToDatabase();
         assertEquals(1, flushed, "Должен быть сброшен 1 dirty-агент");
         verify(mockRepo, times(1)).saveAll(any()); // сброс происходит через пакетный saveAll
 
         // Unregister -> deleteById
-        assertTrue(repoRegistry.unregister("agent-db-1", "secret-123"));
+        assertTrue(repoRegistry.unregister("agent-db-1", "test-agent-secret-0123456789"));
         verify(mockRepo, times(1)).deleteById("agent-db-1");
 
         // Восстановление из БД при инициализации
@@ -246,12 +246,12 @@ class AgentRegistryTest {
 
         // Регистрируем обычного агента (mode=all)
         AgentRegisterRequest normalAgent = new AgentRegisterRequest("agent-all", "dc1", "all", "node1:50051", "node1", 100.0);
-        assertTrue(registry.register(normalAgent, "secret-123"));
+        assertTrue(registry.register(normalAgent, "test-agent-secret-0123456789"));
         assertFalse(registry.hasLiveStreamerForCluster("dc1"), "Агент с mode=all не должен считаться выделенным streamer-агентом");
 
         // Регистрируем стример (mode=streamer)
         AgentRegisterRequest streamerAgent = new AgentRegisterRequest("streamer-1", "dc1", "streamer", "streamer1:50051", "streamer1", 100.0);
-        assertTrue(registry.register(streamerAgent, "secret-123"));
+        assertTrue(registry.register(streamerAgent, "test-agent-secret-0123456789"));
         assertTrue(registry.hasLiveStreamerForCluster("dc1"));
         assertEquals(1, registry.countLiveStreamers("dc1"));
 
@@ -260,7 +260,7 @@ class AgentRegistryTest {
         assertEquals(0, registry.countLiveStreamers("dc2"));
 
         // После unregister стримера count становится 0
-        assertTrue(registry.unregister("streamer-1", "secret-123"));
+        assertTrue(registry.unregister("streamer-1", "test-agent-secret-0123456789"));
         assertFalse(registry.hasLiveStreamerForCluster("dc1"));
         assertEquals(0, registry.countLiveStreamers("dc1"));
     }

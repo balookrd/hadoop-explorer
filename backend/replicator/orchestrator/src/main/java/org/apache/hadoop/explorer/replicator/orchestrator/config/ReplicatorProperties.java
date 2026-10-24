@@ -8,12 +8,19 @@ import java.util.List;
 @ConfigurationProperties(prefix = "hadoop.replicator")
 public class ReplicatorProperties {
 
-    public static final String DEFAULT_AGENT_SECRET = "replicator-secure-agent-secret-key-12345";
+    /**
+     * Секрет, который раньше был зашит как значение по умолчанию.
+     *
+     * <p>Оставлен только для распознавания унаследованных конфигураций: установка, где он
+     * задан явно, использует публично известный из репозитория ключ, и запуск прерывается.
+     */
+    public static final String LEGACY_DEFAULT_AGENT_SECRET = "replicator-secure-agent-secret-key-12345";
 
     private long globalLimitBytesPerSec = 100L * 1024 * 1024; // 100 MB/s
-    private String agentSecret = DEFAULT_AGENT_SECRET;
-    private boolean enforceAgentSecret = false;
-    private boolean enforceClusterWhitelist = false;
+    /** Секрета по умолчанию нет: он задается конфигурацией или REPLICATOR_AGENT_SECRET. */
+    private String agentSecret;
+    private boolean enforceAgentSecret = true;
+    private boolean enforceClusterWhitelist = true;
     private boolean allowLoopbackAgents = true;
     private int agentHeartbeatTimeoutSeconds = 15;
     private int agentOfflineTimeoutSeconds = 45;

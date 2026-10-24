@@ -45,6 +45,18 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
         return allowAnonymous;
     }
 
+    /**
+     * Интерцептор для серверной стороны: всегда fail-closed.
+     *
+     * <p>Устанавливается безусловно, в том числе при незаданном секрете. Прежняя схема
+     * «нет секрета — нет интерцептора» открывала control plane и приемник Kafka-батчей
+     * анонимным вызовам: регистрация агентов, забор задач, отчеты о прогрессе и запись
+     * произвольных записей в целевые топики выполнялись без аутентификации.
+     */
+    public static AgentGrpcAuthInterceptor forServer(String expectedSecret) {
+        return new AgentGrpcAuthInterceptor(expectedSecret, false);
+    }
+
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call,

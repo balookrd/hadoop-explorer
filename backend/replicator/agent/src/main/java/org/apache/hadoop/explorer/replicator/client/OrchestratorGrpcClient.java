@@ -179,14 +179,21 @@ public class OrchestratorGrpcClient implements Closeable {
             try {
                 var sslBuilder = GrpcSslContexts.forClient();
                 if (trustCertCollectionPath != null && !trustCertCollectionPath.isBlank()) {
-                    sslBuilder.trustManager(new File(trustCertCollectionPath));
+                    File trustFile = new File(trustCertCollectionPath);
+                    if (!trustFile.isFile() || !trustFile.canRead()) {
+                        throw new IllegalStateException("Файл доверенных сертификатов недоступен для чтения: "
+                                + trustCertCollectionPath);
+                    }
+                    sslBuilder.trustManager(trustFile);
                 } else if (insecureSkipVerify) {
                     sslBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
                 }
                 builder.sslContext(sslBuilder.build());
             } catch (Exception e) {
-                log.error("Сбой настройки TLS для OrchestratorGrpcClient к '{}': {}", address, e.getMessage(), e);
-                builder.usePlaintext();
+                // Откат в plaintext недопустим: канал control plane несет x-agent-secret,
+                // и молчаливое ослабление защиты оператор не заметит.
+                throw new IllegalStateException("Сбой настройки TLS для OrchestratorGrpcClient к '"
+                        + address + "': " + e.getMessage(), e);
             }
         } else {
             builder.usePlaintext();
