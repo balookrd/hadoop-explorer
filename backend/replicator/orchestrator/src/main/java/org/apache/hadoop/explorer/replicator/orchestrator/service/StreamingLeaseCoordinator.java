@@ -101,7 +101,9 @@ public class StreamingLeaseCoordinator {
 
         // Проверяем, что агент имеет режим streamer, если в кластере есть выделенные стримеры
         boolean hasDedicatedStreamers = agentRegistry.getAgents().stream()
-                .anyMatch(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), clusterId));
+                .anyMatch(a -> "streamer".equalsIgnoreCase(a.getMode())
+                        && a.getStatus() == AgentRegistry.AgentStatus.ONLINE
+                        && matchesCluster(a.getClusterId(), clusterId));
         boolean isAgentStreamer = agentRegistry.getAgents().stream()
                 .filter(a -> a.getAgentId().equalsIgnoreCase(agentId))
                 .findFirst()
@@ -117,9 +119,7 @@ public class StreamingLeaseCoordinator {
                     currentLease != null ? currentLease.getEpoch() : 0L,
                     currentLease != null ? currentLease.getActiveAgentId() : "none",
                     currentLease != null ? currentLease.getExpiresAt() : Instant.now(),
-                    (int) agentRegistry.getAgents().stream()
-                            .filter(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), clusterId))
-                            .count(),
+                    agentRegistry.countLiveStreamers(clusterId),
                     false,
                     0L
             );
@@ -144,9 +144,7 @@ public class StreamingLeaseCoordinator {
         String status = isActive ? "ACTIVE" : "STANDBY";
 
         // 3. Подсчет количества зарегистрированных стримеров для кластера
-        int streamersCount = (int) agentRegistry.getAgents().stream()
-                .filter(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), clusterId))
-                .count();
+        int streamersCount = agentRegistry.countLiveStreamers(clusterId);
 
         boolean redundancyWarning = streamersCount < 2;
         if (redundancyWarning) {
@@ -190,11 +188,8 @@ public class StreamingLeaseCoordinator {
 
         StreamingLeaseEntity lease = leaseOpt.get();
         Instant now = Instant.now();
-        boolean isActive = lease.getExpiresAt().isAfter(now);
-
-        int streamersCount = (int) agentRegistry.getAgents().stream()
-                .filter(a -> "streamer".equalsIgnoreCase(a.getMode()) && matchesCluster(a.getClusterId(), targetCluster))
-                .count();
+        int streamersCount = agentRegistry.countLiveStreamers(targetCluster);
+        boolean isActive = lease.getExpiresAt().isAfter(now) && streamersCount > 0;
 
         long maxTxid = jobRepository.findMaxProcessedTxidByClusterId(targetCluster);
 
@@ -202,7 +197,7 @@ public class StreamingLeaseCoordinator {
         boolean queueSaturated = isClusterQueueSaturated(targetCluster, pendingTasks);
 
         return Optional.of(new StreamingLeaseRenewResponse(
-                isActive ? "ACTIVE" : "EXPIRED",
+                isActive ? "ACTIVE" : (streamersCount == 0 ? "NO_STREAMERS" : "EXPIRED"),
                 lease.getEpoch(),
                 lease.getActiveAgentId(),
                 lease.getExpiresAt(),

@@ -431,6 +431,7 @@
     {:else if activeTab === 'jobs'}
       <JobsTableView
         {jobs}
+        {topology}
         canCreate={Boolean(canCreate)}
         {canManageJob}
         onRefresh={loadJobs}

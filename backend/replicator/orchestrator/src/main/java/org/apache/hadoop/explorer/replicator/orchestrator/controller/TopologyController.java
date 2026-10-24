@@ -17,22 +17,33 @@ public class TopologyController {
     private final TopologyRegistry topologyRegistry;
     private final TokenBucketThrottler throttler;
     private final ReplicatorProperties properties;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
 
     @org.springframework.beans.factory.annotation.Autowired
     public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler,
-                              ReplicatorProperties properties) {
+                              ReplicatorProperties properties,
+                              @org.springframework.beans.factory.annotation.Autowired(required = false)
+                              org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
         this.topologyRegistry = topologyRegistry;
         this.throttler = throttler;
         this.properties = properties != null ? properties : new ReplicatorProperties();
+        this.agentRegistry = agentRegistry;
+    }
+
+    public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler,
+                              ReplicatorProperties properties) {
+        this(topologyRegistry, throttler, properties, null);
     }
 
     public TopologyController(TopologyRegistry topologyRegistry, TokenBucketThrottler throttler) {
-        this(topologyRegistry, throttler, new ReplicatorProperties());
+        this(topologyRegistry, throttler, new ReplicatorProperties(), null);
     }
 
     @GetMapping("/api/v1/clusters")
     public ResponseEntity<List<ClusterDto>> getClusters() {
-        return ResponseEntity.ok(topologyRegistry.getClusters());
+        List<ClusterDto> clusters = topologyRegistry.getClusters();
+        enrichClustersWithInotifyStatus(clusters);
+        return ResponseEntity.ok(clusters);
     }
 
     @GetMapping("/api/v1/datacenters")
@@ -45,9 +56,11 @@ public class TopologyController {
         double globalLimitBytes = throttler.getGlobalLimit();
         double globalLimitMb = Math.round((globalLimitBytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
         boolean streamingEnabled = properties.getStreaming() != null && properties.getStreaming().isEnabled();
+        List<ClusterDto> clusters = topologyRegistry.getClusters();
+        enrichClustersWithInotifyStatus(clusters);
         TopologyResponse response = new TopologyResponse(
             topologyRegistry.getDatacenters(),
-            topologyRegistry.getClusters(),
+            clusters,
             globalLimitBytes,
             globalLimitMb,
             topologyRegistry.getDcLimitsList(),
@@ -55,6 +68,16 @@ public class TopologyController {
             streamingEnabled
         );
         return ResponseEntity.ok(response);
+    }
+
+    private void enrichClustersWithInotifyStatus(List<ClusterDto> clusters) {
+        if (clusters == null) return;
+        for (ClusterDto c : clusters) {
+            boolean hasStreamer = agentRegistry != null && agentRegistry.hasLiveStreamerForCluster(c.getId());
+            int count = agentRegistry != null ? agentRegistry.countLiveStreamers(c.getId()) : 0;
+            c.setInotifyAvailable(hasStreamer);
+            c.setStreamersCount(count);
+        }
     }
 
     private void requireAdmin(org.springframework.security.core.Authentication auth) {

@@ -529,6 +529,44 @@ public class AgentRegistry {
     }
 
     /**
+     * Поиск активного агента-стримера HDFS Inotify для кластера.
+     */
+    public Optional<AgentEntry> getLiveStreamerForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && "streamer".equalsIgnoreCase(a.getMode()))
+            .findAny();
+    }
+
+    /**
+     * Список всех активных агентов-стримеров HDFS Inotify для кластера.
+     */
+    public List<AgentEntry> getLiveStreamersForCluster(String clusterId) {
+        refreshHealth();
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && a.getStatus() == AgentStatus.ONLINE
+                    && "streamer".equalsIgnoreCase(a.getMode()))
+            .toList();
+    }
+
+    /**
+     * Количество активных онлайн-стримеров HDFS Inotify для кластера.
+     */
+    public int countLiveStreamers(String clusterId) {
+        return getLiveStreamersForCluster(clusterId).size();
+    }
+
+    /**
+     * Проверка наличия хотя бы одного активного зарегистрированного Inotify-стримера.
+     */
+    public boolean hasLiveStreamerForCluster(String clusterId) {
+        return getLiveStreamerForCluster(clusterId).isPresent();
+    }
+
+    /**
      * Поиск наименее загруженного агента в целевом кластере для балансировки входящего трафика.
      */
     public Optional<AgentEntry> getLeastLoadedAgentForCluster(String clusterId) {

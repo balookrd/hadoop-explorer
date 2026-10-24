@@ -128,6 +128,27 @@
         ]
   );
 
+  const newJobSourceClusterObj = $derived(
+    clusters.find((c: ClusterInfo) => c.id === newJob.source_cluster_id || c.dc_id === newJob.source_cluster_id)
+  );
+  const isHmsSourceInotifyAvailable = $derived<boolean>(
+    Boolean(newJobSourceClusterObj?.inotify_available)
+  );
+
+  $effect(() => {
+    if (!isHmsSourceInotifyAvailable && newJob.enable_hdfs_streaming) {
+      newJob.enable_hdfs_streaming = false;
+    }
+  });
+
+  function isHmsJobStreamerOnline(job: HmsReplicationJob): boolean {
+    if (job.companion_streamer_online !== undefined) {
+      return Boolean(job.companion_streamer_online);
+    }
+    const c = clusters.find((cl: ClusterInfo) => cl.id === job.source_cluster_id || cl.dc_id === job.source_cluster_id);
+    return c?.inotify_available ?? true;
+  }
+
   function getClusterLabel(clusterId: string): string {
     const found = clusters.find((c: ClusterInfo) => c.id === clusterId || c.dc_id === clusterId);
     if (!found) return clusterId;
@@ -357,15 +378,19 @@
   function openCreateModal() {
     const dc1 = clusters.find((c: ClusterInfo) => c.dc_id === 'dc1' || c.id === 'dc1');
     const dc2 = clusters.find((c: ClusterInfo) => c.dc_id === 'dc2' || c.id === 'dc2');
+    const initialSourceCluster = dc1 ? dc1.id : (clusters[0]?.id || 'dc1');
+    const initialSourceObj = clusters.find((c: ClusterInfo) => c.id === initialSourceCluster || c.dc_id === initialSourceCluster);
+    const initialInotifyAvailable = Boolean(initialSourceObj?.inotify_available);
+
     newJob = {
-      source_cluster_id: dc1 ? dc1.id : (clusters[0]?.id || 'dc1'),
+      source_cluster_id: initialSourceCluster,
       target_cluster_id: dc2 ? dc2.id : (clusters[1]?.id || 'dc2'),
       source_db: '',
       target_db: '',
       table_pattern: '*',
       drop_extraneous_tables: false,
       drop_extraneous_partitions: false,
-      enable_hdfs_streaming: true,
+      enable_hdfs_streaming: initialInotifyAvailable,
       execution_principal: user?.username || '',
     };
     isCreateModalOpen = true;
@@ -373,6 +398,10 @@
 
   async function handleCreateJob() {
     if (!newJob.source_db.trim()) return;
+    if (newJob.enable_hdfs_streaming && !isHmsSourceInotifyAvailable) {
+      alert(`На кластере ${newJobSourceClusterObj?.name || newJob.source_cluster_id} отсутствует зарегистрированный Inotify-агент. Отключите опцию фонового стриминга для создания стандартной задачи репликации схем.`);
+      return;
+    }
     try {
       loading = true;
       const rawUser = (isAdmin && newJob.execution_principal?.trim())
@@ -878,13 +907,23 @@
                       <Clock class="w-2.5 h-2.5 text-slate-400" />
                       <span>{job.status === 'BOOTSTRAPPING' ? 'Bootstrap Sync' : 'Streaming CDC'}</span>
                     </span>
-                    {#if job.companion_hdfs_job_id}
-                      <span
-                        class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 cursor-help"
-                        title={job.db_warehouse_location ? `Фоновый Inotify стример активен для: ${job.db_warehouse_location}` : 'Фоновый HDFS Inotify стример активен'}
-                      >
-                        + HDFS Inotify
-                      </span>
+                    {#if job.companion_hdfs_job_id || job.enable_hdfs_streaming}
+                      {#if isHmsJobStreamerOnline(job)}
+                        <span
+                          class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 cursor-help"
+                          title={job.db_warehouse_location ? `Фоновый Inotify стример активен для: ${job.db_warehouse_location}` : 'Фоновый HDFS Inotify стример активен'}
+                        >
+                          + HDFS Inotify
+                        </span>
+                      {:else}
+                        <span
+                          class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700 flex items-center gap-1 cursor-help"
+                          title="Inotify-стример оффлайн: на кластере {job.source_cluster_id} нет активного агента. Активен fallback: стандартная репликация метаданных и CDC"
+                        >
+                          <AlertTriangle class="w-2.5 h-2.5 text-amber-500" />
+                          HDFS Inotify (Оффлайн)
+                        </span>
+                      {/if}
                     {/if}
                   </div>
                 </td>
@@ -2074,21 +2113,33 @@
 
         <!-- Опция автоматического фонового HDFS Inotify стриминга -->
         <div class="pt-1">
-          <label class="flex items-start gap-2.5 p-3 rounded-xl border border-sky-200/80 dark:border-sky-800/80 bg-sky-50/40 dark:bg-sky-950/30 cursor-pointer select-none hover:border-sky-300 dark:hover:border-sky-700 transition">
+          <label class="flex items-start gap-2.5 p-3 rounded-xl border transition select-none {isHmsSourceInotifyAvailable ? 'border-sky-200/80 dark:border-sky-800/80 bg-sky-50/40 dark:bg-sky-950/30 cursor-pointer hover:border-sky-300 dark:hover:border-sky-700' : 'border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/40 opacity-70 cursor-not-allowed'}">
             <input
               type="checkbox"
               bind:checked={newJob.enable_hdfs_streaming}
-              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+              disabled={!isHmsSourceInotifyAvailable}
+              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 disabled:opacity-50"
             />
             <div>
-              <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
                 <span>Автоматический фоновый HDFS Inotify-стриминг (Companion Streaming)</span>
-                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
-                  Рекомендуется
-                </span>
+                {#if isHmsSourceInotifyAvailable}
+                  <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
+                    Рекомендуется
+                  </span>
+                {:else}
+                  <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                    <AlertTriangle class="w-2.5 h-2.5" />
+                    Недоступно (нет Inotify-агента)
+                  </span>
+                {/if}
               </div>
-              <div class="text-[10px] text-slate-500 leading-tight mt-1">
-                Автоматически привязывает фоновый Inotify-стример каталога warehouse базы данных. Непрерывно переносит файлы непартиционированных таблиц и дозаписи в существующие партиции без нагрузки на NameNode.
+              <div class="text-[10px] {isHmsSourceInotifyAvailable ? 'text-slate-500' : 'text-amber-600 dark:text-amber-400 font-medium'} leading-tight mt-1">
+                {#if isHmsSourceInotifyAvailable}
+                  Автоматически привязывает фоновый Inotify-стример каталога warehouse базы данных. Непрерывно переносит файлы непартиционированных таблиц и дозаписи в существующие партиции без нагрузки на NameNode.
+                {:else}
+                  На кластере {newJobSourceClusterObj?.name || newJob.source_cluster_id} не найден активный Inotify-агент. Будет выполнен автоматический fallback на стандартную репликацию метаданных и CDC.
+                {/if}
               </div>
             </div>
           </label>

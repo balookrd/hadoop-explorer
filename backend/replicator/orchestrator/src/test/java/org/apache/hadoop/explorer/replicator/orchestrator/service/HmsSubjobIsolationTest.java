@@ -214,4 +214,29 @@ public class HmsSubjobIsolationTest {
         assertTrue(found.isPresent(), "Должна быть найдена существующая активная подзадача");
         assertEquals(created.id(), found.get().id(), "ID подзадачи должен совпадать (дедупликация)");
     }
+
+    @Test
+    @DisplayName("HMS Валидация: создание задачи с enableHdfsStreaming=true отклоняется если на исходном кластере нет Inotify-агента")
+    void testHmsReplicationCreationRejectedWhenNoStreamerAgent() {
+        // 1. Попытка создания задачи со стримингом без стримера на кластере -> IllegalArgumentException
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+            coordinatorService.createAndStartReplication(
+                "dc-nostreamer", "dc2", "test_db", "test_db", "*", "admin", false, false, "admin", true
+            )
+        );
+        assertTrue(ex.getMessage().contains("отсутствует зарегистрированный Inotify-агент"), ex.getMessage());
+
+        // 2. Создание стандартной задачи (enableHdfsStreaming=false) без стримера -> разрешено
+        HmsReplicationJobEntity standardJob = coordinatorService.createAndStartReplication(
+                "dc-nostreamer", "dc2", "test_db2", "test_db2", "*", "admin", false, false, "admin", false
+        );
+        assertNotNull(standardJob);
+        assertFalse(standardJob.isEnableHdfsStreaming());
+
+        // 3. Для активной задачи со стримингом в рантайме enrichAllWithSubtasksMetrics фиксирует оффлайн стримера (fallback)
+        standardJob.setEnableHdfsStreaming(true);
+        coordinatorService.enrichWithSubtasksMetrics(standardJob);
+        assertFalse(Boolean.TRUE.equals(standardJob.getCompanionStreamerOnline()),
+                "Для активной задачи при отсутствии стримера companionStreamerOnline должен быть false (runtime fallback)");
+    }
 }

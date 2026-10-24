@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Job } from '../types';
+  import type { Job, TopologyData, ClusterInfo } from '../types';
   import { StatusBadge } from '@hadoop-explorer/common';
   import {
     ArrowLeftRight,
@@ -18,11 +18,13 @@
     User,
     RotateCcw,
     History,
-    Files
+    Files,
+    AlertTriangle
   } from 'lucide-svelte';
 
   interface Props {
     jobs: Job[];
+    topology?: TopologyData | null;
     canCreate: boolean;
     canManageJob: (job: Job) => boolean;
     onRefresh: () => void;
@@ -36,6 +38,7 @@
 
   let {
     jobs,
+    topology = null,
     canCreate,
     canManageJob,
     onRefresh,
@@ -46,6 +49,20 @@
     onDeleteJob,
     onOpenHistory
   }: Props = $props();
+
+  function isJobStreamerOffline(job: Job): boolean {
+    if (job.sync_mode !== 'STREAMING_INOTIFY' && job.status !== 'STREAMING') {
+      return false;
+    }
+    if (job.streamer_online !== undefined && job.streamer_online !== null) {
+      return !job.streamer_online;
+    }
+    const cluster = topology?.clusters?.find((c: ClusterInfo) => c.id === job.source_cluster_id || c.dc_id === job.source_cluster_id);
+    if (cluster && cluster.inotify_available !== undefined) {
+      return !cluster.inotify_available;
+    }
+    return false;
+  }
 
   // Фильтрация и поиск задач
   let selectedStatus = $state<string>('ALL');
@@ -480,10 +497,17 @@
                     </span>
                   {/if}
                   {#if job.sync_mode === 'STREAMING_INOTIFY' || job.status === 'STREAMING'}
-                    <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 ml-1" title="Потоковая репликация HDFS Inotify (Near-Zero RPO)">
-                      <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
-                      Inotify
-                    </span>
+                    {#if isJobStreamerOffline(job)}
+                      <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 ml-1 cursor-help" title="Inotify-стример не запущен: на кластере {job.source_cluster_id} нет активного агента. Потоковая репликация приостановлена">
+                        <AlertTriangle class="w-2.5 h-2.5 text-rose-500" />
+                        Inotify оффлайн
+                      </span>
+                    {:else}
+                      <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 ml-1" title="Потоковая репликация HDFS Inotify (Near-Zero RPO)">
+                        <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                        Inotify
+                      </span>
+                    {/if}
                   {/if}
                 </td>
 
@@ -528,25 +552,42 @@
                 <!-- Прогресс -->
                 <td class="py-3.5 px-4">
                   {#if job.sync_mode === 'STREAMING_INOTIFY' || job.status === 'STREAMING'}
-                    <div class="p-2 rounded-lg bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 space-y-1">
-                      <div class="flex items-center justify-between text-[11px] font-semibold">
-                        <span class="text-purple-700 dark:text-purple-300 flex items-center gap-1 font-mono">
-                          <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
-                          Live Sync
-                        </span>
-                        <span class="font-mono text-[10px] text-slate-500 dark:text-slate-400">
-                          TxID: {job.last_processed_txid ?? 0}
-                        </span>
+                    {#if isJobStreamerOffline(job)}
+                      <div class="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50 space-y-1">
+                        <div class="flex items-center justify-between text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                          <span class="flex items-center gap-1">
+                            <AlertTriangle class="w-3 h-3 text-amber-500" />
+                            Стример оффлайн
+                          </span>
+                          <span class="font-mono text-[10px] text-amber-600 dark:text-amber-400">
+                            TxID: {job.last_processed_txid ?? 0}
+                          </span>
+                        </div>
+                        <div class="text-[10px] text-amber-700/80 dark:text-amber-450 leading-tight">
+                          На кластере {job.source_cluster_id} нет активного Inotify-агента
+                        </div>
                       </div>
-                      <div class="flex items-center justify-between text-[10px]">
-                        <span class="text-slate-400">Лаг событий:</span>
-                        {#if (job.txid_lag ?? 0) === 0}
-                          <span class="font-mono font-semibold text-emerald-600 dark:text-emerald-400">0 tx (In-sync)</span>
-                        {:else}
-                          <span class="font-mono font-semibold text-amber-600 dark:text-amber-400">+{job.txid_lag} tx</span>
-                        {/if}
+                    {:else}
+                      <div class="p-2 rounded-lg bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 space-y-1">
+                        <div class="flex items-center justify-between text-[11px] font-semibold">
+                          <span class="text-purple-700 dark:text-purple-300 flex items-center gap-1 font-mono">
+                            <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                            Live Sync
+                          </span>
+                          <span class="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                            TxID: {job.last_processed_txid ?? 0}
+                          </span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px]">
+                          <span class="text-slate-400">Лаг событий:</span>
+                          {#if (job.txid_lag ?? 0) === 0}
+                            <span class="font-mono font-semibold text-emerald-600 dark:text-emerald-400">0 tx (In-sync)</span>
+                          {:else}
+                            <span class="font-mono font-semibold text-amber-600 dark:text-amber-400">+{job.txid_lag} tx</span>
+                          {/if}
+                        </div>
                       </div>
-                    </div>
+                    {/if}
                   {:else}
                     <div class="flex items-center justify-between text-[11px] font-semibold mb-1">
                       <span class="{job.status === 'FAILED' ? 'text-rose-600 dark:text-rose-400' : job.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'} font-mono">
@@ -631,10 +672,17 @@
                 <!-- Статус -->
                 <td class="py-3.5 px-4">
                   {#if job.status === 'STREAMING'}
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                      <span class="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
-                      STREAMING
-                    </span>
+                    {#if isJobStreamerOffline(job)}
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 cursor-help" title="Ожидание подключения Inotify-агента на кластере {job.source_cluster_id}">
+                        <AlertTriangle class="w-3 h-3 text-amber-500" />
+                        STREAMING (НЕТ АГЕНТА)
+                      </span>
+                    {:else}
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                        <span class="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                        STREAMING
+                      </span>
+                    {/if}
                   {:else}
                     <StatusBadge status={job.status} />
                   {/if}

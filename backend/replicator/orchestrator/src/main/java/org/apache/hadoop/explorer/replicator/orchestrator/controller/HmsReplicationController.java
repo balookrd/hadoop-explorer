@@ -73,7 +73,7 @@ public class HmsReplicationController {
                 String execution_principal
         ) {
             this(source_cluster_id, target_cluster_id, source_db, target_db, table_pattern,
-                    drop_extraneous_tables, drop_extraneous_partitions, execution_principal, true);
+                    drop_extraneous_tables, drop_extraneous_partitions, execution_principal, false);
         }
     }
 
@@ -109,7 +109,7 @@ public class HmsReplicationController {
 
         boolean dropTables = req.drop_extraneous_tables() != null && req.drop_extraneous_tables();
         boolean dropParts = req.drop_extraneous_partitions() != null && req.drop_extraneous_partitions();
-        boolean enableStreaming = req.enable_hdfs_streaming() == null || req.enable_hdfs_streaming();
+        boolean enableStreaming = Boolean.TRUE.equals(req.enable_hdfs_streaming());
         HmsReplicationJobEntity created = coordinatorService.createAndStartReplication(
                 req.source_cluster_id(),
                 req.target_cluster_id(),

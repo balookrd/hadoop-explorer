@@ -21,6 +21,12 @@ public class ClusterDto {
     @JsonProperty("grpc_address")
     private String grpcAddress;
 
+    @JsonProperty("inotify_available")
+    private boolean inotifyAvailable;
+
+    @JsonProperty("streamers_count")
+    private int streamersCount;
+
     public ClusterDto() {}
 
     public String getId() { return id; }
@@ -34,4 +40,10 @@ public class ClusterDto {
 
     public String getGrpcAddress() { return grpcAddress; }
     public void setGrpcAddress(String grpcAddress) { this.grpcAddress = grpcAddress; }
+
+    public boolean isInotifyAvailable() { return inotifyAvailable; }
+    public void setInotifyAvailable(boolean inotifyAvailable) { this.inotifyAvailable = inotifyAvailable; }
+
+    public int getStreamersCount() { return streamersCount; }
+    public void setStreamersCount(int streamersCount) { this.streamersCount = streamersCount; }
 }

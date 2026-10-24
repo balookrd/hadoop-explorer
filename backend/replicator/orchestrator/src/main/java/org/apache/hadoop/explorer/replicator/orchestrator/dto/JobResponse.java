@@ -39,13 +39,41 @@ public record JobResponse(
     @JsonProperty("parent_job_id") String parentJobId,
     @JsonProperty("sync_mode") String syncMode,
     @JsonProperty("last_processed_txid") Long lastProcessedTxid,
-    @JsonProperty("txid_lag") Long txidLag
+    @JsonProperty("txid_lag") Long txidLag,
+    @JsonProperty("streamer_online") Boolean streamerOnline
 ) {
+    public JobResponse(
+            String id, String sourcePath, String targetPath, String sourceClusterId, String targetClusterId,
+            String status, long totalBytes, long copiedBytes, double progressPercent, Double averageSpeedMbS,
+            int totalObjects, int transferredObjects, int skippedObjects, int failedObjects,
+            boolean runAsServiceAccount, String executionPrincipal, String createdBy,
+            boolean isScheduled, String cronExpression, Instant nextRunAt, Instant lastRunAt,
+            String message, Instant createdAt, Instant updatedAt, Instant startedAt, Instant completedAt,
+            String activeRunId, int historyRetentionRuns, int runsCount, String jobType,
+            String parentJobId, String syncMode, Long lastProcessedTxid, Long txidLag
+    ) {
+        this(id, sourcePath, targetPath, sourceClusterId, targetClusterId, status, totalBytes, copiedBytes,
+             progressPercent, averageSpeedMbS, totalObjects, transferredObjects, skippedObjects, failedObjects,
+             runAsServiceAccount, executionPrincipal, createdBy, isScheduled, cronExpression, nextRunAt, lastRunAt,
+             message, createdAt, updatedAt, startedAt, completedAt, activeRunId, historyRetentionRuns, runsCount,
+             jobType, parentJobId, syncMode, lastProcessedTxid, txidLag, null);
+    }
+
     public static JobResponse fromEntity(JobEntity entity) {
-        return fromEntity(entity, 0);
+        return fromEntity(entity, 0, null);
     }
 
     public static JobResponse fromEntity(JobEntity entity, int runsCount) {
+        return fromEntity(entity, runsCount, null);
+    }
+
+    public static JobResponse fromEntity(JobEntity entity, int runsCount,
+                                         org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
+        Boolean streamerOnline = null;
+        if ("STREAMING_INOTIFY".equalsIgnoreCase(entity.getSyncMode()) || "STREAMING".equalsIgnoreCase(entity.getStatus())) {
+            streamerOnline = agentRegistry != null ? agentRegistry.hasLiveStreamerForCluster(entity.getSourceClusterId()) : null;
+        }
+
         return new JobResponse(
             entity.getId(),
             entity.getSourcePath(),
@@ -80,7 +108,8 @@ public record JobResponse(
             entity.getParentJobId(),
             entity.getSyncMode(),
             entity.getLastProcessedTxid(),
-            entity.getTxidLag()
+            entity.getTxidLag(),
+            streamerOnline
         );
     }
 }

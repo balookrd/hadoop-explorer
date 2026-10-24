@@ -50,6 +50,7 @@ export interface Job {
   sync_mode?: SyncMode;
   last_processed_txid?: number;
   txid_lag?: number;
+  streamer_online?: boolean;
   is_scheduled?: boolean;
   cron_expression?: string;
   next_run_at?: string;
@@ -94,6 +95,8 @@ export interface ClusterInfo {
   namenode_host: string;
   port: number;
   default_path?: string;
+  inotify_available?: boolean;
+  streamers_count?: number;
 }
 
 export interface DatacenterInfo {
@@ -205,6 +208,7 @@ export interface HmsReplicationJob {
   enable_hdfs_streaming?: boolean;
   companion_hdfs_job_id?: string;
   db_warehouse_location?: string;
+  companion_streamer_online?: boolean;
 }
 
 export interface HmsDeadLetterEvent {

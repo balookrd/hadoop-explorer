@@ -114,7 +114,7 @@ public class HmsCoordinatorService {
             String executionPrincipal
     ) {
         return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern,
-                author, dropExtraneousTables, dropExtraneousPartitions, executionPrincipal, true);
+                author, dropExtraneousTables, dropExtraneousPartitions, executionPrincipal, false);
     }
 
     @Transactional
@@ -149,7 +149,19 @@ public class HmsCoordinatorService {
         entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : null);
         entity.setDropExtraneousTables(dropExtraneousTables);
         entity.setDropExtraneousPartitions(dropExtraneousPartitions);
+
+        if (enableHdfsStreaming) {
+            boolean hasStreamer = agentRegistry != null && agentRegistry.hasLiveStreamerForCluster(sourceClusterId);
+            if (!hasStreamer) {
+                throw new IllegalArgumentException(
+                    "На исходном кластере '" + sourceClusterId + "' отсутствует зарегистрированный Inotify-агент " +
+                    "(невозможно создать задачу со связанным HDFS Inotify-стримингом). " +
+                    "Отключите опцию стриминга для создания стандартной задачи репликации схемы или запустите Inotify-стример."
+                );
+            }
+        }
         entity.setEnableHdfsStreaming(enableHdfsStreaming);
+        entity.setCompanionStreamerOnline(enableHdfsStreaming);
 
         dispatchJob(entity);
         return entity;
@@ -867,6 +879,11 @@ public class HmsCoordinatorService {
             job.setStartedAt(job.getCreatedAt());
             double progress = job.getTotalTables() > 0 ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0;
             job.setProgressPercent(progress);
+        }
+
+        if (job.isEnableHdfsStreaming()) {
+            boolean online = agentRegistry != null && agentRegistry.hasLiveStreamerForCluster(job.getSourceClusterId());
+            job.setCompanionStreamerOnline(online);
         }
     }
 }

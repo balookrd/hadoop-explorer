@@ -33,18 +33,26 @@ public class JobService {
     private final JobRunRepository jobRunRepository;
     private final TaskRepository taskRepository;
     private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
 
     @Autowired
     public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository,
-                      org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties) {
+                      org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties,
+                      @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.taskRepository = taskRepository;
         this.properties = properties != null ? properties : new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties();
+        this.agentRegistry = agentRegistry;
+    }
+
+    public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository,
+                      org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties) {
+        this(jobRepository, jobRunRepository, taskRepository, properties, null);
     }
 
     public JobService(JobRepository jobRepository, JobRunRepository jobRunRepository, TaskRepository taskRepository) {
-        this(jobRepository, jobRunRepository, taskRepository, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties());
+        this(jobRepository, jobRunRepository, taskRepository, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties(), null);
     }
 
     @PostConstruct
@@ -112,6 +120,12 @@ public class JobService {
                     "(hadoop.replicator.streaming.enabled=false). Обратитесь к администратору платформы."
                 );
             }
+            if (agentRegistry != null && !"HMS_COMPANION_STREAMING".equalsIgnoreCase(req.jobType())
+                    && !agentRegistry.hasLiveStreamerForCluster(req.sourceClusterId())) {
+                throw new IllegalArgumentException(
+                    "На кластере '" + req.sourceClusterId() + "' отсутствует зарегистрированный Inotify-агент (режим STREAMING_INOTIFY недоступен)"
+                );
+            }
             entity.setSyncMode("STREAMING_INOTIFY");
             entity.setScheduled(false);
             entity.setStatus("STREAMING");
@@ -167,7 +181,7 @@ public class JobService {
 
         log.info("Created replication job: id={}, type={}, syncMode={}, parent={}, src={}, dst={}, author={}",
             id, entity.getJobType(), entity.getSyncMode(), entity.getParentJobId(), req.sourcePath(), req.targetPath(), entity.getCreatedBy());
-        return JobResponse.fromEntity(entity, jobRunRepository.countByJobId(id));
+        return JobResponse.fromEntity(entity, jobRunRepository.countByJobId(id), agentRegistry);
     }
 
     /**
@@ -231,7 +245,7 @@ public class JobService {
             .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
 
         return filteredJobs.stream()
-            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0)))
+            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0), agentRegistry))
             .toList();
     }
 
@@ -325,7 +339,7 @@ public class JobService {
 
     public Optional<JobResponse> getJob(String id) {
         return jobRepository.findById(id)
-            .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())));
+            .map(j -> JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId()), agentRegistry));
     }
 
     @Transactional

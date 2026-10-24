@@ -237,5 +237,32 @@ class AgentRegistryTest {
         assertEquals("agent-restored", newRegistry.getAgents().get(0).getAgentId());
         assertEquals("node-restored:50051", newRegistry.getAgents().get(0).getGrpcAddress());
     }
+
+    @Test
+    @DisplayName("Должен корректно определять наличие и количество живых streamer-агентов для кластера")
+    void shouldDetectLiveStreamersForCluster() {
+        assertFalse(registry.hasLiveStreamerForCluster("dc1"));
+        assertEquals(0, registry.countLiveStreamers("dc1"));
+
+        // Регистрируем обычного агента (mode=all)
+        AgentRegisterRequest normalAgent = new AgentRegisterRequest("agent-all", "dc1", "all", "node1:50051", "node1", 100.0);
+        assertTrue(registry.register(normalAgent, "secret-123"));
+        assertFalse(registry.hasLiveStreamerForCluster("dc1"), "Агент с mode=all не должен считаться выделенным streamer-агентом");
+
+        // Регистрируем стример (mode=streamer)
+        AgentRegisterRequest streamerAgent = new AgentRegisterRequest("streamer-1", "dc1", "streamer", "streamer1:50051", "streamer1", 100.0);
+        assertTrue(registry.register(streamerAgent, "secret-123"));
+        assertTrue(registry.hasLiveStreamerForCluster("dc1"));
+        assertEquals(1, registry.countLiveStreamers("dc1"));
+
+        // Для другого кластера dc2 стримеров нет
+        assertFalse(registry.hasLiveStreamerForCluster("dc2"));
+        assertEquals(0, registry.countLiveStreamers("dc2"));
+
+        // После unregister стримера count становится 0
+        assertTrue(registry.unregister("streamer-1", "secret-123"));
+        assertFalse(registry.hasLiveStreamerForCluster("dc1"));
+        assertEquals(0, registry.countLiveStreamers("dc1"));
+    }
 }
 

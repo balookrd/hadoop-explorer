@@ -34,6 +34,20 @@
   let createJobError = $state<string | null>(null);
   let isSubmittingJob = $state(false);
 
+  const selectedSourceCluster = $derived(
+    topology?.clusters?.find((c) => c.id === newJobSourceCluster || c.dc_id === newJobSourceCluster)
+  );
+
+  const isClusterStreamerOnline = $derived<boolean>(
+    Boolean(isStreamingAvailable && (selectedSourceCluster?.inotify_available ?? false))
+  );
+
+  $effect(() => {
+    if (newJobSyncMode === 'STREAMING_INOTIFY' && !isClusterStreamerOnline) {
+      newJobSyncMode = 'MANUAL';
+    }
+  });
+
   $effect(() => {
     if (isOpen) {
       newJobImpersonationUser = user?.username || '';
@@ -270,7 +284,7 @@
             </label>
 
             <!-- Режим 3: Потоковый Inotify -->
-            <label class="flex flex-col p-2.5 rounded-xl border transition select-none {isStreamingAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} {newJobSyncMode === 'STREAMING_INOTIFY'
+            <label class="flex flex-col p-2.5 rounded-xl border transition select-none {isClusterStreamerOnline ? 'cursor-pointer' : 'cursor-not-allowed opacity-60 bg-slate-100/50 dark:bg-slate-900/40'} {newJobSyncMode === 'STREAMING_INOTIFY'
               ? 'bg-purple-50/70 dark:bg-purple-950/50 border-purple-400 dark:border-purple-600 ring-1 ring-purple-500/30'
               : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'}">
               <div class="flex items-center gap-2 mb-1">
@@ -278,7 +292,7 @@
                   type="radio"
                   name="sync_mode"
                   value="STREAMING_INOTIFY"
-                  disabled={!isStreamingAvailable}
+                  disabled={!isClusterStreamerOnline}
                   bind:group={newJobSyncMode}
                   class="text-purple-600 focus:ring-purple-500 disabled:opacity-50"
                 />
@@ -287,8 +301,14 @@
                   <span class="text-[9px] px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono">Near-0 RPO</span>
                 </span>
               </div>
-              <span class="text-[10px] text-slate-500">
-                {isStreamingAvailable ? 'Потоковое чтение событий NameNode' : 'Отключено (streaming.enabled=false)'}
+              <span class="text-[10px] {isClusterStreamerOnline ? 'text-slate-500' : 'text-amber-600 dark:text-amber-400 font-medium'}">
+                {#if !isStreamingAvailable}
+                  Отключено (streaming.enabled=false)
+                {:else if !isClusterStreamerOnline}
+                  Недоступно: на кластере {selectedSourceCluster?.name || newJobSourceCluster} нет активного Inotify-агента
+                {:else}
+                  Потоковое чтение событий NameNode
+                {/if}
               </span>
             </label>
           </div>

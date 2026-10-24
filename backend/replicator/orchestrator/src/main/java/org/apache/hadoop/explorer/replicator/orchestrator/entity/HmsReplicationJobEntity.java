@@ -143,6 +143,10 @@ public class HmsReplicationJobEntity {
     @JsonProperty("active_subtasks_count")
     private Integer activeSubtasksCount;
 
+    @Transient
+    @JsonProperty("companion_streamer_online")
+    private Boolean companionStreamerOnline;
+
     public HmsReplicationJobEntity() {}
 
     @PreUpdate
@@ -237,4 +241,6 @@ public class HmsReplicationJobEntity {
     public void setSubtasksCount(Integer subtasksCount) { this.subtasksCount = subtasksCount; }
     public Integer getActiveSubtasksCount() { return activeSubtasksCount; }
     public void setActiveSubtasksCount(Integer activeSubtasksCount) { this.activeSubtasksCount = activeSubtasksCount; }
+    public Boolean getCompanionStreamerOnline() { return companionStreamerOnline; }
+    public void setCompanionStreamerOnline(Boolean companionStreamerOnline) { this.companionStreamerOnline = companionStreamerOnline; }
 }
