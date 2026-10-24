@@ -90,6 +90,76 @@ public class TarBundlePartialFailureTest {
     }
 
     @Test
+    @DisplayName("Чанки, пришедшие из разных короткоживущих потоков, собираются в один бандл")
+    void testChunksFromDistinctShortLivedThreadsAreAssembled() throws Exception {
+        String baseTarget = new File(tempTargetDir, "vthreads").getAbsolutePath();
+        String taskId = "task-vthread-bundle-1";
+
+        StreamObserver<TarStreamRequest> requestObserver = service.transferTarStream(new StreamObserver<>() {
+            @Override public void onNext(TarStreamResponse value) {}
+            @Override public void onError(Throwable t) {}
+            @Override public void onCompleted() {}
+        });
+
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("events_part1.json", "{\"id\":1}");
+        files.put("events_part2.json", "{\"id\":2}");
+        byte[] tar = tarWith(files);
+        // Первый чанк намеренно крошечный: распаковщик успевает его дочитать и остаться
+        // ждать на пустом буфере, пока поток-писатель уже мертв.
+        int split = 64;
+
+        // gRPC-сервер приемника сконфигурирован с newVirtualThreadPerTaskExecutor():
+        // каждая порция сообщений приходит в своем потоке, а предыдущий сразу умирает.
+        // Пауза между чанками дает распаковщику опустошить буфер — именно в этот момент
+        // PipedInputStream бросал "Write end dead".
+        inSeparateThread(() -> requestObserver.onNext(TarStreamRequest.newBuilder()
+                .setMetadata(TarStreamMetadata.newBuilder()
+                        .setTaskId(taskId)
+                        .setJobId("job-vthread-bundle")
+                        .setBaseTargetPath(baseTarget)
+                        .setTotalFiles(2)
+                        .setTotalBytes(tar.length)
+                        .build())
+                .build()));
+
+        inSeparateThread(() -> requestObserver.onNext(TarStreamRequest.newBuilder()
+                .setChunk(TarStreamChunk.newBuilder()
+                        .setTaskId(taskId)
+                        .setOffset(0)
+                        .setData(ByteString.copyFrom(tar, 0, split))
+                        .build())
+                .build()));
+
+        Thread.sleep(1_000);
+
+        inSeparateThread(() -> requestObserver.onNext(TarStreamRequest.newBuilder()
+                .setChunk(TarStreamChunk.newBuilder()
+                        .setTaskId(taskId)
+                        .setOffset(split)
+                        .setData(ByteString.copyFrom(tar, split, tar.length - split))
+                        .build())
+                .build()));
+
+        inSeparateThread(requestObserver::onCompleted);
+
+        File first = new File(baseTarget, "events_part1.json");
+        File second = new File(baseTarget, "events_part2.json");
+        assertTrue(awaitFile(first, 5_000),
+                "Первый файл бандла не закоммичен: сборка потока сломана при смене потока-писателя");
+        assertTrue(awaitFile(second, 5_000), "Второй файл бандла не закоммичен");
+        assertEquals("{\"id\":1}", Files.readString(first.toPath()));
+        assertEquals("{\"id\":2}", Files.readString(second.toPath()));
+    }
+
+    /** Отправка из потока, который сразу после вызова завершается. */
+    private static void inSeparateThread(Runnable action) throws InterruptedException {
+        Thread sender = new Thread(action, "grpc-vthread-sim");
+        sender.start();
+        sender.join(5_000);
+    }
+
+    @Test
     @DisplayName("Обрыв стрима не удаляет файлы бандла, уже закоммиченные на приемнике")
     void testStreamErrorKeepsAlreadyCommittedFiles() throws Exception {
         String baseTarget = new File(tempTargetDir, "warehouse").getAbsolutePath();

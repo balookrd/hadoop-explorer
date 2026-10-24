@@ -192,6 +192,22 @@ public class HdfsInotifyListener {
      */
     private void runLeaseLoop() {
         while (running.get()) {
+            renewLeaseOnce();
+
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    /**
+     * Один цикл продления аренды стримера.
+     */
+    void renewLeaseOnce() {
+        {
             try {
                 StreamingLeaseRenewResponse resp = orchestratorClient.renewStreamingLease(
                         new StreamingLeaseRenewRequest(config.getClusterId(), config.getAgentId())
@@ -231,17 +247,16 @@ public class HdfsInotifyListener {
                         log.warn("[Streamer Warning] Отсутствует резервный стример для кластера '{}' (всего {} активных)!",
                                 config.getClusterId(), resp.getRegisteredStreamersCount());
                     }
+                } else {
+                    // Клиент гасит исключения продления и отдает null, поэтому отсутствие ответа —
+                    // такой же сбой проверки аренды, как и исключение. Без этой ветки self-fencing
+                    // недостижим, и при сетевой изоляции агент остается активным навсегда.
+                    log.debug("[Streamer Lease Error] Оркестратор не подтвердил аренду (пустой ответ)");
+                    handleLeaseCheckFailure();
                 }
             } catch (Exception e) {
                 log.debug("[Streamer Lease Error] Ошибка проверки лизинга: {}", e.getMessage());
                 handleLeaseCheckFailure();
-            }
-
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
             }
         }
     }

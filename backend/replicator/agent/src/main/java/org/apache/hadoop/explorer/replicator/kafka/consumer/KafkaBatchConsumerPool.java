@@ -243,6 +243,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             private final KafkaBatchRequest request;
             private int attempts;
             private volatile boolean settled;
+            /** Индекс целевого приемника, на который батч отправлен в данный момент. */
+            private volatile int targetIdx;
 
             private PendingBatch(KafkaBatchRequest request, TopicPartition topicPartition,
                                  long maxSourceOffset, int recordCount, long bytesSize) {
@@ -308,6 +310,9 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         log.error("[Worker {} -> Target {}] Сбой gRPC стрима: {}", workerId, idx, t.getMessage());
                         replicationClient.markTargetSuspect(idx, t);
                         activeStreams.remove(idx);
+                        // Батчи оборванного стрима никогда не получат ack: без их освобождения
+                        // счетчик in-flight залипает и backpressure-петля воркера ждет вечно.
+                        releaseBatchesOfTarget(idx, "обрыв gRPC стрима: " + t.getMessage());
                     }
 
                     @Override
@@ -480,7 +485,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             }
 
                             long batchBytes = batchRequest.getSerializedSize();
-                            registerPendingBatch(batchRequest, tp, maxChunkOffset, chunk.size(), batchBytes);
+                            PendingBatch pending = registerPendingBatch(
+                                    batchRequest, tp, maxChunkOffset, chunk.size(), batchBytes, targetIdx);
 
                             if (bandwidthLimiter != null) {
                                 bandwidthLimiter.throttle(batchBytes);
@@ -496,6 +502,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 int fallbackIdx = replicationClient.selectTargetIndex(tp.partition());
                                 // Батч уже зарегистрирован и остается в очереди партиции:
                                 // переотправка не создает дубликат записи о нем.
+                                pending.targetIdx = fallbackIdx;
                                 getOrCreateStream(fallbackIdx).onNext(batchRequest);
                             }
                         }
@@ -527,8 +534,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
          * непрерывно подтвержденного префикса.
          */
         private PendingBatch registerPendingBatch(KafkaBatchRequest request, TopicPartition tp,
-                                                  long maxSourceOffset, int recordCount, long bytesSize) {
+                                                  long maxSourceOffset, int recordCount, long bytesSize,
+                                                  int targetIdx) {
             PendingBatch pending = new PendingBatch(request, tp, maxSourceOffset, recordCount, bytesSize);
+            pending.targetIdx = targetIdx;
             inFlightBatches.put(pending.batchId, pending);
             PartitionAckTracker tracker = partitionTrackers.computeIfAbsent(tp, k -> new PartitionAckTracker());
             tracker.lock.lock();
@@ -570,6 +579,20 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         }
 
         /**
+         * Освобождение батчей, отправленных на указанный приемник, после обрыва его стрима.
+         *
+         * <p>Такие батчи никогда не получат ack, поэтому проходят обычным путем отказа:
+         * повторная отправка на другой приемник, затем DLQ или блокировка коммита партиции.
+         */
+        private void releaseBatchesOfTarget(int targetIdx, String reason) {
+            for (PendingBatch pending : new ArrayList<>(inFlightBatches.values())) {
+                if (pending.targetIdx == targetIdx && !pending.settled) {
+                    handleRejectedBatch(pending, targetIdx, reason);
+                }
+            }
+        }
+
+        /**
          * Обработка батча, отвергнутого приемником: повторная отправка, затем изоляция в DLQ.
          *
          * <p>Без DLQ-обработчика батч остается нерешенным и блокирует коммит своей партиции:
@@ -582,6 +605,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         workerId, pending.batchId, pending.attempts, maxBatchRetries, reason);
                 try {
                     int retryIdx = replicationClient.selectTargetIndex(pending.topicPartition.partition());
+                    pending.targetIdx = retryIdx;
                     getOrCreateStream(retryIdx).onNext(pending.request);
                     return;
                 } catch (Exception resendFailure) {

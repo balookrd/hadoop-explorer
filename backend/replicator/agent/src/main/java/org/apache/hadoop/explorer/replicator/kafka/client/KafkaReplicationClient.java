@@ -25,9 +25,25 @@ public class KafkaReplicationClient implements Closeable {
     private final boolean tlsEnabled;
     private final String trustCertPath;
     private volatile KafkaTargetBalancer balancer;
-    private final List<ManagedChannel> channels;
-    private final List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> asyncStubs;
-    private final List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> blockingStubs;
+
+    /**
+     * Иммутабельный снимок пула приемников.
+     *
+     * <p>Публикуется целиком одной записью в {@link #pool}: читатели никогда не видят
+     * промежуточного состояния. Правка списков на месте ломала воркеров
+     * {@code IndexOutOfBoundsException} в момент перестройки топологии.
+     */
+    private record EndpointPool(
+            List<ManagedChannel> channels,
+            List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> asyncStubs,
+            List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> blockingStubs
+    ) {
+        int size() {
+            return channels.size();
+        }
+    }
+
+    private volatile EndpointPool pool;
 
     /**
      * Конструктор для одиночного удаленного хоста (обратная совместимость).
@@ -63,22 +79,34 @@ public class KafkaReplicationClient implements Closeable {
         this.tlsEnabled = tlsEnabled;
         this.trustCertPath = trustCertPath;
         this.balancer = new KafkaTargetBalancer(targetEndpoints);
-        this.channels = new ArrayList<>();
-        this.asyncStubs = new ArrayList<>();
-        this.blockingStubs = new ArrayList<>();
+        this.pool = buildPool(targetEndpoints);
+        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={}, tls={})",
+                pool.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()), tlsEnabled);
+    }
 
+    /** Сборка нового снимка пула по списку эндпоинтов (без публикации). */
+    private EndpointPool buildPool(List<String> endpoints) {
         io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
                 ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
                 : null;
 
-        for (String ep : targetEndpoints) {
-            initEndpoint(ep, authInterceptor);
+        List<ManagedChannel> newChannels = new ArrayList<>(endpoints.size());
+        List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> newAsync = new ArrayList<>(endpoints.size());
+        List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> newBlocking = new ArrayList<>(endpoints.size());
+
+        for (String ep : endpoints) {
+            ManagedChannel ch = createChannel(ep);
+            io.grpc.Channel targetChannel = (authInterceptor != null)
+                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
+                    : ch;
+            newChannels.add(ch);
+            newAsync.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
+            newBlocking.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }
-        log.info("Инициализирован KafkaReplicationClient с {} целевыми узлами: {} (auth={}, tls={})",
-                channels.size(), targetEndpoints, (agentSecret != null && !agentSecret.isBlank()), tlsEnabled);
+        return new EndpointPool(List.copyOf(newChannels), List.copyOf(newAsync), List.copyOf(newBlocking));
     }
 
-    private void initEndpoint(String ep, io.grpc.ClientInterceptor authInterceptor) {
+    private ManagedChannel createChannel(String ep) {
         String[] parts = ep.trim().split(":");
         String host = parts[0];
         int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 50052;
@@ -102,14 +130,7 @@ public class KafkaReplicationClient implements Closeable {
             builder.usePlaintext();
         }
 
-        ManagedChannel ch = builder.build();
-        this.channels.add(ch);
-        io.grpc.Channel targetChannel = (authInterceptor != null)
-                ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
-                : ch;
-
-        this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
-        this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
+        return builder.build();
     }
 
     /**
@@ -125,24 +146,21 @@ public class KafkaReplicationClient implements Closeable {
         }
         log.info("[KafkaReplicationClient] Обновление пула целевых эндпоинтов: {} -> {}", current, newEndpoints);
 
-        for (ManagedChannel ch : channels) {
-            try {
-                ch.shutdown();
-            } catch (Exception ignored) {}
-        }
-        channels.clear();
-        asyncStubs.clear();
-        blockingStubs.clear();
-
-        io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
-                ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
-                : null;
-
-        for (String ep : newEndpoints) {
-            initEndpoint(ep, authInterceptor);
-        }
-
+        // Новый пул собирается полностью, и только потом публикуется одной записью.
+        // Старые каналы закрываются после публикации, чтобы читатели не остались
+        // ни с пустым пулом, ни со закрытым каналом в руках раньше времени.
+        EndpointPool previous = this.pool;
+        EndpointPool replacement = buildPool(newEndpoints);
         this.balancer = new KafkaTargetBalancer(newEndpoints);
+        this.pool = replacement;
+
+        if (previous != null) {
+            for (ManagedChannel ch : previous.channels()) {
+                try {
+                    ch.shutdown();
+                } catch (Exception ignored) {}
+            }
+        }
     }
 
     /**
@@ -163,21 +181,21 @@ public class KafkaReplicationClient implements Closeable {
         this.tlsEnabled = false;
         this.trustCertPath = null;
         this.balancer = new KafkaTargetBalancer(endpointNames);
-        this.channels = new ArrayList<>(channels);
-        this.asyncStubs = new ArrayList<>();
-        this.blockingStubs = new ArrayList<>();
 
         io.grpc.ClientInterceptor authInterceptor = (agentSecret != null && !agentSecret.isBlank())
                 ? org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret)
                 : null;
 
+        List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> newAsync = new ArrayList<>(channels.size());
+        List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> newBlocking = new ArrayList<>(channels.size());
         for (ManagedChannel ch : channels) {
             io.grpc.Channel targetChannel = (authInterceptor != null)
                     ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
                     : ch;
-            this.asyncStubs.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
-            this.blockingStubs.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
+            newAsync.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
+            newBlocking.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }
+        this.pool = new EndpointPool(List.copyOf(channels), List.copyOf(newAsync), List.copyOf(newBlocking));
     }
 
     public KafkaTargetBalancer getBalancer() {
@@ -185,7 +203,7 @@ public class KafkaReplicationClient implements Closeable {
     }
 
     public int getEndpointCount() {
-        return channels.size();
+        return pool.size();
     }
 
     public List<String> getTargetEndpoints() {
@@ -217,8 +235,9 @@ public class KafkaReplicationClient implements Closeable {
      * Открывает двунаправленный стрим отправки батчей к конкретному целевому узлу.
      */
     public StreamObserver<KafkaBatchRequest> openBatchStream(int targetIndex, StreamObserver<KafkaBatchAck> ackObserver) {
-        int idx = Math.max(0, Math.min(targetIndex, asyncStubs.size() - 1));
-        return asyncStubs.get(idx).streamBatches(ackObserver);
+        EndpointPool current = pool;
+        int idx = Math.max(0, Math.min(targetIndex, current.size() - 1));
+        return current.asyncStubs().get(idx).streamBatches(ackObserver);
     }
 
     /**
@@ -268,7 +287,9 @@ public class KafkaReplicationClient implements Closeable {
         List<Integer> healthy = balancer.getHealthyIndices();
         int targetIdx = healthy.isEmpty() ? 0 : healthy.get(0);
 
-        return blockingStubs.get(targetIdx)
+        EndpointPool current = pool;
+        int idx = Math.max(0, Math.min(targetIdx, current.size() - 1));
+        return current.blockingStubs().get(idx)
                 .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
                 .syncConsumerOffsets(request);
     }
@@ -281,8 +302,9 @@ public class KafkaReplicationClient implements Closeable {
     }
 
     public SchemaSyncResponse syncSchemaTarget(int targetIndex, SchemaSyncRequest request) {
-        int idx = Math.max(0, Math.min(targetIndex, blockingStubs.size() - 1));
-        return blockingStubs.get(idx)
+        EndpointPool current = pool;
+        int idx = Math.max(0, Math.min(targetIndex, current.size() - 1));
+        return current.blockingStubs().get(idx)
                 .withDeadlineAfter(10, TimeUnit.SECONDS)
                 .syncSchemaMetadata(request);
     }
@@ -295,14 +317,15 @@ public class KafkaReplicationClient implements Closeable {
     }
 
     public long pingTarget(int targetIndex, String localDcId) {
-        int idx = Math.max(0, Math.min(targetIndex, blockingStubs.size() - 1));
+        EndpointPool current = pool;
+        int idx = Math.max(0, Math.min(targetIndex, current.size() - 1));
         long sendTime = System.currentTimeMillis();
         KafkaPing ping = KafkaPing.newBuilder()
                 .setSenderId(localDcId)
                 .setTimestampMs(sendTime)
                 .build();
 
-        KafkaPong pong = blockingStubs.get(idx).withDeadlineAfter(3, TimeUnit.SECONDS).heartbeat(ping);
+        KafkaPong pong = current.blockingStubs().get(idx).withDeadlineAfter(3, TimeUnit.SECONDS).heartbeat(ping);
         long rtt = System.currentTimeMillis() - sendTime;
         balancer.markHealthy(idx);
         log.debug("Heartbeat с узлом #{} ({}) успешен (RTT: {} мс, удаленный ЦОД: {})",
@@ -315,7 +338,7 @@ public class KafkaReplicationClient implements Closeable {
      */
     public Map<String, Long> pingAll(String localDcId) {
         Map<String, Long> results = new LinkedHashMap<>();
-        for (int i = 0; i < blockingStubs.size(); i++) {
+        for (int i = 0; i < pool.size(); i++) {
             String ep = balancer.getEndpoint(i);
             try {
                 long rtt = pingTarget(i, localDcId);
@@ -331,7 +354,7 @@ public class KafkaReplicationClient implements Closeable {
 
     @Override
     public void close() {
-        for (ManagedChannel ch : channels) {
+        for (ManagedChannel ch : pool.channels()) {
             try {
                 ch.shutdown().awaitTermination(3, TimeUnit.SECONDS);
             } catch (InterruptedException e) {

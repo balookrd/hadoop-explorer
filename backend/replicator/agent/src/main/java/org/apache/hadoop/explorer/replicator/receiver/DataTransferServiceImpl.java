@@ -46,6 +46,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final int tarPipeBufferBytes;
     private final Semaphore tarStreamSemaphore;
     private final long tarStreamAcquireTimeoutMs;
+
+    /** Предельное время ожидания очередного чанка бандла от отправителя. */
+    private static final long CHUNK_STREAM_IDLE_TIMEOUT_MS = 120_000L;
     private final String agentSecret;
     private final boolean enforceTaskAttestation;
     private final org.apache.hadoop.explorer.replicator.security.TaskAttestationValidator attestationValidator;
@@ -483,8 +486,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         class TarStreamObserver implements StreamObserver<TarStreamRequest> {
 
             private TarStreamMetadata metadata = null;
-            private PipedOutputStream pipedOut = null;
-            private PipedInputStream pipedIn = null;
+            private ChunkStreamBuffer chunkBuffer = null;
             private CompletableFuture<TarStreamResponse> unpackFuture = null;
             private long bytesReceived = 0;
             private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
@@ -540,11 +542,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         }
                         permitAcquired.set(true);
 
-                        pipedOut = new PipedOutputStream();
-                        pipedIn = new PipedInputStream(pipedOut, tarPipeBufferBytes);
+                        chunkBuffer = new ChunkStreamBuffer(tarPipeBufferBytes, CHUNK_STREAM_IDLE_TIMEOUT_MS);
 
                         final TarStreamMetadata meta = metadata;
-                        final InputStream inStream = pipedIn;
+                        final InputStream inStream = chunkBuffer.inputStream();
 
                         // Ограничение параллелизма in-flight коммитов файлов одного бандла для сдерживания памяти
                         final int MAX_BUNDLE_BUFFER_BYTES = 16 * 1024 * 1024; // 16 МБ максимум на стрим
@@ -718,7 +719,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     // 2. Чанк данных архива
                     else if (request.hasChunk()) {
                         TarStreamChunk chunk = request.getChunk();
-                        if (pipedOut == null || metadata == null) {
+                        if (chunkBuffer == null || metadata == null) {
                             logger.error("Чанк TAR получен до метаданных task_id={}", chunk.getTaskId());
                             cleanup();
                             responseObserver.onNext(TarStreamResponse.newBuilder()
@@ -740,7 +741,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     chunk.getCompressionCodec(),
                                     chunk.getUncompressedSize()
                             );
-                            pipedOut.write(bytes);
+                            chunkBuffer.write(bytes);
                             bytesReceived += rawBytes.length;
                         }
                     }
@@ -772,7 +773,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     cleanup();
                     return;
                 }
-                if (metadata == null || pipedOut == null || unpackFuture == null) {
+                if (metadata == null || chunkBuffer == null || unpackFuture == null) {
                     cleanup();
                     responseObserver.onNext(TarStreamResponse.newBuilder()
                             .setTaskId(metadata != null ? metadata.getTaskId() : "unknown")
@@ -784,8 +785,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 }
 
                 try {
-                    pipedOut.flush();
-                    pipedOut.close();
+                    chunkBuffer.complete();
                     TarStreamResponse response = unpackFuture.get(120, TimeUnit.SECONDS);
                     if (response.getSuccess()) {
                         activeWrittenPaths.clear();
@@ -818,17 +818,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             void cleanup() {
                 cancelled.set(true);
                 releasePermit();
-                if (pipedOut != null) {
-                    try {
-                        pipedOut.close();
-                    } catch (IOException ignored) {}
-                    pipedOut = null;
-                }
-                if (pipedIn != null) {
-                    try {
-                        pipedIn.close();
-                    } catch (IOException ignored) {}
-                    pipedIn = null;
+                if (chunkBuffer != null) {
+                    chunkBuffer.close();
+                    chunkBuffer = null;
                 }
                 if (unpackFuture != null && !unpackFuture.isDone()) {
                     unpackFuture.cancel(true);

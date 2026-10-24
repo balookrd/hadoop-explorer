@@ -342,6 +342,17 @@ public class HmsCoordinatorService {
             return false;
         }
 
+        // Fencing по владельцу аренды: отчет от агента, у которого задачу уже отобрали,
+        // иначе «подвисший» агент вернул бы себе владение и откатил позицию CDC назад.
+        String owner = job.getAssignedAgentId();
+        String reporter = report.agentId();
+        if (owner != null && !owner.isBlank() && reporter != null && !reporter.isBlank()
+                && !owner.equals(reporter)) {
+            log.warn("[HmsCoordinator] Fencing: отклонен отчет агента '{}' для задачи {}: аренду держит '{}'",
+                    reporter, jobId, owner);
+            return false;
+        }
+
         if (report.status() != null && !report.status().isBlank()) {
             org.apache.hadoop.explorer.replicator.model.HmsJobStatus targetStatus =
                     org.apache.hadoop.explorer.replicator.model.HmsJobStatus.fromString(report.status());
@@ -365,7 +376,15 @@ public class HmsCoordinatorService {
             job.setReplicatedPartitions(report.replicatedPartitions());
         }
         if (report.lastProcessedEventId() != null) {
-            job.setLastProcessedEventId(report.lastProcessedEventId());
+            // Позиция в потоке событий монотонна: откат назад переиграл бы уже примененные
+            // DDL-события (повторный DROP_PARTITION после того, как новый агент ушел вперед).
+            Long currentPosition = job.getLastProcessedEventId();
+            if (currentPosition == null || report.lastProcessedEventId() >= currentPosition) {
+                job.setLastProcessedEventId(report.lastProcessedEventId());
+            } else {
+                log.warn("[HmsCoordinator] Отклонен откат позиции событий задачи {}: {} -> {}",
+                        jobId, currentPosition, report.lastProcessedEventId());
+            }
         }
         if (report.bootstrapEventId() != null) {
             job.setBootstrapEventId(report.bootstrapEventId());

@@ -239,6 +239,48 @@ class KafkaOffsetContinuityTest {
     }
 
     @Test
+    @DisplayName("Обрыв стрима освобождает in-flight батчи и переотправляет их")
+    void testStreamErrorReleasesInFlightBatches() throws Exception {
+        try (Harness h = new Harness(100L)) {
+            h.pool.setMaxBatchRetries(2);
+            h.pool.start();
+            h.awaitSent(1);
+
+            // Приемник оборвал стрим, не прислав ack
+            h.ackObservers.get(0).onError(new RuntimeException("stream broken"));
+
+            h.awaitSent(2);
+            assertEquals(100L, h.sent.get(1).getRecords(0).getOriginalOffset(),
+                    "Батч оборванного стрима обязан быть переотправлен, а не остаться висеть in-flight");
+        }
+    }
+
+    @Test
+    @DisplayName("Обрыв стрима без возможности повтора не оставляет батч in-flight навсегда")
+    void testStreamErrorWithoutRetriesSettlesBatch() throws Exception {
+        try (Harness h = new Harness(100L)) {
+            List<KafkaBatchRequest> deadLettered = new CopyOnWriteArrayList<>();
+            h.pool.setMaxBatchRetries(0);
+            h.pool.setDeadLetterHandler((request, reason) -> deadLettered.add(request));
+            h.pool.start();
+            h.awaitSent(1);
+
+            h.ackObservers.get(0).onError(new RuntimeException("target unreachable"));
+
+            long deadline = System.currentTimeMillis() + 3_000;
+            while (deadLettered.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertEquals(1, deadLettered.size(),
+                    "Без возможности повтора батч оборванного стрима обязан быть изолирован, иначе воркер встает навсегда");
+
+            Thread.sleep(300);
+            assertEquals(101L, h.highestCommittedOffset(),
+                    "После изоляции батча оффсет партиции должен продвинуться");
+        }
+    }
+
+    @Test
     @DisplayName("Без DLQ-обработчика исчерпание попыток не двигает оффсет")
     void testExhaustedRetriesWithoutDeadLetterHandlerKeepOffset() throws Exception {
         try (Harness h = new Harness(100L)) {
