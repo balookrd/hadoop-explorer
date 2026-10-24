@@ -61,7 +61,6 @@ public class ReplicatorOrchestratorApplication {
                     "/*.ttf",
                     "/health",
                     "/healthz",
-                    "/metrics",
                     "/actuator/health",
                     "/actuator/health/**",
                     "/actuator/info",

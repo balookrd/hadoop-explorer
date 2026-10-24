@@ -17,6 +17,15 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class TokenBucketThrottler {
 
+    /**
+     * Ожидание, выдаваемое при перекрытом канале (лимит равен нулю).
+     *
+     * <p>Контракт выдачи токенов — время ожидания в секундах, поэтому запрет выражается
+     * заведомо большим ожиданием: агент выдерживает паузу и повторяет запрос, то есть канал
+     * фактически закрыт, пока ограждение не снято.
+     */
+    public static final double BLOCKED_WAIT_SECONDS = 60.0;
+
     private static final Logger log = LoggerFactory.getLogger(TokenBucketThrottler.class);
 
     public static class SingleBucket {
@@ -100,7 +109,13 @@ public class TokenBucketThrottler {
         public double calculateWait(long requestedBytes, long nowNanos) {
             lock.lock();
             try {
-                if (requestedBytes <= 0 || limitBytesPerSec <= 0) {
+                if (requestedBytes <= 0) {
+                    return 0.0;
+                }
+                if (limitBytesPerSec == 0) {
+                    return BLOCKED_WAIT_SECONDS;
+                }
+                if (limitBytesPerSec < 0) {
                     return 0.0;
                 }
                 if (limitBytesPerSec > 0) {
@@ -139,7 +154,16 @@ public class TokenBucketThrottler {
         public double calculateWaitAndConsume(long requestedBytes, long nowNanos) {
             lock.lock();
             try {
-                if (requestedBytes <= 0 || limitBytesPerSec <= 0) {
+                if (requestedBytes <= 0) {
+                    return 0.0;
+                }
+                // Ноль означает «канал перекрыт» (сетевое ограждение Kill-Switch), а не
+                // «лимита нет»: прежняя проверка limitBytesPerSec <= 0 возвращала нулевое
+                // ожидание, и агенты продолжали качать данные на полной скорости.
+                if (limitBytesPerSec == 0) {
+                    return BLOCKED_WAIT_SECONDS;
+                }
+                if (limitBytesPerSec < 0) {
                     return 0.0;
                 }
                 double elapsedSec = (nowNanos - lastUpdateTimeNanos) / 1_000_000_000.0;

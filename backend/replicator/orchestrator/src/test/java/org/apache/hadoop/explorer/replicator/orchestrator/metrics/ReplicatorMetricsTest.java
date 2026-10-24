@@ -1,5 +1,8 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.metrics;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.Cookie;
+import org.apache.hadoop.explorer.common.model.LoginRequest;
 import org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
@@ -14,7 +17,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -33,6 +38,31 @@ public class ReplicatorMetricsTest {
 
     @Autowired
     private org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository kafkaReplicationJobRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    /**
+     * Метрики раскрывают имена кластеров, задач и путей, а скрейп стоит запросов к БД,
+     * поэтому эндпоинт требует аутентификации.
+     */
+    private Cookie adminCookie() throws Exception {
+        var result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("admin", "secret"))))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie cookie = result.getResponse().getCookie("access_token");
+        assertNotNull(cookie);
+        return cookie;
+    }
+
+    @Test
+    @DisplayName("Эндпоинт метрик недоступен без аутентификации")
+    void testMetricsEndpointRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/metrics"))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     @DisplayName("Проверка экспорта метрик Prometheus на эндпоинте /metrics")
@@ -76,7 +106,7 @@ public class ReplicatorMetricsTest {
         kJob.setTopicsJson("[]");
         kafkaReplicationJobRepository.save(kJob);
 
-        mockMvc.perform(get("/metrics"))
+        mockMvc.perform(get("/metrics").cookie(adminCookie()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("text/plain; version=0.0.4; charset=utf-8"))
                 // Проверяем наличие канонических метрик Replicator (гармонизированный стандарт)

@@ -100,6 +100,7 @@ public class DisasterRecoveryService {
     private final HmsCoordinatorService hmsCoordinatorService;
     private final DrSnapshotRepository drSnapshotRepository;
     private final DistributedLockService lockService;
+    private final org.apache.hadoop.explorer.replicator.orchestrator.repository.BandwidthLimitRepository limitRepository;
     private final ObjectMapper objectMapper;
 
     public DisasterRecoveryService(
@@ -113,7 +114,7 @@ public class DisasterRecoveryService {
             HmsCoordinatorService hmsCoordinatorService
     ) {
         this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
-                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, null);
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, null, null);
     }
 
     public DisasterRecoveryService(
@@ -128,7 +129,24 @@ public class DisasterRecoveryService {
             DrSnapshotRepository drSnapshotRepository
     ) {
         this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
-                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, drSnapshotRepository, null);
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, drSnapshotRepository, null, null);
+    }
+
+    public DisasterRecoveryService(
+            JobRepository jobRepository,
+            JobRunRepository jobRunRepository,
+            TaskRepository taskRepository,
+            HmsReplicationJobRepository hmsReplicationJobRepository,
+            AgentRegistry agentRegistry,
+            TopologyRegistry topologyRegistry,
+            TokenBucketThrottler throttler,
+            HmsCoordinatorService hmsCoordinatorService,
+            DrSnapshotRepository drSnapshotRepository,
+            DistributedLockService lockService
+    ) {
+        this(jobRepository, jobRunRepository, taskRepository, hmsReplicationJobRepository,
+                agentRegistry, topologyRegistry, throttler, hmsCoordinatorService,
+                drSnapshotRepository, lockService, null);
     }
 
     @Autowired
@@ -142,7 +160,8 @@ public class DisasterRecoveryService {
             TokenBucketThrottler throttler,
             HmsCoordinatorService hmsCoordinatorService,
             @Autowired(required = false) DrSnapshotRepository drSnapshotRepository,
-            @Autowired(required = false) DistributedLockService lockService
+            @Autowired(required = false) DistributedLockService lockService,
+            @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.repository.BandwidthLimitRepository limitRepository
     ) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
@@ -154,7 +173,58 @@ public class DisasterRecoveryService {
         this.hmsCoordinatorService = hmsCoordinatorService;
         this.drSnapshotRepository = drSnapshotRepository;
         this.lockService = lockService;
+        this.limitRepository = limitRepository;
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    }
+
+
+    /**
+     * Установка лимита канала между ЦОД с сохранением в БД.
+     *
+     * <p>Запись только в память своего узла означала, что за балансировщиком ограждение и
+     * смена полосы применялись лишь на том узле, который принял запрос: остальные продолжали
+     * выдавать агентам токены по прежнему лимиту, а после перезапуска узла ограждение
+     * исчезало совсем. Остальные узлы подхватывают запись в своем цикле координации.
+     */
+    private void applyDcLimit(String srcDc, String dstDc, long bytesPerSec) {
+        topologyRegistry.setDcLimit(srcDc, dstDc, bytesPerSec);
+        if (limitRepository == null) {
+            return;
+        }
+        try {
+            String key = "dc:" + srcDc + "->" + dstDc;
+            limitRepository.save(new org.apache.hadoop.explorer.replicator.orchestrator.entity.BandwidthLimitEntity(
+                    key, bytesPerSec, java.time.Instant.now()));
+        } catch (Exception e) {
+            log.warn("Не удалось сохранить лимит канала {} -> {} в БД: {}", srcDc, dstDc, e.getMessage());
+        }
+    }
+
+
+    /** Снимок ограждения из БД: нужен узлу, который сам ограждение не выставлял. */
+    private EmergencySnapshot loadSnapshotFromDatabase(String snapshotKey) {
+        try {
+            return drSnapshotRepository.findById(snapshotKey)
+                    .map(DrSnapshotEntity::getSnapshotJson)
+                    .filter(json -> json != null && !json.isBlank())
+                    .map(json -> {
+                        try {
+                            return objectMapper.readValue(json, EmergencySnapshot.class);
+                        } catch (Exception e) {
+                            log.warn("Не удалось разобрать снимок ограждения '{}': {}", snapshotKey, e.getMessage());
+                            return null;
+                        }
+                    })
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать снимок ограждения '{}' из БД: {}", snapshotKey, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Сброс локального кэша снимков: имитация узла, не создававшего ограждение. */
+    void forgetLocalSnapshotsForTesting() {
+        activeSnapshots.clear();
     }
 
     @PostConstruct
@@ -170,7 +240,7 @@ public class DisasterRecoveryService {
                         String clusterId = snapshot.getClusterId();
                         for (var dc : topologyRegistry.getDatacenters()) {
                             if (!matchesDc(dc.getId(), clusterId)) {
-                                topologyRegistry.setDcLimit(clusterId, dc.getId(), 0L);
+                                applyDcLimit(clusterId, dc.getId(), 0L);
                                 log.warn("[Disaster Recovery Fencing Restored] Восстановлена сетевая блокировка {} ➔ {} (0 МБ/с)", clusterId, dc.getId());
                             }
                         }
@@ -553,7 +623,7 @@ public class DisasterRecoveryService {
         if (Boolean.TRUE.equals(req.fenceNetwork())) {
             for (var dc : topologyRegistry.getDatacenters()) {
                 if (!matchesDc(dc.getId(), clusterId)) {
-                    topologyRegistry.setDcLimit(clusterId, dc.getId(), 0L);
+                    applyDcLimit(clusterId, dc.getId(), 0L);
                     log.warn("[Disaster Recovery Fencing] Канал полосы {} ➔ {} перекрыт (0 МБ/с)", clusterId, dc.getId());
                 }
             }
@@ -612,21 +682,27 @@ public class DisasterRecoveryService {
     private DrActionResponse doRollbackEmergencyStop(DrEmergencyRollbackRequest req, String username) {
         String clusterId = req.clusterId();
         String operator = username != null ? username : "operator";
-        EmergencySnapshot snapshot = activeSnapshots.remove(clusterId.toLowerCase());
+        String snapshotKey = clusterId.toLowerCase();
+        EmergencySnapshot snapshot = activeSnapshots.remove(snapshotKey);
+
+        // Узел, не создававший ограждение, не держит снимок в памяти: берем его из БД.
+        if (snapshot == null && drSnapshotRepository != null) {
+            snapshot = loadSnapshotFromDatabase(snapshotKey);
+        }
+
+        // Снимка по запрошенному кластеру нет — это ошибка запроса. Прежний fallback брал
+        // «первый снимок из мапы» и снимал ограждение с чужого кластера: откат по опечатке
+        // оживлял репликацию в реально упавший ЦОД.
+        if (snapshot == null) {
+            log.warn("[Disaster Recovery] Откат отклонен: для кластера '{}' нет активного ограждения", clusterId);
+            return DrActionResponse.error("Для кластера '" + clusterId + "' нет активного аварийного ограждения");
+        }
+
         if (drSnapshotRepository != null) {
             try {
-                drSnapshotRepository.deleteById(clusterId.toLowerCase());
-            } catch (Exception ignored) {}
-        }
-        if (snapshot == null && !activeSnapshots.isEmpty()) {
-            // Если в мапе сохранен снимок под другим регистром или кластером
-            var entry = activeSnapshots.entrySet().iterator().next();
-            snapshot = entry.getValue();
-            activeSnapshots.remove(entry.getKey());
-            if (drSnapshotRepository != null) {
-                try {
-                    drSnapshotRepository.deleteById(entry.getKey());
-                } catch (Exception ignored) {}
+                drSnapshotRepository.deleteById(snapshotKey);
+            } catch (Exception e) {
+                log.warn("Не удалось удалить снимок ограждения '{}' из БД: {}", snapshotKey, e.getMessage());
             }
         }
 
@@ -642,7 +718,7 @@ public class DisasterRecoveryService {
                     String[] parts = entry.getKey().split("->");
                     if (parts.length == 2) {
                         long lim = entry.getValue() > 0 ? entry.getValue() : defaultLimit;
-                        topologyRegistry.setDcLimit(parts[0], parts[1], lim);
+                        applyDcLimit(parts[0], parts[1], lim);
                         restoredLimits++;
                     }
                 }
@@ -651,7 +727,7 @@ public class DisasterRecoveryService {
                 for (var srcDc : topologyRegistry.getDatacenters()) {
                     for (var dstDc : topologyRegistry.getDatacenters()) {
                         if (!srcDc.getId().equalsIgnoreCase(dstDc.getId())) {
-                            topologyRegistry.setDcLimit(srcDc.getId(), dstDc.getId(), defaultLimit);
+                            applyDcLimit(srcDc.getId(), dstDc.getId(), defaultLimit);
                             restoredLimits++;
                         }
                     }
@@ -863,7 +939,7 @@ public class DisasterRecoveryService {
         }
 
         // Снятие сетевого ограждения (Fencing): возвращаем дефолтный лимит 100 МБ/с для нового направления
-        topologyRegistry.setDcLimit(fromClusterId, toClusterId, 100L * 1024 * 1024);
+        applyDcLimit(fromClusterId, toClusterId, 100L * 1024 * 1024);
 
         String msg = String.format("Обратная репликация настроена (%s ➔ %s): создано %d HDFS задач и %d HMS задач",
                 fromClusterId, toClusterId, reversedHdfs, reversedHms);

@@ -18,6 +18,21 @@ import java.util.List;
 
 @Repository
 public interface TaskRepository extends JpaRepository<TaskEntity, String> {
+
+    /**
+     * Распределение размеров файлов одним агрегатом: количество, сумма и границы гистограммы.
+     *
+     * <p>Рендер метрик вычитывал таблицу подзадач целиком — на миллионах пофайловых записей
+     * один скрейп Prometheus означал полную выборку в heap.
+     */
+    @Query("SELECT count(t), coalesce(sum(t.fileSize), 0), "
+            + "sum(case when t.fileSize <= 1048576 then 1 else 0 end), "
+            + "sum(case when t.fileSize <= 10485760 then 1 else 0 end), "
+            + "sum(case when t.fileSize <= 104857600 then 1 else 0 end), "
+            + "sum(case when t.fileSize <= 1073741824 then 1 else 0 end), "
+            + "sum(case when t.fileSize <= 10737418240 then 1 else 0 end) "
+            + "FROM TaskEntity t")
+    List<Object[]> aggregateFileSizeHistogram();
     List<TaskEntity> findByJobId(String jobId);
     org.springframework.data.domain.Page<TaskEntity> findByJobId(String jobId, Pageable pageable);
     List<TaskEntity> findByJobIdAndStatus(String jobId, String status);

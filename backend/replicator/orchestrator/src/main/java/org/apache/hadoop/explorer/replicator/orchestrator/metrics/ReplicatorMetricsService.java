@@ -183,17 +183,18 @@ public class ReplicatorMetricsService {
 
     private void renderFileSizeMetrics(StringBuilder sb) {
         try {
-            List<org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity> tasks = taskRepository.findAll();
+            // Один агрегат вместо чтения всех подзадач в heap
+            List<Object[]> rows = taskRepository.aggregateFileSizeHistogram();
             long b1M = 0, b10M = 0, b100M = 0, b1G = 0, b10G = 0, count = 0, sum = 0;
-            for (var t : tasks) {
-                long size = t.getFileSize();
-                sum += size;
-                count++;
-                if (size <= 1048576L) b1M++;
-                if (size <= 10485760L) b10M++;
-                if (size <= 104857600L) b100M++;
-                if (size <= 1073741824L) b1G++;
-                if (size <= 10737418240L) b10G++;
+            if (rows != null && !rows.isEmpty() && rows.get(0) != null) {
+                Object[] row = rows.get(0);
+                count = toLong(row[0]);
+                sum = toLong(row[1]);
+                b1M = toLong(row[2]);
+                b10M = toLong(row[3]);
+                b100M = toLong(row[4]);
+                b1G = toLong(row[5]);
+                b10G = toLong(row[6]);
             }
 
             sb.append("# HELP replicator_file_size_bytes Распределение размеров файлов репликации\n");
@@ -673,5 +674,10 @@ public class ReplicatorMetricsService {
     private String escape(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "");
+    }
+
+    /** Агрегаты JPA приходят как Number или null. */
+    private static long toLong(Object value) {
+        return (value instanceof Number number) ? number.longValue() : 0L;
     }
 }
