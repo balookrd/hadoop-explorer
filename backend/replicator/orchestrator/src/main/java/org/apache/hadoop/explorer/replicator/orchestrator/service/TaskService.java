@@ -696,10 +696,13 @@ public class TaskService {
 
     @Transactional
     public void executeCheckAndFailoverOrphanedTasks() {
-        // 1. Быстрый failover для задач агентов, перешедших в OFFLINE в реестре
+        // 1. Быстрый failover для задач агентов, переставших присылать heartbeat.
+        // Решение принимается через реестр с опорой на БД: планировщик может выполняться
+        // на узле, который heartbeat этого агента не принимает, и тогда локальный статус
+        // показывал бы OFFLINE у живого агента.
         for (AgentRegistry.AgentEntry agent : agentRegistry.getAgents()) {
-            if (agent.getStatus() == AgentRegistry.AgentStatus.OFFLINE) {
-                failoverTasksForAgent(agent.getAgentId(), "Агент перешел в статус OFFLINE");
+            if (!agentRegistry.isAgentLive(agent.getAgentId())) {
+                failoverTasksForAgent(agent.getAgentId(), "Агент перестал присылать heartbeat");
             }
         }
 
@@ -715,12 +718,9 @@ public class TaskService {
         for (TaskEntity task : staleTasks) {
             String assignedAgent = task.getAssignedAgentId();
             if (assignedAgent != null) {
-                Optional<AgentRegistry.AgentEntry> agentOpt = agentRegistry.getAgent(assignedAgent);
-                if (agentOpt.isEmpty()) {
-                    failoverTask(task, assignedAgent, "Агент '" + assignedAgent + "' не зарегистрирован в реестре");
-                } else if (agentOpt.get().getStatus() != AgentRegistry.AgentStatus.ONLINE) {
+                if (!agentRegistry.isAgentLive(assignedAgent)) {
                     failoverTask(task, assignedAgent, "Агент '" + assignedAgent + "' потерял связь (STALE) более "
-                            + properties.getAgentHeartbeatTimeoutSeconds() + "с");
+                            + properties.getAgentOfflineTimeoutSeconds() + "с");
                 }
             }
         }

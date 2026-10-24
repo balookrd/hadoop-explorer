@@ -8,6 +8,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsEventLogEnti
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.hms.service.HmsCoordinatorService;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.AgentRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsEventLogRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,9 @@ public class HmsControlPlaneDispatcherTest {
 
     @Autowired
     private AgentRegistry agentRegistry;
+
+    @Autowired
+    private AgentRepository agentRepository;
 
     @Autowired
     private org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
@@ -245,8 +249,7 @@ public class HmsControlPlaneDispatcherTest {
         ));
 
         // Эмулируем падение агента 1: сдвигаем heartbeat далеко в прошлое
-        var agent1Entry = agentRegistry.getAgent("agent-failover-1").orElseThrow();
-        agent1Entry.setLastHeartbeat(Instant.now().minusSeconds(100));
+        simulateAgentDeath("agent-failover-1", 100);
 
         // Шедулер авто-failover обнаруживает брошенную задачу
         coordinatorService.checkAndFailoverOrphanedHmsJobs();
@@ -396,5 +399,19 @@ public class HmsControlPlaneDispatcherTest {
         // Невалидный переход: из STOPPED напрямую в ACTIVE запрещено
         assertThrows(IllegalStateException.class,
                 () -> job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE));
+    }
+
+    /**
+     * Агент действительно умер: heartbeat устарел и в памяти узла, и в БД.
+     * Решение о живости принимается по БД, поэтому старения одной локальной записи
+     * недостаточно — иначе failover судил бы агента по данным одного узла.
+     */
+    private void simulateAgentDeath(String agentId, long secondsAgo) {
+        Instant stale = Instant.now().minusSeconds(secondsAgo);
+        agentRegistry.getAgent(agentId).ifPresent(a -> a.setLastHeartbeat(stale));
+        agentRepository.findById(agentId).ifPresent(entity -> {
+            entity.setLastHeartbeat(stale);
+            agentRepository.save(entity);
+        });
     }
 }

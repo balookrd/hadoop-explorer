@@ -660,9 +660,45 @@ public class AgentRegistry {
      * и каждый из них прогонял {@code refreshHealth()} — полный проход по всем агентам с
      * мутацией их статусов. Проверка на лету стоит одно сравнение и ничего не пишет.
      */
+    /**
+     * Живость агента с опорой на БД.
+     *
+     * <p>Реестр локален для узла: heartbeat приходит на тот узел, который выбрал
+     * балансировщик. Планировщик failover может выполняться на другом узле, где записи об
+     * агенте в памяти нет вовсе, — и тогда живой агент считался брошенным, а его активные
+     * задачи массово переназначались с дублированием передач. Свежая локальная запись
+     * имеет приоритет (БД отстает на интервал write-behind), иначе решение принимается
+     * по времени heartbeat из БД.
+     */
     public boolean isAgentLive(String agentId) {
         if (agentId == null) return false;
-        return isLive(agents.get(agentId));
+        if (isLive(agents.get(agentId))) {
+            return true;
+        }
+        return isLiveInDatabase(agentId);
+    }
+
+    private boolean isLiveInDatabase(String agentId) {
+        if (agentRepository == null) {
+            return false;
+        }
+        try {
+            return agentRepository.findById(agentId)
+                    .map(AgentEntity::getLastHeartbeat)
+                    .map(this::isHeartbeatFresh)
+                    .orElse(false);
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать heartbeat агента '{}' из БД: {}", agentId, e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean isHeartbeatFresh(Instant lastHeartbeat) {
+        if (lastHeartbeat == null) {
+            return false;
+        }
+        long elapsed = Instant.now().getEpochSecond() - lastHeartbeat.getEpochSecond();
+        return elapsed < properties.getAgentOfflineTimeoutSeconds();
     }
 
     private boolean isLive(AgentEntry agent) {

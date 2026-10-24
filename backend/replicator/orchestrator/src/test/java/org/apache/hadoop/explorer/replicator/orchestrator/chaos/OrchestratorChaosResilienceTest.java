@@ -6,6 +6,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorPrope
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.AgentRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.TaskService;
@@ -40,6 +41,9 @@ public class OrchestratorChaosResilienceTest {
 
     @Autowired
     private AgentRegistry agentRegistry;
+
+    @Autowired
+    private AgentRepository agentRepository;
 
     @Autowired
     private ReplicatorProperties properties;
@@ -105,9 +109,8 @@ public class OrchestratorChaosResilienceTest {
         assertEquals(workerA, runningTask.getAssignedAgentId());
 
         // ХАОС: Воркер А внезапно умирает (не шлет heartbeat более 10 сек -> переходит в OFFLINE)
-        var entryOpt = agentRegistry.getAgent(workerA);
-        assertTrue(entryOpt.isPresent());
-        entryOpt.get().setLastHeartbeat(Instant.now().minusSeconds(10));
+        assertTrue(agentRegistry.getAgent(workerA).isPresent());
+        simulateAgentDeath(workerA, 100);
 
         // Срабатывает механизм обнаружения зависших/осиротевших задач
         taskService.executeCheckAndFailoverOrphanedTasks();
@@ -261,5 +264,19 @@ public class OrchestratorChaosResilienceTest {
         executor.shutdownNow();
 
         assertEquals(agentCount, agentRegistry.getAgents().stream().filter(a -> "dc-storm".equals(a.getClusterId())).count());
+    }
+
+    /**
+     * Агент действительно умер: heartbeat устарел и в памяти узла, и в БД.
+     * Решение о живости принимается по БД, поэтому старения одной локальной записи
+     * недостаточно — иначе failover судил бы агента по данным одного узла.
+     */
+    private void simulateAgentDeath(String agentId, long secondsAgo) {
+        Instant stale = Instant.now().minusSeconds(secondsAgo);
+        agentRegistry.getAgent(agentId).ifPresent(a -> a.setLastHeartbeat(stale));
+        agentRepository.findById(agentId).ifPresent(entity -> {
+            entity.setLastHeartbeat(stale);
+            agentRepository.save(entity);
+        });
     }
 }

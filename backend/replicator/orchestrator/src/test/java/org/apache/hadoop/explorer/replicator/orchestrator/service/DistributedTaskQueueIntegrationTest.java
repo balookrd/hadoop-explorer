@@ -5,6 +5,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.ReplicatorOrchestrator
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.TaskEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.AgentRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +35,9 @@ class DistributedTaskQueueIntegrationTest {
 
     @Autowired
     private AgentRegistry agentRegistry;
+
+    @Autowired
+    private AgentRepository agentRepository;
 
     @Autowired
     private org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
@@ -268,7 +272,7 @@ class DistributedTaskQueueIntegrationTest {
         assertEquals("worker-crash", runningTask.getAssignedAgentId());
 
         // Симулируем аварийное падение узла (прекращение heartbeat, таймаут > 45 сек -> OFFLINE)
-        agentRegistry.getAgent("worker-crash").ifPresent(a -> a.setLastHeartbeat(Instant.now().minusSeconds(100)));
+        simulateAgentDeath("worker-crash", 100);
 
         // Срабатывает watchdog мониторинга зависших задач
         taskService.checkAndFailoverOrphanedTasks();
@@ -341,5 +345,19 @@ class DistributedTaskQueueIntegrationTest {
         } finally {
             properties.getStreaming().setMaxPendingTasksThreshold(origThreshold);
         }
+    }
+
+    /**
+     * Агент действительно умер: heartbeat устарел и в памяти узла, и в БД.
+     * Решение о живости принимается по БД, поэтому старения одной локальной записи
+     * недостаточно — иначе failover судил бы агента по данным одного узла.
+     */
+    private void simulateAgentDeath(String agentId, long secondsAgo) {
+        Instant stale = Instant.now().minusSeconds(secondsAgo);
+        agentRegistry.getAgent(agentId).ifPresent(a -> a.setLastHeartbeat(stale));
+        agentRepository.findById(agentId).ifPresent(entity -> {
+            entity.setLastHeartbeat(stale);
+            agentRepository.save(entity);
+        });
     }
 }
