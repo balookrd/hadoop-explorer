@@ -176,6 +176,33 @@ public class HmsTaskExecutor implements Closeable {
                 throw new RuntimeException("Целевой агент вернул ошибку при создании БД '" + job.targetDbName() + "': " + dbResp.getMessage());
             }
 
+            // 1.1. Автоматический запуск связанного фонового HDFS Inotify-стримера для директории базы данных warehouse
+            if (job.enableHdfsStreaming()) {
+                try {
+                    Optional<String> dbLocOpt = hmsClient.getDatabaseLocation(job.sourceDbName());
+                    if (dbLocOpt.isPresent() && !dbLocOpt.get().isBlank()) {
+                        var dbRewrite = pathRewriter.rewrite(dbLocOpt.get(), job.sourceClusterId(), job.targetClusterId());
+                        String companionId = orchestratorClient.createHdfsSubjob(
+                                job.id(),
+                                dbRewrite.sourceUri(),
+                                dbRewrite.targetUri(),
+                                job.sourceClusterId(),
+                                job.targetClusterId(),
+                                job.executionPrincipal(),
+                                "STREAMING_INOTIFY",
+                                "HMS_COMPANION_STREAMING"
+                        );
+                        if (companionId != null) {
+                            log.info("[HmsTaskExecutor] Задача {}: успешно зарегистрирован связанный HDFS Inotify стример '{}' для warehouse '{}' -> '{}'",
+                                    job.id(), companionId, dbRewrite.sourceUri(), dbRewrite.targetUri());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[HmsTaskExecutor] Задача {}: не удалось автоматически запустить Companion HDFS стример: {}",
+                            job.id(), e.getMessage());
+                }
+            }
+
             List<String> allSourceTables = hmsClient.getAllTables(job.sourceDbName());
             List<String> tables = allSourceTables.stream()
                     .filter(t -> matchesPattern(t, job.tableIncludePattern()))

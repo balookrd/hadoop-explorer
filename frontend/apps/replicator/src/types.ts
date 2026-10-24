@@ -202,6 +202,9 @@ export interface HmsReplicationJob {
   progress_percent?: number;
   subtasks_count?: number;
   active_subtasks_count?: number;
+  enable_hdfs_streaming?: boolean;
+  companion_hdfs_job_id?: string;
+  db_warehouse_location?: string;
 }
 
 export interface HmsDeadLetterEvent {
@@ -258,6 +261,7 @@ export interface CreateHmsJobPayload {
   drop_extraneous_tables?: boolean;
   drop_extraneous_partitions?: boolean;
   execution_principal?: string;
+  enable_hdfs_streaming?: boolean;
 }
 
 export interface StreamingLeaseStatus {

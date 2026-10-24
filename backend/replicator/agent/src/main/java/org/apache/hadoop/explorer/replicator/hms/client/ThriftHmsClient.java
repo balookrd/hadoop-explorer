@@ -296,6 +296,23 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     }
 
     @Override
+    public Optional<String> getDatabaseLocation(String dbName) {
+        try {
+            return executeWithRetry(c -> {
+                try {
+                    Database db = c.getDatabase(dbName);
+                    return Optional.ofNullable(db != null ? db.getLocationUri() : null);
+                } catch (NoSuchObjectException e) {
+                    return Optional.empty();
+                }
+            });
+        } catch (Exception e) {
+            log.warn("[ThriftHmsClient:{}] Не удалось получить location для БД '{}': {}", clusterId, dbName, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public List<String> getAllTables(String dbName) {
         return executeWithRetry(c -> c.getAllTables(dbName));
     }

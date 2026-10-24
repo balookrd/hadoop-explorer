@@ -715,7 +715,10 @@ public class OrchestratorGrpcClient implements Closeable {
                         j.getStatus(),
                         j.getLastProcessedEventId(),
                         j.getAssignedAgentId().isEmpty() ? null : j.getAssignedAgentId(),
-                        j.getExecutionPrincipal().isEmpty() ? null : j.getExecutionPrincipal()
+                        j.getExecutionPrincipal().isEmpty() ? null : j.getExecutionPrincipal(),
+                        j.getEnableHdfsStreaming(),
+                        j.getCompanionHdfsJobId().isEmpty() ? null : j.getCompanionHdfsJobId(),
+                        j.getDbWarehouseLocation().isEmpty() ? null : j.getDbWarehouseLocation()
                 ));
             }
             return list;
@@ -775,6 +778,10 @@ public class OrchestratorGrpcClient implements Closeable {
      * Создание HDFS саб-джобы для HMS.
      */
     public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal) {
+        return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, executionPrincipal, null, null);
+    }
+
+    public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal, String syncMode, String jobType) {
         try {
             var protoReq = CreateHdfsSubjobRequest.newBuilder()
                     .setParentJobId(hmsJobId != null ? hmsJobId : "")
@@ -783,6 +790,8 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setSourceCluster(srcCl != null ? srcCl : "default")
                     .setTargetCluster(dstCl != null ? dstCl : "default")
                     .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "")
+                    .setSyncMode(syncMode != null ? syncMode : "")
+                    .setJobType(jobType != null ? jobType : "")
                     .build();
 
             var resp = executeWithFailover("createHdfsSubjob", s -> s.createHdfsSubjob(protoReq));

@@ -15,6 +15,10 @@ public interface HmsClient {
 
     List<String> getAllDatabases();
 
+    default Optional<String> getDatabaseLocation(String dbName) {
+        return Optional.empty();
+    }
+
     List<String> getAllTables(String dbName);
 
     Optional<HmsTableDto> getTable(String dbName, String tableName);

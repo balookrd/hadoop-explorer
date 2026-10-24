@@ -217,7 +217,8 @@ public class JobService {
 
         // Исключаем автоматические саб-джобы метастора из регламентного раздела HDFS (если не запрошено явно агентом)
         if (!includeSubjobs) {
-            stream = stream.filter(j -> !"HMS_SUBJOB".equalsIgnoreCase(j.getJobType()));
+            stream = stream.filter(j -> !"HMS_SUBJOB".equalsIgnoreCase(j.getJobType())
+                    && !"HMS_COMPANION_STREAMING".equalsIgnoreCase(j.getJobType()));
         }
 
         List<JobEntity> filteredJobs = stream.toList();
@@ -447,7 +448,12 @@ public class JobService {
     public Optional<JobResponse> startJob(String id) {
         return jobRepository.findById(id).map(job -> {
             Instant now = Instant.now();
-            job.setStatus("QUEUED");
+            if ("STREAMING_INOTIFY".equalsIgnoreCase(job.getSyncMode())) {
+                job.setStatus("STREAMING");
+                job.setMessage("Потоковая репликация HDFS Inotify активна");
+            } else {
+                job.setStatus("QUEUED");
+            }
             job.setStartedAt(now);
             job.setCompletedAt(null);
             job.setCopiedBytes(0);

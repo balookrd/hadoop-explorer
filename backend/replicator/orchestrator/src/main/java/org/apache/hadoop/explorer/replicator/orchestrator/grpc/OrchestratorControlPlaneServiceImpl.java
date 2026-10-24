@@ -535,6 +535,9 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                             .setDropExtraneousTables(job.dropExtraneousTables())
                             .setDropExtraneousPartitions(job.dropExtraneousPartitions())
                             .setAssignedAgentId(job.assignedAgentId() != null ? job.assignedAgentId() : "")
+                            .setEnableHdfsStreaming(job.enableHdfsStreaming())
+                            .setCompanionHdfsJobId(job.companionHdfsJobId() != null ? job.companionHdfsJobId() : "")
+                            .setDbWarehouseLocation(job.dbWarehouseLocation() != null ? job.dbWarehouseLocation() : "")
                             .build());
                 }
             }
@@ -596,6 +599,9 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     @Override
     public void createHdfsSubjob(CreateHdfsSubjobRequest request, StreamObserver<CreateHdfsSubjobResponse> responseObserver) {
         try {
+            String syncMode = (request.getSyncMode() != null && !request.getSyncMode().isBlank()) ? request.getSyncMode() : null;
+            String jobType = (request.getJobType() != null && !request.getJobType().isBlank()) ? request.getJobType() : "HMS_SUBJOB";
+
             CreateJobRequest domainReq = new CreateJobRequest(
                     request.getSourcePath(),
                     request.getTargetPath(),
@@ -607,13 +613,18 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     false,
                     null,
                     7,
-                    "HMS_SUBJOB",
-                    request.getParentJobId()
+                    jobType,
+                    request.getParentJobId(),
+                    syncMode
             );
 
             // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC
             JobResponse subjob = jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
                     .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
+
+            if (subjob != null && "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType) && hmsCoordinatorService != null) {
+                hmsCoordinatorService.linkCompanionHdfsJob(request.getParentJobId(), subjob.id(), request.getSourcePath());
+            }
 
             CreateHdfsSubjobResponse resp = CreateHdfsSubjobResponse.newBuilder()
                     .setJobId(subjob != null ? subjob.id() : "")

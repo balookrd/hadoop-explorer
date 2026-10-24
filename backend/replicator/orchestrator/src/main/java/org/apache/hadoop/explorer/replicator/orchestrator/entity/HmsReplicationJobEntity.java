@@ -44,6 +44,18 @@ public class HmsReplicationJobEntity {
     @Column(name = "drop_extraneous_partitions", nullable = false)
     private boolean dropExtraneousPartitions = false;
 
+    @Column(name = "enable_hdfs_streaming", nullable = false)
+    @JsonProperty("enable_hdfs_streaming")
+    private boolean enableHdfsStreaming = true;
+
+    @Column(name = "companion_hdfs_job_id", length = 64)
+    @JsonProperty("companion_hdfs_job_id")
+    private String companionHdfsJobId;
+
+    @Column(name = "db_warehouse_location", length = 512)
+    @JsonProperty("db_warehouse_location")
+    private String dbWarehouseLocation;
+
     @Column(name = "status", nullable = false, length = 32)
     private String status = "BOOTSTRAPPING"; // BOOTSTRAPPING, ACTIVE, PAUSED, ERROR
 
@@ -194,6 +206,12 @@ public class HmsReplicationJobEntity {
     public void setDropExtraneousTables(boolean dropExtraneousTables) { this.dropExtraneousTables = dropExtraneousTables; }
     public boolean isDropExtraneousPartitions() { return dropExtraneousPartitions; }
     public void setDropExtraneousPartitions(boolean dropExtraneousPartitions) { this.dropExtraneousPartitions = dropExtraneousPartitions; }
+    public boolean isEnableHdfsStreaming() { return enableHdfsStreaming; }
+    public void setEnableHdfsStreaming(boolean enableHdfsStreaming) { this.enableHdfsStreaming = enableHdfsStreaming; }
+    public String getCompanionHdfsJobId() { return companionHdfsJobId; }
+    public void setCompanionHdfsJobId(String companionHdfsJobId) { this.companionHdfsJobId = companionHdfsJobId; }
+    public String getDbWarehouseLocation() { return dbWarehouseLocation; }
+    public void setDbWarehouseLocation(String dbWarehouseLocation) { this.dbWarehouseLocation = dbWarehouseLocation; }
     public String getAssignedAgentId() { return assignedAgentId; }
     public void setAssignedAgentId(String assignedAgentId) { this.assignedAgentId = assignedAgentId; }
     public Instant getLeaseExpiresAt() { return leaseExpiresAt; }

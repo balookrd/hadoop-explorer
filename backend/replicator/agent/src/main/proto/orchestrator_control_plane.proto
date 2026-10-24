@@ -323,6 +323,9 @@ message HmsPendingJobItemProto {
   bool drop_extraneous_tables = 12;
   bool drop_extraneous_partitions = 13;
   string assigned_agent_id = 14;
+  bool enable_hdfs_streaming = 15;
+  string companion_hdfs_job_id = 16;
+  string db_warehouse_location = 17;
 }
 
 message GetPendingHmsJobsResponse {
@@ -367,6 +370,8 @@ message CreateHdfsSubjobRequest {
   string source_cluster = 4;
   string target_cluster = 5;
   string execution_principal = 6;
+  string sync_mode = 7;
+  string job_type = 8;
 }
 
 message CreateHdfsSubjobResponse {

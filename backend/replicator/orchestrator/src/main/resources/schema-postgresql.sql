@@ -163,6 +163,9 @@ CREATE TABLE IF NOT EXISTS hms_replication_jobs (
     run_as_service_account BOOLEAN NOT NULL DEFAULT TRUE,
     created_by VARCHAR(255) NOT NULL DEFAULT 'system_operator',
     last_event_id BIGINT NOT NULL DEFAULT 0,
+    enable_hdfs_streaming BOOLEAN NOT NULL DEFAULT TRUE,
+    companion_hdfs_job_id VARCHAR(64),
+    db_warehouse_location VARCHAR(512),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

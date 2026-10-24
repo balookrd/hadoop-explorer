@@ -21,7 +21,10 @@ public record HmsPendingJobDto(
         String status,
         Long lastProcessedEventId,
         String assignedAgentId,
-        String executionPrincipal
+        String executionPrincipal,
+        boolean enableHdfsStreaming,
+        String companionHdfsJobId,
+        String dbWarehouseLocation
 ) {
     public HmsPendingJobDto(
             String id,
@@ -38,7 +41,7 @@ public record HmsPendingJobDto(
     ) {
         this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
                 tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
-                targetAgentGrpcAddress, status, lastProcessedEventId, null, null);
+                targetAgentGrpcAddress, status, lastProcessedEventId, null, null, true, null, null);
     }
 
     public HmsPendingJobDto(
@@ -57,6 +60,26 @@ public record HmsPendingJobDto(
     ) {
         this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
                 tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
-                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, null);
+                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, null, true, null, null);
+    }
+
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId,
+            String assignedAgentId,
+            String executionPrincipal
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
+                tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
+                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, executionPrincipal, true, null, null);
     }
 }

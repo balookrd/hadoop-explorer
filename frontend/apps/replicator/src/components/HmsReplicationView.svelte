@@ -98,6 +98,7 @@
     table_pattern: '*',
     drop_extraneous_tables: false,
     drop_extraneous_partitions: false,
+    enable_hdfs_streaming: true,
     execution_principal: '',
   });
 
@@ -364,6 +365,7 @@
       table_pattern: '*',
       drop_extraneous_tables: false,
       drop_extraneous_partitions: false,
+      enable_hdfs_streaming: true,
       execution_principal: user?.username || '',
     };
     isCreateModalOpen = true;
@@ -385,6 +387,7 @@
         table_pattern: newJob.table_pattern?.trim() || '*',
         drop_extraneous_tables: newJob.drop_extraneous_tables,
         drop_extraneous_partitions: newJob.drop_extraneous_partitions,
+        enable_hdfs_streaming: newJob.enable_hdfs_streaming,
         execution_principal: principal,
       };
       const created = await api.createHmsJob(payload);
@@ -870,9 +873,19 @@
                       </span>
                     {/if}
                   </div>
-                  <div class="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                    <Clock class="w-2.5 h-2.5 text-slate-400" />
-                    <span>{job.status === 'BOOTSTRAPPING' ? 'Bootstrap Sync' : 'Streaming CDC'}</span>
+                  <div class="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span class="flex items-center gap-1">
+                      <Clock class="w-2.5 h-2.5 text-slate-400" />
+                      <span>{job.status === 'BOOTSTRAPPING' ? 'Bootstrap Sync' : 'Streaming CDC'}</span>
+                    </span>
+                    {#if job.companion_hdfs_job_id}
+                      <span
+                        class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 cursor-help"
+                        title={job.db_warehouse_location ? `Фоновый Inotify стример активен для: ${job.db_warehouse_location}` : 'Фоновый HDFS Inotify стример активен'}
+                      >
+                        + HDFS Inotify
+                      </span>
+                    {/if}
                   </div>
                 </td>
 
@@ -2059,6 +2072,28 @@
           </div>
         </div>
 
+        <!-- Опция автоматического фонового HDFS Inotify стриминга -->
+        <div class="pt-1">
+          <label class="flex items-start gap-2.5 p-3 rounded-xl border border-sky-200/80 dark:border-sky-800/80 bg-sky-50/40 dark:bg-sky-950/30 cursor-pointer select-none hover:border-sky-300 dark:hover:border-sky-700 transition">
+            <input
+              type="checkbox"
+              bind:checked={newJob.enable_hdfs_streaming}
+              class="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <span>Автоматический фоновый HDFS Inotify-стриминг (Companion Streaming)</span>
+                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
+                  Рекомендуется
+                </span>
+              </div>
+              <div class="text-[10px] text-slate-500 leading-tight mt-1">
+                Автоматически привязывает фоновый Inotify-стример каталога warehouse базы данных. Непрерывно переносит файлы непартиционированных таблиц и дозаписи в существующие партиции без нагрузки на NameNode.
+              </div>
+            </div>
+          </label>
+        </div>
+
         <!-- Всплывающий баннер правил репликации -->
         {#if showRulesInfo}
           <div class="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
@@ -2077,6 +2112,7 @@
             <div>• Выполняется полный первичный Bootstrap всех таблиц и партиций.</div>
             <div>• Поддерживаются External и Managed Non-Transactional таблицы (ACID пропускаются).</div>
             <div>• Перенос файлов партиций осуществляется изолированными подзадачами HDFS.</div>
+            <div>• Автоматический Inotify-стриминг фоново переносит дозаписи файлов в warehouse.</div>
           </div>
         {/if}
       </div>

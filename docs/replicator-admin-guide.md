@@ -1831,11 +1831,26 @@ java -jar -Dspring.profiles.active=prod \
 #### REST API оркестратора репликации схем Hive (`/api/v1/hms/jobs`):
 - `GET /api/v1/hms/jobs` — получение списка всех настроенных задач репликации схем.
 - `POST /api/v1/hms/jobs` — регистрация новой задачи репликации схемы с запуском полного Bootstrap.
-- `GET /api/v1/hms/jobs/{id}` — получение статуса задачи и прогресса репликации.
-- `POST /api/v1/hms/jobs/{id}/pause` — приостановка задачи (сохранение чекпоинта `last_processed_event_id`).
-- `POST /api/v1/hms/jobs/{id}/resume` — возобновление задачи (догоняющее вычитывание накопившихся CDC-событий).
+  - **Payload (`CreateHmsJobRequest`)**:
+    ```json
+    {
+      "source_cluster_id": "dc1",
+      "target_cluster_id": "dc2",
+      "source_database": "analytics",
+      "target_database": "analytics_dc2",
+      "sync_data": true,
+      "enable_hdfs_streaming": true,
+      "source_hdfs_path": "/apps/hive/warehouse/analytics.db",
+      "target_hdfs_path": "/apps/hive/warehouse/analytics.db",
+      "execution_principal": "hive@REALM.LOCAL"
+    }
+    ```
+    - `enable_hdfs_streaming` (*boolean*, по умолчанию `true`): автоматическое создание и связывание постоянного фонового HDFS Inotify-стримера (`HMS_COMPANION_STREAMING`). Стример непрерывно переносит новые файлы данных, попадающие в директории БД/таблиц в обход DDL HMS (Spark Direct Write, Kafka Connect, Flume), гарантируя zero-RPC оверхед на NameNode.
+- `GET /api/v1/hms/jobs/{id}` — получение статуса задачи и прогресса репликации (включая `enable_hdfs_streaming`, `companion_hdfs_job_id` и `db_warehouse_location`).
+- `POST /api/v1/hms/jobs/{id}/pause` — приостановка задачи (сохранение чекпоинта `last_processed_event_id`) и автоматическая приостановка связанного Companion HDFS стримера.
+- `POST /api/v1/hms/jobs/{id}/resume` — возобновление задачи (догоняющее вычитывание накопившихся CDC-событий) и автоматический перезапуск связанного Companion HDFS стримера.
 - `POST /api/v1/hms/jobs/{id}/rebootstrap` — принудительный запуск повторной полной синхронизации без потери данных (`deleteData = false`).
-- `DELETE /api/v1/hms/jobs/{id}` — каскадное удаление задачи, дочерних подзадач HDFS и логов аудита.
+- `DELETE /api/v1/hms/jobs/{id}` — каскадное удаление задачи, дочерних подзадач HDFS, связанного Companion стримера и логов аудита.
 - `GET /api/v1/hms/jobs/{id}/events` — аудит обработанных DDL событий Hive с детализацией.
 
 ---

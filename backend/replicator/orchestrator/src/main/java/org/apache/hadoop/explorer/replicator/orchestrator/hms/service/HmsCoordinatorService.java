@@ -113,6 +113,23 @@ public class HmsCoordinatorService {
             boolean dropExtraneousPartitions,
             String executionPrincipal
     ) {
+        return createAndStartReplication(sourceClusterId, targetClusterId, sourceDb, targetDb, tablePattern,
+                author, dropExtraneousTables, dropExtraneousPartitions, executionPrincipal, true);
+    }
+
+    @Transactional
+    public HmsReplicationJobEntity createAndStartReplication(
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDb,
+            String targetDb,
+            String tablePattern,
+            String author,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String executionPrincipal,
+            boolean enableHdfsStreaming
+    ) {
         if (sourceClusterId == null || sourceClusterId.isBlank()) {
             throw new IllegalArgumentException("Параметр sourceClusterId обязателен для создания задачи HMS репликации");
         }
@@ -132,6 +149,7 @@ public class HmsCoordinatorService {
         entity.setExecutionPrincipal(executionPrincipal != null && !executionPrincipal.isBlank() ? executionPrincipal : null);
         entity.setDropExtraneousTables(dropExtraneousTables);
         entity.setDropExtraneousPartitions(dropExtraneousPartitions);
+        entity.setEnableHdfsStreaming(enableHdfsStreaming);
 
         dispatchJob(entity);
         return entity;
@@ -283,7 +301,10 @@ public class HmsCoordinatorService {
                     job.getStatus(),
                     job.getLastProcessedEventId(),
                     job.getAssignedAgentId(),
-                    job.getExecutionPrincipal()
+                    job.getExecutionPrincipal(),
+                    job.isEnableHdfsStreaming(),
+                    job.getCompanionHdfsJobId(),
+                    job.getDbWarehouseLocation()
             ));
         }
 
@@ -463,6 +484,57 @@ public class HmsCoordinatorService {
         hmsJobRepository.deleteById(id);
         log.info("[HmsCoordinator] Задача {} и связанные ресурсы удалены", id);
         return true;
+    }
+
+    /**
+     * Привязка связанного фонового HDFS Inotify-стримера к задаче HMS репликации.
+     */
+    @Transactional
+    public void linkCompanionHdfsJob(String hmsJobId, String companionJobId, String warehouseLocation) {
+        if (hmsJobId == null || hmsJobId.isBlank()) return;
+        hmsJobRepository.findById(hmsJobId).ifPresent(job -> {
+            job.setCompanionHdfsJobId(companionJobId);
+            if (warehouseLocation != null && !warehouseLocation.isBlank()) {
+                job.setDbWarehouseLocation(warehouseLocation);
+            }
+            hmsJobRepository.save(job);
+            log.info("[HmsCoordinator] К задаче HMS '{}' привязан Companion HDFS Inotify стример '{}' (путь: '{}')",
+                    hmsJobId, companionJobId, warehouseLocation);
+        });
+    }
+
+    /**
+     * Приостановка связанного фонового HDFS стримера при паузе задачи HMS.
+     */
+    @Transactional
+    public void pauseCompanionJob(HmsReplicationJobEntity job) {
+        if (job != null && job.getCompanionHdfsJobId() != null && !job.getCompanionHdfsJobId().isBlank()) {
+            try {
+                jobService.stopJob(job.getCompanionHdfsJobId());
+                log.info("[HmsCoordinator] Приостановлен Companion HDFS стример '{}' для задачи HMS '{}'",
+                        job.getCompanionHdfsJobId(), job.getId());
+            } catch (Exception e) {
+                log.warn("[HmsCoordinator] Ошибка приостановки Companion HDFS стримера '{}': {}",
+                        job.getCompanionHdfsJobId(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Возобновление связанного фонового HDFS стримера при снятии задачи HMS с паузы.
+     */
+    @Transactional
+    public void resumeCompanionJob(HmsReplicationJobEntity job) {
+        if (job != null && job.getCompanionHdfsJobId() != null && !job.getCompanionHdfsJobId().isBlank()) {
+            try {
+                jobService.startJob(job.getCompanionHdfsJobId());
+                log.info("[HmsCoordinator] Возобновлен Companion HDFS стример '{}' для задачи HMS '{}'",
+                        job.getCompanionHdfsJobId(), job.getId());
+            } catch (Exception e) {
+                log.warn("[HmsCoordinator] Ошибка возобновления Companion HDFS стримера '{}': {}",
+                        job.getCompanionHdfsJobId(), e.getMessage());
+            }
+        }
     }
 
     /**

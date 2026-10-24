@@ -59,8 +59,23 @@ public class HmsReplicationController {
             String table_pattern,
             Boolean drop_extraneous_tables,
             Boolean drop_extraneous_partitions,
-            String execution_principal
-    ) {}
+            String execution_principal,
+            Boolean enable_hdfs_streaming
+    ) {
+        public CreateHmsJobRequest(
+                String source_cluster_id,
+                String target_cluster_id,
+                String source_db,
+                String target_db,
+                String table_pattern,
+                Boolean drop_extraneous_tables,
+                Boolean drop_extraneous_partitions,
+                String execution_principal
+        ) {
+            this(source_cluster_id, target_cluster_id, source_db, target_db, table_pattern,
+                    drop_extraneous_tables, drop_extraneous_partitions, execution_principal, true);
+        }
+    }
 
     @PostMapping
     public ResponseEntity<HmsReplicationJobEntity> createJob(
@@ -94,6 +109,7 @@ public class HmsReplicationController {
 
         boolean dropTables = req.drop_extraneous_tables() != null && req.drop_extraneous_tables();
         boolean dropParts = req.drop_extraneous_partitions() != null && req.drop_extraneous_partitions();
+        boolean enableStreaming = req.enable_hdfs_streaming() == null || req.enable_hdfs_streaming();
         HmsReplicationJobEntity created = coordinatorService.createAndStartReplication(
                 req.source_cluster_id(),
                 req.target_cluster_id(),
@@ -103,7 +119,8 @@ public class HmsReplicationController {
                 username,
                 dropTables,
                 dropParts,
-                executionPrincipal
+                executionPrincipal,
+                enableStreaming
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -213,6 +230,7 @@ public class HmsReplicationController {
                 .map(job -> {
                     job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED);
                     jobRepository.save(job);
+                    coordinatorService.pauseCompanionJob(job);
                     return ResponseEntity.ok(job);
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -225,6 +243,7 @@ public class HmsReplicationController {
                 .map(job -> {
                     job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE);
                     jobRepository.save(job);
+                    coordinatorService.resumeCompanionJob(job);
                     return ResponseEntity.ok(job);
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());

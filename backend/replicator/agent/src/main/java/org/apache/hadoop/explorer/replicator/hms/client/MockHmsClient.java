@@ -67,6 +67,11 @@ public class MockHmsClient implements HmsClient {
     }
 
     @Override
+    public Optional<String> getDatabaseLocation(String dbName) {
+        return Optional.of("hdfs://ns-hot:8020/warehouse/tablespace/managed/hive/" + dbName + ".db");
+    }
+
+    @Override
     public List<String> getAllTables(String dbName) {
         String prefix = dbName.toLowerCase() + ".";
         return tables.keySet().stream()
