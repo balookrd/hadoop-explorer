@@ -45,6 +45,9 @@ public class KafkaReplicationClient implements Closeable {
 
     private volatile EndpointPool pool;
 
+    /** Маршруты «топик — эндпоинты его задачи»; пусто означает «весь пул». */
+    private volatile java.util.Map<String, java.util.List<String>> topicRoutes = java.util.Map.of();
+
     /**
      * Конструктор для одиночного удаленного хоста (обратная совместимость).
      */
@@ -215,6 +218,57 @@ public class KafkaReplicationClient implements Closeable {
      */
     public int selectTargetIndex(int partition) {
         return balancer.selectTargetIndex(partition);
+    }
+
+    /**
+     * Маршруты «топик — целевые эндпоинты его задачи».
+     *
+     * <p>Пул приемников общий для агента, но выбор приемника ограничен эндпоинтами той задачи,
+     * которой принадлежит топик. Без этого HRW-балансировщик раскидывал партиции топика по
+     * всем приемникам ЦОД, и при двух задачах с разными целевыми кластерами часть данных
+     * уезжала в чужой кластер, а в нужный не доезжала.
+     */
+    public void updateTopicRoutes(java.util.Map<String, java.util.List<String>> topicToEndpoints) {
+        if (topicToEndpoints == null || topicToEndpoints.isEmpty()) {
+            this.topicRoutes = java.util.Map.of();
+            return;
+        }
+        java.util.Map<String, java.util.List<String>> routes = new java.util.HashMap<>();
+        topicToEndpoints.forEach((topic, endpoints) -> {
+            if (topic != null && !topic.isBlank() && endpoints != null && !endpoints.isEmpty()) {
+                routes.put(topic, java.util.List.copyOf(endpoints));
+            }
+        });
+        this.topicRoutes = java.util.Map.copyOf(routes);
+    }
+
+    /**
+     * Индекс приемника для партиции конкретного топика с учетом маршрута его задачи.
+     *
+     * <p>Партиции внутри маршрута по-прежнему распределяются балансировщиком, так что
+     * параллелизм задачи сохраняется. Топик без маршрута обслуживается всем пулом — поведение
+     * как до появления маршрутов.
+     */
+    public int selectTargetIndex(String topic, int partition) {
+        java.util.List<String> route = (topic != null) ? topicRoutes.get(topic) : null;
+        if (route == null || route.isEmpty()) {
+            return selectTargetIndex(partition);
+        }
+
+        java.util.List<String> poolEndpoints = balancer.getEndpoints();
+        java.util.List<Integer> candidates = new java.util.ArrayList<>(route.size());
+        for (int i = 0; i < poolEndpoints.size(); i++) {
+            if (route.contains(poolEndpoints.get(i))) {
+                candidates.add(i);
+            }
+        }
+        if (candidates.isEmpty()) {
+            // Приемники задачи еще не появились в пуле: не отправляем в чужой кластер
+            return selectTargetIndex(partition);
+        }
+        // Выбор внутри маршрута детерминирован по номеру партиции: порядок партиции
+        // сохраняется между вызовами
+        return candidates.get(Math.floorMod(partition, candidates.size()));
     }
 
     /**

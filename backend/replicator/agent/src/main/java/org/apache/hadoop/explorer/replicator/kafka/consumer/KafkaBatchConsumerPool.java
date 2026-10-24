@@ -453,7 +453,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         TopicPartition tp = entry.getKey();
                         List<KafkaRecord> partitionRecords = entry.getValue();
 
-                        int targetIdx = replicationClient.selectTargetIndex(tp.partition());
+                        int targetIdx = replicationClient.selectTargetIndex(tp.topic(), tp.partition());
                         StreamObserver<KafkaBatchRequest> targetStream = getOrCreateStream(targetIdx);
 
                         // Дробим на пачки до maxBatchSize
@@ -499,7 +499,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                         workerId, targetIdx, ex.getMessage());
                                 replicationClient.markTargetSuspect(targetIdx, ex);
                                 activeStreams.remove(targetIdx);
-                                int fallbackIdx = replicationClient.selectTargetIndex(tp.partition());
+                                int fallbackIdx = replicationClient.selectTargetIndex(tp.topic(), tp.partition());
                                 // Батч уже зарегистрирован и остается в очереди партиции:
                                 // переотправка не создает дубликат записи о нем.
                                 pending.targetIdx = fallbackIdx;
@@ -604,7 +604,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 log.warn("[Worker {}] Повторная отправка пакета {} (попытка {} из {}): {}",
                         workerId, pending.batchId, pending.attempts, maxBatchRetries, reason);
                 try {
-                    int retryIdx = replicationClient.selectTargetIndex(pending.topicPartition.partition());
+                    int retryIdx = replicationClient.selectTargetIndex(
+                            pending.topicPartition.topic(), pending.topicPartition.partition());
                     pending.targetIdx = retryIdx;
                     getOrCreateStream(retryIdx).onNext(pending.request);
                     return;

@@ -380,6 +380,30 @@ public class KafkaReplicatorAgentMain {
                                         .toList();
                                 if (!dynamicEndpoints.isEmpty() && innerClient != null) {
                                     innerClient.updateEndpoints(dynamicEndpoints);
+
+                                    // Маршруты «топик — приемники его задачи»: пул общий, но
+                                    // топик не должен уходить в целевой кластер чужой задачи
+                                    java.util.Map<String, List<String>> routes = new java.util.HashMap<>();
+                                    for (KafkaJobItemProto job : activeJobs) {
+                                        List<String> jobEndpoints = job.getTargetEndpointsList().stream()
+                                                .filter(ep -> ep != null && !ep.isBlank())
+                                                .distinct()
+                                                .toList();
+                                        if (jobEndpoints.isEmpty()) {
+                                            continue;
+                                        }
+                                        for (String topic : job.getTopicsList()) {
+                                            if (topic != null && !topic.isBlank()) {
+                                                routes.merge(topic, jobEndpoints, (existing, added) -> {
+                                                    java.util.LinkedHashSet<String> merged =
+                                                            new java.util.LinkedHashSet<>(existing);
+                                                    merged.addAll(added);
+                                                    return List.copyOf(merged);
+                                                });
+                                            }
+                                        }
+                                    }
+                                    innerClient.updateTopicRoutes(routes);
                                 }
                             }
                         } catch (Exception jobEx) {

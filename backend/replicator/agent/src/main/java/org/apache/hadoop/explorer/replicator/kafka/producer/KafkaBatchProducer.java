@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +34,18 @@ public class KafkaBatchProducer {
 
     private final KafkaProducer<byte[], byte[]> producer;
     private final ExecutorService executor;
+
+    /**
+     * Хвост цепочки отправки по каждой партиции.
+     *
+     * <p>Приемник запрашивает окно батчей вперед, поэтому батчи одной партиции попадали в
+     * пул одновременно и {@code producer.send()} для них шел параллельно из разных потоков.
+     * Идемпотентный продюсер сохраняет порядок только для последовательности send из одного
+     * потока, так что записи партиции могли лечь в целевой топик в обратном порядке — для
+     * compacted-топиков и CDC это испорченное состояние. Отправка каждой партиции
+     * выстраивается в цепочку, а разные партиции по-прежнему идут параллельно.
+     */
+    private final ConcurrentMap<String, CompletableFuture<Void>> partitionChains = new ConcurrentHashMap<>();
 
     public KafkaBatchProducer(KafkaProducer<byte[], byte[]> producer) {
         this(producer, Executors.newVirtualThreadPerTaskExecutor());
@@ -73,7 +87,8 @@ public class KafkaBatchProducer {
         AtomicLong maxOffset = new AtomicLong(-1);
         AtomicReference<Throwable> firstError = new AtomicReference<>(null);
 
-        executor.submit(() -> {
+        String partitionKey = topic + "#" + partitionOf(records);
+        Runnable sendAll = () -> {
             for (KafkaRecord r : records) {
                 byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
                 byte[] val = r.getIsTombstone() || !r.hasPayload() ? null : r.getPayload().toByteArray();
@@ -118,9 +133,23 @@ public class KafkaBatchProducer {
                     }
                 }
             }
+        };
+
+        // Следующий батч этой партиции начинает отправку только после того, как предыдущий
+        // передал все свои записи продюсеру
+        partitionChains.compute(partitionKey, (key, previous) -> {
+            CompletableFuture<Void> base = (previous == null || previous.isDone())
+                    ? CompletableFuture.completedFuture(null)
+                    : previous;
+            return base.thenRunAsync(sendAll, executor);
         });
 
         return resultFuture;
+    }
+
+    /** Партиция батча: записи батча всегда относятся к одной партиции источника. */
+    private static int partitionOf(List<KafkaRecord> records) {
+        return records.isEmpty() ? -1 : records.get(0).getPartition();
     }
 
     private void finishAck(CompletableFuture<KafkaBatchAck> resultFuture,
