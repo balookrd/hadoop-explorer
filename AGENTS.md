@@ -67,6 +67,13 @@ hadoop-explorer/
 ## 3. Команды для разработки и проверки
 
 * **Сборка и тесты бэкенда (Java 21 / Spring Boot 3)**:
+  * **Только Java 21 LTS.** Цели `make test-*` и `make build-java` сами находят JDK 21
+    (`JAVA21_HOME`, проверка — `make check-jdk21`), а `maven-enforcer-plugin` в модулях
+    репликатора останавливает сборку на другом JDK. На JDK 24+ Hadoop 3.3.6 теряет
+    имперсонацию: `Subject.getSubject` бросает `UnsupportedOperationException` (JEP 486), и
+    `-Djava.security.manager=allow` на таких JDK не дает стартовать VM. Прогон там зеленеет,
+    ничего не проверяя в части Kerberos, поэтому прямой `mvn` запускать с
+    `JAVA_HOME=<jdk21>` или через `make`.
   * Единый запуск всех тестов: `./scripts/run-tests.sh all` (или `make test`)
   * Все тесты Java: `make test-java` (или `mvn test`)
   * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)

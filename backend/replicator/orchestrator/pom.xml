@@ -169,6 +169,29 @@
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <version>3.5.0</version>
                 <executions>
+                    <!--
+                        Прогоны и сборка идут на Java 21 LTS — платформе проекта и CI. На JDK 24
+                        и новее Hadoop 3.3.6 теряет имперсонацию (`Subject.getSubject` бросает
+                        UnsupportedOperationException после удаления Security Manager, JEP 486),
+                        и отключить это флагом нельзя: `-Djava.security.manager=allow` не дает
+                        стартовать VM. Зеленый прогон на новом рантайме ничего не говорит о
+                        продакшене.
+                    -->
+                    <execution>
+                        <id>require-java-21</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>Build and test the replicator on Java 21 LTS: on JDK 24+ Hadoop 3.3.6 loses impersonation (Subject.getSubject throws UnsupportedOperationException after JEP 486) and -Djava.security.manager=allow no longer starts the VM, so a green run there says nothing about production. Use: make test-replicator (or JAVA_HOME=&lt;jdk21&gt; mvn ...)</message>
+                                </requireJavaVersion>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>ban-agent-dependency</id>
                         <goals>

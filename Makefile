@@ -3,10 +3,41 @@
         build build-java build-security-starter build-yarn build-hdfs build-sql build-spark build-replicator \
         frontend-build frontend-install demo-yarn demo-hdfs demo-sql demo-spark demo-all \
         demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
-        skeleton skeleton-all skeleton-backend java-index java-query
+        skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
 REGISTRY ?= hadoop-explorer
+
+# Платформа проекта и CI — Java 21 LTS. Прогоны на JDK 24 и новее бессмысленны: Hadoop 3.3.6
+# теряет имперсонацию (`Subject.getSubject` бросает UnsupportedOperationException после удаления
+# Security Manager, JEP 486), отключить это флагом нельзя — `-Djava.security.manager=allow` не
+# дает стартовать VM. Поэтому сюита там зеленеет, ничего не проверяя в части Kerberos.
+#
+# JAVA21_HOME ищется в таком порядке: текущий JAVA_HOME, если это 21; java_home -v 21 (macOS);
+# каталоги JDK с «21» в имени (установка из IDE, Linux). Можно задать явно:
+#   make test-replicator JAVA21_HOME=/path/to/jdk-21
+JAVA21_HOME ?= $(shell \
+	if [ -x "$$JAVA_HOME/bin/java" ] && "$$JAVA_HOME/bin/java" -version 2>&1 | grep -q 'version "21'; then \
+		echo "$$JAVA_HOME"; \
+	elif /usr/libexec/java_home -v 21 >/dev/null 2>&1; then \
+		/usr/libexec/java_home -v 21; \
+	else \
+		ls -d $$HOME/Library/Java/JavaVirtualMachines/*21* /usr/lib/jvm/*21* 2>/dev/null | head -1; \
+	fi)
+
+JAVA21 := JAVA_HOME=$(JAVA21_HOME)
+
+check-jdk21:
+	@if [ -z "$(JAVA21_HOME)" ] || [ ! -x "$(JAVA21_HOME)/bin/java" ]; then \
+		echo "JDK 21 не найден. Задайте путь явно: make <цель> JAVA21_HOME=/path/to/jdk-21"; \
+		exit 1; \
+	fi
+	@if ! "$(JAVA21_HOME)/bin/java" -version 2>&1 | grep -q 'version "21'; then \
+		echo "JAVA21_HOME указывает не на Java 21: $(JAVA21_HOME)"; \
+		"$(JAVA21_HOME)/bin/java" -version; \
+		exit 1; \
+	fi
+	@echo "Java 21: $(JAVA21_HOME)"
 
 help:
 	@echo "========================================================================"
@@ -22,6 +53,7 @@ help:
 	@echo "    make test-security-starter - Тесты Java 21 common-security-starter"
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
 	@echo "    make test-ui          - Запуск тестов фронтенда (Vitest / Svelte 5)"
+	@echo "    make check-jdk21      - Проверка, что найден JDK 21 (платформа проекта и CI)"
 	@echo ""
 	@echo "  Сборка JAR-пакетов и Docker-контейнеров:"
 	@echo "    make build-java       - Сборка всех Java JAR-пакетов платформы (Maven Reactor)"
@@ -63,33 +95,33 @@ help:
 test:
 	./scripts/run-tests.sh all
 
-test-yarn:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/yarn/pom.xml
+test-yarn: check-jdk21
+	$(JAVA21) mvn test -f backend/yarn/pom.xml
 
-test-hdfs:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/hdfs/pom.xml
+test-hdfs: check-jdk21
+	$(JAVA21) mvn test -f backend/hdfs/pom.xml
 
-test-sql:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/sql/pom.xml
+test-sql: check-jdk21
+	$(JAVA21) mvn test -f backend/sql/pom.xml
 
-test-spark:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/spark/pom.xml
+test-spark: check-jdk21
+	$(JAVA21) mvn test -f backend/spark/pom.xml
 
-test-replicator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml
+test-replicator: check-jdk21
+	$(JAVA21) mvn test -f backend/replicator/pom.xml
 
-test-replicator-agent:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml -pl agent -am
+test-replicator-agent: check-jdk21
+	$(JAVA21) mvn test -f backend/replicator/pom.xml -pl agent -am
 
-test-replicator-orchestrator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/replicator/pom.xml -pl orchestrator -am
+test-replicator-orchestrator: check-jdk21
+	$(JAVA21) mvn test -f backend/replicator/pom.xml -pl orchestrator -am
 
 test-replicator-agent-java: test-replicator-agent
 test-replicator-orchestrator-java: test-replicator-orchestrator
 test-replicator-java: test-replicator
 
-test-security-starter:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn test -f backend/common-security-starter/pom.xml
+test-security-starter: check-jdk21
+	$(JAVA21) mvn test -f backend/common-security-starter/pom.xml
 
 test-hdfs-java: test-hdfs
 test-yarn-java: test-yarn
@@ -104,32 +136,32 @@ test-ui:
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
 
-build-security-starter:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/common-security-starter/pom.xml
+build-security-starter: check-jdk21
+	$(JAVA21) mvn clean package -DskipTests -f backend/common-security-starter/pom.xml
 
-build-java:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests
+build-java: check-jdk21
+	$(JAVA21) mvn clean package -DskipTests
 
 build-yarn:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/yarn/pom.xml
+	$(JAVA21) mvn clean package -DskipTests -f backend/yarn/pom.xml
 
 build-hdfs:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/hdfs/pom.xml
+	$(JAVA21) mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
 build-sql:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/sql/pom.xml
+	$(JAVA21) mvn clean package -DskipTests -f backend/sql/pom.xml
 
 build-spark:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/spark/pom.xml
+	$(JAVA21) mvn clean package -DskipTests -f backend/spark/pom.xml
 
 build-replicator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml
+	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml
 
 build-replicator-agent:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
+	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
 
 build-replicator-orchestrator:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
+	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
 
 build-replicator-agent-java: build-replicator-agent
 build-replicator-orchestrator-java: build-replicator-orchestrator
@@ -156,7 +188,7 @@ frontend-build:
 	cd frontend && npm run build:all
 
 generate-proto:
-	JAVA_HOME=$${JAVA_HOME:-/opt/homebrew/opt/openjdk} mvn compile -DskipTests -f backend/replicator/agent/pom.xml
+	$(JAVA21) mvn compile -DskipTests -f backend/replicator/agent/pom.xml
 
 proto: generate-proto
 
