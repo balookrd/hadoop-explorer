@@ -218,6 +218,9 @@ public class KafkaReplicationClient implements Closeable {
     /**
      * Определяет индекс целевого агента-приемника для заданной партиции.
      */
+    /** Приемник для батча не выбран: отправлять некуда. */
+    public static final int NO_TARGET = -1;
+
     public int selectTargetIndex(int partition) {
         return balancer.selectTargetIndex(partition);
     }
@@ -265,8 +268,10 @@ public class KafkaReplicationClient implements Closeable {
             }
         }
         if (candidates.isEmpty()) {
-            // Приемники задачи еще не появились в пуле: не отправляем в чужой кластер
-            return selectTargetIndex(partition);
+            // Fail-closed: приемников маршрута в пуле нет. Подстановка любого узла из пула
+            // уводила бы данные маршрутизируемого топика в чужой кластер — ровно то, против
+            // чего маршруты и вводились. Вызывающая сторона обязана задержать батч.
+            return NO_TARGET;
         }
         // Выбор внутри маршрута детерминирован по номеру партиции: порядок партиции
         // сохраняется между вызовами

@@ -282,6 +282,15 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final Map<String, PendingBatch> inFlightBatches = new ConcurrentHashMap<>();
         private final Map<TopicPartition, PartitionAckTracker> partitionTrackers = new ConcurrentHashMap<>();
         private final Map<TopicPartition, Long> pendingCommittedOffsets = new ConcurrentHashMap<>();
+        /**
+         * Партиции, снятые с вычитки из-за недоступного маршрута.
+         *
+         * <p>Отправлять их батчи некуда: приемников маршрута в пуле нет. Партиция ставится на
+         * паузу со сдвигом позиции назад, чтобы после восстановления маршрута чтение началось с
+         * первой неотправленной записи. Пропустить их и продолжить нельзя: тогда коммит
+         * непрерывного префикса перешагнул бы через пропуск и записи были бы потеряны.
+         */
+        private final Set<TopicPartition> routingBlockedPartitions = ConcurrentHashMap.newKeySet();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
         private long localTopicsVersion = 1;
 
@@ -291,6 +300,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         }
 
         private StreamObserver<KafkaBatchRequest> getOrCreateStream(int targetIdx) {
+            if (targetIdx < 0) {
+                // Защита от подстановки отсутствующего приемника: вызывающая сторона обязана
+                // проверить NO_TARGET и задержать батч
+                throw new IllegalStateException("Приемник для батча не выбран (NO_TARGET)");
+            }
             return activeStreams.computeIfAbsent(targetIdx, idx -> {
                 StreamObserver<KafkaBatchAck> ackObserver = new StreamObserver<>() {
                     @Override
@@ -366,6 +380,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 while (running.get()) {
                     // 1. Фиксируем оффсеты, успешно подтвержденные целевым узлом через Ack
                     drainAndCommitPendingOffsets();
+                    resumePartitionsWithRestoredRoutes();
 
                     // Контроль Backpressure: притормаживаем вычитку, если буфер in-flight переполнен
                     while (running.get() && inFlightCount.get() >= maxInFlightBatches) {
@@ -482,6 +497,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         List<KafkaRecord> partitionRecords = entry.getValue();
 
                         int targetIdx = replicationClient.selectTargetIndex(tp.topic(), tp.partition());
+                        if (targetIdx == KafkaReplicationClient.NO_TARGET) {
+                            blockPartitionUntilRouteAppears(tp, partitionRecords);
+                            continue;
+                        }
                         StreamObserver<KafkaBatchRequest> targetStream = getOrCreateStream(targetIdx);
 
                         // Дробим на пачки до maxBatchSize
@@ -528,10 +547,17 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 replicationClient.markTargetSuspect(targetIdx, ex);
                                 activeStreams.remove(targetIdx);
                                 int fallbackIdx = replicationClient.selectTargetIndex(tp.topic(), tp.partition());
-                                // Батч уже зарегистрирован и остается в очереди партиции:
-                                // переотправка не создает дубликат записи о нем.
-                                pending.targetIdx = fallbackIdx;
-                                getOrCreateStream(fallbackIdx).onNext(batchRequest);
+                                if (fallbackIdx == KafkaReplicationClient.NO_TARGET) {
+                                    // Приемников маршрута нет: батч остается неподтвержденным и
+                                    // блокирует фиксацию оффсетов партиции, а не уезжает в чужой кластер
+                                    handleRejectedBatch(pending, targetIdx,
+                                            "нет доступного приемника маршрута для топика " + tp.topic());
+                                } else {
+                                    // Батч уже зарегистрирован и остается в очереди партиции:
+                                    // переотправка не создает дубликат записи о нем.
+                                    pending.targetIdx = fallbackIdx;
+                                    getOrCreateStream(fallbackIdx).onNext(batchRequest);
+                                }
                             }
                         }
                     }
@@ -635,6 +661,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 try {
                     int retryIdx = replicationClient.selectTargetIndex(
                             pending.topicPartition.topic(), pending.topicPartition.partition());
+                    if (retryIdx == KafkaReplicationClient.NO_TARGET) {
+                        // Повторять некуда: батч остается in-flight и держит оффсеты партиции,
+                        // пока приемники маршрута не появятся в пуле
+                        log.warn("[Worker {}] Пакет {} партиции {} ждет приемников своего маршрута",
+                                workerId, pending.batchId, pending.topicPartition);
+                        return;
+                    }
                     pending.targetIdx = retryIdx;
                     getOrCreateStream(retryIdx).onNext(pending.request);
                     return;
@@ -754,6 +787,50 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     }
                 }
                 pendingCommittedOffsets.remove(tp);
+            }
+        }
+
+        /**
+         * Снятие партиции с вычитки, пока приемники ее маршрута не появятся в пуле.
+         *
+         * <p>Позиция сдвигается назад на первую неотправленную запись: иначе после
+         * возобновления чтение продолжилось бы за пропущенными записями, а коммит непрерывного
+         * префикса перешагнул бы через них — это и была бы потеря данных.
+         */
+        private void blockPartitionUntilRouteAppears(TopicPartition tp, List<KafkaRecord> skipped) {
+            try {
+                if (!skipped.isEmpty()) {
+                    workerConsumer.seek(tp, skipped.get(0).getOriginalOffset());
+                }
+                workerConsumer.pause(List.of(tp));
+            } catch (Exception e) {
+                log.warn("[Worker {}] Не удалось приостановить партицию {}: {}", workerId, tp, e.getMessage());
+            }
+            if (routingBlockedPartitions.add(tp)) {
+                log.error("[Worker {}] Приемники маршрута топика '{}' отсутствуют в пуле: "
+                                + "вычитка партиции {} приостановлена, оффсеты не фиксируются",
+                        workerId, tp.topic(), tp);
+            }
+        }
+
+        /** Возврат к вычитке партиций, маршрут которых снова доступен. */
+        private void resumePartitionsWithRestoredRoutes() {
+            if (routingBlockedPartitions.isEmpty()) {
+                return;
+            }
+            for (TopicPartition tp : Set.copyOf(routingBlockedPartitions)) {
+                if (replicationClient.selectTargetIndex(tp.topic(), tp.partition())
+                        == KafkaReplicationClient.NO_TARGET) {
+                    continue;
+                }
+                try {
+                    workerConsumer.resume(List.of(tp));
+                    routingBlockedPartitions.remove(tp);
+                    log.info("[Worker {}] Приемники маршрута топика '{}' появились: вычитка партиции {} возобновлена",
+                            workerId, tp.topic(), tp);
+                } catch (Exception e) {
+                    log.warn("[Worker {}] Не удалось возобновить партицию {}: {}", workerId, tp, e.getMessage());
+                }
             }
         }
 

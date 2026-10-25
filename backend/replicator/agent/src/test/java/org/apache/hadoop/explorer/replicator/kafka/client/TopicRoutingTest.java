@@ -78,6 +78,45 @@ class TopicRoutingTest {
     }
 
     @Test
+    @DisplayName("Маршрутизируемый топик без своих приемников в пуле никуда не отправляется")
+    void testRoutedTopicWithoutItsTargetsFailsClosed() {
+        KafkaReplicationClient client = clientWithThreeTargets();
+        // Приемники задачи еще не появились в пуле: маршрут указывает на узлы,
+        // которых среди эндпоинтов нет
+        client.updateTopicRoutes(Map.of(
+                "orders", List.of("kafka-dc4-a:50052", "kafka-dc4-b:50052")));
+
+        try {
+            for (int partition = 0; partition < 8; partition++) {
+                assertEquals(KafkaReplicationClient.NO_TARGET,
+                        client.selectTargetIndex("orders", partition),
+                        "Батч обязан остаться неотправленным: подстановка любого приемника из пула "
+                                + "уводит данные маршрутизируемого топика в чужой кластер");
+            }
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    @DisplayName("Появление приемников задачи в пуле возвращает маршрут в работу")
+    void testRouteRecoversWhenTargetsAppear() {
+        KafkaReplicationClient client = clientWithThreeTargets();
+        client.updateTopicRoutes(Map.of("orders", List.of("kafka-dc4-a:50052")));
+        try {
+            assertEquals(KafkaReplicationClient.NO_TARGET, client.selectTargetIndex("orders", 0));
+
+            // Пул обновился и приемник задачи появился
+            client.updateEndpoints(List.of("kafka-dc4-a:50052"));
+
+            assertEquals(0, client.selectTargetIndex("orders", 0),
+                    "После появления своего приемника топик обязан снова маршрутизироваться");
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
     @DisplayName("Без маршрутов используется весь пул приемников")
     void testFallsBackToWholePoolWithoutRoutes() {
         KafkaReplicationClient client = clientWithThreeTargets();
