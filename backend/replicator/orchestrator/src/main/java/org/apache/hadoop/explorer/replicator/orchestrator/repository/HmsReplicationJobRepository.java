@@ -29,7 +29,8 @@ public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicatio
      *
      * <p>Эвакуация читала таблицу задач целиком и сравнивала идентификатор агента в памяти.
      */
-    List<HmsReplicationJobEntity> findByAssignedAgentId(String assignedAgentId);
+    @Query("SELECT h FROM HmsReplicationJobEntity h WHERE LOWER(h.assignedAgentId) = LOWER(:assignedAgentId)")
+    List<HmsReplicationJobEntity> findByAssignedAgentId(@Param("assignedAgentId") String assignedAgentId);
 
     /**
      * Задачи одного маршрута: кластеры сравниваются без регистра, дефисов и подчеркиваний.

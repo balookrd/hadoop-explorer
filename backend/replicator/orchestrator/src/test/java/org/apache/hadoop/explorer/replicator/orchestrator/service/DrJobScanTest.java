@@ -92,6 +92,63 @@ class DrJobScanTest {
     }
 
     @Test
+    @DisplayName("Повторная инверсия не создает второе зеркало")
+    void reverseReplicationShouldStayIdempotent() {
+        JobEntity direct = job("job-direct", "dc1", "dc2");
+        List<JobEntity> createdReverse = new java.util.ArrayList<>();
+
+        when(jobRepository.findByNormalizedRoute("dc1", "dc2")).thenReturn(List.of(direct));
+        // Обратный маршрут отдает то, что уже создано: проверка существования смотрит именно сюда
+        when(jobRepository.findByNormalizedRoute("dc2", "dc1")).thenAnswer(invocation -> List.copyOf(createdReverse));
+        when(hmsJobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of());
+        when(jobRepository.save(org.mockito.ArgumentMatchers.any(JobEntity.class)))
+                .thenAnswer(invocation -> {
+                    JobEntity saved = invocation.getArgument(0);
+                    if (saved.getId() != null && saved.getId().startsWith("rev-")) {
+                        createdReverse.add(saved);
+                    }
+                    return saved;
+                });
+
+        var request = new DrReverseRequest("dc2", "dc1", true, true, true);
+        assertEquals(1, drService.reverseReplication(request, "sre").reversedHdfsJobs());
+        assertEquals(0, drService.reverseReplication(request, "sre").reversedHdfsJobs(),
+                "Второй вызов не должен создавать еще одно зеркало того же маршрута");
+        assertEquals(1, createdReverse.stream().map(JobEntity::getId).distinct().count(),
+                "Зеркало должно быть создано ровно одно");
+    }
+
+    @Test
+    @DisplayName("Повторная инверсия не создает вторую задачу HMS")
+    void hmsReverseReplicationShouldStayIdempotent() {
+        HmsReplicationJobEntity directHms = new HmsReplicationJobEntity();
+        directHms.setId("hms-direct");
+        directHms.setSourceClusterId("dc1");
+        directHms.setTargetClusterId("dc2");
+        directHms.setSourceDbName("analytics");
+        directHms.setTargetDbName("analytics_replica");
+        directHms.setStatus("STOPPED");
+
+        HmsReplicationJobEntity createdReverse = new HmsReplicationJobEntity();
+        createdReverse.setId("hms-reverse");
+        createdReverse.setSourceClusterId("dc2");
+        createdReverse.setTargetClusterId("dc1");
+        createdReverse.setSourceDbName("analytics_replica");
+        createdReverse.setTargetDbName("analytics");
+        createdReverse.setStatus("ACTIVE");
+
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of());
+        when(hmsJobRepository.findByNormalizedRoute("dc1", "dc2")).thenReturn(List.of(directHms));
+        // Обратный маршрут: зеркало уже существует
+        when(hmsJobRepository.findByNormalizedRoute("dc2", "dc1")).thenReturn(List.of(createdReverse));
+
+        var response = drService.reverseReplication(new DrReverseRequest("dc2", "dc1", false, true, true), "sre");
+
+        assertEquals(0, response.reversedHmsJobs(),
+                "Существующее зеркало схемы не должно создаваться заново");
+    }
+
+    @Test
     @DisplayName("Отзыв обратной задачи ищет зеркало по обратному маршруту")
     void undoReverseShouldQueryMirrorRoute() {
         JobEntity direct = job("job-direct-1", "dc1", "dc2");

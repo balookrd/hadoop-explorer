@@ -896,6 +896,9 @@ public class DisasterRecoveryService {
             // Маршрут отбирается запросом; сравнение кластеров остается и в коде —
             // нормализация в SQL и в matchesCluster должна давать одно и то же
             List<JobEntity> existingJobs = jobRepository.findByNormalizedRoute(toClusterId, fromClusterId);
+            // Зеркала живут на обратном маршруте, и проверка существования смотрит именно туда:
+            // иначе повторная инверсия создает второе зеркало того же задания
+            List<JobEntity> existingReverseJobs = jobRepository.findByNormalizedRoute(fromClusterId, toClusterId);
             // Ищем задачи, которые изначально шли toClusterId ➔ fromClusterId (прямые)
             List<JobEntity> directJobs = existingJobs.stream()
                     .filter(j -> j.getParentJobId() == null
@@ -920,7 +923,7 @@ public class DisasterRecoveryService {
                 }
 
                 // Проверяем, существует ли уже обратная задача
-                boolean alreadyExists = existingJobs.stream().anyMatch(ej ->
+                boolean alreadyExists = existingReverseJobs.stream().anyMatch(ej ->
                         !ej.getId().equals(direct.getId())
                                 && matchesCluster(ej.getSourceClusterId(), fromClusterId)
                                 && matchesCluster(ej.getTargetClusterId(), toClusterId)
@@ -974,6 +977,8 @@ public class DisasterRecoveryService {
         if (Boolean.TRUE.equals(req.includeHms())) {
             List<HmsReplicationJobEntity> existingHms =
                     hmsReplicationJobRepository.findByNormalizedRoute(toClusterId, fromClusterId);
+            List<HmsReplicationJobEntity> existingReverseHms =
+                    hmsReplicationJobRepository.findByNormalizedRoute(fromClusterId, toClusterId);
             List<HmsReplicationJobEntity> directHms = existingHms.stream()
                     .filter(h -> matchesCluster(h.getSourceClusterId(), toClusterId)
                             && matchesCluster(h.getTargetClusterId(), fromClusterId))
@@ -989,7 +994,7 @@ public class DisasterRecoveryService {
                     hmsReplicationJobRepository.save(direct);
                 }
 
-                boolean alreadyExists = existingHms.stream().anyMatch(eh ->
+                boolean alreadyExists = existingReverseHms.stream().anyMatch(eh ->
                         matchesCluster(eh.getSourceClusterId(), fromClusterId)
                                 && matchesCluster(eh.getTargetClusterId(), toClusterId)
                                 && Objects.equals(eh.getSourceDbName(), direct.getTargetDbName())

@@ -130,4 +130,13 @@ class JobRouteQueryTest {
                         .map(HmsReplicationJobEntity::getId).sorted().toList());
         assertTrue(hmsJobRepository.findByAssignedAgentId("agent-missing").isEmpty());
     }
+
+    @Test
+    @DisplayName("Выборка по агенту не зависит от регистра")
+    void hmsJobsByAgentShouldIgnoreCase() {
+        assertEquals(List.of("hms-route-direct", "hms-route-same-agent"),
+                hmsJobRepository.findByAssignedAgentId("AGENT-A").stream()
+                        .map(HmsReplicationJobEntity::getId).sorted().toList(),
+                "Сравнение идентификатора агента в коде регистронезависимо — запрос должен вести себя так же");
+    }
 }
