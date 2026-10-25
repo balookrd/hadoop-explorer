@@ -144,18 +144,30 @@ class TaskServiceOptimizationTest {
     }
 
     @Test
-    @DisplayName("P2 Retention Policy: cleanOldTasks удаляет завершенные и ошибочные задачи старше retentionDays")
-    void testCleanOldTasksRetentionPolicy() {
-        when(taskRepository.deleteByStatusInAndUpdatedAtBefore(anyCollection(), any(java.time.Instant.class)))
-                .thenReturn(150);
+    @DisplayName("P2 Retention Policy: очистка удаляет завершенные задачи пакетами, не задевая активные")
+    void testExpiredTaskPurgeDeletesTerminalStatusesInBatches() {
+        properties.setTaskRetentionDays(7);
+        properties.setTaskRetentionBatchSize(2);
+        properties.setTaskRetentionMaxBatchesPerRun(10);
 
-        int deleted = taskService.cleanOldTasks(7);
+        // Полный пакет, затем неполный: очистка обязана остановиться на неполном
+        when(taskRepository.findExpiredTaskIds(anyCollection(), any(java.time.Instant.class), any(Pageable.class)))
+                .thenReturn(List.of("task-1", "task-2"))
+                .thenReturn(List.of("task-3"));
 
-        assertEquals(150, deleted);
-        verify(taskRepository, times(1)).deleteByStatusInAndUpdatedAtBefore(
-                argThat(statuses -> statuses.contains("COMPLETED") && statuses.contains("FAILED")),
-                any(java.time.Instant.class)
-        );
+        int deleted = taskService.executePurgeExpiredTasks();
+
+        assertEquals(3, deleted);
+        verify(taskRepository, times(2)).findExpiredTaskIds(
+                argThat(statuses -> statuses.contains("COMPLETED")
+                        && statuses.contains("FAILED")
+                        && statuses.contains("SKIPPED")
+                        && !statuses.contains("QUEUED")
+                        && !statuses.contains("RUNNING")),
+                any(java.time.Instant.class),
+                any(Pageable.class));
+        verify(taskRepository).deleteAllByIdInBatch(List.of("task-1", "task-2"));
+        verify(taskRepository).deleteAllByIdInBatch(List.of("task-3"));
     }
 
     @Test

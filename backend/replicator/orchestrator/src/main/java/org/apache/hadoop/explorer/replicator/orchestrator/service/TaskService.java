@@ -681,6 +681,75 @@ public class TaskService {
     }
 
     /**
+     * Статусы, после которых задача больше не нужна планировщику и агентам.
+     *
+     * <p>Активные ({@code QUEUED}, {@code RUNNING}) не удаляются ни при каком возрасте: задача в
+     * {@code RUNNING} может прямо сейчас передаваться агентом, а зависшую подберет failover.
+     */
+    static final List<String> TERMINAL_TASK_STATUSES = List.of("COMPLETED", "SKIPPED", "FAILED");
+
+    /**
+     * Периодическая очистка истории пофайловых задач по возрасту.
+     *
+     * <p>Заменяет прежний {@code cleanOldTasks}, который удалял историю одним {@code DELETE} по
+     * всему окну: на миллионах пофайловых записей это длинная транзакция с блокировками и
+     * раздутым WAL, а прерывание откатывало всю работу. Кроме того, прежняя очистка не удаляла
+     * {@code SKIPPED} — пропущенные файлы копились навсегда — и выполнялась одновременно на всех
+     * узлах active-active, то есть узлы мешали друг другу на одних и тех же страницах.
+     */
+    @Scheduled(fixedDelayString = "${hadoop.replicator.task-cleanup-interval-ms:3600000}")
+    public void purgeExpiredTasks() {
+        if (lockService != null) {
+            lockService.runWithLock("task_retention_lock", java.time.Duration.ofMinutes(5),
+                    this::executePurgeExpiredTasks);
+        } else {
+            executePurgeExpiredTasks();
+        }
+    }
+
+    /**
+     * Очистка истории задач пакетами.
+     *
+     * <p>Метод намеренно не транзакционный: каждый пакет удаляется своей транзакцией репозитория.
+     * Одна транзакция на миллионы строк держала бы блокировки и раздувала WAL, а прерванная
+     * очистка откатывала бы всю проделанную работу. За один проход удаляется не больше
+     * {@code task-retention-batch-size × task-retention-max-batches-per-run} записей, остаток
+     * догоняется следующими проходами.
+     *
+     * @return сколько записей удалено за этот проход
+     */
+    public int executePurgeExpiredTasks() {
+        int retentionDays = properties.getTaskRetentionDays();
+        if (retentionDays <= 0) {
+            // Ноль означает «хранить все»: очистка выключена явным решением оператора
+            return 0;
+        }
+
+        Instant cutoff = Instant.now().minus(retentionDays, java.time.temporal.ChronoUnit.DAYS);
+        int batchSize = Math.max(1, properties.getTaskRetentionBatchSize());
+        int maxBatches = Math.max(1, properties.getTaskRetentionMaxBatchesPerRun());
+
+        int removed = 0;
+        for (int batch = 0; batch < maxBatches; batch++) {
+            List<String> expiredIds = taskRepository.findExpiredTaskIds(
+                    TERMINAL_TASK_STATUSES, cutoff, PageRequest.of(0, batchSize));
+            if (expiredIds.isEmpty()) {
+                break;
+            }
+            taskRepository.deleteAllByIdInBatch(expiredIds);
+            removed += expiredIds.size();
+            if (expiredIds.size() < batchSize) {
+                break;
+            }
+        }
+
+        if (removed > 0) {
+            log.info("Очистка истории задач: удалено {} завершенных задач старше {} дней", removed, retentionDays);
+        }
+        return removed;
+    }
+
+    /**
      * Периодический мониторинг зависших задач и автоматический failover при падении агентов.
      * Оптимизирован под 200+ агентов: сканирует только задачи с истекшим таймаутом обновления
      * или потерявшие назначение агента (0.1 мс при нормальной работе).
@@ -808,26 +877,6 @@ public class TaskService {
         String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
         String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
         return aNorm.equals(jNorm);
-    }
-
-    /**
-     * Фоновая периодическая очистка старых завершенных/сбойных задач согласно retention policy.
-     */
-    @Scheduled(fixedDelayString = "${hadoop.replicator.task-cleanup-interval-ms:3600000}")
-    @Transactional
-    public int cleanOldTasks() {
-        return cleanOldTasks(properties.getTaskRetentionDays());
-    }
-
-    @Transactional
-    public int cleanOldTasks(int retentionDays) {
-        if (retentionDays <= 0) return 0;
-        Instant cutoff = Instant.now().minus(retentionDays, java.time.temporal.ChronoUnit.DAYS);
-        int deleted = taskRepository.deleteByStatusInAndUpdatedAtBefore(List.of("COMPLETED", "FAILED"), cutoff);
-        if (deleted > 0) {
-            log.info("Очищено {} устаревших подзадач репликации старше {} дней (cutoff: {})", deleted, retentionDays, cutoff);
-        }
-        return deleted;
     }
 
     /**

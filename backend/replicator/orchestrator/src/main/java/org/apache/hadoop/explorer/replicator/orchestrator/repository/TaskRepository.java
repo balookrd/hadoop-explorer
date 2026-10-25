@@ -87,7 +87,15 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     """)
     long countPendingTasksByClusterId(@Param("clusterId") String clusterId, @Param("status") String status);
 
-    @Modifying
-    @Query("DELETE FROM TaskEntity t WHERE t.status IN :statuses AND t.updatedAt < :before")
-    int deleteByStatusInAndUpdatedAtBefore(@Param("statuses") Collection<String> statuses, @Param("before") Instant before);
+    /**
+     * Идентификаторы завершенных задач старше указанного момента — порция для очистки истории.
+     *
+     * <p>Возвращаются только идентификаторы: в записи задачи лежит манифест бандла (TEXT), и
+     * выбирать сущности целиком ради удаления означало бы тянуть его в heap пачками по сотням.
+     * Порядок по времени обновления делает очистку предсказуемой: сначала самое старое.
+     */
+    @Query("SELECT t.id FROM TaskEntity t WHERE t.status IN :statuses AND t.updatedAt < :before ORDER BY t.updatedAt ASC")
+    List<String> findExpiredTaskIds(@Param("statuses") Collection<String> statuses,
+                                    @Param("before") Instant before,
+                                    Pageable pageable);
 }

@@ -25,6 +25,10 @@ public class ReplicatorProperties {
     private int agentHeartbeatTimeoutSeconds = 15;
     private int agentOfflineTimeoutSeconds = 45;
     private int taskRetentionDays = 7;
+    /** Размер пакета удаления при очистке истории задач. */
+    private int taskRetentionBatchSize = 500;
+    /** Сколько пакетов удаляется за один проход очистки. */
+    private int taskRetentionMaxBatchesPerRun = 20;
     private int maxTaskRetries = 3;
     private int taskTimeoutSeconds = 60;
     private long hmsPollIntervalMs = 5000L;
@@ -63,6 +67,10 @@ public class ReplicatorProperties {
     public void setAgentOfflineTimeoutSeconds(int agentOfflineTimeoutSeconds) { this.agentOfflineTimeoutSeconds = agentOfflineTimeoutSeconds; }
     public int getTaskRetentionDays() { return taskRetentionDays; }
     public void setTaskRetentionDays(int taskRetentionDays) { this.taskRetentionDays = taskRetentionDays; }
+    public int getTaskRetentionBatchSize() { return taskRetentionBatchSize; }
+    public void setTaskRetentionBatchSize(int taskRetentionBatchSize) { this.taskRetentionBatchSize = taskRetentionBatchSize; }
+    public int getTaskRetentionMaxBatchesPerRun() { return taskRetentionMaxBatchesPerRun; }
+    public void setTaskRetentionMaxBatchesPerRun(int taskRetentionMaxBatchesPerRun) { this.taskRetentionMaxBatchesPerRun = taskRetentionMaxBatchesPerRun; }
     public int getMaxTaskRetries() { return maxTaskRetries; }
     public void setMaxTaskRetries(int maxTaskRetries) { this.maxTaskRetries = maxTaskRetries; }
     public int getTaskTimeoutSeconds() { return taskTimeoutSeconds; }
