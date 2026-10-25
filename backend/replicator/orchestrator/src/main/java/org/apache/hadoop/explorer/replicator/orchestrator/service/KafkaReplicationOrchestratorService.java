@@ -84,10 +84,8 @@ public class KafkaReplicationOrchestratorService {
             return Collections.emptyList();
         }
         String dc = dcId.trim();
-        return repository.findAll().stream()
-                .filter(job -> "ACTIVE".equalsIgnoreCase(job.getStatus()))
-                .filter(job -> dc.equalsIgnoreCase(job.getSourceDc()) ||
-                        ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection()) && dc.equalsIgnoreCase(job.getTargetDc())))
+        // Выборка запросом: метод вызывается на каждом обращении агента ЦОД
+        return repository.findActiveJobsReportedByDc(dc).stream()
                 .map(this::toDto)
                 .toList();
     }

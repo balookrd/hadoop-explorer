@@ -1,10 +1,7 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.metrics;
 
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.AgentResponseDto;
-import org.apache.hadoop.explorer.replicator.orchestrator.dto.DrStatusResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.HmsReplicationJobEntity;
-import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
-import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsReplicationJobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
@@ -43,6 +40,16 @@ public class ReplicatorMetricsService {
     private final DisasterRecoveryService disasterRecoveryService;
 
     // Внутренний счетчик накопленной задержки троттлинга
+    /**
+     * Предел числа построчных метрик задач Kafka в одном скрейпе: итоговые счетчики берутся
+     * агрегатом и остаются верными, а построчные метрики при таком количестве задач все равно
+     * непригодны по кардинальности.
+     */
+    private static final int KAFKA_JOB_METRIC_ROWS_LIMIT = 500;
+
+    /** Задания обратной репликации создаются под этим префиксом пути при Failover. */
+    private static final String REVERSE_JOB_PATH_PREFIX = "/backup/";
+
     private final AtomicLong accumulatedThrottlingNanos = new AtomicLong(0);
 
     @Autowired
@@ -227,15 +234,16 @@ public class ReplicatorMetricsService {
         sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"COMPLETED\"} %.0f\n", completed));
         sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"FAILED\"} %.0f\n", failed));
 
-        double totalTables = calculateHmsTables(false);
-        double repTables = calculateHmsTables(true);
+        long[] hmsTotals = hmsTableAndPartitionTotals();
+        double totalTables = hmsTotals[0];
+        double repTables = hmsTotals[1];
         sb.append("# HELP replicator_hms_tables_total Количество таблиц в схемах HMS\n");
         sb.append("# TYPE replicator_hms_tables_total gauge\n");
         sb.append(String.format(Locale.US, "replicator_hms_tables_total{type=\"total\"} %.0f\n", totalTables));
         sb.append(String.format(Locale.US, "replicator_hms_tables_total{type=\"replicated\"} %.0f\n", repTables));
 
-        double totalPartitions = calculateHmsPartitions(false);
-        double repPartitions = calculateHmsPartitions(true);
+        double totalPartitions = hmsTotals[2];
+        double repPartitions = hmsTotals[3];
         sb.append("# HELP replicator_hms_partitions_total Количество партиций таблиц HMS\n");
         sb.append("# TYPE replicator_hms_partitions_total gauge\n");
         sb.append(String.format(Locale.US, "replicator_hms_partitions_total{type=\"total\"} %.0f\n", totalPartitions));
@@ -251,17 +259,10 @@ public class ReplicatorMetricsService {
         sb.append("# HELP replicator_dr_cluster_fenced Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active)\n");
         sb.append("# TYPE replicator_dr_cluster_fenced gauge\n");
         try {
-            DrStatusResponse drStatus = disasterRecoveryService.getDrStatus();
-            if (drStatus != null && drStatus.clusters() != null && !drStatus.clusters().isEmpty()) {
-                for (var cluster : drStatus.clusters()) {
-                    double fenced = (Boolean.TRUE.equals(cluster.isFenced()) || isClusterFenced(cluster.id())) ? 1.0 : 0.0;
-                    sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n", escape(cluster.id()), fenced));
-                }
-            } else if (drStatus != null && drStatus.datacenters() != null && !drStatus.datacenters().isEmpty()) {
-                for (var dc : drStatus.datacenters()) {
-                    double fenced = (dc.isFenced() || dc.bandwidthLimitMbS() == 0.0) ? 1.0 : 0.0;
-                    sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n", escape(dc.id()), fenced));
-                }
+            // Сводка DR читает задания, поэтому для скрейпа берется только признак изоляции
+            for (var entry : disasterRecoveryService.getClusterFencingStatus().entrySet()) {
+                sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n",
+                        escape(entry.getKey()), Boolean.TRUE.equals(entry.getValue()) ? 1.0 : 0.0));
             }
         } catch (Exception ignored) {}
 
@@ -451,12 +452,9 @@ public class ReplicatorMetricsService {
 
     private double calculateBytesByStatus(String status) {
         try {
-            List<JobEntity> jobs = jobRepository.findAll();
-            return jobs.stream()
-                    .filter(j -> j.getParentJobId() == null)
-                    .filter(j -> status.equalsIgnoreCase(j.getStatus()))
-                    .mapToLong(j -> "COMPLETED".equalsIgnoreCase(status) ? j.getTotalBytes() : j.getCopiedBytes())
-                    .sum();
+            return "COMPLETED".equalsIgnoreCase(status)
+                    ? jobRepository.sumTotalBytesByStatus(status)
+                    : jobRepository.sumCopiedBytesByStatus(status);
         } catch (Exception e) {
             return 0.0;
         }
@@ -489,11 +487,7 @@ public class ReplicatorMetricsService {
 
     private double countJobsByScheduled(boolean scheduled) {
         try {
-            List<JobEntity> jobs = jobRepository.findAll();
-            return jobs.stream()
-                    .filter(j -> j.getParentJobId() == null)
-                    .filter(j -> j.isScheduled() == scheduled)
-                    .count();
+            return jobRepository.countByScheduledFlag(scheduled);
         } catch (Exception e) {
             return 0.0;
         }
@@ -515,25 +509,24 @@ public class ReplicatorMetricsService {
         }
     }
 
-    private double calculateHmsTables(boolean replicated) {
+    /**
+     * Таблицы и партиции задач HMS: всего таблиц, перенесено таблиц, всего партиций,
+     * перенесено партиций. Один агрегат вместо четырех выборок таблицы целиком.
+     */
+    private long[] hmsTableAndPartitionTotals() {
         try {
-            List<HmsReplicationJobEntity> jobs = hmsReplicationJobRepository.findAll();
-            return jobs.stream()
-                    .mapToInt(j -> replicated ? j.getReplicatedTables() : j.getTotalTables())
-                    .sum();
+            List<Object[]> rows = hmsReplicationJobRepository.aggregateTableAndPartitionCounts();
+            if (rows.isEmpty() || rows.get(0) == null) {
+                return new long[4];
+            }
+            Object[] row = rows.get(0);
+            long[] totals = new long[4];
+            for (int i = 0; i < 4; i++) {
+                totals[i] = row[i] instanceof Number n ? n.longValue() : 0L;
+            }
+            return totals;
         } catch (Exception e) {
-            return 0.0;
-        }
-    }
-
-    private double calculateHmsPartitions(boolean replicated) {
-        try {
-            List<HmsReplicationJobEntity> jobs = hmsReplicationJobRepository.findAll();
-            return jobs.stream()
-                    .mapToInt(j -> replicated ? j.getReplicatedPartitions() : j.getTotalPartitions())
-                    .sum();
-        } catch (Exception e) {
-            return 0.0;
+            return new long[4];
         }
     }
 
@@ -554,32 +547,40 @@ public class ReplicatorMetricsService {
         }
     }
 
-    private boolean isClusterFenced(String clusterId) {
-        try {
-            DrStatusResponse drStatus = disasterRecoveryService.getDrStatus();
-            if (drStatus != null && drStatus.datacenters() != null) {
-                for (var dc : drStatus.datacenters()) {
-                    if (clusterId.equalsIgnoreCase(dc.id()) && (dc.isFenced() || dc.bandwidthLimitMbS() == 0.0)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private double countReverseJobs(String status) {
         try {
-            List<JobEntity> jobs = jobRepository.findAll();
-            return jobs.stream()
-                    .filter(j -> j.getSourcePath() != null && j.getSourcePath().startsWith("/backup/"))
-                    .filter(j -> status.equalsIgnoreCase(j.getStatus()))
-                    .count();
+            return jobRepository.countByStatusAndSourcePathPrefix(status, REVERSE_JOB_PATH_PREFIX);
         } catch (Exception e) {
             return 0.0;
         }
+    }
+
+    /**
+     * Итоги задач Kafka: всего, активных, на паузе, сообщения, байты, максимальный лаг.
+     */
+    private long[] kafkaReplicationTotals() {
+        try {
+            List<Object[]> rows = kafkaReplicationJobRepository.aggregateReplicationTotals();
+            if (rows.isEmpty() || rows.get(0) == null) {
+                return new long[6];
+            }
+            Object[] row = rows.get(0);
+            long[] totals = new long[6];
+            for (int i = 0; i < 6; i++) {
+                totals[i] = number(row[i]);
+            }
+            return totals;
+        } catch (Exception e) {
+            return new long[6];
+        }
+    }
+
+    private static long number(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
+    }
+
+    private static String text(Object value) {
+        return value != null ? value.toString() : "";
     }
 
     private void renderKafkaMetrics(StringBuilder sb) {
@@ -587,37 +588,25 @@ public class ReplicatorMetricsService {
             return;
         }
         try {
-            List<KafkaReplicationJobEntity> jobs = kafkaReplicationJobRepository.findAll();
+            // Итоги — агрегатом; построчные метрики — проекцией с ограничением, чтобы скрейп не
+            // тянул TEXT-поля задач (список топиков, пул эндпоинтов, сводка провижининга)
+            long[] totals = kafkaReplicationTotals();
+            long jobCount = totals[0];
+            long activeCount = totals[1];
+            long pausedCount = totals[2];
+            long totalMessages = totals[3];
+            long totalBytes = totals[4];
+            long maxLagMs = totals[5];
 
-            long activeCount = 0;
-            long pausedCount = 0;
-            long totalMessages = 0;
-            long totalBytes = 0;
-            long maxLagMs = 0;
-
-            for (KafkaReplicationJobEntity j : jobs) {
-                if ("ACTIVE".equalsIgnoreCase(j.getStatus())) {
-                    activeCount++;
-                } else if ("PAUSED".equalsIgnoreCase(j.getStatus())) {
-                    pausedCount++;
-                }
-                long msgs = j.getMessagesReplicated() != null ? j.getMessagesReplicated() : 0L;
-                long bytes = j.getBytesReplicated() != null ? j.getBytesReplicated() : 0L;
-                long lag = j.getCurrentLagMs() != null ? j.getCurrentLagMs() : 0L;
-
-                totalMessages += msgs;
-                totalBytes += bytes;
-                if (lag > maxLagMs) {
-                    maxLagMs = lag;
-                }
-            }
+            List<Object[]> jobs = kafkaReplicationJobRepository.findJobMetricRows(
+                    org.springframework.data.domain.PageRequest.of(0, KAFKA_JOB_METRIC_ROWS_LIMIT));
 
             // 1. Статусы задач
             sb.append("# HELP replicator_kafka_jobs_total Количество задач репликации Kafka по статусам\n");
             sb.append("# TYPE replicator_kafka_jobs_total gauge\n");
             sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"ACTIVE\"} %d\n", activeCount));
             sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"PAUSED\"} %d\n", pausedCount));
-            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"TOTAL\"} %d\n", jobs.size()));
+            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"TOTAL\"} %d\n", jobCount));
 
             // 2. Агрегированные счетчики (гармонизированный стандарт Prometheus & Grafana)
             sb.append("# HELP kafka_replicated_messages_total Суммарное количество сообщений Kafka, переданных через gRPC\n");
@@ -636,34 +625,31 @@ public class ReplicatorMetricsService {
             if (!jobs.isEmpty()) {
                 sb.append("# HELP replicator_kafka_job_messages_total Передано сообщений по задаче репликации Kafka\n");
                 sb.append("# TYPE replicator_kafka_job_messages_total counter\n");
-                for (KafkaReplicationJobEntity j : jobs) {
-                    long msgs = j.getMessagesReplicated() != null ? j.getMessagesReplicated() : 0L;
+                for (Object[] j : jobs) {
                     sb.append(String.format(Locale.US, "replicator_kafka_job_messages_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
-                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), msgs));
+                            escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[5])));
                 }
 
                 sb.append("# HELP replicator_kafka_job_bytes_total Передано байт по задаче репликации Kafka\n");
                 sb.append("# TYPE replicator_kafka_job_bytes_total counter\n");
-                for (KafkaReplicationJobEntity j : jobs) {
-                    long bytes = j.getBytesReplicated() != null ? j.getBytesReplicated() : 0L;
+                for (Object[] j : jobs) {
                     sb.append(String.format(Locale.US, "replicator_kafka_job_bytes_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
-                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), bytes));
+                            escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[6])));
                 }
 
                 sb.append("# HELP replicator_kafka_job_lag_ms Текущий сквозной лаг репликации по задаче Kafka (мс)\n");
                 sb.append("# TYPE replicator_kafka_job_lag_ms gauge\n");
-                for (KafkaReplicationJobEntity j : jobs) {
-                    long lag = j.getCurrentLagMs() != null ? j.getCurrentLagMs() : 0L;
+                for (Object[] j : jobs) {
                     sb.append(String.format(Locale.US, "replicator_kafka_job_lag_ms{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
-                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), escape(j.getStatus()), lag));
+                            escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[7])));
                 }
 
                 sb.append("# HELP replicator_kafka_bandwidth_limit_mb Выделенный лимит полосы пропускания WAN для задачи Kafka (МБ/с)\n");
                 sb.append("# TYPE replicator_kafka_bandwidth_limit_mb gauge\n");
-                for (KafkaReplicationJobEntity j : jobs) {
-                    double bw = j.getBandwidthLimitMb() != null ? j.getBandwidthLimitMb() : 0.0;
+                for (Object[] j : jobs) {
+                    double bw = j[8] instanceof Number n ? n.doubleValue() : 0.0;
                     sb.append(String.format(Locale.US, "replicator_kafka_bandwidth_limit_mb{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\"} %.2f\n",
-                            escape(j.getId()), escape(j.getName()), escape(j.getSourceDc()), escape(j.getTargetDc()), bw));
+                            escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), bw));
                 }
             }
         } catch (Exception e) {

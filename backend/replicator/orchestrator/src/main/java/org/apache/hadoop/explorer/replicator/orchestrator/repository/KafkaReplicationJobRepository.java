@@ -27,4 +27,30 @@ public interface KafkaReplicationJobRepository extends JpaRepository<KafkaReplic
             + "AND (LOWER(j.sourceDc) = LOWER(:dc) "
             + "OR (UPPER(j.direction) = 'BIDIRECTIONAL' AND LOWER(j.targetDc) = LOWER(:dc)))")
     List<KafkaReplicationJobEntity> findActiveJobsReportedByDc(@Param("dc") String dc);
+
+    /**
+     * Итоги по всем задачам Kafka одной строкой: всего, активных, на паузе, сообщения, байты,
+     * максимальный лаг.
+     */
+    @Query("SELECT count(j), "
+            + "coalesce(sum(case when upper(j.status) = 'ACTIVE' then 1 else 0 end), 0), "
+            + "coalesce(sum(case when upper(j.status) = 'PAUSED' then 1 else 0 end), 0), "
+            + "coalesce(sum(j.messagesReplicated), 0), coalesce(sum(j.bytesReplicated), 0), "
+            + "coalesce(max(j.currentLagMs), 0) "
+            + "FROM KafkaReplicationJobEntity j")
+    List<Object[]> aggregateReplicationTotals();
+
+    /**
+     * Строки для построчных метрик задач Kafka: только нужные поля и с ограничением.
+     *
+     * <p>Сущность тянет за собой TEXT-поля (список топиков, пул эндпоинтов, сводка
+     * провижининга), и загружать их на каждом скрейпе Prometheus незачем. Итоговые счетчики
+     * берутся агрегатом, поэтому ограничение выборки не искажает сумму — обрезаются только
+     * построчные метрики, которые при таком количестве задач и так непригодны по кардинальности.
+     */
+    @Query("SELECT j.id, j.name, j.sourceDc, j.targetDc, j.status, "
+            + "coalesce(j.messagesReplicated, 0), coalesce(j.bytesReplicated, 0), "
+            + "coalesce(j.currentLagMs, 0), coalesce(j.bandwidthLimitMb, 0) "
+            + "FROM KafkaReplicationJobEntity j ORDER BY j.name ASC")
+    List<Object[]> findJobMetricRows(org.springframework.data.domain.Pageable pageable);
 }

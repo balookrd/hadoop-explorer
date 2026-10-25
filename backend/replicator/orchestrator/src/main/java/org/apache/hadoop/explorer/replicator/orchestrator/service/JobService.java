@@ -55,14 +55,38 @@ public class JobService {
         this(jobRepository, jobRunRepository, taskRepository, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties(), null);
     }
 
+    /** Размер порции и предел числа порций при дозаполнении истории запусков на старте. */
+    private static final int RUN_BACKFILL_BATCH_SIZE = 500;
+    private static final int RUN_BACKFILL_MAX_BATCHES = 200;
+
+    /**
+     * Дозаполнение истории запусков для заданий, созданных до появления журнала запусков.
+     *
+     * <p>Задания без истории выбираются порциями одним запросом. Прежний проход читал таблицу
+     * заданий целиком и для каждого задания спрашивал количество запусков отдельно, то есть
+     * старт узла упирался в полную выборку плюс N+1 — на сотнях тысяч заданий это минуты до
+     * готовности сервиса.
+     */
     @PostConstruct
     @Transactional
     public void initializeExistingJobs() {
-        // Автоматическое заполнение истории запусков для любых существующих задач без runs
-        for (JobEntity existing : jobRepository.findAll()) {
-            if (jobRunRepository.countByJobId(existing.getId()) == 0) {
-                createInitialRunForJob(existing);
+        int backfilled = 0;
+        for (int batch = 0; batch < RUN_BACKFILL_MAX_BATCHES; batch++) {
+            List<String> ids = jobRepository.findIdsWithoutRuns(
+                    org.springframework.data.domain.PageRequest.of(0, RUN_BACKFILL_BATCH_SIZE));
+            if (ids.isEmpty()) {
+                break;
             }
+            for (String id : ids) {
+                jobRepository.findById(id).ifPresent(this::createInitialRunForJob);
+            }
+            backfilled += ids.size();
+            if (ids.size() < RUN_BACKFILL_BATCH_SIZE) {
+                break;
+            }
+        }
+        if (backfilled > 0) {
+            log.info("Дозаполнена история запусков для {} заданий", backfilled);
         }
     }
 

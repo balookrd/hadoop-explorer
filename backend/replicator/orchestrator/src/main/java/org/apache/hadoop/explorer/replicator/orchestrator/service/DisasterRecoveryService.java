@@ -256,6 +256,78 @@ public class DisasterRecoveryService {
     }
 
     /**
+     * Изоляция кластеров без обхода таблиц заданий.
+     *
+     * <p>{@link #getDrStatus()} собирает полную сводку DR и для этого читает задания — рендер
+     * метрик вызывал его по разу на кластер плюс дважды на скрейп, то есть таблицы заданий
+     * вычитывались целиком на каждом интервале Prometheus. Признак изоляции так дорого не
+     * стоит: он складывается из нулевого лимита полосы к соседнему ЦОД и активного снимка
+     * ограждения, а то и другое известно без заданий.
+     *
+     * @return изоляция по каждому кластеру топологии (или по ЦОД, если кластеры не заданы)
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Boolean> getClusterFencingStatus() {
+        Map<String, Boolean> fencing = new LinkedHashMap<>();
+        for (var cluster : topologyRegistry.getClusters()) {
+            if (cluster.getId() != null && !cluster.getId().isBlank()) {
+                fencing.put(cluster.getId(), isClusterFenced(cluster.getId()));
+            }
+        }
+        if (fencing.isEmpty()) {
+            for (var dc : topologyRegistry.getDatacenters()) {
+                if (dc.getId() != null && !dc.getId().isBlank()) {
+                    fencing.put(dc.getId(), isDcFenced(dc.getId()));
+                }
+            }
+        }
+        return fencing;
+    }
+
+    /**
+     * Изолирован ли кластер: по снимку ограждения на нем самом либо по изоляции его ЦОД.
+     */
+    @Transactional(readOnly = true)
+    public boolean isClusterFenced(String clusterId) {
+        if (clusterId == null || clusterId.isBlank()) {
+            return false;
+        }
+        boolean snapshotOnCluster = activeSnapshots.values().stream()
+                .anyMatch(s -> s.getClusterId() != null && matchesCluster(s.getClusterId(), clusterId));
+        if (snapshotOnCluster) {
+            return true;
+        }
+        String dcId = topologyRegistry.getClusters().stream()
+                .filter(c -> c.getId() != null && c.getId().equalsIgnoreCase(clusterId))
+                .map(org.apache.hadoop.explorer.replicator.model.ClusterDto::getDcId)
+                .filter(d -> d != null && !d.isBlank())
+                .findFirst()
+                .orElse(clusterId);
+        return isDcFenced(dcId);
+    }
+
+    private boolean isDcFenced(String dcId) {
+        if (dcId == null || dcId.isBlank()) {
+            return false;
+        }
+        if (activeSnapshots.containsKey(dcId.toLowerCase())
+                || activeSnapshots.values().stream()
+                        .anyMatch(s -> s.getClusterId() != null && matchesDc(s.getClusterId(), dcId))) {
+            return true;
+        }
+        for (var otherDc : topologyRegistry.getDatacenters()) {
+            if (otherDc.getId() == null || otherDc.getId().equalsIgnoreCase(dcId)) {
+                continue;
+            }
+            Optional<Long> limit = topologyRegistry.getDcLimit(dcId, otherDc.getId());
+            if (limit.isPresent() && limit.get() == 0L) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Формирование сводного статуса всех дата-центров, кластеров, маршрутов и готовности к Failover.
      */
     @Transactional(readOnly = true)

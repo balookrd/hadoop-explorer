@@ -23,4 +23,15 @@ public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicatio
         WHERE LOWER(REPLACE(REPLACE(h.sourceClusterId, '-', ''), '_', '')) = LOWER(REPLACE(REPLACE(:clusterId, '-', ''), '_', ''))
     """)
     List<HmsReplicationJobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
+
+    /**
+     * Таблицы и партиции всех задач одним агрегатом: всего и перенесено.
+     *
+     * <p>Рендер метрик вычитывал таблицу задач HMS целиком четырежды за скрейп — по разу на
+     * каждый гейдж.
+     */
+    @Query("SELECT coalesce(sum(h.totalTables), 0), coalesce(sum(h.replicatedTables), 0), "
+            + "coalesce(sum(h.totalPartitions), 0), coalesce(sum(h.replicatedPartitions), 0) "
+            + "FROM HmsReplicationJobEntity h")
+    List<Object[]> aggregateTableAndPartitionCounts();
 }

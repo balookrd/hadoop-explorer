@@ -41,6 +41,41 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     """)
     List<JobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
 
+    /**
+     * Идентификаторы заданий без истории запусков — порция для дозаполнения при старте.
+     *
+     * <p>Прежний проход читал все задания и для каждого спрашивал количество запусков
+     * отдельным запросом: на большой таблице это полная выборка плюс N+1.
+     */
+    @Query("SELECT j.id FROM JobEntity j WHERE NOT EXISTS "
+            + "(SELECT 1 FROM JobRunEntity r WHERE r.jobId = j.id)")
+    List<String> findIdsWithoutRuns(org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * Сумма байт по статусу для корневых заданий — одним агрегатом.
+     *
+     * <p>Рендер метрик вычитывал таблицу заданий целиком трижды за скрейп (по статусу),
+     * и так на каждом интервале Prometheus.
+     */
+    @Query("SELECT coalesce(sum(j.totalBytes), 0) FROM JobEntity j "
+            + "WHERE j.parentJobId IS NULL AND lower(j.status) = lower(:status)")
+    long sumTotalBytesByStatus(@Param("status") String status);
+
+    @Query("SELECT coalesce(sum(j.copiedBytes), 0) FROM JobEntity j "
+            + "WHERE j.parentJobId IS NULL AND lower(j.status) = lower(:status)")
+    long sumCopiedBytesByStatus(@Param("status") String status);
+
+    @Query("SELECT count(j) FROM JobEntity j WHERE j.parentJobId IS NULL AND j.isScheduled = :scheduled")
+    long countByScheduledFlag(@Param("scheduled") boolean scheduled);
+
+    /**
+     * Количество заданий обратной репликации по статусу: обратные отличаются префиксом пути.
+     */
+    @Query("SELECT count(j) FROM JobEntity j "
+            + "WHERE lower(j.status) = lower(:status) AND j.sourcePath LIKE concat(:pathPrefix, '%')")
+    long countByStatusAndSourcePathPrefix(@Param("status") String status,
+                                          @Param("pathPrefix") String pathPrefix);
+
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE JobEntity j
