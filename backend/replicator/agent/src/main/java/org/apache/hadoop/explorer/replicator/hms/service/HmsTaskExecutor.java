@@ -152,6 +152,34 @@ public class HmsTaskExecutor implements Closeable {
     /**
      * Выполнение начального создания и переноса таблиц/партиций (Bootstrap).
      */
+    /**
+     * Перезапись локации объекта HMS с отказом на пути мимо заданных сопоставлений.
+     *
+     * <p>Признак {@code unmapped} означает, что перезапись вернула исходный URI. Раньше его
+     * никто не читал: объект создавался в целевом метасторе с локацией кластера-источника, а
+     * HDFS-подзадача копировала путь сам в себя. Если оператор задал сопоставления федерации
+     * или целевую ФС по умолчанию, путь мимо них — ошибка конфигурации, и переносить такой
+     * объект нельзя. Без заданных правил сквозной перенос ожидаем (одинаковое пространство
+     * имен на обеих сторонах) и отмечается предупреждением.
+     */
+    private HmsPathRewriter.PathRewriteResult rewriteLocation(String sourceLocation, HmsPendingJobDto job, String what) {
+        var rewrite = pathRewriter.rewrite(sourceLocation, job.sourceClusterId(), job.targetClusterId());
+        if (!rewrite.unmapped()) {
+            return rewrite;
+        }
+        if (pathRewriter.hasExplicitMappings()) {
+            throw new IllegalStateException(String.format(
+                    "Локация %s '%s' не покрыта правилами перезаписи: перенос создал бы объект в целевом "
+                            + "метасторе с путем кластера-источника. Добавьте сопоставление федерации "
+                            + "(REPLICATOR_FEDERATION_MAPPINGS) или задайте целевую ФС по умолчанию.",
+                    what, sourceLocation));
+        }
+        log.warn("[HmsTaskExecutor] Локация {} '{}' переносится без перезаписи: правила перезаписи не заданы, "
+                        + "предполагается одинаковое пространство имен на источнике и приемнике",
+                what, sourceLocation);
+        return rewrite;
+    }
+
     public boolean runBootstrap(HmsPendingJobDto job) {
         if (job.targetAgentGrpcAddress() == null || job.targetAgentGrpcAddress().isBlank()) {
             log.error("[HmsTaskExecutor] Задача {}: не указан gRPC адрес целевого агента", job.id());
@@ -181,7 +209,7 @@ public class HmsTaskExecutor implements Closeable {
                 try {
                     Optional<String> dbLocOpt = hmsClient.getDatabaseLocation(job.sourceDbName());
                     if (dbLocOpt.isPresent() && !dbLocOpt.get().isBlank()) {
-                        var dbRewrite = pathRewriter.rewrite(dbLocOpt.get(), job.sourceClusterId(), job.targetClusterId());
+                        var dbRewrite = rewriteLocation(dbLocOpt.get(), job, "базы данных");
                         String companionId = orchestratorClient.createHdfsSubjob(
                                 job.id(),
                                 dbRewrite.sourceUri(),
@@ -362,7 +390,7 @@ public class HmsTaskExecutor implements Closeable {
         }
 
         // 2. Трансляция пути корня таблицы с учетом федерации HDFS
-        var rewrite = pathRewriter.rewrite(table.sdLocation(), job.sourceClusterId(), job.targetClusterId());
+        var rewrite = rewriteLocation(table.sdLocation(), job, "таблицы " + tblName);
 
         // 3. Создание 1 корневой саб-джобы HDFS передачи файлов через Оркестратор!
         String tableSubjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
@@ -455,7 +483,7 @@ public class HmsTaskExecutor implements Closeable {
                 List<HmsPartitionDto> targetChunk = new ArrayList<>(chunk.size());
 
                 for (HmsPartitionDto part : chunk) {
-                    var partRewrite = pathRewriter.rewrite(part.location(), job.sourceClusterId(), job.targetClusterId());
+                    var partRewrite = rewriteLocation(part.location(), job, "партиции таблицы " + tblName);
                     String partSubjobId = tableSubjobId;
 
                     if (!isLocationWithinTable(part.location(), tableBaseLocation)) {
@@ -599,7 +627,7 @@ public class HmsTaskExecutor implements Closeable {
                         }
 
                         for (HmsPartitionDto part : partsToSync) {
-                            var partRewrite = pathRewriter.rewrite(part.location(), job.sourceClusterId(), job.targetClusterId());
+                            var partRewrite = rewriteLocation(part.location(), job, "партиции таблицы " + tbl);
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
                                     partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
 
@@ -636,7 +664,7 @@ public class HmsTaskExecutor implements Closeable {
                         HmsTableDto table = optTable.get();
                         var check = tableFilter.evaluate(table);
                         if (check.supported()) {
-                            var rewrite = pathRewriter.rewrite(table.sdLocation(), job.sourceClusterId(), job.targetClusterId());
+                            var rewrite = rewriteLocation(table.sdLocation(), job, "таблицы " + tbl);
                             String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(),
                                     rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId(), job.executionPrincipal());
 
