@@ -192,9 +192,31 @@ public class HmsReplicationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Фактическое состояние потоковой синхронизации CDC задачи.
+     *
+     * <p>Эндпоинт ничего не запускает: NOTIFICATION_LOG опрашивает сам агент своим циклом с
+     * настроенным интервалом, а оркестратор командного канала к агенту не имеет. Прежний ответ
+     * «success: true» утверждал обратное и выдавался без проверки доступа и существования
+     * задачи — то есть на любой идентификатор. Теперь возвращается то, что оркестратор знает:
+     * статус задачи, позиция в журнале событий, отставание и назначенный агент.
+     */
     @PostMapping("/{id}/sync")
-    public ResponseEntity<Map<String, Object>> triggerSync(@PathVariable String id) {
-        return ResponseEntity.ok(Map.of("success", true, "message", "Потоковая репликация CDC выполняется агентом"));
+    public ResponseEntity<Map<String, Object>> triggerSync(@PathVariable String id, Authentication auth) {
+        checkHmsJobAccess(id, auth);
+        HmsReplicationJobEntity job = jobRepository.findById(id).orElseThrow(() ->
+                new org.springframework.web.server.ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Задача репликации не найдена: " + id));
+
+        Map<String, Object> state = new java.util.LinkedHashMap<>();
+        state.put("triggered", false);
+        state.put("status", job.getStatus());
+        state.put("last_processed_event_id", job.getLastProcessedEventId());
+        state.put("event_lag", job.getEventLag());
+        state.put("assigned_agent_id", job.getAssignedAgentId());
+        state.put("message", "Опрос NOTIFICATION_LOG выполняет агент своим циклом; "
+                + "здесь показано состояние, известное оркестратору");
+        return ResponseEntity.ok(state);
     }
 
     @GetMapping("/{id}/events")

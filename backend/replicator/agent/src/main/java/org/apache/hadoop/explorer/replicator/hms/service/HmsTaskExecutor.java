@@ -12,6 +12,7 @@ import org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter;
 import org.apache.hadoop.explorer.replicator.model.HmsEventReportDto;
 import org.apache.hadoop.explorer.replicator.model.HmsPendingJobDto;
 import org.apache.hadoop.explorer.replicator.model.HmsProgressReportRequest;
+import org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,11 +31,15 @@ public class HmsTaskExecutor implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(HmsTaskExecutor.class);
 
+    /** Поле журнала задачи ограничено 2048 символами — длинный список расхождений обрезается. */
+    private static final int MAX_DRIFT_MESSAGE_LENGTH = 2000;
+
     private final String agentId;
     private final String clusterId;
     private final HmsClient hmsClient;
     private final OrchestratorGrpcClient orchestratorClient;
     private final TableSupportFilter tableFilter;
+    private final HmsSchemaDriftDetector driftDetector = new HmsSchemaDriftDetector();
     private final HmsPathRewriter pathRewriter;
     private final ExecutorService bootstrapExecutor;
     private final boolean grpcTlsEnabled;
@@ -152,6 +157,50 @@ public class HmsTaskExecutor implements Closeable {
     /**
      * Выполнение начального создания и переноса таблиц/партиций (Bootstrap).
      */
+    /**
+     * Сравнение схемы таблицы с фактической схемой на приемнике до применения DDL.
+     *
+     * <p>Сравнивать можно только здесь: агент источника единственный, кто видит и свой метастор,
+     * и метастор приемника (через gRPC). После применения таблицы совпадают по построению, так
+     * что интересен именно момент «до»: ручная правка схемы на приемнике или отставание от
+     * источника. Расхождение не останавливает перенос — оно записывается в журнал задачи, откуда
+     * оркестратор собирает отчет о дрейфе.
+     */
+    private void recordSchemaDriftIfAny(HmsPendingJobDto job, HmsPipelineSender sender, String tblName,
+                                        HmsTableDto expectedTable, long highWaterMark,
+                                        List<HmsEventReportDto> eventLog) {
+        try {
+            GetMetadataSnapshotResponse snapshot = sender.getMetadataSnapshot(
+                    job.id(), job.targetDbName(), tblName, job.executionPrincipal());
+
+            Optional<HmsTableDto> actualTable = snapshot.getExistingTableSchemasList().stream()
+                    .map(HmsConversionHelper::toDto)
+                    .filter(t -> tblName.equalsIgnoreCase(t.tableName()))
+                    .findFirst();
+            if (actualTable.isEmpty()) {
+                // Таблицы на приемнике еще нет — расхождение не с чем фиксировать
+                return;
+            }
+
+            var report = driftDetector.detectDrift(expectedTable, actualTable.get());
+            if (!report.hasDrift()) {
+                return;
+            }
+
+            String discrepancies = HmsSchemaDriftReport.joinDiscrepancies(report.discrepancies());
+            if (discrepancies.length() > MAX_DRIFT_MESSAGE_LENGTH) {
+                discrepancies = discrepancies.substring(0, MAX_DRIFT_MESSAGE_LENGTH - 3) + "...";
+            }
+            eventLog.add(new HmsEventReportDto(highWaterMark, "SCHEMA_DRIFT", tblName, null,
+                    expectedTable.sdLocation(), actualTable.get().sdLocation(), null,
+                    HmsSchemaDriftReport.EVENT_STATUS, discrepancies));
+        } catch (Exception e) {
+            // Обнаружение дрейфа — наблюдение, а не часть переноса: его сбой не должен ронять задачу
+            log.warn("[HmsTaskExecutor] Не удалось сравнить схему таблицы {}.{} с приемником: {}",
+                    job.targetDbName(), tblName, e.getMessage());
+        }
+    }
+
     /**
      * Перезапись локации объекта HMS с отказом на пути мимо заданных сопоставлений.
      *
@@ -425,6 +474,9 @@ public class HmsTaskExecutor implements Closeable {
                 table.partitionKeyFields(),
                 table.serdeParameters()
         );
+        // 5.1 Фиксация дрейфа схемы: что на приемнике было до применения DDL
+        recordSchemaDriftIfAny(job, sender, tblName, targetTable, highWaterMark, eventLog);
+
         var tableResp = sender.applyTable(job.id(), targetTable, job.executionPrincipal());
         if (!tableResp.getSuccess()) {
             throw new RuntimeException("Целевой агент вернул ошибку при создании/обновлении таблицы " + tblName + ": " + tableResp.getMessage());

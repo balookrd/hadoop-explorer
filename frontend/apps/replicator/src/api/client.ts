@@ -11,6 +11,7 @@ import type {
   HmsReplicationJob,
   HmsEventLog,
   HmsDeadLetterEvent,
+  HmsCdcState,
   HmsSchemaDriftReport,
   CreateHmsJobPayload,
   StreamingLeaseStatus,
@@ -167,7 +168,7 @@ export class ReplicatorApiClient extends BaseApiClient {
     });
   }
 
-  async triggerHmsSync(id: string): Promise<{ success: boolean; events_processed: number }> {
+  async triggerHmsSync(id: string): Promise<HmsCdcState> {
     return this.request(`/hms/jobs/${encodeURIComponent(id)}/sync`, {
       method: 'POST',
     });

@@ -295,6 +295,10 @@ message GetMetadataSnapshotResponse {
   bool db_exists = 1;
   repeated string existing_tables = 2;
   repeated HmsPartitionProto existing_partitions = 3;
+  // Схемы запрошенных таблиц приемника: нужны для сравнения с источником (Schema Drift).
+  // Заполняются только для адресного запроса (table_name задан), чтобы обход базы с тысячами
+  // таблиц не превращался в тысячу обращений к метастору.
+  repeated HmsTableProto existing_table_schemas = 4;
 }
 
 // Унифицированный ответ об операции с метаданными

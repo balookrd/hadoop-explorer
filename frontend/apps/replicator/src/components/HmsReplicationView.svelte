@@ -1019,7 +1019,7 @@
                       onclick={() => handleSyncNow(job)}
                       disabled={job.status === 'PAUSED' || syncingJobId === job.id}
                       class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-sky-50 dark:hover:bg-sky-950/40 hover:border-sky-300 dark:hover:border-sky-700 text-sky-600 dark:text-sky-400"
-                      title="Немедленный опрос NOTIFICATION_LOG"
+                      title="Обновить состояние CDC (NOTIFICATION_LOG опрашивает агент своим циклом)"
                     >
                       <Zap class="w-3.5 h-3.5 {syncingJobId === job.id ? 'animate-bounce' : ''}" />
                     </button>
@@ -1361,7 +1361,7 @@
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
           >
             <Zap class="w-3.5 h-3.5 {syncingJobId === modalJob.id ? 'animate-bounce' : ''}" />
-            <span>{syncingJobId === modalJob.id ? 'Опрос...' : 'Опросить CDC'}</span>
+            <span>{syncingJobId === modalJob.id ? 'Обновление...' : 'Состояние CDC'}</span>
           </button>
 
           <button
@@ -1793,7 +1793,7 @@
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
               >
                 <RefreshCw class="w-3.5 h-3.5 {driftLoading ? 'animate-spin' : ''}" />
-                <span>{driftLoading ? 'Сверка схем...' : 'Сверить схему с таргетом'}</span>
+                <span>{driftLoading ? 'Загрузка...' : 'Показать дрейф схем'}</span>
               </button>
             </div>
 
@@ -1807,20 +1807,20 @@
             {#if driftLoading}
               <div class="py-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
                 <RefreshCw class="w-6 h-6 animate-spin text-indigo-500" />
-                <span>Выполняется глубокая проверка DDL и SerDe метаданных в обоих кластерах Hive Metastore...</span>
+                <span>Загружаются расхождения схем, зафиксированные агентом при переносе...</span>
               </div>
             {:else if !driftScanned}
               <div class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
                 <GitCompare class="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                <span class="font-medium text-slate-700 dark:text-slate-300">Сканирование схемы еще не запускалось</span>
-                <span class="text-[11px] text-slate-400">Нажмите «Сверить схему с таргетом» для выявления дрейфа колонок, типов и SerDe.</span>
+                <span class="font-medium text-slate-700 dark:text-slate-300">Расхождения схем не запрашивались</span>
+                <span class="text-[11px] text-slate-400">Нажмите «Показать дрейф схем»: агент сверяет колонки, типы, ключи партиционирования и SerDe при каждом переносе таблицы.</span>
               </div>
             {:else if driftReports.length === 0 || !driftReports.some(r => r.has_drift)}
               <div class="py-12 text-center text-xs flex flex-col items-center justify-center gap-2">
                 <CheckCircle class="w-10 h-10 text-emerald-500" />
-                <span class="font-bold text-slate-800 dark:text-slate-100 text-sm">Схемы полностью идентичны (No Drift)</span>
+                <span class="font-bold text-slate-800 dark:text-slate-100 text-sm">Расхождений не зафиксировано</span>
                 <span class="text-[11px] text-slate-500 dark:text-slate-400 max-w-md">
-                  Все проверенные таблицы имеют совпадающие типы колонок, корректный порядок полей, идентичные ключи партиционирования и параметры SerDe.
+                  При последнем переносе таблиц агент не нашел расхождений в типах колонок, ключах партиционирования и параметрах SerDe.
                 </span>
               </div>
             {:else}

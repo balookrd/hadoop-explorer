@@ -669,18 +669,47 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Сканирование и обнаружение дрейфа схемы (Schema Drift Detection).
+     * Отчет о дрейфе схемы по журналу задачи.
+     *
+     * <p>Расхождения находит агент источника при переносе: он единственный видит и свой метастор,
+     * и метастор приемника, и сравнивает схемы до применения DDL. Найденное он присылает
+     * записями журнала со статусом {@code SCHEMA_DRIFT}, откуда и собирается отчет — по одной
+     * последней записи на таблицу. Прежняя реализация возвращала фиксированный «дрейфа нет» с
+     * именем таблицы из шаблона включения, то есть интерфейс показывал зеленый статус всегда.
+     * Пустой список означает, что расхождений в журнале нет, а не что их не бывает.
      */
     public List<org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport> scanSchemaDrift(String jobId) {
         HmsReplicationJobEntity job = hmsJobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("Задача репликации HMS не найдена: " + jobId));
 
-        log.info("[HmsCoordinator] Запущено сканирование дрейфа схемы для задачи {} ({}.{})",
-                jobId, job.getSourceDbName(), job.getTableIncludePattern());
+        List<HmsEventLogEntity> driftEvents = hmsEventLogRepository.findByHmsJobIdAndStatus(
+                jobId, org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport.EVENT_STATUS);
 
-        // Возвращаем исходный отчет готовности схемы
-        return List.of(org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport.noDrift(
-                job.getSourceDbName(), job.getTableIncludePattern()));
+        if (driftEvents.isEmpty()) {
+            log.info("[HmsCoordinator] Расхождений схем для задачи {} ({}) в журнале нет",
+                    jobId, job.getSourceDbName());
+            return List.of();
+        }
+
+        Map<String, HmsEventLogEntity> latestPerTable = new LinkedHashMap<>();
+        driftEvents.stream()
+                .sorted(Comparator.comparing(HmsEventLogEntity::getCreatedAt,
+                                Comparator.nullsFirst(Comparator.naturalOrder()))
+                        .thenComparing(HmsEventLogEntity::getId, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .forEach(event -> latestPerTable.put(event.getTableName(), event));
+
+        log.info("[HmsCoordinator] Дрейф схемы для задачи {}: расхождения по {} таблицам",
+                jobId, latestPerTable.size());
+
+        return latestPerTable.values().stream()
+                .map(event -> new org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport(
+                        job.getTargetDbName(),
+                        event.getTableName(),
+                        true,
+                        org.apache.hadoop.explorer.replicator.model.HmsSchemaDriftReport
+                                .splitDiscrepancies(event.getErrorMessage()),
+                        event.getCreatedAt()))
+                .toList();
     }
 
     /**

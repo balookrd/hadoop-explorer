@@ -86,6 +86,53 @@ public class HmsReplicationControllerTest {
     }
 
     @Test
+    @DisplayName("IDOR защита: чужой пользователь не может опросить состояние CDC чужой задачи")
+    void strangerCannotTriggerSync() {
+        HmsReplicationJobEntity job = createJobEntity("job-100", "alice");
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.triggerSync("job-100", strangerAuth)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Опрос CDC несуществующей задачи возвращает 404, а не успех")
+    void syncOfMissingJobReturnsNotFound() {
+        when(jobRepository.findById("missing-job")).thenReturn(Optional.empty());
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.triggerSync("missing-job", adminAuth)
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Ответ на опрос CDC сообщает фактическое состояние, а не выдуманный успех")
+    void syncResponseShouldReportActualCdcState() {
+        HmsReplicationJobEntity job = createJobEntity("job-100", "alice");
+        job.setLastProcessedEventId(7700L);
+        job.setEventLag(12L);
+        job.setAssignedAgentId("agent-src-01");
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(job));
+
+        ResponseEntity<Map<String, Object>> resp = controller.triggerSync("job-100", ownerAuth);
+
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        Map<String, Object> body = resp.getBody();
+        assertNotNull(body);
+        assertEquals(false, body.get("triggered"),
+                "Эндпоинт не умеет запускать опрос: CDC ведет агент своим циклом");
+        assertEquals("ACTIVE", body.get("status"));
+        assertEquals(7700L, body.get("last_processed_event_id"));
+        assertEquals(12L, body.get("event_lag"));
+        assertEquals("agent-src-01", body.get("assigned_agent_id"));
+    }
+
+    @Test
     @DisplayName("IDOR защита: чужой пользователь не может поставить задачу на паузу (FORBIDDEN)")
     void strangerCannotPauseJob() {
         HmsReplicationJobEntity job = createJobEntity("job-100", "alice");

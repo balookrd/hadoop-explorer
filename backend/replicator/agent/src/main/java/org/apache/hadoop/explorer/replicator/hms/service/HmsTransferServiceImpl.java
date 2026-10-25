@@ -181,17 +181,22 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
 
                 List<String> tables = dbExists ? hmsClient.getAllTables(request.getDbName()) : List.of();
                 List<HmsPartitionProto> partitionProtos = new ArrayList<>();
+                GetMetadataSnapshotResponse.Builder response = GetMetadataSnapshotResponse.newBuilder()
+                        .setDbExists(dbExists)
+                        .addAllExistingTables(tables);
 
                 if (!request.getTableName().isBlank() && tables.contains(request.getTableName())) {
                     List<HmsPartitionDto> partitions = hmsClient.getPartitions(request.getDbName(), request.getTableName());
                     for (HmsPartitionDto p : partitions) {
                         partitionProtos.add(HmsConversionHelper.toProto(p));
                     }
+                    // Схема нужна источнику для сравнения с его собственной (Schema Drift):
+                    // отдаем ее только для адресного запроса, чтобы не обходить всю базу.
+                    hmsClient.getTable(request.getDbName(), request.getTableName())
+                            .ifPresent(t -> response.addExistingTableSchemas(HmsConversionHelper.toProto(t)));
                 }
 
-                responseObserver.onNext(GetMetadataSnapshotResponse.newBuilder()
-                        .setDbExists(dbExists)
-                        .addAllExistingTables(tables)
+                responseObserver.onNext(response
                         .addAllExistingPartitions(partitionProtos)
                         .build());
                 responseObserver.onCompleted();

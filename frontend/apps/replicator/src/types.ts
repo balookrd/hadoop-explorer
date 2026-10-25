@@ -233,6 +233,15 @@ export interface HmsDeadLetterEvent {
   failedAt?: string;
 }
 
+export interface HmsCdcState {
+  triggered: boolean;
+  status: string;
+  last_processed_event_id: number | null;
+  event_lag: number | null;
+  assigned_agent_id: string | null;
+  message: string;
+}
+
 export interface HmsSchemaDriftReport {
   db_name: string;
   table_name: string;

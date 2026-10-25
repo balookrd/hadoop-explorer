@@ -19,6 +19,30 @@ public record HmsSchemaDriftReport(
         List<String> discrepancies,
         Instant checkedAt
 ) {
+    /**
+     * Статус записи журнала задачи, которой агент фиксирует расхождение схем.
+     */
+    public static final String EVENT_STATUS = "SCHEMA_DRIFT";
+
+    /**
+     * Разделитель расхождений в одном поле журнала: журнал хранит текст, а отчет — список.
+     */
+    public static final String DISCREPANCY_SEPARATOR = "; ";
+
+    public static String joinDiscrepancies(List<String> discrepancies) {
+        return discrepancies == null ? "" : String.join(DISCREPANCY_SEPARATOR, discrepancies);
+    }
+
+    public static List<String> splitDiscrepancies(String joined) {
+        if (joined == null || joined.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(joined.split(DISCREPANCY_SEPARATOR))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
     public static HmsSchemaDriftReport noDrift(String db, String table) {
         return new HmsSchemaDriftReport(db, table, false, List.of(), Instant.now());
     }
