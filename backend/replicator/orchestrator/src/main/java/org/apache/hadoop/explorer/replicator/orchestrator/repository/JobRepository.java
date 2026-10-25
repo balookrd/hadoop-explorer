@@ -43,6 +43,31 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
     List<JobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
 
     /**
+     * Корневые задания (без служебных подзадач) для сводки DR — порциями и от новых к старым.
+     *
+     * <p>Сводка читала таблицу заданий целиком и отбрасывала подзадачи метастора в памяти, хотя
+     * именно подзадач десятки тысяч: на сводку уходила вся таблица ради пары сотен строк.
+     */
+    @Query("SELECT j FROM JobEntity j WHERE j.parentJobId IS NULL ORDER BY j.createdAt DESC")
+    List<JobEntity> findRootJobs(org.springframework.data.domain.Pageable pageable);
+
+    @Query("SELECT count(j) FROM JobEntity j WHERE j.parentJobId IS NULL")
+    long countRootJobs();
+
+    /**
+     * Счетчики сводки DR одним агрегатом: активные, замороженные, сбойные задания и объем
+     * непереданных данных. Считается по всем корневым заданиям, поэтому цифры остаются точными,
+     * даже если список маршрутов пришлось ограничить.
+     */
+    @Query("SELECT count(j), "
+            + "coalesce(sum(case when upper(j.status) in ('RUNNING', 'STREAMING') then 1 else 0 end), 0), "
+            + "coalesce(sum(case when upper(j.status) in ('STOPPED', 'CANCELLED') then 1 else 0 end), 0), "
+            + "coalesce(sum(case when upper(j.status) = 'FAILED' then 1 else 0 end), 0), "
+            + "coalesce(sum(case when j.totalBytes > j.copiedBytes then j.totalBytes - j.copiedBytes else 0 end), 0) "
+            + "FROM JobEntity j WHERE j.parentJobId IS NULL")
+    List<Object[]> aggregateRootJobStats();
+
+    /**
      * Задания одного маршрута: кластер-источник и кластер-приемник сравниваются так же, как в
      * {@code matchesCluster} — без регистра, дефисов и подчеркиваний.
      *

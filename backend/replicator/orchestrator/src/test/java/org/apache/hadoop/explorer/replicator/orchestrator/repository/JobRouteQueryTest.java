@@ -139,4 +139,50 @@ class JobRouteQueryTest {
                         .map(HmsReplicationJobEntity::getId).sorted().toList(),
                 "Сравнение идентификатора агента в коде регистронезависимо — запрос должен вести себя так же");
     }
+
+    @Test
+    @DisplayName("Корневые задания отбираются без служебных подзадач")
+    void rootJobsShouldExcludeSubjobs() {
+        JobEntity subjob = job("route-subjob", "dc-1", "dc2");
+        subjob.setParentJobId("route-direct");
+        jobRepository.save(subjob);
+
+        List<String> roots = jobRepository.findRootJobs(
+                        org.springframework.data.domain.PageRequest.of(0, 50)).stream()
+                .map(JobEntity::getId).toList();
+
+        assertFalse(roots.contains("route-subjob"), "Подзадача не является маршрутом сводки");
+        assertEquals(6, jobRepository.countRootJobs(), "Счет корневых заданий не включает подзадачи");
+    }
+
+    @Test
+    @DisplayName("Агрегат сводки считает статусы и непереданные байты")
+    void rootJobStatsShouldAggregateStatusesAndLag() {
+        jobRepository.deleteAll();
+        JobEntity running = job("stats-running", "dc1", "dc2");
+        running.setStatus("RUNNING");
+        running.setTotalBytes(1000L);
+        running.setCopiedBytes(400L);
+        JobEntity stopped = job("stats-stopped", "dc1", "dc2");
+        stopped.setStatus("STOPPED");
+        stopped.setTotalBytes(500L);
+        stopped.setCopiedBytes(500L);
+        JobEntity failed = job("stats-failed", "dc1", "dc2");
+        failed.setStatus("FAILED");
+        failed.setTotalBytes(300L);
+        failed.setCopiedBytes(100L);
+        JobEntity subjob = job("stats-subjob", "dc1", "dc2");
+        subjob.setParentJobId("stats-running");
+        subjob.setStatus("RUNNING");
+        subjob.setTotalBytes(9999L);
+        jobRepository.saveAll(List.of(running, stopped, failed, subjob));
+
+        Object[] stats = jobRepository.aggregateRootJobStats().get(0);
+
+        assertEquals(3L, ((Number) stats[0]).longValue(), "Подзадача в сводку не входит");
+        assertEquals(1L, ((Number) stats[1]).longValue(), "Активных заданий одно");
+        assertEquals(1L, ((Number) stats[2]).longValue(), "Замороженных заданий одно");
+        assertEquals(1L, ((Number) stats[3]).longValue(), "Сбойных заданий одно");
+        assertEquals(800L, ((Number) stats[4]).longValue(), "Непереданные байты: 600 + 0 + 200");
+    }
 }

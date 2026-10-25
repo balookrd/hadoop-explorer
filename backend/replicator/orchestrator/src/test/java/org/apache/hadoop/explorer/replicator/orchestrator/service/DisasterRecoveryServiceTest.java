@@ -100,9 +100,11 @@ class DisasterRecoveryServiceTest {
         job1.setTotalBytes(1000L);
         job1.setCopiedBytes(400L);
 
-        // Сводка DR по-прежнему читает задания целиком: ее агрегация по маршрутам в SQL пока
-        // не переносится (нечеткое сопоставление кластеров в несколько проходов)
-        when(jobRepository.findAll()).thenReturn(List.of(job1));
+        // Сводка берет корневые задания выборкой с пределом, а счетчики — агрегатом
+        when(jobRepository.findRootJobs(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(job1));
+        when(jobRepository.countRootJobs()).thenReturn(1L);
+        when(jobRepository.aggregateRootJobStats())
+                .thenReturn(List.<Object[]>of(new Object[]{1L, 1L, 0L, 0L, 600L}));
         when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
 
         DrStatusResponse status = drService.getDrStatus();

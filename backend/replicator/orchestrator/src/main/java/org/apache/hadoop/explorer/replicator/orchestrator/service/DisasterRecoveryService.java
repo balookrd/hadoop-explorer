@@ -90,6 +90,51 @@ public class DisasterRecoveryService {
 
     private final Map<String, EmergencySnapshot> activeSnapshots = new ConcurrentHashMap<>();
 
+    /**
+     * Предел маршрутов в сводке DR. Счетчики сводки считаются агрегатом по всем корневым
+     * заданиям, поэтому ограничение списка не искажает цифры — обрезается только таблица
+     * маршрутов, и обрезка пишется в лог.
+     */
+    private static final int DR_ROUTES_LIMIT = 2000;
+
+    /**
+     * Ключ маршрута для поиска зеркальной задачи: кластеры сравниваются так же, как в
+     * {@code matchesCluster} — без регистра, дефисов и подчеркиваний. {@code null} означает,
+     * что маршрут неизвестен и сопоставлять его не с чем.
+     */
+    private static String routeKey(String sourceClusterId, String targetClusterId) {
+        if (sourceClusterId == null || targetClusterId == null) {
+            return null;
+        }
+        return normalizeClusterId(sourceClusterId) + "|" + normalizeClusterId(targetClusterId);
+    }
+
+    private static String normalizeClusterId(String clusterId) {
+        return clusterId.toLowerCase().replace("-", "").replace("_", "");
+    }
+
+    /**
+     * Счетчики корневых заданий одним агрегатом: всего, активные, замороженные, сбойные,
+     * объем непереданных байт.
+     */
+    private long[] rootJobStats() {
+        try {
+            List<Object[]> rows = jobRepository.aggregateRootJobStats();
+            if (rows.isEmpty() || rows.get(0) == null) {
+                return new long[5];
+            }
+            Object[] row = rows.get(0);
+            long[] stats = new long[5];
+            for (int i = 0; i < 5; i++) {
+                stats[i] = row[i] instanceof Number n ? n.longValue() : 0L;
+            }
+            return stats;
+        } catch (Exception e) {
+            log.warn("[Disaster Recovery] Не удалось посчитать сводку по заданиям: {}", e.getMessage());
+            return new long[5];
+        }
+    }
+
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
     private final TaskRepository taskRepository;
@@ -334,10 +379,35 @@ public class DisasterRecoveryService {
     public DrStatusResponse getDrStatus() {
         List<AgentResponseDto> agents = agentRegistry.getAgentDtos();
         List<ReplicatorProperties.DatacenterConfig> dcs = topologyRegistry.getDatacenters();
-        List<JobEntity> allJobs = jobRepository.findAll().stream()
-                .filter(j -> j.getParentJobId() == null)
-                .toList();
+        // Сводка показывает корневые задания: служебные подзадачи метастора в маршруты не идут.
+        // Прежний проход читал таблицу целиком и отбрасывал их в памяти, хотя подзадач десятки
+        // тысяч, а маршрутов — сотни. Список ограничен, а счетчики сводки считаются агрегатом,
+        // поэтому цифры остаются точными даже при ограничении списка.
+        List<JobEntity> allJobs = jobRepository.findRootJobs(
+                org.springframework.data.domain.PageRequest.of(0, DR_ROUTES_LIMIT));
+        long totalRootJobs = jobRepository.countRootJobs();
+        if (totalRootJobs > DR_ROUTES_LIMIT) {
+            log.warn("[Disaster Recovery] В сводке показаны {} маршрутов HDFS из {}: предел выборки",
+                    DR_ROUTES_LIMIT, totalRootJobs);
+        }
         List<HmsReplicationJobEntity> allHmsJobs = hmsReplicationJobRepository.findAll();
+
+        // Индекс по маршруту: поиск зеркальной задачи перебирал весь список для каждой задачи,
+        // то есть квадрат от числа маршрутов
+        Map<String, List<JobEntity>> jobsByRoute = new HashMap<>();
+        for (JobEntity j : allJobs) {
+            String key = routeKey(j.getSourceClusterId(), j.getTargetClusterId());
+            if (key != null) {
+                jobsByRoute.computeIfAbsent(key, k -> new ArrayList<>()).add(j);
+            }
+        }
+        Map<String, List<HmsReplicationJobEntity>> hmsByRoute = new HashMap<>();
+        for (HmsReplicationJobEntity h : allHmsJobs) {
+            String key = routeKey(h.getSourceClusterId(), h.getTargetClusterId());
+            if (key != null) {
+                hmsByRoute.computeIfAbsent(key, k -> new ArrayList<>()).add(h);
+            }
+        }
 
         // 1. Статус Дата-Центров
         List<DrStatusResponse.DrDcStatus> dcStatuses = new ArrayList<>();
@@ -457,26 +527,23 @@ public class DisasterRecoveryService {
 
         // 3. Маршруты HDFS
         List<DrStatusResponse.DrRouteItem> hdfsRoutes = new ArrayList<>();
-        long totalUnreplicatedBytes = 0;
-        int activeJobsCount = 0;
-        int frozenJobsCount = 0;
-        int failedJobsCount = 0;
+        // Счетчики считаются по всем корневым заданиям, а не по показанным маршрутам
+        long[] rootStats = rootJobStats();
+        int activeJobsCount = (int) rootStats[1];
+        int frozenJobsCount = (int) rootStats[2];
+        int failedJobsCount = (int) rootStats[3];
+        long totalUnreplicatedBytes = rootStats[4];
 
         for (JobEntity j : allJobs) {
             String status = j.getStatus() != null ? j.getStatus().toUpperCase() : "UNKNOWN";
-            if ("RUNNING".equalsIgnoreCase(status) || "STREAMING".equalsIgnoreCase(status)) activeJobsCount++;
-            if ("STOPPED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status)) frozenJobsCount++;
-            if ("FAILED".equalsIgnoreCase(status)) failedJobsCount++;
-
             long lag = Math.max(0, j.getTotalBytes() - j.getCopiedBytes());
-            totalUnreplicatedBytes += lag;
 
             // Поиск зеркальной обратной задачи
-            Optional<JobEntity> reverse = allJobs.stream()
-                    .filter(rj -> !rj.getId().equals(j.getId())
-                            && matchesCluster(rj.getSourceClusterId(), j.getTargetClusterId())
-                            && matchesCluster(rj.getTargetClusterId(), j.getSourceClusterId())
-                            && matchesReversePath(rj, j))
+            String mirrorKey = routeKey(j.getTargetClusterId(), j.getSourceClusterId());
+            Optional<JobEntity> reverse = (mirrorKey == null ? List.<JobEntity>of()
+                    : jobsByRoute.getOrDefault(mirrorKey, List.of()))
+                    .stream()
+                    .filter(rj -> !rj.getId().equals(j.getId()) && matchesReversePath(rj, j))
                     .findFirst();
 
             boolean isReverseReplica = j.getId().startsWith("rev-")
@@ -515,10 +582,12 @@ public class DisasterRecoveryService {
             long eventLag = h.getEventLag() != null ? h.getEventLag() : 0L;
             totalUnreplicatedEvents += eventLag;
 
-            Optional<HmsReplicationJobEntity> reverseHms = allHmsJobs.stream()
+            String hmsMirrorKey = routeKey(h.getTargetClusterId(), h.getSourceClusterId());
+            Optional<HmsReplicationJobEntity> reverseHms = (hmsMirrorKey == null
+                    ? List.<HmsReplicationJobEntity>of()
+                    : hmsByRoute.getOrDefault(hmsMirrorKey, List.of()))
+                    .stream()
                     .filter(rh -> !rh.getId().equals(h.getId())
-                            && matchesCluster(rh.getSourceClusterId(), h.getTargetClusterId())
-                            && matchesCluster(rh.getTargetClusterId(), h.getSourceClusterId())
                             && Objects.equals(rh.getSourceDbName(), h.getTargetDbName()))
                     .findFirst();
 
