@@ -199,6 +199,9 @@ public class OrchestratorGrpcClient implements Closeable {
             builder.usePlaintext();
         }
 
+        // Трассировка ставится всегда: вызовы агента к оркестратору — начало трассы операции
+        builder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
+
         // L7 Client Interceptor для передачи x-agent-secret
         if (agentSecret != null && !agentSecret.isBlank()) {
             builder.intercept(new ClientInterceptor() {

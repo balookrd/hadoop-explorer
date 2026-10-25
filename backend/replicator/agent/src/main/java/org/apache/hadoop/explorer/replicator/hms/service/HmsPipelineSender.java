@@ -52,7 +52,9 @@ public class HmsPipelineSender implements Closeable {
                 if (agentSecret != null && !agentSecret.isBlank()) {
                     builder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
                 }
-                this.channel = builder.build();
+                builder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
+                builder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
+            this.channel = builder.build();
             } catch (SSLException e) {
                 throw new RuntimeException("Ошибка инициализации TLS контекста для HMS конвейера к " + targetAddress, e);
             }

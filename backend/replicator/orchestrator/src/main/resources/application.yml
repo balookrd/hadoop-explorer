@@ -15,6 +15,15 @@ management:
     metrics:
       export:
         enabled: true
+  tracing:
+    # Трассировка включена всегда: она дает trace_id в логах и traceparent в вызовах gRPC
+    # агентов, то есть позволяет собрать одну операцию из разных процессов.
+    #
+    # Экспорт спанов в коллектор включается отдельно — заданием адреса
+    # MANAGEMENT_OTLP_TRACING_ENDPOINT (например http://otel-collector:4318/v1/traces).
+    # Пока адрес не задан, экспортер не создается и спаны никуда не уходят.
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
 
 spring:
   threads:

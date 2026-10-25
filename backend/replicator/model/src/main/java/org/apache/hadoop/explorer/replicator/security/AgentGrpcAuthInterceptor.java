@@ -22,6 +22,9 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
     public static final Context.Key<String> AGENT_SECRET_CONTEXT_KEY =
             Context.key("x-agent-secret");
 
+    /** Методы стандартного health-протокола gRPC не требуют аутентификации. */
+    private static final String HEALTH_SERVICE_PREFIX = "grpc.health.v1.Health/";
+
     /**
      * Возвращает секрет агента, переданный в текущем gRPC запросе, из gRPC Context.
      */
@@ -63,6 +66,14 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
             Metadata headers,
             ServerCallHandler<ReqT, RespT> next) {
 
+        // Стандартная health-проба освобождена от аутентификации: пробы балансировщика,
+        // kubelet и docker секрета агента не знают, а наблюдают они только SERVING/NOT_SERVING.
+        // Факт, что процесс слушает порт, и без того виден по TCP-соединению.
+        if (isHealthProbe(call.getMethodDescriptor() != null
+                ? call.getMethodDescriptor().getFullMethodName() : null)) {
+            return next.startCall(call, headers);
+        }
+
         String clientSecret = headers.get(AGENT_SECRET_HEADER);
         if (expectedSecret == null || expectedSecret.isBlank()) {
             if (!allowAnonymous) {
@@ -87,6 +98,10 @@ public class AgentGrpcAuthInterceptor implements ServerInterceptor {
 
         Context ctx = Context.current().withValue(AGENT_SECRET_CONTEXT_KEY, clientSecret);
         return Contexts.interceptCall(ctx, call, headers, next);
+    }
+
+    private static boolean isHealthProbe(String fullMethodName) {
+        return fullMethodName != null && fullMethodName.startsWith(HEALTH_SERVICE_PREFIX);
     }
 
     /**

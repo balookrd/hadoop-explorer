@@ -913,6 +913,7 @@ public class ReplicationSender implements AutoCloseable {
             if (agentSecret != null && !agentSecret.isBlank()) {
                 channelBuilder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
             }
+            channelBuilder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
             return channelBuilder
                     .maxInboundMessageSize(64 * 1024 * 1024)
                     .keepAliveTime(30, TimeUnit.SECONDS)
@@ -925,6 +926,7 @@ public class ReplicationSender implements AutoCloseable {
             if (agentSecret != null && !agentSecret.isBlank()) {
                 channelBuilder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
             }
+            channelBuilder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
             return channelBuilder
                     .maxInboundMessageSize(64 * 1024 * 1024)
                     .keepAliveTime(30, TimeUnit.SECONDS)

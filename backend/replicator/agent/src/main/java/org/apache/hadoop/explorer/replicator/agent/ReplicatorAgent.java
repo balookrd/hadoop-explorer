@@ -52,6 +52,10 @@ public class ReplicatorAgent {
     private org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor hmsTaskExecutor;
 
     private Server grpcServer;
+    /** Статус для стандартной health-пробы gRPC: балансировщику, kubelet и docker. */
+    private final org.apache.hadoop.explorer.replicator.telemetry.GrpcHealth health =
+            new org.apache.hadoop.explorer.replicator.telemetry.GrpcHealth();
+    private org.apache.hadoop.explorer.replicator.telemetry.AgentTelemetry telemetry;
     private ScheduledExecutorService heartbeatExecutor;
     private ScheduledExecutorService stagingCleanupExecutor;
     private ExecutorService workerTaskPool;
@@ -170,6 +174,11 @@ public class ReplicatorAgent {
         }
         running.set(true);
 
+        // Трассировка поднимается до первых вызовов, иначе начало работы агента
+        // (регистрация и первый забор задач) в трассу не попадет
+        this.telemetry = org.apache.hadoop.explorer.replicator.telemetry.AgentTelemetry
+                .startIfConfigured("replicator-agent", config.getAgentId(), config.getClusterId());
+
         logger.info("======================================================================");
         logger.info("Старт Replicator Agent (Java 17): id='{}', cluster='{}', mode='{}'",
                 config.getAgentId(), config.getClusterId(), config.getMode());
@@ -233,6 +242,7 @@ public class ReplicatorAgent {
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .addService(receiverService)
+                .addService(health.service())
                 .maxInboundMessageSize(64 * 1024 * 1024);
 
         if (hmsClient != null) {
@@ -242,6 +252,9 @@ public class ReplicatorAgent {
 
         serverBuilder.intercept(
                 org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.forServer(config.getAgentSecret()));
+        // Добавляется последним, поэтому выполняется первым: в трассу попадают и
+        // отклоненные аутентификацией вызовы
+        serverBuilder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.serverInterceptor());
         if (config.getAgentSecret() != null && !config.getAgentSecret().isBlank()) {
             logger.info("Включена gRPC L7 аутентификация по X-Agent-Secret на Receiver сервере");
         } else {
@@ -286,6 +299,8 @@ public class ReplicatorAgent {
         }
 
         this.grpcServer = serverBuilder.build().start();
+        health.serving();
+        health.serving("replicator.DataTransferService");
 
         logger.info("gRPC Receiver сервер успешно запущен и слушает {}:{} (TLS={})",
                 config.getReceiverHost(), config.getReceiverPort(), config.isGrpcTlsEnabled());
@@ -638,11 +653,18 @@ public class ReplicatorAgent {
         }
 
         if (grpcServer != null) {
+            // Проба обязана узнать об остановке до закрытия порта, иначе отправители
+            // продолжат выбирать этот приемник до истечения таймаутов
+            health.shutdown();
             grpcServer.shutdown();
             try {
                 grpcServer.awaitTermination(3, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {}
             logger.info("gRPC Receiver сервер остановлен");
+        }
+
+        if (telemetry != null) {
+            telemetry.close();
         }
 
         if (sender != null) {

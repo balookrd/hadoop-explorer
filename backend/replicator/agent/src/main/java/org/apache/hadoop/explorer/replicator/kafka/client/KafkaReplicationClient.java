@@ -99,9 +99,10 @@ public class KafkaReplicationClient implements Closeable {
 
         for (String ep : endpoints) {
             ManagedChannel ch = createChannel(ep);
+            // Перехватчик трассировки ставится всегда, аутентификация — если секрет задан
             io.grpc.Channel targetChannel = (authInterceptor != null)
-                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
-                    : ch;
+                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor, org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor())
+                    : io.grpc.ClientInterceptors.intercept(ch, org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
             newChannels.add(ch);
             newAsync.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
             newBlocking.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
@@ -192,9 +193,10 @@ public class KafkaReplicationClient implements Closeable {
         List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceStub> newAsync = new ArrayList<>(channels.size());
         List<KafkaDataTransferServiceGrpc.KafkaDataTransferServiceBlockingStub> newBlocking = new ArrayList<>(channels.size());
         for (ManagedChannel ch : channels) {
+            // Перехватчик трассировки ставится всегда, аутентификация — если секрет задан
             io.grpc.Channel targetChannel = (authInterceptor != null)
-                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor)
-                    : ch;
+                    ? io.grpc.ClientInterceptors.intercept(ch, authInterceptor, org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor())
+                    : io.grpc.ClientInterceptors.intercept(ch, org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
             newAsync.add(KafkaDataTransferServiceGrpc.newStub(targetChannel));
             newBlocking.add(KafkaDataTransferServiceGrpc.newBlockingStub(targetChannel));
         }

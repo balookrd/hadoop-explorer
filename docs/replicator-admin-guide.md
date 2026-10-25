@@ -392,6 +392,15 @@ flowchart TD
 - `ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}`
 - `ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}`
 
+> **Пробы живости.** Серверы gRPC (Control Plane оркестратора, приемник агента, приемник
+> Kafka-батчей) отвечают по стандартному протоколу `grpc.health.v1.Health`. Проба не требует
+> `x-agent-secret` — оркестратор контейнеров и балансировщик секрета агента не знают, —
+> а остальные вызовы остаются закрытыми. Проверка контейнера агента выполняется тем же jar-ом:
+> `java -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051`
+> (код возврата 0 — `SERVING`). При остановке статус переводится в терминальное состояние до
+> закрытия порта, чтобы трафик успели увести. Настройка трассировки и экспорта в OTLP описана в
+> разделе 7.1.2 `docs/CONFIGURATION.md`.
+
 ---
 
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)

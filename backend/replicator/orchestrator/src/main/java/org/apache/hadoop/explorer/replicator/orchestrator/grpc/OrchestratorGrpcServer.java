@@ -7,7 +7,10 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
 import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
+import io.opentelemetry.api.OpenTelemetry;
 import org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor;
+import org.apache.hadoop.explorer.replicator.telemetry.GrpcHealth;
+import org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -32,14 +35,21 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
 
     private final ReplicatorProperties properties;
     private final OrchestratorControlPlaneServiceImpl service;
+    private final org.springframework.beans.factory.ObjectProvider<OpenTelemetry> openTelemetryProvider;
+
+    /** Статус для стандартной health-пробы gRPC: балансировщику и контейнеру. */
+    private final GrpcHealth health = new GrpcHealth();
 
     private Server grpcServer;
     private ExecutorService grpcExecutor;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
-    public OrchestratorGrpcServer(ReplicatorProperties properties, OrchestratorControlPlaneServiceImpl service) {
+    public OrchestratorGrpcServer(ReplicatorProperties properties,
+                                  OrchestratorControlPlaneServiceImpl service,
+                                  org.springframework.beans.factory.ObjectProvider<OpenTelemetry> openTelemetryProvider) {
         this.properties = properties;
         this.service = service;
+        this.openTelemetryProvider = openTelemetryProvider;
     }
 
     @Override
@@ -55,10 +65,19 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
 
         this.grpcExecutor = createGrpcExecutor();
 
+        // Перехватчики gRPC работают с тем же экземпляром OpenTelemetry, что и HTTP-слой,
+        // иначе вызовы агентов попали бы в отдельную трассу
+        OpenTelemetry openTelemetry = openTelemetryProvider != null
+                ? openTelemetryProvider.getIfAvailable() : null;
+        if (openTelemetry != null) {
+            GrpcTracing.setOpenTelemetry(openTelemetry);
+        }
+
         try {
             NettyServerBuilder builder = NettyServerBuilder.forPort(port)
                     .executor(grpcExecutor)
                     .addService(service)
+                    .addService(health.service())
                     .maxInboundMessageSize(grpcConfig.getMaxInboundMessageSize())
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS);
@@ -68,6 +87,9 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
             // полностью открыт анонимным агентам.
             String secret = properties.getAgentSecret();
             builder.intercept(AgentGrpcAuthInterceptor.forServer(secret));
+            // Добавляется последним, поэтому выполняется первым: в трассу попадают и
+            // отклоненные аутентификацией вызовы
+            builder.intercept(GrpcTracing.serverInterceptor());
             if (secret != null && !secret.isBlank()) {
                 log.info("Включена gRPC L7 аутентификация по X-Agent-Secret в Control Plane");
             } else {
@@ -107,6 +129,7 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
             }
 
             this.grpcServer = builder.build().start();
+            health.serving();
             isRunning.set(true);
             log.info("==========================================================================");
             log.info("🚀 Orchestrator gRPC Control Plane успешно запущен и слушает порт {}", grpcServer.getPort());
@@ -125,6 +148,9 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
     public void stop() {
         if (grpcServer != null) {
             log.info("Остановка Orchestrator gRPC Control Plane...");
+            // Проба обязана узнать об остановке до закрытия порта, иначе балансировщик
+            // продолжит отправлять вызовы агентов на останавливающийся узел
+            health.shutdown();
             try {
                 grpcServer.shutdown().awaitTermination(5, TimeUnit.SECONDS);
             } catch (InterruptedException e) {

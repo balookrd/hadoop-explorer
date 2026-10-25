@@ -24,8 +24,13 @@ USER appuser
 
 EXPOSE 50051 50052 50053
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD bash -c "</dev/tcp/127.0.0.1/50051" || exit 1
+# Проба по стандартному health-протоколу gRPC тем же jar-ом, что и сам агент:
+# прежняя проверка открывала TCP-соединение, и агент с незапущенным или уже
+# остановленным приемником ее проходил.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD java -XX:TieredStopAtLevel=1 -Xshare:auto -cp /app/replicator-agent.jar \
+        org.apache.hadoop.explorer.replicator.telemetry.GrpcHealthProbeMain \
+        127.0.0.1:${RECEIVER_PORT:-50051} || exit 1
 
 
 ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent.jar"]

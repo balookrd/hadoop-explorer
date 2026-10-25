@@ -36,6 +36,11 @@ management:
     health:
       # Детали состояния компонентов (включая СУБД) не раскрываются анонимно
       show-details: when-authorized
+  tracing:
+    sampling:
+      # В продуктиве вызовов control plane на порядки больше, чем в разработке:
+      # трассируется доля, а не все подряд
+      probability: ${TRACING_SAMPLING_PROBABILITY:0.1}
 
 hadoop:
   security:

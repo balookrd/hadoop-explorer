@@ -67,6 +67,18 @@
             <version>${grpc.version}</version>
         </dependency>
 
+        <!-- Трассировка: micrometer-tracing на OpenTelemetry. Экспорт в OTLP включается
+             заданием management.otlp.tracing.endpoint; без него спаны не уходят никуда,
+             но trace_id в логах и traceparent в вызовах gRPC работают -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -128,6 +140,12 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- InMemorySpanExporter: проверка, что спаны вызовов gRPC действительно создаются -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -162,7 +162,14 @@ public class KafkaReplicatorAgentMain {
         log.info("Запуск kafka-replicator-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, TLS={}, Orchestrator={}]",
                 agentId, role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled(), tlsEnabled, orchestratorGrpc);
 
+        // Трассировка поднимается до первых вызовов, иначе первые батчи и регистрация
+        // в оркестраторе в трассу не попадут
+        final var telemetry = org.apache.hadoop.explorer.replicator.telemetry.AgentTelemetry
+                .startIfConfigured("kafka-replicator-agent", agentId, dcId);
+
         Server server = null;
+        // Статус для стандартной health-пробы gRPC: нужен и при старте, и при остановке
+        final var health = new org.apache.hadoop.explorer.replicator.telemetry.GrpcHealth();
         KafkaProducer<byte[], byte[]> producer = null;
         AdminClient adminClient = null;
         KafkaConsumer<byte[], byte[]> resolverConsumer = null;
@@ -194,6 +201,7 @@ public class KafkaReplicatorAgentMain {
 
             var serverBuilder = ServerBuilder.forPort(port)
                     .addService(service)
+                    .addService(health.service())
                     .maxInboundMessageSize(64 * 1024 * 1024);
 
             if (tlsEnabled) {
@@ -208,6 +216,9 @@ public class KafkaReplicatorAgentMain {
             // Интерцептор ставится всегда: без него приемник Kafka-батчей принимал бы
             // анонимную запись в целевые топики и коммит оффсетов чужих групп.
             serverBuilder.intercept(AgentGrpcAuthInterceptor.forServer(agentSecret));
+            // Добавляется последним, поэтому выполняется первым: в трассу попадают и
+            // отклоненные аутентификацией вызовы
+            serverBuilder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.serverInterceptor());
             if (agentSecret != null && !agentSecret.isBlank()) {
                 log.info("Включена gRPC L7 аутентификация сервера через x-agent-secret");
             } else {
@@ -216,6 +227,8 @@ public class KafkaReplicatorAgentMain {
             }
 
             server = serverBuilder.build().start();
+            health.serving();
+            health.serving("replicator.kafka.KafkaDataTransferService");
 
             log.info("gRPC сервер kafka-replicator-agent успешно запущен на порту {}", port);
         }
@@ -413,10 +426,16 @@ public class KafkaReplicatorAgentMain {
                     finalClient.close();
                 }
                 if (finalServer != null) {
+                    // Проба обязана узнать об остановке до закрытия порта, иначе отправители
+                    // продолжат отсылать батчи на останавливающийся узел
+                    health.shutdown();
                     finalServer.shutdown().awaitTermination(5, TimeUnit.SECONDS);
                 }
                 if (finalProducer != null) {
                     finalProducer.close();
+                }
+                if (telemetry != null) {
+                    telemetry.close();
                 }
                 if (finalAdminClient != null) {
                     finalAdminClient.close();
