@@ -28,7 +28,8 @@ class KafkaJobPoolManagerTest {
     /** Запрошенные у фабрики параметры пула: по ним видно изоляцию задач. */
     private record PoolRequest(String groupId, List<String> topics, List<String> endpoints,
                                int consumerThreads, int batchSize, String targetDc,
-                               int offsetSyncIntervalSec, boolean schemaTranscoding) {}
+                               int offsetSyncIntervalSec, boolean schemaTranscoding,
+                               String sourceSrUrl, String targetSrUrl) {}
 
     private final List<PoolRequest> requests = new ArrayList<>();
     private final Map<String, KafkaBatchConsumerPool> pools = new ConcurrentHashMap<>();
@@ -41,7 +42,8 @@ class KafkaJobPoolManagerTest {
         manager = new KafkaJobPoolManager("dc1", (spec) -> {
             requests.add(new PoolRequest(spec.groupId(), spec.topics(), spec.targetEndpoints(),
                     spec.consumerThreads(), spec.batchSize(), spec.targetDc(),
-                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding()));
+                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding(),
+                    spec.sourceSchemaRegistryUrl(), spec.targetSchemaRegistryUrl()));
             KafkaBatchConsumerPool pool = mock(KafkaBatchConsumerPool.class);
             pools.put(spec.jobId(), pool);
             // Перенос смещений в этих сценариях не участвует: проверяется жизненный цикл пулов
@@ -195,6 +197,50 @@ class KafkaJobPoolManagerTest {
                 "Задача без интервала не включает перенос смещений");
         assertFalse(plain.schemaTranscoding(),
                 "Задача без флага не включает транскодинг: настройки задач не смешиваются");
+    }
+
+    @Test
+    @DisplayName("Реестр схем приезжает в задаче из топологии и доходит до пула")
+    void testSchemaRegistryFromJobReachesThePool() {
+        KafkaJobItemProto withRegistry = job("job-sr", "dc2", List.of("orders"),
+                List.of("dc2-a:50052"), 2, 500).toBuilder()
+                .setSchemaTranscoding(true)
+                .setSourceSchemaRegistryUrl("http://sr-dc1:8081")
+                .setSourceSchemaRegistryType("HORTONWORKS")
+                .setTargetSchemaRegistryUrl("http://sr-dc2:8081")
+                .setTargetSchemaRegistryType("CONFLUENT")
+                .build();
+
+        manager.sync(List.of(withRegistry));
+
+        PoolRequest request = requests.get(0);
+        assertEquals("http://sr-dc1:8081", request.sourceSrUrl(),
+                "Реестр источника обязан дойти до пула: иначе агент берет его из своего "
+                        + "окружения, а выбор кластера в интерфейсе ни на что не влияет");
+        assertEquals("http://sr-dc2:8081", request.targetSrUrl());
+    }
+
+    @Test
+    @DisplayName("Смена реестра в топологии пересоздает конвейер задачи")
+    void testChangedRegistryRecreatesPipeline() {
+        KafkaJobItemProto before = job("job-sr-switch", "dc2", List.of("orders"),
+                List.of("dc2-a:50052"), 2, 500).toBuilder()
+                .setSchemaTranscoding(true)
+                .setSourceSchemaRegistryUrl("http://sr-dc1:8081")
+                .setTargetSchemaRegistryUrl("http://sr-dc2:8081")
+                .build();
+        manager.sync(List.of(before));
+        KafkaBatchConsumerPool firstPool = pools.get("job-sr-switch");
+
+        KafkaJobItemProto after = before.toBuilder()
+                .setTargetSchemaRegistryUrl("http://sr-dc2-new:8081")
+                .build();
+        manager.sync(List.of(after));
+
+        verify(firstPool).close();
+        assertEquals("http://sr-dc2-new:8081", requests.get(1).targetSrUrl(),
+                "Резолвер схем создается вместе с пулом, поэтому смена реестра обязана "
+                        + "пересоздать конвейер, а не остаться без эффекта");
     }
 
     @Test

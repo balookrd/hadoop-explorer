@@ -363,6 +363,44 @@ public class OrchestratorControlPlaneServiceTest {
     }
 
     @Test
+    @DisplayName("Реестр схем берется из топологии выбранных кластеров, а не из задачи")
+    void testGetActiveKafkaJobsCarriesSchemaRegistryFromTopology() {
+        ReplicatorProperties.ClusterConfig source = new ReplicatorProperties.ClusterConfig();
+        source.setId("dc1");
+        source.setDcId("dc1");
+        source.setSchemaRegistryUrl("http://sr-dc1:8081");
+        source.setSchemaRegistryType("HORTONWORKS");
+        ReplicatorProperties.ClusterConfig target = new ReplicatorProperties.ClusterConfig();
+        target.setId("dc2");
+        target.setDcId("dc2");
+        target.setSchemaRegistryUrl("http://sr-dc2:8081");
+        target.setSchemaRegistryType("CONFLUENT");
+        when(topologyRegistry.getCluster("dc1")).thenReturn(Optional.of(source));
+        when(topologyRegistry.getCluster("dc2")).thenReturn(Optional.of(target));
+
+        KafkaReplicationJobDto job = new KafkaReplicationJobDto();
+        job.setId("job-kafka-sr");
+        job.setName("SR from topology");
+        job.setSourceDc("dc1");
+        job.setTargetDc("dc2");
+        job.setDirection("PUSH");
+        job.setStatus("ACTIVE");
+        job.setSchemaTranscodingEnabled(true);
+        when(kafkaOrchestratorService.getActiveJobsForDc("dc1")).thenReturn(List.of(job));
+
+        KafkaJobItemProto item = stub.getActiveKafkaJobs(GetActiveKafkaJobsRequest.newBuilder()
+                .setDcId("dc1")
+                .build()).getJobs(0);
+
+        assertEquals("http://sr-dc1:8081", item.getSourceSchemaRegistryUrl(),
+                "Выбор кластера обязан приносить его реестр схем: адрес задается в конфигурации "
+                        + "топологии, а не в задаче");
+        assertEquals("HORTONWORKS", item.getSourceSchemaRegistryType());
+        assertEquals("http://sr-dc2:8081", item.getTargetSchemaRegistryUrl());
+        assertEquals("CONFLUENT", item.getTargetSchemaRegistryType());
+    }
+
+    @Test
     @DisplayName("Интервал переноса смещений и транскодинг схем доезжают до агента в задаче")
     void testGetActiveKafkaJobsCarriesPerJobOffsetSyncAndTranscoding() {
         KafkaReplicationJobDto job = new KafkaReplicationJobDto();

@@ -154,9 +154,9 @@
   let enableSchemaTranscoding = $state(true);
   let sourceSrType = $state('HORTONWORKS');
   let targetSrType = $state('CONFLUENT');
-  let sourceSrUrl = $state('http://schema-registry-1:8081');
-  let targetSrUrl = $state('http://schema-registry-2:8082');
-  let enableSrKerberos = $state(true);
+  // Заполняются из топологии при выборе кластеров; показываются только для сведения
+  let sourceSrUrl = $state('');
+  let targetSrUrl = $state('');
 
   // Kerberos Kafka
   let enableKerberos = $state(true);
@@ -643,8 +643,6 @@
       targetSrType,
       sourceSrUrl,
       targetSrUrl,
-      sourceSrKerberosEnabled: enableSchemaTranscoding && enableSrKerberos,
-      targetSrKerberosEnabled: enableSchemaTranscoding && enableSrKerberos,
       sourceKerberosEnabled: enableKerberos,
       sourcePrincipal,
       sourceKeytabPath,
@@ -1316,42 +1314,42 @@
             </label>
 
             {#if enableSchemaTranscoding}
+              <!--
+                Адреса реестров не выбираются на задачу: это инфраструктура кластера, а не
+                свойство репликации. Агент берет их из своей конфигурации узла
+                (SOURCE_SCHEMA_REGISTRY_URL / TARGET_SCHEMA_REGISTRY_URL), а здесь показано,
+                что известно о выбранных кластерах из топологии. Раньше тут были поля ввода,
+                которые никуда не доезжали.
+              -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">Реестр источника (Source SR):</label>
-                  <select bind:value={sourceSrType} class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium">
-                    <option value="HORTONWORKS">Hortonworks / Cloudera SR</option>
-                    <option value="CONFLUENT">Confluent Schema Registry</option>
-                  </select>
-                  <input
-                    type="text"
-                    bind:value={sourceSrUrl}
-                    placeholder="http://schema-registry-1:8081"
-                    class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
-                  />
+                <div class="text-xs">
+                  <div class="text-[11px] font-medium text-slate-500 mb-1">Реестр источника (из топологии):</div>
+                  <div class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300">
+                    {#if sourceSrUrl}
+                      <span class="font-mono">{sourceSrUrl}</span>
+                      <span class="text-slate-500"> · {sourceSrType}</span>
+                    {:else}
+                      <span class="text-slate-500">не задан в топологии кластера</span>
+                    {/if}
+                  </div>
                 </div>
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-500 mb-1">Реестр приемника (Target SR):</label>
-                  <select bind:value={targetSrType} class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium">
-                    <option value="CONFLUENT">Confluent Schema Registry</option>
-                    <option value="HORTONWORKS">Hortonworks / Cloudera SR</option>
-                  </select>
-                  <input
-                    type="text"
-                    bind:value={targetSrUrl}
-                    placeholder="http://schema-registry-2:8082"
-                    class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
-                  />
+                <div class="text-xs">
+                  <div class="text-[11px] font-medium text-slate-500 mb-1">Реестр приемника (из топологии):</div>
+                  <div class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300">
+                    {#if targetSrUrl}
+                      <span class="font-mono">{targetSrUrl}</span>
+                      <span class="text-slate-500"> · {targetSrType}</span>
+                    {:else}
+                      <span class="text-slate-500">не задан в топологии кластера</span>
+                    {/if}
+                  </div>
                 </div>
               </div>
-              <div class="pt-1">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" bind:checked={enableSrKerberos} class="rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
-                  <span class="text-[11px] text-slate-600 dark:text-slate-400">
-                    Керберизованный Schema Registry (SPNEGO / HTTP Negotiate Kerberos)
-                  </span>
-                </label>
-              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                Галочка включает транскодинг для этой задачи и доезжает до агента. Адреса реестров
+                и аутентификация к ним задаются конфигурацией узла агента: задача, указывающая
+                произвольный реестр, направляла бы запросы схем куда угодно.
+              </p>
             {/if}
           </div>
 

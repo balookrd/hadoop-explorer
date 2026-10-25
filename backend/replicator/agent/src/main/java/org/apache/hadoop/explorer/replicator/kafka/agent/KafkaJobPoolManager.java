@@ -42,7 +42,11 @@ public class KafkaJobPoolManager implements Closeable {
             int batchSize,
             double bandwidthLimitMb,
             int offsetSyncIntervalSec,
-            boolean schemaTranscoding
+            boolean schemaTranscoding,
+            String sourceSchemaRegistryUrl,
+            String sourceSchemaRegistryType,
+            String targetSchemaRegistryUrl,
+            String targetSchemaRegistryType
     ) {}
 
     /**
@@ -56,7 +60,8 @@ public class KafkaJobPoolManager implements Closeable {
     /** Состояние запущенной задачи: пул и то, по чему видно необходимость обновления. */
     private record JobRuntime(JobPipeline pipeline, List<String> topics,
                               List<String> endpoints, double bandwidthLimitMb,
-                              int offsetSyncIntervalSec, boolean schemaTranscoding) {
+                              int offsetSyncIntervalSec, boolean schemaTranscoding,
+                              String registrySignature) {
         KafkaBatchConsumerPool pool() {
             return pipeline.pool();
         }
@@ -139,7 +144,11 @@ public class KafkaJobPoolManager implements Closeable {
                 Math.max(1, job.getBatchSize()),
                 job.getBandwidthLimitMb(),
                 Math.max(0, job.getOffsetSyncIntervalSec()),
-                job.getSchemaTranscoding()
+                job.getSchemaTranscoding(),
+                job.getSourceSchemaRegistryUrl(),
+                job.getSourceSchemaRegistryType(),
+                job.getTargetSchemaRegistryUrl(),
+                job.getTargetSchemaRegistryType()
         );
 
         JobPipeline pipeline;
@@ -156,7 +165,7 @@ public class KafkaJobPoolManager implements Closeable {
         try {
             pipeline.pool().start();
             runtimes.put(jobId, new JobRuntime(pipeline, topics, endpoints, spec.bandwidthLimitMb(),
-                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding()));
+                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding(), registrySignature(job)));
             log.info("Задача '{}' запущена: группа '{}', топики {}, приемники {}, потоков {}",
                     jobId, spec.groupId(), topics, endpoints, spec.consumerThreads());
         } catch (Exception e) {
@@ -171,8 +180,10 @@ public class KafkaJobPoolManager implements Closeable {
         // настройки нельзя поменять на живом пуле: задача пересоздается целиком.
         int offsetSyncInterval = Math.max(0, job.getOffsetSyncIntervalSec());
         boolean transcoding = job.getSchemaTranscoding();
+        String registries = registrySignature(job);
         if (offsetSyncInterval != existing.offsetSyncIntervalSec()
-                || transcoding != existing.schemaTranscoding()) {
+                || transcoding != existing.schemaTranscoding()
+                || !registries.equals(existing.registrySignature())) {
             log.info("Задача '{}': изменились настройки конвейера (перенос смещений {} -> {} с, "
                             + "транскодинг {} -> {}), пул пересоздается",
                     jobId, existing.offsetSyncIntervalSec(), offsetSyncInterval,
@@ -193,7 +204,8 @@ public class KafkaJobPoolManager implements Closeable {
         }
         runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints,
                 limit > 0 ? limit : existing.bandwidthLimitMb(),
-                existing.offsetSyncIntervalSec(), existing.schemaTranscoding()));
+                existing.offsetSyncIntervalSec(), existing.schemaTranscoding(),
+                existing.registrySignature()));
     }
 
     private void stopJob(String jobId) {
@@ -229,6 +241,12 @@ public class KafkaJobPoolManager implements Closeable {
      * <p>Идентификатор задачи входит в имя группы: именно это дает независимую вычитку
      * топика, присутствующего в нескольких задачах.
      */
+    /** Реестры задачи одной строкой: по ней видно, нужно ли пересоздавать транскодер. */
+    private static String registrySignature(KafkaJobItemProto job) {
+        return job.getSourceSchemaRegistryUrl() + "|" + job.getSourceSchemaRegistryType()
+                + "->" + job.getTargetSchemaRegistryUrl() + "|" + job.getTargetSchemaRegistryType();
+    }
+
     private String consumerGroupFor(String jobId) {
         return "kafka-replicator-" + localDcId + "-" + jobId;
     }

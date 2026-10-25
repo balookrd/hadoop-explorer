@@ -402,6 +402,11 @@ message KafkaJobItemProto {
   int32 offset_sync_interval_sec = 15;
   // Транскодинг форматов полезной нагрузки для этой задачи
   bool schema_transcoding = 16;
+  // Реестры схем кластеров задачи: берутся из топологии оркестратора, а не из самой задачи
+  string source_schema_registry_url = 17;
+  string source_schema_registry_type = 18;
+  string target_schema_registry_url = 19;
+  string target_schema_registry_type = 20;
 }
 
 message GetActiveKafkaJobsResponse {

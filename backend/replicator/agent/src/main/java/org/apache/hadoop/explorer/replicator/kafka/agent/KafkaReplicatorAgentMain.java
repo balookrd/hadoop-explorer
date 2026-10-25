@@ -500,6 +500,10 @@ public class KafkaReplicatorAgentMain {
     }
 
 
+    private static String firstNonBlank(String preferred, String fallback) {
+        return (preferred != null && !preferred.isBlank()) ? preferred : fallback;
+    }
+
     private static long parseLongOrDefault(String value, long fallback) {
         if (value == null || value.isBlank()) {
             return fallback;
@@ -621,10 +625,18 @@ public class KafkaReplicatorAgentMain {
 
             // Транскодинг схем и формат — настройки самой задачи: интерфейс задает их на задачу,
             // а адреса реестров остаются конфигурацией узла
+            // Реестры приходят от оркестратора из топологии выбранных кластеров; переменные
+            // окружения узла остаются запасным вариантом для топиков из командной строки
+            String jobSourceSrUrl = firstNonBlank(spec.sourceSchemaRegistryUrl(), sourceSrUrl);
+            String jobSourceSrType = firstNonBlank(spec.sourceSchemaRegistryType(), sourceSrType);
+            String jobTargetSrUrl = firstNonBlank(spec.targetSchemaRegistryUrl(), targetSrUrl);
+            String jobTargetSrType = firstNonBlank(spec.targetSchemaRegistryType(), targetSrType);
+
             org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver =
                     spec.schemaTranscoding()
                             ? org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
-                                    sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig)
+                                    jobSourceSrUrl, jobSourceSrType, jobTargetSrUrl, jobTargetSrType,
+                                    krbConfig, krbConfig)
                             : org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
                                     .passthroughResolver();
             org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat =

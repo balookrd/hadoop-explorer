@@ -689,6 +689,13 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setOffsetSyncIntervalSec(job.getOffsetSyncIntervalSec() != null
                                 ? job.getOffsetSyncIntervalSec() : 0)
                         .setSchemaTranscoding(job.isSchemaTranscodingEnabled())
+                        // Реестры схем берутся из топологии выбранных кластеров: это
+                        // инфраструктура, задаваемая администратором в конфигурации, а не поле
+                        // задачи. Выбор кластера в интерфейсе приносит его реестр сам.
+                        .setSourceSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getTargetDc() : job.getSourceDc()))
+                        .setSourceSchemaRegistryType(schemaRegistryType(isReverse ? job.getTargetDc() : job.getSourceDc()))
+                        .setTargetSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getSourceDc() : job.getTargetDc()))
+                        .setTargetSchemaRegistryType(schemaRegistryType(isReverse ? job.getSourceDc() : job.getTargetDc()))
                         .build();
 
                 respBuilder.addJobs(item);
@@ -700,5 +707,39 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             log.error("Ошибка gRPC getActiveKafkaJobs для DC '{}': {}", request.getDcId(), e.getMessage(), e);
             responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
         }
+    }
+
+    /** Адрес реестра схем кластера указанного ЦОД из конфигурации топологии. */
+    private String schemaRegistryUrl(String dcOrClusterId) {
+        return clusterOf(dcOrClusterId)
+                .map(org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig::getSchemaRegistryUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .orElse("");
+    }
+
+    /** Тип реестра схем кластера указанного ЦОД (CONFLUENT или HORTONWORKS). */
+    private String schemaRegistryType(String dcOrClusterId) {
+        return clusterOf(dcOrClusterId)
+                .map(org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig::getSchemaRegistryType)
+                .filter(type -> type != null && !type.isBlank())
+                .orElse("");
+    }
+
+    private java.util.Optional<org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig>
+            clusterOf(String dcOrClusterId) {
+        if (dcOrClusterId == null || dcOrClusterId.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        // Идентификаторы кластера и ЦОД в типовой конфигурации совпадают; если нет —
+        // берется кластер, привязанный к этому ЦОД
+        java.util.Optional<org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig> direct =
+                topologyRegistry.getCluster(dcOrClusterId);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        return topologyRegistry.getClusters().stream()
+                .filter(dto -> dcOrClusterId.equalsIgnoreCase(dto.getDcId()))
+                .findFirst()
+                .flatMap(dto -> topologyRegistry.getCluster(dto.getId()));
     }
 }
