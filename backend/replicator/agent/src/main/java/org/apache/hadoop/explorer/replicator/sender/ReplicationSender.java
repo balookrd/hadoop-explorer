@@ -318,6 +318,9 @@ public class ReplicationSender implements AutoCloseable {
         if ("BUNDLE_TAR".equalsIgnoreCase(task.getTaskType())) {
             return transferBundleTarTask(task);
         }
+        if (DELETE_TASK_TYPE.equalsIgnoreCase(task.getTaskType())) {
+            return executeDeleteTask(task);
+        }
 
         String taskId = task.getId();
         String jobId = task.getJobId();
@@ -939,6 +942,61 @@ public class ReplicationSender implements AutoCloseable {
     private TaskCreateItem createBundleTaskItem(String baseSourcePath, String baseTargetPath,
                                                 List<HadoopFsManager.FileItem> bundleFiles, long totalBytes) {
         return diffEngine.createBundleTaskItem(baseSourcePath, baseTargetPath, bundleFiles, totalBytes);
+    }
+
+    /** Тип задачи, который исполняется удалением пути на приемнике. */
+    public static final String DELETE_TASK_TYPE = "DELETE";
+
+    /**
+     * Исполнение задачи удаления: путь удаляется на приемнике, байты не передаются.
+     *
+     * <p>Задачи этого типа ставит обработчик inotify при включенной репликации удалений. Пока
+     * воркер их не исполнял, файл, удаленный на источнике, оставался на приемнике навсегда.
+     *
+     * <p>Отказ приемника (защита системных путей, песочница, занятый путь) считается неуспехом:
+     * иначе задача закрылась бы успешно, а путь остался бы на месте.
+     */
+    public boolean executeDeleteTask(TaskItemDto task) {
+        String targetAddress = task.getTargetAddress();
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new IllegalArgumentException("Целевой gRPC адрес репликации не указан для удаления "
+                    + task.getId());
+        }
+        try {
+            ManagedChannel channel = getOrCreateChannel(targetAddress);
+            DeletePathResponse response = DataTransferServiceGrpc.newBlockingStub(channel)
+                    .withDeadlineAfter(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .deletePath(DeletePathRequest.newBuilder()
+                            .setJobId(task.getJobId() != null ? task.getJobId() : "")
+                            .setPath(task.getTargetPath())
+                            // Удаляется файл или каталог партиции: рекурсивно, иначе непустой
+                            // каталог останется на приемнике
+                            .setRecursive(true)
+                            .setExecutionPrincipal(task.getExecutionPrincipal() != null
+                                    ? task.getExecutionPrincipal() : "")
+                            .setRunAsServiceAccount(Boolean.TRUE.equals(task.getRunAsServiceAccount()))
+                            .build());
+
+            if (response != null && response.getSuccess()) {
+                logger.info("[Worker {}] Удален путь на приемнике по задаче {}: '{}'",
+                        workerId, task.getId(), task.getTargetPath());
+                orchestratorClient.completeTask(new CompleteTaskRequest(task.getId(), workerId, 0L, null));
+                return true;
+            }
+
+            String reason = response != null ? response.getMessage() : "пустой ответ приемника";
+            logger.error("[Worker {}] Приемник не удалил путь '{}' по задаче {}: {}",
+                    workerId, task.getTargetPath(), task.getId(), reason);
+            orchestratorClient.failTask(new FailTaskRequest(task.getId(), workerId,
+                    "Удаление не выполнено: " + reason));
+            return false;
+        } catch (Exception e) {
+            evictChannel(targetAddress);
+            logger.error("[Worker {}] Исключение при удалении пути '{}' по задаче {}: {}",
+                    workerId, task.getTargetPath(), task.getId(), e.getMessage(), e);
+            orchestratorClient.failTask(new FailTaskRequest(task.getId(), workerId, e.getMessage()));
+            return false;
+        }
     }
 
     /**

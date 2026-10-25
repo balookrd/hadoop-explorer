@@ -426,6 +426,7 @@ public class OrchestratorGrpcClient implements Closeable {
                 dto.setCopiedBytes(job.getProcessedBytes());
                 dto.setMessage(job.getMessage());
                 dto.setSyncMode(job.getSyncMode());
+                dto.setSyncDeletes(job.getSyncDeletes());
                 result.add(dto);
             }
             return result;

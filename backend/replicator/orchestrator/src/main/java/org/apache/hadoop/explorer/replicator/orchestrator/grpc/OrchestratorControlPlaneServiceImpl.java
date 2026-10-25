@@ -448,6 +448,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setRunAsServiceAccount(job.runAsServiceAccount())
                         .setJobType(job.jobType() != null ? job.jobType() : "HDFS")
                         .setParentJobId(job.parentJobId() != null ? job.parentJobId() : "")
+                        .setSyncDeletes(job.syncDeletes())
                         .build());
             }
 

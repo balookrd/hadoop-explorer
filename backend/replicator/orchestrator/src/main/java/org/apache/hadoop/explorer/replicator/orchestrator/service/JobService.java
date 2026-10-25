@@ -127,6 +127,9 @@ public class JobService {
                 );
             }
             entity.setSyncMode("STREAMING_INOTIFY");
+            // Репликация удалений имеет смысл только в потоковом режиме: именно inotify видит
+            // события удаления на источнике
+            entity.setSyncDeletes(Boolean.TRUE.equals(req.syncDeletes()));
             entity.setScheduled(false);
             entity.setStatus("STREAMING");
             entity.setMessage("Потоковая репликация HDFS Inotify активна");

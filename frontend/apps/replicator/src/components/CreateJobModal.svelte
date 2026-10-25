@@ -31,6 +31,8 @@
   let newJobSyncMode = $state<SyncMode>('MANUAL');
   let newJobCronPreset = $state('@every_5m');
   let newJobHistoryRetention = $state<number>(20);
+  // Удаление данных на приемнике необратимо, поэтому по умолчанию выключено
+  let newJobSyncDeletes = $state(false);
   let createJobError = $state<string | null>(null);
   let isSubmittingJob = $state(false);
 
@@ -82,6 +84,7 @@
         execution_principal: executionPrincipal,
         is_scheduled: isScheduled,
         sync_mode: newJobSyncMode,
+        sync_deletes: newJobSyncMode === 'STREAMING_INOTIFY' && newJobSyncDeletes,
         history_retention_runs: Number(newJobHistoryRetention) || 20,
       };
 
@@ -335,6 +338,20 @@
               <p class="text-[10px] text-slate-500 dark:text-slate-400">
                 Стример перехватывает операции Create/Close/Rename в реальном времени. Временные staging-каталоги игнорируются до финального перемещения.
               </p>
+              <label class="flex items-start gap-2 cursor-pointer pt-1.5 border-t border-purple-200/60 dark:border-purple-800/40">
+                <input
+                  type="checkbox"
+                  bind:checked={newJobSyncDeletes}
+                  class="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span class="text-[11px] text-slate-700 dark:text-slate-300">
+                  <span class="font-semibold">Реплицировать удаления</span>
+                  <span class="block text-[10px] text-slate-500 dark:text-slate-400">
+                    Файл, удаленный на источнике, будет удален и на приемнике. Без флага приемник
+                    хранит удаленные данные, и состояния ЦОД расходятся. Удаление необратимо.
+                  </span>
+                </span>
+              </label>
             </div>
           {/if}
         </div>

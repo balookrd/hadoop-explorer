@@ -207,6 +207,7 @@ create table replication_jobs (
     failed_objects integer not null,
     history_retention_runs integer not null,
     is_scheduled boolean not null,
+    sync_deletes boolean not null,
     run_as_service_account boolean not null,
     skipped_objects integer not null,
     total_objects integer not null,

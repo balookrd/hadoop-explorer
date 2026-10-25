@@ -38,6 +38,7 @@ public record JobResponse(
     @JsonProperty("job_type") String jobType,
     @JsonProperty("parent_job_id") String parentJobId,
     @JsonProperty("sync_mode") String syncMode,
+    @JsonProperty("sync_deletes") boolean syncDeletes,
     @JsonProperty("last_processed_txid") Long lastProcessedTxid,
     @JsonProperty("txid_lag") Long txidLag,
     @JsonProperty("streamer_online") Boolean streamerOnline
@@ -56,7 +57,7 @@ public record JobResponse(
              progressPercent, averageSpeedMbS, totalObjects, transferredObjects, skippedObjects, failedObjects,
              runAsServiceAccount, executionPrincipal, createdBy, isScheduled, cronExpression, nextRunAt, lastRunAt,
              message, createdAt, updatedAt, startedAt, completedAt, activeRunId, historyRetentionRuns, runsCount,
-             jobType, parentJobId, syncMode, lastProcessedTxid, txidLag, null);
+             jobType, parentJobId, syncMode, false, lastProcessedTxid, txidLag, null);
     }
 
     public static JobResponse fromEntity(JobEntity entity) {
@@ -107,6 +108,7 @@ public record JobResponse(
             entity.getJobType(),
             entity.getParentJobId(),
             entity.getSyncMode(),
+            entity.isSyncDeletes(),
             entity.getLastProcessedTxid(),
             entity.getTxidLag(),
             streamerOnline

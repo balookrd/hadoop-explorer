@@ -43,7 +43,11 @@ public record CreateJobRequest(
     String parentJobId,
 
     @JsonProperty("sync_mode")
-    String syncMode
+    String syncMode,
+
+    /** Реплицировать удаления с источника на приемник (только для потокового режима inotify). */
+    @JsonProperty("sync_deletes")
+    Boolean syncDeletes
 ) {
     public CreateJobRequest {
         if (totalBytes == null) totalBytes = 0L;
@@ -55,6 +59,20 @@ public record CreateJobRequest(
         if (syncMode == null) {
             syncMode = Boolean.TRUE.equals(isScheduled) ? "SCHEDULED" : "MANUAL";
         }
+        // Удаление данных на приемнике по умолчанию выключено: его включает оператор осознанно
+        if (syncDeletes == null) syncDeletes = false;
+    }
+
+    /** Совместимость с вызовами без флага репликации удалений. */
+    public CreateJobRequest(
+        String sourcePath, String targetPath, String sourceClusterId, String targetClusterId,
+        Long totalBytes, String executionPrincipal, Boolean runAsServiceAccount, Boolean isScheduled,
+        String cronExpression, Integer historyRetentionRuns, String jobType, String parentJobId,
+        String syncMode
+    ) {
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal,
+                runAsServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType,
+                parentJobId, syncMode, false);
     }
 
     public CreateJobRequest(

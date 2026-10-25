@@ -60,6 +60,9 @@ public class InotifyBatchProcessor implements AutoCloseable {
 
     private final BlockingQueue<QueuedInotifyTask> taskQueue;
     private final AtomicInteger currentQueueSize = new AtomicInteger(0);
+    /** Тип задачи, который приемник исполняет удалением пути вместо приема байт. */
+    public static final String DELETE_TASK_TYPE = "DELETE";
+
     private volatile boolean queueSaturated = false;
     private volatile boolean orchestratorSaturated = false;
 
@@ -144,7 +147,10 @@ public class InotifyBatchProcessor implements AutoCloseable {
                 if (InotifyPathFilter.matchesJobPrefix(path, srcPrefix) && !InotifyPathFilter.isStagedPath(path)) {
                     log.info("[Inotify Unlink] Удаление пути: '{}' (txid {})", path, txid);
                     if (job.isSyncDeletes()) {
-                        enqueueDelete(job, path);
+                        totalQueued += enqueueDelete(job, path, txid, lag);
+                    } else {
+                        log.debug("[Inotify Unlink] Репликация удалений для задачи {} выключена: "
+                                + "путь '{}' на приемнике сохраняется", job.getId(), path);
                     }
                     if (flushIntervalMs <= 0) {
                         orchestratorClient.updateJobStreamingTxid(job.getId(), txid, lag);
@@ -257,8 +263,28 @@ public class InotifyBatchProcessor implements AutoCloseable {
         return offerTask(job.getId(), item, txid, lag) ? 1 : 0;
     }
 
-    private void enqueueDelete(JobDto job, String deletedPath) {
-        log.debug("[Inotify SyncDelete] Постановка задачи удаления: {}", deletedPath);
+    /**
+     * Постановка задачи удаления соответствующего пути на приемнике.
+     *
+     * <p>Раньше метод только писал в журнал на уровне debug: при включенном
+     * {@code syncDeletes} удаления не реплицировались никогда, и файл, удаленный на источнике,
+     * оставался на приемнике навсегда — состояния двух ЦОД расходились молча.
+     *
+     * <p>Задача отличается типом {@code DELETE}: приемнику нужно удалить путь, а не ждать байты.
+     * Размер нулевой, повторы наследуются от задания.
+     */
+    public int enqueueDelete(JobDto job, String deletedPath, long txid, long lag) {
+        String targetPath = computeTargetPath(job, deletedPath);
+        if (targetPath == null || targetPath.isBlank()) {
+            log.warn("[Inotify SyncDelete] Не удалось вычислить путь приемника для '{}': удаление пропущено",
+                    deletedPath);
+            return 0;
+        }
+        TaskCreateItem item = new TaskCreateItem(null, deletedPath, targetPath, 0L, false,
+                null, DELETE_TASK_TYPE, 1, null);
+        log.info("[Inotify SyncDelete] Поставлена задача удаления на приемнике: '{}' -> '{}'",
+                deletedPath, targetPath);
+        return offerTask(job.getId(), item, txid, lag) ? 1 : 0;
     }
 
     /**

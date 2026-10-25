@@ -98,6 +98,52 @@ class InotifyProcessingTest {
     }
 
     @Test
+    @DisplayName("UnlinkEvent: при включенной репликации удалений ставится задача удаления на приемнике")
+    void testUnlinkEventEnqueuesDeleteTask() {
+        String deleted = "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/part-00000.parquet";
+
+        int count = processor.processEvent(new Event.UnlinkEvent.Builder().path(deleted).timestamp(200L).build(), 200L, 3L, List.of(streamingJob));
+        processor.flush();
+
+        assertEquals(1, count,
+                "Удаление на источнике обязано превращаться в задачу: иначе файл остается на "
+                        + "приемнике навсегда и данные двух ЦОД расходятся молча");
+
+        ArgumentCaptor<BatchCreateTasksRequest> captor = ArgumentCaptor.forClass(BatchCreateTasksRequest.class);
+        verify(orchestratorClient).batchCreateTasks(captor.capture());
+        var tasks = captor.getValue().getTasks();
+        assertEquals(1, tasks.size());
+        assertEquals("DELETE", tasks.get(0).getTaskType(),
+                "Задача удаления обязана отличаться по типу: приемник должен удалить путь, а не ждать байты");
+        assertEquals(deleted, tasks.get(0).getSourcePath());
+        assertEquals("/backup/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=2026-10-10/part-00000.parquet",
+                tasks.get(0).getTargetPath(),
+                "Удалять нужно соответствующий путь на приемнике, а не путь источника");
+    }
+
+    @Test
+    @DisplayName("UnlinkEvent: при выключенной репликации удалений ничего не ставится")
+    void testUnlinkEventIgnoredWhenSyncDeletesDisabled() {
+        JobDto withoutDeletes = new JobDto();
+        withoutDeletes.setId("job-streaming-no-deletes");
+        withoutDeletes.setSourcePath(streamingJob.getSourcePath());
+        withoutDeletes.setTargetPath(streamingJob.getTargetPath());
+        withoutDeletes.setSyncMode("STREAMING_INOTIFY");
+        withoutDeletes.setSyncDeletes(false);
+
+        int count = processor.processEvent(
+                new Event.UnlinkEvent.Builder()
+                        .path(streamingJob.getSourcePath() + "/dt=2026-10-10/part-0.parquet")
+                        .timestamp(201L)
+                        .build(),
+                201L, 3L, List.of(withoutDeletes));
+        processor.flush();
+
+        assertEquals(0, count, "Без флага репликации удалений данные приемника трогать нельзя");
+        verify(orchestratorClient, never()).batchCreateTasks(any(BatchCreateTasksRequest.class));
+    }
+
+    @Test
     @DisplayName("RenameEvent: Фиксация коммита целой партиции (директории) рекурсивно ставит все вложенные файлы")
     void testStagingCommitPartitionDirectory() throws IOException {
         String stagingDir = "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/.hive-staging_hive/dt=2026-10-10";

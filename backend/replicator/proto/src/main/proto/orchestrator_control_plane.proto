@@ -251,6 +251,8 @@ message JobItemProto {
   bool run_as_service_account = 13;
   string job_type = 14;
   string parent_job_id = 15;
+  // Реплицировать удаления с источника (включается оператором для потокового режима)
+  bool sync_deletes = 16;
 }
 
 message GetJobsResponse {

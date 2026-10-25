@@ -215,6 +215,7 @@ flowchart TD
 | `HADOOP_REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Размер пакета (чанков) партиций для безопасного Thrift RPC трансфера | `1000` | Опционально |
 | `HADOOP_REPLICATOR_HMS_LEASE_TIMEOUT_SECONDS` | Длительность эксклюзивной аренды (Distributed Lease) HMS задачи агентом источника (сек) | `30` | Опционально |
 | `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового mock-слоя эмуляции кластеров и метасторов (`/api/v1/hms/clusters/**`) для демо-стендов и тестов | `false` (в боевом режиме полностью отключено) | Опционально |
+| — (флаг задания `sync_deletes`) | — | Репликация удалений потокового задания: включается в интерфейсе на задание, не переменной окружения. По умолчанию выключена |
 | `HADOOP_REPLICATOR_TASK_RETENTION_DAYS` | Возраст, после которого завершенная подзадача удаляется; `0` выключает очистку | `7` | Опционально |
 | `HADOOP_REPLICATOR_TASK_RETENTION_BATCH_SIZE` | Размер пакета удаления при очистке истории задач | `500` | Опционально |
 | `HADOOP_REPLICATOR_TASK_RETENTION_MAX_BATCHES_PER_RUN` | Сколько пакетов удаляется за один проход очистки | `20` | Опционально |

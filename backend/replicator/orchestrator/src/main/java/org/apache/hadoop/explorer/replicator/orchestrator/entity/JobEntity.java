@@ -89,6 +89,15 @@ public class JobEntity {
     @Column(name = "sync_mode", nullable = false, length = 32)
     private String syncMode = "MANUAL";
 
+    /**
+     * Реплицировать удаления с источника на приемник.
+     *
+     * <p>Включается оператором для потокового режима inotify. Выключено по умолчанию: удаление
+     * данных на приемнике необратимо, и включать его молча нельзя.
+     */
+    @Column(name = "sync_deletes", nullable = false)
+    private boolean syncDeletes = false;
+
     @Column(name = "last_processed_txid")
     private Long lastProcessedTxid;
 
@@ -237,6 +246,9 @@ public class JobEntity {
     public void setJobType(String jobType) { this.jobType = jobType != null ? jobType : "STANDARD"; }
     public String getParentJobId() { return parentJobId; }
     public void setParentJobId(String parentJobId) { this.parentJobId = parentJobId; }
+    public boolean isSyncDeletes() { return syncDeletes; }
+    public void setSyncDeletes(boolean syncDeletes) { this.syncDeletes = syncDeletes; }
+
     public String getSyncMode() { return syncMode; }
     public void setSyncMode(String syncMode) { this.syncMode = syncMode != null ? syncMode : "MANUAL"; }
     public Long getLastProcessedTxid() { return lastProcessedTxid; }
