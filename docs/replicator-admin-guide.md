@@ -347,11 +347,25 @@ flowchart TD
    - Запросы воркеров `SELECT ... FOR UPDATE SKIP LOCKED` с фильтром по актуальному времени сканируют исключительно секцию текущего месяца, не затрагивая миллионы старых записей.
 2. **Мгновенная очистка без VACUUM и нагрузки на WAL (Zero I/O Drop)**:
    - Очистка архивных данных старше срока хранения выполняется моментальным `DROP TABLE replication_tasks_YYYY_MM;` (<10 мс) вместо долгого `DELETE` с последующей дефрагментацией.
-3. **Эталонный DDL-скрипт**:
-   - Полная схема таблиц и секций доступна в файле [`schema-postgresql.sql`](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/backend/replicator/orchestrator/src/main/resources/schema-postgresql.sql).
-   - Для активации скрипта в `application.yml` достаточно указать `spring.sql.init.schema-locations: classpath:schema-postgresql.sql` и `spring.jpa.hibernate.ddl-auto: none`.
-4. **Автоматическое создание секций**:
-   - В схему включена функция `SELECT create_future_tasks_partition(1);`, которую можно поставить в pg_cron для упреждающего создания секций на месяц вперед.
+> **Статус секционирования.** Описанная выше схема секций — проектное решение, а не текущее
+> состояние: прежний эталонный скрипт `schema-postgresql.sql` не подключался ни к одному
+> окружению и был удален вместе с переходом на миграции Flyway. В миграциях
+> `replication_tasks` и `job_runs` создаются обычными таблицами. Причина: ключ
+> секционирования в PostgreSQL обязан входить в первичный ключ, то есть PK стал бы
+> составным (`id, updated_at`), а `updated_at` в модели допускает `NULL` — это смена
+> семантики модели, а не перенос схемы. Секционирование и автосоздание секций остаются
+> отдельной задачей.
+
+3. **Схема управляется миграциями Flyway**:
+   - Общие миграции: `backend/replicator/orchestrator/src/main/resources/db/migration/common`.
+   - Специфика вендора (частичные индексы, `fillfactor`, параметры autovacuum):
+     `db/migration/postgresql`. Каталоги подключены как
+     `spring.flyway.locations: classpath:db/migration/common,classpath:db/migration/{vendor}`.
+   - `spring.jpa.hibernate.ddl-auto: validate` во всех профилях: приложение схему не меняет,
+     а сверяет с моделью и падает на старте при расхождении.
+   - Существующая база, созданная прежним `ddl-auto: update`, подхватывается через
+     `spring.flyway.baseline-on-migrate: true` — Flyway помечает ее как baseline и применяет
+     только последующие миграции.
 
 ---
 
@@ -578,7 +592,8 @@ spring:
     # password: "DbPassword123"
   jpa:
     hibernate:
-      ddl-auto: update
+      # Схему создают миграции Flyway; приложение ее только сверяет с моделью
+      ddl-auto: validate
 
 hadoop:
   security:

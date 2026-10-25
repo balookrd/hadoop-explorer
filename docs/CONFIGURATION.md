@@ -601,9 +601,10 @@ Spark Explorer сохраняет состояние сессий, активн�
 ### 7.1.1 Безопасные значения по умолчанию и продуктивный профиль
 
 Дефолтная конфигурация оркестратора (`application.yml`) рассчитана на локальную разработку:
-H2 в памяти, `ddl-auto: update`, `auth.mode: mock` с тестовыми пользователями. Для продуктива
+H2 в памяти и `auth.mode: mock` с тестовыми пользователями. Схема базы во всех профилях
+создается миграциями Flyway, а `ddl-auto` стоит в `validate`. Для продуктива
 предусмотрен отдельный профиль `application-prod.yml`, активируемый через
-`SPRING_PROFILES_ACTIVE=prod`: PostgreSQL, `ddl-auto: validate`, `auth.mode: kerberos`,
+`SPRING_PROFILES_ACTIVE=prod`: PostgreSQL, `auth.mode: kerberos`,
 `cookie.secure: true`, `health.show-details: when-authorized` и обязательный TLS для gRPC
 Control Plane. Все секреты в этом профиле читаются только из окружения
 (`REPLICATOR_AGENT_SECRET`, `JWT_SECRET_KEY`, `POSTGRES_USER`, `POSTGRES_PASSWORD`).

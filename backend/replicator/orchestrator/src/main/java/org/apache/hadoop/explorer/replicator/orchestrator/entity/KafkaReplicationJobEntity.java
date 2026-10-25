@@ -23,12 +23,10 @@ public class KafkaReplicationJobEntity {
     @Column(name = "direction", nullable = false, length = 32)
     private String direction = "BIDIRECTIONAL"; // BIDIRECTIONAL / UNIDIRECTIONAL
 
-    @Lob
-    @Column(name = "topics_json", nullable = false)
+    @Column(name = "topics_json", nullable = false, columnDefinition = "TEXT")
     private String topicsJson; // JSON список топиков и их payload_mode (PASSTHROUGH, AUTO_DETECT, SCHEMA_REGISTRY)
 
-    @Lob
-    @Column(name = "consumer_groups_json")
+    @Column(name = "consumer_groups_json", columnDefinition = "TEXT")
     private String consumerGroupsJson; // JSON список групп для синхронизации смещений
 
     @Column(name = "schema_transcoding_enabled", nullable = false)
@@ -64,8 +62,7 @@ public class KafkaReplicationJobEntity {
     @Column(name = "batch_size")
     private Integer batchSize = 2000;
 
-    @Lob
-    @Column(name = "target_endpoints_json")
+    @Column(name = "target_endpoints_json", columnDefinition = "TEXT")
     private String targetEndpointsJson;
 
     // Kerberos SASL / GSSAPI Configuration

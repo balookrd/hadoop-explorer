@@ -5,8 +5,27 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+/*
+ * Индексы под фактические запросы к заданиям. Таблица читается тиком планировщика каждые
+ * 5 секунд, опросом заданий от агентов и построением DR-статуса, поэтому без индексов
+ * каждый такой вызов — полный просмотр таблицы.
+ *
+ * Запросы findMaxProcessedTxidByClusterId и findByNormalizedSourceClusterId оборачивают
+ * колонку в LOWER()/REPLACE(), поэтому этими индексами не пользуются: им нужен либо
+ * функциональный индекс, либо нормализованная колонка. Это отдельная задача.
+ */
 @Entity
-@Table(name = "replication_jobs")
+@Table(
+    name = "replication_jobs",
+    indexes = {
+        @Index(name = "idx_jobs_status", columnList = "status"),
+        @Index(name = "idx_jobs_type_status", columnList = "job_type, status"),
+        @Index(name = "idx_jobs_parent_job_id", columnList = "parent_job_id"),
+        @Index(name = "idx_jobs_scheduled_next_run", columnList = "is_scheduled, next_run_at"),
+        @Index(name = "idx_jobs_clusters", columnList = "source_cluster_id, target_cluster_id"),
+        @Index(name = "idx_jobs_created_by", columnList = "created_by")
+    }
+)
 public class JobEntity {
 
     /**

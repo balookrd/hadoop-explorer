@@ -98,8 +98,7 @@ public class TaskEntity implements org.springframework.data.domain.Persistable<S
     @Column(name = "file_count", nullable = false)
     private int fileCount = 1;
 
-    @Lob
-    @Column(name = "bundle_manifest")
+    @Column(name = "bundle_manifest", columnDefinition = "TEXT")
     private String bundleManifest;
 
     @Column(name = "updated_at")

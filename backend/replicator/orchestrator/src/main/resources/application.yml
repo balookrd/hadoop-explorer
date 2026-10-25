@@ -35,9 +35,21 @@ spring:
       idle-timeout: 300000
       max-lifetime: 1200000
       leak-detection-threshold: 30000
+  flyway:
+    enabled: true
+    # Общие миграции плюс каталог вендора: специфика PostgreSQL (частичные индексы,
+    # параметры хранения) на H2 не применяется
+    locations: "classpath:db/migration/common,classpath:db/migration/{vendor}"
+    # Базы, созданные прежним ddl-auto: update, помечаются как baseline, и к ним
+    # применяются только последующие миграции
+    baseline-on-migrate: true
+    baseline-version: 1
   jpa:
     hibernate:
-      ddl-auto: update
+      # Схему создают и меняют миграции Flyway. Приложение ее не правит: ddl-auto: update
+      # молча подгонял базу под модель, скрывая дрейф, и в каждом окружении получалась
+      # своя схема. validate роняет старт при расхождении модели и миграций.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
