@@ -38,6 +38,14 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private final List<Consumer<byte[], byte[]>> consumers;
     /** Активные воркеры: нужны остановке, чтобы зафиксировать подтвержденные оффсеты. */
     private final List<ConsumerWorker> workers = new CopyOnWriteArrayList<>();
+    /**
+     * Подтвержденные приемником оффсеты по партициям — снимок на уровне пула.
+     *
+     * <p>Нужен переносу смещений консьюмер-групп: он должен знать, до какой точки источника
+     * данные уже доставлены, иначе группа на целевом кластере будет переведена на оффсет,
+     * данные до которого еще не перенесены.
+     */
+    private final Map<TopicPartition, Long> confirmedOffsets = new ConcurrentHashMap<>();
     private final KafkaReplicationClient replicationClient;
     private final LoopPreventionFilter loopFilter;
     private final PayloadFormatClassifier formatClassifier;
@@ -595,6 +603,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             }
             if (commitUpTo != null) {
                 pendingCommittedOffsets.merge(pending.topicPartition, commitUpTo, Math::max);
+                confirmedOffsets.merge(pending.topicPartition, commitUpTo, Math::max);
             }
         }
 
@@ -805,6 +814,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 }
             }
         }
+    }
+
+    /** Снимок подтвержденных приемником оффсетов по партициям источника. */
+    public Map<TopicPartition, Long> getConfirmedOffsets() {
+        return Map.copyOf(confirmedOffsets);
     }
 
     public List<String> getSubscribedTopics() {

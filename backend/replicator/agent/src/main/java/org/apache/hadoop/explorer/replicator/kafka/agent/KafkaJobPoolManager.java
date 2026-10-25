@@ -37,20 +37,33 @@ public class KafkaJobPoolManager implements Closeable {
             String targetDc,
             List<String> topics,
             List<String> targetEndpoints,
+            List<String> consumerGroups,
             int consumerThreads,
             int batchSize,
             double bandwidthLimitMb
     ) {}
 
+    /**
+     * Конвейер задачи: пул консьюмеров и, если перенос смещений включен, его планировщик.
+     *
+     * <p>Перенос смещений привязан к задаче, а не к демону: у задачи свои группы, свой целевой
+     * кластер и свой клиент приемников.
+     */
+    public record JobPipeline(KafkaBatchConsumerPool pool, AutoCloseable offsetSync) {}
+
     /** Состояние запущенной задачи: пул и то, по чему видно необходимость обновления. */
-    private record JobRuntime(KafkaBatchConsumerPool pool, List<String> topics,
-                              List<String> endpoints, double bandwidthLimitMb) {}
+    private record JobRuntime(JobPipeline pipeline, List<String> topics,
+                              List<String> endpoints, double bandwidthLimitMb) {
+        KafkaBatchConsumerPool pool() {
+            return pipeline.pool();
+        }
+    }
 
     private final String localDcId;
-    private final Function<JobPoolSpec, KafkaBatchConsumerPool> poolFactory;
+    private final Function<JobPoolSpec, JobPipeline> poolFactory;
     private final Map<String, JobRuntime> runtimes = new ConcurrentHashMap<>();
 
-    public KafkaJobPoolManager(String localDcId, Function<JobPoolSpec, KafkaBatchConsumerPool> poolFactory) {
+    public KafkaJobPoolManager(String localDcId, Function<JobPoolSpec, JobPipeline> poolFactory) {
         this.localDcId = Objects.requireNonNull(localDcId, "localDcId must not be null");
         this.poolFactory = Objects.requireNonNull(poolFactory, "poolFactory must not be null");
     }
@@ -118,30 +131,31 @@ public class KafkaJobPoolManager implements Closeable {
                 peerDcFor(job),
                 topics,
                 endpoints,
+                List.copyOf(job.getConsumerGroupsList()),
                 Math.max(1, job.getConsumerThreads()),
                 Math.max(1, job.getBatchSize()),
                 job.getBandwidthLimitMb()
         );
 
-        KafkaBatchConsumerPool pool;
+        JobPipeline pipeline;
         try {
-            pool = poolFactory.apply(spec);
+            pipeline = poolFactory.apply(spec);
         } catch (Exception e) {
             log.error("Не удалось создать пул консьюмеров для задачи '{}': {}", jobId, e.getMessage());
             return;
         }
-        if (pool == null) {
+        if (pipeline == null || pipeline.pool() == null) {
             return;
         }
 
         try {
-            pool.start();
-            runtimes.put(jobId, new JobRuntime(pool, topics, endpoints, spec.bandwidthLimitMb()));
+            pipeline.pool().start();
+            runtimes.put(jobId, new JobRuntime(pipeline, topics, endpoints, spec.bandwidthLimitMb()));
             log.info("Задача '{}' запущена: группа '{}', топики {}, приемники {}, потоков {}",
                     jobId, spec.groupId(), topics, endpoints, spec.consumerThreads());
         } catch (Exception e) {
             log.error("Пул задачи '{}' не запустился: {}", jobId, e.getMessage());
-            closeQuietly(pool, jobId);
+            closeQuietly(pipeline, jobId);
         }
     }
 
@@ -156,21 +170,33 @@ public class KafkaJobPoolManager implements Closeable {
             existing.pool().setBandwidthLimitMb(limit);
             log.info("Задача '{}': лимит полосы обновлен {} -> {} МБ/с", jobId, existing.bandwidthLimitMb(), limit);
         }
-        runtimes.put(jobId, new JobRuntime(existing.pool(), topics, endpoints, limit > 0 ? limit : existing.bandwidthLimitMb()));
+        runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints, limit > 0 ? limit : existing.bandwidthLimitMb()));
     }
 
     private void stopJob(String jobId) {
         JobRuntime runtime = runtimes.remove(jobId);
         if (runtime != null) {
-            closeQuietly(runtime.pool(), jobId);
+            closeQuietly(runtime.pipeline(), jobId);
         }
     }
 
-    private void closeQuietly(KafkaBatchConsumerPool pool, String jobId) {
-        try {
-            pool.close();
-        } catch (Exception e) {
-            log.warn("Ошибка остановки пула задачи '{}': {}", jobId, e.getMessage());
+    private void closeQuietly(JobPipeline pipeline, String jobId) {
+        if (pipeline == null) {
+            return;
+        }
+        if (pipeline.offsetSync() != null) {
+            try {
+                pipeline.offsetSync().close();
+            } catch (Exception e) {
+                log.warn("Ошибка остановки переноса смещений задачи '{}': {}", jobId, e.getMessage());
+            }
+        }
+        if (pipeline.pool() != null) {
+            try {
+                pipeline.pool().close();
+            } catch (Exception e) {
+                log.warn("Ошибка остановки пула задачи '{}': {}", jobId, e.getMessage());
+            }
         }
     }
 

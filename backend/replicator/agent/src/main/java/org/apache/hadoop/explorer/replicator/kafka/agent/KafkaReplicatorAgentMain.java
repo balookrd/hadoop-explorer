@@ -75,6 +75,16 @@ public class KafkaReplicatorAgentMain {
                 maxBandwidthMbS = Double.parseDouble(envBw);
             } catch (NumberFormatException ignored) {}
         }
+        // Перенос смещений консьюмер-групп: по умолчанию выключен, включается интервалом
+        long offsetSyncIntervalSec = parseLongOrDefault(System.getenv("OFFSET_SYNC_INTERVAL_SEC"), 0);
+        String consumerGroupsCsv = System.getenv("CONSUMER_GROUPS");
+        // Трансляция идентификаторов схем: включается адресами обоих реестров
+        String sourceSrUrl = System.getenv("SOURCE_SCHEMA_REGISTRY_URL");
+        String sourceSrType = System.getenv("SOURCE_SCHEMA_REGISTRY_TYPE");
+        String targetSrUrl = System.getenv("TARGET_SCHEMA_REGISTRY_URL");
+        String targetSrType = System.getenv("TARGET_SCHEMA_REGISTRY_TYPE");
+        boolean schemaTranscoding = "true".equalsIgnoreCase(System.getenv("SCHEMA_TRANSCODING_ENABLED"));
+        String payloadFormatName = System.getenv("PAYLOAD_FORMAT");
         boolean tlsEnabled = "true".equalsIgnoreCase(System.getenv("TLS_ENABLED"));
         String tlsCertChain = System.getenv("TLS_CERT_CHAIN");
         String tlsPrivateKey = System.getenv("TLS_PRIVATE_KEY");
@@ -102,6 +112,22 @@ public class KafkaReplicatorAgentMain {
                 role = args[++i].toLowerCase();
             } else if ("--topics".equals(args[i]) && i + 1 < args.length) {
                 topics = args[++i];
+            } else if ("--consumer-groups".equals(args[i]) && i + 1 < args.length) {
+                consumerGroupsCsv = args[++i];
+            } else if ("--offset-sync-interval-sec".equals(args[i]) && i + 1 < args.length) {
+                offsetSyncIntervalSec = parseLongOrDefault(args[++i], offsetSyncIntervalSec);
+            } else if ("--source-schema-registry-url".equals(args[i]) && i + 1 < args.length) {
+                sourceSrUrl = args[++i];
+            } else if ("--source-schema-registry-type".equals(args[i]) && i + 1 < args.length) {
+                sourceSrType = args[++i];
+            } else if ("--target-schema-registry-url".equals(args[i]) && i + 1 < args.length) {
+                targetSrUrl = args[++i];
+            } else if ("--target-schema-registry-type".equals(args[i]) && i + 1 < args.length) {
+                targetSrType = args[++i];
+            } else if ("--schema-transcoding".equals(args[i]) && i + 1 < args.length) {
+                schemaTranscoding = "true".equalsIgnoreCase(args[++i]);
+            } else if ("--payload-format".equals(args[i]) && i + 1 < args.length) {
+                payloadFormatName = args[++i];
             } else if ("--consumer-threads".equals(args[i]) && i + 1 < args.length) {
                 consumerThreads = Integer.parseInt(args[++i]);
             } else if (("--max-bandwidth-mb-s".equals(args[i]) || "--bandwidth".equals(args[i])) && i + 1 < args.length) {
@@ -167,6 +193,7 @@ public class KafkaReplicatorAgentMain {
         final var telemetry = org.apache.hadoop.explorer.replicator.telemetry.AgentTelemetry
                 .startIfConfigured("kafka-replicator-agent", agentId, dcId);
 
+        AutoCloseable cliOffsetSync = null;
         Server server = null;
         // Статус для стандартной health-пробы gRPC: нужен и при старте, и при остановке
         final var health = new org.apache.hadoop.explorer.replicator.telemetry.GrpcHealth();
@@ -197,7 +224,15 @@ public class KafkaReplicatorAgentMain {
             resolverConsumer = new KafkaConsumer<>(resolverProps);
 
             SafetyCommitManager safetyCommitManager = new SafetyCommitManager(adminClient, resolverConsumer);
-            KafkaDataTransferServiceImpl service = new KafkaDataTransferServiceImpl(batchProducer, safetyCommitManager, dcId);
+            // Приемник транскодирует идентификаторы схем в реестр своего кластера. Раньше он
+            // создавался вовсе без резолвера, то есть заголовки схем переносились как есть.
+            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver receiverResolver =
+                    org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
+                            sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig);
+            KafkaDataTransferServiceImpl service = new KafkaDataTransferServiceImpl(
+                    batchProducer, safetyCommitManager, dcId,
+                    KafkaDataTransferServiceImpl.DEFAULT_PIPELINE_WINDOW,
+                    receiverResolver, null, null);
 
             var serverBuilder = ServerBuilder.forPort(port)
                     .addService(service)
@@ -277,15 +312,14 @@ public class KafkaReplicatorAgentMain {
                     new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(dcId, targetDcId);
             org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier classifier =
                     new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier();
-            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver passthroughResolver =
-                    new org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver() {
-                        @Override public int resolveConfluentToConfluent(String topic, int sourceId) { return sourceId; }
-                        @Override public int resolveHwxToConfluent(String topic, long hwxVersionId) { return (int) hwxVersionId; }
-                        @Override public long resolveConfluentToHwx(String topic, int confluentId) { return confluentId; }
-                        @Override public long resolveHwxToHwx(String topic, long sourceHwxId) { return sourceHwxId; }
-                    };
+            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver =
+                    org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
+                            sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig);
             org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder transcoder =
-                    new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(passthroughResolver);
+                    new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(schemaResolver);
+            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat =
+                    org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                            .format(payloadFormatName, schemaTranscoding);
 
             consumerPool = new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
                     consumers,
@@ -295,8 +329,8 @@ public class KafkaReplicatorAgentMain {
                     transcoder,
                     dcId,
                     targetDcId,
-                    org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH,
-                    org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH
+                    wireFormat,
+                    wireFormat
             );
             consumerPool.setMaxBatchSize(batchSize);
             if (maxBandwidthMbS != null && maxBandwidthMbS > 0) {
@@ -305,17 +339,30 @@ public class KafkaReplicatorAgentMain {
             }
             consumerPool.start();
             log.info("Пул консьюмеров отправителя успешно запущен");
+
+            cliOffsetSync = startOffsetSync(bootstrapServers, krbConfig, replicationClient, consumerPool,
+                    parseCsv(consumerGroupsCsv), dcId, targetDcId, offsetSyncIntervalSec);
         }
 
         // 3. Подключение к Orchestrator Control Plane
         OrchestratorGrpcClient orchestratorClient = null;
         ScheduledExecutorService heartbeatExecutor = null;
 
+        // Резолвер схем и формат полезной нагрузки общие для всех задач демона: реестры схем
+        // задаются конфигурацией узла, а не отдельной задачей
+        org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver jobSchemaResolver =
+                org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
+                        sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig);
+        org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat jobWireFormat =
+                org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                        .format(payloadFormatName, schemaTranscoding);
+
         if (orchestratorGrpc != null && !orchestratorGrpc.isBlank()) {
             // Задачи, приходящие из Control Plane, обслуживаются отдельными пулами:
             // своя consumer-группа на задачу вместо общей группы на весь агент
             jobPoolManager = new KafkaJobPoolManager(dcId, jobPoolFactory(
-                    bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS));
+                    bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS,
+                    jobSchemaResolver, jobWireFormat, offsetSyncIntervalSec));
             log.info("Регистрация в Orchestrator Control Plane: {} (agentId={})", orchestratorGrpc, agentId);
             orchestratorClient = new OrchestratorGrpcClient(orchestratorGrpc, agentSecret);
             AgentRegisterRequest regReq = new AgentRegisterRequest(
@@ -401,6 +448,7 @@ public class KafkaReplicatorAgentMain {
         final ScheduledExecutorService finalHeartbeatExecutor = heartbeatExecutor;
         final String finalShutdownAgentId = agentId;
         final KafkaJobPoolManager finalJobPoolsForShutdown = jobPoolManager;
+        final AutoCloseable finalCliOffsetSync = cliOffsetSync;
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Остановка kafka-replicator-agent...");
@@ -434,6 +482,9 @@ public class KafkaReplicatorAgentMain {
                 if (finalProducer != null) {
                     finalProducer.close();
                 }
+                if (finalCliOffsetSync != null) {
+                    finalCliOffsetSync.close();
+                }
                 if (telemetry != null) {
                     telemetry.close();
                 }
@@ -457,18 +508,108 @@ public class KafkaReplicatorAgentMain {
         }
     }
 
+
+    private static long parseLongOrDefault(String value, long fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static List<String> parseCsv(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(part -> !part.isEmpty())
+                .toList();
+    }
+
+    /**
+     * Запуск переноса смещений консьюмер-групп для одного пула.
+     *
+     * <p>Возвращает {@code null}, когда перенос выключен (интервал не задан) или переносить
+     * нечего (группы не указаны) — это осознанный выбор оператора, а не сбой. Сканеру нужен свой
+     * AdminClient источника, поэтому он закрывается вместе с переносом.
+     */
+    private static AutoCloseable startOffsetSync(
+            String bootstrapServers,
+            org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig,
+            org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client,
+            org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool,
+            List<String> groups,
+            String sourceDc,
+            String targetDc,
+            long intervalSeconds) {
+
+        if (intervalSeconds <= 0 || groups == null || groups.isEmpty()) {
+            if (intervalSeconds > 0) {
+                log.info("Перенос смещений включен, но список консьюмер-групп пуст: переносить нечего");
+            }
+            return null;
+        }
+
+        Properties adminProps = new Properties();
+        adminProps.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
+                .applyKerberos(adminProps, krbConfig);
+        AdminClient scannerAdmin = AdminClient.create(adminProps);
+
+        org.apache.hadoop.explorer.replicator.kafka.offset.ConsumerGroupOffsetScanner scanner =
+                new org.apache.hadoop.explorer.replicator.kafka.offset.ConsumerGroupOffsetScanner(
+                        scannerAdmin, sourceDc, targetDc);
+
+        org.apache.hadoop.explorer.replicator.kafka.offset.ConsumerGroupOffsetSynchronizer synchronizer =
+                new org.apache.hadoop.explorer.replicator.kafka.offset.ConsumerGroupOffsetSynchronizer(
+                        scanner,
+                        client,
+                        () -> groups,
+                        () -> java.util.Set.copyOf(pool.getSubscribedTopics()),
+                        new org.apache.hadoop.explorer.replicator.kafka.offset
+                                .ConsumerGroupOffsetSynchronizer.ReplicationProgress() {
+                            @Override
+                            public java.util.Map<org.apache.kafka.common.TopicPartition, Long> replicatedOffsets() {
+                                return pool.getConfirmedOffsets();
+                            }
+
+                            @Override
+                            public java.util.Map<org.apache.kafka.common.TopicPartition, Long> lastTimestamps() {
+                                return pool.getLastObservedTimestamps();
+                            }
+                        },
+                        10);
+        synchronizer.start(intervalSeconds);
+
+        return () -> {
+            synchronizer.close();
+            try {
+                scannerAdmin.close(java.time.Duration.ofSeconds(2));
+            } catch (Exception ignored) {
+                // закрытие вспомогательного клиента не должно мешать остановке демона
+            }
+        };
+    }
+
     /**
      * Фабрика пулов задач: у каждой задачи свой консьюмер-пул, своя consumer-группа,
      * свой клиент приемников и свой peer-DC для фильтра петель.
      */
     private static java.util.function.Function<KafkaJobPoolManager.JobPoolSpec,
-            org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool> jobPoolFactory(
+            KafkaJobPoolManager.JobPipeline> jobPoolFactory(
             String bootstrapServers,
             org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig,
             String agentSecret,
             boolean tlsEnabled,
             String tlsTrustCert,
-            Double hostBandwidthLimitMbS) {
+            Double hostBandwidthLimitMbS,
+            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver,
+            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat,
+            long offsetSyncIntervalSec) {
         return spec -> {
             org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client =
                     new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
@@ -485,14 +626,6 @@ public class KafkaReplicatorAgentMain {
                 consumers.add(consumer);
             }
 
-            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver passthroughResolver =
-                    new org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver() {
-                        @Override public int resolveConfluentToConfluent(String topic, int sourceId) { return sourceId; }
-                        @Override public int resolveHwxToConfluent(String topic, long hwxVersionId) { return (int) hwxVersionId; }
-                        @Override public long resolveConfluentToHwx(String topic, int confluentId) { return confluentId; }
-                        @Override public long resolveHwxToHwx(String topic, long sourceHwxId) { return sourceHwxId; }
-                    };
-
             org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool =
                     new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
                             consumers,
@@ -500,11 +633,11 @@ public class KafkaReplicatorAgentMain {
                             new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(
                                     spec.sourceDc(), spec.targetDc()),
                             new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier(),
-                            new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(passthroughResolver),
+                            new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(schemaResolver),
                             spec.sourceDc(),
                             spec.targetDc(),
-                            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH,
-                            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat.PAYLOAD_PASSTHROUGH);
+                            wireFormat,
+                            wireFormat);
             pool.setMaxBatchSize(spec.batchSize());
             pool.updateSubscribedTopics(spec.topics());
 
@@ -515,7 +648,12 @@ public class KafkaReplicatorAgentMain {
             if (limit > 0) {
                 pool.setBandwidthLimitMb(limit);
             }
-            return pool;
+
+            // Перенос смещений групп этой задачи: свои группы, свой целевой кластер, свой клиент
+            AutoCloseable offsetSync = startOffsetSync(bootstrapServers, krbConfig, client, pool,
+                    spec.consumerGroups(), spec.sourceDc(), spec.targetDc(), offsetSyncIntervalSec);
+
+            return new KafkaJobPoolManager.JobPipeline(pool, offsetSync);
         };
     }
 }

@@ -42,7 +42,8 @@ class KafkaJobPoolManagerTest {
                     spec.consumerThreads(), spec.batchSize(), spec.targetDc()));
             KafkaBatchConsumerPool pool = mock(KafkaBatchConsumerPool.class);
             pools.put(spec.jobId(), pool);
-            return pool;
+            // Перенос смещений в этих сценариях не участвует: проверяется жизненный цикл пулов
+            return new KafkaJobPoolManager.JobPipeline(pool, null);
         });
     }
 
