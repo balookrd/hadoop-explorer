@@ -138,7 +138,7 @@ class WireCompressorTest {
     }
 
     @Test
-    @DisplayName("Decompression Bomb: отклонение чанков, превышающих MAX_UNCOMPRESSED_CHUNK_SIZE (64MB)")
+    @DisplayName("Decompression Bomb: отклонение чанков, превышающих предел распакованного размера")
     void testDecompressionBombProtection() {
         byte[] dummyCompressed = new byte[]{1, 2, 3, 4};
         int oversized = 65 * 1024 * 1024; // 65 MB

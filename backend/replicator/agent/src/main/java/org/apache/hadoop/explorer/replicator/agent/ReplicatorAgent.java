@@ -87,6 +87,10 @@ public class ReplicatorAgent {
                     return t;
                 }
         );
+        // Предел распакованного чанка — от настроенного размера чанка: иначе защита от
+        // decompression bomb стоит на три порядка выше реального размера и ничего не ограничивает
+        org.apache.hadoop.explorer.replicator.compression.WireCompressor
+                .configureMaxUncompressedChunkSize(config.getChunkSize());
         this.orchestratorClient = new OrchestratorGrpcClient(
                 config.getOrchestratorGrpcAddress(),
                 config.getAgentSecret(),

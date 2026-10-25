@@ -165,7 +165,44 @@ public class WireCompressor {
         return new CompressedPayload(raw, CompressionCodec.COMPRESSION_NONE, length);
     }
 
-    public static final int MAX_UNCOMPRESSED_CHUNK_SIZE = 64 * 1024 * 1024; // 64 МБ
+    /**
+     * Нижняя граница предела распакованного чанка: 1 МБ при реальном чанке провода 64 КБ.
+     */
+    public static final int MIN_UNCOMPRESSED_CHUNK_LIMIT = 1024 * 1024;
+
+    /**
+     * Верхняя граница предела: выше защита от decompression bomb перестает защищать.
+     */
+    public static final int MAX_UNCOMPRESSED_CHUNK_LIMIT = 64 * 1024 * 1024;
+
+    /**
+     * Запас к настроенному размеру чанка: заголовки TAR, выравнивание и расхождение настроек
+     * отправителя и приемника не должны ломать передачу.
+     */
+    private static final int CHUNK_SIZE_HEADROOM = 4;
+
+    /**
+     * Предел размера распакованного чанка.
+     *
+     * <p>Стоял на 64 МБ при размере чанка провода 64 КБ ({@code CHUNK_SIZE_BYTES}) — на три
+     * порядка выше. Отправитель объявлял в заголовке чанка размер в тысячу реальных, приемник
+     * выделял под него массив, и десяток параллельных потоков съедал heap, хотя формально
+     * защита была. Предел следует из настроенного размера чанка, с запасом и границами.
+     */
+    private static volatile int maxUncompressedChunkSize = MIN_UNCOMPRESSED_CHUNK_LIMIT;
+
+    /**
+     * Привязка предела к настроенному размеру чанка (ноль или отрицательное — вернуть минимум).
+     */
+    public static void configureMaxUncompressedChunkSize(int configuredChunkSize) {
+        long candidate = (long) Math.max(configuredChunkSize, 0) * CHUNK_SIZE_HEADROOM;
+        maxUncompressedChunkSize = (int) Math.min(MAX_UNCOMPRESSED_CHUNK_LIMIT,
+                Math.max(MIN_UNCOMPRESSED_CHUNK_LIMIT, candidate));
+    }
+
+    public static int getMaxUncompressedChunkSize() {
+        return maxUncompressedChunkSize;
+    }
 
     /**
      * Распаковывает полученный чанк данных.
@@ -184,9 +221,10 @@ public class WireCompressor {
         }
 
         // Защита от Decompression Bomb (CWE-400): предотвращение выделения гигантских объемов Heap памяти
-        if (uncompressedSize > MAX_UNCOMPRESSED_CHUNK_SIZE) {
+        int limit = maxUncompressedChunkSize;
+        if (uncompressedSize > limit) {
             throw new SecurityException("Decompression Bomb защита: распакованный размер (" + uncompressedSize
-                    + " байт) превышает максимально допустимый предел чанка (" + MAX_UNCOMPRESSED_CHUNK_SIZE + " байт)");
+                    + " байт) превышает максимально допустимый предел чанка (" + limit + " байт)");
         }
 
         try {
