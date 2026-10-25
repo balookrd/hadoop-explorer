@@ -10,7 +10,8 @@ import java.time.Instant;
 import java.util.List;
 
 @Repository
-public interface JobRepository extends JpaRepository<JobEntity, String> {
+public interface JobRepository extends JpaRepository<JobEntity, String>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<JobEntity> {
     List<JobEntity> findByStatus(String status);
     List<JobEntity> findByJobType(String jobType);
     List<JobEntity> findByJobTypeAndStatus(String jobType, String status);
@@ -41,38 +42,6 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
     """)
     List<JobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
 
-    /**
-     * Страница заданий для списка: статус, кластер-источник, служебные подзадачи и владелец —
-     * все фильтры в запросе.
-     *
-     * <p>Список читался целиком, а владелец и тип отбирались в памяти. Пофайловых подзадач
-     * метастора десятки тысяч, и каждый запрос списка — из консоли или при опросе агента —
-     * тянул всю таблицу в heap.
-     *
-     * <p>Правило владельца повторяет {@code JobService.matchesJobOwner}: сравниваются локальные
-     * части имен без realm-суффикса, системные и беcхозные задания видны всем. Эквивалентность
-     * проверяется тестом, чтобы расхождение не превратилось в молчаливую утечку чужих заданий.
-     */
-    @Query("SELECT j FROM JobEntity j WHERE "
-            + "(:status IS NULL OR UPPER(j.status) = :status) AND "
-            + "(:clusterId IS NULL OR LOWER(j.sourceClusterId) = :clusterId) AND "
-            + "(:includeSubjobs = TRUE OR j.jobType IS NULL OR "
-            + "   UPPER(j.jobType) NOT IN ('HMS_SUBJOB', 'HMS_COMPANION_STREAMING')) AND "
-            + "(:owner IS NULL "
-            + "   OR j.createdBy IS NULL OR TRIM(j.createdBy) = '' "
-            + "   OR LOWER(CASE WHEN LOCATE('@', j.createdBy) > 0 "
-            + "        THEN SUBSTRING(j.createdBy, 1, LOCATE('@', j.createdBy) - 1) "
-            + "        ELSE j.createdBy END) IN ('system', :owner) "
-            + "   OR (j.executionPrincipal IS NOT NULL AND "
-            + "       LOWER(CASE WHEN LOCATE('@', j.executionPrincipal) > 0 "
-            + "        THEN SUBSTRING(j.executionPrincipal, 1, LOCATE('@', j.executionPrincipal) - 1) "
-            + "        ELSE j.executionPrincipal END) = :owner))")
-    org.springframework.data.domain.Page<JobEntity> findForListing(
-            @Param("status") String status,
-            @Param("clusterId") String clusterId,
-            @Param("includeSubjobs") boolean includeSubjobs,
-            @Param("owner") String owner,
-            org.springframework.data.domain.Pageable pageable);
 
     /**
      * Идентификаторы заданий без истории запусков — порция для дозаполнения при старте.

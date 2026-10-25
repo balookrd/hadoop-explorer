@@ -253,6 +253,108 @@ public class JobService {
      */
     private static final int LISTING_HARD_LIMIT = 5000;
 
+    /** Предел списка авторов в фильтре: выпадающий список с тысячами записей бесполезен. */
+    private static final int AUTHORS_LIMIT = 500;
+
+    /**
+     * Нужен для запроса проекции (список авторов). При создании сервиса вручную, без контекста
+     * Spring, остается {@code null} — список авторов тогда пустой.
+     */
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
+    /**
+     * Страница списка заданий с фильтрами интерфейса: статус, автор, поиск.
+     */
+    public org.springframework.data.domain.Page<JobResponse> listJobs(
+            String status, String author, String search, String username,
+            boolean isAdmin, boolean isReader, boolean includeSubjobs,
+            org.springframework.data.domain.Pageable pageable) {
+        var spec = org.apache.hadoop.explorer.replicator.orchestrator.repository.JobListingSpecifications
+                .forListing(normalizeStatus(status), null, normalizeLower(author), normalizeLower(search),
+                        includeSubjobs, ownerFilter(username, isAdmin, isReader));
+        return withRunCounts(jobRepository.findAll(spec, pageable));
+    }
+
+    /**
+     * Сводка по набору заданий: счетчики статусов и список авторов для фильтров интерфейса.
+     *
+     * <p>Со страничной выборкой считать это в интерфейсе нельзя — счет описывал бы загруженную
+     * страницу, а не задания. Счетчики считаются запросами по тому же условию, что и страница.
+     */
+    public org.apache.hadoop.explorer.replicator.orchestrator.dto.JobListingSummary summarizeJobs(
+            String author, String search, String username, boolean isAdmin, boolean isReader,
+            boolean includeSubjobs) {
+        var base = org.apache.hadoop.explorer.replicator.orchestrator.repository.JobListingSpecifications
+                .forListing(null, null, normalizeLower(author), normalizeLower(search),
+                        includeSubjobs, ownerFilter(username, isAdmin, isReader));
+        return new org.apache.hadoop.explorer.replicator.orchestrator.dto.JobListingSummary(
+                jobRepository.count(base),
+                countWithStatus(base, "RUNNING"),
+                countWithStatus(base, "QUEUED"),
+                countWithStatus(base, "SCHEDULED"),
+                countWithStatus(base, "COMPLETED"),
+                countWithStatus(base, "FAILED"),
+                countWithStatus(base, "STREAMING"),
+                listJobAuthors(username, isAdmin, isReader));
+    }
+
+    private long countWithStatus(org.springframework.data.jpa.domain.Specification<JobEntity> base, String status) {
+        return jobRepository.count(base.and(
+                org.apache.hadoop.explorer.replicator.orchestrator.repository.JobListingSpecifications
+                        .withStatus(status)));
+    }
+
+    /**
+     * Авторы заданий, видимых пользователю — для выпадающего фильтра.
+     *
+     * <p>Список берется из базы, а не из загруженной страницы: иначе в фильтре оказывались бы
+     * только авторы случайной сотни записей. Условие видимости то же, что у страницы.
+     */
+    public List<String> listJobAuthors(String username, boolean isAdmin, boolean isReader) {
+        if (entityManager == null) {
+            // Сервис создан вручную (тесты без контекста Spring): запрос проекции недоступен
+            return List.of();
+        }
+        var spec = org.apache.hadoop.explorer.replicator.orchestrator.repository.JobListingSpecifications
+                .forListing(null, null, null, null, false, ownerFilter(username, isAdmin, isReader));
+
+        var cb = entityManager.getCriteriaBuilder();
+        var query = cb.createQuery(String.class);
+        var root = query.from(JobEntity.class);
+        var predicate = spec.toPredicate(root, query, cb);
+        query.select(root.get("createdBy")).distinct(true)
+                .where(cb.and(
+                        predicate != null ? predicate : cb.conjunction(),
+                        cb.isNotNull(root.get("createdBy")),
+                        cb.notEqual(cb.trim(root.get("createdBy")), "")))
+                .orderBy(cb.asc(root.get("createdBy")));
+        return entityManager.createQuery(query).setMaxResults(AUTHORS_LIMIT).getResultList();
+    }
+
+    private static String normalizeStatus(String status) {
+        return (status != null && !status.isBlank()) ? status.trim().toUpperCase() : null;
+    }
+
+    private static String normalizeLower(String value) {
+        return (value != null && !value.isBlank()) ? value.trim().toLowerCase() : null;
+    }
+
+    private String ownerFilter(String username, boolean isAdmin, boolean isReader) {
+        return (isAdmin || isReader || username == null) ? null : ownerKey(username);
+    }
+
+    private org.springframework.data.domain.Page<JobResponse> withRunCounts(
+            org.springframework.data.domain.Page<JobEntity> page) {
+        if (page.isEmpty()) {
+            return page.map(j -> JobResponse.fromEntity(j, 0, agentRegistry));
+        }
+        List<String> jobIds = page.getContent().stream().map(JobEntity::getId).toList();
+        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
+            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
+        return page.map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0), agentRegistry));
+    }
+
     /**
      * Страница списка заданий: фильтры по статусу, владельцу и типу применяются запросом.
      */
@@ -273,22 +375,10 @@ public class JobService {
     private org.springframework.data.domain.Page<JobResponse> listJobsPage(
             String status, String clusterId, String username, boolean isAdmin, boolean isReader,
             boolean includeSubjobs, org.springframework.data.domain.Pageable pageable) {
-
-        String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : null;
-        String normalizedCluster = (clusterId != null && !clusterId.isBlank()) ? clusterId.trim().toLowerCase() : null;
-        String owner = (isAdmin || isReader || username == null) ? null : ownerKey(username);
-
-        org.springframework.data.domain.Page<JobEntity> page = jobRepository.findForListing(
-                normalizedStatus, normalizedCluster, includeSubjobs, owner, pageable);
-        if (page.isEmpty()) {
-            return page.map(j -> JobResponse.fromEntity(j, 0, agentRegistry));
-        }
-
-        List<String> jobIds = page.getContent().stream().map(JobEntity::getId).toList();
-        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
-            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
-
-        return page.map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0), agentRegistry));
+        var spec = org.apache.hadoop.explorer.replicator.orchestrator.repository.JobListingSpecifications
+                .forListing(normalizeStatus(status), normalizeLower(clusterId), null, null,
+                        includeSubjobs, ownerFilter(username, isAdmin, isReader));
+        return withRunCounts(jobRepository.findAll(spec, pageable));
     }
 
     /**

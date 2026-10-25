@@ -117,6 +117,8 @@ public class JobController {
     @GetMapping
     public ResponseEntity<org.springframework.data.domain.Page<JobResponse>> listJobs(
         @RequestParam(required = false) String status,
+        @RequestParam(required = false) String author,
+        @RequestParam(required = false) String search,
         @RequestParam(required = false, name = "include_subjobs", defaultValue = "false") boolean includeSubjobs,
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer size,
@@ -137,8 +139,32 @@ public class JobController {
                 org.springframework.data.domain.Sort.by(
                         org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
 
-        return ResponseEntity.ok(
-                jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs, pageable));
+        return ResponseEntity.ok(jobService.listJobs(status, author, search, username, isAdmin, isReader,
+                effectiveIncludeSubjobs, pageable));
+    }
+
+    /**
+     * Сводка по списку заданий: счетчики статусов и авторы для фильтров интерфейса.
+     *
+     * <p>Нужна вместе со страничной выборкой: считать это в интерфейсе по загруженной странице
+     * значит показывать счет по сотне записей вместо счета по заданиям.
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<org.apache.hadoop.explorer.replicator.orchestrator.dto.JobListingSummary> jobsSummary(
+        @RequestParam(required = false) String author,
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false, name = "include_subjobs", defaultValue = "false") boolean includeSubjobs,
+        @RequestHeader(required = false, name = "X-Agent-Secret") String agentSecret,
+        Authentication auth
+    ) {
+        UserSession session = getSession(auth);
+        String username = session != null ? session.username() : null;
+        boolean isAdmin = session != null && session.isAdmin();
+        boolean isReader = session != null && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER;
+        boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
+
+        return ResponseEntity.ok(jobService.summarizeJobs(author, search, username, isAdmin, isReader,
+                effectiveIncludeSubjobs));
     }
 
     private void checkJobReadAccess(String jobId, Authentication auth, String agentSecret) {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Job, TopologyData, ClusterInfo } from '../types';
+  import type { Job, JobListingSummary, TopologyData, ClusterInfo } from '../types';
   import { StatusBadge } from '@hadoop-explorer/common';
   import {
     ArrowLeftRight,
@@ -25,6 +25,14 @@
   interface Props {
     jobs: Job[];
     jobsTotal?: number;
+    jobsPage?: number;
+    jobsPageSize?: number;
+    jobsTotalPages?: number;
+    jobsLoading?: boolean;
+    summary?: JobListingSummary | null;
+    onFiltersChange?: (filters: { status: string; author: string; search: string }) => void;
+    onPageChange?: (page: number) => void;
+    onPageSizeChange?: (size: number) => void;
     topology?: TopologyData | null;
     canCreate: boolean;
     canManageJob: (job: Job) => boolean;
@@ -40,6 +48,14 @@
   let {
     jobs,
     jobsTotal = 0,
+    jobsPage = 0,
+    jobsPageSize = 50,
+    jobsTotalPages = 0,
+    jobsLoading = false,
+    summary = null,
+    onFiltersChange,
+    onPageChange,
+    onPageSizeChange,
     topology = null,
     canCreate,
     canManageJob,
@@ -71,72 +87,71 @@
   let selectedAuthor = $state<string>('ALL');
   let searchQuery = $state<string>('');
 
-  // Статистика задач
+  // Счетчики и авторы приходят сводкой с сервера: со страничной выборкой считать их по
+  // загруженной странице значит показывать счет по сотне записей вместо счета по заданиям
   const stats = $derived({
-    total: jobs.length,
-    running: jobs.filter((j) => j.status === 'RUNNING').length,
-    queued: jobs.filter((j) => j.status === 'QUEUED').length,
-    scheduled: jobs.filter((j) => j.status === 'SCHEDULED').length,
-    completed: jobs.filter((j) => j.status === 'COMPLETED').length,
-    failed: jobs.filter((j) => j.status === 'FAILED').length,
-    streaming: jobs.filter((j) => j.status === 'STREAMING' || j.sync_mode === 'STREAMING_INOTIFY').length,
+    total: summary?.total ?? jobs.length,
+    running: summary?.running ?? 0,
+    queued: summary?.queued ?? 0,
+    scheduled: summary?.scheduled ?? 0,
+    completed: summary?.completed ?? 0,
+    failed: summary?.failed ?? 0,
+    streaming: summary?.streaming ?? 0,
   });
 
-  // Список уникальных авторов задач
-  const authorsList = $derived(
-    Array.from(new Set(jobs.map((j) => j.created_by).filter((a): a is string => Boolean(a)))).sort()
-  );
+  const authorsList = $derived(summary?.authors ?? []);
 
-  // Реактивный список отфильтрованных задач
-  const filteredJobs = $derived(
-    jobs.filter((job) => {
-      // Фильтр по статусу
-      if (selectedStatus !== 'ALL') {
-        if (selectedStatus === 'STREAMING') {
-          if (job.status !== 'STREAMING' && job.sync_mode !== 'STREAMING_INOTIFY') {
-            return false;
-          }
-        } else if (job.status !== selectedStatus) {
-          return false;
-        }
-      }
-      // Фильтр по автору
-      if (selectedAuthor !== 'ALL' && job.created_by !== selectedAuthor) {
-        return false;
-      }
-      // Быстрый поиск
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchId = job.id.toLowerCase().includes(q);
-        const matchSrc = job.source_path.toLowerCase().includes(q);
-        const matchDst = job.target_path.toLowerCase().includes(q);
-        const matchClusters = `${job.source_cluster_id} ${job.target_cluster_id}`.toLowerCase().includes(q);
-        const matchPrincipal = (job.execution_principal || '').toLowerCase().includes(q);
-        const matchAuthor = (job.created_by || '').toLowerCase().includes(q);
-        if (!matchId && !matchSrc && !matchDst && !matchClusters && !matchPrincipal && !matchAuthor) {
-          return false;
-        }
-      }
-      return true;
-    })
-  );
+  // Границы показанного диапазона для подписи «N–M из T»
+  const rangeStart = $derived(jobs.length === 0 ? 0 : jobsPage * jobsPageSize + 1);
+  const rangeEnd = $derived(jobsPage * jobsPageSize + jobs.length);
+
+  // Отбор выполняет сервер: страница показывается как есть
+  const filteredJobs = $derived(jobs);
 
   const hasActiveFilters = $derived(
     selectedStatus !== 'ALL' || selectedAuthor !== 'ALL' || searchQuery.trim().length > 0
   );
 
+  function notifyFilters() {
+    onFiltersChange?.({ status: selectedStatus, author: selectedAuthor, search: searchQuery.trim() });
+  }
+
+  // Фильтры применяет сервер, поэтому ввод в поиске отправляется с задержкой
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  let appliedSearch = $state('');
+
+  $effect(() => {
+    const query = searchQuery.trim();
+    if (query === appliedSearch) return;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      appliedSearch = query;
+      notifyFilters();
+    }, 350);
+  });
+
   function resetFilters() {
     selectedStatus = 'ALL';
     selectedAuthor = 'ALL';
     searchQuery = '';
+    appliedSearch = '';
+    if (searchTimer) clearTimeout(searchTimer);
+    notifyFilters();
   }
 
   function toggleStatusFilter(targetStatus: string) {
-    if (selectedStatus === targetStatus) {
-      selectedStatus = 'ALL';
-    } else {
-      selectedStatus = targetStatus;
-    }
+    selectedStatus = selectedStatus === targetStatus ? 'ALL' : targetStatus;
+    notifyFilters();
+  }
+
+  function changeAuthor(author: string) {
+    selectedAuthor = author;
+    notifyFilters();
+  }
+
+  function changeStatus(status: string) {
+    selectedStatus = status;
+    notifyFilters();
   }
 
   function formatBytes(bytes: number): string {
@@ -380,7 +395,8 @@
           </label>
           <select
             id="filter-status"
-            bind:value={selectedStatus}
+            value={selectedStatus}
+            onchange={(e) => changeStatus((e.currentTarget as HTMLSelectElement).value)}
             class="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
             <option value="ALL">Все статусы ({jobs.length})</option>
@@ -402,14 +418,13 @@
           </label>
           <select
             id="filter-author"
-            bind:value={selectedAuthor}
+            value={selectedAuthor}
+            onchange={(e) => changeAuthor((e.currentTarget as HTMLSelectElement).value)}
             class="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-750 text-xs text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
             <option value="ALL">Все авторы ({authorsList.length})</option>
             {#each authorsList as author}
-              <option value={author}>
-                {author} ({jobs.filter((j) => j.created_by === author).length})
-              </option>
+              <option value={author}>{author}</option>
             {/each}
           </select>
         </div>
@@ -418,7 +433,7 @@
       <!-- Правая часть: Счетчик и Сброс фильтров -->
       <div class="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800/80">
         <span class="text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-          Показано: <strong class="text-slate-800 dark:text-slate-200 font-semibold">{filteredJobs.length}</strong> из {jobs.length}
+          Показано: <strong class="text-slate-800 dark:text-slate-200 font-semibold">{jobs.length}</strong> из {jobsTotal}
         </span>
 
         {#if hasActiveFilters}
@@ -435,14 +450,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Выборка ограничена сервером: о недостающих задачах говорим прямо, а не молчим -->
-  {#if jobsTotal > jobs.length}
-    <div class="mb-3 px-3 py-2 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-300">
-      Показаны {jobs.length} задач из {jobsTotal}: список отдается страницами, чтобы выборка не
-      упиралась в память оркестратора. Сузьте фильтр по статусу или автору, чтобы увидеть нужные.
-    </div>
-  {/if}
 
   <!-- Таблица задач -->
   <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
@@ -771,5 +778,71 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Навигация по страницам: список приходит с сервера постранично -->
+    {#if jobsTotal > 0}
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-2.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+        <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>
+            {rangeStart}–{rangeEnd} из {jobsTotal}
+          </span>
+          <label class="flex items-center gap-1.5">
+            <span class="sr-only">Размер страницы</span>
+            <select
+              value={jobsPageSize}
+              onchange={(e) => onPageSizeChange?.(Number((e.currentTarget as HTMLSelectElement).value))}
+              class="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-750 text-slate-700 dark:text-slate-300 cursor-pointer"
+              title="Сколько задач показывать на странице"
+            >
+              {#each [25, 50, 100, 250] as option}
+                <option value={option}>{option} на странице</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            onclick={() => onPageChange?.(0)}
+            disabled={jobsPage === 0 || jobsLoading}
+            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Первая страница"
+            aria-label="Первая страница"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            onclick={() => onPageChange?.(jobsPage - 1)}
+            disabled={jobsPage === 0 || jobsLoading}
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            Назад
+          </button>
+          <span class="px-2 text-slate-600 dark:text-slate-300 font-medium whitespace-nowrap">
+            {jobsPage + 1} / {Math.max(jobsTotalPages, 1)}
+          </span>
+          <button
+            type="button"
+            onclick={() => onPageChange?.(jobsPage + 1)}
+            disabled={jobsPage + 1 >= jobsTotalPages || jobsLoading}
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            Вперед
+          </button>
+          <button
+            type="button"
+            onclick={() => onPageChange?.(Math.max(jobsTotalPages - 1, 0))}
+            disabled={jobsPage + 1 >= jobsTotalPages || jobsLoading}
+            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Последняя страница"
+            aria-label="Последняя страница"
+          >
+            »
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 </main>

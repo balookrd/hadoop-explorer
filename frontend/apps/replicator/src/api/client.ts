@@ -12,6 +12,7 @@ import type {
   HmsEventLog,
   HmsDeadLetterEvent,
   HmsCdcState,
+  JobListingSummary,
   JobPage,
   HmsSchemaDriftReport,
   CreateHmsJobPayload,
@@ -24,7 +25,22 @@ import type {
 } from '../types';
 
 /** Предел выборки заданий за запрос: сервер жестко ограничивает размер страницы 1000. */
-const JOBS_PAGE_SIZE = 500;
+const JOBS_PAGE_SIZE = 50;
+
+/** Общие параметры отбора заданий: одинаковы для страницы и для сводки. */
+function jobFilterParams(filters?: { status?: string; author?: string; search?: string }): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'ALL') {
+    params.set('status', filters.status);
+  }
+  if (filters?.author && filters.author !== 'ALL') {
+    params.set('author', filters.author);
+  }
+  if (filters?.search && filters.search.trim()) {
+    params.set('search', filters.search.trim());
+  }
+  return params;
+}
 
 export class ReplicatorApiClient extends BaseApiClient {
   constructor() {
@@ -33,17 +49,24 @@ export class ReplicatorApiClient extends BaseApiClient {
 
   // --- Задачи репликации (Jobs) ---
 
-  async getJobs(filters?: { status?: string; author?: string; page?: number; size?: number }): Promise<JobPage> {
-    const params = new URLSearchParams();
-    if (filters?.status && filters.status !== 'ALL') {
-      params.set('status', filters.status);
-    }
-    if (filters?.author && filters.author !== 'ALL') {
-      params.set('author', filters.author);
-    }
+  async getJobs(filters?: {
+    status?: string;
+    author?: string;
+    search?: string;
+    page?: number;
+    size?: number;
+  }): Promise<JobPage> {
+    const params = jobFilterParams(filters);
     params.set('page', String(filters?.page ?? 0));
     params.set('size', String(filters?.size ?? JOBS_PAGE_SIZE));
     return this.request<JobPage>(`/jobs?${params.toString()}`);
+  }
+
+  /** Счетчики статусов и список авторов по всему набору — для фильтров и чипов. */
+  async getJobsSummary(filters?: { author?: string; search?: string }): Promise<JobListingSummary> {
+    const params = jobFilterParams(filters);
+    const query = params.toString();
+    return this.request<JobListingSummary>(`/jobs/summary${query ? `?${query}` : ''}`);
   }
 
   async getJob(jobId: string): Promise<Job> {

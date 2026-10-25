@@ -48,9 +48,15 @@ describe('Replicator Tabs Navigation Order', () => {
         if (url.includes('/api/v1/hms/jobs')) {
           return mockJsonResponse([]);
         }
+        if (url.includes('/api/v1/jobs/summary')) {
+          // Счетчики статусов и авторы приходят сводкой по всему набору
+          return mockJsonResponse({
+            total: 0, running: 0, queued: 0, scheduled: 0, completed: 0, failed: 0, streaming: 0, authors: []
+          });
+        }
         if (url.includes('/api/v1/jobs')) {
           // Список заданий отдается страницей с обязательным пределом выборки
-          return mockJsonResponse({ content: [], total_elements: 0, total_pages: 0, number: 0, size: 500 });
+          return mockJsonResponse({ content: [], total_elements: 0, total_pages: 0, number: 0, size: 50 });
         }
         if (url.includes('/api/v1/agents')) {
           return mockJsonResponse([]);

@@ -5,6 +5,7 @@
   import { api } from './api/client';
   import type {
     Job,
+    JobListingSummary,
     JobRun,
     TopologyData,
     AgentInfo,
@@ -52,8 +53,13 @@
   }
 
   let jobs = $state<Job[]>([]);
-  // Сколько заданий всего на сервере: выборка ограничена, и об обрезке нужно сказать прямо
+  // Страничная выборка заданий: отбор, счетчики и авторы считает сервер
   let jobsTotal = $state(0);
+  let jobsTotalPages = $state(0);
+  let jobsPage = $state(0);
+  let jobsPageSize = $state(50);
+  let jobsFilters = $state({ status: 'ALL', author: 'ALL', search: '' });
+  let jobsSummary = $state<JobListingSummary | null>(null);
   let jobsLoading = $state(false);
   let pollTimer: any = null;
 
@@ -145,13 +151,51 @@
   // Загрузка задач
   async function loadJobs() {
     if (!user) return;
+    jobsLoading = true;
     try {
-      const page = await api.getJobs();
+      const [page, summary] = await Promise.all([
+        api.getJobs({
+          status: jobsFilters.status,
+          author: jobsFilters.author,
+          search: jobsFilters.search,
+          page: jobsPage,
+          size: jobsPageSize,
+        }),
+        api.getJobsSummary({ author: jobsFilters.author, search: jobsFilters.search }),
+      ]);
       jobs = page?.content ?? [];
       jobsTotal = page?.total_elements ?? jobs.length;
+      jobsTotalPages = page?.total_pages ?? 0;
+      jobsSummary = summary ?? null;
+      // Страница могла исчезнуть после удаления задач — возвращаемся к последней существующей
+      if (jobsPage > 0 && jobs.length === 0 && jobsTotal > 0) {
+        jobsPage = Math.max(jobsTotalPages - 1, 0);
+        await loadJobs();
+      }
     } catch (e) {
       console.error('Ошибка загрузки задач:', e);
+    } finally {
+      jobsLoading = false;
     }
+  }
+
+  function handleJobsFiltersChange(filters: { status: string; author: string; search: string }) {
+    jobsFilters = filters;
+    jobsPage = 0;
+    loadJobs();
+  }
+
+  function handleJobsPageChange(page: number) {
+    if (page < 0 || page === jobsPage) return;
+    jobsPage = page;
+    loadJobs();
+  }
+
+  function handleJobsPageSizeChange(size: number) {
+    if (!size || size === jobsPageSize) return;
+    jobsPageSize = size;
+    jobsPage = 0;
+    loadJobs();
   }
 
   // Загрузка топологии
@@ -436,6 +480,14 @@
       <JobsTableView
         {jobs}
         {jobsTotal}
+        {jobsPage}
+        {jobsPageSize}
+        {jobsTotalPages}
+        {jobsLoading}
+        summary={jobsSummary}
+        onFiltersChange={handleJobsFiltersChange}
+        onPageChange={handleJobsPageChange}
+        onPageSizeChange={handleJobsPageSizeChange}
         {topology}
         canCreate={Boolean(canCreate)}
         {canManageJob}

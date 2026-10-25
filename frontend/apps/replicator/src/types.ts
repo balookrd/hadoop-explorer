@@ -233,6 +233,18 @@ export interface HmsDeadLetterEvent {
   failedAt?: string;
 }
 
+/** Сводка по списку заданий: счетчики статусов и авторы считаются сервером по всему набору. */
+export interface JobListingSummary {
+  total: number;
+  running: number;
+  queued: number;
+  scheduled: number;
+  completed: number;
+  failed: number;
+  streaming: number;
+  authors: string[];
+}
+
 /** Страница списка заданий: эндпоинт `/jobs` отдает выборку с обязательным пределом. */
 export interface JobPage {
   content: Job[];
