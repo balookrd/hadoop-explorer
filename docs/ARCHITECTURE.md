@@ -190,6 +190,7 @@
 - Ожидание завершения выполняющихся запросов (таймаут `spring.lifecycle.timeout-per-shutdown-phase`).
 - Корректная остановка фоновых пулов задач и потоков (`ExecutorService.shutdown()`).
 - Закрытие пулов соединений с базами данных (HikariCP pool close) и освобождение сетевых ресурсов.
+- Сброс накопленных в памяти буферов в БД собственной транзакцией: остаточный прогресс задач репликатора (`TaskService`) дописывается до закрытия пула соединений, а не теряется с остановкой узла.
 
 
 ---
@@ -300,7 +301,7 @@
     - **Orchestrator (Control Plane)**: чистый координатор без прямых обращений в HDFS и без Thrift RPC соединений. Управляет задачами в БД, проверяет реестр `AgentRegistry`, при отсутствии пары агентов переводит задачу в `WAITING_FOR_AGENTS` (без попыток локального выполнения), координирует воркеры и принимает отчеты о прогрессе через высокоскоростной gRPC Control Plane (`orchestrator_control_plane.proto` на порту 50050).
     - **Stateless Active-Active Orchestration & Persistent Agent Registry**: персистентный реестр агентов в БД (`replication_agents`, `AgentEntity`), обеспечивающий совместную работу реплик оркестратора без разделяемого in-memory состояния. Любой экземпляр видит heartbeat и состояние всех агентов кластера.
     - **Распределенная координация Token Bucket и кластерный скейлинг**: таблица `bandwidth_limits` и координатор `OrchestratorClusterCoordinator` с динамическим учетом активных узлов (`orchestrator_nodes`) и автоматическим масштабированием токенов между репликами оркестратора.
-    - **Монотонные Fencing Tokens и защита от Split-Brain**: распределенная блокировка `DistributedLockService` генерирует строгие монотонные токены (`ClusterLockEntity.fencingToken`), защищая от зомби-лидеров и гонок в сценариях Disaster Recovery.
+    - **Монотонные Fencing Tokens и защита от Split-Brain**: распределенная блокировка `DistributedLockService` генерирует строгие монотонные токены (`ClusterLockEntity.epoch`, не сбрасываемые при снятии аренды), защищая от зомби-лидеров и гонок в сценариях Disaster Recovery.
     - **Replicator Agent (Data & Metadata Plane)**: агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по LAN Thrift 9083, Target Agent применяет DDL в целевой HMS по локальному LAN Thrift, а обмен между агентами по WAN идет напрямую по защищенному gRPC-контракту `HmsTransferService` (порт 50051).
     - **Java 21 Virtual Threads & Netty Concurrency**: gRPC-приемник агента переведен на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`), а потоковая распаковка входящих TAR-бандлов мелких файлов изолирована в выделенный пул виртуальных потоков (`tarUnpackExecutor`), исключая блокировки сетевых EventLoop потоков.
     - **Криптографическая аттестация задач (HMAC-SHA256 Task Attestation)**: сервис `TaskAttestationService` генерирует криптографическую подпись параметров задачи при её назначении (`v1|taskId|jobId|targetPath|executionPrincipal|runAsServiceAccount|expiresAt`), а агент перед открытием HDFS OutputStream верифицирует токен через `TaskAttestationValidator`, гарантируя невозможность подмены целевых путей или Kerberos-принципалов.

@@ -463,7 +463,7 @@ sequenceDiagram
          -H "Authorization: Bearer ${JWT_TOKEN}"
 
 [3. СИСТЕМНЫЕ ДЕЙСТВИЯ ПЛАТФОРМЫ ПОД КАПОТОМ]
-  ├── DistributedLockService: атомарный захват блокировки и инкремент монотонного fencing_token.
+  ├── DistributedLockService: атомарный захват блокировки и инкремент монотонной эпохи (fencing token).
   ├── Лимит WAN-полосы в Token Bucket Шейпере принудительно сбрасывается в 0 МБ/с.
   ├── Все активные входящие/исходящие gRPC стримы отменяются (Status.CANCELLED).
   ├── Все прямые задачи репликации переходят в статус STOPPED.

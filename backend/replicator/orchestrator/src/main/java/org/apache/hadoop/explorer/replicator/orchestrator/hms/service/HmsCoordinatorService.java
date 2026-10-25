@@ -47,6 +47,11 @@ public class HmsCoordinatorService {
     private final JobService jobService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
+    /**
+     * Явная граница транзакции для путей, идущих мимо прокси Spring (действие под блокировкой
+     * передается ссылкой на свой же метод, и аннотация на нем не срабатывает).
+     */
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
 
     @Autowired
     public HmsCoordinatorService(
@@ -56,7 +61,8 @@ public class HmsCoordinatorService {
             AgentRegistry agentRegistry,
             JobService jobService,
             org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties,
-            @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService
+            @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
+            @Autowired(required = false) org.springframework.transaction.PlatformTransactionManager transactionManager
     ) {
         this.hmsJobRepository = hmsJobRepository;
         this.hmsEventLogRepository = hmsEventLogRepository;
@@ -65,6 +71,9 @@ public class HmsCoordinatorService {
         this.jobService = jobService;
         this.properties = properties;
         this.lockService = lockService;
+        this.txTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : null;
     }
 
     public HmsCoordinatorService(
@@ -74,7 +83,7 @@ public class HmsCoordinatorService {
             JobService jobService,
             org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties properties
     ) {
-        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, properties, null);
+        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, properties, null, null);
     }
 
     public HmsCoordinatorService(
@@ -83,7 +92,7 @@ public class HmsCoordinatorService {
             AgentRegistry agentRegistry,
             JobService jobService
     ) {
-        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties(), null);
+        this(hmsJobRepository, hmsEventLogRepository, null, agentRegistry, jobService, new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties(), null, null);
     }
 
     /**
@@ -680,7 +689,24 @@ public class HmsCoordinatorService {
     @Scheduled(fixedDelayString = "${hadoop.replicator.hms-failover-check-ms:10000}")
     public void scheduledCheckAndFailoverOrphanedHmsJobs() {
         if (lockService != null) {
-            lockService.runWithLock("hms_failover_check_lock", java.time.Duration.ofSeconds(4), this::checkAndFailoverOrphanedHmsJobs);
+            lockService.runWithLock("hms_failover_check_lock", java.time.Duration.ofSeconds(4),
+                    this::runOrphanedHmsFailoverInTransaction);
+        } else {
+            runOrphanedHmsFailoverInTransaction();
+        }
+    }
+
+    /**
+     * Проход failover в явной транзакции.
+     *
+     * <p>Действие под блокировкой передается ссылкой на свой же метод, то есть вызов идет мимо
+     * прокси и {@code @Transactional} на {@code checkAndFailoverOrphanedHmsJobs} не действует.
+     * Без транзакции снятие аренды, запись журнала и переназначение задачи фиксируются порознь,
+     * и сбой на середине прохода оставляет задачу без владельца со старой позицией в CDC.
+     */
+    private void runOrphanedHmsFailoverInTransaction() {
+        if (txTemplate != null) {
+            txTemplate.executeWithoutResult(status -> checkAndFailoverOrphanedHmsJobs());
         } else {
             checkAndFailoverOrphanedHmsJobs();
         }

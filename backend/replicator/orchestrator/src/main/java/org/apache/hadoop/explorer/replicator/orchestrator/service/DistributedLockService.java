@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -41,7 +42,7 @@ public class DistributedLockService {
     public DistributedLockService(ClusterLockRepository lockRepository,
                                   @Autowired(required = false) PlatformTransactionManager transactionManager) {
         this.lockRepository = lockRepository;
-        this.txTemplate = transactionManager != null ? new TransactionTemplate(transactionManager) : null;
+        this.txTemplate = transactionManager != null ? newRequiresNewTemplate(transactionManager) : null;
     }
 
     public DistributedLockService(ClusterLockRepository lockRepository) {
@@ -50,6 +51,20 @@ public class DistributedLockService {
 
     public String getNodeId() {
         return nodeId;
+    }
+
+    /**
+     * Шаблон собственной транзакции для операций над арендой.
+     *
+     * <p>Аренду нужно зафиксировать сразу: пока бизнес-транзакция не закоммичена, соседний
+     * инстанс не видит строки и берется за ту же задачу. Граница задана шаблоном, а не
+     * аннотацией, потому что {@code runWithLock} вызывает захват и снятие напрямую, минуя
+     * прокси — на таком вызове аннотация не сработала бы вовсе.
+     */
+    private static TransactionTemplate newRequiresNewTemplate(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     private <T> T inTransaction(Supplier<T> action) {
@@ -62,8 +77,10 @@ public class DistributedLockService {
     /**
      * Попытка захватить или продлить распределенную блокировку на указанную длительность
      * с возвратом LockHandle, содержащего актуальный Fencing Token (epoch).
+     *
+     * <p>Выполняется в отдельной транзакции: аренда должна стать видимой другим узлам до того,
+     * как завершится работа под блокировкой.
      */
-    @Transactional
     public LockHandle tryLockWithHandle(String lockName, Duration duration) {
         if (lockName == null || lockName.isBlank() || duration == null) {
             return LockHandle.failed(lockName, nodeId);
@@ -100,7 +117,6 @@ public class DistributedLockService {
     /**
      * Попытка захватить или продлить распределенную блокировку на указанную длительность.
      */
-    @Transactional
     public boolean tryLock(String lockName, Duration duration) {
         return tryLockWithHandle(lockName, duration).acquired();
     }
@@ -131,11 +147,10 @@ public class DistributedLockService {
     /**
      * Освобождение ранее захваченной блокировки текущим инстансом.
      */
-    @Transactional
     public void releaseLock(String lockName) {
         inTransaction(() -> {
             try {
-                lockRepository.releaseLock(lockName, nodeId);
+                lockRepository.releaseLock(lockName, nodeId, Instant.now());
             } catch (Exception e) {
                 log.debug("[DistributedLock] Ошибка при освобождении блокировки {}: {}", lockName, e.getMessage());
             }
@@ -143,7 +158,6 @@ public class DistributedLockService {
         });
     }
 
-    @Transactional
     public void releaseLock(LockHandle handle) {
         if (handle != null && handle.acquired()) {
             releaseLock(handle.lockName());

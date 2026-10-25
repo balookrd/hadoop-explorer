@@ -40,6 +40,14 @@ public class TaskService {
     private final ReplicatorProperties properties;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
     private final org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository;
+    /**
+     * Явная граница транзакции для путей, которые идут мимо прокси Spring.
+     *
+     * <p>{@code @Transactional} срабатывает только на вызове через прокси, а остановка контейнера
+     * и действие, переданное в {@code runWithLock} ссылкой на свой же метод, вызывают метод
+     * напрямую. Шаблон задает транзакцию независимо от способа вызова.
+     */
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
     private final JobProgressBuffer progressBuffer = new JobProgressBuffer();
     private final java.util.concurrent.atomic.AtomicInteger reconciliationTick = new java.util.concurrent.atomic.AtomicInteger(0);
     private final java.util.concurrent.ConcurrentMap<String, Long> emptyQueueCooldownUntil = new java.util.concurrent.ConcurrentHashMap<>();
@@ -52,7 +60,8 @@ public class TaskService {
                        TopologyRegistry topologyRegistry,
                        ReplicatorProperties properties,
                        @org.springframework.lang.Nullable org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
-                       @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository) {
+                       @Autowired(required = false) org.apache.hadoop.explorer.replicator.orchestrator.repository.StreamingLeaseRepository leaseRepository,
+                       @Autowired(required = false) org.springframework.transaction.PlatformTransactionManager transactionManager) {
         this.taskRepository = taskRepository;
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
@@ -61,6 +70,9 @@ public class TaskService {
         this.properties = properties;
         this.lockService = lockService;
         this.leaseRepository = leaseRepository;
+        this.txTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : null;
     }
 
     public TaskService(TaskRepository taskRepository,
@@ -69,7 +81,7 @@ public class TaskService {
                        AgentRegistry agentRegistry,
                        TopologyRegistry topologyRegistry,
                        ReplicatorProperties properties) {
-        this(taskRepository, jobRepository, jobRunRepository, agentRegistry, topologyRegistry, properties, null, null);
+        this(taskRepository, jobRepository, jobRunRepository, agentRegistry, topologyRegistry, properties, null, null, null);
     }
 
     /**
@@ -757,7 +769,24 @@ public class TaskService {
     @Scheduled(fixedDelayString = "${hadoop.replicator.orphan-task-check-ms:10000}")
     public void checkAndFailoverOrphanedTasks() {
         if (lockService != null) {
-            lockService.runWithLock("orphan_task_failover_lock", java.time.Duration.ofSeconds(5), this::executeCheckAndFailoverOrphanedTasks);
+            lockService.runWithLock("orphan_task_failover_lock", java.time.Duration.ofSeconds(5),
+                    this::runOrphanedTaskFailoverInTransaction);
+        } else {
+            runOrphanedTaskFailoverInTransaction();
+        }
+    }
+
+    /**
+     * Пересчет осиротевших задач в явной транзакции.
+     *
+     * <p>Шедулер передает действие в {@code runWithLock} ссылкой на свой же метод, то есть вызов
+     * идет мимо прокси и аннотация на {@code executeCheckAndFailoverOrphanedTasks} не действует.
+     * Без транзакции каждый перевод задачи фиксировался бы отдельно, и сбой на середине прохода
+     * оставлял бы failover примененным частично.
+     */
+    private void runOrphanedTaskFailoverInTransaction() {
+        if (txTemplate != null) {
+            txTemplate.executeWithoutResult(status -> executeCheckAndFailoverOrphanedTasks());
         } else {
             executeCheckAndFailoverOrphanedTasks();
         }
@@ -934,9 +963,21 @@ public class TaskService {
         }
     }
 
+    /**
+     * Остаточный сброс буфера прогресса при остановке узла.
+     *
+     * <p>Вызов из {@code @PreDestroy} идет мимо прокси, поэтому транзакция открывается явно:
+     * иначе модифицирующий запрос прогресса выполнялся бы вне транзакции и на PostgreSQL
+     * отвергался read-only транзакцией репозитория — накопленные байты и файлы терялись бы
+     * при каждой плановой остановке.
+     */
     @PreDestroy
     public void shutdown() {
         log.info("Остановка TaskService: принудительный сброс остаточного буфера прогресса...");
-        flushPendingProgress();
+        if (txTemplate != null) {
+            txTemplate.executeWithoutResult(status -> flushPendingProgress());
+        } else {
+            flushPendingProgress();
+        }
     }
 }
