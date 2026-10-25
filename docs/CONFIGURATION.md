@@ -46,7 +46,7 @@
    - [Настройка Replicator Agent (Full-Duplex) и буфера Staging](#75-настройка-replicator-agent-full-duplex-и-буфера-staging)
    - [Разрешение целевых адресов (Service Discovery, AGENT_TARGET_* и Fallback)](#76-разрешение-целевых-адресов-service-discovery-agent_target_-и-fallback)
    - [Планировщик периодических задач (Cron Scheduler)](#77-планировщик-периодических-задач-cron-scheduler)
-   - [Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)](#78-локальное-ограничение-пропускной-способности-агента-agent_max_bandwidth_mb_s)
+   - [Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)](#78-локальное-ограничение-пропускной-способности-агента-agent_max_bandwidth_mb_s-и-модель-согласования-wan)
    - [Эталонный фрагмент конфигурации топологии (application.yml)](#79-эталонный-фрагмент-конфигурации-топологии-applicationyml)
 8. [Переменные окружения](#8-переменные-окружения)
 9. [Конфигурация в Kubernetes (Helm)](#9-конфигурация-в-kubernetes-helm)

@@ -42,7 +42,7 @@
 > **Нативное развертывание в Hadoop & YARN**:
 > Для передачи данных в защищенных кластерах компонент **Replicator Agent** дополнительно поддерживает специализированные сценарии:
 > - **Hadoop DataNode / Edge Node CLI** (`hadoop jar`): запуск Shaded Fat JAR или тонкого JAR-файла с системным `HADOOP_CLASSPATH` и локальным шейпингом полосы пропускания (`AGENT_MAX_BANDWIDTH_MB_S`).
-> - **Apache Hadoop YARN**: эластичный запуск пула воркеров через `ReplicatorYarnClient` под управлением `ReplicatorApplicationMaster` с автоматическим пробросом **HDFS Delegation Tokens** (не требуются локальные keytab на NodeManager). Подробнее см. [docs/replicator-admin-guide.md#25-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#25-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
+> - **Apache Hadoop YARN**: эластичный запуск пула воркеров через `ReplicatorYarnClient` под управлением `ReplicatorApplicationMaster` с автоматическим пробросом **HDFS Delegation Tokens** (не требуются локальные keytab на NodeManager). Подробнее см. [docs/replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
 
 ---
 

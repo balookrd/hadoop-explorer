@@ -45,7 +45,7 @@
    - Развертывается на выделенной виртуальной машине (VM) или в Kubernetes Pod в управляющем сегменте сети (Management VLAN).
    - **Устанавливается**: `hadoop-grpc-replicator-orchestrator.jar` (Spring Boot 3.3.4, Java 21, `TCP :8005` и `TCP :50050`).
    - Предоставляет REST API и Web-консоль управления на порту `:8005` (Kerberos SPNEGO SSO, LDAP, RBAC), а также высокоскоростной gRPC Control Plane на порту `:50050` (`orchestrator_control_plane.proto`).
-   - Хранилище состояния: PostgreSQL 14+ (`TCP :5432` / Patroni HA) с персистентным реестром агентов `agent_registry` (`AgentEntity`), таблицей лимитов `bandwidth_limits` и блокировками `cluster_locks` с монотонными fencing tokens.
+   - Хранилище состояния: PostgreSQL 14+ (`TCP :5432` / Patroni HA) с персистентным реестром агентов `replication_agents` (`AgentEntity`), таблицей лимитов `bandwidth_limits` и блокировками `cluster_locks` с монотонными fencing tokens.
    - **Stateless Active-Active кластер**: несколько реплик оркестратора работают совместно без локального in-memory состояния; квоты Token Bucket автоматически распределяются координатором `OrchestratorClusterCoordinator`.
    - Общается с агентами обоих ЦОДов по gRPC Control Plane (`:50050`) и REST API (`:8005`) (регистрация агентов, heartbeat каждые 3–5 с, криптографическая выдача подзадач с HMAC-токенами, распределенный арбитраж Inotify Lease HA).
    - **⚠️ Архитектурный инвариант**: Оркестратор **НЕ прокачивает байты файлов через себя**, работая исключительно как координатор метаданных.
@@ -88,7 +88,7 @@
 | **Бинарный пакет** | `hadoop-grpc-replicator-orchestrator.jar` | `hadoop-grpc-replicator-agent.jar` |
 | **Среда исполнения** | Java 21 LTS (Spring Boot 3.3.4) | Java 21 LTS (Netty 4.1 на Virtual Threads, tarUnpackExecutor) |
 | **Сетевые интерфейсы** | `TCP :8005` (REST, SSE, Web UI), `TCP :50050` (gRPC Control Plane) | `TCP :50051` (gRPC HDFS/HMS), `TCP :50052` (Kafka Data Plane) |
-| **База метаданных** | PostgreSQL 14+ (`agent_registry`, `bandwidth_limits`, `cluster_locks`) | Отсутствует (Stateless воркеры) |
+| **База метаданных** | PostgreSQL 14+ (`replication_agents`, `bandwidth_limits`, `cluster_locks`) | Отсутствует (Stateless воркеры) |
 | **Аутентификация** | Kerberos SPNEGO SSO, LDAP Bind, JWT HttpOnly, Agent Secret | Kerberos Keytab (`hdfs.headless.keytab`), mTLS x509, HMAC Attestation |
 | **Целевые системы** | Браузеры операторов, Prometheus scraper | Hadoop 3.x (RPC :8020/:9000, DTP :9866), Hive Metastore (:9083), Kafka |
 
@@ -101,7 +101,7 @@
    - Передача данных выполняется напрямую между демонами `replicator-agent-dc1` и `replicator-agent-dc2` по порту `TCP :50051`.
    - В фаерволе между ЦОД открывается ровно один порт. Кластерные порты Hadoop (NameNode, DataNodes) наружу не выставляются.
 3. **Stateless-архитектура воркеров и Active-Active Orchestration**:
-   - Агенты не сохраняют локальное состояние задач на диск. Реестр агентов хранится в БД (`agent_registry`), позволяя запускать оркестраторы в пуле Active-Active с динамическим распределением токенов через `OrchestratorClusterCoordinator`.
+   - Агенты не сохраняют локальное состояние задач на диск. Реестр агентов хранится в БД (`replication_agents`), позволяя запускать оркестраторы в пуле Active-Active с динамическим распределением токенов через `OrchestratorClusterCoordinator`.
 4. **Zero-Staging транзакционность и двухфазный коммит**:
    - Файлы на стороне приемника никогда не перезаписываются напрямую. Запись ведется в `._staging_*`, и только после верификации SHA-256 атомарно переименовывается в NameNode. Для TAR-бандлов мелких файлов двухфазный коммит защищает от сбоев и согласуется с `HdfsStagingReaper`.
 5. **Криптографическая аттестация задач (HMAC-SHA256)**:
@@ -297,7 +297,7 @@ sequenceDiagram
     Orch-->>A1: LeaseToken(granted=true, lease_id="dc1-worker-01-token")
 
     loop Каждые 20 секунд (Heartbeat лизинга)
-        A1->>Orch: POST /hms/lease/renew(lease_id)
+        A1->>Orch: gRPC RenewHmsJobLease(lease_id)
         Orch-->>A1: RenewAck(ttl_remaining=60s)
     end
 
@@ -312,7 +312,7 @@ sequenceDiagram
     A2->>HMS2: Thrift alter_table / add_partitions(deleteData=false)
     HMS2-->>A2: Success
     A2-->>A1: HmsOperationResponse(success=true)
-    A1->>Orch: POST /hms/progress(last_processed_event_id=142100)
+    A1->>Orch: gRPC ReportHmsProgress(last_processed_event_id=142100)
 ```
 
 ### Инженерные гарантии репликации метаданных
@@ -634,7 +634,7 @@ groups:
 > - **Colocated (на узлах брокеров Kafka)**: вычитка идет локально по `localhost:9092` без дополнительной загрузки внутренней сети ЦОД. In-memory буферизация на виртуальных потоках Java 21 не требует выделенного staging-диска и потребляет всего 2–4 vCPU при скорости до 400k msg/s.
 > - **Dedicated (выделенные Edge Gateway серверы)**: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M+ msg/s.
 > - **Изоляция брокерного ISR-трафика**: внутрикластерная синхронизация реплик (ISR) циркулирует по локальным интерфейсам (например, 2x25G) и физически не конкурирует с WAN-трафиком репликации.
-> - *Пошаговый регламент развертывания Colocated с готовым systemd-юнитом и cgroups-изоляцией*: [Руководство администратора, разд. 8.5](replicator-admin-guide.md#85-пошаговая-настройка-и-запуск-kafka-replicator-agent-в-режиме-colocated-на-узлах-брокеров-kafka).
+> - *Пошаговый регламент развертывания Colocated с готовым systemd-юнитом и cgroups-изоляцией*: [Руководство администратора, разд. 8.5](replicator-admin-guide.md#86-пошаговая-настройка-и-запуск-kafka-replicator-agent-в-режиме-colocated-на-узлах-брокеров-kafka).
 
 ### Тюнинг ядра Linux для высокоскоростных 10G / 40G / 100G / 200G / 400G+ WAN-каналов (`/etc/sysctl.conf`)
 
