@@ -2223,7 +2223,8 @@ flowchart LR
 
 5. **Zero-Copy Wire Transcoding**:
    - Трансляция идентификаторов схем включается, когда заданы адреса **обоих** реестров: `--source-schema-registry-url` и `--target-schema-registry-url` (плюс типы `CONFLUENT` или `HORTONWORKS`). С одним известным адресом трансляция не включается: в целевой кластер уходили бы идентификаторы чужого реестра.
-   - Формат полезной нагрузки задается `--payload-format` при `--schema-transcoding true`; неизвестное или незаданное имя означает автоопределение по заголовку сообщения. Без `--schema-transcoding` формат остается `PAYLOAD_PASSTHROUGH`.
+   - Включение — флаг задачи `schema_transcoding` (галочка в интерфейсе), который доезжает до агента в `KafkaJobItemProto`; для топиков из CLI — `--schema-transcoding`. Адреса реестров остаются конфигурацией узла: это инфраструктура кластера, а не свойство задачи. Смена флага на работающей задаче пересоздает ее конвейер.
+   - Формат полезной нагрузки задается `--payload-format`; неизвестное или незаданное имя означает автоопределение по заголовку сообщения. При выключенном транскодинге формат остается `PAYLOAD_PASSTHROUGH`.
    - Если реестры не настроены, работает passthrough: идентификаторы переносятся как есть. Это законный режим, а не деградация, но тогда идентификаторы схем в кластерах должны совпадать, иначе потребители на целевой стороне не разберут сообщения.
    - Резолвер получают и отправитель (транскодер в пуле консьюмеров), и приемник: замена 5-байтного заголовка Schema ID выполняется без аллокации промежуточных буферов, с кэшем и Single-Flight resolution.
 
@@ -2256,8 +2257,8 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 |---|---|---|---|
 | `--port` | `PORT` | `50052` | Порт gRPC Data Plane приемника |
 | `--consumer-groups` | `CONSUMER_GROUPS` | — | Группы, смещения которых переносятся (CSV). Для задач из Control Plane берутся из задачи |
-| `--offset-sync-interval-sec` | `OFFSET_SYNC_INTERVAL_SEC` | `0` (выключено) | Интервал переноса смещений консьюмер-групп |
-| `--schema-transcoding` | `SCHEMA_TRANSCODING_ENABLED` | `false` | Включение транскодинга форматов полезной нагрузки |
+| `--offset-sync-interval-sec` | `OFFSET_SYNC_INTERVAL_SEC` | `0` (выключено) | Интервал переноса смещений для топиков из CLI. У задач из Control Plane берется из задачи |
+| `--schema-transcoding` | `SCHEMA_TRANSCODING_ENABLED` | `false` | Транскодинг для топиков из CLI. У задач из Control Plane берется из флага задачи |
 | `--payload-format` | `PAYLOAD_FORMAT` | автоопределение | `CONFLUENT_AVRO`, `HWX_AVRO`, `PASSTHROUGH` или `AUTO_DETECT` |
 | `--source-schema-registry-url` | `SOURCE_SCHEMA_REGISTRY_URL` | — | Адрес реестра схем источника |
 | `--source-schema-registry-type` | `SOURCE_SCHEMA_REGISTRY_TYPE` | `CONFLUENT` | `CONFLUENT` или `HORTONWORKS` |
@@ -2283,11 +2284,17 @@ java -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.
 
 ### 8.3 Защитный гейт синхронизации оффсетов (Consumer Group Safety Gate)
 
-Перенос смещений выполняется демоном периодически и по умолчанию **выключен**: интервал не
-задан. Включение — `--offset-sync-interval-sec` (`OFFSET_SYNC_INTERVAL_SEC`). Список групп берется
-из `--consumer-groups` (`CONSUMER_GROUPS`) для топиков из CLI, а для задач из Control Plane — из
-поля `consumer_groups` самой задачи: у каждой задачи свои группы, свой целевой кластер и свой
-клиент приемников, поэтому перенос привязан к задаче, а не к демону.
+Перенос смещений выполняется периодически и по умолчанию **выключен**: интервал не задан.
+
+- **Задачи из Control Plane**: интервал и список групп берутся из самой задачи
+  (`offset_sync_interval_sec` и `consumer_groups`), то есть задаются в интерфейсе на задачу.
+  Параметры доезжают до агента в `KafkaJobItemProto`. Смена интервала на работающей задаче
+  пересоздает ее конвейер: перенос смещений и транскодер создаются вместе с пулом.
+- **Топики из CLI**: интервал — `--offset-sync-interval-sec` (`OFFSET_SYNC_INTERVAL_SEC`), группы —
+  `--consumer-groups` (`CONSUMER_GROUPS`).
+
+Перенос привязан к задаче, а не к демону: у задачи свои группы, свой целевой кластер и свой клиент
+приемников.
 
 Что переносится: сканер берет смещения групп в кластере-источнике и сопоставляет их с фактическим
 прогрессом репликации (подтвержденные приемником оффсеты и временные метки), после чего вызывает

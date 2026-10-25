@@ -398,6 +398,10 @@ message KafkaJobItemProto {
   int32 consumer_threads = 12;
   double bandwidth_limit_mb = 13;
   string status = 14;
+  // Интервал переноса смещений консьюмер-групп задачи, секунды. 0 — перенос выключен
+  int32 offset_sync_interval_sec = 15;
+  // Транскодинг форматов полезной нагрузки для этой задачи
+  bool schema_transcoding = 16;
 }
 
 message GetActiveKafkaJobsResponse {

@@ -363,6 +363,32 @@ public class OrchestratorControlPlaneServiceTest {
     }
 
     @Test
+    @DisplayName("Интервал переноса смещений и транскодинг схем доезжают до агента в задаче")
+    void testGetActiveKafkaJobsCarriesPerJobOffsetSyncAndTranscoding() {
+        KafkaReplicationJobDto job = new KafkaReplicationJobDto();
+        job.setId("job-kafka-per-job");
+        job.setName("Per-job settings");
+        job.setSourceDc("dc1");
+        job.setTargetDc("dc2");
+        job.setDirection("PUSH");
+        job.setStatus("ACTIVE");
+        job.setOffsetSyncIntervalSec(30);
+        job.setSchemaTranscodingEnabled(true);
+
+        when(kafkaOrchestratorService.getActiveJobsForDc("dc1")).thenReturn(List.of(job));
+
+        KafkaJobItemProto item = stub.getActiveKafkaJobs(GetActiveKafkaJobsRequest.newBuilder()
+                .setDcId("dc1")
+                .build()).getJobs(0);
+
+        assertEquals(30, item.getOffsetSyncIntervalSec(),
+                "Интерфейс задает интервал переноса смещений на задачу, и агент обязан его получить: "
+                        + "иначе поле формы остается декоративным");
+        assertTrue(item.getSchemaTranscoding(),
+                "Флаг транскодинга схем задается на задачу и обязан доезжать до агента");
+    }
+
+    @Test
     @DisplayName("getActiveKafkaJobs корректно инвертирует топологию и эндпоинты для Active-Active (BIDIRECTIONAL) обратного направления")
     void testGetActiveKafkaJobsBidirectionalReverse() {
         KafkaReplicationJobDto job = new KafkaReplicationJobDto();

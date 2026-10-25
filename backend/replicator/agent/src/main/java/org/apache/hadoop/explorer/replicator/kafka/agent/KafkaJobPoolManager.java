@@ -40,7 +40,9 @@ public class KafkaJobPoolManager implements Closeable {
             List<String> consumerGroups,
             int consumerThreads,
             int batchSize,
-            double bandwidthLimitMb
+            double bandwidthLimitMb,
+            int offsetSyncIntervalSec,
+            boolean schemaTranscoding
     ) {}
 
     /**
@@ -53,7 +55,8 @@ public class KafkaJobPoolManager implements Closeable {
 
     /** Состояние запущенной задачи: пул и то, по чему видно необходимость обновления. */
     private record JobRuntime(JobPipeline pipeline, List<String> topics,
-                              List<String> endpoints, double bandwidthLimitMb) {
+                              List<String> endpoints, double bandwidthLimitMb,
+                              int offsetSyncIntervalSec, boolean schemaTranscoding) {
         KafkaBatchConsumerPool pool() {
             return pipeline.pool();
         }
@@ -134,7 +137,9 @@ public class KafkaJobPoolManager implements Closeable {
                 List.copyOf(job.getConsumerGroupsList()),
                 Math.max(1, job.getConsumerThreads()),
                 Math.max(1, job.getBatchSize()),
-                job.getBandwidthLimitMb()
+                job.getBandwidthLimitMb(),
+                Math.max(0, job.getOffsetSyncIntervalSec()),
+                job.getSchemaTranscoding()
         );
 
         JobPipeline pipeline;
@@ -150,7 +155,8 @@ public class KafkaJobPoolManager implements Closeable {
 
         try {
             pipeline.pool().start();
-            runtimes.put(jobId, new JobRuntime(pipeline, topics, endpoints, spec.bandwidthLimitMb()));
+            runtimes.put(jobId, new JobRuntime(pipeline, topics, endpoints, spec.bandwidthLimitMb(),
+                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding()));
             log.info("Задача '{}' запущена: группа '{}', топики {}, приемники {}, потоков {}",
                     jobId, spec.groupId(), topics, endpoints, spec.consumerThreads());
         } catch (Exception e) {
@@ -161,6 +167,21 @@ public class KafkaJobPoolManager implements Closeable {
 
     private void updateJob(KafkaJobItemProto job, String jobId, List<String> topics,
                            List<String> endpoints, JobRuntime existing) {
+        // Транскодер схем и перенос смещений создаются вместе с конвейером задачи, поэтому их
+        // настройки нельзя поменять на живом пуле: задача пересоздается целиком.
+        int offsetSyncInterval = Math.max(0, job.getOffsetSyncIntervalSec());
+        boolean transcoding = job.getSchemaTranscoding();
+        if (offsetSyncInterval != existing.offsetSyncIntervalSec()
+                || transcoding != existing.schemaTranscoding()) {
+            log.info("Задача '{}': изменились настройки конвейера (перенос смещений {} -> {} с, "
+                            + "транскодинг {} -> {}), пул пересоздается",
+                    jobId, existing.offsetSyncIntervalSec(), offsetSyncInterval,
+                    existing.schemaTranscoding(), transcoding);
+            stopJob(jobId);
+            startJob(job, jobId, topics, endpoints);
+            return;
+        }
+
         if (!existing.topics().equals(topics)) {
             existing.pool().updateSubscribedTopics(topics);
             log.info("Задача '{}': список топиков обновлен {} -> {}", jobId, existing.topics(), topics);
@@ -170,7 +191,9 @@ public class KafkaJobPoolManager implements Closeable {
             existing.pool().setBandwidthLimitMb(limit);
             log.info("Задача '{}': лимит полосы обновлен {} -> {} МБ/с", jobId, existing.bandwidthLimitMb(), limit);
         }
-        runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints, limit > 0 ? limit : existing.bandwidthLimitMb()));
+        runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints,
+                limit > 0 ? limit : existing.bandwidthLimitMb(),
+                existing.offsetSyncIntervalSec(), existing.schemaTranscoding()));
     }
 
     private void stopJob(String jobId) {

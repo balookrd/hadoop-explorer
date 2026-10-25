@@ -684,6 +684,11 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
                         .setBandwidthLimitMb(job.getBandwidthLimitMb() != null ? job.getBandwidthLimitMb() : 0.0)
                         .setStatus(job.getStatus() != null ? job.getStatus() : "")
+                        // Настройки задачи, которые раньше хранились и никуда не доезжали:
+                        // интерфейс задает их на задачу, применяет их агент
+                        .setOffsetSyncIntervalSec(job.getOffsetSyncIntervalSec() != null
+                                ? job.getOffsetSyncIntervalSec() : 0)
+                        .setSchemaTranscoding(job.isSchemaTranscodingEnabled())
                         .build();
 
                 respBuilder.addJobs(item);

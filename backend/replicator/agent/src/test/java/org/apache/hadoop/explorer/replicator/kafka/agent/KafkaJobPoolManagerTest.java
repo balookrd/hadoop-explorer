@@ -27,7 +27,8 @@ class KafkaJobPoolManagerTest {
 
     /** Запрошенные у фабрики параметры пула: по ним видно изоляцию задач. */
     private record PoolRequest(String groupId, List<String> topics, List<String> endpoints,
-                               int consumerThreads, int batchSize, String targetDc) {}
+                               int consumerThreads, int batchSize, String targetDc,
+                               int offsetSyncIntervalSec, boolean schemaTranscoding) {}
 
     private final List<PoolRequest> requests = new ArrayList<>();
     private final Map<String, KafkaBatchConsumerPool> pools = new ConcurrentHashMap<>();
@@ -39,7 +40,8 @@ class KafkaJobPoolManagerTest {
         pools.clear();
         manager = new KafkaJobPoolManager("dc1", (spec) -> {
             requests.add(new PoolRequest(spec.groupId(), spec.topics(), spec.targetEndpoints(),
-                    spec.consumerThreads(), spec.batchSize(), spec.targetDc()));
+                    spec.consumerThreads(), spec.batchSize(), spec.targetDc(),
+                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding()));
             KafkaBatchConsumerPool pool = mock(KafkaBatchConsumerPool.class);
             pools.put(spec.jobId(), pool);
             // Перенос смещений в этих сценариях не участвует: проверяется жизненный цикл пулов
@@ -165,6 +167,57 @@ class KafkaJobPoolManagerTest {
 
         assertEquals(1, requests.size(), "Пул не пересоздается из-за изменения списка топиков");
         verify(pool).updateSubscribedTopics(List.of("orders", "payments"));
+    }
+
+    @Test
+    @DisplayName("Интервал переноса смещений и транскодинг берутся из самой задачи")
+    void testPerJobOffsetSyncAndTranscodingReachThePool() {
+        KafkaJobItemProto withSettings = job("job-settings", "dc2", List.of("orders"),
+                List.of("dc2-a:50052"), 2, 500).toBuilder()
+                .setOffsetSyncIntervalSec(30)
+                .setSchemaTranscoding(true)
+                .build();
+        KafkaJobItemProto withoutSettings = job("job-plain", "dc2", List.of("audit"),
+                List.of("dc2-a:50052"), 2, 500);
+
+        manager.sync(List.of(withSettings, withoutSettings));
+
+        PoolRequest settings = requests.stream()
+                .filter(r -> r.groupId().endsWith("job-settings")).findFirst().orElseThrow();
+        PoolRequest plain = requests.stream()
+                .filter(r -> r.groupId().endsWith("job-plain")).findFirst().orElseThrow();
+
+        assertEquals(30, settings.offsetSyncIntervalSec(),
+                "Интервал переноса смещений задается на задачу, иначе поле формы декоративно");
+        assertTrue(settings.schemaTranscoding(),
+                "Флаг транскодинга задается на задачу");
+        assertEquals(0, plain.offsetSyncIntervalSec(),
+                "Задача без интервала не включает перенос смещений");
+        assertFalse(plain.schemaTranscoding(),
+                "Задача без флага не включает транскодинг: настройки задач не смешиваются");
+    }
+
+    @Test
+    @DisplayName("Смена позадачных настроек пересоздает конвейер задачи")
+    void testChangedPerJobSettingsRecreatePipeline() {
+        KafkaJobItemProto before = job("job-switch", "dc2", List.of("orders"),
+                List.of("dc2-a:50052"), 2, 500);
+        manager.sync(List.of(before));
+        KafkaBatchConsumerPool firstPool = pools.get("job-switch");
+
+        KafkaJobItemProto after = before.toBuilder()
+                .setOffsetSyncIntervalSec(15)
+                .setSchemaTranscoding(true)
+                .build();
+        manager.sync(List.of(after));
+
+        verify(firstPool).close();
+        assertEquals(2, requests.size(),
+                "Транскодер и перенос смещений создаются вместе с пулом, поэтому смена этих "
+                        + "настроек обязана пересоздать конвейер, а не остаться без эффекта");
+        PoolRequest recreated = requests.get(1);
+        assertEquals(15, recreated.offsetSyncIntervalSec());
+        assertTrue(recreated.schemaTranscoding());
     }
 
     @Test

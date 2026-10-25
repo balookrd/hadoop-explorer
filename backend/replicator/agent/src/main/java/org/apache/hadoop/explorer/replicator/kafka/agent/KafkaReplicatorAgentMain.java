@@ -348,21 +348,12 @@ public class KafkaReplicatorAgentMain {
         OrchestratorGrpcClient orchestratorClient = null;
         ScheduledExecutorService heartbeatExecutor = null;
 
-        // Резолвер схем и формат полезной нагрузки общие для всех задач демона: реестры схем
-        // задаются конфигурацией узла, а не отдельной задачей
-        org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver jobSchemaResolver =
-                org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
-                        sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig);
-        org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat jobWireFormat =
-                org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
-                        .format(payloadFormatName, schemaTranscoding);
-
         if (orchestratorGrpc != null && !orchestratorGrpc.isBlank()) {
             // Задачи, приходящие из Control Plane, обслуживаются отдельными пулами:
             // своя consumer-группа на задачу вместо общей группы на весь агент
             jobPoolManager = new KafkaJobPoolManager(dcId, jobPoolFactory(
                     bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS,
-                    jobSchemaResolver, jobWireFormat, offsetSyncIntervalSec));
+                    sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, payloadFormatName));
             log.info("Регистрация в Orchestrator Control Plane: {} (agentId={})", orchestratorGrpc, agentId);
             orchestratorClient = new OrchestratorGrpcClient(orchestratorGrpc, agentSecret);
             AgentRegisterRequest regReq = new AgentRegisterRequest(
@@ -607,9 +598,11 @@ public class KafkaReplicatorAgentMain {
             boolean tlsEnabled,
             String tlsTrustCert,
             Double hostBandwidthLimitMbS,
-            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver,
-            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat,
-            long offsetSyncIntervalSec) {
+            String sourceSrUrl,
+            String sourceSrType,
+            String targetSrUrl,
+            String targetSrType,
+            String payloadFormatName) {
         return spec -> {
             org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client =
                     new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
@@ -625,6 +618,18 @@ public class KafkaReplicatorAgentMain {
                 consumer.subscribe(spec.topics());
                 consumers.add(consumer);
             }
+
+            // Транскодинг схем и формат — настройки самой задачи: интерфейс задает их на задачу,
+            // а адреса реестров остаются конфигурацией узла
+            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver =
+                    spec.schemaTranscoding()
+                            ? org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
+                                    sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, krbConfig, krbConfig)
+                            : org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                                    .passthroughResolver();
+            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat =
+                    org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                            .format(payloadFormatName, spec.schemaTranscoding());
 
             org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool =
                     new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
@@ -651,7 +656,8 @@ public class KafkaReplicatorAgentMain {
 
             // Перенос смещений групп этой задачи: свои группы, свой целевой кластер, свой клиент
             AutoCloseable offsetSync = startOffsetSync(bootstrapServers, krbConfig, client, pool,
-                    spec.consumerGroups(), spec.sourceDc(), spec.targetDc(), offsetSyncIntervalSec);
+                    spec.consumerGroups(), spec.sourceDc(), spec.targetDc(),
+                    spec.offsetSyncIntervalSec());
 
             return new KafkaJobPoolManager.JobPipeline(pool, offsetSync);
         };
