@@ -160,6 +160,81 @@ public class TarBundlePartialFailureTest {
     }
 
     @Test
+    @DisplayName("Бандл из трех файлов: сбой второго не отменяет первый и третий")
+    void testFailedFileInBundleDoesNotDiscardOthers() throws Exception {
+        String baseTarget = new File(tempTargetDir, "warehouse").getAbsolutePath();
+        String taskId = "task-bundle-middle-failure";
+
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("events_part1.json", "{\"id\":1}");
+        files.put("blocked/events_part2.json", "{\"id\":2}");
+        files.put("events_part3.json", "{\"id\":3}");
+        byte[] tar = tarWith(files);
+
+        // Второй файл лежит в подкаталоге, имя которого на приемнике уже занято обычным
+        // файлом: создать каталог невозможно, значит не запишется именно этот файл
+        assertTrue(new File(baseTarget).mkdirs(), "Не удалось создать целевой каталог");
+        Files.writeString(new File(baseTarget, "blocked").toPath(), "занято");
+
+        java.util.concurrent.atomic.AtomicReference<TarStreamResponse> result =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        StreamObserver<TarStreamRequest> requestObserver = service.transferTarStream(new StreamObserver<>() {
+            @Override
+            public void onNext(TarStreamResponse value) {
+                result.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                done.countDown();
+            }
+
+            @Override
+            public void onCompleted() {
+                done.countDown();
+            }
+        });
+
+        requestObserver.onNext(TarStreamRequest.newBuilder()
+                .setMetadata(TarStreamMetadata.newBuilder()
+                        .setTaskId(taskId)
+                        .setJobId("job-bundle-middle-failure")
+                        .setBaseTargetPath(baseTarget)
+                        .setTotalFiles(files.size())
+                        .setTotalBytes(tar.length)
+                        .build())
+                .build());
+        requestObserver.onNext(TarStreamRequest.newBuilder()
+                .setChunk(TarStreamChunk.newBuilder()
+                        .setTaskId(taskId)
+                        .setOffset(0)
+                        .setData(ByteString.copyFrom(tar))
+                        .build())
+                .build());
+        requestObserver.onCompleted();
+
+        assertTrue(done.await(30, java.util.concurrent.TimeUnit.SECONDS),
+                "Приемник не завершил обработку бандла");
+
+        File first = new File(baseTarget, "events_part1.json");
+        File third = new File(baseTarget, "events_part3.json");
+        assertTrue(first.isFile(), "Первый файл обязан остаться: сбой соседа по бандлу его не касается");
+        assertTrue(third.isFile(), "Третий файл обязан быть записан: обработка бандла не должна "
+                + "останавливаться на первом же сбое");
+        assertEquals("{\"id\":1}", Files.readString(first.toPath()));
+        assertEquals("{\"id\":3}", Files.readString(third.toPath()));
+
+        assertNotNull(result.get(), "Приемник не прислал результат по бандлу");
+        assertEquals(1, result.get().getFilesList().stream().filter(r -> !r.getSuccess()).count(),
+                "Сбойный файл обязан быть отмечен в результатах, иначе задача отчитается об успехе "
+                        + "и событие считается примененным: " + result.get().getFilesList());
+        assertTrue(result.get().getFilesList().stream()
+                        .anyMatch(r -> !r.getSuccess() && r.getRelativePath().contains("events_part2")),
+                "В результатах должен быть помечен именно второй файл: " + result.get().getFilesList());
+    }
+
+    @Test
     @DisplayName("Обрыв стрима не удаляет файлы бандла, уже закоммиченные на приемнике")
     void testStreamErrorKeepsAlreadyCommittedFiles() throws Exception {
         String baseTarget = new File(tempTargetDir, "warehouse").getAbsolutePath();

@@ -12,7 +12,8 @@ import org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifie
 import org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
 import org.slf4j.Logger;
@@ -34,7 +35,9 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaBatchConsumerPool.class);
 
-    private final List<KafkaConsumer<byte[], byte[]>> consumers;
+    private final List<Consumer<byte[], byte[]>> consumers;
+    /** Активные воркеры: нужны остановке, чтобы зафиксировать подтвержденные оффсеты. */
+    private final List<ConsumerWorker> workers = new CopyOnWriteArrayList<>();
     private final KafkaReplicationClient replicationClient;
     private final LoopPreventionFilter loopFilter;
     private final PayloadFormatClassifier formatClassifier;
@@ -82,7 +85,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         return bandwidthLimiter;
     }
 
-    public KafkaBatchConsumerPool(KafkaConsumer<byte[], byte[]> consumer,
+    public KafkaBatchConsumerPool(Consumer<byte[], byte[]> consumer,
                                   KafkaReplicationClient replicationClient,
                                   LoopPreventionFilter loopFilter,
                                   PayloadFormatClassifier formatClassifier,
@@ -96,7 +99,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 sourceDcId, targetDcId, defaultTopicFormat, targetFormat);
     }
 
-    public KafkaBatchConsumerPool(List<KafkaConsumer<byte[], byte[]>> consumers,
+    public KafkaBatchConsumerPool(List<? extends Consumer<byte[], byte[]>> consumers,
                                   KafkaReplicationClient replicationClient,
                                   LoopPreventionFilter loopFilter,
                                   PayloadFormatClassifier formatClassifier,
@@ -119,7 +122,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         this.targetFormat = targetFormat;
 
         Set<String> initialTopics = new HashSet<>();
-        for (KafkaConsumer<byte[], byte[]> c : this.consumers) {
+        for (Consumer<byte[], byte[]> c : this.consumers) {
             try {
                 Set<String> sub = c.subscription();
                 if (sub != null) {
@@ -198,8 +201,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     }
                 });
             }
+            workers.clear();
             for (int i = 0; i < consumers.size(); i++) {
-                executor.submit(new ConsumerWorker(i + 1, consumers.get(i)));
+                ConsumerWorker worker = new ConsumerWorker(i + 1, consumers.get(i));
+                workers.add(worker);
+                executor.submit(worker);
             }
         }
     }
@@ -208,7 +214,9 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     public void run() {
         if (consumers.size() == 1 && executor == null) {
             running.set(true);
-            new ConsumerWorker(1, consumers.get(0)).run();
+            ConsumerWorker worker = new ConsumerWorker(1, consumers.get(0));
+            workers.add(worker);
+            worker.run();
         } else {
             start();
             while (running.get()) {
@@ -224,7 +232,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     private class ConsumerWorker implements Runnable {
         private final int workerId;
-        private final KafkaConsumer<byte[], byte[]> workerConsumer;
+        private final Consumer<byte[], byte[]> workerConsumer;
         private final Map<Integer, StreamObserver<KafkaBatchRequest>> activeStreams = new ConcurrentHashMap<>();
 
         /**
@@ -269,7 +277,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
         private long localTopicsVersion = 1;
 
-        ConsumerWorker(int workerId, KafkaConsumer<byte[], byte[]> workerConsumer) {
+        ConsumerWorker(int workerId, Consumer<byte[], byte[]> workerConsumer) {
             this.workerId = workerId;
             this.workerConsumer = workerConsumer;
         }
@@ -334,6 +342,18 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         public void run() {
             log.info("Запущен поток ConsumerWorker-{} ({} -> {})", workerId, sourceDcId, targetDcId);
 
+            // Переподписка с обработчиком ребаланса: вызывающая сторона подписывает консьюмер
+            // без него, и отзыв партиций проходил для пула незаметно.
+            List<String> startupTopics = subscribedTopics.get();
+            if (startupTopics != null && !startupTopics.isEmpty()) {
+                try {
+                    workerConsumer.subscribe(startupTopics, rebalanceListener());
+                } catch (Exception e) {
+                    log.warn("[Worker {}] Не удалось переподписаться с обработчиком ребаланса: {}",
+                            workerId, e.getMessage());
+                }
+            }
+
             try {
                 while (running.get()) {
                     // 1. Фиксируем оффсеты, успешно подтвержденные целевым узлом через Ack
@@ -355,7 +375,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         List<String> newTopics = subscribedTopics.get();
                         drainAndCommitPendingOffsets();
                         if (newTopics != null && !newTopics.isEmpty()) {
-                            workerConsumer.subscribe(newTopics);
+                            workerConsumer.subscribe(newTopics, rebalanceListener());
                             log.info("[Worker {}] Динамически переподписан на топики: {}", workerId, newTopics);
                         } else {
                             workerConsumer.unsubscribe();
@@ -376,7 +396,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             List<String> newTopics = subscribedTopics.get();
                             drainAndCommitPendingOffsets();
                             if (newTopics != null && !newTopics.isEmpty()) {
-                                workerConsumer.subscribe(newTopics);
+                                workerConsumer.subscribe(newTopics, rebalanceListener());
                                 log.info("[Worker {}] Обработан сигнал Wakeup: переподписка на топики: {}", workerId, newTopics);
                             } else {
                                 workerConsumer.unsubscribe();
@@ -640,6 +660,94 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             }
         }
 
+        /**
+         * Обработчик ребаланса группы.
+         *
+         * <p>При отзыве партиций подтвержденный префикс фиксируется синхронно: {@code commitAsync}
+         * без последующего {@code poll} до брокера не доходит, и записи приедут повторно уже
+         * другому консьюмеру. Затем состояние отозванных партиций выбрасывается: их батчи ack
+         * больше не получат (партиции обслуживает другой консьюмер), а без освобождения счетчик
+         * in-flight залипает и петля backpressure останавливает вычитку насовсем.
+         */
+        private ConsumerRebalanceListener rebalanceListener() {
+            return new ConsumerRebalanceListener() {
+                @Override
+                public void onPartitionsRevoked(java.util.Collection<TopicPartition> revoked) {
+                    if (revoked == null || revoked.isEmpty()) {
+                        return;
+                    }
+                    log.info("[Worker {}] Отзыв партиций при ребалансе: {}", workerId, revoked);
+                    commitOffsetsSync(revoked);
+                    releasePartitions(revoked);
+                }
+
+                @Override
+                public void onPartitionsAssigned(java.util.Collection<TopicPartition> assigned) {
+                    if (assigned != null && !assigned.isEmpty()) {
+                        log.info("[Worker {}] Назначены партиции при ребалансе: {}", workerId, assigned);
+                    }
+                }
+
+                @Override
+                public void onPartitionsLost(java.util.Collection<TopicPartition> lost) {
+                    // Партиции потеряны: фиксировать за них оффсеты уже нельзя, только освободить состояние
+                    if (lost != null && !lost.isEmpty()) {
+                        log.warn("[Worker {}] Партиции потеряны без отзыва: {}", workerId, lost);
+                        releasePartitions(lost);
+                    }
+                }
+            };
+        }
+
+        /**
+         * Синхронная фиксация подтвержденного префикса. {@code partitions} равно {@code null} —
+         * фиксируются все накопленные оффсеты (остановка пула).
+         */
+        void commitOffsetsSync(java.util.Collection<TopicPartition> partitions) {
+            Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> toCommit = new HashMap<>();
+            for (Map.Entry<TopicPartition, Long> entry : pendingCommittedOffsets.entrySet()) {
+                if (partitions == null || partitions.contains(entry.getKey())) {
+                    toCommit.put(entry.getKey(),
+                            new org.apache.kafka.clients.consumer.OffsetAndMetadata(entry.getValue()));
+                }
+            }
+            if (toCommit.isEmpty()) {
+                return;
+            }
+            try {
+                workerConsumer.commitSync(toCommit);
+                for (TopicPartition tp : toCommit.keySet()) {
+                    pendingCommittedOffsets.remove(tp);
+                }
+                log.info("[Worker {}] Синхронно зафиксированы оффсеты: {}", workerId, toCommit);
+            } catch (Exception e) {
+                log.warn("[Worker {}] Не удалось синхронно зафиксировать оффсеты {}: {}",
+                        workerId, toCommit, e.getMessage());
+            }
+        }
+
+        /** Выбрасывание состояния партиций, которые воркер больше не обслуживает. */
+        private void releasePartitions(java.util.Collection<TopicPartition> partitions) {
+            for (TopicPartition tp : partitions) {
+                PartitionAckTracker tracker = partitionTrackers.remove(tp);
+                if (tracker != null) {
+                    tracker.lock.lock();
+                    try {
+                        for (PendingBatch pending : tracker.queue) {
+                            if (!pending.settled && inFlightBatches.remove(pending.batchId) != null) {
+                                pending.settled = true;
+                                inFlightCount.decrementAndGet();
+                            }
+                        }
+                        tracker.queue.clear();
+                    } finally {
+                        tracker.lock.unlock();
+                    }
+                }
+                pendingCommittedOffsets.remove(tp);
+            }
+        }
+
         private void drainAndCommitPendingOffsets() {
             if (pendingCommittedOffsets.isEmpty()) {
                 return;
@@ -690,7 +798,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             }
             this.subscribedTopics.set(new ArrayList<>(newTopics));
             this.topicsVersion.incrementAndGet();
-            for (KafkaConsumer<byte[], byte[]> c : consumers) {
+            for (Consumer<byte[], byte[]> c : consumers) {
                 try {
                     c.wakeup();
                 } catch (Exception ignored) {
@@ -706,7 +814,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     @Override
     public void close() {
         running.set(false);
-        for (KafkaConsumer<byte[], byte[]> c : consumers) {
+        // Подтвержденный префикс фиксируется до закрытия консьюмера: commitAsync без
+        // последующего poll до брокера не доходит, и после перезапуска агент заново
+        // гонит через WAN уже перенесенные записи.
+        for (ConsumerWorker worker : workers) {
+            worker.commitOffsetsSync(null);
+        }
+        for (Consumer<byte[], byte[]> c : consumers) {
             try {
                 c.wakeup();
             } catch (Exception ignored) {
@@ -723,7 +837,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 Thread.currentThread().interrupt();
             }
         }
-        for (KafkaConsumer<byte[], byte[]> c : consumers) {
+        for (Consumer<byte[], byte[]> c : consumers) {
             try {
                 c.close();
             } catch (Exception ignored) {

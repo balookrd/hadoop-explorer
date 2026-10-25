@@ -300,6 +300,30 @@ public class ThriftHmsClientTest {
     }
 
     @Test
+    @DisplayName("AlreadyExists в середине батча: партиции применяются, успех не выдается молча")
+    void testAddPartitionsRecoversFromAlreadyExistsException() throws Exception {
+        List<HmsPartitionDto> batch = List.of(
+                part("2026-10-23", "hdfs://ns/warehouse/sales_daily/dt=2026-10-23"),
+                part("2026-10-24", "hdfs://ns/warehouse/sales_daily/dt=2026-10-24"),
+                part("2026-10-25", "hdfs://ns/warehouse/sales_daily/dt=2026-10-25")
+        );
+        // Метастор может не вернуть список добавленных, а бросить исключение на первой
+        // же коллизии, не применив батч вообще
+        when(mockClient1.add_partitions(anyList(), eq(true), eq(true)))
+                .thenThrow(new AlreadyExistsException("partition dt=2026-10-24 already exists"));
+
+        thriftHmsClient.addPartitions("analytics", "sales_daily", batch);
+
+        // Ни одна партиция не добавлена, значит все три обязаны быть приведены к состоянию
+        // источника через alter_partitions: иначе событие CDC считается примененным, а
+        // location и формат партиций остались прежними
+        ArgumentCaptor<List<Partition>> altered = ArgumentCaptor.forClass(List.class);
+        verify(mockClient1).alter_partitions(eq("analytics"), eq("sales_daily"), altered.capture());
+        assertEquals(3, altered.getValue().size(),
+                "Обновить обязаны все партиции батча, получено: " + altered.getValue().size());
+    }
+
+    @Test
     @DisplayName("Отказ метастора при добавлении партиций не выдается за успех")
     void testAddPartitionsPropagatesMetastoreFailure() throws Exception {
         List<HmsPartitionDto> batch = List.of(part("2026-10-24", "hdfs://ns/warehouse/sales_daily/dt=2026-10-24"));
