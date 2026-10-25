@@ -194,8 +194,33 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         attestationValidator.validateTaskAttestation(metadata);
     }
 
+    /**
+     * Отказ read-пробы по политике безопасности отдельным статусом.
+     *
+     * <p>Раньше отвергнутый путь выглядел для отправителя как отсутствующий файл: доступ к
+     * данным не открывался, но отказ было не отличить от пустой цели, и отправитель планировал
+     * полное копирование. Возвращаем {@code PERMISSION_DENIED} и пишем отказ в лог.
+     *
+     * @return {@code true}, если путь отвергнут и ответ уже отправлен
+     */
+    private boolean refuseUnsafePath(String rpc, String path, StreamObserver<?> responseObserver) {
+        try {
+            fsManager.validateSandboxAccess(path);
+            return false;
+        } catch (RuntimeException e) {
+            logger.warn("Отказ {} по политике безопасности для пути '{}': {}", rpc, path, e.getMessage());
+            responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                    .withDescription("Путь отвергнут политикой безопасности приемника: " + e.getMessage())
+                    .asRuntimeException());
+            return true;
+        }
+    }
+
     @Override
     public void checkFile(CheckFileRequest request, StreamObserver<CheckFileResponse> responseObserver) {
+        if (refuseUnsafePath("checkFile", request.getPath(), responseObserver)) {
+            return;
+        }
         try {
             String path = request.getPath();
             boolean exists = fsManager.exists(path);
@@ -234,6 +259,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
     @Override
     public void getDirectoryManifest(DirectoryManifestRequest request, StreamObserver<DirectoryManifestResponse> responseObserver) {
+        if (refuseUnsafePath("getDirectoryManifest", request.getPath(), responseObserver)) {
+            return;
+        }
         try {
             String path = request.getPath();
             if (HadoopFsManager.isIgnoredDirectoryPath(path)) {

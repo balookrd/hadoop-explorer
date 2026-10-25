@@ -364,7 +364,9 @@ flowchart TD
   ```
   /.ssh, /.gnupg, /.bashrc, /.zshrc, /.profile, /.bash_profile, /.bash_history, /.zsh_history, /.env, crontab
   ```
+- **Схема URI не обходит проверки**: путь разбирается во всех формах — `scheme://host/path`, `scheme:/path` и `scheme:path`, — а точечные сегменты и сдвоенные слеши сворачиваются, поэтому `file:/etc/shadow` и `file:///./etc/shadow` отвергаются так же, как `/etc/shadow`. Явная схема `file:` означает локальную ФС независимо от `fs.defaultFS`: иначе при HDFS по умолчанию путь `file:///...` считался бы удаленным и границы песочницы не проверялись бы, хотя Hadoop открывает такой путь через `LocalFileSystem`.
 - Все методы `DataTransferServiceImpl` (`transferFile`, `transferTarStream`, `renamePath`, `deletePath`) выполняют обязательную предварительную валидацию.
+- **Read-пробы отказывают явно**: `checkFile` и `getDirectoryManifest` на отвергнутом пути возвращают `PERMISSION_DENIED` и пишут отказ в лог приемника. Прежний ответ «файла нет» не отличался от пустой цели, и отправитель планировал полное копирование.
 
 #### 1.5.5 Предотвращение мутации `krb5.conf` и валидация путей Kerberos (SEC-11 & SEC-15)
 

@@ -175,6 +175,66 @@ public class HadoopFsManager {
             "/.bash_profile", "/.bash_history", "/.zsh_history", "/.env", "/crontab"
     );
 
+    private static final java.util.regex.Pattern URI_SCHEME_PATTERN =
+            java.util.regex.Pattern.compile("^([a-zA-Z][a-zA-Z0-9+.-]+):");
+
+    /**
+     * Схема URI пути в нижнем регистре или {@code null}, если схемы нет.
+     *
+     * <p>Схема требует минимум двух символов: иначе буква диска Windows ({@code C:/data})
+     * выглядела бы схемой.
+     */
+    public static String schemeOf(String pathStr) {
+        if (pathStr == null) return null;
+        java.util.regex.Matcher matcher = URI_SCHEME_PATTERN.matcher(pathStr.trim());
+        return matcher.find() ? matcher.group(1).toLowerCase() : null;
+    }
+
+    /**
+     * Выделение файловой части пути из любой формы URI для проверок безопасности.
+     *
+     * <p>Проверка запрещенных префиксов раньше разбирала только форму {@code scheme://host/path},
+     * поэтому {@code file:/etc/shadow} доходил до нее строкой «file:/etc/shadow», которая ни с
+     * одним системным префиксом не совпадает. Здесь обрабатываются все три формы —
+     * {@code scheme://host/path}, {@code scheme:/path} и {@code scheme:path} — а точечные
+     * сегменты и сдвоенные слеши сворачиваются, чтобы {@code file:///./etc/shadow} не выглядел
+     * безобидным путем.
+     */
+    private static String extractPathComponent(String normalized) {
+        String pathOnly = normalized;
+        if (schemeOf(normalized) != null) {
+            pathOnly = null;
+            try {
+                java.net.URI uri = java.net.URI.create(normalized);
+                if (uri.getPath() != null && !uri.getPath().isEmpty()) {
+                    pathOnly = uri.getPath();
+                } else if (uri.getSchemeSpecificPart() != null && !uri.getSchemeSpecificPart().isEmpty()) {
+                    pathOnly = uri.getSchemeSpecificPart();
+                }
+            } catch (Exception ignored) {
+                // Невалидный URI разбираем вручную: доверять ему как «не пути» нельзя
+            }
+            if (pathOnly == null || pathOnly.isEmpty()) {
+                int schemeIdx = normalized.indexOf("://");
+                if (schemeIdx >= 0) {
+                    int slashIdx = normalized.indexOf('/', schemeIdx + 3);
+                    pathOnly = slashIdx >= 0 ? normalized.substring(slashIdx) : normalized;
+                } else {
+                    pathOnly = normalized.substring(normalized.indexOf(':') + 1);
+                }
+            }
+        }
+        try {
+            String collapsed = java.nio.file.Paths.get(pathOnly).normalize().toString();
+            if (!collapsed.isEmpty()) {
+                pathOnly = pathOnly.startsWith("/") && !collapsed.startsWith("/") ? "/" + collapsed : collapsed;
+            }
+        } catch (Exception ignored) {
+            // Путь, который не разбирается как файловый, проверяем как есть
+        }
+        return pathOnly;
+    }
+
     /**
      * Валидация безопасности пути для предотвращения Path Traversal и доступа к системным файлам ОС.
      */
@@ -189,21 +249,7 @@ public class HadoopFsManager {
         if (normalized.contains("..")) {
             throw new SecurityException("Попытка Path Traversal ('..') в пути: " + pathStr);
         }
-        String pathOnly = normalized;
-        if (normalized.contains("://")) {
-            try {
-                java.net.URI uri = java.net.URI.create(normalized);
-                if (uri.getPath() != null && !uri.getPath().isEmpty()) {
-                    pathOnly = uri.getPath();
-                }
-            } catch (Exception ignored) {
-                int schemeIdx = normalized.indexOf("://");
-                int slashIdx = normalized.indexOf('/', schemeIdx + 3);
-                if (slashIdx >= 0) {
-                    pathOnly = normalized.substring(slashIdx);
-                }
-            }
-        }
+        String pathOnly = extractPathComponent(normalized);
         for (String forbidden : FORBIDDEN_OS_PREFIXES) {
             if (pathOnly.equalsIgnoreCase(forbidden) || pathOnly.toLowerCase().startsWith(forbidden + "/")) {
                 throw new SecurityException("Доступ к системным путям ОС запрещен политикой безопасности: " + pathStr);
@@ -230,12 +276,8 @@ public class HadoopFsManager {
             try {
                 File sandboxRoot = new File(sandboxDir).getCanonicalFile();
                 String rawPath = pathStr;
-                if (rawPath.startsWith("file://")) {
-                    try {
-                        rawPath = java.net.URI.create(rawPath).getPath();
-                    } catch (Exception ignored) {
-                        rawPath = rawPath.substring(7);
-                    }
+                if ("file".equals(schemeOf(rawPath))) {
+                    rawPath = extractPathComponent(rawPath.replace('\\', '/').trim());
                 }
                 File target = new File(rawPath).getCanonicalFile();
                 java.nio.file.Path targetNorm = target.toPath().normalize();
@@ -1054,9 +1096,22 @@ public class HadoopFsManager {
         return stagingReaper.cleanStagingFiles(baseDirStr, olderThanMillis);
     }
 
+    /**
+     * Локальная ли файловая система для этого пути.
+     *
+     * <p>Явная схема решает сама за себя: {@code file:} — локальная ФС, любая другая схема
+     * ({@code hdfs:}, {@code s3a:}, {@code webhdfs:}) — удаленная. Раньше решение принималось
+     * только по {@code fs.defaultFS}, поэтому при HDFS по умолчанию путь {@code file:///etc/...}
+     * считался удаленным и проверка границ Chroot-песочницы пропускалась — хотя Hadoop открывает
+     * такой путь через LocalFileSystem, то есть читает файл хоста. Путь без схемы трактуется по
+     * {@code fs.defaultFS}, как и прежде.
+     */
     public boolean isLocalPath(String path) {
         if (path == null) return true;
-        if (path.startsWith("hdfs://")) return false;
+        String scheme = schemeOf(path);
+        if (scheme != null) {
+            return "file".equals(scheme);
+        }
         if (defaultFsUri != null && defaultFsUri.startsWith("hdfs://")) return false;
         return true;
     }
