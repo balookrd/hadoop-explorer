@@ -25,6 +25,24 @@ public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicatio
     List<HmsReplicationJobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
 
     /**
+     * Задачи, назначенные конкретному агенту — для эвакуации при его отключении.
+     *
+     * <p>Эвакуация читала таблицу задач целиком и сравнивала идентификатор агента в памяти.
+     */
+    List<HmsReplicationJobEntity> findByAssignedAgentId(String assignedAgentId);
+
+    /**
+     * Задачи одного маршрута: кластеры сравниваются без регистра, дефисов и подчеркиваний.
+     */
+    @Query("SELECT h FROM HmsReplicationJobEntity h "
+            + "WHERE LOWER(REPLACE(REPLACE(h.sourceClusterId, '-', ''), '_', '')) "
+            + "        = LOWER(REPLACE(REPLACE(:sourceClusterId, '-', ''), '_', '')) "
+            + "  AND LOWER(REPLACE(REPLACE(h.targetClusterId, '-', ''), '_', '')) "
+            + "        = LOWER(REPLACE(REPLACE(:targetClusterId, '-', ''), '_', ''))")
+    List<HmsReplicationJobEntity> findByNormalizedRoute(@Param("sourceClusterId") String sourceClusterId,
+                                                        @Param("targetClusterId") String targetClusterId);
+
+    /**
      * Таблицы и партиции всех задач одним агрегатом: всего и перенесено.
      *
      * <p>Рендер метрик вычитывал таблицу задач HMS целиком четырежды за скрейп — по разу на

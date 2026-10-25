@@ -830,9 +830,11 @@ public class HmsCoordinatorService {
     @Transactional
     public int failoverHmsJobsForAgent(String agentId, String reason) {
         if (agentId == null || agentId.isBlank()) return 0;
-        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findAll();
+        // Выборка по агенту запросом: прежний проход читал таблицу задач целиком, а эвакуация
+        // случается на каждом отключении агента
+        List<HmsReplicationJobEntity> assigned = hmsJobRepository.findByAssignedAgentId(agentId);
         int count = 0;
-        for (HmsReplicationJobEntity job : allJobs) {
+        for (HmsReplicationJobEntity job : assigned) {
             if (agentId.equalsIgnoreCase(job.getAssignedAgentId())) {
                 failoverHmsJob(job, agentId, reason);
                 count++;

@@ -42,6 +42,22 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
     """)
     List<JobEntity> findByNormalizedSourceClusterId(@Param("clusterId") String clusterId);
 
+    /**
+     * Задания одного маршрута: кластер-источник и кластер-приемник сравниваются так же, как в
+     * {@code matchesCluster} — без регистра, дефисов и подчеркиваний.
+     *
+     * <p>Сценарии аварийного переключения (инверсия репликации, отзыв обратной задачи) читали
+     * таблицу заданий целиком и отбирали маршрут в памяти — в момент, когда оркестратор меньше
+     * всего может позволить себе лишнюю память.
+     */
+    @Query("SELECT j FROM JobEntity j "
+            + "WHERE LOWER(REPLACE(REPLACE(j.sourceClusterId, '-', ''), '_', '')) "
+            + "        = LOWER(REPLACE(REPLACE(:sourceClusterId, '-', ''), '_', '')) "
+            + "  AND LOWER(REPLACE(REPLACE(j.targetClusterId, '-', ''), '_', '')) "
+            + "        = LOWER(REPLACE(REPLACE(:targetClusterId, '-', ''), '_', ''))")
+    List<JobEntity> findByNormalizedRoute(@Param("sourceClusterId") String sourceClusterId,
+                                          @Param("targetClusterId") String targetClusterId);
+
 
     /**
      * Идентификаторы заданий без истории запусков — порция для дозаполнения при старте.

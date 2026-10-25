@@ -893,7 +893,9 @@ public class DisasterRecoveryService {
 
         // 1. Инверсия задач HDFS
         if (Boolean.TRUE.equals(req.includeHdfs())) {
-            List<JobEntity> existingJobs = jobRepository.findAll();
+            // Маршрут отбирается запросом; сравнение кластеров остается и в коде —
+            // нормализация в SQL и в matchesCluster должна давать одно и то же
+            List<JobEntity> existingJobs = jobRepository.findByNormalizedRoute(toClusterId, fromClusterId);
             // Ищем задачи, которые изначально шли toClusterId ➔ fromClusterId (прямые)
             List<JobEntity> directJobs = existingJobs.stream()
                     .filter(j -> j.getParentJobId() == null
@@ -970,7 +972,8 @@ public class DisasterRecoveryService {
 
         // 2. Инверсия задач HMS
         if (Boolean.TRUE.equals(req.includeHms())) {
-            List<HmsReplicationJobEntity> existingHms = hmsReplicationJobRepository.findAll();
+            List<HmsReplicationJobEntity> existingHms =
+                    hmsReplicationJobRepository.findByNormalizedRoute(toClusterId, fromClusterId);
             List<HmsReplicationJobEntity> directHms = existingHms.stream()
                     .filter(h -> matchesCluster(h.getSourceClusterId(), toClusterId)
                             && matchesCluster(h.getTargetClusterId(), fromClusterId))
@@ -1084,7 +1087,8 @@ public class DisasterRecoveryService {
             if (job.getId().startsWith("rev-") || (job.getMessage() != null && job.getMessage().toLowerCase().contains("обратная репликация"))) {
                 targetToDeleteId = job.getId();
             } else {
-                List<JobEntity> allJobs = jobRepository.findAll();
+                List<JobEntity> allJobs = jobRepository.findByNormalizedRoute(
+                        job.getTargetClusterId(), job.getSourceClusterId());
                 Optional<JobEntity> reverse = allJobs.stream()
                         .filter(rj -> !rj.getId().equals(job.getId())
                                 && matchesCluster(rj.getSourceClusterId(), job.getTargetClusterId())
@@ -1119,7 +1123,8 @@ public class DisasterRecoveryService {
             if (hmsJob.getId().startsWith("rev-") || (hmsJob.getMessage() != null && hmsJob.getMessage().toLowerCase().contains("обратная репликация"))) {
                 targetToDeleteHmsId = hmsJob.getId();
             } else {
-                List<HmsReplicationJobEntity> allHms = hmsReplicationJobRepository.findAll();
+                List<HmsReplicationJobEntity> allHms = hmsReplicationJobRepository.findByNormalizedRoute(
+                        hmsJob.getTargetClusterId(), hmsJob.getSourceClusterId());
                 Optional<HmsReplicationJobEntity> reverseHms = allHms.stream()
                         .filter(rh -> !rh.getId().equals(hmsJob.getId())
                                 && matchesCluster(rh.getSourceClusterId(), hmsJob.getTargetClusterId())

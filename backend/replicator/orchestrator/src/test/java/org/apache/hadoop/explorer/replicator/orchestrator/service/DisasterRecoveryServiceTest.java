@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class DisasterRecoveryServiceTest {
@@ -99,6 +100,8 @@ class DisasterRecoveryServiceTest {
         job1.setTotalBytes(1000L);
         job1.setCopiedBytes(400L);
 
+        // Сводка DR по-прежнему читает задания целиком: ее агрегация по маршрутам в SQL пока
+        // не переносится (нечеткое сопоставление кластеров в несколько проходов)
         when(jobRepository.findAll()).thenReturn(List.of(job1));
         when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
 
@@ -141,10 +144,10 @@ class DisasterRecoveryServiceTest {
         hmsJob.setTargetClusterId("dc2");
         hmsJob.setStatus("ACTIVE");
 
-        when(jobRepository.findAll()).thenReturn(List.of(activeJob));
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(activeJob));
         when(jobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of(activeJob));
         when(jobRunRepository.findById("run-1")).thenReturn(Optional.of(activeRun));
-        when(hmsReplicationJobRepository.findAll()).thenReturn(List.of(hmsJob));
+        when(hmsReplicationJobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(hmsJob));
         when(hmsReplicationJobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of(hmsJob));
 
         DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Авария питания в ЦОД1", true);
@@ -169,7 +172,9 @@ class DisasterRecoveryServiceTest {
         verify(jobRepository).findByNormalizedSourceClusterId("dc1");
         verify(hmsReplicationJobRepository).findByNormalizedSourceClusterId("dc1");
         verify(jobRepository, never()).findAll();
+        verify(jobRepository, never()).findByNormalizedRoute(anyString(), anyString());
         verify(hmsReplicationJobRepository, never()).findAll();
+        verify(hmsReplicationJobRepository, never()).findByNormalizedRoute(anyString(), anyString());
     }
 
     @Test
@@ -188,8 +193,8 @@ class DisasterRecoveryServiceTest {
         directJob.setExecutionPrincipal("writer@REALM.LOCAL");
         directJob.setRunAsServiceAccount(true);
 
-        when(jobRepository.findAll()).thenReturn(List.of(directJob));
-        when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(directJob));
+        when(hmsReplicationJobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of());
 
         DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, true, true);
         DrActionResponse resp = drService.reverseReplication(req, "sre_engineer");
@@ -267,7 +272,7 @@ class DisasterRecoveryServiceTest {
         reverseJob.setMessage("Обратная репликация для задачи job-direct-1");
 
         when(jobRepository.findById("job-direct-1")).thenReturn(Optional.of(directJob));
-        when(jobRepository.findAll()).thenReturn(List.of(directJob, reverseJob));
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(directJob, reverseJob));
 
         DrActionResponse resp = drService.undoReverse("job-direct-1", "admin_user");
 
@@ -312,7 +317,7 @@ class DisasterRecoveryServiceTest {
         directJob.setStatus("RUNNING");
         directJob.setScheduled(true);
 
-        when(jobRepository.findAll()).thenReturn(List.of(directJob));
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(directJob));
 
         DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, false, true);
         DrActionResponse resp = drService.reverseReplication(req, "admin_user");
@@ -334,7 +339,7 @@ class DisasterRecoveryServiceTest {
         otherJob.setTargetPath("/backup/dc10");
         otherJob.setStatus("RUNNING");
 
-        when(jobRepository.findAll()).thenReturn(List.of(otherJob));
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of(otherJob));
 
         DrReverseRequest req = new DrReverseRequest("dc2", "dc1", true, false, true);
         DrActionResponse resp = drService.reverseReplication(req, "admin_user");
@@ -359,9 +364,9 @@ class DisasterRecoveryServiceTest {
                 agentRegistry, topologyRegistry, throttler, hmsCoordinatorService, null, mockLockService
         );
 
-        when(jobRepository.findAll()).thenReturn(List.of());
+        when(jobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of());
         when(jobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of());
-        when(hmsReplicationJobRepository.findAll()).thenReturn(List.of());
+        when(hmsReplicationJobRepository.findByNormalizedRoute(anyString(), anyString())).thenReturn(List.of());
         when(hmsReplicationJobRepository.findByNormalizedSourceClusterId(anyString())).thenReturn(List.of());
 
         DrEmergencyStopRequest req = new DrEmergencyStopRequest("dc1", "Тестовый аварийный останов", true);
@@ -389,6 +394,7 @@ class DisasterRecoveryServiceTest {
         assertFalse(resp.success());
         assertTrue(resp.message().contains("уже выполняется другим инстансом Orchestrator"));
         verify(jobRepository, never()).findAll();
+        verify(jobRepository, never()).findByNormalizedRoute(anyString(), anyString());
     }
 
     @Test
@@ -409,6 +415,7 @@ class DisasterRecoveryServiceTest {
         assertFalse(resp.success());
         assertTrue(resp.message().contains("уже выполняется другим инстансом Orchestrator"));
         verify(jobRepository, never()).findAll();
+        verify(jobRepository, never()).findByNormalizedRoute(anyString(), anyString());
     }
 }
 
