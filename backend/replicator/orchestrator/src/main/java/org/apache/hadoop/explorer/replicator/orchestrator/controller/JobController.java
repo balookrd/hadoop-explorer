@@ -20,6 +20,10 @@ import java.util.Map;
 @RequestMapping({"/api/v1/jobs", "/jobs"})
 public class JobController {
 
+    /** Размер страницы списка заданий по умолчанию и жесткий максимум. */
+    private static final int DEFAULT_JOBS_PAGE_SIZE = 100;
+    private static final int MAX_JOBS_PAGE_SIZE = 1000;
+
     private final JobService jobService;
 
     public JobController(JobService jobService) {
@@ -111,9 +115,11 @@ public class JobController {
     }
 
     @GetMapping
-    public ResponseEntity<List<JobResponse>> listJobs(
+    public ResponseEntity<org.springframework.data.domain.Page<JobResponse>> listJobs(
         @RequestParam(required = false) String status,
         @RequestParam(required = false, name = "include_subjobs", defaultValue = "false") boolean includeSubjobs,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer size,
         @RequestHeader(required = false, name = "X-Agent-Secret") String agentSecret,
         Authentication auth
     ) {
@@ -122,7 +128,17 @@ public class JobController {
         boolean isAdmin = session != null && session.isAdmin();
         boolean isReader = session != null && session.systemRole() == org.apache.hadoop.explorer.common.model.Role.READER;
         boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
-        return ResponseEntity.ok(jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs));
+
+        // Обязательная пагинация: с подзадачами метастора список неограничен, и выборка целиком
+        // упиралась в heap оркестратора. Порядок задан явно, иначе страницы нестабильны.
+        int pageNumber = (page != null && page >= 0) ? page : 0;
+        int pageSize = (size != null && size > 0) ? Math.min(size, MAX_JOBS_PAGE_SIZE) : DEFAULT_JOBS_PAGE_SIZE;
+        var pageable = org.springframework.data.domain.PageRequest.of(pageNumber, pageSize,
+                org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+
+        return ResponseEntity.ok(
+                jobService.listJobs(status, username, isAdmin, isReader, effectiveIncludeSubjobs, pageable));
     }
 
     private void checkJobReadAccess(String jobId, Authentication auth, String agentSecret) {

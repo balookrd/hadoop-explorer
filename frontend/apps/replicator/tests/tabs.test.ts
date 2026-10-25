@@ -49,7 +49,8 @@ describe('Replicator Tabs Navigation Order', () => {
           return mockJsonResponse([]);
         }
         if (url.includes('/api/v1/jobs')) {
-          return mockJsonResponse([]);
+          // Список заданий отдается страницей с обязательным пределом выборки
+          return mockJsonResponse({ content: [], total_elements: 0, total_pages: 0, number: 0, size: 500 });
         }
         if (url.includes('/api/v1/agents')) {
           return mockJsonResponse([]);

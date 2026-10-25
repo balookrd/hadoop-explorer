@@ -52,6 +52,8 @@
   }
 
   let jobs = $state<Job[]>([]);
+  // Сколько заданий всего на сервере: выборка ограничена, и об обрезке нужно сказать прямо
+  let jobsTotal = $state(0);
   let jobsLoading = $state(false);
   let pollTimer: any = null;
 
@@ -144,7 +146,9 @@
   async function loadJobs() {
     if (!user) return;
     try {
-      jobs = await api.getJobs();
+      const page = await api.getJobs();
+      jobs = page?.content ?? [];
+      jobsTotal = page?.total_elements ?? jobs.length;
     } catch (e) {
       console.error('Ошибка загрузки задач:', e);
     }
@@ -431,6 +435,7 @@
     {:else if activeTab === 'jobs'}
       <JobsTableView
         {jobs}
+        {jobsTotal}
         {topology}
         canCreate={Boolean(canCreate)}
         {canManageJob}

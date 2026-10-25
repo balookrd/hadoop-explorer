@@ -24,6 +24,7 @@
 
   interface Props {
     jobs: Job[];
+    jobsTotal?: number;
     topology?: TopologyData | null;
     canCreate: boolean;
     canManageJob: (job: Job) => boolean;
@@ -38,6 +39,7 @@
 
   let {
     jobs,
+    jobsTotal = 0,
     topology = null,
     canCreate,
     canManageJob,
@@ -433,6 +435,14 @@
       </div>
     </div>
   </div>
+
+  <!-- Выборка ограничена сервером: о недостающих задачах говорим прямо, а не молчим -->
+  {#if jobsTotal > jobs.length}
+    <div class="mb-3 px-3 py-2 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-300">
+      Показаны {jobs.length} задач из {jobsTotal}: список отдается страницами, чтобы выборка не
+      упиралась в память оркестратора. Сузьте фильтр по статусу или автору, чтобы увидеть нужные.
+    </div>
+  {/if}
 
   <!-- Таблица задач -->
   <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">

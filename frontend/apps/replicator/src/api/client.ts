@@ -12,6 +12,7 @@ import type {
   HmsEventLog,
   HmsDeadLetterEvent,
   HmsCdcState,
+  JobPage,
   HmsSchemaDriftReport,
   CreateHmsJobPayload,
   StreamingLeaseStatus,
@@ -22,6 +23,9 @@ import type {
   DrActionResponse,
 } from '../types';
 
+/** Предел выборки заданий за запрос: сервер жестко ограничивает размер страницы 1000. */
+const JOBS_PAGE_SIZE = 500;
+
 export class ReplicatorApiClient extends BaseApiClient {
   constructor() {
     super('/api/v1');
@@ -29,7 +33,7 @@ export class ReplicatorApiClient extends BaseApiClient {
 
   // --- Задачи репликации (Jobs) ---
 
-  async getJobs(filters?: { status?: string; author?: string }): Promise<Job[]> {
+  async getJobs(filters?: { status?: string; author?: string; page?: number; size?: number }): Promise<JobPage> {
     const params = new URLSearchParams();
     if (filters?.status && filters.status !== 'ALL') {
       params.set('status', filters.status);
@@ -37,8 +41,9 @@ export class ReplicatorApiClient extends BaseApiClient {
     if (filters?.author && filters.author !== 'ALL') {
       params.set('author', filters.author);
     }
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<Job[]>(`/jobs${query}`);
+    params.set('page', String(filters?.page ?? 0));
+    params.set('size', String(filters?.size ?? JOBS_PAGE_SIZE));
+    return this.request<JobPage>(`/jobs?${params.toString()}`);
   }
 
   async getJob(jobId: string): Promise<Job> {

@@ -1982,6 +1982,9 @@ java -jar -Dspring.profiles.active=prod \
 - `GET /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}/data` — валидация физического наличия файлов данных на HDFS/томе кластера.
 - `POST /api/v1/hms/clusters/{clusterId}/tables/{db}/{table}/partitions` — добавление партиции и фиксация события `ADD_PARTITION` в `NOTIFICATION_LOG`.
 
+#### REST API оркестратора репликации HDFS (`/api/v1/jobs`):
+- `GET /api/v1/jobs` — список заданий **страницами**: `page` (по умолчанию `0`), `size` (по умолчанию `100`, жесткий максимум `1000`), `status`, `include_subjobs`. Ответ — страница Spring: `content`, `total_elements`, `total_pages`, `number`, `size`. Порядок — от новых к старым (`created_at DESC`), иначе страницы нестабильны. Фильтры по статусу, владельцу и служебным подзадачам метастора применяются запросом к БД: выборка целиком упиралась в память оркестратора, потому что подзадач метастора десятки тысяч.
+
 #### REST API оркестратора репликации схем Hive (`/api/v1/hms/jobs`):
 - `GET /api/v1/hms/jobs` — получение списка всех настроенных задач репликации схем.
 - `POST /api/v1/hms/jobs` — регистрация новой задачи репликации схемы с запуском полного Bootstrap.

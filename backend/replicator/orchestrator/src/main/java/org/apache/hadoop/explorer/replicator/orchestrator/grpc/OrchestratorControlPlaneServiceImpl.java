@@ -79,6 +79,12 @@ import java.util.Objects;
 @Service
 public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlaneServiceGrpc.OrchestratorControlPlaneServiceImplBase {
 
+    /**
+     * Предел заданий в одном ответе контрольного канала: агенту нужны задания своего кластера,
+     * а не вся таблица, и выборка без предела упиралась в heap при опросе каждые секунды.
+     */
+    private static final int AGENT_JOBS_LIMIT = 5000;
+
     private static final Logger log = LoggerFactory.getLogger(OrchestratorControlPlaneServiceImpl.class);
 
     private final AgentRegistry agentRegistry;
@@ -422,16 +428,21 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     @Override
     public void getJobs(GetJobsRequest request, StreamObserver<GetJobsResponse> responseObserver) {
         try {
-            List<JobResponse> jobs = jobService.listJobs(null, null, true, false, request.getIncludeSubjobs());
+            // Агент опрашивает контрольный канал каждые несколько секунд, поэтому выборка идет
+            // запросом по кластеру-источнику и с пределом: прежний проход читал таблицу заданий
+            // целиком (включая пофайловые подзадачи метастора) и фильтровал по кластеру в памяти.
+            var page = jobService.listJobsForCluster(request.getClusterId(), request.getIncludeSubjobs(),
+                    org.springframework.data.domain.PageRequest.of(0, AGENT_JOBS_LIMIT,
+                            org.springframework.data.domain.Sort.by(
+                                    org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+            if (page.getTotalElements() > AGENT_JOBS_LIMIT) {
+                log.warn("Агенту кластера '{}' отдано {} заданий из {}: предел выборки контрольного канала",
+                        request.getClusterId(), AGENT_JOBS_LIMIT, page.getTotalElements());
+            }
+            List<JobResponse> jobs = page.getContent();
             GetJobsResponse.Builder builder = GetJobsResponse.newBuilder();
 
             for (JobResponse job : jobs) {
-                if (request.getClusterId() != null && !request.getClusterId().isBlank()) {
-                    if (job.sourceClusterId() != null && !job.sourceClusterId().equalsIgnoreCase(request.getClusterId())) {
-                        continue;
-                    }
-                }
-
                 builder.addJobs(JobItemProto.newBuilder()
                         .setId(job.id() != null ? job.id() : "")
                         .setSourceClusterId(job.sourceClusterId() != null ? job.sourceClusterId() : "")

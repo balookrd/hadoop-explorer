@@ -247,33 +247,66 @@ public class JobService {
         return listJobs(status, username, isAdmin, isReader, false);
     }
 
-    public List<JobResponse> listJobs(String status, String username, boolean isAdmin, boolean isReader, boolean includeSubjobs) {
-        List<JobEntity> list = (status != null && !status.isBlank())
-            ? jobRepository.findByStatus(status.toUpperCase())
-            : jobRepository.findAll();
+    /**
+     * Предел для вызовов, которым нужен весь список: отдавать неограниченную выборку нельзя,
+     * а молча обрезать — тем более, поэтому обрезка пишется в лог.
+     */
+    private static final int LISTING_HARD_LIMIT = 5000;
 
-        Stream<JobEntity> stream = (isAdmin || isReader || username == null)
-            ? list.stream()
-            : list.stream().filter(j -> matchesJobOwner(j, username));
+    /**
+     * Страница списка заданий: фильтры по статусу, владельцу и типу применяются запросом.
+     */
+    public org.springframework.data.domain.Page<JobResponse> listJobs(
+            String status, String username, boolean isAdmin, boolean isReader, boolean includeSubjobs,
+            org.springframework.data.domain.Pageable pageable) {
+        return listJobsPage(status, null, username, isAdmin, isReader, includeSubjobs, pageable);
+    }
 
-        // Исключаем автоматические саб-джобы метастора из регламентного раздела HDFS (если не запрошено явно агентом)
-        if (!includeSubjobs) {
-            stream = stream.filter(j -> !"HMS_SUBJOB".equalsIgnoreCase(j.getJobType())
-                    && !"HMS_COMPANION_STREAMING".equalsIgnoreCase(j.getJobType()));
+    /**
+     * Страница заданий одного кластера-источника — выборка для опроса агента.
+     */
+    public org.springframework.data.domain.Page<JobResponse> listJobsForCluster(
+            String clusterId, boolean includeSubjobs, org.springframework.data.domain.Pageable pageable) {
+        return listJobsPage(null, clusterId, null, true, false, includeSubjobs, pageable);
+    }
+
+    private org.springframework.data.domain.Page<JobResponse> listJobsPage(
+            String status, String clusterId, String username, boolean isAdmin, boolean isReader,
+            boolean includeSubjobs, org.springframework.data.domain.Pageable pageable) {
+
+        String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : null;
+        String normalizedCluster = (clusterId != null && !clusterId.isBlank()) ? clusterId.trim().toLowerCase() : null;
+        String owner = (isAdmin || isReader || username == null) ? null : ownerKey(username);
+
+        org.springframework.data.domain.Page<JobEntity> page = jobRepository.findForListing(
+                normalizedStatus, normalizedCluster, includeSubjobs, owner, pageable);
+        if (page.isEmpty()) {
+            return page.map(j -> JobResponse.fromEntity(j, 0, agentRegistry));
         }
 
-        List<JobEntity> filteredJobs = stream.toList();
-        if (filteredJobs.isEmpty()) {
-            return List.of();
-        }
-
-        List<String> jobIds = filteredJobs.stream().map(JobEntity::getId).toList();
+        List<String> jobIds = page.getContent().stream().map(JobEntity::getId).toList();
         Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
             .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
 
-        return filteredJobs.stream()
-            .map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0), agentRegistry))
-            .toList();
+        return page.map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0), agentRegistry));
+    }
+
+    /**
+     * Локальная часть имени пользователя без realm-суффикса — ключ сравнения владельца.
+     */
+    private static String ownerKey(String username) {
+        String user = username.contains("@") ? username.substring(0, username.indexOf('@')) : username;
+        return user.toLowerCase();
+    }
+
+    public List<JobResponse> listJobs(String status, String username, boolean isAdmin, boolean isReader, boolean includeSubjobs) {
+        var page = listJobs(status, username, isAdmin, isReader, includeSubjobs,
+                org.springframework.data.domain.PageRequest.of(0, LISTING_HARD_LIMIT));
+        if (page.getTotalElements() > LISTING_HARD_LIMIT) {
+            log.warn("Список заданий обрезан: отдано {} из {} — вызывающему нужна постраничная выборка",
+                    LISTING_HARD_LIMIT, page.getTotalElements());
+        }
+        return page.getContent();
     }
 
     public List<JobResponse> listSubjobsByParentId(String parentJobId) {

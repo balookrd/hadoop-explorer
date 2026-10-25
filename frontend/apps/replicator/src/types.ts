@@ -233,6 +233,15 @@ export interface HmsDeadLetterEvent {
   failedAt?: string;
 }
 
+/** Страница списка заданий: эндпоинт `/jobs` отдает выборку с обязательным пределом. */
+export interface JobPage {
+  content: Job[];
+  total_elements: number;
+  total_pages: number;
+  number: number;
+  size: number;
+}
+
 export interface HmsCdcState {
   triggered: boolean;
   status: string;

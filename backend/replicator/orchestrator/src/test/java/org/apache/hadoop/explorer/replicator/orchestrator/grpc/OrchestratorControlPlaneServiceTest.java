@@ -268,9 +268,12 @@ public class OrchestratorControlPlaneServiceTest {
         entity.setSyncMode("STREAMING_INOTIFY");
 
         JobResponse job = JobResponse.fromEntity(entity);
-        when(jobService.listJobs(null, null, true, false, true)).thenReturn(List.of(job));
+        // Выборка заданий кластера идет запросом с пределом, а не фильтром по всему списку
+        when(jobService.listJobsForCluster(eq("dc1"), eq(true), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(job)));
 
         GetJobsRequest req = GetJobsRequest.newBuilder()
+                .setClusterId("dc1")
                 .setIncludeSubjobs(true)
                 .build();
 
