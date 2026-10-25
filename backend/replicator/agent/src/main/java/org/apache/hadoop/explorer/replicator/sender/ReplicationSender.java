@@ -69,6 +69,14 @@ public class ReplicationSender implements AutoCloseable {
     // Пул постоянных gRPC каналов с поддержкой HTTP/2 keepalive
     private final ConcurrentHashMap<String, ManagedChannel> channelPool = new ConcurrentHashMap<>();
 
+    /**
+     * Замок создания канала: под ним читаются сертификаты TLS и разрешается имя узла.
+     * Монитор на этом месте пиннил бы несущий поток виртуального потока Java 21, а передача
+     * задач идет как раз на виртуальных потоках.
+     */
+    private final java.util.concurrent.locks.ReentrantLock channelPoolLock =
+            new java.util.concurrent.locks.ReentrantLock();
+
     // Локальный буфер сетевых токенов (Hierarchical Token Bucket batching)
     private final ConcurrentHashMap<String, AtomicLong> tokenBatchLease = new ConcurrentHashMap<>();
     public static final long DEFAULT_MIN_TOKEN_BATCH_BYTES = 2 * 1024 * 1024L; // 2 MB на батч
@@ -822,7 +830,8 @@ public class ReplicationSender implements AutoCloseable {
         if (channel != null && !channel.isShutdown() && !channel.isTerminated()) {
             return channel;
         }
-        synchronized (channelPool) {
+        channelPoolLock.lock();
+        try {
             channel = channelPool.get(key);
             if (channel != null && !channel.isShutdown() && !channel.isTerminated()) {
                 return channel;
@@ -830,6 +839,8 @@ public class ReplicationSender implements AutoCloseable {
             ManagedChannel newChannel = createManagedChannel(key);
             channelPool.put(key, newChannel);
             return newChannel;
+        } finally {
+            channelPoolLock.unlock();
         }
     }
 

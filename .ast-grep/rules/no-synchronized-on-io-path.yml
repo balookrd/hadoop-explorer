@@ -1,0 +1,14 @@
+id: no-synchronized-on-io-path
+message: "Монитор вокруг сетевого или файлового вызова: под виртуальными потоками Java 21 он пиннит несущий поток. Используйте ReentrantLock."
+severity: error
+language: java
+files:
+  - "backend/replicator/agent/src/main/java/org/apache/hadoop/explorer/replicator/inotify/InotifyBatchProcessor.java"
+  - "backend/replicator/agent/src/main/java/org/apache/hadoop/explorer/replicator/kafka/security/KerberosSpnegoAuthenticator.java"
+  - "backend/replicator/agent/src/main/java/org/apache/hadoop/explorer/replicator/sender/ReplicationSender.java"
+  - "backend/replicator/agent/src/main/java/org/apache/hadoop/explorer/replicator/client/OrchestratorGrpcClient.java"
+rule:
+  any:
+    - pattern: synchronized ($LOCK) { $$$BODY }
+    - kind: modifiers
+      regex: "\\bsynchronized\\b"

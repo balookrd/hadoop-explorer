@@ -31,6 +31,10 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
 
     private final KafkaKerberosConfig config;
     private final String servicePrefix;
+
+    /** Замок логина: под ним идет обращение к KDC по сети. */
+    private final java.util.concurrent.locks.ReentrantLock loginLock =
+            new java.util.concurrent.locks.ReentrantLock();
     private Subject subject;
     private long loginTimestamp = 0;
     private static final long TICKET_REFRESH_INTERVAL_MS = 6 * 3600 * 1000L; // 6 часов
@@ -109,7 +113,22 @@ public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
         }
     }
 
-    private synchronized void ensureLoggedIn() throws LoginException {
+    private void ensureLoggedIn() throws LoginException {
+        loginLock.lock();
+        try {
+            ensureLoggedInLocked();
+        } finally {
+            loginLock.unlock();
+        }
+    }
+
+    /**
+     * Логин по keytab: вызывается под {@link #loginLock}.
+     *
+     * <p>Логин обращается к KDC по сети, и монитор на этом месте пиннил бы несущий поток
+     * виртуального потока Java 21: аутентификация вызывается из пути обращения к Schema Registry.
+     */
+    private void ensureLoggedInLocked() throws LoginException {
         long now = System.currentTimeMillis();
         if (subject != null && (now - loginTimestamp) < TICKET_REFRESH_INTERVAL_MS) {
             return;

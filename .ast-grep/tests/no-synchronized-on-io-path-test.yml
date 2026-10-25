@@ -1,0 +1,7 @@
+id: no-synchronized-on-io-path
+valid:
+  - "channelLock.lock(); try { reconnect(); } finally { channelLock.unlock(); }"
+  - "private void flush() { send(); }"
+invalid:
+  - "synchronized (channelLock) { reconnect(); }"
+  - "private synchronized void flush() { send(); }"

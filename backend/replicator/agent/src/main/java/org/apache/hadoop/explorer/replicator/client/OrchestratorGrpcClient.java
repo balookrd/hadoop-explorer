@@ -47,7 +47,15 @@ public class OrchestratorGrpcClient implements Closeable {
 
     private final List<String> endpoints;
     private final AtomicInteger currentEndpointIndex;
-    private final Object channelLock = new Object();
+    /**
+     * Замок канала: {@link java.util.concurrent.locks.ReentrantLock}, а не монитор.
+     *
+     * <p>Под замком создается канал (чтение сертификатов TLS, разрешение имени) и ожидается
+     * завершение старого канала до трех секунд. Монитор на этих местах пиннит несущий поток
+     * виртуального потока Java 21, а переключение узла вызывается из обычного пути RPC.
+     */
+    private final java.util.concurrent.locks.ReentrantLock channelLock =
+            new java.util.concurrent.locks.ReentrantLock();
     private final String agentSecret;
     private final boolean tlsEnabled;
     private final String trustCertCollectionPath;
@@ -281,7 +289,8 @@ public class OrchestratorGrpcClient implements Closeable {
 
     private void switchToNextChannel(String failedEndpoint, Throwable cause) {
         if (endpoints.size() <= 1) return;
-        synchronized (channelLock) {
+        channelLock.lock();
+        try {
             // Если другой поток уже переключил узел
             if (this.targetAddress != null && !this.targetAddress.equals(failedEndpoint)) {
                 return;
@@ -304,6 +313,8 @@ public class OrchestratorGrpcClient implements Closeable {
                     oldChannel.shutdownNow();
                 } catch (Exception ignored) {}
             }
+        } finally {
+            channelLock.unlock();
         }
     }
 
@@ -848,7 +859,8 @@ public class OrchestratorGrpcClient implements Closeable {
 
     @Override
     public void close() {
-        synchronized (channelLock) {
+        channelLock.lock();
+        try {
             if (channel != null && !channel.isShutdown()) {
                 log.info("Закрытие OrchestratorGrpcClient канала к '{}'...", targetAddress);
                 channel.shutdown();
@@ -861,6 +873,8 @@ public class OrchestratorGrpcClient implements Closeable {
                     Thread.currentThread().interrupt();
                 }
             }
+        } finally {
+            channelLock.unlock();
         }
     }
 }

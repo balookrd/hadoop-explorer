@@ -52,6 +52,13 @@ public class InotifyBatchProcessor implements AutoCloseable {
     private final HadoopFsManager fsManager;
     private final OrchestratorGrpcClient orchestratorClient;
 
+    /**
+     * Замок пакетного сброса: под ним идут gRPC-вызовы в Оркестратор с таймаутами в секунды.
+     * Монитор на этом месте пиннил бы несущий поток виртуального потока Java 21.
+     */
+    private final java.util.concurrent.locks.ReentrantLock flushLock =
+            new java.util.concurrent.locks.ReentrantLock();
+
     private final int maxQueueCapacity;
     private final double highWatermark;
     private final double lowWatermark;
@@ -291,10 +298,22 @@ public class InotifyBatchProcessor implements AutoCloseable {
      * Пакетный сброс накопившихся задач из очереди в Оркестратор.
      * Возвращает общее количество успешно отправленных задач.
      */
-    public synchronized int flush() {
+    public int flush() {
         if (taskQueue.isEmpty()) {
             return 0;
         }
+        flushLock.lock();
+        try {
+            return flushDrainedTasks();
+        } finally {
+            flushLock.unlock();
+        }
+    }
+
+    /**
+     * Отправка накопленных задач: вызывается под {@link #flushLock}.
+     */
+    private int flushDrainedTasks() {
 
         List<QueuedInotifyTask> drained = new ArrayList<>();
         taskQueue.drainTo(drained);
