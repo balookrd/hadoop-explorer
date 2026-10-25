@@ -41,6 +41,13 @@ class KafkaHeartbeatMetricsTest {
         repository.deleteAll();
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        // Таблица задач Kafka общая для тестов в одной JVM, а метрики считают по ней
+        // глобальные суммы: оставленные задачи ломают проверки в других классах.
+        repository.deleteAll();
+    }
+
     private void createJob(String id, String sourceDc, String targetDc, String status, String direction) {
         KafkaReplicationJobEntity job = new KafkaReplicationJobEntity();
         job.setId(id);

@@ -67,6 +67,12 @@ public class ReplicatorMetricsTest {
     @Test
     @DisplayName("Проверка экспорта метрик Prometheus на эндпоинте /metrics")
     void testScrapeMetricsEndpoint() throws Exception {
+        // Метрики Kafka и staging — глобальные суммы по всем задачам и агентам, а проверяются
+        // точными числами. База в памяти общая для тестов одной JVM, поэтому состояние,
+        // оставленное другими классами, сделало бы результат зависящим от порядка запуска.
+        kafkaReplicationJobRepository.deleteAll();
+        agentRegistry.clear();
+
         // Регистрируем тестовый агент с телеметрией
         AgentHeartbeatRequest hb = new AgentHeartbeatRequest("agent-metrics-node1", "dc1", "node1:50051", 2, "all");
         hb.setTransferredBytes(104857600L); // 100 MB
