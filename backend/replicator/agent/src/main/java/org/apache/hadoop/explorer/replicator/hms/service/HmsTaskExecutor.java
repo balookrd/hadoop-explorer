@@ -157,6 +157,14 @@ public class HmsTaskExecutor implements Closeable {
     /**
      * Выполнение начального создания и переноса таблиц/партиций (Bootstrap).
      */
+    /** Типы событий CDC, которые перенос схем выполняет. */
+    private static final Set<String> HANDLED_CDC_EVENTS = Set.of(
+            "ADD_PARTITION", "ALTER_PARTITION", "CREATE_TABLE", "ALTER_TABLE", "DROP_TABLE", "DROP_PARTITION");
+
+    private static boolean handledEventType(String eventType) {
+        return eventType != null && HANDLED_CDC_EVENTS.contains(eventType.toUpperCase());
+    }
+
     /**
      * Сравнение схемы таблицы с фактической схемой на приемнике до применения DDL.
      *
@@ -751,6 +759,40 @@ public class HmsTaskExecutor implements Closeable {
                                     table.sdLocation(), null, null, "SKIPPED_ACID", check.reason()));
                         }
                     }
+                } else if ("ALTER_TABLE".equalsIgnoreCase(eventType)) {
+                    // Изменение схемы (ADD COLUMNS, RENAME, смена локации) раньше не доезжало до
+                    // приемника вовсе: событие проваливалось мимо всех веток и отмечалось
+                    // обработанным. Схема расходилась навсегда, без следа в журнале задачи.
+                    Optional<HmsTableDto> optAltered = hmsClient.getTable(job.sourceDbName(), tbl);
+                    if (optAltered.isPresent()) {
+                        HmsTableDto table = optAltered.get();
+                        var check = tableFilter.evaluate(table);
+                        if (check.supported()) {
+                            var rewrite = rewriteLocation(table.sdLocation(), job, "таблицы " + tbl);
+                            HmsTableDto targetTable = new HmsTableDto(
+                                    "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),
+                                    tableFilter.sanitizeParameters(table.parameters()), table.partitionKeys(),
+                                    table.inputFormat(), table.outputFormat(), table.serdeLib(),
+                                    table.columns(), table.partitionKeyFields(), table.serdeParameters()
+                            );
+                            var alterResp = sender.applyTable(job.id(), targetTable, job.executionPrincipal());
+                            boolean ok = alterResp.getSuccess();
+                            eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
+                                    rewrite.sourceUri(), rewrite.targetUri(), null,
+                                    ok ? "APPLIED" : "FAILED", alterResp.getMessage()));
+                            if (!ok) {
+                                eventSuccess = false;
+                                failureReason = alterResp.getMessage();
+                            }
+                        } else {
+                            eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
+                                    table.sdLocation(), null, null, "SKIPPED_ACID", check.reason()));
+                        }
+                    } else {
+                        // Таблицу переименовали или удалили сразу после изменения
+                        eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null,
+                                "SKIPPED_UNSUPPORTED", "Таблица не найдена в источнике на момент обработки события"));
+                    }
                 } else if ("DROP_TABLE".equalsIgnoreCase(eventType)) {
                     var dropTblResp = sender.reconcileExtraneousTables(job.id(), job.targetDbName(), List.of(tbl), job.executionPrincipal());
                     boolean ok = dropTblResp.getSuccess();
@@ -783,6 +825,14 @@ public class HmsTaskExecutor implements Closeable {
                             failureReason = dropPartResp.getMessage();
                         }
                     }
+                }
+
+                if (!handledEventType(eventType)) {
+                    // Тип события перенос не выполняет (INSERT, операции с базами данных и
+                    // прочее). Раньше такое событие просто отмечалось обработанным, и понять,
+                    // что именно пропущено, было нельзя.
+                    eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null, null, null, null,
+                            "SKIPPED_UNSUPPORTED", "Тип события не переносится репликатором схем: " + eventType));
                 }
 
                 if (eventSuccess) {
