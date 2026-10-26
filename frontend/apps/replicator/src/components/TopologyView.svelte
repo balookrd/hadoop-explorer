@@ -52,6 +52,44 @@
     registeredAgents.filter((a) => a.mode === 'streamer' && a.status === 'online')
   );
 
+  // При сотнях агентов плитка всех сразу нечитаема: поиск, фильтр по статусу и кластеру,
+  // сводка по кластерам и показ порциями
+  const AGENTS_PAGE = 60;
+  let agentSearch = $state('');
+  let agentStatusFilter = $state<'all' | 'online' | 'offline'>('all');
+  let agentClusterFilter = $state('all');
+  let agentsShown = $state(AGENTS_PAGE);
+
+  const agentClusters = $derived.by(() => {
+    const byCluster = new Map<string, { total: number; online: number }>();
+    for (const a of registeredAgents) {
+      const key = a.cluster_id || '—';
+      const entry = byCluster.get(key) ?? { total: 0, online: 0 };
+      entry.total++;
+      if (a.status === 'online') entry.online++;
+      byCluster.set(key, entry);
+    }
+    return [...byCluster.entries()].sort(([a], [b]) => a.localeCompare(b));
+  });
+
+  const filteredAgents = $derived.by(() => {
+    const q = agentSearch.trim().toLowerCase();
+    return registeredAgents.filter((a) =>
+      (agentClusterFilter === 'all' || (a.cluster_id || '—') === agentClusterFilter)
+      && (agentStatusFilter === 'all'
+        || (agentStatusFilter === 'online' ? a.status === 'online' : a.status !== 'online'))
+      && (!q || a.agent_id.toLowerCase().includes(q) || (a.grpc_address ?? '').toLowerCase().includes(q))
+    );
+  });
+
+  const visibleAgents = $derived(filteredAgents.slice(0, agentsShown));
+
+  // Новый фильтр — снова с первой порции
+  $effect(() => {
+    agentSearch; agentStatusFilter; agentClusterFilter;
+    agentsShown = AGENTS_PAGE;
+  });
+
   $effect(() => {
     if (topology) {
       const gMb = topology.global_limit_bytes_per_sec / (1024 * 1024);
@@ -458,8 +496,40 @@
         Нет активных зарегистрированных агентов. При запуске агенты `backend.replicator.agent` автоматически появятся здесь.
       </div>
     {:else}
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <input
+          type="search"
+          bind:value={agentSearch}
+          placeholder="Поиск по ID или адресу агента"
+          class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 w-64"
+        />
+        <select
+          bind:value={agentStatusFilter}
+          class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200"
+        >
+          <option value="all">Все статусы</option>
+          <option value="online">Онлайн</option>
+          <option value="offline">Не онлайн</option>
+        </select>
+        <button
+          onclick={() => (agentClusterFilter = 'all')}
+          class="px-2 py-1 rounded-md border cursor-pointer {agentClusterFilter === 'all' ? 'border-sky-400 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}"
+        >Все кластеры · {registeredAgents.length}</button>
+        {#each agentClusters as [cluster, counts] (cluster)}
+          <button
+            onclick={() => (agentClusterFilter = cluster)}
+            class="px-2 py-1 rounded-md border font-mono cursor-pointer {agentClusterFilter === cluster ? 'border-sky-400 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}"
+            title="Онлайн {counts.online} из {counts.total}"
+          >{cluster} · <span class={counts.online < counts.total ? 'text-amber-600' : 'text-emerald-600'}>{counts.online}/{counts.total}</span></button>
+        {/each}
+      </div>
+      {#if filteredAgents.length === 0}
+        <div class="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+          Нет агентов, подходящих под фильтр.
+        </div>
+      {/if}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {#each registeredAgents as agent}
+        {#each visibleAgents as agent (agent.agent_id)}
           <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-3 shadow-2xs">
             <div class="flex items-center justify-between">
               <div class="flex flex-col">
@@ -584,6 +654,15 @@
           </div>
         {/each}
       </div>
+      {#if filteredAgents.length > visibleAgents.length}
+        <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+          <span>Показано {visibleAgents.length} из {filteredAgents.length}</span>
+          <button
+            onclick={() => (agentsShown += AGENTS_PAGE)}
+            class="text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
+          >Показать еще {Math.min(AGENTS_PAGE, filteredAgents.length - visibleAgents.length)}</button>
+        </div>
+      {/if}
     {/if}
   </div>
 </main>

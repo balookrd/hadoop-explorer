@@ -351,11 +351,15 @@ public class AgentRegistry {
                 ? request.getClusterId() : "default";
 
         validateClusterAssignment(agentId, clusterId);
-        if (request.getGrpcAddress() != null && !request.getGrpcAddress().isBlank()) {
+        AgentEntry entry = agents.get(agentId);
+        // Адрес проверяется (в том числе DNS-разрешением против SSRF), только когда он новый или
+        // сменился: синхронный DNS-запрос на каждый heartbeat сотен агентов нагружал резолвер,
+        // а при его медленных ответах heartbeat запаздывали и живые агенты уходили в OFFLINE
+        if (request.getGrpcAddress() != null && !request.getGrpcAddress().isBlank()
+                && (entry == null || !request.getGrpcAddress().equals(entry.getGrpcAddress()))) {
             validateGrpcAddress(request.getGrpcAddress());
         }
 
-        AgentEntry entry = agents.get(agentId);
         boolean isNewAgent = (entry == null);
         String mode = (request.getMode() != null && !request.getMode().isBlank())
                 ? request.getMode()

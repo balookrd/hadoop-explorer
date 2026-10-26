@@ -398,6 +398,35 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     }
 
     @Override
+    public int forEachPartitionBatchAfter(String dbName, String tableName, int batchSize, String startAfterName,
+                                          ResumableBatchConsumer consumer) throws Exception {
+        List<String> names = new ArrayList<>(getPartitionNames(dbName, tableName));
+        Collections.sort(names);
+        int total = names.size();
+        int start = 0;
+        if (startAfterName != null) {
+            int pos = Collections.binarySearch(names, startAfterName);
+            start = pos >= 0 ? pos + 1 : -pos - 1;
+        }
+        int size = Math.max(1, Math.min(batchSize, PARTITION_FETCH_BATCH));
+        for (int from = start; from < total; from += size) {
+            List<String> slice = names.subList(from, Math.min(from + size, total));
+            List<HmsPartitionDto> batch = executeWithRetry(c -> {
+                List<Partition> fetched = c.getPartitionsByNames(dbName, tableName, slice);
+                List<HmsPartitionDto> dtos = new ArrayList<>(fetched != null ? fetched.size() : 0);
+                if (fetched != null) {
+                    for (Partition p : fetched) {
+                        dtos.add(toDto(p));
+                    }
+                }
+                return dtos;
+            });
+            consumer.accept(batch, total, start, slice.get(slice.size() - 1));
+        }
+        return total;
+    }
+
+    @Override
     public List<String> getPartitionNames(String dbName, String tableName) {
         return executeWithRetry(c -> {
             try {

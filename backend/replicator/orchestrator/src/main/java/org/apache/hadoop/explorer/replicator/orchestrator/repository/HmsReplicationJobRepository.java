@@ -28,6 +28,28 @@ public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicatio
 
 
     List<HmsReplicationJobEntity> findByStatus(String status);
+
+    // Аренда задачи — условными UPDATE: атомарно и без конфликта optimistic lock с отчетами
+    // агента. Версия поднимается, чтобы сохранения сущности, прочитанной до захвата (пауза,
+    // отчет), заметили смену владельца, а не затерли ее.
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE HmsReplicationJobEntity j SET j.leaseExpiresAt = :expires, j.version = j.version + 1 "
+            + "WHERE j.id = :id AND j.assignedAgentId = :agent")
+    int renewLease(@Param("id") String id, @Param("agent") String agent, @Param("expires") java.time.Instant expires);
+
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE HmsReplicationJobEntity j SET j.assignedAgentId = :agent, j.leaseExpiresAt = :expires, "
+            + "j.version = j.version + 1 WHERE j.id = :id AND j.assignedAgentId IS NULL")
+    int claimUnownedLease(@Param("id") String id, @Param("agent") String agent, @Param("expires") java.time.Instant expires);
+
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE HmsReplicationJobEntity j SET j.assignedAgentId = :agent, j.leaseExpiresAt = :expires, "
+            + "j.version = j.version + 1 WHERE j.id = :id AND j.assignedAgentId = :previous")
+    int claimLeaseFrom(@Param("id") String id, @Param("previous") String previous, @Param("agent") String agent,
+                       @Param("expires") java.time.Instant expires);
     List<HmsReplicationJobEntity> findByStatusIn(Collection<String> statuses);
     List<HmsReplicationJobEntity> findByAssignedAgentIdIsNotNullAndStatusIn(Collection<String> statuses);
     long countByStatus(String status);

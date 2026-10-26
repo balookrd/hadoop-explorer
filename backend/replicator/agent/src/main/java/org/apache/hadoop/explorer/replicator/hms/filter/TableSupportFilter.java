@@ -9,7 +9,12 @@ public class TableSupportFilter {
     private static final Set<String> REMOVED_VENDOR_PARAMS = Set.of(
             "hdp.version",
             "STATS_GENERATED_VIA_STATS_TASK",
-            "numFilesErasureCoded"
+            "numFilesErasureCoded",
+            // Флаг «статистика точна» без самой колоночной статистики (она не переносится) и до
+            // окончания копирования данных: при hive.compute.query.using.stats Hive ответил бы на
+            // count/min/max из статистики, а не из данных приемника. Без флага статистика
+            // считается неточной и пересчитывается (ANALYZE или автосбор Hive).
+            "COLUMN_STATS_ACCURATE"
     );
 
     public record FilterResult(boolean supported, String reason) {

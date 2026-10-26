@@ -828,7 +828,9 @@ public class OrchestratorGrpcClient implements Closeable {
                         j.getExecutionPrincipal().isEmpty() ? null : j.getExecutionPrincipal(),
                         j.getEnableHdfsStreaming(),
                         j.getCompanionHdfsJobId().isEmpty() ? null : j.getCompanionHdfsJobId(),
-                        j.getDbWarehouseLocation().isEmpty() ? null : j.getDbWarehouseLocation()
+                        j.getDbWarehouseLocation().isEmpty() ? null : j.getDbWarehouseLocation(),
+                        j.getBootstrapEventId() > 0 ? j.getBootstrapEventId() : null,
+                        j.getBootstrapCheckpoint().isEmpty() ? null : j.getBootstrapCheckpoint()
                 ));
             }
             return list;
@@ -864,7 +866,8 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setEventLag(report.eventLag() != null ? report.eventLag() : 0L)
                     .setTotalTables(report.totalTables())
                     .setTotalPartitions(report.totalPartitions())
-                    .setAgentId(report.agentId() != null ? report.agentId() : "");
+                    .setAgentId(report.agentId() != null ? report.agentId() : "")
+                    .setBootstrapCheckpoint(report.bootstrapCheckpoint() != null ? report.bootstrapCheckpoint() : "");
 
             if (report.events() != null && !report.events().isEmpty()) {
                 for (var ev : report.events()) {

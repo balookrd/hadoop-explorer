@@ -27,10 +27,10 @@ class MigrationsApplyOnH2Test {
                 .locations("classpath:db/migration/common", "classpath:db/migration/h2")
                 .load()
                 .migrate();
-        assertTrue(result.migrationsExecuted >= 6, "применено миграций: " + result.migrationsExecuted);
+        assertTrue(result.migrationsExecuted >= 7, "применено миграций: " + result.migrationsExecuted);
 
         try (Connection c = DriverManager.getConnection(url, "sa", ""); Statement st = c.createStatement()) {
-            st.execute("select paused_from_status from hms_replication_jobs where 1 = 0");
+            st.execute("select paused_from_status, bootstrap_checkpoint from hms_replication_jobs where 1 = 0");
             st.execute("insert into hms_dead_letter_events (id, hms_job_id, event_id, event_type, status, retry_count, failed_at) "
                     + "values ('a', 'job', 42, 'ALTER_TABLE', 'NEW', 1, current_timestamp)");
             assertThrows(SQLException.class, () -> st.execute(

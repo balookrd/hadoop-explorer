@@ -331,6 +331,9 @@ message HmsPendingJobItemProto {
   bool enable_hdfs_streaming = 15;
   string companion_hdfs_job_id = 16;
   string db_warehouse_location = 17;
+  // Продолжение прерванного bootstrap: исходная позиция журнала и чекпоинт (JSON)
+  int64 bootstrap_event_id = 18;
+  string bootstrap_checkpoint = 19;
 }
 
 message GetPendingHmsJobsResponse {
@@ -362,6 +365,7 @@ message ReportHmsProgressRequest {
   int32 total_tables = 10;
   int32 total_partitions = 11;
   string agent_id = 12;
+  string bootstrap_checkpoint = 13;
 }
 
 message ReportHmsProgressResponse {

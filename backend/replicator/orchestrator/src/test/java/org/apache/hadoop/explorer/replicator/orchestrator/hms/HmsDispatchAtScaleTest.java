@@ -78,20 +78,39 @@ class HmsDispatchAtScaleTest {
     }
 
     @Test
-    @DisplayName("Квота bootstrap: первый агент не забирает все задачи кластера")
-    void firstPollerDoesNotTakeEverything() {
+    @DisplayName("Bootstrap: задачи расходятся по агентам поровну, квота — верхняя граница")
+    void bootstrapJobsSpreadEvenlyWithinQuota() {
         int quota = properties.getHmsMaxBootstrapsPerAgent();
-        for (int i = 0; i < quota * 2; i++) {
+        for (int a = 3; a <= 5; a++) {
+            register("agent-src-" + a, "dc1");
+        }
+        register("agent-src-2", "dc1");
+        // Задач больше, чем вмещают квоты: 4 агента-источника по quota, плюс лишние
+        for (int i = 0; i < quota * 5; i++) {
             queuedJob("db_" + i);
         }
 
-        List<HmsPendingJobDto> first = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-1");
-        List<HmsPendingJobDto> second = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-2");
+        for (int round = 0; round < 10; round++) {
+            for (String agent : List.of("agent-src-1", "agent-src-2", "agent-src-3", "agent-src-4", "agent-src-5")) {
+                coordinatorService.getPendingJobsForCluster("dc1", agent);
+            }
+        }
 
-        assertEquals(quota, first.size(), "первый агент берет не больше квоты");
-        assertEquals(quota, second.size(), "остаток достается второму агенту");
-        assertTrue(first.stream().noneMatch(f -> second.stream().anyMatch(s -> s.id().equals(f.id()))),
-                "одна задача не выдается двум агентам");
+        Map<String, Long> perAgent = new java.util.HashMap<>();
+        hmsJobRepository.findAll().stream().filter(j -> j.getAssignedAgentId() != null)
+                .forEach(j -> perAgent.merge(j.getAssignedAgentId(), 1L, Long::sum));
+        assertEquals(5, perAgent.size(), "работу получает каждый агент-источник: " + perAgent);
+        assertTrue(perAgent.values().stream().allMatch(n -> n <= quota), "квота не превышена: " + perAgent);
+        long max = perAgent.values().stream().mapToLong(Long::longValue).max().orElse(0);
+        long min = perAgent.values().stream().mapToLong(Long::longValue).min().orElse(0);
+        assertTrue(max - min <= 1, "разброс не больше одной задачи: " + perAgent);
+
+        // Первый же опрос нового агента не забирает все: берет не больше пары задач
+        register("agent-src-6", "dc1");
+        queuedJob("late_1");
+        queuedJob("late_2");
+        queuedJob("late_3");
+        assertTrue(coordinatorService.getPendingJobsForCluster("dc1", "agent-src-6").size() <= quota);
     }
 
     @Test
@@ -269,12 +288,14 @@ class HmsDispatchAtScaleTest {
     @DisplayName("CDC-задачи не занимают квоту bootstrap")
     void cdcJobsDoNotConsumeBootstrapQuota() {
         int quota = properties.getHmsMaxBootstrapsPerAgent();
-        for (int i = 0; i < quota; i++) {
-            HmsReplicationJobEntity cdc = queuedJob("busy_cdc_" + i);
-            cdc.setStatus("ACTIVE");
-            cdc.setAssignedAgentId("agent-src-1");
-            cdc.setLeaseExpiresAt(Instant.now().plusSeconds(60));
-            hmsJobRepository.save(cdc);
+        for (String agent : List.of("agent-src-1", "agent-src-2")) {
+            for (int i = 0; i < quota; i++) {
+                HmsReplicationJobEntity cdc = queuedJob("busy_cdc_" + agent + "_" + i);
+                cdc.setStatus("ACTIVE");
+                cdc.setAssignedAgentId(agent);
+                cdc.setLeaseExpiresAt(Instant.now().plusSeconds(60));
+                hmsJobRepository.save(cdc);
+            }
         }
         // Второй агент тоже занят так же, иначе выравнивание само отдаст bootstrap ему
         HmsReplicationJobEntity fresh = queuedJob("fresh_bootstrap");
@@ -307,5 +328,71 @@ class HmsDispatchAtScaleTest {
         List<HmsPendingJobDto> polled = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-1");
         assertEquals(419L, polled.stream().filter(p -> p.id().equals(job.getId())).findFirst().orElseThrow()
                 .lastProcessedEventId(), "агент получает задачу уже с откатанной позицией");
+    }
+
+    @Test
+    @DisplayName("Чекпоинт bootstrap: сохраняется из отчета, уходит агенту, сбрасывается по завершении и rebootstrap")
+    void bootstrapCheckpointLifecycle() {
+        HmsReplicationJobEntity job = queuedJob("cp_db");
+        coordinatorService.getPendingJobsForCluster("dc1", "agent-src-1");
+        String cp = "{\"done\":{\"a\":0},\"partial\":{\"b\":\"dt=1\"}}";
+        assertTrue(coordinatorService.updateJobProgress(job.getId(), new HmsProgressReportRequest(
+                "BOOTSTRAPPING", 2, 1, 10, 5, null, 900L, null, null, List.of(), "agent-src-1", cp)));
+
+        HmsPendingJobDto polled = coordinatorService.getPendingJobsForCluster("dc1", "agent-src-1").stream()
+                .filter(p -> p.id().equals(job.getId())).findFirst().orElseThrow();
+        assertEquals(cp, polled.bootstrapCheckpoint());
+        assertEquals(900L, polled.bootstrapEventId());
+
+        coordinatorService.rebootstrap(job.getId());
+        assertNull(hmsJobRepository.findById(job.getId()).orElseThrow().getBootstrapCheckpoint(),
+                "явный повтор начинается с нуля");
+
+        HmsReplicationJobEntity again = hmsJobRepository.findById(job.getId()).orElseThrow();
+        again.setBootstrapCheckpoint(cp);
+        hmsJobRepository.save(again);
+        coordinatorService.getPendingJobsForCluster("dc1", "agent-src-1");
+        coordinatorService.updateJobProgress(job.getId(), new HmsProgressReportRequest(
+                "ACTIVE", 2, 2, 10, 10, 950L, 900L, 0L, "done", List.of(), "agent-src-1"));
+        assertNull(hmsJobRepository.findById(job.getId()).orElseThrow().getBootstrapCheckpoint(),
+                "после завершения bootstrap чекпоинт не нужен");
+    }
+
+    @Test
+    @DisplayName("Параллельные опросы и отчеты 20 агентов: без исключений, у задачи один владелец")
+    void concurrentPollsAndReportsDoNotConflict() throws Exception {
+        List<String> agents = new java.util.ArrayList<>();
+        for (int a = 0; a < 20; a++) {
+            String id = "race-agent-" + a;
+            register(id, "dc1");
+            agents.add(id);
+        }
+        for (int i = 0; i < 30; i++) {
+            HmsReplicationJobEntity job = queuedJob("race_db_" + i);
+            job.setStatus("ACTIVE");
+            hmsJobRepository.save(job);
+        }
+        List<Throwable> failures = new java.util.concurrent.CopyOnWriteArrayList<>();
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(20);
+        for (String agent : agents) {
+            pool.submit(() -> {
+                try {
+                    for (int round = 0; round < 15; round++) {
+                        for (HmsPendingJobDto job : coordinatorService.getPendingJobsForCluster("dc1", agent)) {
+                            coordinatorService.updateJobProgress(job.id(), new HmsProgressReportRequest(
+                                    "ACTIVE", 0, 0, 0, 0, (long) round + 1, null, 0L, "Синхронизировано", List.of(), agent));
+                        }
+                    }
+                } catch (Throwable t) {
+                    failures.add(t);
+                }
+            });
+        }
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS));
+
+        assertTrue(failures.isEmpty(), "опросы и отчеты не должны падать: " + failures);
+        assertTrue(hmsJobRepository.findAll().stream().allMatch(j -> j.getAssignedAgentId() != null),
+                "каждая задача получила владельца");
     }
 }

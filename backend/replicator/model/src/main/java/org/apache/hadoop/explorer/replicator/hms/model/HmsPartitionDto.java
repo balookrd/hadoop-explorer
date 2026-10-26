@@ -77,6 +77,12 @@ public record HmsPartitionDto(
                 parameters, columns, serdeParameters, inputFormat, outputFormat, serdeLib);
     }
 
+    /** Та же партиция с другими параметрами (очищенными для приемника). */
+    public HmsPartitionDto withParameters(Map<String, String> newParameters) {
+        return new HmsPartitionDto(catName, dbName, tableName, values, location,
+                newParameters, columns, serdeParameters, inputFormat, outputFormat, serdeLib);
+    }
+
     public String getPartitionName(List<String> partKeys) {
         if (partKeys == null || values == null || partKeys.size() != values.size()) {
             return String.join(",", values);

@@ -264,5 +264,18 @@ class AgentRegistryTest {
         assertFalse(registry.hasLiveStreamerForCluster("dc1"));
         assertEquals(0, registry.countLiveStreamers("dc1"));
     }
+
+    @Test
+    @DisplayName("Смена адреса в heartbeat по-прежнему проходит проверку SSRF")
+    void heartbeatWithChangedAddressIsStillValidated() {
+        registry.register(new AgentRegisterRequest("agent-ssrf", "dc1", "all", "10.0.0.5:50051", null, 100.0),
+                "test-agent-secret-0123456789");
+
+        assertTrue(registry.heartbeat(new AgentHeartbeatRequest("agent-ssrf", "dc1", "10.0.0.5:50051", 0),
+                "test-agent-secret-0123456789"), "тот же адрес принимается без повторной проверки");
+        assertThrows(SecurityException.class, () -> registry.heartbeat(
+                new AgentHeartbeatRequest("agent-ssrf", "dc1", "169.254.169.254:50051", 0), "test-agent-secret-0123456789"),
+                "новый адрес проверяется так же, как при регистрации");
+    }
 }
 

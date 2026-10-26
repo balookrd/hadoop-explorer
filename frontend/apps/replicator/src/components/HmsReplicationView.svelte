@@ -260,13 +260,23 @@
   // перезаписать детали новой (модалка и раскрытая строка делят одни и те же списки)
   let detailsRequestSeq = 0;
 
+  // Сколько последних подзадач показывать: сервер отдает не больше 1000 за запрос
+  const SUBTASKS_PAGE = 200;
+  const SUBTASKS_MAX = 1000;
+  let subtasksShown = $state(SUBTASKS_PAGE);
+
+  async function showMoreSubtasks(jobId: string) {
+    subtasksShown = Math.min(subtasksShown + SUBTASKS_PAGE, SUBTASKS_MAX);
+    await loadDetails(jobId);
+  }
+
   async function loadDetails(jobId: string) {
     const seq = ++detailsRequestSeq;
     try {
       detailsLoading = true;
       const [evts, subs, dlq] = await Promise.all([
         api.getHmsEvents(jobId),
-        api.getHmsSubtasks(jobId),
+        api.getHmsSubtasks(jobId, subtasksShown),
         // Выбранный фильтр DLQ сохраняется: опрос раз в несколько секунд сбрасывал его на ALL
         api.getHmsDlq(jobId, dlqStatusFilter).catch(() => [] as HmsDeadLetterEvent[])
       ]);
@@ -285,6 +295,7 @@
     modalJob = job;
     detailsTab = initialTab;
     isDetailsModalOpen = true;
+    subtasksShown = SUBTASKS_PAGE;
     driftScanned = false;
     driftReports = [];
     driftError = null;
@@ -811,7 +822,8 @@
             onchange={applyFilters}
             class="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
-            <option value="ALL">Все статусы ({jobs.length})</option>
+            <!-- Всего по сводке, а не по загруженной странице: при 100 схемах здесь было «50» -->
+            <option value="ALL">Все статусы ({stats.total})</option>
             <option value="ACTIVE">Active CDC ({stats.active})</option>
             <option value="BOOTSTRAPPING">Bootstrap Sync ({stats.bootstrapping})</option>
             <option value="PAUSED">На паузе ({stats.paused})</option>
@@ -1771,6 +1783,19 @@
                 {/each}
               </tbody>
             </table>
+            {#if modalJob && (modalJob.subtasks_count ?? 0) > subtasks.length}
+              <div class="flex items-center justify-between px-3 py-2.5 text-[11px] text-slate-500 border-t border-slate-100 dark:border-slate-800">
+                <span>Показаны последние {subtasks.length.toLocaleString('ru-RU')} из {(modalJob.subtasks_count ?? 0).toLocaleString('ru-RU')}</span>
+                {#if subtasksShown < SUBTASKS_MAX}
+                  <button
+                    onclick={() => modalJob && showMoreSubtasks(modalJob.id)}
+                    class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >Показать еще {SUBTASKS_PAGE}</button>
+                {:else}
+                  <span>Полный список — через API /hms/jobs/{'{id}'}/subtasks?page=N</span>
+                {/if}
+              </div>
+            {/if}
           {/if}
         {/if}
 

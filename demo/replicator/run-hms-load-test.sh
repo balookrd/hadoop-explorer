@@ -32,21 +32,19 @@ hdfs_ready() {
 }
 
 if [ -z "${SKIP_UP:-}" ]; then
-  log "Поднимаю стенд: ${SERVICES[*]}"
-  "${COMPOSE[@]}" up -d --build "${SERVICES[@]}"
-
-  # Метасторы стартуют вместе с HDFS, и клиент HDFS, созданный до готовности NameNode,
-  # остается неработающим: create_database/add_partitions падают с «Failed to create
-  # external path ...: null», пока метастор не перезапустить. Ждем HDFS и перезапускаем их.
+  # Метастор, стартовавший раньше NameNode, остается с неработающим клиентом HDFS:
+  # create_database/add_partitions падают с «Failed to create external path ...: null».
+  # Поэтому сначала KDC и HDFS, и только когда оба NameNode вышли из safe mode — остальное.
+  log "Поднимаю KDC и HDFS"
+  "${COMPOSE[@]}" up -d --build kdc hdfs-cluster-1 hdfs-cluster-2
   log "Жду выхода обоих NameNode из safe mode..."
   for _ in $(seq 1 60); do
     hdfs_ready hdfs-cluster-1 && hdfs_ready hdfs-cluster-2 && break
     sleep 5
   done
   hdfs_ready hdfs-cluster-1 && hdfs_ready hdfs-cluster-2 || fail "HDFS не поднялся"
-  log "Перезапускаю метасторы поверх готового HDFS"
-  docker restart hive-metastore-1 hive-metastore-2 > /dev/null
-  sleep 30
+  log "Поднимаю метасторы, оркестратор и агентов: ${SERVICES[*]}"
+  "${COMPOSE[@]}" up -d --build "${SERVICES[@]}"
 fi
 
 log "Жду оркестратор..."

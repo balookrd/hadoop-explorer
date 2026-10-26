@@ -126,6 +126,10 @@ public class HmsReplicationJobEntity {
     @Column(name = "paused_from_status", length = 32)
     private String pausedFromStatus;
 
+    /** Чекпоинт прерванного bootstrap (JSON): перенесенные таблицы и позиция в текущей. */
+    @Column(name = "bootstrap_checkpoint", columnDefinition = "TEXT")
+    private String bootstrapCheckpoint;
+
     @Transient
     @JsonProperty("started_at")
     private Instant startedAt;
@@ -245,6 +249,8 @@ public class HmsReplicationJobEntity {
         return true;
     }
 
+    public String getBootstrapCheckpoint() { return bootstrapCheckpoint; }
+    public void setBootstrapCheckpoint(String bootstrapCheckpoint) { this.bootstrapCheckpoint = bootstrapCheckpoint; }
     public String getPausedFromStatus() { return pausedFromStatus; }
     public void setPausedFromStatus(String pausedFromStatus) { this.pausedFromStatus = pausedFromStatus; }
     public Long getBootstrapEventId() { return bootstrapEventId; }

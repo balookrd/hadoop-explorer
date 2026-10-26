@@ -34,6 +34,41 @@ public interface HmsClient {
         return getPartitions(dbName, tableName).stream().map(p -> p.getPartitionName(keys)).toList();
     }
 
+    /**
+     * Получатель порции при обходе с продолжением: {@code total} — партиций у таблицы всего,
+     * {@code skipped} — пропущено как уже перенесенные, {@code lastName} — имя последней
+     * партиции порции (по нему продолжают в следующий раз).
+     */
+    @FunctionalInterface
+    interface ResumableBatchConsumer {
+        void accept(List<HmsPartitionDto> batch, int total, int skipped, String lastName) throws Exception;
+    }
+
+    /**
+     * Обход партиций в порядке имен, начиная после {@code startAfterName} (или с начала).
+     *
+     * <p>Порядок задается сортировкой имен в Java, а не базой метастора: collation MySQL,
+     * PostgreSQL и Derby различается, и продолжение по имени должно быть однозначным.
+     */
+    default int forEachPartitionBatchAfter(String dbName, String tableName, int batchSize, String startAfterName,
+                                           ResumableBatchConsumer consumer) throws Exception {
+        List<String> keys = getTable(dbName, tableName).map(HmsTableDto::partitionKeys).orElse(List.of());
+        java.util.TreeMap<String, HmsPartitionDto> byName = new java.util.TreeMap<>();
+        for (HmsPartitionDto p : getPartitions(dbName, tableName)) {
+            byName.put(p.getPartitionName(keys), p);
+        }
+        var remaining = startAfterName == null ? byName : byName.tailMap(startAfterName, false);
+        int total = byName.size();
+        int skipped = total - remaining.size();
+        List<String> names = new java.util.ArrayList<>(remaining.keySet());
+        int size = Math.max(1, batchSize);
+        for (int from = 0; from < names.size(); from += size) {
+            List<String> slice = names.subList(from, Math.min(from + size, names.size()));
+            consumer.accept(slice.stream().map(byName::get).toList(), total, skipped, slice.get(slice.size() - 1));
+        }
+        return total;
+    }
+
     /** Получатель порции партиций: {@code total} — сколько партиций у таблицы всего. */
     @FunctionalInterface
     interface PartitionBatchConsumer {

@@ -555,6 +555,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                             .setEnableHdfsStreaming(job.enableHdfsStreaming())
                             .setCompanionHdfsJobId(job.companionHdfsJobId() != null ? job.companionHdfsJobId() : "")
                             .setDbWarehouseLocation(job.dbWarehouseLocation() != null ? job.dbWarehouseLocation() : "")
+                            .setBootstrapEventId(job.bootstrapEventId() != null ? job.bootstrapEventId() : 0L)
+                            .setBootstrapCheckpoint(job.bootstrapCheckpoint() != null ? job.bootstrapCheckpoint() : "")
                             .build());
                 }
             }
@@ -603,7 +605,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         request.getEventLag(),
                         request.getMessage(),
                         domainEvents,
-                        request.getAgentId().isEmpty() ? null : request.getAgentId()
+                        request.getAgentId().isEmpty() ? null : request.getAgentId(),
+                        request.getBootstrapCheckpoint().isEmpty() ? null : request.getBootstrapCheckpoint()
                 );
                 accepted = hmsCoordinatorService.updateJobProgress(request.getJobId(), domainReq);
             }

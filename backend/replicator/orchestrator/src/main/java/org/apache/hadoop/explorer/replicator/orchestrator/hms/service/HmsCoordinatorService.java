@@ -331,12 +331,14 @@ public class HmsCoordinatorService {
                 boolean isLeaseExpired = leaseExp == null || leaseExp.isBefore(now);
                 boolean isAssignedAgentDead = assigned != null && !isAgentOnline(assigned);
 
+                // Аренда пишется условным UPDATE, а не сохранением сущности: опрос и отчет агента
+                // правят одну строку, и сохранение целиком ловило optimistic lock — падал весь
+                // опрос (на стенде с роем из 200 агентов это 20 упавших опросов за 40 минут).
+                // Условие по владельцу делает захват атомарным и между узлами оркестратора.
                 if (isAssignedToMe) {
-                    // Продление существующей аренды — только когда прошла половина срока: каждая
-                    // запись поднимает @Version и спорит с отчетами прогресса за ту же строку
+                    // Продление — только когда прошла половина срока, чтобы не писать на каждый опрос
                     if (leaseExp == null || leaseExp.isBefore(now.plusSeconds(leaseSec / 2))) {
-                        job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
-                        hmsJobRepository.save(job);
+                        hmsJobRepository.renewLease(job.getId(), assigned, now.plusSeconds(leaseSec));
                     }
                 } else if (assigned == null || isLeaseExpired || isAssignedAgentDead) {
                     boolean isCdc = "ACTIVE".equalsIgnoreCase(job.getStatus());
@@ -345,8 +347,10 @@ public class HmsCoordinatorService {
                         // Квота bootstrap исчерпана: задачу заберет другой агент кластера
                         continue;
                     }
-                    if (isCdc && requesterLoad > minClusterLoad + CDC_LOAD_TOLERANCE) {
-                        // Есть агент заметно свободнее: CDC-задача достанется ему
+                    if (requesterLoad > minClusterLoad + CDC_LOAD_TOLERANCE) {
+                        // Есть агент заметно свободнее: задача достанется ему. Для bootstrap это
+                        // тоже важно — иначе первые опросившие агенты заполнялись до квоты, а
+                        // остальные стояли без работы (проверено роем из 50 агентов на стенде)
                         continue;
                     }
                     // Если задача недавно упала на этом агенте, отдаем предпочтение другому агенту пула
@@ -361,13 +365,21 @@ public class HmsCoordinatorService {
                         bootstrapsOfRequester++;
                     }
                     loadByAgent.merge(requestingAgentId.toLowerCase(), 1, Integer::sum);
-                    job.setAssignedAgentId(requestingAgentId);
-                    job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
+                    int claimed = assigned == null
+                            ? hmsJobRepository.claimUnownedLease(job.getId(), requestingAgentId, now.plusSeconds(leaseSec))
+                            : hmsJobRepository.claimLeaseFrom(job.getId(), assigned, requestingAgentId, now.plusSeconds(leaseSec));
+                    if (claimed == 0) {
+                        // Задачу между чтением и захватом взял другой агент или узел
+                        if (!isCdc) {
+                            bootstrapsOfRequester--;
+                        }
+                        loadByAgent.merge(requestingAgentId.toLowerCase(), -1, Integer::sum);
+                        continue;
+                    }
                     if (assigned != null && !assigned.equalsIgnoreCase(requestingAgentId)) {
                         log.info("[HmsCoordinator] Задача {} перехвачена агентом '{}' (прежний агент '{}': dead={}, expired={})",
                                 job.getId(), requestingAgentId, assigned, isAssignedAgentDead, isLeaseExpired);
                     }
-                    hmsJobRepository.save(job);
                 } else {
                     // Задача удерживается другим живым агентом — пропускаем
                     continue;
@@ -386,11 +398,13 @@ public class HmsCoordinatorService {
                     targetAddress,
                     job.getStatus(),
                     job.getLastProcessedEventId(),
-                    job.getAssignedAgentId(),
+                    requestingAgentId != null && !requestingAgentId.isBlank() ? requestingAgentId : job.getAssignedAgentId(),
                     job.getExecutionPrincipal(),
                     job.isEnableHdfsStreaming(),
                     job.getCompanionHdfsJobId(),
-                    job.getDbWarehouseLocation()
+                    job.getDbWarehouseLocation(),
+                    job.getBootstrapEventId() != null && job.getBootstrapEventId() > 0 ? job.getBootstrapEventId() : null,
+                    job.getBootstrapCheckpoint()
             ));
         }
 
@@ -399,7 +413,7 @@ public class HmsCoordinatorService {
 
     /**
      * Насколько нагрузка агента может превышать минимальную в кластере, чтобы он еще брал
-     * свободные CDC-задачи. Без допуска задачи ждали бы опроса единственного самого свободного
+     * свободные задачи. Без допуска задачи ждали бы опроса единственного самого свободного
      * агента, с допуском разброс остается в пределах пары задач.
      */
     private static final int CDC_LOAD_TOLERANCE = 1;
@@ -522,6 +536,13 @@ public class HmsCoordinatorService {
         if (report.bootstrapEventId() != null) {
             job.setBootstrapEventId(report.bootstrapEventId());
         }
+        if (report.bootstrapCheckpoint() != null) {
+            job.setBootstrapCheckpoint(report.bootstrapCheckpoint());
+        }
+        if (job.getJobStatus() == org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE) {
+            // Bootstrap завершен: следующий начнется с нуля
+            job.setBootstrapCheckpoint(null);
+        }
         if (report.eventLag() != null) {
             job.setEventLag(report.eventLag());
         }
@@ -606,6 +627,8 @@ public class HmsCoordinatorService {
         job.setReplicatedPartitions(0);
         job.setLastProcessedEventId(0L);
         job.setBootstrapEventId(0L);
+        // Явный повтор оператором — с нуля, а не с чекпоинта
+        job.setBootstrapCheckpoint(null);
         dispatchJob(job);
     }
 

@@ -10,8 +10,10 @@
 #     стенда (12 ГБ на всё) уходит на метасторы;
 #   * агентам ограничена куча (512 МБ): прежний агент держал все партиции таблицы
 #     одним списком, и именно этот предел показывает, что обход идет порциями;
-#   * барьер «данные раньше DDL» выключен: стенд меряет метаданные (200k партиций),
-#     копирование 200k пустых каталогов HDFS к этому ничего не добавляет;
+#   * барьер «данные раньше DDL» по умолчанию выключен (LOAD_DATA_BARRIER=true включает его):
+#     прогон метаданных не зависит от скорости HDFS-копий;
+#   * whitelist кластеров снят: рой эмулированных агентов (AgentSwarm) живет в кластерах
+#     swarm-src/swarm-dst, которых нет в топологии стенда;
 #   * короткий TGT (krb5-load.conf, 5 минут): bootstrap идет дольше срока билета,
 #     и без перелогина новые соединения с метастором падали бы.
 # =============================================================================
@@ -27,11 +29,12 @@ services:
         condition: service_started
     environment:
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Xmx1g"
+      HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST: "false"
 
   agent-dc1:
     environment:
       REPLICATOR_AUTO_CREATE_TEST_DATA: "false"
-      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "false"
+      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "${LOAD_DATA_BARRIER:-false}"
       KRB5_CONFIG: "/load/krb5-load.conf"
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/load/krb5-load.conf -Xmx512m -XX:+ExitOnOutOfMemoryError"
     volumes:
@@ -40,7 +43,7 @@ services:
   agent-dc2:
     environment:
       REPLICATOR_AUTO_CREATE_TEST_DATA: "false"
-      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "false"
+      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "${LOAD_DATA_BARRIER:-false}"
       KRB5_CONFIG: "/load/krb5-load.conf"
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/load/krb5-load.conf -Xmx512m -XX:+ExitOnOutOfMemoryError"
     volumes:

@@ -50,13 +50,14 @@ wait_for() {
 }
 
 if [ -z "${SKIP_UP:-}" ]; then
-  log "Поднимаю стенд с метасторами Hive 3.1.3"
-  "${COMPOSE[@]}" up -d --build "${SERVICES[@]}"
-  log "Жду HDFS и перезапускаю метасторы поверх готового HDFS..."
+  # Сначала KDC и HDFS: метастор, стартовавший до готовности NameNode, остается с
+  # неработающим клиентом HDFS, а перезапуск метастора 3.1.3 на неполной схеме ее портит
+  log "Поднимаю стенд с метасторами Hive 3.1.3: KDC и HDFS"
+  "${COMPOSE[@]}" up -d --build kdc hdfs-cluster-1 hdfs-cluster-2
   for _ in $(seq 1 60); do hdfs_ready hdfs-cluster-1 && hdfs_ready hdfs-cluster-2 && break; sleep 5; done
-  # Перезапуск через пересоздание с IS_RESUME: схема в томе уже есть, повторная
-  # инициализация уронила бы метастор 3.1.3
-  HMS31_IS_RESUME=true "${COMPOSE[@]}" up -d --force-recreate --no-deps sql-hive-metastore sql-hive-metastore-2
+  hdfs_ready hdfs-cluster-1 && hdfs_ready hdfs-cluster-2 || fail "HDFS не поднялся"
+  log "Метасторы, оркестратор и агенты"
+  "${COMPOSE[@]}" up -d --build "${SERVICES[@]}"
   sleep 40
 fi
 

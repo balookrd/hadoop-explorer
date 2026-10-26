@@ -20,8 +20,27 @@ public record HmsProgressReportRequest(
         Long eventLag,
         String message,
         List<HmsEventReportDto> events,
-        String agentId
+        String agentId,
+        // Чекпоинт bootstrap (JSON): какие таблицы перенесены и докуда дошла текущая
+        String bootstrapCheckpoint
 ) {
+    public HmsProgressReportRequest(
+            String status,
+            int totalTables,
+            int replicatedTables,
+            int totalPartitions,
+            int replicatedPartitions,
+            Long lastProcessedEventId,
+            Long bootstrapEventId,
+            Long eventLag,
+            String message,
+            List<HmsEventReportDto> events,
+            String agentId
+    ) {
+        this(status, totalTables, replicatedTables, totalPartitions, replicatedPartitions,
+                lastProcessedEventId, bootstrapEventId, eventLag, message, events, agentId, null);
+    }
+
     public HmsProgressReportRequest(
             String status,
             int totalTables,
@@ -35,6 +54,6 @@ public record HmsProgressReportRequest(
             List<HmsEventReportDto> events
     ) {
         this(status, totalTables, replicatedTables, totalPartitions, replicatedPartitions,
-                lastProcessedEventId, bootstrapEventId, eventLag, message, events, null);
+                lastProcessedEventId, bootstrapEventId, eventLag, message, events, null, null);
     }
 }

@@ -34,6 +34,8 @@ public class HmsTaskExecutorTest {
     private final List<String> createdSubjobs = new CopyOnWriteArrayList<>();
     private final List<String> awaitedSubjobs = new CopyOnWriteArrayList<>();
     private final List<String> freshSubjobs = new CopyOnWriteArrayList<>();
+    /** Сколько подзадач ждал каждый вызов барьера. */
+    private final List<Integer> awaitCallSizes = new CopyOnWriteArrayList<>();
 
     /** Файловая система приемника: каталог -> имена файлов (листинг и удаление по gRPC). */
     private final java.util.Map<String, Set<String>> targetFs = new java.util.concurrent.ConcurrentHashMap<>();
@@ -104,6 +106,7 @@ public class HmsTaskExecutorTest {
             @Override
             public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
                 awaitedSubjobs.addAll(subjobIds);
+                awaitCallSizes.add(subjobIds.size());
                 return subjobIds.stream().noneMatch(failedSubjobs::contains);
             }
 
@@ -302,7 +305,7 @@ public class HmsTaskExecutorTest {
         srcHmsClient.addPartitions("fmt", "events", List.of(new HmsPartitionDto(
                 "hive", "fmt", "events", List.of("2026-10-01"),
                 "hdfs://ns-hot:8020/warehouse/fmt.db/events/dt=2026-10-01",
-                Map.of(), List.of(), Map.of("serialization.format", "1"),
+                Map.of("COLUMN_STATS_ACCURATE", "{\"BASIC_STATS\":\"true\"}", "numRows", "5"), List.of(), Map.of("serialization.format", "1"),
                 parquetIn, parquetOut, parquetSerde)));
 
         boolean ok = executor.runBootstrap(new HmsPendingJobDto(
@@ -315,6 +318,8 @@ public class HmsTaskExecutorTest {
         assertEquals(parquetOut, replicated.outputFormat());
         assertEquals(parquetSerde, replicated.serdeLib());
         assertEquals("1", replicated.serdeParameters().get("serialization.format"));
+        assertFalse(replicated.parameters().containsKey("COLUMN_STATS_ACCURATE"),
+                "флаг точной статистики без самой статистики на приемник не переносится");
     }
 
     @Test
@@ -552,5 +557,61 @@ public class HmsTaskExecutorTest {
                 false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
 
         assertEquals(Set.of("000000_0"), targetFs.get(targetDir), "после перезаписи на приемнике только новые файлы");
+    }
+
+    @Test
+    @DisplayName("CDC с барьером: данные партиций всей пачки ждутся одним ожиданием, а не по одной")
+    void cdcBatchWaitsForAllPartitionDataAtOnce() {
+        srcHmsClient.createDatabase("cdcb", "hdfs://ns-hot:8020/warehouse/cdcb.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "cdcb", "t", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/cdcb.db/t", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+        assertTrue(executor.runBootstrap(new HmsPendingJobDto("hms-job-cdcb", "dc1", "dc2", "cdcb", "cdcb_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L)));
+        long position = reports.get(reports.size() - 1).lastProcessedEventId();
+        for (int i = 0; i < 5; i++) {
+            srcHmsClient.addPartitions("cdcb", "t", List.of(new HmsPartitionDto("hive", "cdcb", "t", List.of("p" + i),
+                    "hdfs://ns-hot:8020/warehouse/cdcb.db/t/dt=p" + i, Map.of())));
+            srcHmsClient.emitEvent("ADD_PARTITION", "cdcb", "t", "{\"partitions\": [{\"dt\": \"p" + i + "\"}]}");
+        }
+        awaitCallSizes.clear();
+
+        int processed = executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-cdcb", "dc1", "dc2", "cdcb", "cdcb_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        assertEquals(5, processed);
+        assertEquals(List.of(5), awaitCallSizes, "одно ожидание на пять копий");
+        assertEquals(5, dstHmsClient.getPartitions("cdcb_r", "t").size());
+    }
+
+    @Test
+    @DisplayName("Продолжение bootstrap по чекпоинту: перенесенное не повторяется, счетчики полные")
+    void bootstrapResumesFromCheckpoint() {
+        srcHmsClient.createDatabase("res", "hdfs://ns-hot:8020/warehouse/res.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "res", "small", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/res.db/small", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
+        srcHmsClient.createTable(new HmsTableDto("hive", "res", "big", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/res.db/big", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+        List<HmsPartitionDto> parts = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            String v = String.format("p%04d", i);
+            parts.add(new HmsPartitionDto("hive", "res", "big", List.of(v), "hdfs://ns-hot:8020/warehouse/res.db/big/dt=" + v, Map.of()));
+        }
+        srcHmsClient.addPartitions("res", "big", parts);
+        String checkpoint = "{\"done\":{\"small\":0},\"partial\":{\"big\":\"dt=p0599\"}}";
+
+        boolean ok = executor.runBootstrap(new HmsPendingJobDto("hms-job-res", "dc1", "dc2", "res", "res_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L, null, null, true, null, null,
+                777L, checkpoint));
+
+        assertTrue(ok);
+        assertFalse(dstHmsClient.getAllTables("res_r").contains("small"), "перенесенная таблица не трогается");
+        List<HmsPartitionDto> applied = dstHmsClient.getPartitions("res_r", "big");
+        assertEquals(400, applied.size(), "применяются только партиции после чекпоинта");
+        assertTrue(applied.stream().allMatch(p -> p.values().get(0).compareTo("p0599") > 0));
+        HmsProgressReportRequest last = reports.get(reports.size() - 1);
+        assertEquals("ACTIVE", last.status());
+        assertEquals(777L, last.bootstrapEventId(), "позиция журнала — исходная, а не текущая");
+        assertEquals(2, last.replicatedTables());
+        assertEquals(1000, last.replicatedPartitions());
     }
 }

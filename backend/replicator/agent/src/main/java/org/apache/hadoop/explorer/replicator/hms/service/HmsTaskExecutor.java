@@ -35,6 +35,8 @@ public class HmsTaskExecutor implements Closeable {
     private final String agentId;
     private final String clusterId;
     private final HmsClient hmsClient;
+    /** Общее окно журнала событий метастора: задачи всех баз читают его из одного чтения. */
+    private final NotificationLogCache logCache;
     private final OrchestratorGrpcClient orchestratorClient;
     private final TableSupportFilter tableFilter;
     private final HmsSchemaDriftDetector driftDetector = new HmsSchemaDriftDetector();
@@ -132,6 +134,7 @@ public class HmsTaskExecutor implements Closeable {
         this.agentId = agentId;
         this.clusterId = clusterId;
         this.hmsClient = hmsClient;
+        this.logCache = new NotificationLogCache(hmsClient, LOG_CACHE_EVENTS, LOG_TAIL_INTERVAL_MS, System::currentTimeMillis);
         this.orchestratorClient = orchestratorClient;
         if (orchestratorClient != null) {
             orchestratorClient.setAgentId(agentId);
@@ -261,7 +264,15 @@ public class HmsTaskExecutor implements Closeable {
         ));
 
         try (HmsPipelineSender sender = newPipelineSender(job.targetAgentGrpcAddress())) {
-            long highWaterMark = hmsClient.getCurrentNotificationEventId();
+            // Продолжение прерванного bootstrap: с исходной позиции журнала (изменения за перерыв
+            // переиграет CDC) и без уже перенесенных таблиц и порций партиций
+            BootstrapCheckpoint saved = BootstrapCheckpoint.parse(job.bootstrapCheckpoint());
+            boolean resuming = !saved.isEmpty() && job.bootstrapEventId() != null;
+            BootstrapCheckpoint checkpoint = resuming ? saved : new BootstrapCheckpoint();
+            long highWaterMark = resuming ? job.bootstrapEventId() : hmsClient.getCurrentNotificationEventId();
+            if (resuming) {
+                log.info("[HmsTaskExecutor] Задача {}: продолжение bootstrap с позиции {} по чекпоинту", job.id(), highWaterMark);
+            }
 
             // 1. Создание БД на целевой стороне и валидация ответа
             var dbResp = sender.applyDatabase(job.id(), job.targetDbName(), null, job.executionPrincipal());
@@ -349,7 +360,8 @@ public class HmsTaskExecutor implements Closeable {
                                 null,
                                 null,
                                 batch,
-                                agentId
+                                agentId,
+                                checkpoint.toJson()
                         ));
                         if (!accepted) {
                             log.warn("[HmsTaskExecutor] Fencing: оркестратор отклонил журнал bootstrap задачи {}, bootstrap прерывается", job.id());
@@ -378,7 +390,8 @@ public class HmsTaskExecutor implements Closeable {
                             String.format("Bootstrap в процессе: перенесено %d/%d таблиц, %d партиций",
                                     replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()),
                             Collections.emptyList(),
-                            agentId
+                            agentId,
+                            checkpoint.toJson()
                     ));
                     if (!accepted) {
                         // Задачу отобрали (failover, остановка, rebootstrap): дальше работает
@@ -396,7 +409,7 @@ public class HmsTaskExecutor implements Closeable {
                 futures.add(CompletableFuture.runAsync(() -> {
                     try {
                         processSingleTable(job, sender, highWaterMark, tblName,
-                                replicatedTablesCount, replicatedPartitionsCount, totalPartitionsCount, eventLog);
+                                replicatedTablesCount, replicatedPartitionsCount, totalPartitionsCount, eventLog, checkpoint);
                     } catch (OrchestratorGrpcClient.SubjobRejectedException e) {
                         // Задачу удалили или отобрали: остальные таблицы этого bootstrap не нужны
                         log.warn("[HmsTaskExecutor] Fencing: {}. Bootstrap задачи {} прерывается", e.getMessage(), job.id());
@@ -477,7 +490,8 @@ public class HmsTaskExecutor implements Closeable {
             AtomicInteger repTables,
             AtomicInteger repPartitions,
             AtomicInteger totalPartitions,
-            List<HmsEventReportDto> eventLog
+            List<HmsEventReportDto> eventLog,
+            BootstrapCheckpoint checkpoint
     ) throws Exception {
         AtomicBoolean isFenced = jobFencedFlags.get(job.id());
         if (!running.get() || (isFenced != null && isFenced.get())) {
@@ -486,9 +500,19 @@ public class HmsTaskExecutor implements Closeable {
             return;
         }
 
+        if (checkpoint.isDone(tblName)) {
+            // Перенесена до перерыва: изменения после исходной позиции переиграет CDC
+            int parts = checkpoint.partitionsOf(tblName);
+            totalPartitions.addAndGet(parts);
+            repPartitions.addAndGet(parts);
+            repTables.incrementAndGet();
+            return;
+        }
+
         Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tblName);
         if (optTable.isEmpty()) return;
         HmsTableDto table = optTable.get();
+        int tablePartitions = 0;
 
         // 1. Проверка поддержки Non-ACID
         var filterResult = tableFilter.evaluate(table);
@@ -554,19 +578,19 @@ public class HmsTaskExecutor implements Closeable {
             String tableBaseLocation = table.sdLocation();
             // Значения партиций источника нужны только для согласования лишних партиций приемника:
             // список самих партиций в памяти не держится, обход идет порциями
-            Set<List<String>> srcPartitionValues = job.dropExtraneousPartitions() ? new HashSet<>() : null;
             AtomicInteger offset = new AtomicInteger(0);
+            AtomicBoolean countedTotals = new AtomicBoolean(false);
+            String resumeAfter = checkpoint.resumeAfter(tblName);
             try {
-                hmsClient.forEachPartitionBatch(job.sourceDbName(), tblName, partitionBatchSize, (chunk, total) -> {
+                tablePartitions = hmsClient.forEachPartitionBatchAfter(job.sourceDbName(), tblName, partitionBatchSize, resumeAfter,
+                        (chunk, total, skipped, lastName) -> {
                     if (!running.get() || (isFenced != null && isFenced.get())) {
                         throw new TableInterruptedException();
                     }
-                    int from = offset.getAndAdd(chunk.size());
-                    if (from == 0) {
+                    int from = skipped + offset.getAndAdd(chunk.size());
+                    if (countedTotals.compareAndSet(false, true)) {
                         totalPartitions.addAndGet(total);
-                    }
-                    if (srcPartitionValues != null) {
-                        chunk.forEach(p -> srcPartitionValues.add(p.values()));
+                        repPartitions.addAndGet(skipped);
                     }
                     List<HmsPartitionDto> targetChunk = new ArrayList<>(chunk.size());
                     // Подзадачи данных порции заводятся разом и ждутся вместе: ожидание каждой
@@ -590,7 +614,7 @@ public class HmsTaskExecutor implements Closeable {
                             }
                         }
 
-                        targetChunk.add(part.relocatedTo(job.targetDbName(), tblName, partRewrite.targetUri()));
+                        targetChunk.add(targetPartition(part, job.targetDbName(), tblName, partRewrite.targetUri()));
 
                         if (total <= 100 || !isLocationWithinTable(part.location(), tableBaseLocation)) {
                             String partName = part.getPartitionName(table.partitionKeys());
@@ -625,15 +649,27 @@ public class HmsTaskExecutor implements Closeable {
                     }
 
                     repPartitions.addAndGet(chunk.size());
+                    // Порция применена: при перерыве продолжение начнется после нее
+                    checkpoint.advance(tblName, lastName);
                 });
+                if (countedTotals.compareAndSet(false, true)) {
+                    // Все партиции были перенесены до перерыва, порций для обработки не осталось
+                    totalPartitions.addAndGet(tablePartitions);
+                    repPartitions.addAndGet(tablePartitions);
+                }
             } catch (TableInterruptedException e) {
                 log.warn("[HmsTaskExecutor] Прерывание чанков партиций таблицы {} задачи {} по сигналу Fencing/Stop", tblName, job.id());
                 return;
             }
 
-            // Согласование после переноса: множество партиций источника собрано при обходе
+            // Согласование после переноса. Множество партиций источника строится по именам, а не
+            // по обойденным порциям: при продолжении по чекпоинту часть порций пропущена
             if (job.dropExtraneousPartitions()) {
                 try {
+                    Set<List<String>> srcPartitionValues = new HashSet<>();
+                    for (String name : hmsClient.getPartitionNames(job.sourceDbName(), tblName)) {
+                        srcPartitionValues.add(partitionValuesFromName(name));
+                    }
                     List<List<String>> dropPartitionVals = new ArrayList<>();
                     for (String targetName : sender.listTargetPartitionNames(job.id(), job.targetDbName(), tblName, job.executionPrincipal())) {
                         List<String> vals = partitionValuesFromName(targetName);
@@ -667,6 +703,7 @@ public class HmsTaskExecutor implements Closeable {
                 rewrite.sourceUri(), rewrite.targetUri(), tableSubjobId, "APPLIED", null
         ));
         repTables.incrementAndGet();
+        checkpoint.markDone(tblName, tablePartitions);
     }
 
     /**
@@ -688,7 +725,7 @@ public class HmsTaskExecutor implements Closeable {
         long lastEventId = job.lastProcessedEventId() != null ? job.lastProcessedEventId() : 0L;
         List<HmsNotificationEventDto> events;
         try {
-            events = hmsClient.getNextNotifications(lastEventId, CDC_BATCH_SIZE);
+            events = logCache.next(lastEventId, CDC_BATCH_SIZE);
         } catch (Exception e) {
             if (isEventGap(e)) {
                 reportEventGap(job, lastEventId, e.getMessage());
@@ -707,7 +744,7 @@ public class HmsTaskExecutor implements Closeable {
         if (events.isEmpty()) {
             AtomicBoolean synced = jobLagSynchronized.computeIfAbsent(job.id(), k -> new AtomicBoolean(false));
             if (!synced.get()) {
-                long currentMax = hmsClient.getCurrentNotificationEventId();
+                long currentMax = logCache.currentEventId();
                 long lag = Math.max(0, currentMax - lastEventId);
                 if (lag == 0) {
                     synced.set(true);
@@ -738,6 +775,7 @@ public class HmsTaskExecutor implements Closeable {
 
         HmsPipelineSender sender = cdcSender(job.targetAgentGrpcAddress());
         try {
+            Map<String, String> readySubjobs = dataBarrierEnabled ? prefetchPartitionData(job, events) : Map.of();
             for (HmsNotificationEventDto event : events) {
                 if (!running.get() || (isFenced != null && isFenced.get())) break;
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
@@ -772,10 +810,19 @@ public class HmsTaskExecutor implements Closeable {
 
                         for (HmsPartitionDto part : partsToSync) {
                             var partRewrite = rewriteLocation(part.location(), job, "партиции таблицы " + tbl);
-                            String subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
-                                    partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
+                            String subjobId = readySubjobs.get(partRewrite.sourceUri());
+                            boolean dataAlreadyCopied = subjobId != null;
+                            if (!dataAlreadyCopied) {
+                                subjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
+                                        partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
+                            }
+                            if (dataBarrierEnabled && !dataAlreadyCopied && subjobId == null) {
+                                eventSuccess = false;
+                                failureReason = "Data-First Barrier: оркестратор не создал подзадачу копирования партиции " + partRewrite.sourceUri();
+                                break;
+                            }
 
-                            if (dataBarrierEnabled && subjobId != null) {
+                            if (dataBarrierEnabled && !dataAlreadyCopied) {
                                 boolean dataOk = orchestratorClient.awaitSubjobCompletion(subjobId, dataBarrierTimeoutSeconds);
                                 if (!dataOk) {
                                     eventSuccess = false;
@@ -785,7 +832,7 @@ public class HmsTaskExecutor implements Closeable {
                             }
 
                             var partResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl, List.of(
-                                    part.relocatedTo(job.targetDbName(), tbl, partRewrite.targetUri())
+                                    targetPartition(part, job.targetDbName(), tbl, partRewrite.targetUri())
                             ), job.executionPrincipal());
 
                             String partName = part.getPartitionName(optTable.get().partitionKeys());
@@ -957,7 +1004,7 @@ public class HmsTaskExecutor implements Closeable {
                 }
             }
 
-            long currentMax = hmsClient.getCurrentNotificationEventId();
+            long currentMax = logCache.currentEventId();
             long lag = Math.max(0, currentMax - lastCommittedEventId);
 
             List<String> currentTables = Collections.emptyList();
@@ -1001,6 +1048,60 @@ public class HmsTaskExecutor implements Closeable {
         }
 
         return processed;
+    }
+
+    /**
+     * Данные пачки CDC разом: подзадачи копирования всех партиций из событий ADD_PARTITION и
+     * ALTER_PARTITION заводятся вместе и ждутся одним ожиданием.
+     *
+     * <p>Иначе пачка из тысячи событий ждала тысячу копий по очереди, и CDC отставал от
+     * источника тем сильнее, чем дольше копия. Если хоть одна копия не удалась, результат не
+     * используется: события пойдут прежним путем по одному, и неудача достанется конкретному
+     * событию (повтор, затем DLQ), а не всей пачке.
+     *
+     * @return исходный путь партиции -> готовая подзадача; пусто, если общее ожидание не удалось
+     */
+    private Map<String, String> prefetchPartitionData(HmsPendingJobDto job, List<HmsNotificationEventDto> events) {
+        Map<String, String> subjobsBySource = new LinkedHashMap<>();
+        for (HmsNotificationEventDto event : events) {
+            boolean partitionEvent = "ADD_PARTITION".equalsIgnoreCase(event.eventType())
+                    || "ALTER_PARTITION".equalsIgnoreCase(event.eventType());
+            if (!partitionEvent || event.dbName() == null || !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
+                continue;
+            }
+            try {
+                Optional<HmsTableDto> table = hmsClient.getTable(job.sourceDbName(), event.tableName());
+                if (table.isEmpty() || !tableFilter.evaluate(table.get()).supported()) {
+                    continue;
+                }
+                for (List<String> vals : extractPartitionValuesFromEvent(event)) {
+                    Optional<HmsPartitionDto> part = hmsClient.getPartition(job.sourceDbName(), event.tableName(), vals);
+                    if (part.isEmpty()) {
+                        continue;
+                    }
+                    var rewrite = rewriteLocation(part.get().location(), job, "партиции таблицы " + event.tableName());
+                    if (subjobsBySource.containsKey(rewrite.sourceUri())) {
+                        continue;
+                    }
+                    String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
+                            rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
+                    if (subjobId == null) {
+                        return Map.of();
+                    }
+                    subjobsBySource.put(rewrite.sourceUri(), subjobId);
+                }
+            } catch (OrchestratorGrpcClient.SubjobRejectedException e) {
+                throw e;
+            } catch (Exception e) {
+                // Событие разберется на основном проходе, где неудача достанется ему
+                log.debug("[HmsTaskExecutor] Предзагрузка данных события {} пропущена: {}", event.eventId(), e.getMessage());
+            }
+        }
+        if (subjobsBySource.isEmpty()) {
+            return Map.of();
+        }
+        boolean allCopied = orchestratorClient.awaitSubjobsCompletion(subjobsBySource.values(), dataBarrierTimeoutSeconds);
+        return allCopied ? subjobsBySource : Map.of();
     }
 
     /**
@@ -1086,7 +1187,7 @@ public class HmsTaskExecutor implements Closeable {
 
         var resp = partition.isPresent()
                 ? sender.applyPartitionBatch(job.id(), job.targetDbName(), tbl,
-                        List.of(partition.get().relocatedTo(job.targetDbName(), tbl, rewrite.targetUri())), job.executionPrincipal())
+                        List.of(targetPartition(partition.get(), job.targetDbName(), tbl, rewrite.targetUri())), job.executionPrincipal())
                 : sender.applyTable(job.id(), new HmsTableDto(
                         "hive", job.targetDbName(), tbl, table.tableType(), rewrite.targetUri(),
                         tableFilter.sanitizeParameters(table.parameters()), table.partitionKeys(),
@@ -1098,6 +1199,11 @@ public class HmsTaskExecutor implements Closeable {
                         ? "INSERT OVERWRITE: удалено устаревших файлов на приемнике: " + pruned
                         : resp.getMessage()));
         return resp.getSuccess() ? null : resp.getMessage();
+    }
+
+    /** Партиция для приемника: другие БД, таблица и путь, параметры очищены так же, как у таблиц. */
+    private HmsPartitionDto targetPartition(HmsPartitionDto part, String targetDb, String table, String targetUri) {
+        return part.relocatedTo(targetDb, table, targetUri).withParameters(tableFilter.sanitizeParameters(part.parameters()));
     }
 
     /**
@@ -1133,6 +1239,10 @@ public class HmsTaskExecutor implements Closeable {
 
     /** Сколько событий журнала читается за один опрос. */
     private static final int CDC_BATCH_SIZE = 1000;
+    /** Размер общего окна журнала: десятки пачек — задачи на близких позициях попадают в него. */
+    private static final int LOG_CACHE_EVENTS = 20_000;
+    /** Как часто догнавшие метастор задачи опрашивают хвост журнала. */
+    private static final long LOG_TAIL_INTERVAL_MS = 1000;
 
     private static boolean isEventGap(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {

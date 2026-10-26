@@ -234,8 +234,9 @@ export class ReplicatorApiClient extends BaseApiClient {
     return this.request<HmsEventLog[]>(`/hms/jobs/${encodeURIComponent(id)}/events?limit=${limit}`);
   }
 
-  async getHmsSubtasks(id: string): Promise<Job[]> {
-    return this.request<Job[]>(`/hms/jobs/${encodeURIComponent(id)}/subtasks`);
+  // Сервер отдает подзадачи страницами (не больше 1000 за раз): у таблицы в 200k партиций их столько же
+  async getHmsSubtasks(id: string, size = 200): Promise<Job[]> {
+    return this.request<Job[]>(`/hms/jobs/${encodeURIComponent(id)}/subtasks?page=0&size=${size}`);
   }
 
   async pauseHmsJob(id: string): Promise<HmsReplicationJob> {
