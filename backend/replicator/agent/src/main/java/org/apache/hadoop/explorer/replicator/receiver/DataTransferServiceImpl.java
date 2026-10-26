@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,7 +41,28 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
     private final String keytabPath;
     private final ExecutorService bundleCommitExecutor;
     private final ExecutorService tarUnpackExecutor;
-    private final Set<String> knownTargetDirectories = ConcurrentHashMap.newKeySet();
+    /** Предел числа запомненных каталогов для очистки осиротевших staging-файлов. */
+    static final int MAX_KNOWN_TARGET_DIRECTORIES = 2000;
+
+    /**
+     * Каталоги, в которые приемник писал, — для поиска осиротевших staging-файлов.
+     *
+     * <p>Набор ограничен и вытесняет давно не встречавшиеся каталоги: прежняя версия росла без
+     * предела, а планировщик рекурсивно обходил каждый накопленный каталог. На потоке мелких
+     * файлов это утечка памяти приемника и шторм RPC к NameNode каждые несколько минут по
+     * каталогам, в которых давно ничего не происходит. Обращение к каталогу обновляет его
+     * позицию, поэтому активные каталоги не вытесняются.
+     */
+    private final Set<String> knownTargetDirectories = Collections.synchronizedSet(
+            Collections.newSetFromMap(
+                    new LinkedHashMap<String, Boolean>(MAX_KNOWN_TARGET_DIRECTORIES, 0.75f, true) {
+                        @Override
+                        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                            return size() > MAX_KNOWN_TARGET_DIRECTORIES;
+                        }
+                    }
+            )
+    );
     private final int bundleCommitConcurrency;
     private final int maxConcurrentTarStreams;
     private final int tarPipeBufferBytes;
@@ -132,12 +154,19 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
         if (lastSlash > 0) {
             dir = path.substring(0, lastSlash);
         }
+        // Повторное добавление обновляет позицию каталога в LRU: порядок доступа освежает put,
+        // а contains() — нет, поэтому проверять перед добавлением нельзя
         knownTargetDirectories.add(dir);
     }
 
     public int cleanOrphanedStaging(long ttlMillis) {
         int totalDeleted = 0;
-        for (String dir : knownTargetDirectories) {
+        // Копия: обход идет с вызовами к NameNode, и держать замок набора на это время нельзя
+        List<String> directories;
+        synchronized (knownTargetDirectories) {
+            directories = new ArrayList<>(knownTargetDirectories);
+        }
+        for (String dir : directories) {
             try {
                 totalDeleted += fsManager.cleanStagingFiles(dir, null, ttlMillis, null, true);
             } catch (Exception e) {

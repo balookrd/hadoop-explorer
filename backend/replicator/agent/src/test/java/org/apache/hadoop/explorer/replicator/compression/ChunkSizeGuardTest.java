@@ -71,6 +71,24 @@ class ChunkSizeGuardTest {
     }
 
     @Test
+    @DisplayName("Объявленный размер больше фактического отвергается (zstd)")
+    void zstdShouldRejectDeclaredSizeLargerThanActual() {
+        byte[] payload = new byte[16 * 1024];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) (i % 97);
+        }
+        WireCompressor.CompressedPayload compressed =
+                WireCompressor.compress(payload, 0, payload.length, CompressionCodec.COMPRESSION_ZSTD, 3);
+
+        // Отправитель объявил вдвое больше, чем в кадре: без сверки приемник вернул бы массив
+        // заявленного размера с хвостом нулей и записал бы его как данные
+        RuntimeException error = assertThrows(RuntimeException.class, () ->
+                WireCompressor.decompress(compressed.bytes(), compressed.appliedCodec(), payload.length * 2));
+        assertTrue(error.getMessage() != null && error.getMessage().contains(String.valueOf(payload.length)),
+                "В отказе должен быть фактический размер: " + error.getMessage());
+    }
+
+    @Test
     @DisplayName("Чанк реального размера проходит без помех")
     void realChunkShouldPass() {
         byte[] payload = new byte[64 * 1024];

@@ -229,7 +229,22 @@ public class WireCompressor {
 
         try {
             if (codec == CompressionCodec.COMPRESSION_ZSTD) {
-                return Zstd.decompress(compressedData, uncompressedSize);
+                // Сверка фактической длины с заявленной: без нее приемник получал массив
+                // объявленного размера с хвостом нулей и записывал его как данные, если кадр
+                // оказался короче заявленного (битая передача или подделанный заголовок чанка).
+                // Ветка LZ4 такую сверку делала всегда, zstd — нет.
+                byte[] restored = new byte[uncompressedSize];
+                long decompressedLen = Zstd.decompressByteArray(restored, 0, uncompressedSize,
+                        compressedData, 0, compressedData.length);
+                if (Zstd.isError(decompressedLen)) {
+                    throw new IllegalStateException("Ошибка zstd при распаковке чанка: "
+                            + Zstd.getErrorName(decompressedLen));
+                }
+                if (decompressedLen != uncompressedSize) {
+                    throw new IllegalStateException("Zstd декомпрессия вернула " + decompressedLen
+                            + " байт вместо ожидаемых " + uncompressedSize);
+                }
+                return restored;
             } else if (codec == CompressionCodec.COMPRESSION_LZ4) {
                 byte[] restored = new byte[uncompressedSize];
                 LZ4SafeDecompressor decompressor = LZ4_FACTORY.safeDecompressor();
