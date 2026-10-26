@@ -29,12 +29,16 @@ public class HmsPipelineSender implements Closeable {
     private final HmsTransferServiceGrpc.HmsTransferServiceBlockingStub baseStub;
     private final long defaultTimeoutSeconds;
 
+    /** Предел ответа приемника; по умолчанию gRPC принимает лишь 4 МБ. */
+    private static final int MAX_INBOUND_MESSAGE_BYTES = 64 * 1024 * 1024;
+
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify) {
         this(targetAddress, useTls, insecureSkipVerify, null);
     }
 
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify, String agentSecret) {
-        this(targetAddress, useTls, insecureSkipVerify, agentSecret, 60L);
+        // Пачка в 1000 партиций с alter на существующие на большом метасторе идет дольше минуты
+        this(targetAddress, useTls, insecureSkipVerify, agentSecret, 300L);
     }
 
     public HmsPipelineSender(String targetAddress, boolean useTls, boolean insecureSkipVerify, String agentSecret, long defaultTimeoutSeconds) {
@@ -53,14 +57,15 @@ public class HmsPipelineSender implements Closeable {
                     builder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
                 }
                 builder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
-                builder.intercept(org.apache.hadoop.explorer.replicator.telemetry.GrpcTracing.clientInterceptor());
-            this.channel = builder.build();
+                builder.maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES);
+                this.channel = builder.build();
             } catch (SSLException e) {
                 throw new RuntimeException("Ошибка инициализации TLS контекста для HMS конвейера к " + targetAddress, e);
             }
         } else {
             var builder = NettyChannelBuilder.forTarget(targetAddress)
-                    .usePlaintext();
+                    .usePlaintext()
+                    .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES);
             if (agentSecret != null && !agentSecret.isBlank()) {
                 builder.intercept(org.apache.hadoop.explorer.replicator.security.AgentGrpcAuthInterceptor.createClientInterceptor(agentSecret));
             }
@@ -100,9 +105,17 @@ public class HmsPipelineSender implements Closeable {
     }
 
     public HmsOperationResponse applyTable(String jobId, HmsTableDto tableDto, String executionPrincipal) {
+        return applyTable(jobId, tableDto, executionPrincipal, null);
+    }
+
+    /** Применение таблицы; {@code renameFrom} — прежнее имя, если таблицу переименовали. */
+    public HmsOperationResponse applyTable(String jobId, HmsTableDto tableDto, String executionPrincipal, String renameFrom) {
         ApplyTableRequest.Builder req = ApplyTableRequest.newBuilder()
                 .setJobId(jobId != null ? jobId : "")
                 .setTable(HmsConversionHelper.toProto(tableDto));
+        if (renameFrom != null && !renameFrom.isBlank()) {
+            req.setRenameFrom(renameFrom);
+        }
         if (executionPrincipal != null && !executionPrincipal.isBlank()) {
             req.setExecutionPrincipal(executionPrincipal);
         }
@@ -162,6 +175,83 @@ public class HmsPipelineSender implements Closeable {
         }
 
         return stub().reconcileExtraneous(b.build());
+    }
+
+    /** Схема таблицы приемника без ее партиций (проверка дрейфа). */
+    public GetMetadataSnapshotResponse getTableSchemaSnapshot(String jobId, String dbName, String tableName,
+                                                              String executionPrincipal) {
+        GetMetadataSnapshotRequest.Builder req = GetMetadataSnapshotRequest.newBuilder()
+                .setJobId(jobId != null ? jobId : "")
+                .setDbName(dbName)
+                .setTableName(tableName != null ? tableName : "")
+                .setSkipPartitions(true);
+        if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+            req.setExecutionPrincipal(executionPrincipal);
+        }
+        return stub().getMetadataSnapshot(req.build());
+    }
+
+    /** Размер страницы имен партиций: 10k имен — сотни килобайт, далеко от лимита сообщения. */
+    private static final int PARTITION_NAMES_PAGE = 10_000;
+
+    /**
+     * Все имена партиций таблицы приемника, постранично.
+     *
+     * <p>Полный список партиций одним ответом на таблице в 200k партиций — десятки мегабайт,
+     * он не проходил лимит gRPC, а ошибку проглатывали: лишние партиции молча не удалялись.
+     */
+    public List<String> listTargetPartitionNames(String jobId, String dbName, String tableName, String executionPrincipal) {
+        List<String> names = new java.util.ArrayList<>();
+        for (int page = 0; ; page++) {
+            GetMetadataSnapshotRequest.Builder req = GetMetadataSnapshotRequest.newBuilder()
+                    .setJobId(jobId != null ? jobId : "")
+                    .setDbName(dbName)
+                    .setTableName(tableName)
+                    .setPartitionNamesOnly(true)
+                    .setPartitionPage(page)
+                    .setPartitionPageSize(PARTITION_NAMES_PAGE);
+            if (executionPrincipal != null && !executionPrincipal.isBlank()) {
+                req.setExecutionPrincipal(executionPrincipal);
+            }
+            GetMetadataSnapshotResponse resp = stub().getMetadataSnapshot(req.build());
+            names.addAll(resp.getExistingPartitionNamesList());
+            if (resp.getExistingPartitionNamesCount() == 0 || names.size() >= resp.getTotalPartitionNames()) {
+                return names;
+            }
+        }
+    }
+
+    /** Файлы каталога приемника относительно его корня (для зачистки после INSERT OVERWRITE). */
+    public java.util.Optional<List<String>> listTargetFiles(String path, String executionPrincipal) {
+        var req = org.apache.hadoop.explorer.replicator.generated.DirectoryManifestRequest.newBuilder()
+                .setPath(path)
+                .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "")
+                .setRunAsServiceAccount(executionPrincipal == null || executionPrincipal.isBlank())
+                .build();
+        var resp = dataStub().getDirectoryManifest(req);
+        if (!resp.getExists()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(resp.getFilesList().stream()
+                .map(org.apache.hadoop.explorer.replicator.generated.FileManifestEntry::getRelativePath)
+                .toList());
+    }
+
+    /** Удаление файла на приемнике. */
+    public boolean deleteTargetPath(String jobId, String path, String executionPrincipal) {
+        var req = org.apache.hadoop.explorer.replicator.generated.DeletePathRequest.newBuilder()
+                .setJobId(jobId != null ? jobId : "")
+                .setPath(path)
+                .setRecursive(false)
+                .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "")
+                .setRunAsServiceAccount(executionPrincipal == null || executionPrincipal.isBlank())
+                .build();
+        return dataStub().deletePath(req).getSuccess();
+    }
+
+    private org.apache.hadoop.explorer.replicator.generated.DataTransferServiceGrpc.DataTransferServiceBlockingStub dataStub() {
+        return org.apache.hadoop.explorer.replicator.generated.DataTransferServiceGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS);
     }
 
     public GetMetadataSnapshotResponse getMetadataSnapshot(String jobId, String dbName, String tableName) {

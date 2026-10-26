@@ -20,9 +20,15 @@ import java.io.Closeable;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -423,22 +429,7 @@ public class OrchestratorGrpcClient implements Closeable {
 
             List<JobDto> result = new ArrayList<>(resp.getJobsCount());
             for (JobItemProto job : resp.getJobsList()) {
-                JobDto dto = new JobDto(
-                        job.getId(),
-                        job.getSourceClusterId(),
-                        job.getTargetClusterId(),
-                        job.getSourcePath(),
-                        job.getTargetPath(),
-                        job.getStatus(),
-                        job.getExecutionPrincipal(),
-                        job.getRunAsServiceAccount()
-                );
-                dto.setTotalBytes(job.getTotalBytes());
-                dto.setCopiedBytes(job.getProcessedBytes());
-                dto.setMessage(job.getMessage());
-                dto.setSyncMode(job.getSyncMode());
-                dto.setSyncDeletes(job.getSyncDeletes());
-                result.add(dto);
+                result.add(toJobDto(job));
             }
             return result;
         } catch (Exception e) {
@@ -447,14 +438,64 @@ public class OrchestratorGrpcClient implements Closeable {
         }
     }
 
+    private static JobDto toJobDto(JobItemProto job) {
+        JobDto dto = new JobDto(
+                job.getId(),
+                job.getSourceClusterId(),
+                job.getTargetClusterId(),
+                job.getSourcePath(),
+                job.getTargetPath(),
+                job.getStatus(),
+                job.getExecutionPrincipal(),
+                job.getRunAsServiceAccount()
+        );
+        dto.setTotalBytes(job.getTotalBytes());
+        dto.setCopiedBytes(job.getProcessedBytes());
+        dto.setMessage(job.getMessage());
+        dto.setSyncMode(job.getSyncMode());
+        dto.setSyncDeletes(job.getSyncDeletes());
+        return dto;
+    }
+
+    /** Предел идентификаторов в одном точечном запросе статусов. */
+    private static final int JOB_STATUS_BATCH = 1000;
+
+    /**
+     * Статусы конкретных заданий точечным запросом.
+     *
+     * <p>Сбой связи пробрасывается, а не превращается в пустой ответ: для ожидания подзадач
+     * данных «не удалось спросить» и «спросили, задач нет» — разные вещи.
+     */
+    public Map<String, JobDto> getJobsByIds(Collection<String> jobIds) throws Exception {
+        Map<String, JobDto> result = new HashMap<>();
+        List<String> ids = new ArrayList<>(jobIds);
+        for (int from = 0; from < ids.size(); from += JOB_STATUS_BATCH) {
+            var protoReq = GetJobsRequest.newBuilder()
+                    .setIncludeSubjobs(true)
+                    .addAllJobIds(ids.subList(from, Math.min(from + JOB_STATUS_BATCH, ids.size())))
+                    .build();
+            var resp = executeWithFailover("getJobs", s -> s.getJobs(protoReq));
+            if (resp == null) {
+                throw new IllegalStateException("Оркестратор не вернул статусы заданий");
+            }
+            for (JobItemProto job : resp.getJobsList()) {
+                result.put(job.getId(), toJobDto(job));
+            }
+        }
+        return result;
+    }
+
     /**
      * Получение конкретной задачи по идентификатору.
      */
     public Optional<JobDto> getJobById(String jobId) {
         if (jobId == null || jobId.isBlank()) return Optional.empty();
-        return getJobs().stream()
-                .filter(j -> jobId.equalsIgnoreCase(j.getId()))
-                .findFirst();
+        try {
+            return Optional.ofNullable(getJobsByIds(List.of(jobId)).get(jobId));
+        } catch (Exception e) {
+            log.warn("Ошибка gRPC получения задачи '{}': {}", jobId, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**
@@ -464,34 +505,67 @@ public class OrchestratorGrpcClient implements Closeable {
         if (subjobId == null || subjobId.isBlank()) {
             return true;
         }
-        List<JobDto> currentJobs = getJobs();
-        if (currentJobs.isEmpty()) {
-            return true;
+        return awaitSubjobsCompletion(List.of(subjobId), timeoutSeconds);
+    }
+
+    /**
+     * Ожидание завершения группы подзадач данных (Data-First Barrier).
+     *
+     * <p>Барьер открывается только по подтвержденному успеху каждой подзадачи. Сбой связи с
+     * оркестратором — не повод пропустить DDL без данных: опрос повторяется до таймаута.
+     * Интервал растет от секунды до 15 с — сотни агентов, ждущих многочасовое копирование,
+     * не должны опрашивать оркестратор дважды в секунду.
+     *
+     * @return {@code true}, если все подзадачи завершились успешно до истечения таймаута
+     */
+    public boolean awaitSubjobsCompletion(Collection<String> subjobIds, long timeoutSeconds) {
+        Set<String> pending = new HashSet<>();
+        for (String id : subjobIds) {
+            if (id != null && !id.isBlank()) {
+                pending.add(id);
+            }
         }
         long deadline = System.currentTimeMillis() + Math.max(timeoutSeconds, 1) * 1000L;
-        while (System.currentTimeMillis() < deadline) {
-            Optional<JobDto> opt = getJobById(subjobId);
-            if (opt.isPresent()) {
-                String status = opt.get().getStatus();
-                if ("COMPLETED".equalsIgnoreCase(status) || "SUCCESS".equalsIgnoreCase(status)) {
-                    log.debug("Data-First Barrier: HDFS подзадача {} успешно завершена", subjobId);
-                    return true;
+        long sleepMs = 1000L;
+        while (!pending.isEmpty()) {
+            try {
+                Map<String, JobDto> statuses = getJobsByIds(pending);
+                for (Iterator<String> it = pending.iterator(); it.hasNext(); ) {
+                    String id = it.next();
+                    JobDto job = statuses.get(id);
+                    if (job == null) {
+                        log.warn("Data-First Barrier: HDFS подзадача {} не найдена в оркестраторе", id);
+                        return false;
+                    }
+                    String status = job.getStatus();
+                    if ("COMPLETED".equalsIgnoreCase(status) || "SUCCESS".equalsIgnoreCase(status)) {
+                        it.remove();
+                    } else if ("FAILED".equalsIgnoreCase(status) || "ERROR".equalsIgnoreCase(status)
+                            || "CANCELLED".equalsIgnoreCase(status) || "STOPPED".equalsIgnoreCase(status)) {
+                        log.warn("Data-First Barrier: HDFS подзадача {} завершилась без успеха ({}): {}",
+                                id, status, job.getMessage());
+                        return false;
+                    }
                 }
-                if ("FAILED".equalsIgnoreCase(status) || "ERROR".equalsIgnoreCase(status)) {
-                    log.warn("Data-First Barrier: HDFS подзадача {} завершилась со сбоем: {}",
-                            subjobId, opt.get().getMessage());
-                    return false;
-                }
+            } catch (Exception e) {
+                log.warn("Data-First Barrier: не удалось получить статусы подзадач, повтор: {}", e.getMessage());
+            }
+            if (pending.isEmpty()) {
+                break;
+            }
+            if (System.currentTimeMillis() + sleepMs > deadline) {
+                log.warn("Data-First Barrier: истек таймаут ожидания HDFS подзадач {} ({} с)", pending, timeoutSeconds);
+                return false;
             }
             try {
-                Thread.sleep(500);
+                Thread.sleep(sleepMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
+            sleepMs = Math.min(sleepMs * 2, 15_000L);
         }
-        log.warn("Data-First Barrier: истек таймаут ожидания HDFS подзадачи {} ({} с)", subjobId, timeoutSeconds);
-        return false;
+        return true;
     }
 
     /**
@@ -713,6 +787,20 @@ public class OrchestratorGrpcClient implements Closeable {
     /**
      * Получение ожидающих задач HMS.
      */
+    /** Агент, от имени которого заводятся подзадачи данных (fencing на оркестраторе). */
+    private volatile String agentId;
+
+    public void setAgentId(String agentId) {
+        this.agentId = agentId;
+    }
+
+    /** Оркестратор отказал в подзадаче: HMS-задача удалена, остановлена или отобрана. */
+    public static final class SubjobRejectedException extends RuntimeException {
+        public SubjobRejectedException(String hmsJobId) {
+            super("Оркестратор отклонил подзадачу данных для HMS-задачи " + hmsJobId + " (fencing)");
+        }
+    }
+
     public List<HmsPendingJobDto> getPendingHmsJobs(String clusterId, String agentId) {
         try {
             var protoReq = GetPendingHmsJobsRequest.newBuilder()
@@ -757,6 +845,12 @@ public class OrchestratorGrpcClient implements Closeable {
     /**
      * Отчет о прогрессе HMS задачи.
      */
+    /**
+     * Отправка прогресса HMS-задачи.
+     *
+     * @return {@code false} только когда оркестратор явно отклонил отчет (fencing: задачу
+     *         отобрали у этого агента); сбой связи отказом не считается
+     */
     public boolean reportHmsProgress(String jobId, HmsProgressReportRequest report) {
         try {
             var protoReqBuilder = ReportHmsProgressRequest.newBuilder()
@@ -789,10 +883,12 @@ public class OrchestratorGrpcClient implements Closeable {
             }
 
             var resp = executeWithFailover("reportHmsProgress", s -> s.reportHmsProgress(protoReqBuilder.build()));
-            return resp != null && resp.getSuccess();
+            return resp == null || resp.getSuccess();
         } catch (Exception e) {
+            // Сбой связи — не отказ: если оркестратор недоступен долго, аренда истечет сама,
+            // а прерывать перенос из-за кратковременного обрыва незачем
             log.warn("Ошибка gRPC отправки прогресса HMS задачи '{}': {}", jobId, e.getMessage());
-            return false;
+            return true;
         }
     }
 
@@ -804,6 +900,19 @@ public class OrchestratorGrpcClient implements Closeable {
     }
 
     public String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal, String syncMode, String jobType) {
+        return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, executionPrincipal, syncMode, jobType, false);
+    }
+
+    /**
+     * Свежая подзадача копирования для события INSERT: оркестратор не переиспользует идущую или
+     * недавно завершенную копию того же каталога — она новых файлов не видела.
+     */
+    public String createFreshHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl, String executionPrincipal) {
+        return createHdfsSubjob(hmsJobId, srcPath, dstPath, srcCl, dstCl, executionPrincipal, null, null, true);
+    }
+
+    private String createHdfsSubjob(String hmsJobId, String srcPath, String dstPath, String srcCl, String dstCl,
+                                    String executionPrincipal, String syncMode, String jobType, boolean forceNew) {
         try {
             var protoReq = CreateHdfsSubjobRequest.newBuilder()
                     .setParentJobId(hmsJobId != null ? hmsJobId : "")
@@ -814,10 +923,17 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "")
                     .setSyncMode(syncMode != null ? syncMode : "")
                     .setJobType(jobType != null ? jobType : "")
+                    .setAgentId(agentId != null ? agentId : "")
+                    .setForceNew(forceNew)
                     .build();
 
             var resp = executeWithFailover("createHdfsSubjob", s -> s.createHdfsSubjob(protoReq));
+            if (resp != null && resp.getFenced()) {
+                throw new SubjobRejectedException(hmsJobId);
+            }
             return (resp != null && resp.getSuccess()) ? resp.getJobId() : null;
+        } catch (SubjobRejectedException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Ошибка gRPC создания HDFS саб-джобы для HMS '{}': {}", hmsJobId, e.getMessage());
             return null;

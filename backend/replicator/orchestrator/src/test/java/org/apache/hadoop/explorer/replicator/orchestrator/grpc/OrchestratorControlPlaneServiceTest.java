@@ -467,6 +467,29 @@ public class OrchestratorControlPlaneServiceTest {
     }
 
     @Test
+    @DisplayName("reportHmsProgress: отказ координатора доходит до агента как success=false")
+    void testReportHmsProgressRejectionReachesAgent() {
+        when(hmsCoordinatorService.updateJobProgress(eq("hms-job-fenced"), any())).thenReturn(false);
+
+        ReportHmsProgressResponse resp = stub.reportHmsProgress(ReportHmsProgressRequest.newBuilder()
+                .setJobId("hms-job-fenced").setStatus("BOOTSTRAPPING").setAgentId("agent-zombie").build());
+
+        assertFalse(resp.getSuccess(), "агент, у которого отобрали задачу, обязан узнать об отказе");
+    }
+
+    @Test
+    @DisplayName("reportHmsProgress: незаданная позиция (0 в proto3) передается как null")
+    void testReportHmsProgressZeroPositionIsAbsent() {
+        when(hmsCoordinatorService.updateJobProgress(eq("hms-job-zero"), any())).thenReturn(true);
+
+        stub.reportHmsProgress(ReportHmsProgressRequest.newBuilder()
+                .setJobId("hms-job-zero").setStatus("BOOTSTRAPPING").setAgentId("agent-dc1").build());
+
+        verify(hmsCoordinatorService).updateJobProgress(eq("hms-job-zero"),
+                argThat(report -> report.lastProcessedEventId() == null));
+    }
+
+    @Test
     @DisplayName("reportHmsProgress корректно передает DDL события в hmsCoordinatorService")
     void testReportHmsProgressWithEvents() {
         ReportHmsProgressRequest req = ReportHmsProgressRequest.newBuilder()
@@ -496,6 +519,7 @@ public class OrchestratorControlPlaneServiceTest {
                         .build())
                 .build();
 
+        when(hmsCoordinatorService.updateJobProgress(eq("hms-job-test-123"), any())).thenReturn(true);
         ReportHmsProgressResponse resp = stub.reportHmsProgress(req);
         assertNotNull(resp);
         assertTrue(resp.getSuccess());

@@ -217,6 +217,12 @@ public class ThriftHmsClient implements HmsClient, Closeable {
             client = clientPool.borrowObject(key);
             return doExecute(client, operation);
         } catch (TException e) {
+            if (!isConnectionException(e)) {
+                // Прикладной отказ метастора (нет объекта, уже существует, неверный запрос) на
+                // новом соединении повторится так же: повтор только удваивал нагрузку на метастор
+                // и выбрасывал исправное соединение из пула
+                throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + e.getMessage(), e);
+            }
             log.warn("[ThriftHmsClient:{}] Ошибка Thrift/MetaException ({}): {}, попытка повтора с новым соединением...",
                     clusterId, e.getClass().getSimpleName(), e.getMessage());
             if (client != null) {
@@ -255,8 +261,14 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private boolean isConnectionException(Throwable t) {
         if (t == null) return false;
         if (t instanceof java.net.SocketException
+                || t instanceof java.net.SocketTimeoutException
                 || t instanceof java.io.EOFException
                 || t instanceof org.apache.thrift.transport.TTransportException) {
+            return true;
+        }
+        // Метастор заворачивает сетевые сбои своего хранилища в MetaException текстом
+        if (t instanceof org.apache.hadoop.hive.metastore.api.MetaException && t.getMessage() != null
+                && (t.getMessage().contains("SocketTimeoutException") || t.getMessage().contains("Connection reset"))) {
             return true;
         }
         return isConnectionException(t.getCause());
@@ -274,10 +286,11 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 CurrentNotificationEventId eventId = c.getCurrentNotificationEventId();
                 return eventId != null ? eventId.getEventId() : 0L;
             });
-        } catch (Exception e) {
-            log.warn("[ThriftHmsClient:{}] Не удалось прочитать CurrentNotificationEventId ({}), fallback на 0L",
-                    clusterId, e.getMessage());
-            return 0L;
+        } catch (RuntimeException e) {
+            // Ноль здесь становился бы позицией bootstrap: CDC начал бы с начала журнала или,
+            // хуже, позиция откатилась бы назад. Ошибка должна дойти до вызывающего.
+            log.warn("[ThriftHmsClient:{}] Не удалось прочитать CurrentNotificationEventId: {}", clusterId, e.getMessage());
+            throw e;
         }
     }
 
@@ -303,10 +316,11 @@ public class ThriftHmsClient implements HmsClient, Closeable {
                 }
                 return list;
             });
-        } catch (Exception e) {
-            log.warn("[ThriftHmsClient:{}] Не удалось прочитать события из NotificationLog ({}), возврат пустого списка",
-                    clusterId, e.getMessage());
-            return Collections.emptyList();
+        } catch (RuntimeException e) {
+            // Пустой список неотличим от «новых событий нет»: разрыв журнала (события удалены по
+            // TTL) тихо и навсегда останавливал CDC. Ошибка пробрасывается вызывающему.
+            log.warn("[ThriftHmsClient:{}] Не удалось прочитать события из NotificationLog: {}", clusterId, e.getMessage());
+            throw e;
         }
     }
 
@@ -384,6 +398,55 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     }
 
     @Override
+    public List<String> getPartitionNames(String dbName, String tableName) {
+        return executeWithRetry(c -> {
+            try {
+                List<String> found = c.listPartitionNames(dbName, tableName, (short) -1);
+                return found != null ? found : Collections.<String>emptyList();
+            } catch (NoSuchObjectException e) {
+                return Collections.<String>emptyList();
+            }
+        });
+    }
+
+    /**
+     * Потоковый обход: в памяти только имена партиций и одна порция.
+     *
+     * <p>Каждая порция берется отдельным вызовом с собственным повтором: обрыв на 150-тысячной
+     * партиции перечитывает одну порцию, а не всю таблицу. Получатель вызывается вне
+     * {@code executeWithRetry} — его ошибки (например, отказ приемника) не должны повторять
+     * чтение из метастора.
+     */
+    @Override
+    public int forEachPartitionBatch(String dbName, String tableName, int batchSize,
+                                     PartitionBatchConsumer consumer) throws Exception {
+        List<String> names = executeWithRetry(c -> {
+            try {
+                List<String> found = c.listPartitionNames(dbName, tableName, (short) -1);
+                return found != null ? found : Collections.<String>emptyList();
+            } catch (NoSuchObjectException e) {
+                return Collections.<String>emptyList();
+            }
+        });
+        int size = Math.max(1, Math.min(batchSize, PARTITION_FETCH_BATCH));
+        for (int from = 0; from < names.size(); from += size) {
+            List<String> slice = names.subList(from, Math.min(from + size, names.size()));
+            List<HmsPartitionDto> batch = executeWithRetry(c -> {
+                List<Partition> fetched = c.getPartitionsByNames(dbName, tableName, slice);
+                List<HmsPartitionDto> dtos = new ArrayList<>(fetched != null ? fetched.size() : 0);
+                if (fetched != null) {
+                    for (Partition p : fetched) {
+                        dtos.add(toDto(p));
+                    }
+                }
+                return dtos;
+            });
+            consumer.accept(batch, names.size());
+        }
+        return names.size();
+    }
+
+    @Override
     public Optional<HmsPartitionDto> getPartition(String dbName, String tableName, List<String> partVals) {
         if (partVals == null || partVals.isEmpty()) {
             return Optional.empty();
@@ -440,6 +503,16 @@ public class ThriftHmsClient implements HmsClient, Closeable {
             c.alter_table(tableDto.dbName(), tableDto.tableName(), table);
             log.info("[ThriftHmsClient:{}] Схема таблицы '{}.{}' успешно обновлена в Hive Metastore",
                     clusterId, tableDto.dbName(), tableDto.tableName());
+            return null;
+        });
+    }
+
+    @Override
+    public void renameTable(String dbName, String oldTableName, HmsTableDto renamed) {
+        executeWithRetry(c -> {
+            c.alter_table(dbName, oldTableName, toThrift(renamed));
+            log.info("[ThriftHmsClient:{}] Таблица '{}.{}' переименована в '{}'",
+                    clusterId, dbName, oldTableName, renamed.tableName());
             return null;
         });
     }

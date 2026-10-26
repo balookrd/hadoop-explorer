@@ -123,6 +123,10 @@
   // Оповещения и индикаторы действий
   let rebootstrapMessage: string | null = $state(null);
   let syncingJobId: string | null = $state(null);
+  let pausingJobId: string | null = $state(null);
+  // Отдельный флаг отправки: общий loading сбрасывается опросом списка, и кнопка
+  // создания снова становилась активной посреди запроса — второй клик создавал дубль
+  let isCreating = $state(false);
   let rebootstrappingJobId: string | null = $state(null);
 
   // Кластеры из топологии
@@ -216,7 +220,10 @@
   });
 
   // Загрузка данных
+  let jobsRequestSeq = 0;
+
   async function loadJobs() {
+    const seq = ++jobsRequestSeq;
     try {
       loading = true;
       const filters = { status: statusFilter, search: searchQuery, page: jobsPage, size: jobsPageSize };
@@ -224,6 +231,8 @@
         api.getHmsJobs(filters),
         api.getHmsJobsSummary({ search: searchQuery }).catch(() => null),
       ]);
+      // Медленный ответ на прежний фильтр не должен перезаписать свежий
+      if (seq !== jobsRequestSeq) return;
       jobs = page.content ?? [];
       jobsTotal = page.total_elements ?? jobs.length;
       jobsTotalPages = page.total_pages ?? 1;
@@ -243,25 +252,32 @@
     } catch (e) {
       console.error('Ошибка загрузки задач HMS:', e);
     } finally {
-      loading = false;
+      if (seq === jobsRequestSeq) loading = false;
     }
   }
 
+  // Номер последнего запроса деталей: ответ на задачу, с которой уже ушли, не должен
+  // перезаписать детали новой (модалка и раскрытая строка делят одни и те же списки)
+  let detailsRequestSeq = 0;
+
   async function loadDetails(jobId: string) {
+    const seq = ++detailsRequestSeq;
     try {
       detailsLoading = true;
       const [evts, subs, dlq] = await Promise.all([
         api.getHmsEvents(jobId),
         api.getHmsSubtasks(jobId),
-        api.getHmsDlq(jobId).catch(() => [] as HmsDeadLetterEvent[])
+        // Выбранный фильтр DLQ сохраняется: опрос раз в несколько секунд сбрасывал его на ALL
+        api.getHmsDlq(jobId, dlqStatusFilter).catch(() => [] as HmsDeadLetterEvent[])
       ]);
+      if (seq !== detailsRequestSeq) return;
       events = evts;
       subtasks = subs;
       dlqEvents = dlq;
     } catch (e) {
       console.error('Ошибка загрузки деталей HMS задачи:', e);
     } finally {
-      detailsLoading = false;
+      if (seq === detailsRequestSeq) detailsLoading = false;
     }
   }
 
@@ -291,6 +307,8 @@
 
   async function handleSkipDlq(dlqId: string) {
     if (!modalJob) return;
+    // Пропущенное событие уже не переиграть: изменение схемы источника останется неперенесенным
+    if (!confirm('Пропустить событие? Его изменение схемы не будет перенесено на приемник, вернуть событие в работу нельзя.')) return;
     try {
       actingDlqId = dlqId;
       const res = await api.skipHmsDlqEvent(modalJob.id, dlqId);
@@ -299,6 +317,7 @@
       dlqEvents = await api.getHmsDlq(modalJob.id, dlqStatusFilter);
     } catch (e: any) {
       console.error('Ошибка пропуска события DLQ:', e);
+      alert(`Не удалось пропустить событие DLQ: ${e instanceof Error ? e.message : e}`);
     } finally {
       actingDlqId = null;
     }
@@ -314,6 +333,7 @@
       dlqEvents = await api.getHmsDlq(modalJob.id, dlqStatusFilter);
     } catch (e: any) {
       console.error('Ошибка повторного запуска события DLQ:', e);
+      alert(`Не удалось переиграть событие DLQ: ${e instanceof Error ? e.message : e}`);
     } finally {
       actingDlqId = null;
     }
@@ -346,13 +366,18 @@
   async function handleSyncNow(job: HmsReplicationJob) {
     try {
       syncingJobId = job.id;
-      await api.triggerHmsSync(job.id);
+      const state = await api.triggerHmsSync(job.id);
       await loadJobs();
+      // Агент опрашивает журнал событий сам; кнопка обновляет состояние и показывает отставание
+      if (state && !state.triggered) {
+        alert(`Агент читает журнал событий HMS сам, без внешнего запуска. Текущее отставание: ${(state.event_lag ?? 0).toLocaleString('ru-RU')} событий.`);
+      }
       if (modalJob?.id === job.id || expandedJobId === job.id) {
         await loadDetails(job.id);
       }
     } catch (e) {
       console.error('Ошибка триггера CDC синхронизации:', e);
+      alert(`Не удалось получить состояние CDC: ${e instanceof Error ? e.message : e}`);
     } finally {
       syncingJobId = null;
     }
@@ -381,6 +406,7 @@
       }
     } catch (e) {
       console.error('Ошибка повторного Bootstrap:', e);
+      alert(`Не удалось запустить повторный bootstrap: ${e instanceof Error ? e.message : e}`);
     } finally {
       isRebootstrapping = false;
       rebootstrappingJobId = null;
@@ -388,7 +414,9 @@
   }
 
   async function togglePause(job: HmsReplicationJob) {
+    if (pausingJobId || !canTogglePause(job)) return;
     try {
+      pausingJobId = job.id;
       if (job.status === 'PAUSED') {
         await api.resumeHmsJob(job.id);
       } else {
@@ -400,6 +428,9 @@
       }
     } catch (e) {
       console.error('Ошибка изменения статуса задачи HMS:', e);
+      alert(`Не удалось изменить статус задачи: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      pausingJobId = null;
     }
   }
 
@@ -430,8 +461,9 @@
       alert(`На кластере ${newJobSourceClusterObj?.name || newJob.source_cluster_id} отсутствует зарегистрированный Inotify-агент. Отключите опцию фонового стриминга для создания стандартной задачи репликации схем.`);
       return;
     }
+    if (isCreating) return;
     try {
-      loading = true;
+      isCreating = true;
       const rawUser = (isAdmin && newJob.execution_principal?.trim())
         ? newJob.execution_principal.trim()
         : (user?.username || 'system_operator');
@@ -453,8 +485,9 @@
       openDetailsModal(created, 'events');
     } catch (e) {
       console.error('Ошибка создания задачи HMS:', e);
+      alert(`Не удалось создать задачу: ${e instanceof Error ? e.message : e}`);
     } finally {
-      loading = false;
+      isCreating = false;
     }
   }
 
@@ -480,6 +513,7 @@
       await loadJobs();
     } catch (e) {
       console.error('Ошибка удаления задачи HMS:', e);
+      alert(`Не удалось удалить задачу: ${e instanceof Error ? e.message : e}`);
     } finally {
       isDeleting = false;
     }
@@ -497,11 +531,18 @@
   }
 
   function formatBytes(bytes: number): string {
-    if (!bytes || bytes === 0) return '0 B';
+    if (!bytes || bytes <= 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    // Схемы на петабайты: без PB/EB индекс выходил за массив и выводилось «undefined»
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+    const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  // Из этих статусов задачу можно поставить на паузу (см. HmsJobStatus на бэкенде)
+  const PAUSABLE_STATUSES = ['QUEUED', 'BOOTSTRAPPING', 'ACTIVE', 'ERROR'];
+  function canTogglePause(job: HmsReplicationJob): boolean {
+    return job.status === 'PAUSED' || PAUSABLE_STATUSES.includes(job.status);
   }
 
   // Расчет агрегированных метрик первичной синхронизации (скорость, старт, ETA) по сабтаскам
@@ -628,12 +669,21 @@
         console.error('Ошибка загрузки топологии для HMS:', e);
       }
     }
-    timer = setInterval(() => {
-      loadJobs();
-      if (isDetailsModalOpen && modalJob) {
-        loadDetails(modalJob.id);
-      } else if (expandedJobId) {
-        loadDetails(expandedJobId);
+    // Фоновая вкладка не опрашивает сервер, а новый тик не стартует, пока не закончился
+    // прежний: при медленном ответе запросы иначе копились бы друг на друге
+    let pollInFlight = false;
+    timer = setInterval(async () => {
+      if (pollInFlight || (typeof document !== 'undefined' && document.hidden)) return;
+      pollInFlight = true;
+      try {
+        await Promise.all([
+          loadJobs(),
+          isDetailsModalOpen && modalJob
+            ? loadDetails(modalJob.id)
+            : expandedJobId ? loadDetails(expandedJobId) : Promise.resolve(),
+        ]);
+      } finally {
+        pollInFlight = false;
       }
     }, 4000);
   });
@@ -694,12 +744,12 @@
 
       <div class="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs">
         <span class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 block">Таблиц</span>
-        <span class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{stats.tables}</span>
+        <span class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{stats.tables.toLocaleString('ru-RU')}</span>
       </div>
 
       <div class="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs">
         <span class="text-[11px] font-medium text-sky-600 dark:text-sky-400 block">Партиций</span>
-        <span class="text-xl font-bold text-slate-800 dark:text-slate-200">{stats.partitions}</span>
+        <span class="text-xl font-bold text-slate-800 dark:text-slate-200">{stats.partitions.toLocaleString('ru-RU')}</span>
       </div>
     </div>
 
@@ -913,7 +963,7 @@
                   <div class="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                     <Layers class="w-3 h-3 text-sky-500 shrink-0" />
                     <span>Партиций:</span>
-                    <span class="font-mono font-medium text-slate-700 dark:text-slate-300">{job.replicated_partitions || 0}</span>
+                    <span class="font-mono font-medium text-slate-700 dark:text-slate-300">{(job.replicated_partitions || 0).toLocaleString('ru-RU')}</span>
                   </div>
                 </td>
 
@@ -924,7 +974,7 @@
                     <span class="font-bold text-slate-800 dark:text-slate-200">{job.last_processed_event_id ?? 0}</span>
                     {#if job.event_lag && job.event_lag > 0}
                       <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                        lag: {job.event_lag}
+                        lag: {(job.event_lag ?? 0).toLocaleString('ru-RU')}
                       </span>
                     {:else}
                       <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
@@ -1032,7 +1082,8 @@
                     <!-- Пауза / Возобновить -->
                     <button
                       onclick={() => togglePause(job)}
-                      class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer {job.status === 'PAUSED'
+                      disabled={!canTogglePause(job) || pausingJobId === job.id}
+                      class="disabled:opacity-40 disabled:cursor-not-allowed p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer {job.status === 'PAUSED'
                         ? 'hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 dark:hover:border-emerald-700 text-emerald-600 dark:text-emerald-400'
                         : 'hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-300 dark:hover:border-amber-700 text-amber-600 dark:text-amber-400'}"
                       title={job.status === 'PAUSED' ? 'Возобновить репликацию' : 'Приостановить CDC'}
@@ -1250,14 +1301,14 @@
                               <HardDrive class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                               <span>HDFS Подзадачи передачи файлов</span>
                               <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold">
-                                {subtasks.length}
+                                {(job.subtasks_count ?? subtasks.length).toLocaleString('ru-RU')}
                               </span>
                             </div>
                             <button
                               onclick={() => openDetailsModal(job, 'subtasks')}
                               class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                             >
-                              <span>Все подзадачи ({subtasks.length})</span>
+                              <span>Все подзадачи ({(job.subtasks_count ?? subtasks.length).toLocaleString('ru-RU')})</span>
                               <ArrowRight class="w-3 h-3" />
                             </button>
                           </div>
@@ -1496,7 +1547,7 @@
           <HardDrive class="w-4 h-4" />
           <span>Вложенные задачи переноса HDFS</span>
           <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-            {subtasks.length}
+            {(modalJob?.subtasks_count ?? subtasks.length).toLocaleString('ru-RU')}
           </span>
         </button>
 
@@ -2288,10 +2339,10 @@
           <button
             type="button"
             onclick={handleCreateJob}
-            disabled={!newJob.source_db.trim() || loading}
+            disabled={!newJob.source_db.trim() || isCreating}
             class="px-4 py-2 text-xs font-semibold rounded-xl bg-sky-600 hover:bg-sky-500 text-white transition cursor-pointer shadow-md shadow-sky-600/20 disabled:opacity-50"
           >
-            {loading ? 'Создание...' : 'Запустить репликацию'}
+            {isCreating ? 'Создание...' : 'Запустить репликацию'}
           </button>
         </div>
       </div>

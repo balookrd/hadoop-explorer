@@ -233,6 +233,9 @@ message UpdateJobProgressResponse {
 message GetJobsRequest {
   bool include_subjobs = 1;
   string cluster_id = 2;
+  // Точечная выборка по идентификаторам (ожидание подзадач данных): без нее агенту пришлось бы
+  // тянуть весь список заданий кластера, где нужной подзадачи может не оказаться из-за предела
+  repeated string job_ids = 3;
 }
 
 message JobItemProto {
@@ -374,11 +377,19 @@ message CreateHdfsSubjobRequest {
   string execution_principal = 6;
   string sync_mode = 7;
   string job_type = 8;
+  // Агент, заводящий подзадачу: оркестратор принимает ее только от владельца аренды живой
+  // HMS-задачи, иначе удаленная или отобранная задача продолжала бы плодить копирования
+  string agent_id = 9;
+  // Новая подзадача без переиспользования идущей или недавно завершенной: событие INSERT
+  // означает новые файлы, а уже прошедшая копия того же каталога их не видела
+  bool force_new = 10;
 }
 
 message CreateHdfsSubjobResponse {
   string job_id = 1;
   bool success = 2;
+  // Отказ по fencing: задача удалена, остановлена или принадлежит другому агенту
+  bool fenced = 3;
 }
 
 message GetActiveKafkaJobsRequest {

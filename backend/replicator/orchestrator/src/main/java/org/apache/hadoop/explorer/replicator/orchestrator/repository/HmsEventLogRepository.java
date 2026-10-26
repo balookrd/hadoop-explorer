@@ -13,5 +13,10 @@ public interface HmsEventLogRepository extends JpaRepository<HmsEventLogEntity, 
     List<HmsEventLogEntity> findByHmsJobIdOrderByCreatedAtDesc(String hmsJobId, Pageable pageable);
     List<HmsEventLogEntity> findByHmsJobIdAndStatus(String hmsJobId, String status);
     long countByHmsJobId(String hmsJobId);
-    void deleteByHmsJobId(String hmsJobId);
+    // Пакетный DELETE: производный deleteBy грузит в память каждую запись журнала (их сотни
+    // тысяч у задачи с большой таблицей) и удаляет по одной
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM HmsEventLogEntity e WHERE e.hmsJobId = :hmsJobId")
+    void deleteByHmsJobId(@org.springframework.data.repository.query.Param("hmsJobId") String hmsJobId);
 }

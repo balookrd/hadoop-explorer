@@ -35,6 +35,12 @@ public class ReplicatorProperties {
     private int hmsBootstrapConcurrency = 8;
     private int hmsPartitionBatchSize = 1000;
     private int hmsLeaseTimeoutSeconds = 30;
+    /**
+     * Сколько bootstrap HMS-задач один агент ведет одновременно. Без предела первый
+     * опросивший агент забирал все свободные задачи кластера, а остальные простаивали.
+     * CDC-задачи (ACTIVE) в предел не входят: они раздаются с выравниванием нагрузки.
+     */
+    private int hmsMaxBootstrapsPerAgent = 4;
     private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
     private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
     private int maxBundleFiles = 500;
@@ -81,6 +87,8 @@ public class ReplicatorProperties {
     public void setHmsBootstrapConcurrency(int hmsBootstrapConcurrency) { this.hmsBootstrapConcurrency = hmsBootstrapConcurrency; }
     public int getHmsPartitionBatchSize() { return hmsPartitionBatchSize; }
     public void setHmsPartitionBatchSize(int hmsPartitionBatchSize) { this.hmsPartitionBatchSize = hmsPartitionBatchSize; }
+    public int getHmsMaxBootstrapsPerAgent() { return hmsMaxBootstrapsPerAgent; }
+    public void setHmsMaxBootstrapsPerAgent(int hmsMaxBootstrapsPerAgent) { this.hmsMaxBootstrapsPerAgent = hmsMaxBootstrapsPerAgent; }
     public int getHmsLeaseTimeoutSeconds() { return hmsLeaseTimeoutSeconds; }
     public void setHmsLeaseTimeoutSeconds(int hmsLeaseTimeoutSeconds) { this.hmsLeaseTimeoutSeconds = hmsLeaseTimeoutSeconds; }
     public long getSmallFileThresholdBytes() { return smallFileThresholdBytes; }

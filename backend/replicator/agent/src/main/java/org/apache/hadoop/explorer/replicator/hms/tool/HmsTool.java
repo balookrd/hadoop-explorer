@@ -146,6 +146,62 @@ public class HmsTool {
                     break;
                 }
 
+                case "generate-partitions": {
+                    // Нагрузочный стенд: таблица Parquet с N партициями внутри корня таблицы,
+                    // добавляемыми пакетами (по одной партиции 200k вызовов заняли бы часы)
+                    if (args.length < 5) {
+                        System.err.println("Использование: generate-partitions <dbName> <tableName> <tableLocation> <count> [batch]");
+                        System.exit(1);
+                    }
+                    String dbName = args[1];
+                    String tableName = args[2];
+                    String loc = args[3].replaceAll("/+$", "");
+                    int count = Integer.parseInt(args[4]);
+                    int batch = args.length > 5 ? Integer.parseInt(args[5]) : 1000;
+                    String in = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+                    String out = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+                    String serde = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+                    if (client.getTable(dbName, tableName).isEmpty()) {
+                        client.createTable(new HmsTableDto("hive", dbName, tableName, "EXTERNAL_TABLE", loc,
+                                Map.of("EXTERNAL", "TRUE"), List.of("dt"), in, out, serde));
+                    }
+                    int existing = client.forEachPartitionBatch(dbName, tableName, 1000, (b, total) -> { });
+                    long started = System.currentTimeMillis();
+                    List<HmsPartitionDto> chunk = new java.util.ArrayList<>(batch);
+                    for (int i = existing; i < count; i++) {
+                        String val = String.format("p%07d", i);
+                        chunk.add(new HmsPartitionDto("hive", dbName, tableName, List.of(val), loc + "/dt=" + val,
+                                Collections.emptyMap(), Collections.emptyList(), Collections.emptyMap(), in, out, serde));
+                        if (chunk.size() == batch || i == count - 1) {
+                            client.addPartitions(dbName, tableName, chunk);
+                            chunk.clear();
+                            if ((i + 1) % 10_000 == 0 || i == count - 1) {
+                                System.out.printf("Добавлено %d/%d партиций (%d с)%n", i + 1, count,
+                                        (System.currentTimeMillis() - started) / 1000);
+                            }
+                        }
+                    }
+                    System.out.println("Готово: в '" + dbName + "." + tableName + "' " + count + " партиций");
+                    break;
+                }
+
+                case "count-partitions": {
+                    if (args.length < 3) {
+                        System.err.println("Использование: count-partitions <dbName> <tableName>");
+                        System.exit(1);
+                    }
+                    int[] parquet = {0};
+                    int total = client.forEachPartitionBatch(args[1], args[2], 1000, (b, t) -> {
+                        for (HmsPartitionDto p : b) {
+                            if (p.inputFormat() != null && p.inputFormat().contains("Parquet")) {
+                                parquet[0]++;
+                            }
+                        }
+                    });
+                    System.out.println("{\"total\":" + total + ",\"parquet\":" + parquet[0] + "}");
+                    break;
+                }
+
                 case "get-partitions":
                 case "list-partitions": {
                     if (args.length < 3) {

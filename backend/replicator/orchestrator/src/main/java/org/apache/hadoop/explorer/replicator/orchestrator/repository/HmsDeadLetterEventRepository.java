@@ -19,5 +19,6 @@ public interface HmsDeadLetterEventRepository extends JpaRepository<HmsDeadLette
 
     long countByHmsJobIdAndStatus(String hmsJobId, String status);
 
+    @org.springframework.transaction.annotation.Transactional
     void deleteByHmsJobId(String hmsJobId);
 }

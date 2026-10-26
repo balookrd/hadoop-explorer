@@ -81,10 +81,23 @@ public class HmsPathRewriter {
         }
 
         try {
-            URI uri = URI.create(sourceUri);
-            String scheme = uri.getScheme();
-            String authority = uri.getAuthority();
-            String path = uri.getPath();
+            // Разбор строкой, а не через java.net.URI: getPath() раскодирует %3A и прочие
+            // экранирования метастора, и путь приемника расходился с реальным каталогом, а пробел
+            // в значении партиции ронял URI.create — таблица падала целиком. Путь переносится как есть.
+            String scheme = null;
+            String authority = null;
+            String path = sourceUri;
+            int schemeEnd = sourceUri.indexOf("://");
+            if (schemeEnd > 0) {
+                scheme = sourceUri.substring(0, schemeEnd);
+                String rest = sourceUri.substring(schemeEnd + 3);
+                int slash = rest.indexOf('/');
+                authority = slash < 0 ? rest : rest.substring(0, slash);
+                path = slash < 0 ? "" : rest.substring(slash);
+                if (authority.isEmpty()) {
+                    authority = null;
+                }
+            }
 
             if (scheme == null || authority == null) {
                 String targetPath = sourceUri;

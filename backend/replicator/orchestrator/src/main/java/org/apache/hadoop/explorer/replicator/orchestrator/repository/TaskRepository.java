@@ -76,6 +76,10 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     @Query("DELETE FROM TaskEntity t WHERE t.jobId = :jobId")
     void deleteByJobId(@Param("jobId") String jobId);
 
+    @Modifying
+    @Query("DELETE FROM TaskEntity t WHERE t.jobId IN (SELECT j.id FROM JobEntity j WHERE j.parentJobId = :parentJobId)")
+    int deleteBySubjobsOfParent(@Param("parentJobId") String parentJobId);
+
     @Query("""
         SELECT COUNT(t) FROM TaskEntity t
         WHERE t.status = :status

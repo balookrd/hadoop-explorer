@@ -436,15 +436,61 @@ public class JobService {
             .collect(Collectors.groupingBy(JobResponse::parentJobId));
     }
 
+    /**
+     * Удаление подзадач тремя пакетными DELETE вместо трех запросов на каждую из сотен тысяч.
+     */
     @Transactional
     public void deleteSubjobsByParentId(String parentJobId) {
         if (parentJobId == null || parentJobId.isBlank()) {
             return;
         }
-        List<JobEntity> subjobs = jobRepository.findByParentJobId(parentJobId);
-        for (JobEntity sub : subjobs) {
-            deleteJob(sub.getId());
+        taskRepository.deleteBySubjobsOfParent(parentJobId);
+        jobRunRepository.deleteBySubjobsOfParent(parentJobId);
+        jobRepository.deleteByParentJobId(parentJobId);
+    }
+
+    /** Отмена незавершенных подзадач: агенты перестают их брать до удаления родителя. */
+    @Transactional
+    public int cancelActiveSubjobs(String parentJobId) {
+        if (parentJobId == null || parentJobId.isBlank()) {
+            return 0;
         }
+        return jobRepository.cancelActiveSubjobs(parentJobId);
+    }
+
+    /** Сводка подзадач одного родителя. */
+    public record SubjobAggregate(long count, long totalBytes, long copiedBytes, long active,
+                                  Instant firstStartedAt, Instant lastCompletedAt) {
+    }
+
+    public Map<String, SubjobAggregate> aggregateSubjobsByParentIds(java.util.Collection<String> parentJobIds) {
+        if (parentJobIds == null || parentJobIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, SubjobAggregate> result = new java.util.HashMap<>();
+        for (Object[] row : jobRepository.aggregateSubjobsByParent(parentJobIds)) {
+            result.put((String) row[0], new SubjobAggregate(
+                ((Number) row[1]).longValue(),
+                ((Number) row[2]).longValue(),
+                ((Number) row[3]).longValue(),
+                ((Number) row[4]).longValue(),
+                (Instant) row[5],
+                (Instant) row[6]));
+        }
+        return result;
+    }
+
+    /** Страница подзадач: счетчики запусков считаются только для нее. */
+    public org.springframework.data.domain.Page<JobResponse> listSubjobsByParentId(
+            String parentJobId, org.springframework.data.domain.Pageable pageable) {
+        var page = jobRepository.findByParentJobId(parentJobId, pageable);
+        if (page.isEmpty()) {
+            return page.map(j -> JobResponse.fromEntity(j, 0));
+        }
+        List<String> jobIds = page.getContent().stream().map(JobEntity::getId).toList();
+        Map<String, Integer> runCounts = jobRunRepository.countByJobIdIn(jobIds).stream()
+            .collect(Collectors.toMap(JobRunRepository.JobRunCount::getJobId, c -> (int) c.getRunCount()));
+        return page.map(j -> JobResponse.fromEntity(j, runCounts.getOrDefault(j.getId(), 0)));
     }
 
     public List<JobResponse> listJobs(String status, String username, boolean isAdmin) {
@@ -485,6 +531,21 @@ public class JobService {
 
     public Optional<JobEntity> getJobEntity(String id) {
         return jobRepository.findById(id);
+    }
+
+    /**
+     * Статусы заданий по идентификаторам — для ожидания подзадач данных агентом.
+     *
+     * <p>Без подсчета запусков: агенту нужен только статус, а счетчик на каждый опрос сотен
+     * агентов — лишний запрос к таблице запусков.
+     */
+    public List<JobResponse> getJobsByIds(java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return jobRepository.findAllById(ids).stream()
+            .map(j -> JobResponse.fromEntity(j, 0))
+            .toList();
     }
 
     public Optional<JobResponse> getJob(String id) {

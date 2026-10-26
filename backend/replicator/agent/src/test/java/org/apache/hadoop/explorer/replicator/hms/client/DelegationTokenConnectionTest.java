@@ -109,4 +109,29 @@ class DelegationTokenConnectionTest {
         assertTrue(issued.get() == 2,
                 "после отказа токен берется заново, а не используется протухший: запрошено " + issued.get());
     }
+
+    @Test
+    @DisplayName("Перевыпущенный токен отзывает прежний: хранилище токенов метастора не растет")
+    void reissuedTokenCancelsPrevious() throws Exception {
+        AtomicInteger issued = new AtomicInteger();
+        List<String> cancelled = new CopyOnWriteArrayList<>();
+        List<String> issuedTokens = new CopyOnWriteArrayList<>();
+        MetaStoreConnectionFactory factory = new MetaStoreConnectionFactory(
+                "dc1", new Configuration(), null,
+                conf -> mock(IMetaStoreClient.class),
+                username -> {
+                    issued.incrementAndGet();
+                    String token = tokenFor(username + issued.get());
+                    issuedTokens.add(token);
+                    return token;
+                },
+                cancelled::add);
+        factory.setTokenTtlNanosForTest(0);
+
+        factory.create("analyst@COMPANY.LOCAL");
+        factory.create("analyst@COMPANY.LOCAL");
+
+        assertEquals(2, issued.get(), "с нулевым сроком токен перевыпускается");
+        assertEquals(List.of(issuedTokens.get(0)), cancelled, "отзывается ровно прежний токен");
+    }
 }

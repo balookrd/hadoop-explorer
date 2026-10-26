@@ -309,6 +309,9 @@ public class HmsControlPlaneDispatcherTest {
                 "dc1", "dc2", "poison_db", "poison_db", "*", "operator"
         );
 
+        // Агент сначала захватывает задачу опросом: отчет без аренды оркестратор отклоняет
+        coordinatorService.getPendingJobsForCluster("dc1", "agent-dlq-src");
+
         // Агент изолирует ядовитое CDC событие в DLQ
         HmsEventReportDto poisonEvent = new HmsEventReportDto(
                 9999L, "ALTER_TABLE", "corrupt_table", null,

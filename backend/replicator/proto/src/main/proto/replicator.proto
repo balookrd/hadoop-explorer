@@ -223,6 +223,9 @@ message ApplyTableRequest {
   string job_id = 1;
   HmsTableProto table = 2;
   string execution_principal = 3;
+  // Прежнее имя таблицы при RENAME: приемник переименовывает ее (alter_table), сохраняя
+  // партиции, а не создает пустую таблицу под новым именем
+  string rename_from = 4;
 }
 
 // Метаданные партиции Hive
@@ -288,6 +291,13 @@ message GetMetadataSnapshotRequest {
   string db_name = 2;
   string table_name = 3;
   string execution_principal = 4;
+  // Только схема таблицы, без партиций: для проверки дрейфа партиции не нужны, а у таблицы
+  // в 200k партиций их полный список не помещается в gRPC-сообщение
+  bool skip_partitions = 5;
+  // Постраничная выдача имен партиций (k1=v1/k2=v2) вместо полных объектов
+  bool partition_names_only = 6;
+  int32 partition_page = 7;
+  int32 partition_page_size = 8;
 }
 
 // Ответ со срезом метаданных
@@ -299,6 +309,9 @@ message GetMetadataSnapshotResponse {
   // Заполняются только для адресного запроса (table_name задан), чтобы обход базы с тысячами
   // таблиц не превращался в тысячу обращений к метастору.
   repeated HmsTableProto existing_table_schemas = 4;
+  // Страница имен партиций (partition_names_only) и их общее число у таблицы
+  repeated string existing_partition_names = 5;
+  int32 total_partition_names = 6;
 }
 
 // Унифицированный ответ об операции с метаданными

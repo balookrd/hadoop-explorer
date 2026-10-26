@@ -230,7 +230,7 @@ public class HmsReplicationControllerTest {
         when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
-                controller.getSubtasks("job-100", strangerAuth)
+                controller.getSubtasks("job-100", 0, 200, strangerAuth)
         );
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
     }
@@ -254,4 +254,54 @@ public class HmsReplicationControllerTest {
     }
 
 
+
+    @Test
+    @DisplayName("Пауза остановленной задачи отклоняется 409, а не 500")
+    void pauseOfStoppedJobIsConflict() {
+        HmsReplicationJobEntity job = createJobEntity("job-100", "alice");
+        job.setStatus("STOPPED");
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.pauseJob("job-100", ownerAuth));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Пауза посреди bootstrap: возобновление запускает bootstrap заново, а не CDC")
+    void resumeAfterBootstrapPauseRestartsBootstrap() {
+        HmsReplicationJobEntity job = createJobEntity("job-100", "alice");
+        job.setStatus("BOOTSTRAPPING");
+        job.setAssignedAgentId("agent-1");
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(job));
+
+        controller.pauseJob("job-100", ownerAuth);
+        assertEquals("PAUSED", job.getStatus());
+        assertNull(job.getAssignedAgentId(), "пауза снимает аренду: агент получит отказ и остановится");
+
+        controller.resumeJob("job-100", ownerAuth);
+        assertEquals("QUEUED", job.getStatus());
+    }
+
+    @Test
+    @DisplayName("Пауза CDC: возобновление возвращает ACTIVE")
+    void resumeAfterCdcPauseReturnsActive() {
+        HmsReplicationJobEntity job = createJobEntity("job-100", "alice");
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(job));
+
+        controller.pauseJob("job-100", ownerAuth);
+        controller.resumeJob("job-100", ownerAuth);
+
+        assertEquals("ACTIVE", job.getStatus());
+    }
+
+    @Test
+    @DisplayName("Возобновление задачи не на паузе отклоняется 409")
+    void resumeOfNonPausedJobIsConflict() {
+        when(jobRepository.findById("job-100")).thenReturn(Optional.of(createJobEntity("job-100", "alice")));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                controller.resumeJob("job-100", ownerAuth));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    }
 }

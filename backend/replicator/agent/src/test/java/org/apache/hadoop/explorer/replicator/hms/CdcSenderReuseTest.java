@@ -74,6 +74,12 @@ class CdcSenderReuseTest {
 
         OrchestratorGrpcClient orchestratorClient = new OrchestratorGrpcClient() {
             @Override
+            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
+                // Копирование данных в этих тестах считается успешным: проверяется метаданная часть
+                return true;
+            }
+
+            @Override
             public boolean reportHmsProgress(String jobId, HmsProgressReportRequest report) {
                 return true;
             }

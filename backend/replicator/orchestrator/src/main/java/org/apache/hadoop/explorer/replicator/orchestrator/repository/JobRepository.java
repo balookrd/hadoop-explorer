@@ -16,6 +16,29 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
     List<JobEntity> findByJobType(String jobType);
     List<JobEntity> findByJobTypeAndStatus(String jobType, String status);
     List<JobEntity> findByParentJobId(String parentJobId);
+
+    org.springframework.data.domain.Page<JobEntity> findByParentJobId(String parentJobId,
+                                                                      org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * Сводка подзадач по родителям одним агрегатом: у HMS-задачи на таблицу в 200k партиций
+     * столько же подзадач, и загрузка их всех ради сумм на каждом опросе UI клала оркестратор.
+     * Порядок колонок: parentJobId, count, totalBytes, copiedBytes, active, firstStartedAt, lastCompletedAt.
+     */
+    @Query("SELECT j.parentJobId, count(j), coalesce(sum(j.totalBytes), 0), coalesce(sum(j.copiedBytes), 0), "
+            + "coalesce(sum(case when upper(j.status) in ('RUNNING', 'QUEUED') then 1 else 0 end), 0), "
+            + "min(coalesce(j.startedAt, j.createdAt)), max(j.completedAt) "
+            + "FROM JobEntity j WHERE j.parentJobId IN :parentIds GROUP BY j.parentJobId")
+    List<Object[]> aggregateSubjobsByParent(@Param("parentIds") java.util.Collection<String> parentIds);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE JobEntity j SET j.status = 'CANCELLED' WHERE j.parentJobId = :parentJobId "
+            + "AND upper(j.status) IN ('QUEUED', 'RUNNING', 'SCHEDULED', 'PENDING')")
+    int cancelActiveSubjobs(@Param("parentJobId") String parentJobId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM JobEntity j WHERE j.parentJobId = :parentJobId")
+    int deleteByParentJobId(@Param("parentJobId") String parentJobId);
     List<JobEntity> findByParentJobIdIn(java.util.Collection<String> parentJobIds);
     List<JobEntity> findByParentJobIdAndSourcePathAndTargetPath(String parentJobId, String sourcePath, String targetPath);
 

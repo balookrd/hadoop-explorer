@@ -27,6 +27,11 @@ public class ReplicatorAgentConfig {
     private String agentSecret;
     private Double maxBandwidthMbS;
     private double pollIntervalSec;
+    // Значения по умолчанию нужны и конфигурации, собранной сеттерами, а не из окружения
+    private boolean hmsDataBarrierEnabled = true;
+    private long hmsDataBarrierTimeoutSec = 21600;
+    private int hmsBootstrapConcurrency = 8;
+    private int hmsPartitionBatchSize = 1000;
     private boolean enableDynamicRegistration;
     private String keytabPath;
     private String principal;
@@ -131,6 +136,12 @@ public class ReplicatorAgentConfig {
         }
 
         config.pollIntervalSec = Double.parseDouble(getEnv("POLL_INTERVAL_SEC", "3.0"));
+        // Барьер «данные раньше DDL»: копия таблицы на терабайты идет часами, поэтому таймаут
+        // по умолчанию — 6 часов, а не минута
+        config.hmsDataBarrierEnabled = Boolean.parseBoolean(getEnv("REPLICATOR_HMS_DATA_BARRIER_ENABLED", "true"));
+        config.hmsDataBarrierTimeoutSec = Long.parseLong(getEnv("REPLICATOR_HMS_DATA_BARRIER_TIMEOUT_SEC", "21600"));
+        config.hmsBootstrapConcurrency = Integer.parseInt(getEnv("REPLICATOR_HMS_BOOTSTRAP_CONCURRENCY", "8"));
+        config.hmsPartitionBatchSize = Integer.parseInt(getEnv("REPLICATOR_HMS_PARTITION_BATCH_SIZE", "1000"));
         config.enableDynamicRegistration = Boolean.parseBoolean(getEnv("AGENT_ENABLE_REGISTRATION", "true"));
         config.keytabPath = getEnv("KRB5_KEYTAB", getEnv("REPLICATOR_KEYTAB_PATH", null));
         config.principal = getEnv("KRB5_PRINCIPAL", getEnv("REPLICATOR_EXECUTION_PRINCIPAL", null));
@@ -255,6 +266,10 @@ public class ReplicatorAgentConfig {
     public void setMaxBandwidthMbS(Double maxBandwidthMbS) { this.maxBandwidthMbS = maxBandwidthMbS; }
 
     public double getPollIntervalSec() { return pollIntervalSec; }
+    public boolean isHmsDataBarrierEnabled() { return hmsDataBarrierEnabled; }
+    public long getHmsDataBarrierTimeoutSec() { return hmsDataBarrierTimeoutSec; }
+    public int getHmsBootstrapConcurrency() { return hmsBootstrapConcurrency; }
+    public int getHmsPartitionBatchSize() { return hmsPartitionBatchSize; }
     public void setPollIntervalSec(double pollIntervalSec) { this.pollIntervalSec = pollIntervalSec; }
 
     public boolean isEnableDynamicRegistration() { return enableDynamicRegistration; }

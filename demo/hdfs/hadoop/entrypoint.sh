@@ -80,6 +80,16 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
         <name>hadoop.proxyuser.hdfs.groups</name>
         <value>*</value>
     </property>
+    <!-- Метастор работает с doAs: каталоги баз и партиций он создает от имени вызывающего
+         пользователя, и без права имперсонации create_database/add_partitions с путем в HDFS падают -->
+    <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+    </property>
     <property>
         <name>hadoop.proxyuser.svc_sql_explorer.hosts</name>
         <value>*</value>

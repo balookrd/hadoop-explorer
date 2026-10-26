@@ -86,4 +86,16 @@ public class HmsPathRewriterTest {
         assertEquals("ns-cold", list.get(2).sourceNameservice());
         assertEquals("ns-warm", list.get(2).targetNameservice());
     }
+
+    @Test
+    @DisplayName("Экранирование метастора (%3A) и пробелы в значениях партиций переносятся как есть")
+    void escapedAndSpacedPartitionPathsSurvive() {
+        HmsPathRewriter rewriter = new HmsPathRewriter(
+                HmsPathRewriter.parseMappings("hdfs-cluster-1:9000=hdfs://hdfs-cluster-2:9000"), null);
+
+        var escaped = rewriter.rewrite("hdfs://hdfs-cluster-1:9000/wh/t/ts=2026-10-01 10%3A00%3A00", "dc1", "dc2");
+        assertEquals("hdfs://hdfs-cluster-2:9000/wh/t/ts=2026-10-01 10%3A00%3A00", escaped.targetUri(),
+                "путь приемника должен совпадать с каталогом, который создаст метастор");
+        assertFalse(escaped.unmapped(), "пробел в значении партиции не должен ронять перезапись");
+    }
 }

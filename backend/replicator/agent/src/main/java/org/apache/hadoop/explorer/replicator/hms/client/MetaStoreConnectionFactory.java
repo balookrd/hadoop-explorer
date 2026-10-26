@@ -52,6 +52,11 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
         String issue(String username) throws Exception;
     }
 
+    /** Отзыв delegation token, ставшего ненужным. */
+    interface TokenCanceller {
+        void cancel(String token) throws Exception;
+    }
+
     private record CachedToken(String value, long issuedAtNanos) {
     }
 
@@ -60,19 +65,51 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
     private final UserGroupInformation agentUgi;
     private final Opener opener;
     private final TokenIssuer tokenIssuer;
+    private final TokenCanceller tokenCanceller;
     private final Map<String, CachedToken> tokenCache = new ConcurrentHashMap<>();
+    /** Срок переиспользования токена; меняется только в тестах. */
+    private volatile long tokenTtlNanos = TOKEN_TTL_NANOS;
+
+    void setTokenTtlNanosForTest(long ttlNanos) {
+        this.tokenTtlNanos = ttlNanos;
+    }
 
     MetaStoreConnectionFactory(String clusterId, Configuration conf, UserGroupInformation agentUgi, Opener opener) {
-        this(clusterId, conf, agentUgi, opener, defaultIssuer(conf, agentUgi, opener));
+        this(clusterId, conf, agentUgi, opener, defaultIssuer(conf, agentUgi, opener), defaultCanceller(conf, agentUgi, opener));
     }
 
     MetaStoreConnectionFactory(String clusterId, Configuration conf, UserGroupInformation agentUgi,
                                Opener opener, TokenIssuer tokenIssuer) {
+        this(clusterId, conf, agentUgi, opener, tokenIssuer, null);
+    }
+
+    MetaStoreConnectionFactory(String clusterId, Configuration conf, UserGroupInformation agentUgi,
+                               Opener opener, TokenIssuer tokenIssuer, TokenCanceller tokenCanceller) {
         this.clusterId = clusterId;
         this.conf = conf;
         this.agentUgi = agentUgi;
         this.opener = opener;
         this.tokenIssuer = tokenIssuer;
+        this.tokenCanceller = tokenCanceller;
+    }
+
+    private static TokenCanceller defaultCanceller(Configuration conf, UserGroupInformation agentUgi, Opener opener) {
+        if (agentUgi == null) {
+            return null;
+        }
+        return token -> {
+            reloginIfExpiring(agentUgi);
+            agentUgi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                // Клиент метастора 3.1 не AutoCloseable: закрываем явно
+                IMetaStoreClient client = opener.open(conf);
+                try {
+                    client.cancelDelegationToken(token);
+                } finally {
+                    client.close();
+                }
+                return null;
+            });
+        };
     }
 
     /**
@@ -84,11 +121,31 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
         if (agentUgi == null) {
             return null;
         }
-        return username -> agentUgi.doAs((PrivilegedExceptionAction<String>) () -> {
-            try (IMetaStoreClient client = opener.open(conf)) {
-                return client.getDelegationToken(username, agentUgi.getShortUserName());
-            }
-        });
+        return username -> {
+            reloginIfExpiring(agentUgi);
+            return agentUgi.doAs((PrivilegedExceptionAction<String>) () -> {
+                IMetaStoreClient client = opener.open(conf);
+                try {
+                    return client.getDelegationToken(username, agentUgi.getShortUserName());
+                } finally {
+                    client.close();
+                }
+            });
+        };
+    }
+
+    /**
+     * Обновление TGT агента перед открытием SASL-соединения.
+     *
+     * <p>Thrift SASL сам билет не обновляет: уже открытые соединения переживают его истечение,
+     * но новые (пул вытесняет простаивающие) и выдача delegation token падают, как только TGT
+     * протух. Bootstrap большой схемы длится дольше срока жизни билета, поэтому перелогин
+     * обязателен; вызов дешевый — Hadoop идет в KDC только когда билет близок к истечению.
+     */
+    static void reloginIfExpiring(UserGroupInformation ugi) throws java.io.IOException {
+        if (ugi != null && ugi.isFromKeytab()) {
+            ugi.checkTGTAndReloginFromKeytab();
+        }
     }
 
     @Override
@@ -111,6 +168,7 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
         if (agentUgi == null) {
             return opener.open(conf);
         }
+        reloginIfExpiring(agentUgi);
         return agentUgi.doAs((PrivilegedExceptionAction<IMetaStoreClient>) () -> opener.open(conf));
     }
 
@@ -137,7 +195,7 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
 
     private String tokenFor(String username) throws Exception {
         CachedToken cached = tokenCache.get(username);
-        if (cached != null && System.nanoTime() - cached.issuedAtNanos() < TOKEN_TTL_NANOS) {
+        if (cached != null && System.nanoTime() - cached.issuedAtNanos() < tokenTtlNanos) {
             return cached.value();
         }
         String issued = tokenIssuer.issue(username);
@@ -145,7 +203,29 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
             throw new IllegalStateException("Метастор не выдал delegation token для пользователя " + username);
         }
         tokenCache.put(username, new CachedToken(issued, System.nanoTime()));
+        if (cached != null) {
+            cancelQuietly(username, cached.value());
+        }
         return issued;
+    }
+
+    /**
+     * Отзыв прежнего токена пользователя после выдачи нового.
+     *
+     * <p>Без отзыва каждый агент оставлял в хранилище токенов метастора по токену на пользователя
+     * в час, и при сотнях агентов оно росло до истечения максимального срока жизни токенов.
+     * Уже открытые соединения отзыв не рвет: токен проверяется только при подключении.
+     */
+    private void cancelQuietly(String username, String token) {
+        if (tokenCanceller == null) {
+            return;
+        }
+        try {
+            tokenCanceller.cancel(token);
+        } catch (Exception e) {
+            log.warn("[ThriftHmsClient:{}] Не удалось отозвать прежний delegation token пользователя '{}': {}",
+                    clusterId, username, e.getMessage());
+        }
     }
 
     @Override

@@ -13,6 +13,7 @@
     <description>Высокопроизводительный Replicator Agent на Java 21 для запуска на нодах Hadoop (Standalone) и в YARN (ApplicationMaster/Containers)</description>
 
     <properties>
+        <hive.metastore.version>3.1.3</hive.metastore.version>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -140,31 +141,56 @@
             <version>${hadoop.version}</version>
         </dependency>
 
-        <!-- Apache Hive Standalone Metastore Thrift Client -->
+        <!-- Клиент Hive Metastore 3.1: основные кластеры (HDP 3.1 / Hive 3.1) отвечают на Thrift-контракт
+             3.1, а клиент 4.0 вызывает методы *_req (create_table_req, get_partitions_by_names_req), которых у
+             метастора 3.1 нет. Клиент 3.1 работает и с метастором 4.x: старые методы там сохранены.
+             Артефакт 3.1 несет весь сервер метастора (DataNucleus, Derby, пулы соединений), protobuf 2.5 и
+             guava 19, ломающие gRPC, и log4j-биндинг, конфликтующий с logback, поэтому транзитивные
+             зависимости исключены целиком, а нужное клиенту подключено явно. -->
         <dependency>
             <groupId>org.apache.hive</groupId>
-            <artifactId>hive-standalone-metastore-common</artifactId>
-            <version>4.0.0</version>
+            <artifactId>hive-standalone-metastore</artifactId>
+            <version>${hive.metastore.version}</version>
             <exclusions>
                 <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Типы транзакций (ValidTxnList, ValidWriteIdList) из сигнатур IMetaStoreClient 3.1 -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-storage-api</artifactId>
+            <version>2.7.0</version>
+            <exclusions>
                 <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Сгенерированный Thrift-код метастора 3.1 требует рантайм той же линии: в libthrift 0.14+
+             транспорты переехали в другие пакеты -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+            <version>0.9.3</version>
+            <exclusions>
                 <exclusion>
-                    <groupId>ch.qos.reload4j</groupId>
-                    <artifactId>reload4j</artifactId>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libfb303</artifactId>
+            <version>0.9.3</version>
+            <exclusions>
                 <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-reload4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.logging.log4j</groupId>
-                    <artifactId>log4j-slf4j-impl</artifactId>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

@@ -431,15 +431,20 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             // Агент опрашивает контрольный канал каждые несколько секунд, поэтому выборка идет
             // запросом по кластеру-источнику и с пределом: прежний проход читал таблицу заданий
             // целиком (включая пофайловые подзадачи метастора) и фильтровал по кластеру в памяти.
-            var page = jobService.listJobsForCluster(request.getClusterId(), request.getIncludeSubjobs(),
-                    org.springframework.data.domain.PageRequest.of(0, AGENT_JOBS_LIMIT,
-                            org.springframework.data.domain.Sort.by(
-                                    org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
-            if (page.getTotalElements() > AGENT_JOBS_LIMIT) {
-                log.warn("Агенту кластера '{}' отдано {} заданий из {}: предел выборки контрольного канала",
-                        request.getClusterId(), AGENT_JOBS_LIMIT, page.getTotalElements());
+            List<JobResponse> jobs;
+            if (request.getJobIdsCount() > 0) {
+                jobs = jobService.getJobsByIds(request.getJobIdsList().stream().limit(AGENT_JOBS_LIMIT).toList());
+            } else {
+                var page = jobService.listJobsForCluster(request.getClusterId(), request.getIncludeSubjobs(),
+                        org.springframework.data.domain.PageRequest.of(0, AGENT_JOBS_LIMIT,
+                                org.springframework.data.domain.Sort.by(
+                                        org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+                if (page.getTotalElements() > AGENT_JOBS_LIMIT) {
+                    log.warn("Агенту кластера '{}' отдано {} заданий из {}: предел выборки контрольного канала",
+                            request.getClusterId(), AGENT_JOBS_LIMIT, page.getTotalElements());
+                }
+                jobs = page.getContent();
             }
-            List<JobResponse> jobs = page.getContent();
             GetJobsResponse.Builder builder = GetJobsResponse.newBuilder();
 
             for (JobResponse job : jobs) {
@@ -565,6 +570,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     @Override
     public void reportHmsProgress(ReportHmsProgressRequest request, StreamObserver<ReportHmsProgressResponse> responseObserver) {
         try {
+            boolean accepted = true;
             if (hmsCoordinatorService != null) {
                 List<HmsEventReportDto> domainEvents = null;
                 if (request.getEventsCount() > 0) {
@@ -590,17 +596,20 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         request.getTablesSynced(),
                         request.getTotalPartitions(),
                         request.getPartitionsSynced(),
-                        request.getLastEventId(),
+                        // proto3 передает «позиция не задана» нулем; ноль как позиция затер бы
+                        // настоящую и выглядел бы откатом
+                        request.getLastEventId() != 0L ? request.getLastEventId() : null,
                         request.getBootstrapEventId() != 0L ? request.getBootstrapEventId() : null,
                         request.getEventLag(),
                         request.getMessage(),
                         domainEvents,
                         request.getAgentId().isEmpty() ? null : request.getAgentId()
                 );
-                hmsCoordinatorService.updateJobProgress(request.getJobId(), domainReq);
+                accepted = hmsCoordinatorService.updateJobProgress(request.getJobId(), domainReq);
             }
 
-            responseObserver.onNext(ReportHmsProgressResponse.newBuilder().setSuccess(true).build());
+            // Отказ должен дойти до агента: по нему он прекращает работу над отобранной задачей
+            responseObserver.onNext(ReportHmsProgressResponse.newBuilder().setSuccess(accepted).build());
             responseObserver.onCompleted();
         } catch (Exception e) {
             log.error("Ошибка gRPC reportHmsProgress для job '{}': {}", request.getJobId(), e.getMessage(), e);
@@ -613,6 +622,15 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
         try {
             String syncMode = (request.getSyncMode() != null && !request.getSyncMode().isBlank()) ? request.getSyncMode() : null;
             String jobType = (request.getJobType() != null && !request.getJobType().isBlank()) ? request.getJobType() : "HMS_SUBJOB";
+
+            if (hmsCoordinatorService != null
+                    && !hmsCoordinatorService.acceptsSubjobFrom(request.getParentJobId(), request.getAgentId())) {
+                log.warn("Fencing: отклонена подзадача данных для HMS-задачи '{}' от агента '{}' ({})",
+                        request.getParentJobId(), request.getAgentId(), request.getSourcePath());
+                responseObserver.onNext(CreateHdfsSubjobResponse.newBuilder().setSuccess(false).setFenced(true).build());
+                responseObserver.onCompleted();
+                return;
+            }
 
             CreateJobRequest domainReq = new CreateJobRequest(
                     request.getSourcePath(),
@@ -631,8 +649,10 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             );
 
             // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC
-            JobResponse subjob = jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
-                    .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
+            JobResponse subjob = request.getForceNew()
+                    ? jobService.createJob(domainReq, "system_agent")
+                    : jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
+                            .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
 
             if (subjob != null && "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType) && hmsCoordinatorService != null) {
                 hmsCoordinatorService.linkCompanionHdfsJob(request.getParentJobId(), subjob.id(), request.getSourcePath());

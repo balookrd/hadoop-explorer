@@ -331,10 +331,22 @@ public class HmsReplicationController {
         );
     }
 
+    /**
+     * Подзадачи HMS-задачи постранично: у таблицы в 200k партиций столько же подзадач.
+     * Общее число — в заголовке {@code X-Total-Count}, тело остается списком.
+     */
     @GetMapping("/{id}/subtasks")
-    public ResponseEntity<List<JobResponse>> getSubtasks(@PathVariable String id, Authentication auth) {
+    public ResponseEntity<List<JobResponse>> getSubtasks(@PathVariable String id,
+                                                         @RequestParam(defaultValue = "0") int page,
+                                                         @RequestParam(defaultValue = "200") int size,
+                                                         Authentication auth) {
         checkHmsJobReadAccess(id, auth);
-        return ResponseEntity.ok(jobService.listSubjobsByParentId(id));
+        var result = jobService.listSubjobsByParentId(id, PageRequest.of(Math.max(0, page),
+                Math.min(Math.max(1, size), 1000), org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+        return ResponseEntity.ok()
+                .header("X-Total-Count", String.valueOf(result.getTotalElements()))
+                .body(result.getContent());
     }
 
     private void checkHmsJobAccess(String jobId, Authentication auth) {
@@ -372,7 +384,11 @@ public class HmsReplicationController {
         checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
-                    job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED);
+                    if (!job.pause()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.CONFLICT,
+                                "Задачу в статусе " + job.getStatus() + " нельзя поставить на паузу");
+                    }
                     jobRepository.save(job);
                     coordinatorService.pauseCompanionJob(job);
                     return ResponseEntity.ok(job);
@@ -385,7 +401,11 @@ public class HmsReplicationController {
         checkHmsJobAccess(id, auth);
         return jobRepository.findById(id)
                 .map(job -> {
-                    job.transitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE);
+                    if (!job.resume()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.CONFLICT,
+                                "Задача в статусе " + job.getStatus() + " не на паузе");
+                    }
                     jobRepository.save(job);
                     coordinatorService.resumeCompanionJob(job);
                     return ResponseEntity.ok(job);
@@ -456,7 +476,8 @@ public class HmsReplicationController {
             @PathVariable String id,
             Authentication auth
     ) {
-        checkHmsJobAccess(id, auth);
+        // Отчет о дрейфе только читает журнал задачи: права на запись для него не нужны
+        checkHmsJobReadAccess(id, auth);
         return ResponseEntity.ok(coordinatorService.scanSchemaDrift(id));
     }
 }

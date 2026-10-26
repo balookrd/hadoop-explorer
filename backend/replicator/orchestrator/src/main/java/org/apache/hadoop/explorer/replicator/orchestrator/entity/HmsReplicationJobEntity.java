@@ -122,6 +122,10 @@ public class HmsReplicationJobEntity {
     @Column(name = "last_failed_agent_id", length = 64)
     private String lastFailedAgentId;
 
+    /** Статус до паузы: по нему возобновление решает, вернуться в CDC или заново в bootstrap. */
+    @Column(name = "paused_from_status", length = 32)
+    private String pausedFromStatus;
+
     @Transient
     @JsonProperty("started_at")
     private Instant startedAt;
@@ -195,6 +199,54 @@ public class HmsReplicationJobEntity {
         getJobStatus().validateTransition(targetStatus);
         setJobStatus(targetStatus);
     }
+    /**
+     * Пауза с запоминанием прежнего статуса.
+     *
+     * <p>Аренда снимается: агент, работавший над задачей, получит отказ на следующем отчете и
+     * остановится, а после возобновления задачу заново захватит опросом любой агент.
+     *
+     * @return {@code false}, если из текущего статуса пауза невозможна (задача остановлена,
+     *         завершена с ошибкой и т.п.)
+     */
+    public boolean pause() {
+        org.apache.hadoop.explorer.replicator.model.HmsJobStatus current = getJobStatus();
+        if (current == org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED) {
+            return true;
+        }
+        if (!current.canTransitionTo(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED)) {
+            return false;
+        }
+        this.pausedFromStatus = current.name();
+        setJobStatus(org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED);
+        this.assignedAgentId = null;
+        this.leaseExpiresAt = null;
+        return true;
+    }
+
+    /**
+     * Возобновление: CDC — с сохраненной позиции, все остальное — с bootstrap.
+     *
+     * <p>Пауза посреди bootstrap оставляет схему перенесенной частично; переход сразу в ACTIVE
+     * пропустил бы остаток. Bootstrap идемпотентен (существующие объекты обновляются), поэтому
+     * повтор с начала безопасен.
+     *
+     * @return {@code false}, если задача не на паузе
+     */
+    public boolean resume() {
+        if (getJobStatus() != org.apache.hadoop.explorer.replicator.model.HmsJobStatus.PAUSED) {
+            return false;
+        }
+        boolean wasStreaming = org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE.name()
+                .equalsIgnoreCase(pausedFromStatus);
+        setJobStatus(wasStreaming
+                ? org.apache.hadoop.explorer.replicator.model.HmsJobStatus.ACTIVE
+                : org.apache.hadoop.explorer.replicator.model.HmsJobStatus.QUEUED);
+        this.pausedFromStatus = null;
+        return true;
+    }
+
+    public String getPausedFromStatus() { return pausedFromStatus; }
+    public void setPausedFromStatus(String pausedFromStatus) { this.pausedFromStatus = pausedFromStatus; }
     public Long getBootstrapEventId() { return bootstrapEventId; }
     public void setBootstrapEventId(Long bootstrapEventId) { this.bootstrapEventId = bootstrapEventId; }
     public Long getLastProcessedEventId() { return lastProcessedEventId; }

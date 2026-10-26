@@ -141,7 +141,7 @@ class CdcEventCoverageTest {
     void unsupportedEventShouldBeRecorded() {
         srcHmsClient.createDatabase(SRC_DB, "hdfs://ns-hot:8020/warehouse/analytics.db");
         srcHmsClient.createTable(table(SRC_DB, List.of(new HmsFieldSchemaDto("id", "bigint"))));
-        srcHmsClient.emitEvent("INSERT", SRC_DB, "sales_daily", "{}");
+        srcHmsClient.emitEvent("ALTER_DATABASE", SRC_DB, null, "{}");
 
         executor.pollAndSyncCdc(job(0L));
 

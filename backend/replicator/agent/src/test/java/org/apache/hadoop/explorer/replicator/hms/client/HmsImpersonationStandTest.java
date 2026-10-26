@@ -93,8 +93,11 @@ class HmsImpersonationStandTest {
         UserGroupInformation agent = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
                 System.getenv("KRB5_PRINCIPAL"), keytab);
         return agent.doAs((PrivilegedExceptionAction<T>) () -> {
-            try (IMetaStoreClient client = new HiveMetaStoreClient(conf)) {
+            IMetaStoreClient client = new HiveMetaStoreClient(conf);
+            try {
                 return action.run(client);
+            } finally {
+                client.close();
             }
         });
     }

@@ -800,7 +800,7 @@ topology:
 | `replicator_throttling_delay_seconds_total` | Counter | Суммарная задержка воркеров из-за иерархического Token Bucket шейпера |
 | `replicator_throttling_delay_seconds` | Gauge | Текущее накопленное время ожидания токенов шейпера полосы пропускания |
 | `replicator_throttling_global_limit_bytes_per_sec` | Gauge | Глобальный лимит пропускной способности WAN-канала в байтах/сек |
-| `replicator_hms_jobs_total{status}` | Gauge | Задачи репликации Hive Metastore (`BOOTSTRAPPING`, `STREAMING`, `WAITING_FOR_AGENTS`, `COMPLETED`, `FAILED`) |
+| `replicator_hms_jobs_total{status}` | Gauge | Задачи репликации Hive Metastore (`QUEUED`, `BOOTSTRAPPING`, `ACTIVE`, `PAUSED`, `ERROR`, `WAITING_FOR_AGENTS`, `STOPPED`, `FAILED`) |
 | `replicator_hms_tables_total{type}` | Gauge | Количество таблиц HMS (`total`, `replicated`) |
 | `replicator_hms_partitions_total{type}` | Gauge | Количество партиций таблиц HMS (`total`, `replicated`) |
 | `replicator_hms_speed_bytes_per_second` | Gauge | Текущая скорость передачи данных HMS-репликации (байт/сек) |

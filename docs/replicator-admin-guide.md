@@ -216,6 +216,7 @@ flowchart TD
 | `HADOOP_REPLICATOR_HMS_BOOTSTRAP_CONCURRENCY` | Количество параллельных потоков-воркеров для Bootstrap таблиц схемы Hive | `8` | Опционально |
 | `HADOOP_REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Размер пакета (чанков) партиций для безопасного Thrift RPC трансфера | `1000` | Опционально |
 | `HADOOP_REPLICATOR_HMS_LEASE_TIMEOUT_SECONDS` | Длительность эксклюзивной аренды (Distributed Lease) HMS задачи агентом источника (сек) | `30` | Опционально |
+| `HADOOP_REPLICATOR_HMS_MAX_BOOTSTRAPS_PER_AGENT` | Сколько bootstrap HMS-задач один агент кластера ведет одновременно. CDC-задачи (ACTIVE) в предел не входят: их раздача ничем не ограничена, свободную задачу берет один из наименее загруженных агентов кластера (разница не больше одной задачи) | `4` | Опционально |
 | `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового mock-слоя эмуляции кластеров и метасторов (`/api/v1/hms/clusters/**`) для демо-стендов и тестов | `false` (в боевом режиме полностью отключено) | Опционально |
 | — (флаг задания `sync_deletes`) | — | Репликация удалений потокового задания: включается в интерфейсе на задание, не переменной окружения. По умолчанию выключена |
 | `HADOOP_REPLICATOR_TASK_RETENTION_DAYS` | Возраст, после которого завершенная подзадача удаляется; `0` выключает очистку | `7` | Опционально |
@@ -267,6 +268,10 @@ flowchart TD
 | `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | Отключение проверки HTTPS сертификатов при запросах к Оркестратору | `false` | Опционально |
 | `REPLICATOR_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (боевое прямое подключение Thrift RPC к Hive Metastore), `demo-http` (REST симулятор стенда), `mock` (unit-тесты) | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
 | `HMS_THRIFT_POOL_MAX_SIZE` | Максимальный размер пула Thrift-соединений к Hive Metastore (Commons-Pool2) | `16` (minIdle: 1, maxIdle: 8) | Опционально |
+| `REPLICATOR_HMS_DATA_BARRIER_ENABLED` | Барьер «данные раньше DDL»: партиции и таблицы появляются на приемнике только после успешного копирования их данных. Сбой связи с оркестратором барьер не открывает | `true` | Рекомендуется |
+| `REPLICATOR_HMS_DATA_BARRIER_TIMEOUT_SEC` | Сколько ждать копирования данных одной порции партиций, прежде чем отменить DDL (секунды). Копия таблицы на терабайты идет часами | `21600` (6 ч) | Опционально |
+| `REPLICATOR_HMS_BOOTSTRAP_CONCURRENCY` | Сколько таблиц агент переносит параллельно при bootstrap | `8` | Опционально |
+| `REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Порция партиций: столько читается из метастора, применяется на приемнике и держится в памяти агента за раз (не больше 1000) | `1000` | Опционально |
 | `TARGET_HDFS_DEFAULTFS` / `TARGET_HDFS_DEFAULT_FS` | URI целевой HDFS файловой системы (например, `hdfs://hdfs-cluster-2:9000`) для автоматической перезаписи схем и путей таблиц/партиций в Thrift Hive Metastore через `HmsPathRewriter` | Не задано (используются эвристики и mappings) | Рекомендуется при межкластерной репликации |
 | `REPLICATOR_FEDERATION_MAPPINGS` | Список сопоставлений HDFS authority для федерации кластеров через запятую (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,dc1=dc2`) | Не задано | Опционально |
 | `HMS_LOOP_INTERVAL_MS` | Интервал фонового опроса и синхронизации метаданных HMS в изолированном потоке `replicator-hms-loop` (мс) | `2000` (2 сек) | Опционально |
@@ -1305,11 +1310,15 @@ Replicator Orchestrator спроектирован для обеспечения
 
 2. **Автоматическое восстановление прерванного начального переноса схем (Bootstrap Recovery)**:
    - Если Оркестратор был перезапущен в момент выполнения первичной синхронизации схемы базы данных (статус `BOOTSTRAPPING`), жизненный цикл Spring Boot ([`ApplicationReadyEvent`](../backend/replicator/orchestrator/src/main/java/org/apache/hadoop/explorer/replicator/orchestrator/hms/service/HmsCoordinatorService.java)) автоматически обнаруживает прерванные задачи.
-   - Метод `recoverInterruptedJobsOnStartup()` повторно диспетчеризует задачу доступным агентам (`QUEUED` или `WAITING_FOR_AGENTS`). Подключившийся Source Agent возобновляет процедуру Bootstrap через `HmsTaskExecutor`.
+   - Метод `recoverInterruptedJobsOnStartup()` переотдает агентам только задачи с истекшей арендой. В HA-кластере рестарт одного узла не прерывает идущий bootstrap: агент продолжает работу через соседний узел и продлевает аренду своими отчетами.
 
 3. **Непрерывный автономный CDC-опрос Hive Metastore воркером агента**:
    - Потоковый опрос журнала событий `NOTIFICATION_LOG` для активных задач репликации выполняется непосредственно агентом-источником (`HmsTaskExecutor.pollAndSyncCdc`).
    - Агент источника опрашивает локальный Thrift, конвертирует события и передает их целевому агенту по gRPC, после чего отправляет контрольную точку `lastProcessedEventId` и `eventLag` в Оркестратор по gRPC Control Plane (`ReportHmsProgress`).
+   - **Клиент метастора — Hive 3.1** (`hive-standalone-metastore` 3.1.3, Thrift 0.9.3): он нативно работает с HMS 3.1 / HDP 3.1 и с HMS 4.x (там сохранены методы 3.x). Клиент 4.0 вызывал методы `*_req` (`create_table_req` и др.), которых у метастора 3.1 нет. Проверка совместимости — `demo/replicator/run-hms31-compat-test.sh`.
+   - **Какие события переносятся**: `CREATE_TABLE`, `ALTER_TABLE` (включая `RENAME` — таблица на приемнике переименовывается с сохранением партиций), `DROP_TABLE`, `ADD_PARTITION`, `ALTER_PARTITION`, `DROP_PARTITION` и `INSERT`. Сообщения разбираются в форматах `json-0.2` (Hive 3 / HDP 3.1) и `gzip(json-2.0)` (Hive 4).
+   - **`INSERT` — дозапись в существующую таблицу или партицию без inotify**: агент заводит свежую подзадачу копирования каталога (без переиспользования прошедшей копии), при `INSERT OVERWRITE` удаляет на приемнике файлы, которых в каталоге больше нет, и обновляет метаданные партиции (статистику). Событие пишется в журнал, только если на стороне, выполняющей DML, включено `hive.metastore.dml.events=true` (в HiveServer2 по умолчанию `false`). Spark событий `INSERT` не публикует: дозапись Spark в существующие партиции без inotify не переносится.
+   - **Обязательные настройки метастора-источника**: `hive.metastore.transactional.event.listeners=org.apache.hive.hcatalog.listener.DbNotificationListener` и срок хранения событий `hive.metastore.event.db.listener.timetolive` больше самого долгого bootstrap и простоя задачи (по умолчанию 1 сутки). Если события вычищены раньше, чем агент их прочитал, задача переходит в `ERROR` с требованием повторного bootstrap — продолжить CDC через разрыв журнала нельзя.
 
 4. **Распределенный эксклюзивный лизинг (Distributed Lease) и авто-failover задач HMS**:
    - **Эксклюзивная блокировка**: каждая задача репликации схемы и CDC захватывается ровно одним агентом источника (`assigned_agent_id`, `lease_expires_at`). Это предотвращает параллельное чтение одного CDC потока несколькими агентами в одном кластере.
@@ -1770,7 +1779,7 @@ spec:
 - `replicator_file_size_bytes` — бакеты распределения размеров файлов репликации (histogram).
 
 #### Метрики Hive Metastore и Disaster Recovery
-- `replicator_hms_jobs_total{status="BOOTSTRAPPING|STREAMING|WAITING_FOR_AGENTS|COMPLETED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
+- `replicator_hms_jobs_total{status="QUEUED|BOOTSTRAPPING|ACTIVE|PAUSED|ERROR|WAITING_FOR_AGENTS|STOPPED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
 - `replicator_hms_tables_total{type="total|replicated"}` — количество таблиц в схемах HMS.
 - `replicator_hms_partitions_total{type="total|replicated"}` — количество партиций таблиц HMS.
 - `replicator_hms_speed_bytes_per_second` — средняя скорость первичной синхронизации HMS.

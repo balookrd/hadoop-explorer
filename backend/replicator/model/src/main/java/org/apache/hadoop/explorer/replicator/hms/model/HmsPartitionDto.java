@@ -66,6 +66,17 @@ public record HmsPartitionDto(
         this(catName, dbName, tableName, values, location, parameters, columns, serdeParameters, null, null, null);
     }
 
+    /**
+     * Та же партиция в целевой таблице: меняются только БД, таблица и расположение.
+     *
+     * <p>Формат хранения и SerDe переносятся как есть: без них приемник подставит текстовый
+     * формат, и Parquet/ORC-партиции станут нечитаемыми.
+     */
+    public HmsPartitionDto relocatedTo(String targetDbName, String targetTableName, String targetLocation) {
+        return new HmsPartitionDto(catName, targetDbName, targetTableName, values, targetLocation,
+                parameters, columns, serdeParameters, inputFormat, outputFormat, serdeLib);
+    }
+
     public String getPartitionName(List<String> partKeys) {
         if (partKeys == null || values == null || partKeys.size() != values.size()) {
             return String.join(",", values);

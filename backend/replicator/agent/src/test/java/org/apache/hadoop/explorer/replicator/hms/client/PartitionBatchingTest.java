@@ -106,6 +106,58 @@ class PartitionBatchingTest {
         verify(metaStore, never()).getPartitionsByNames(anyString(), anyString(), anyList());
     }
 
+    private void stubPartitions(int total, java.util.concurrent.atomic.AtomicInteger failOnceAtCall) throws Exception {
+        List<String> names = new ArrayList<>(total);
+        for (int i = 0; i < total; i++) {
+            names.add("dt=" + i);
+        }
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(metaStore.listPartitionNames(anyString(), anyString(), anyShort())).thenReturn(names);
+        when(metaStore.getPartitionsByNames(anyString(), anyString(), anyList()))
+                .thenAnswer(invocation -> {
+                    if (calls.incrementAndGet() == failOnceAtCall.get()) {
+                        throw new org.apache.thrift.transport.TTransportException("connection reset");
+                    }
+                    List<String> requested = invocation.getArgument(2);
+                    List<Partition> batch = new ArrayList<>(requested.size());
+                    for (String name : requested) {
+                        batch.add(partition(name));
+                    }
+                    return batch;
+                });
+    }
+
+    @Test
+    @DisplayName("Потоковый обход: получатель видит порции по одной, а не весь список")
+    void streamingHandsOverOneBatchAtATime() throws Exception {
+        stubPartitions(2500, new java.util.concurrent.atomic.AtomicInteger(-1));
+        List<Integer> batchSizes = new ArrayList<>();
+        List<Integer> totals = new ArrayList<>();
+
+        int visited = client.forEachPartitionBatch("sales", "orders", 1000, (batch, total) -> {
+            batchSizes.add(batch.size());
+            totals.add(total);
+        });
+
+        assertEquals(2500, visited);
+        assertEquals(List.of(1000, 1000, 500), batchSizes);
+        assertEquals(List.of(2500, 2500, 2500), totals, "общее число известно с первой порции");
+    }
+
+    @Test
+    @DisplayName("Потоковый обход: обрыв на середине повторяет одну порцию, а не всю таблицу")
+    void streamingRetriesOnlyTheFailedBatch() throws Exception {
+        stubPartitions(3000, new java.util.concurrent.atomic.AtomicInteger(2));
+        List<Integer> batchSizes = new ArrayList<>();
+
+        client.forEachPartitionBatch("sales", "orders", 1000, (batch, total) -> batchSizes.add(batch.size()));
+
+        assertEquals(List.of(1000, 1000, 1000), batchSizes, "каждая порция отдается ровно один раз");
+        // 3 порции + 1 повтор упавшей; имена партиций читаются один раз
+        verify(metaStore, times(4)).getPartitionsByNames(anyString(), anyString(), anyList());
+        verify(metaStore, times(1)).listPartitionNames(anyString(), anyString(), anyShort());
+    }
+
     private static Partition partition(String name) {
         Partition p = new Partition();
         p.setDbName("sales");

@@ -469,6 +469,52 @@ public class AgentRegistry {
         return 0;
     }
 
+    /**
+     * Подтягивание агентов, которые шлют heartbeat на соседние узлы оркестратора.
+     *
+     * <p>Каждый узел держит реестр в памяти и видит heartbeat только своих агентов. Без
+     * синхронизации агент, подключенный к соседу, здесь считался мертвым: его задачи уходили в
+     * failover, а bootstrap переводился в ожидание агентов. Узлы сбрасывают heartbeat в БД
+     * (write-behind), отсюда он и берется; запаздывание — интервал сброса плюс интервал
+     * синхронизации, заметно меньше порога OFFLINE.
+     *
+     * <p>Свои записи свежее БД и не перезаписываются; подтянутые не помечаются dirty, иначе
+     * узлы перекидывали бы друг другу одну и ту же строку.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelayString = "${hadoop.replicator.agent-registry-peer-sync-ms:5000}")
+    public int syncPeersFromDatabase() {
+        if (agentRepository == null) {
+            return 0;
+        }
+        int updated = 0;
+        try {
+            for (AgentEntity entity : agentRepository.findAll()) {
+                Instant dbHeartbeat = entity.getLastHeartbeat();
+                if (dbHeartbeat == null) {
+                    continue;
+                }
+                AgentEntry local = agents.get(entity.getAgentId());
+                if (local == null && !isHeartbeatFresh(dbHeartbeat)) {
+                    // Молчащих агентов не возвращаем: их только что вытеснил refreshHealth
+                    continue;
+                }
+                if (local == null) {
+                    agents.put(entity.getAgentId(), fromEntity(entity));
+                    updated++;
+                } else if (local.getLastHeartbeat() == null || dbHeartbeat.isAfter(local.getLastHeartbeat())) {
+                    local.setLastHeartbeat(dbHeartbeat);
+                    if (entity.getMode() != null) {
+                        local.setMode(entity.getMode());
+                    }
+                    updated++;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось синхронизировать агентов соседних узлов из БД: {}", e.getMessage());
+        }
+        return updated;
+    }
+
     @jakarta.annotation.PreDestroy
     public void shutdown() {
         flushDirtyAgentsToDatabase();
@@ -521,6 +567,14 @@ public class AgentRegistry {
         return agents.values().stream()
             .filter(a -> matchesCluster(a.getClusterId(), clusterId) && isLive(a))
             .findAny();
+    }
+
+    public List<AgentEntry> getLiveHmsAgentsForCluster(String clusterId) {
+        return agents.values().stream()
+            .filter(a -> matchesCluster(a.getClusterId(), clusterId)
+                    && isLive(a)
+                    && ("all".equalsIgnoreCase(a.getMode()) || "hms".equalsIgnoreCase(a.getMode())))
+            .toList();
     }
 
     public Optional<AgentEntry> getLiveHmsAgentForCluster(String clusterId) {
@@ -732,6 +786,13 @@ public class AgentRegistry {
 
         for (AgentEntry agent : agents.values()) {
             long elapsed = now.getEpochSecond() - agent.getLastHeartbeat().getEpochSecond();
+            if (elapsed >= STALE_AGENT_EVICTION_SECONDS) {
+                // Агент, молчащий сутки, — выведенный из эксплуатации или пересозданный с новым
+                // идентификатором. Держать его в реестре значит бесконечно растить метрики с
+                // меткой agent_id и списки агентов в UI; вернется — зарегистрируется заново.
+                agents.remove(agent.getAgentId());
+                continue;
+            }
             if (elapsed >= offlineTimeout) {
                 agent.setStatus(AgentStatus.OFFLINE);
             } else if (elapsed >= suspectTimeout) {
@@ -741,6 +802,9 @@ public class AgentRegistry {
             }
         }
     }
+
+    /** Через сколько молчания агент удаляется из реестра узла (запись в БД остается). */
+    static final long STALE_AGENT_EVICTION_SECONDS = 24 * 3600;
 
     private void persistAgent(AgentEntry entry) {
         if (agentRepository == null || entry == null) return;

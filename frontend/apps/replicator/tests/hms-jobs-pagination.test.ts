@@ -137,7 +137,8 @@ describe('Навигация по страницам заданий метаст
     await waitFor(() => expect(summaryRequests).toBeGreaterThan(0));
     // На странице 50 заданий, а в сводке 120: в шапке должно стоять число по всему набору
     expect(await screen.findByText(String(TOTAL_HMS_JOBS))).toBeTruthy();
-    expect(screen.getByText('9600')).toBeTruthy();
+    // Большие счетчики выводятся с разделителем разрядов
+    expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.replace(/\s/g, '') === '9600')).toBeTruthy();
   });
 
   it('фильтр по статусу уходит на сервер, а не применяется в браузере', async () => {

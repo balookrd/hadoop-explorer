@@ -1,0 +1,27 @@
+# =============================================================================
+# Проверка совместимости с Hive Metastore 3.1 (кластеры HDP 3.1 / Apache Hive 3.1).
+#
+# Накладывается поверх docker-compose.yml (и, при желании, docker-compose.hms-load.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.hms31.yml up -d
+# Сценарий целиком — run-hms31-compat-test.sh.
+#
+# Агент работает с клиентом метастора Hive 3.1: клиент 4.0 вызывал методы *_req
+# (create_table_req и др.), которых у метастора 3.1 нет, и получал «Invalid method name».
+# Стенд заменяет оба метастора на 3.1.3, чтобы bootstrap, CDC и DDL прошли по настоящему
+# Thrift-контракту 3.1 и формату событий json-0.2.
+# =============================================================================
+
+#
+# Entrypoint образа 3.1.3 инициализирует схему Derby на каждом старте и падает, если она уже
+# есть. Первый старт идет с инициализацией, повторные — с HMS31_IS_RESUME=true.
+
+services:
+  sql-hive-metastore:
+    image: apache/hive:3.1.3
+    environment:
+      IS_RESUME: "${HMS31_IS_RESUME:-false}"
+
+  sql-hive-metastore-2:
+    image: apache/hive:3.1.3
+    environment:
+      IS_RESUME: "${HMS31_IS_RESUME:-false}"

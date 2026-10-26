@@ -155,9 +155,12 @@ public class ReplicatorAgent {
                     pathRewriter,
                     config.isGrpcTlsEnabled(),
                     config.isGrpcInsecureSkipVerify(),
-                    8,
-                    1000,
-                    config.getAgentSecret()
+                    config.getHmsBootstrapConcurrency(),
+                    config.getHmsPartitionBatchSize(),
+                    config.getAgentSecret(),
+                    config.isHmsDataBarrierEnabled(),
+                    config.getHmsDataBarrierTimeoutSec(),
+                    3
             );
         }
     }

@@ -111,13 +111,17 @@ public class HmsProgressFencingTest {
     }
 
     @Test
-    @DisplayName("Задача без владельца принимает отчет любого агента")
-    void testUnownedJobAcceptsAnyAgent() {
-        HmsReplicationJobEntity job = jobOwnedBy(null, 0L);
+    @DisplayName("Задача без владельца (после failover) отклоняет отчет агента")
+    void testUnownedJobRejectsAgentReport() {
+        // Failover и rebootstrap снимают владельца; отчет прежнего агента не должен вернуть
+        // ему задачу — новый владелец захватывает ее только через опрос
+        HmsReplicationJobEntity job = jobOwnedBy(null, 500L);
 
-        boolean accepted = coordinatorService.updateJobProgress(job.getId(), report("agent-first", 42L));
+        boolean accepted = coordinatorService.updateJobProgress(job.getId(), report("agent-zombie", 42L));
 
-        assertTrue(accepted, "Задача без назначенного агента должна принимать отчет");
-        assertEquals("agent-first", hmsJobRepository.findById(job.getId()).orElseThrow().getAssignedAgentId());
+        assertFalse(accepted, "Отчет для задачи без владельца должен отклоняться");
+        HmsReplicationJobEntity reloaded = hmsJobRepository.findById(job.getId()).orElseThrow();
+        assertNull(reloaded.getAssignedAgentId(), "Зомби-агент не должен становиться владельцем");
+        assertEquals(500L, reloaded.getLastProcessedEventId());
     }
 }

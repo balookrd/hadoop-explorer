@@ -794,10 +794,10 @@ public class DisasterRecoveryService {
         List<HmsReplicationJobEntity> hmsJobs = hmsReplicationJobRepository.findByNormalizedSourceClusterId(clusterId);
         for (HmsReplicationJobEntity h : hmsJobs) {
             if (matchesCluster(h.getSourceClusterId(), clusterId)) {
-                if (!"PAUSED".equalsIgnoreCase(h.getStatus())) {
+                // Остановленные и упавшие задачи не трогаются: иначе откат Kill-Switch их бы «оживил»
+                if (!"PAUSED".equalsIgnoreCase(h.getStatus()) && h.pause()) {
                     snapshot.getPausedHmsJobIds().add(h.getId());
 
-                    h.setStatus("PAUSED");
                     h.setMessage("Приостановлено аварийным Kill-Switch оператором " + operator + note);
                     hmsReplicationJobRepository.save(h);
                     stoppedHms++;
@@ -929,8 +929,7 @@ public class DisasterRecoveryService {
             for (HmsReplicationJobEntity h : hmsJobs) {
                 if (matchesCluster(h.getSourceClusterId(), clusterId)) {
                     boolean wasPausedBySnapshot = snapshot != null && snapshot.getPausedHmsJobIds().contains(h.getId());
-                    if (wasPausedBySnapshot || "PAUSED".equalsIgnoreCase(h.getStatus())) {
-                        h.setStatus("ACTIVE");
+                    if ((wasPausedBySnapshot || "PAUSED".equalsIgnoreCase(h.getStatus())) && h.resume()) {
                         h.setMessage("Возобновлено после отката Kill-Switch оператором " + operator);
                         hmsReplicationJobRepository.save(h);
                         resumedHms++;

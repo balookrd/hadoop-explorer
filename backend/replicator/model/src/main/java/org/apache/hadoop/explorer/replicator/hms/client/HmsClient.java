@@ -25,6 +25,41 @@ public interface HmsClient {
 
     List<HmsPartitionDto> getPartitions(String dbName, String tableName);
 
+    /**
+     * Имена партиций таблицы в формате метастора ({@code k1=v1/k2=v2}, значения экранированы).
+     * Значение по умолчанию собирает их из партиций; реальный клиент берет только имена.
+     */
+    default List<String> getPartitionNames(String dbName, String tableName) {
+        List<String> keys = getTable(dbName, tableName).map(HmsTableDto::partitionKeys).orElse(List.of());
+        return getPartitions(dbName, tableName).stream().map(p -> p.getPartitionName(keys)).toList();
+    }
+
+    /** Получатель порции партиций: {@code total} — сколько партиций у таблицы всего. */
+    @FunctionalInterface
+    interface PartitionBatchConsumer {
+        void accept(List<HmsPartitionDto> batch, int total) throws Exception;
+    }
+
+    /**
+     * Обход партиций таблицы порциями.
+     *
+     * <p>Таблица в 200k партиций со столбцами у каждой не помещается в память агента одним
+     * списком, тем более при параллельном bootstrap нескольких таблиц. Реализация обязана
+     * держать в памяти не больше одной порции; значение по умолчанию годится только для
+     * клиентов, у которых партиции и так лежат в памяти.
+     *
+     * @return сколько партиций обойдено
+     */
+    default int forEachPartitionBatch(String dbName, String tableName, int batchSize,
+                                      PartitionBatchConsumer consumer) throws Exception {
+        List<HmsPartitionDto> all = getPartitions(dbName, tableName);
+        int size = Math.max(1, batchSize);
+        for (int from = 0; from < all.size(); from += size) {
+            consumer.accept(all.subList(from, Math.min(from + size, all.size())), all.size());
+        }
+        return all.size();
+    }
+
     default Optional<HmsPartitionDto> getPartition(String dbName, String tableName, List<String> partVals) {
         if (partVals == null || partVals.isEmpty()) {
             return Optional.empty();
@@ -39,6 +74,11 @@ public interface HmsClient {
     void createTable(HmsTableDto table);
 
     void alterTable(HmsTableDto table);
+
+    /** Переименование таблицы с сохранением ее партиций (alter_table со сменой имени). */
+    default void renameTable(String dbName, String oldTableName, HmsTableDto renamed) {
+        throw new UnsupportedOperationException("Клиент метастора не поддерживает переименование таблиц");
+    }
 
     void addPartitions(String dbName, String tableName, List<HmsPartitionDto> partitions);
 

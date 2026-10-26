@@ -1,0 +1,47 @@
+# =============================================================================
+# Нагрузочный стенд HMS-репликации: таблица на 200k партиций, Kerberos.
+#
+# Накладывается поверх docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.hms-load.yml up -d
+# Запуск сценария целиком — run-hms-load-test.sh.
+#
+# Что меняется относительно демо-стенда:
+#   * оркестратор не ждет HiveServer2: для репликации схем он не нужен, а память
+#     стенда (12 ГБ на всё) уходит на метасторы;
+#   * агентам ограничена куча (512 МБ): прежний агент держал все партиции таблицы
+#     одним списком, и именно этот предел показывает, что обход идет порциями;
+#   * барьер «данные раньше DDL» выключен: стенд меряет метаданные (200k партиций),
+#     копирование 200k пустых каталогов HDFS к этому ничего не добавляет;
+#   * короткий TGT (krb5-load.conf, 5 минут): bootstrap идет дольше срока билета,
+#     и без перелогина новые соединения с метастором падали бы.
+# =============================================================================
+
+services:
+  orchestrator:
+    depends_on: !override
+      kdc:
+        condition: service_healthy
+      sql-hive-metastore:
+        condition: service_started
+      sql-hive-metastore-2:
+        condition: service_started
+    environment:
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Xmx1g"
+
+  agent-dc1:
+    environment:
+      REPLICATOR_AUTO_CREATE_TEST_DATA: "false"
+      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "false"
+      KRB5_CONFIG: "/load/krb5-load.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/load/krb5-load.conf -Xmx512m -XX:+ExitOnOutOfMemoryError"
+    volumes:
+      - ./load:/load:ro
+
+  agent-dc2:
+    environment:
+      REPLICATOR_AUTO_CREATE_TEST_DATA: "false"
+      REPLICATOR_HMS_DATA_BARRIER_ENABLED: "false"
+      KRB5_CONFIG: "/load/krb5-load.conf"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/load/krb5-load.conf -Xmx512m -XX:+ExitOnOutOfMemoryError"
+    volumes:
+      - ./load:/load:ro

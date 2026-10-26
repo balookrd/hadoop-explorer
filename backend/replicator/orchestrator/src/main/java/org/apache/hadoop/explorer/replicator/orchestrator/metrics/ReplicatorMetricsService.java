@@ -220,19 +220,15 @@ public class ReplicatorMetricsService {
     }
 
     private void renderHmsMetrics(StringBuilder sb) {
-        double bootstrapping = countHmsJobsByStatus("BOOTSTRAPPING");
-        double streaming = countHmsJobsByStatus("STREAMING");
-        double waiting = countHmsJobsByStatus("WAITING_FOR_AGENTS");
-        double completed = countHmsJobsByStatus("COMPLETED");
-        double failed = countHmsJobsByStatus("FAILED");
-
+        // Статусы — те, что реально бывают у задачи (HmsJobStatus): прежние STREAMING и COMPLETED
+        // не встречались никогда, а ACTIVE, PAUSED и ERROR в метрику не попадали вовсе
         sb.append("# HELP replicator_hms_jobs_total Количество задач репликации Hive Metastore по статусам\n");
         sb.append("# TYPE replicator_hms_jobs_total gauge\n");
-        sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"BOOTSTRAPPING\"} %.0f\n", bootstrapping));
-        sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"STREAMING\"} %.0f\n", streaming));
-        sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"WAITING_FOR_AGENTS\"} %.0f\n", waiting));
-        sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"COMPLETED\"} %.0f\n", completed));
-        sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"FAILED\"} %.0f\n", failed));
+        for (org.apache.hadoop.explorer.replicator.model.HmsJobStatus status
+                : org.apache.hadoop.explorer.replicator.model.HmsJobStatus.values()) {
+            sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"%s\"} %.0f\n",
+                    status.name(), countHmsJobsByStatus(status.name())));
+        }
 
         long[] hmsTotals = hmsTableAndPartitionTotals();
         double totalTables = hmsTotals[0];
@@ -532,16 +528,23 @@ public class ReplicatorMetricsService {
 
     private double calculateHmsBootstrapSpeedBytesPerSec() {
         try {
+            // Скорость считается по подзадачам данных: поле averageSpeedMbS задачи — @Transient и
+            // заполняется только при выдаче в UI, здесь оно всегда было пустым, и метрика давала 0
             List<HmsReplicationJobEntity> jobs = hmsReplicationJobRepository.findByStatus("BOOTSTRAPPING");
-            double totalMbS = 0.0;
-            int count = 0;
-            for (var job : jobs) {
-                if (job.getAverageSpeedMbS() != null && job.getAverageSpeedMbS() > 0) {
-                    totalMbS += job.getAverageSpeedMbS();
-                    count++;
+            if (jobs.isEmpty()) {
+                return 0.0;
+            }
+            List<String> ids = jobs.stream().map(HmsReplicationJobEntity::getId).toList();
+            long nowSec = java.time.Instant.now().getEpochSecond();
+            double bytesPerSec = 0.0;
+            for (Object[] row : jobRepository.aggregateSubjobsByParent(ids)) {
+                long copied = ((Number) row[3]).longValue();
+                java.time.Instant firstStarted = (java.time.Instant) row[5];
+                if (copied > 0 && firstStarted != null) {
+                    bytesPerSec += (double) copied / Math.max(1, nowSec - firstStarted.getEpochSecond());
                 }
             }
-            return count > 0 ? (totalMbS * 1024.0 * 1024.0) : 0.0;
+            return bytesPerSec;
         } catch (Exception e) {
             return 0.0;
         }

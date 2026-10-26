@@ -84,10 +84,10 @@ public class ThriftHmsClientTest {
     }
 
     @Test
-    @DisplayName("Проверка инвалидации и повтора при возникновении MetaException")
+    @DisplayName("Проверка инвалидации и повтора при сетевом сбое, завернутом в MetaException")
     void testRetryAndInvalidationOnMetaException() throws Exception {
-        // Первый клиент бросает ошибку сети / MetaException
-        when(mockClient1.getAllDatabases()).thenThrow(new MetaException("Connection lost"));
+        // Метастор заворачивает сетевой сбой своего хранилища в MetaException текстом
+        when(mockClient1.getAllDatabases()).thenThrow(new MetaException("java.net.SocketTimeoutException: Read timed out"));
         // Второй клиент отвечает успешно
         when(mockClient2.getAllDatabases()).thenReturn(List.of("recovered_db"));
 
@@ -336,5 +336,17 @@ public class ThriftHmsClientTest {
         assertThrows(RuntimeException.class,
                 () -> thriftHmsClient.addPartitions("analytics", "sales_daily", batch),
                 "Сбой метастора обязан подниматься наверх, иначе позиция CDC уйдет вперед по непримененному событию");
+    }
+
+    @Test
+    @DisplayName("Прикладной отказ метастора не повторяется и не выбрасывает соединение")
+    void testApplicationErrorIsNotRetried() throws Exception {
+        when(mockClient1.getAllDatabases())
+                .thenThrow(new org.apache.hadoop.hive.metastore.api.InvalidObjectException("database hive.loadtest"));
+
+        assertThrows(RuntimeException.class, () -> thriftHmsClient.getAllDatabases());
+
+        verify(mockClient1, times(1)).getAllDatabases();
+        verify(mockClient2, never()).getAllDatabases();
     }
 }

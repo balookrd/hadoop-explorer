@@ -46,6 +46,11 @@ public class MockHmsClient implements HmsClient {
                 .toList();
     }
 
+    /** Удаление событий журнала по TTL, как это делает метастор (для тестов разрыва журнала). */
+    public void dropEventsUpTo(long eventIdInclusive) {
+        events.removeIf(e -> e.eventId() <= eventIdInclusive);
+    }
+
     public void emitEvent(String eventType, String db, String tbl, String message) {
         long id = eventSequence.incrementAndGet();
         HmsNotificationEventDto event = new HmsNotificationEventDto(
@@ -109,6 +114,16 @@ public class MockHmsClient implements HmsClient {
     public void alterTable(HmsTableDto table) {
         tables.put(tableKey(table.dbName(), table.tableName()), table);
         log.info("[MockHMS {}] Altered table: {}.{}", clusterId, table.dbName(), table.tableName());
+    }
+
+    @Override
+    public void renameTable(String dbName, String oldTableName, HmsTableDto renamed) {
+        tables.remove(tableKey(dbName, oldTableName));
+        tables.put(tableKey(renamed.dbName(), renamed.tableName()), renamed);
+        List<HmsPartitionDto> parts = partitions.remove(tableKey(dbName, oldTableName));
+        if (parts != null) {
+            partitions.put(tableKey(renamed.dbName(), renamed.tableName()), parts);
+        }
     }
 
     @Override

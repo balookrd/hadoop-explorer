@@ -145,6 +145,21 @@ public class HmsCoordinatorService {
         if (targetClusterId == null || targetClusterId.isBlank()) {
             throw new IllegalArgumentException("Параметр targetClusterId обязателен для создания задачи HMS репликации");
         }
+        String effectiveTargetDb = targetDb != null ? targetDb : sourceDb;
+        // Две живые задачи на одну пару баз пишут в один приемник наперегонки: обе читают CDC
+        // источника, обе заводят подзадачи данных и применяют одни и те же DDL
+        for (HmsReplicationJobEntity existing : hmsJobRepository.findByNormalizedSourceClusterId(sourceClusterId)) {
+            boolean finished = "STOPPED".equalsIgnoreCase(existing.getStatus()) || "FAILED".equalsIgnoreCase(existing.getStatus());
+            if (!finished
+                    && matchesCluster(existing.getTargetClusterId(), targetClusterId)
+                    && sourceDb.equalsIgnoreCase(existing.getSourceDbName())
+                    && effectiveTargetDb.equalsIgnoreCase(existing.getTargetDbName())) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "Для " + sourceClusterId + "." + sourceDb + " -> " + targetClusterId + "." + effectiveTargetDb
+                                + " уже есть задача " + existing.getId() + " в статусе " + existing.getStatus());
+            }
+        }
         String id = "hms-job-" + sourceDb + "-" + UUID.randomUUID().toString().substring(0, 8);
 
         HmsReplicationJobEntity entity = new HmsReplicationJobEntity();
@@ -247,10 +262,35 @@ public class HmsCoordinatorService {
      */
     @Transactional
     public List<HmsPendingJobDto> getPendingJobsForCluster(String clusterId, String requestingAgentId) {
-        List<HmsReplicationJobEntity> allJobs = hmsJobRepository.findByStatusIn(List.of("QUEUED", "BOOTSTRAPPING", "ACTIVE"));
+        // Выборка по кластеру, а не всех задач всех кластеров: опрос идет от каждого из сотен
+        // агентов каждые несколько секунд
+        List<HmsReplicationJobEntity> allJobs = clusterId != null
+                ? hmsJobRepository.findByNormalizedSourceClusterId(clusterId)
+                : hmsJobRepository.findByStatusIn(List.of("QUEUED", "BOOTSTRAPPING", "ACTIVE"));
         List<HmsPendingJobDto> result = new ArrayList<>();
         Instant now = Instant.now();
         long leaseSec = getLeaseDurationSeconds();
+        // Два разных правила раздачи:
+        //  * bootstrap тяжелый (память, пул потоков агента) — на агента не больше квоты;
+        //  * CDC живет бессрочно — жесткий предел оставил бы задачи сверх «агенты x квота»
+        //    без исполнителя навсегда, поэтому предела нет, а нагрузка выравнивается: свободную
+        //    CDC-задачу берет только агент из числа наименее загруженных в кластере.
+        int maxBootstrapsPerAgent = properties != null && properties.getHmsMaxBootstrapsPerAgent() > 0
+                ? properties.getHmsMaxBootstrapsPerAgent() : Integer.MAX_VALUE;
+        Map<String, Integer> loadByAgent = new HashMap<>();
+        int bootstrapsOfRequester = 0;
+        for (HmsReplicationJobEntity job : allJobs) {
+            String owner = job.getAssignedAgentId();
+            if (owner == null || job.getLeaseExpiresAt() == null || !job.getLeaseExpiresAt().isAfter(now)
+                    || !isDispatchable(job.getStatus())) {
+                continue;
+            }
+            loadByAgent.merge(owner.toLowerCase(), 1, Integer::sum);
+            if (owner.equalsIgnoreCase(requestingAgentId) && !"ACTIVE".equalsIgnoreCase(job.getStatus())) {
+                bootstrapsOfRequester++;
+            }
+        }
+        int minClusterLoad = minLiveAgentLoad(clusterId, requestingAgentId, loadByAgent);
 
         for (HmsReplicationJobEntity job : allJobs) {
             if (clusterId != null && !matchesCluster(job.getSourceClusterId(), clusterId)) {
@@ -266,12 +306,20 @@ public class HmsCoordinatorService {
             var dstOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId());
             String targetAddress = dstOpt.map(AgentRegistry.AgentEntry::getGrpcAddress).orElse(null);
 
-            if (targetAddress == null && !"ACTIVE".equalsIgnoreCase(job.getStatus())) {
+            // В ожидание агентов уходит только еще не начатая задача: идущий bootstrap держит
+            // собственное соединение с приемником, а вернуть его из WAITING_FOR_AGENTS нельзя —
+            // переход WAITING_FOR_AGENTS -> BOOTSTRAPPING запрещен
+            if (targetAddress == null && "QUEUED".equalsIgnoreCase(job.getStatus())) {
                 job.setStatus("WAITING_FOR_AGENTS");
                 job.setMessage("Целевой агент для кластера " + job.getTargetClusterId() + " недоступен");
                 job.setAssignedAgentId(null);
                 job.setLeaseExpiresAt(null);
                 hmsJobRepository.save(job);
+                continue;
+            }
+            if (targetAddress == null && "BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
+                // Без адреса приемника новый владелец bootstrap не продолжит, а текущий
+                // продлевает аренду своими отчетами — задачу просто не раздаем
                 continue;
             }
 
@@ -284,10 +332,23 @@ public class HmsCoordinatorService {
                 boolean isAssignedAgentDead = assigned != null && !isAgentOnline(assigned);
 
                 if (isAssignedToMe) {
-                    // Продление существующей аренды
-                    job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
-                    hmsJobRepository.save(job);
+                    // Продление существующей аренды — только когда прошла половина срока: каждая
+                    // запись поднимает @Version и спорит с отчетами прогресса за ту же строку
+                    if (leaseExp == null || leaseExp.isBefore(now.plusSeconds(leaseSec / 2))) {
+                        job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
+                        hmsJobRepository.save(job);
+                    }
                 } else if (assigned == null || isLeaseExpired || isAssignedAgentDead) {
+                    boolean isCdc = "ACTIVE".equalsIgnoreCase(job.getStatus());
+                    int requesterLoad = loadByAgent.getOrDefault(requestingAgentId.toLowerCase(), 0);
+                    if (!isCdc && bootstrapsOfRequester >= maxBootstrapsPerAgent) {
+                        // Квота bootstrap исчерпана: задачу заберет другой агент кластера
+                        continue;
+                    }
+                    if (isCdc && requesterLoad > minClusterLoad + CDC_LOAD_TOLERANCE) {
+                        // Есть агент заметно свободнее: CDC-задача достанется ему
+                        continue;
+                    }
                     // Если задача недавно упала на этом агенте, отдаем предпочтение другому агенту пула
                     if (job.getLastFailedAgentId() != null
                             && job.getLastFailedAgentId().equalsIgnoreCase(requestingAgentId)
@@ -296,6 +357,10 @@ public class HmsCoordinatorService {
                     }
 
                     // Эксклюзивный захват задачи
+                    if (!isCdc) {
+                        bootstrapsOfRequester++;
+                    }
+                    loadByAgent.merge(requestingAgentId.toLowerCase(), 1, Integer::sum);
                     job.setAssignedAgentId(requestingAgentId);
                     job.setLeaseExpiresAt(now.plusSeconds(leaseSec));
                     if (assigned != null && !assigned.equalsIgnoreCase(requestingAgentId)) {
@@ -333,6 +398,60 @@ public class HmsCoordinatorService {
     }
 
     /**
+     * Насколько нагрузка агента может превышать минимальную в кластере, чтобы он еще брал
+     * свободные CDC-задачи. Без допуска задачи ждали бы опроса единственного самого свободного
+     * агента, с допуском разброс остается в пределах пары задач.
+     */
+    private static final int CDC_LOAD_TOLERANCE = 1;
+
+    private static boolean isDispatchable(String status) {
+        return "QUEUED".equalsIgnoreCase(status) || "BOOTSTRAPPING".equalsIgnoreCase(status)
+                || "ACTIVE".equalsIgnoreCase(status);
+    }
+
+    /** Минимальная нагрузка среди живых HMS-агентов кластера, включая опрашивающего. */
+    private int minLiveAgentLoad(String clusterId, String requestingAgentId, Map<String, Integer> loadByAgent) {
+        if (requestingAgentId == null || requestingAgentId.isBlank()) {
+            return 0;
+        }
+        int min = loadByAgent.getOrDefault(requestingAgentId.toLowerCase(), 0);
+        if (clusterId == null) {
+            return min;
+        }
+        for (AgentRegistry.AgentEntry agent : agentRegistry.getLiveHmsAgentsForCluster(clusterId)) {
+            min = Math.min(min, loadByAgent.getOrDefault(agent.getAgentId().toLowerCase(), 0));
+        }
+        return min;
+    }
+
+    /**
+     * Можно ли завести подзадачу данных для HMS-задачи от имени агента.
+     *
+     * <p>Агент узнавал об отказе только из отчета в конце пачки CDC — до тысячи событий спустя.
+     * Все это время удаленная или отобранная задача продолжала заводить копирования, а
+     * подзадачи удаленной задачи оставались без родителя.
+     */
+    @Transactional(readOnly = true)
+    public boolean acceptsSubjobFrom(String hmsJobId, String agentId) {
+        if (hmsJobId == null || hmsJobId.isBlank()) {
+            return false;
+        }
+        Optional<HmsReplicationJobEntity> opt = hmsJobRepository.findById(hmsJobId);
+        if (opt.isEmpty()) {
+            // Родитель — не HMS-задача (обычное HDFS-задание): решение не за этим сервисом
+            return !hmsJobId.startsWith("hms-job-");
+        }
+        HmsReplicationJobEntity job = opt.get();
+        String status = job.getStatus();
+        if (!"QUEUED".equalsIgnoreCase(status) && !"BOOTSTRAPPING".equalsIgnoreCase(status)
+                && !"ACTIVE".equalsIgnoreCase(status)) {
+            return false;
+        }
+        // Старый агент без agent_id: обратная совместимость
+        return agentId == null || agentId.isBlank() || agentId.equals(job.getAssignedAgentId());
+    }
+
+    /**
      * Прием отчета о прогрессе и DDL логов от Replicator Agent.
      */
     @Transactional
@@ -346,7 +465,9 @@ public class HmsCoordinatorService {
         HmsReplicationJobEntity job = optJob.get();
 
         // Preemptive Fencing: отклонение прогресса и попытки записи для остановленной задачи (STOPPED)
-        if ("STOPPED".equalsIgnoreCase(job.getStatus())) {
+        // Пауза (оператором или Kill-Switch) ограждает так же, как остановка: иначе следующий
+        // отчет агента вернул бы задачу в ACTIVE (переход PAUSED -> ACTIVE разрешен)
+        if ("STOPPED".equalsIgnoreCase(job.getStatus()) || "PAUSED".equalsIgnoreCase(job.getStatus())) {
             log.warn("[HmsCoordinator] Fencing: отклонен отчет прогресса для остановленной задачи {} (STOPPED)", jobId);
             return false;
         }
@@ -355,8 +476,11 @@ public class HmsCoordinatorService {
         // иначе «подвисший» агент вернул бы себе владение и откатил позицию CDC назад.
         String owner = job.getAssignedAgentId();
         String reporter = report.agentId();
-        if (owner != null && !owner.isBlank() && reporter != null && !reporter.isBlank()
-                && !owner.equals(reporter)) {
+        // Задача без владельца — тоже отказ: так ее оставляют failover, rebootstrap и рестарт
+        // узла, и принять отчет значило бы вернуть владение агенту, у которого ее отобрали.
+        // Новый владелец сначала захватывает задачу опросом и только потом отчитывается.
+        if (reporter != null && !reporter.isBlank()
+                && (owner == null || owner.isBlank() || !owner.equals(reporter))) {
             log.warn("[HmsCoordinator] Fencing: отклонен отчет агента '{}' для задачи {}: аренду держит '{}'",
                     reporter, jobId, owner);
             return false;
@@ -427,18 +551,12 @@ public class HmsCoordinatorService {
             hmsEventLogRepository.saveAll(entities);
         }
 
-        if (report.message() != null) {
-            if (report.message().startsWith("Синхронизировано")) {
-                long totalEvents = hmsEventLogRepository.countByHmsJobId(jobId);
-                long lag = job.getEventLag() != null ? job.getEventLag() : 0L;
-                if (totalEvents > 0) {
-                    job.setMessage(String.format("Синхронизировано %d событий CDC. Текущее отставание: %d событий.", totalEvents, lag));
-                } else {
-                    job.setMessage(report.message());
-                }
-            } else {
-                job.setMessage(report.message());
-            }
+        // Промежуточные отчеты (порции журнала bootstrap) идут без текста: gRPC передает его
+        // пустой строкой, и она не должна затирать последнее осмысленное сообщение задачи
+        if (report.message() != null && !report.message().isBlank()) {
+            // Сообщение агента уже несет накопленное число событий; прежний count журнала задачи
+            // на каждый отчет CDC рос вместе с журналом (сотни тысяч строк у большой таблицы)
+            job.setMessage(report.message());
         }
         if (report.agentId() != null && !report.agentId().isBlank()) {
             job.setAssignedAgentId(report.agentId());
@@ -501,27 +619,62 @@ public class HmsCoordinatorService {
         if (interrupted.isEmpty()) {
             return;
         }
-        log.warn("[HmsCoordinator] Обнаружено {} задач в BOOTSTRAPPING после перезапуска Оркестратора. Диспетчеризация агентам...",
-                interrupted.size());
+        // В HA-кластере рестарт одного узла не прерывает bootstrap: агенты продолжают работу
+        // через соседей и продлевают аренду. Переотдаются только задачи с истекшей арендой —
+        // сброс живой аренды запустил бы второй bootstrap параллельно первому.
+        Instant now = Instant.now();
+        int redispatched = 0;
         for (HmsReplicationJobEntity job : interrupted) {
+            if (job.getLeaseExpiresAt() != null && job.getLeaseExpiresAt().isAfter(now)) {
+                continue;
+            }
             dispatchJob(job);
+            redispatched++;
         }
+        log.warn("[HmsCoordinator] После перезапуска найдено {} задач в BOOTSTRAPPING, переотдано с истекшей арендой: {}",
+                interrupted.size(), redispatched);
     }
 
     /**
      * Удаление задачи репликации, истории событий, записей DLQ и связанных HDFS саб-джоб.
      */
-    @Transactional
     public boolean deleteReplicationJob(String id) {
-        if (!hmsJobRepository.existsById(id)) {
+        Optional<HmsReplicationJobEntity> opt = hmsJobRepository.findById(id);
+        if (opt.isEmpty()) {
             return false;
         }
-        hmsEventLogRepository.deleteByHmsJobId(id);
-        if (hmsDeadLetterEventRepository != null) {
-            hmsDeadLetterEventRepository.deleteByHmsJobId(id);
+        // Сначала задача останавливается, а ее подзадачи отменяются — каждым шагом в своей
+        // транзакции. Иначе агенты продолжали брать подзадачи и записывать их запуски, пока шло
+        // удаление: пакетный DELETE ловил нарушение внешнего ключа job_runs и deadlock, удаление
+        // падало с 500, а задача продолжала CDC.
+        HmsReplicationJobEntity job = opt.get();
+        job.setStatus("STOPPED");
+        job.setAssignedAgentId(null);
+        job.setLeaseExpiresAt(null);
+        hmsJobRepository.save(job);
+        jobService.cancelActiveSubjobs(id);
+
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                hmsEventLogRepository.deleteByHmsJobId(id);
+                if (hmsDeadLetterEventRepository != null) {
+                    hmsDeadLetterEventRepository.deleteByHmsJobId(id);
+                }
+                jobService.deleteSubjobsByParentId(id);
+                hmsJobRepository.deleteById(id);
+                last = null;
+                break;
+            } catch (org.springframework.dao.DataIntegrityViolationException
+                     | org.springframework.dao.PessimisticLockingFailureException e) {
+                // Запуск, записанный агентом в последний момент: подзадачи уже отменены, повтор чистый
+                last = e;
+                log.warn("[HmsCoordinator] Удаление задачи {}: попытка {} не удалась ({}), повтор", id, attempt, e.getMessage());
+            }
         }
-        jobService.deleteSubjobsByParentId(id);
-        hmsJobRepository.deleteById(id);
+        if (last != null) {
+            throw last;
+        }
         log.info("[HmsCoordinator] Задача {} и связанные ресурсы удалены", id);
         return true;
     }
@@ -673,6 +826,12 @@ public class HmsCoordinatorService {
                         long current = job.getLastProcessedEventId() != null ? job.getLastProcessedEventId() : 0L;
                         if (eventId != null && eventId > 0 && eventId - 1 < current) {
                             job.setLastProcessedEventId(eventId - 1);
+                            // Аренда снимается: пачка CDC, идущая у агента прямо сейчас, иначе
+                            // прислала бы в конце позицию дальше ядовитого события, монотонная
+                            // проверка ее пропустила бы, и откат молча потерялся. Без аренды ее
+                            // отчет отклоняется, а следующий опрос выдаст задачу с новой позицией.
+                            job.setAssignedAgentId(null);
+                            job.setLeaseExpiresAt(null);
                             job.setUpdatedAt(Instant.now());
                             hmsJobRepository.save(job);
                             log.warn("[HmsCoordinator] Задача {} возвращена к позиции {} для переигрывания события {}",
@@ -902,64 +1061,36 @@ public class HmsCoordinatorService {
      */
     public void enrichWithSubtasksMetrics(HmsReplicationJobEntity job) {
         if (job == null) return;
-        List<JobResponse> subtasks = jobService.listSubjobsByParentId(job.getId());
-        enrichJobWithSubtasks(job, subtasks);
+        enrichJobWithSubtasks(job, jobService.aggregateSubjobsByParentIds(List.of(job.getId())).get(job.getId()));
     }
 
     /**
-     * Обогащение списка задач HMS метриками первичной синхронизации (пакетный запрос без N+1).
+     * Обогащение списка задач HMS метриками первичной синхронизации.
+     *
+     * <p>Сводка считается агрегатом в БД: подзадач у задачи столько же, сколько партиций вне
+     * корня таблицы, и загружать их ради сумм на каждый опрос UI нельзя.
      */
     public void enrichAllWithSubtasksMetrics(List<HmsReplicationJobEntity> jobs) {
         if (jobs == null || jobs.isEmpty()) return;
         List<String> parentIds = jobs.stream().map(HmsReplicationJobEntity::getId).toList();
-        Map<String, List<JobResponse>> subtasksByParent = jobService.listSubjobsByParentIds(parentIds);
+        Map<String, JobService.SubjobAggregate> aggregates = jobService.aggregateSubjobsByParentIds(parentIds);
         for (HmsReplicationJobEntity job : jobs) {
-            List<JobResponse> subtasks = subtasksByParent.getOrDefault(job.getId(), Collections.emptyList());
-            enrichJobWithSubtasks(job, subtasks);
+            enrichJobWithSubtasks(job, aggregates.get(job.getId()));
         }
     }
 
-    private void enrichJobWithSubtasks(HmsReplicationJobEntity job, List<JobResponse> subtasks) {
-        if (subtasks != null && !subtasks.isEmpty()) {
-            long totalBytes = 0;
-            long copiedBytes = 0;
-            Instant minStartedAt = null;
-            Instant maxCompletedAt = null;
-            int activeCount = 0;
-            double speedSum = 0;
-            int speedCount = 0;
+    private void enrichJobWithSubtasks(HmsReplicationJobEntity job, JobService.SubjobAggregate agg) {
+        if (agg != null && agg.count() > 0) {
+            long totalBytes = agg.totalBytes();
+            long copiedBytes = agg.copiedBytes();
+            int activeCount = (int) agg.active();
+            Instant minStartedAt = agg.firstStartedAt() != null ? agg.firstStartedAt() : job.getCreatedAt();
+            Instant maxCompletedAt = agg.lastCompletedAt();
 
-            for (JobResponse sub : subtasks) {
-                totalBytes += sub.totalBytes();
-                copiedBytes += sub.copiedBytes();
-                String st = sub.status();
-                if ("RUNNING".equalsIgnoreCase(st) || "QUEUED".equalsIgnoreCase(st)) {
-                    activeCount++;
-                }
-                Instant subStart = sub.startedAt() != null ? sub.startedAt() : sub.createdAt();
-                if (subStart != null) {
-                    if (minStartedAt == null || subStart.isBefore(minStartedAt)) {
-                        minStartedAt = subStart;
-                    }
-                }
-                if (sub.completedAt() != null) {
-                    if (maxCompletedAt == null || sub.completedAt().isAfter(maxCompletedAt)) {
-                        maxCompletedAt = sub.completedAt();
-                    }
-                }
-                if (sub.averageSpeedMbS() != null && sub.averageSpeedMbS() > 0) {
-                    speedSum += sub.averageSpeedMbS();
-                    speedCount++;
-                }
-            }
-
-            if (minStartedAt == null) {
-                minStartedAt = job.getCreatedAt();
-            }
             job.setStartedAt(minStartedAt);
             job.setTotalBytes(totalBytes);
             job.setCopiedBytes(copiedBytes);
-            job.setSubtasksCount(subtasks.size());
+            job.setSubtasksCount((int) agg.count());
             job.setActiveSubtasksCount(activeCount);
 
             double progress = totalBytes > 0
@@ -970,11 +1101,9 @@ public class HmsCoordinatorService {
             Instant end = (activeCount == 0 && maxCompletedAt != null) ? maxCompletedAt : Instant.now();
             long elapsedSec = Math.max(1, end.getEpochSecond() - minStartedAt.getEpochSecond());
             Double avgSpeed = null;
-            if (copiedBytes > 0 && elapsedSec > 0) {
+            if (copiedBytes > 0) {
                 double mbS = ((double) copiedBytes / (1024.0 * 1024.0)) / elapsedSec;
                 avgSpeed = Math.round(mbS * 100.0) / 100.0;
-            } else if (speedCount > 0) {
-                avgSpeed = Math.round((speedSum / speedCount) * 100.0) / 100.0;
             }
             job.setAverageSpeedMbS(avgSpeed);
 

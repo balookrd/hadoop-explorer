@@ -61,8 +61,14 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
             HmsTableDto tableDto = HmsConversionHelper.toDto(request.getTable());
             hmsClient.executeAs(request.getExecutionPrincipal(), () -> {
                 Optional<HmsTableDto> existing = hmsClient.getTable(tableDto.dbName(), tableDto.tableName());
+                String renameFrom = request.getRenameFrom();
 
-                if (existing.isPresent()) {
+                if (existing.isEmpty() && !renameFrom.isBlank()
+                        && hmsClient.getTable(tableDto.dbName(), renameFrom).isPresent()) {
+                    log.info("[HmsTransferService] Переименование таблицы {}.{} -> {} на приемнике (doAs={})",
+                            tableDto.dbName(), renameFrom, tableDto.tableName(), request.getExecutionPrincipal());
+                    hmsClient.renameTable(tableDto.dbName(), renameFrom, tableDto);
+                } else if (existing.isPresent()) {
                     log.info("[HmsTransferService] Таблица {}.{} уже существует на приемнике — выполнение alterTable (doAs={})",
                             tableDto.dbName(), tableDto.tableName(), request.getExecutionPrincipal());
                     hmsClient.alterTable(tableDto);
@@ -185,8 +191,17 @@ public class HmsTransferServiceImpl extends HmsTransferServiceGrpc.HmsTransferSe
                         .setDbExists(dbExists)
                         .addAllExistingTables(tables);
 
-                if (!request.getTableName().isBlank() && tables.contains(request.getTableName())) {
-                    List<HmsPartitionDto> partitions = hmsClient.getPartitions(request.getDbName(), request.getTableName());
+                if (request.getPartitionNamesOnly() && !request.getTableName().isBlank()
+                        && tables.contains(request.getTableName())) {
+                    List<String> names = hmsClient.getPartitionNames(request.getDbName(), request.getTableName());
+                    int size = request.getPartitionPageSize() > 0 ? Math.min(request.getPartitionPageSize(), 50_000) : 10_000;
+                    int from = Math.min(names.size(), Math.max(0, request.getPartitionPage()) * size);
+                    response.addAllExistingPartitionNames(names.subList(from, Math.min(names.size(), from + size)))
+                            .setTotalPartitionNames(names.size());
+                } else if (!request.getTableName().isBlank() && tables.contains(request.getTableName())) {
+                    List<HmsPartitionDto> partitions = request.getSkipPartitions()
+                            ? List.of()
+                            : hmsClient.getPartitions(request.getDbName(), request.getTableName());
                     for (HmsPartitionDto p : partitions) {
                         partitionProtos.add(HmsConversionHelper.toProto(p));
                     }
