@@ -123,10 +123,12 @@ class KafkaFilteredOffsetTest {
     void fullyFilteredPartitionShouldCommitOffset() throws Exception {
         when(loopFilter.shouldReplicate(any())).thenReturn(false);
         assign();
-        pool.start();
+        // Записи до старта: добавленные на ходу воркер мог вычитать частями, и первой
+        // фиксацией оказывалась позиция за неполной пачкой (CI: 2 вместо 3)
         addRecord(0);
         addRecord(1);
         addRecord(2);
+        pool.start();
 
         Long committed = awaitCommittedOffset();
 

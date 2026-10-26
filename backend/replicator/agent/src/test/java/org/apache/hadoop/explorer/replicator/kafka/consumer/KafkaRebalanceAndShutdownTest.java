@@ -145,6 +145,32 @@ class KafkaRebalanceAndShutdownTest {
                 "Ожидалось минимум " + count + " отправленных батчей, получено " + sent.size());
     }
 
+    /**
+     * Ожидание синхронной фиксации без {@code verify(timeout(...))}.
+     *
+     * <p>{@code MockConsumer.commitSync} объявлен {@code synchronized}, а инлайн-шпион Mockito
+     * перехватывает вызов уже внутри метода, то есть с захваченным монитором консьюмера.
+     * Проверка с таймаутом держала монитор все время ожидания, {@code poll()} воркера стоял,
+     * и ребаланс выполнялся только после истечения таймаута — тест падал (CI). Короткая
+     * проверка без таймаута в цикле отпускает монитор между попытками.
+     */
+    @SuppressWarnings("unchecked")
+    private ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> awaitCommitSync() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (true) {
+            ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> captor = ArgumentCaptor.forClass(Map.class);
+            try {
+                verify(consumer, atLeastOnce()).commitSync(captor.capture());
+                return captor;
+            } catch (AssertionError e) {
+                if (System.currentTimeMillis() >= deadline) {
+                    throw e;
+                }
+            }
+            Thread.sleep(20);
+        }
+    }
+
     private void ack(KafkaBatchRequest request) {
         ackObservers.get(0).onNext(KafkaBatchAck.newBuilder()
                 .setBatchId(request.getBatchId())
@@ -182,8 +208,7 @@ class KafkaRebalanceAndShutdownTest {
 
         rebalanceOnPollThread(P1, null);
 
-        ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(consumer, timeout(5_000).atLeastOnce()).commitSync(captor.capture());
+        ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> captor = awaitCommitSync();
         boolean committed = captor.getAllValues().stream()
                 .map(offsets -> offsets.get(P0))
                 .filter(java.util.Objects::nonNull)
