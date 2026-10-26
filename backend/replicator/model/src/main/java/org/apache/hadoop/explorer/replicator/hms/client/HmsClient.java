@@ -46,6 +46,14 @@ public interface HmsClient {
 
     void dropPartition(String dbName, String tableName, List<String> partVals, boolean deleteData);
 
+    /**
+     * Выполнение действия от имени пользователя.
+     *
+     * <p>Реализация по умолчанию имперсонацию не выполняет: действие идет от имени процесса.
+     * Клиент, который не умеет имперсонацию, обязан сказать об этом в своей документации —
+     * иначе запись в логе о doAs будет приниматься за свидетельство того, что метастор увидел
+     * пользователя.
+     */
     default <T> T executeAs(String executionPrincipal, java.util.concurrent.Callable<T> action) throws Exception {
         return action.call();
     }

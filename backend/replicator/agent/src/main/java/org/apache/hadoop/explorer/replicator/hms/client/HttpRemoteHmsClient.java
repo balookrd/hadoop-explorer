@@ -24,6 +24,14 @@ import java.util.*;
  * Удаленный REST-клиент Hive Metastore, обращающийся к координатору Оркестратора.
  * Используется агентами Replicator в распределенном Docker/K8s окружении.
  */
+/**
+ * Клиент метастора поверх HTTP-API оркестратора.
+ *
+ * <p>Используется там, где агент не ходит в метастор напрямую: демо-стенды и тестовые кластеры
+ * (контроллер {@code /api/v1/hms/clusters}, выключенный по умолчанию). Имперсонации на этом
+ * транспорте нет — {@code executeAs} из {@link HmsClient} просто выполняет действие, а DDL
+ * применяет та сторона от своего имени. Перенос под пользователем — только на транспорте Thrift.
+ */
 public class HttpRemoteHmsClient implements HmsClient {
 
     private static final Logger log = LoggerFactory.getLogger(HttpRemoteHmsClient.class);

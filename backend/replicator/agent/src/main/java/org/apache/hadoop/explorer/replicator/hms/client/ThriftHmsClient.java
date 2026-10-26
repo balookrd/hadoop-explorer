@@ -149,6 +149,19 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     }
 
     @Override
+    /**
+     * Выполнение операций от имени пользователя.
+     *
+     * <p><b>Ограничение, о котором нужно знать.</b> Соединения берутся из общего пула, открытого
+     * под техучеткой агента, а SASL-аутентификация и {@code set_ugi} происходят в момент
+     * установки соединения. {@code doAs} вокруг вызова меняет Subject только на стороне JVM
+     * агента, поэтому метастор и Ranger видят принципала агента, а не пользователя: запись в
+     * логе {@code doAs=user@REALM} отражает намерение, а не то, что увидел HMS.
+     *
+     * <p>Полноценная имперсонация требует пула, ключованного по принципалу, с открытием
+     * соединения внутри {@code doAs} и {@code hive.metastore.execute.setugi=true}. Это отдельная
+     * работа: у пула меняются жизненный цикл, вытеснение и учет соединений.
+     */
     public <T> T executeAs(String executionPrincipal, java.util.concurrent.Callable<T> action) throws Exception {
         if (executionPrincipal == null || executionPrincipal.isBlank()) {
             return action.call();
