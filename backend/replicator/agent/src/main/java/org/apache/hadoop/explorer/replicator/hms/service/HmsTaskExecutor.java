@@ -389,7 +389,10 @@ public class HmsTaskExecutor implements Closeable {
                             null,
                             String.format("Bootstrap в процессе: перенесено %d/%d таблиц, %d партиций",
                                     replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get()),
-                            Collections.emptyList(),
+                            // Журнал уходит и по времени, а не только порциями по 500: у таблиц, чьи
+                            // партиции лежат в ее каталоге, событие одно на 1000 партиций, и до конца
+                            // bootstrap журнал в UI оставался пустым
+                            eventLog.drain(),
                             agentId,
                             checkpoint.toJson()
                     ));
@@ -415,6 +418,11 @@ public class HmsTaskExecutor implements Closeable {
                         log.warn("[HmsTaskExecutor] Fencing: {}. Bootstrap задачи {} прерывается", e.getMessage(), job.id());
                         jobFencedFlags.computeIfAbsent(job.id(), k -> new AtomicBoolean(false)).set(true);
                     } catch (Exception e) {
+                        if (!running.get()) {
+                            // Агент останавливается: прерванный вызов — не ошибка таблицы
+                            log.info("[HmsTaskExecutor] Таблица {}.{} прервана остановкой агента", job.sourceDbName(), tblName);
+                            return;
+                        }
                         log.error("[HmsTaskExecutor] Сбой обработки таблицы {}.{}: {}", job.sourceDbName(), tblName, e.getMessage(), e);
                         eventLog.add(new HmsEventReportDto(highWaterMark, "BOOTSTRAP_TABLE", tblName, null,
                                 null, null, null, "FAILED", e.getMessage()));
@@ -428,6 +436,14 @@ public class HmsTaskExecutor implements Closeable {
                 heartbeatScheduler.shutdownNow();
             }
 
+            if (!running.get()) {
+                // Штатная остановка агента (деплой, перезапуск): итоговый статус не отправляется.
+                // Иначе прерванные потоками вызовы превращались в ERROR, из которого задача сама не
+                // продолжается, а повторный bootstrap начинался бы с нуля. Задача остается в
+                // BOOTSTRAPPING с чекпоинтом и продолжится после перезапуска агента.
+                log.warn("[HmsTaskExecutor] Bootstrap задачи {} прерван остановкой агента, продолжится по чекпоинту", job.id());
+                return false;
+            }
             AtomicBoolean fenced = jobFencedFlags.get(job.id());
             if (fenced != null && fenced.get()) {
                 // Задачу отобрали посреди bootstrap: итоговый ACTIVE от этого агента был бы ложью
@@ -466,6 +482,10 @@ public class HmsTaskExecutor implements Closeable {
                     job.id(), finalStatus, replicatedTablesCount.get(), tables.size(), replicatedPartitionsCount.get(), totalPartitionsCount.get());
             return !hasFailures;
         } catch (Exception e) {
+            if (!running.get()) {
+                log.warn("[HmsTaskExecutor] Bootstrap задачи {} прерван остановкой агента: {}", job.id(), e.getMessage());
+                return false;
+            }
             log.error("[HmsTaskExecutor] Критическая ошибка при исполнении Bootstrap задачи {}: {}", job.id(), e.getMessage(), e);
             orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
                     "FAILED", 0, 0, 0, 0, null, null, null,

@@ -131,4 +131,24 @@ describe('HMS Replication Bootstrap Sync Metrics', () => {
     expect(screen.getByText('Старт:')).toBeInTheDocument();
     expect(screen.getByText('Окончание:')).toBeInTheDocument();
   });
+
+  it('считает прогресс по партициям, когда объема данных нет', async () => {
+    // Одна таблица на 30 000 партиций, данные — пустые каталоги: доля таблиц была бы 0%
+    const original = { ...mockHmsJobs[0] };
+    Object.assign(mockHmsJobs[0], {
+      total_tables: 1, replicated_tables: 0,
+      total_partitions: 30000, replicated_partitions: 23000,
+      total_bytes: 0, copied_bytes: 0, average_speed_mb_s: 0, progress_percent: 0,
+      estimated_completion_at: null,
+    });
+    try {
+      render(HmsReplicationView, { props: { topology: mockTopology as any, user: mockUser as any } });
+      await waitFor(() => expect(screen.getByText('sales_source_db')).toBeInTheDocument());
+
+      expect(screen.getAllByText('77%').length).toBeGreaterThan(0);
+      expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && (el.textContent ?? '').replace(/\s/g, '') === '/30000')).toBeTruthy();
+    } finally {
+      Object.assign(mockHmsJobs[0], original);
+    }
+  });
 });

@@ -37,9 +37,17 @@ class ActiveActiveLimitPropagationTest {
     @Autowired
     private ReplicatorProperties properties;
 
+    @Autowired
+    private OrchestratorClusterCoordinator coordinator;
+
+    @Autowired
+    private TopologyRegistry topologyRegistry;
+
     @BeforeEach
     void setUp() {
-        limitRepository.deleteAll();
+        // Память узла тоже: контекст общий, и нулевой лимит предыдущего DR-теста иначе остается.
+        // Через координатор — чтобы фоновая синхронизация не вернула его после сброса
+        coordinator.resetLimitsForTesting();
     }
 
     /** Второй узел кластера: своя память, та же база. */
@@ -89,5 +97,29 @@ class ActiveActiveLimitPropagationTest {
         var restored = secondNodeRegistry().getDcLimit("dc1", "dc2");
         assertTrue(restored.isEmpty() || restored.get() > 0L,
                 "После отката ограждения канал должен быть открыт и на втором узле, получено: " + restored);
+    }
+
+    @Test
+    @DisplayName("Сброс лимитов не перетирается фоновой синхронизацией с БД")
+    void testResetIsNotUndoneByConcurrentSync() throws Exception {
+        var stop = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread sync = new Thread(() -> {
+            while (!stop.get()) {
+                coordinator.syncLimitsFromDatabase();
+            }
+        });
+        sync.start();
+        try {
+            for (int i = 0; i < 300; i++) {
+                limitRepository.save(new org.apache.hadoop.explorer.replicator.orchestrator.entity.BandwidthLimitEntity(
+                        "dc:dc1->dc2", 0L, java.time.Instant.now()));
+                coordinator.resetLimitsForTesting();
+                assertNotEquals(0L, topologyRegistry.getDcLimit("dc1", "dc2").orElse(-1L),
+                        "Итерация " + i + ": синхронизация, прочитавшая БД до очистки, вернула нулевой лимит");
+            }
+        } finally {
+            stop.set(true);
+            sync.join();
+        }
     }
 }

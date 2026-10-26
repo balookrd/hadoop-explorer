@@ -56,7 +56,8 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
           AND t.jobId IN (
               SELECT j.id FROM JobEntity j
               WHERE (j.status = 'RUNNING' OR j.status = 'STREAMING')
-                AND (:clusterId IS NULL OR LOWER(j.sourceClusterId) = LOWER(:clusterId))
+                AND (CAST(:clusterId AS string) IS NULL
+                     OR LOWER(j.sourceClusterId) = LOWER(CAST(:clusterId AS string)))
           )
         ORDER BY t.updatedAt ASC
     """)

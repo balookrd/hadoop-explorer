@@ -1102,6 +1102,18 @@ public class HmsCoordinatorService {
         }
     }
 
+    /**
+     * Прогресс переноса метаданных: по партициям, если они есть, иначе по таблицам. У схемы с
+     * одной таблицей на 200k партиций доля таблиц весь bootstrap оставалась нулевой.
+     */
+    private static double metadataProgress(HmsReplicationJobEntity job) {
+        if (job.getTotalPartitions() > 0) {
+            return Math.min(100.0, Math.round(((double) job.getReplicatedPartitions() / job.getTotalPartitions()) * 10000.0) / 100.0);
+        }
+        return job.getTotalTables() > 0
+                ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0;
+    }
+
     private void enrichJobWithSubtasks(HmsReplicationJobEntity job, JobService.SubjobAggregate agg) {
         if (agg != null && agg.count() > 0) {
             long totalBytes = agg.totalBytes();
@@ -1118,7 +1130,7 @@ public class HmsCoordinatorService {
 
             double progress = totalBytes > 0
                     ? Math.min(100.0, Math.round(((double) copiedBytes / totalBytes) * 10000.0) / 100.0)
-                    : (job.getTotalTables() > 0 ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0);
+                    : metadataProgress(job);
             job.setProgressPercent(progress);
 
             Instant end = (activeCount == 0 && maxCompletedAt != null) ? maxCompletedAt : Instant.now();
@@ -1140,8 +1152,7 @@ public class HmsCoordinatorService {
             }
         } else if ("BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
             job.setStartedAt(job.getCreatedAt());
-            double progress = job.getTotalTables() > 0 ? Math.min(100.0, ((double) job.getReplicatedTables() / job.getTotalTables()) * 100.0) : 0.0;
-            job.setProgressPercent(progress);
+            job.setProgressPercent(metadataProgress(job));
         }
 
         if (job.isEnableHdfsStreaming()) {

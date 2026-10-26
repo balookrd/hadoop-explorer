@@ -1,0 +1,72 @@
+# =============================================================================
+# Отказоустойчивый оркестратор: два узла на общей PostgreSQL.
+#
+# Накладывается поверх docker-compose.yml и docker-compose.hms-load.yml (и при желании
+# docker-compose.hms31.yml). Агенты знают оба узла и переключаются между ними сами.
+# Сценарий — run-hms-ha-test.sh.
+# =============================================================================
+
+volumes:
+  replicator-ha-pg-data:
+
+services:
+  replicator-db:
+    image: postgres:16-alpine
+    container_name: replicator-db
+    environment:
+      POSTGRES_DB: replicator
+      POSTGRES_USER: replicator
+      POSTGRES_PASSWORD: replicator
+    volumes:
+      - replicator-ha-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U replicator -d replicator"]
+      interval: 3s
+      retries: 20
+    networks:
+      - demo-platform-net
+
+  orchestrator:
+    depends_on: !override
+      kdc:
+        condition: service_healthy
+      replicator-db:
+        condition: service_healthy
+    environment: &ha-db
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://replicator-db:5432/replicator"
+      SPRING_DATASOURCE_USERNAME: "replicator"
+      SPRING_DATASOURCE_PASSWORD: "replicator"
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: "org.postgresql.Driver"
+      SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.PostgreSQLDialect"
+      # Схемой владеют миграции Flyway, как в бою
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "none"
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Xmx1g"
+      HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST: "false"
+
+  orchestrator-2:
+    extends:
+      file: docker-compose.yml
+      service: orchestrator
+    container_name: replicator-orchestrator-2
+    hostname: orchestrator-2
+    environment: *ha-db
+    ports: !override
+      - "8006:8005"
+      - "50060:50050"
+    depends_on: !override
+      kdc:
+        condition: service_healthy
+      replicator-db:
+        condition: service_healthy
+    networks: !override
+      demo-platform-net:
+        aliases:
+          - orchestrator-2
+
+  agent-dc1:
+    environment:
+      ORCHESTRATOR_GRPC_ADDRESSES: "orchestrator:50050,orchestrator-2:50050"
+
+  agent-dc2:
+    environment:
+      ORCHESTRATOR_GRPC_ADDRESSES: "orchestrator:50050,orchestrator-2:50050"

@@ -22,7 +22,8 @@ public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicatio
      */
     @Query("SELECT DISTINCT j.createdBy FROM HmsReplicationJobEntity j "
             + "WHERE j.createdBy IS NOT NULL AND j.createdBy <> '' "
-            + "AND (:owner IS NULL OR LOWER(j.createdBy) = LOWER(:owner)) "
+            // Явное приведение: null-параметр PostgreSQL получает как bytea, и LOWER(bytea) падает
+            + "AND (CAST(:owner AS string) IS NULL OR LOWER(j.createdBy) = LOWER(CAST(:owner AS string))) "
             + "ORDER BY j.createdBy")
     List<String> listAuthors(@Param("owner") String owner);
 

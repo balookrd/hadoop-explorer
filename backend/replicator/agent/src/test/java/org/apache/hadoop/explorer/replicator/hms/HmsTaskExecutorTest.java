@@ -68,6 +68,8 @@ public class HmsTaskExecutorTest {
     private final Set<String> failedSubjobs = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** Оркестратор отказывает в подзадачах данных: задача удалена. */
     private volatile boolean rejectSubjobs;
+    /** Агент останавливается, пока bootstrap ждет копирования данных. */
+    private volatile boolean stopAgentOnAwait;
     /** Оркестратор отклоняет отчеты: задачу отобрали у агента. */
     private volatile boolean rejectReports;
 
@@ -107,6 +109,11 @@ public class HmsTaskExecutorTest {
             public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
                 awaitedSubjobs.addAll(subjobIds);
                 awaitCallSizes.add(subjobIds.size());
+                if (stopAgentOnAwait) {
+                    // Остановка агента посреди bootstrap: close() снимает running и прерывает потоки
+                    executor.close();
+                    throw new RuntimeException("CANCELLED: Thread interrupted");
+                }
                 return subjobIds.stream().noneMatch(failedSubjobs::contains);
             }
 
@@ -613,5 +620,22 @@ public class HmsTaskExecutorTest {
         assertEquals(777L, last.bootstrapEventId(), "позиция журнала — исходная, а не текущая");
         assertEquals(2, last.replicatedTables());
         assertEquals(1000, last.replicatedPartitions());
+    }
+
+    @Test
+    @DisplayName("Остановка агента посреди bootstrap — не ошибка: итоговый статус не отправляется")
+    void agentStopDoesNotFailBootstrap() {
+        srcHmsClient.createDatabase("stop", "hdfs://ns-hot:8020/warehouse/stop.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "stop", "t", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/stop.db/t", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+        stopAgentOnAwait = true;
+
+        boolean ok = executor.runBootstrap(new HmsPendingJobDto("hms-job-stop", "dc1", "dc2", "stop", "stop_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L));
+
+        assertFalse(ok);
+        assertTrue(reports.stream().noneMatch(r -> Set.of("ERROR", "FAILED", "ACTIVE").contains(r.status())),
+                "после остановки агента задача должна остаться в BOOTSTRAPPING: "
+                        + reports.stream().map(HmsProgressReportRequest::status).toList());
     }
 }

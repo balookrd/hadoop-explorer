@@ -33,10 +33,15 @@ class ActiveActiveSnapshotVisibilityTest {
     @Autowired
     private org.apache.hadoop.explorer.replicator.orchestrator.repository.BandwidthLimitRepository limitRepository;
 
+    @Autowired
+    private OrchestratorClusterCoordinator coordinator;
+
     @BeforeEach
     void setUp() {
         snapshotRepository.deleteAll();
-        limitRepository.deleteAll();
+        // Память узла тоже: контекст общий, и нулевой лимит предыдущего DR-теста иначе остается.
+        // Через координатор — чтобы фоновая синхронизация не вернула его после сброса
+        coordinator.resetLimitsForTesting();
     }
 
     @Test

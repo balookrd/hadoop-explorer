@@ -115,6 +115,22 @@ class KafkaRebalanceAndShutdownTest {
         consumer.updateBeginningOffsets(beginning);
     }
 
+    /**
+     * Ребаланс в потоке консьюмера, внутри poll(), как его проводит настоящий Kafka.
+     *
+     * <p>MockConsumer вызывает колбэки ребаланса в потоке того, кто вызвал rebalance(). Из
+     * тестового потока листенер пула работал параллельно с его же циклом вычитки — так в бою не
+     * бывает, и тест изредка падал (CI): освобождение залипшего батча перемешивалось с циклом.
+     */
+    private void rebalanceOnPollThread(TopicPartition partition, Long recordOffset) {
+        consumer.schedulePollTask(() -> {
+            assign(partition);
+            if (recordOffset != null) {
+                addRecord(partition, recordOffset);
+            }
+        });
+    }
+
     private void addRecord(TopicPartition tp, long offset) {
         consumer.addRecord(new ConsumerRecord<>(tp.topic(), tp.partition(), offset,
                 ("k" + offset).getBytes(), ("v" + offset).getBytes()));
@@ -147,8 +163,7 @@ class KafkaRebalanceAndShutdownTest {
         awaitSent(1);
 
         // Ack не приходит: партицию отзывают, пока батч в полете
-        assign(P1);
-        addRecord(P1, 500);
+        rebalanceOnPollThread(P1, 500L);
 
         awaitSent(2);
         assertEquals(1, sent.get(1).getRecords(0).getPartition(),
@@ -165,7 +180,7 @@ class KafkaRebalanceAndShutdownTest {
         awaitSent(1);
         ack(sent.get(0));
 
-        assign(P1);
+        rebalanceOnPollThread(P1, null);
 
         ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> captor = ArgumentCaptor.forClass(Map.class);
         verify(consumer, timeout(5_000).atLeastOnce()).commitSync(captor.capture());

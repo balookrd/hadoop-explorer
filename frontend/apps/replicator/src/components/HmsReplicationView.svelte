@@ -630,9 +630,25 @@
       startedAt = job.created_at;
     }
 
+    // Без объема данных (пустые каталоги, барьер выключен) прогресс — по партициям: у схемы с
+    // одной таблицей на 200k партиций доля таблиц весь bootstrap показывала 0%
+    const totalParts = job.total_partitions || 0;
+    const doneParts = job.replicated_partitions || 0;
     const percent = totalBytes > 0
       ? Math.min(100, Math.round((copiedBytes / totalBytes) * 100))
-      : (job.total_tables > 0 ? Math.min(100, Math.round(((job.replicated_tables || 0) / job.total_tables) * 100)) : 0);
+      : totalParts > 0
+        ? Math.min(100, Math.round((doneParts / totalParts) * 100))
+        : (job.total_tables > 0 ? Math.min(100, Math.round(((job.replicated_tables || 0) / job.total_tables) * 100)) : 0);
+
+    // Окончание по скорости переноса партиций, когда оценки по байтам нет
+    if (!estimatedCompletionAt && totalBytes === 0 && job.status === 'BOOTSTRAPPING'
+        && totalParts > doneParts && doneParts > 0 && startedAt) {
+      const elapsedSec = (Date.now() - new Date(startedAt).getTime()) / 1000;
+      if (elapsedSec > 0) {
+        const rate = doneParts / elapsedSec;
+        estimatedCompletionAt = new Date(Date.now() + ((totalParts - doneParts) / rate) * 1000).toISOString();
+      }
+    }
 
     return {
       startedAt,
@@ -976,6 +992,9 @@
                     <Layers class="w-3 h-3 text-sky-500 shrink-0" />
                     <span>Партиций:</span>
                     <span class="font-mono font-medium text-slate-700 dark:text-slate-300">{(job.replicated_partitions || 0).toLocaleString('ru-RU')}</span>
+                    {#if (job.total_partitions || 0) > (job.replicated_partitions || 0)}
+                      <span class="text-slate-400 font-mono">/ {(job.total_partitions || 0).toLocaleString('ru-RU')}</span>
+                    {/if}
                   </div>
                 </td>
 

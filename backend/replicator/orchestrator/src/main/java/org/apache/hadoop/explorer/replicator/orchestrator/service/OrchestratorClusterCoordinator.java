@@ -39,6 +39,8 @@ public class OrchestratorClusterCoordinator {
     private final org.springframework.transaction.support.TransactionTemplate txTemplate;
     private final String nodeId;
     private final String hostName;
+    /** Чтение лимитов из БД и их применение в память — одна операция для сброса лимитов. */
+    private final Object limitSyncLock = new Object();
 
     @Autowired
     public OrchestratorClusterCoordinator(
@@ -146,9 +148,27 @@ public class OrchestratorClusterCoordinator {
     @Transactional(readOnly = true)
     public void syncLimitsFromDatabase() {
         if (limitRepository == null) return;
-        List<BandwidthLimitEntity> limits = limitRepository.findAll();
-        for (BandwidthLimitEntity limit : limits) {
-            applyLimitLocally(limit.getLimitKey(), limit.getLimitBytesPerSec());
+        synchronized (limitSyncLock) {
+            List<BandwidthLimitEntity> limits = limitRepository.findAll();
+            for (BandwidthLimitEntity limit : limits) {
+                applyLimitLocally(limit.getLimitKey(), limit.getLimitBytesPerSec());
+            }
+        }
+    }
+
+    /**
+     * Сброс лимитов в БД и в памяти узла к значениям по умолчанию.
+     *
+     * <p>Под той же блокировкой, что и фоновая синхронизация: иначе цикл координации, прочитавший
+     * лимиты до очистки таблицы, применяет их в память уже после сброса, и нулевой лимит
+     * ограждения возвращается.
+     */
+    void resetLimitsForTesting() {
+        synchronized (limitSyncLock) {
+            if (limitRepository != null) {
+                limitRepository.deleteAll();
+            }
+            topologyRegistry.resetLimitsToDefaults();
         }
     }
 

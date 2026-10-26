@@ -395,4 +395,19 @@ class HmsDispatchAtScaleTest {
         assertTrue(hmsJobRepository.findAll().stream().allMatch(j -> j.getAssignedAgentId() != null),
                 "каждая задача получила владельца");
     }
+
+    @Test
+    @DisplayName("Прогресс bootstrap без объема данных считается по партициям, а не по таблицам")
+    void bootstrapProgressFollowsPartitions() {
+        HmsReplicationJobEntity job = queuedJob("progress_db");
+        job.setStatus("BOOTSTRAPPING");
+        job.setTotalTables(1);
+        job.setReplicatedTables(0);
+        job.setTotalPartitions(30000);
+        job.setReplicatedPartitions(23000);
+
+        coordinatorService.enrichWithSubtasksMetrics(job);
+
+        assertEquals(76.67, job.getProgressPercent(), 0.01);
+    }
 }

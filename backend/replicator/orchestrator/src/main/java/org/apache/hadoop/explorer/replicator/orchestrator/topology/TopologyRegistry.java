@@ -23,6 +23,20 @@ public class TopologyRegistry {
         if (properties.getClusters() != null) {
             properties.getClusters().forEach(c -> clusters.put(c.getId(), c));
         }
+        resetLimitsToDefaults();
+    }
+
+    /**
+     * Лимиты каналов — к значениям по умолчанию, как при старте узла: 100 МБ/с между ЦОД,
+     * 60 МБ/с между кластерами HDFS; лимиты для маршрутов вне топологии снимаются.
+     *
+     * <p>Лимиты в памяти переживают очистку таблицы лимитов: тесты, делящие контекст, видели
+     * нулевой лимит (ограждение), оставленный предыдущим тестом, и Kill-Switch считался
+     * активным в зависимости от порядка запуска.
+     */
+    public void resetLimitsToDefaults() {
+        dcLimits.clear();
+        hdfsLimits.clear();
 
         // Инициализация дефолтных лимитов каналов между ЦОД (100 МБ/с)
         for (var srcDc : datacenters) {
