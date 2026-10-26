@@ -360,6 +360,92 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             });
         }
 
+            /**
+             * Записи, вычитанные опросом во время ожидания: отдаются в обработку следующей пачкой.
+             * Доступ только из потока воркера, поэтому без синхронизации.
+             */
+            private final Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> deferredRecords =
+                    new LinkedHashMap<>();
+
+            /**
+             * Добавление отложенных записей к только что вычитанным.
+             *
+             * <p>Записи партиции, которой у воркера больше нет, отбрасываются: их перечитает новый
+             * владелец с последнего зафиксированного смещения.
+             */
+            private ConsumerRecords<byte[], byte[]> withDeferred(ConsumerRecords<byte[], byte[]> polled) {
+                if (deferredRecords.isEmpty()) {
+                    return polled;
+                }
+                Set<TopicPartition> assigned = workerConsumer.assignment();
+                Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> merged = new LinkedHashMap<>();
+                for (Map.Entry<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> e : deferredRecords.entrySet()) {
+                    if (assigned.contains(e.getKey())) {
+                        merged.put(e.getKey(), new ArrayList<>(e.getValue()));
+                    }
+                }
+                deferredRecords.clear();
+                for (TopicPartition tp : polled.partitions()) {
+                    merged.computeIfAbsent(tp, k -> new ArrayList<>()).addAll(polled.records(tp));
+                }
+                return merged.isEmpty() ? polled : new ConsumerRecords<>(merged);
+            }
+
+            /**
+             * Ожидание, которое не отнимает у брокера признак жизни.
+             *
+             * <p>Ограничитель полосы, пустой буфер gRPC и переполненный буфер in-flight заставляют
+             * ждать в том самом потоке, который вызывает {@code poll()}. Heartbeat идет отдельным
+             * потоком, но {@code max.poll.interval.ms} отсчитывается именно от опроса: при узком
+             * WAN пауза выходила за него, консьюмера исключали из группы, и начинался ребаланс —
+             * ровно тогда, когда канал и без того перегружен.
+             *
+             * <p>Поэтому на время ожидания назначенные партиции ставятся на паузу, а опрос
+             * продолжается: записей он не вернет, но брокер видит живого участника группы.
+             * Партиции, уже приостановленные из-за отсутствующего маршрута, не возобновляются.
+             */
+            private void awaitInPollLoop(long waitMillis) {
+                if (waitMillis <= 0) {
+                    return;
+                }
+                long deadlineNanos = System.nanoTime() + waitMillis * 1_000_000L;
+                Set<TopicPartition> toPause = new HashSet<>(workerConsumer.assignment());
+                toPause.removeAll(workerConsumer.paused());
+                if (!toPause.isEmpty()) {
+                    workerConsumer.pause(toPause);
+                }
+                try {
+                    while (running.get()) {
+                        long leftMs = (deadlineNanos - System.nanoTime()) / 1_000_000L;
+                        if (leftMs <= 0) {
+                            break;
+                        }
+                        drainAndCommitPendingOffsets();
+                        try {
+                            ConsumerRecords<byte[], byte[]> stray =
+                                    workerConsumer.poll(Duration.ofMillis(Math.min(50L, leftMs)));
+                            if (!stray.isEmpty()) {
+                                // Ребаланс мог назначить партицию уже после паузы, и опрос ожидания
+                                // вернул ее записи. Обработать их здесь нельзя, выбросить — потерять:
+                                // они откладываются и попадают в обработку следующей же пачкой.
+                                for (TopicPartition tp : stray.partitions()) {
+                                    deferredRecords.computeIfAbsent(tp, k -> new ArrayList<>())
+                                            .addAll(stray.records(tp));
+                                }
+                            }
+                        } catch (WakeupException | IllegalStateException e) {
+                            break;
+                        }
+                    }
+                } finally {
+                    Set<TopicPartition> toResume = new HashSet<>(toPause);
+                    toResume.retainAll(workerConsumer.assignment());
+                    if (!toResume.isEmpty()) {
+                        workerConsumer.resume(toResume);
+                    }
+                }
+            }
+
         @Override
         public void run() {
             log.info("Запущен поток ConsumerWorker-{} ({} -> {})", workerId, sourceDcId, targetDcId);
@@ -385,12 +471,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     // Контроль Backpressure: притормаживаем вычитку, если буфер in-flight переполнен
                     while (running.get() && inFlightCount.get() >= maxInFlightBatches) {
                         drainAndCommitPendingOffsets();
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
+                        awaitInPollLoop(10);
                     }
 
                     if (localTopicsVersion != topicsVersion.get()) {
@@ -409,7 +490,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
                     ConsumerRecords<byte[], byte[]> records;
                     try {
-                        records = workerConsumer.poll(Duration.ofMillis(100));
+                        records = withDeferred(workerConsumer.poll(Duration.ofMillis(100)));
                     } catch (WakeupException we) {
                         if (!running.get()) {
                             break;
@@ -537,12 +618,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             if (targetStream instanceof io.grpc.stub.ClientCallStreamObserver<?> clientCallStreamObserver) {
                                 while (running.get() && !clientCallStreamObserver.isReady()) {
                                     drainAndCommitPendingOffsets();
-                                    try {
-                                        Thread.sleep(5);
-                                    } catch (InterruptedException e) {
-                                        Thread.currentThread().interrupt();
-                                        break;
-                                    }
+                                    awaitInPollLoop(10);
                                 }
                             }
 
@@ -551,7 +627,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                     batchRequest, tp, maxChunkOffset, chunk.size(), batchBytes, targetIdx);
 
                             if (bandwidthLimiter != null) {
-                                bandwidthLimiter.throttle(batchBytes);
+                                awaitInPollLoop((long) Math.ceil(bandwidthLimiter.reserve(batchBytes) * 1000.0));
                             }
 
                             try {

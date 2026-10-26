@@ -66,6 +66,30 @@ public class LocalBandwidthLimiter {
      * @return время ожидания в секундах
      */
     public double throttle(long bytesCount) {
+        double waitSeconds = reserve(bytesCount);
+        if (waitSeconds > 0) {
+            try {
+                long millis = (long) (waitSeconds * 1000);
+                int nanos = (int) ((waitSeconds * 1000 - millis) * 1_000_000);
+                Thread.sleep(millis, nanos);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Прервано ожидание троттлера полосы: {}", e.getMessage());
+            }
+        }
+        return waitSeconds;
+    }
+
+    /**
+     * Списывает байты и возвращает причитающееся ожидание, но не ждет сам.
+     *
+     * <p>Нужно там, где ждать обязан вызывающий и по-своему: поток опроса Kafka во время паузы
+     * продолжает обращаться к брокеру, иначе консьюмера исключают из группы.
+     *
+     * @param bytesCount количество переданных/принятых байт
+     * @return время ожидания в секундах
+     */
+    public double reserve(long bytesCount) {
         if (!isEnabled() || bytesCount <= 0) {
             return 0.0;
         }
@@ -90,17 +114,6 @@ public class LocalBandwidthLimiter {
             this.tokens -= bytesCount;
         } finally {
             lock.unlock();
-        }
-
-        if (waitSeconds > 0) {
-            try {
-                long millis = (long) (waitSeconds * 1000);
-                int nanos = (int) ((waitSeconds * 1000 - millis) * 1_000_000);
-                Thread.sleep(millis, nanos);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Прервано ожидание троттлера полосы: {}", e.getMessage());
-            }
         }
 
         return waitSeconds;
