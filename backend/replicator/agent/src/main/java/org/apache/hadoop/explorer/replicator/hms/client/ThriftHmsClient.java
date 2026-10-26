@@ -40,6 +40,9 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     private final String keytabPath;
     private final Configuration conf;
     private final UserGroupInformation ugi;
+    /** Размер порции при выборке партиций по именам. */
+    private static final int PARTITION_FETCH_BATCH = 1000;
+
     private final GenericObjectPool<IMetaStoreClient> clientPool;
     private final ThreadLocal<String> currentExecutionPrincipal = new ThreadLocal<>();
 
@@ -342,15 +345,32 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         });
     }
 
+    /**
+     * Партиции таблицы.
+     *
+     * <p>Сначала берутся имена, затем партиции подтягиваются порциями по
+     * {@link #PARTITION_FETCH_BATCH}. Один вызов {@code listPartitions(db, tbl, -1)} заставлял
+     * метастор собрать все партиции таблицы в единственный Thrift-ответ: на таблице в 100k партиций
+     * это сотни мегабайт в одном сообщении — лимит размера ответа и таймаут на стороне агента.
+     */
     @Override
     public List<HmsPartitionDto> getPartitions(String dbName, String tableName) {
         return executeWithRetry(c -> {
             try {
-                List<Partition> partitions = c.listPartitions(dbName, tableName, (short) -1);
-                if (partitions == null) return Collections.emptyList();
-                List<HmsPartitionDto> list = new ArrayList<>(partitions.size());
-                for (Partition p : partitions) {
-                    list.add(toDto(p));
+                List<String> names = c.listPartitionNames(dbName, tableName, (short) -1);
+                if (names == null || names.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                List<HmsPartitionDto> list = new ArrayList<>(names.size());
+                for (int from = 0; from < names.size(); from += PARTITION_FETCH_BATCH) {
+                    int to = Math.min(from + PARTITION_FETCH_BATCH, names.size());
+                    List<Partition> batch = c.getPartitionsByNames(dbName, tableName, names.subList(from, to));
+                    if (batch == null) {
+                        continue;
+                    }
+                    for (Partition p : batch) {
+                        list.add(toDto(p));
+                    }
                 }
                 return list;
             } catch (NoSuchObjectException e) {
