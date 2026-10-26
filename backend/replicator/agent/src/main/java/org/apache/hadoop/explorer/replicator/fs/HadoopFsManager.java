@@ -357,7 +357,8 @@ public class HadoopFsManager {
                 return 0L;
             });
         } catch (Exception e) {
-            return 0L;
+            // «Не знаю» не равно «ноль»: иначе файл уходит в перенос как пустой
+            throw new IOException("Не удалось получить размер файла '" + pathStr + "': " + e.getMessage(), e);
         }
     }
 
@@ -381,7 +382,7 @@ public class HadoopFsManager {
                 return fs.exists(path);
             });
         } catch (Exception e) {
-            return false;
+            throw new FsStateUnknownException("проверка существования", pathStr, e);
         }
     }
 
@@ -413,7 +414,7 @@ public class HadoopFsManager {
                 return false;
             });
         } catch (Exception e) {
-            return false;
+            throw new FsStateUnknownException("проверка типа пути", pathStr, e);
         }
     }
 
@@ -442,7 +443,7 @@ public class HadoopFsManager {
                 return 0L;
             });
         } catch (Exception e) {
-            return 0L;
+            throw new FsStateUnknownException("чтение времени изменения", pathStr, e);
         }
     }
 

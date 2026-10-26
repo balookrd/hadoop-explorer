@@ -467,6 +467,22 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
                     String checksum = sha256Digest != null ? bytesToHex(sha256Digest.digest()) : "";
 
+                    // Сверка с заявленным в метаданных: без нее усеченная передача коммитилась
+                    // как успешная и вставала поверх валидного файла. Отправитель объявляет
+                    // размер в метаданных, контрольную сумму — если считал ее на своей стороне.
+                    long declaredBytes = metadata.getTotalBytes();
+                    if (declaredBytes > 0 && bytesWritten != declaredBytes) {
+                        throw new IOException("Принято " + bytesWritten + " байт вместо заявленных "
+                                + declaredBytes + " для '" + metadata.getTargetPath() + "': коммит отменен");
+                    }
+                    String declaredChecksum = metadata.getChecksum();
+                    if (declaredChecksum != null && !declaredChecksum.isBlank()
+                            && !declaredChecksum.equalsIgnoreCase(checksum)) {
+                        throw new IOException("Контрольная сумма принятого файла '" + metadata.getTargetPath()
+                                + "' не совпала с заявленной: получено " + checksum
+                                + ", ожидалось " + declaredChecksum);
+                    }
+
                     // Атомарный rename из staging в целевой файл в HDFS/ФС
                     boolean renamed = fsManager.renameFile(
                             stagingPath,

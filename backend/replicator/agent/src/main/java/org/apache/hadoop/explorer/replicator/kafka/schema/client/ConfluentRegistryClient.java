@@ -71,7 +71,7 @@ public class ConfluentRegistryClient {
      * Регистрирует схему в Subject и возвращает присвоенный Schema ID.
      */
     public int registerSchema(String subject, String schemaJson) throws IOException, InterruptedException {
-        String url = baseUrl + "/subjects/" + subject + "/versions";
+        String url = baseUrl + "/subjects/" + encodeSubject(subject) + "/versions";
         String requestBody = mapper.createObjectNode()
                 .put("schema", schemaJson)
                 .toString();
@@ -88,6 +88,23 @@ public class ConfluentRegistryClient {
 
         JsonNode root = mapper.readTree(response.body());
         return root.get("id").asInt();
+    }
+
+    /**
+     * Экранирование имени subject для подстановки в путь URL.
+     *
+     * <p>Имя приходит извне — из топика в gRPC-запросе — и подставлялось в путь как есть:
+     * косая черта или {@code ..} уводили запрос на другой путь API реестра, а {@code ?} и
+     * {@code #} обрезали путь и подменяли параметры. {@code URLEncoder} кодирует пробел как
+     * {@code +}, что верно для строки запроса и неверно для пути, поэтому плюс заменяется на
+     * {@code %20}.
+     */
+    public static String encodeSubject(String subject) {
+        if (subject == null || subject.isEmpty()) {
+            return "";
+        }
+        return java.net.URLEncoder.encode(subject, java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20");
     }
 
     private HttpRequest.Builder createRequestBuilder(String url) {
