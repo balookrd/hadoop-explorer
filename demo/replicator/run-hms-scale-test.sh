@@ -6,6 +6,7 @@
 #
 #   ./run-hms-scale-test.sh
 #   PARTITIONS=20000 SWARM_AGENTS=50 ./run-hms-scale-test.sh
+#   WORKLOAD=insert SKIP_UP=1 ./run-hms-scale-test.sh   # под роем — живая проверка INSERT
 #
 # Требует собранные JAR-файлы: make build-java.
 # ==============================================================================
@@ -64,9 +65,14 @@ for i in $(seq 1 "$SWARM_JOBS"); do
 done
 log "Создано задач роя: ${CREATED}"
 
-log "Параллельно — перенос ${PARTITIONS} партиций настоящими агентами"
 LOAD_RC=0
-SKIP_UP=1 ./run-hms-load-test.sh || LOAD_RC=$?
+if [ "${WORKLOAD:-load}" = "insert" ]; then
+  log "Параллельно — живая проверка INSERT через HiveServer2"
+  ./run-hms-insert-test.sh || LOAD_RC=$?
+else
+  log "Параллельно — перенос ${PARTITIONS} партиций настоящими агентами"
+  SKIP_UP=1 ./run-hms-load-test.sh || LOAD_RC=$?
+fi
 
 log "Жду окончания роя..."
 wait "$SWARM_PID" || true
@@ -75,7 +81,7 @@ cat "$SWARM_LOG"
 RESULT=$(grep -o 'SWARM_RESULT.*' "$SWARM_LOG" || true)
 ERRORS=$(echo "$RESULT" | grep -o 'errors=[0-9]*' | cut -d= -f2)
 JOBS=$(echo "$RESULT" | grep -o 'jobs=[0-9]*' | cut -d= -f2)
-[ "$LOAD_RC" = "0" ] || fail "перенос таблицы под нагрузкой роя не прошел"
+[ "$LOAD_RC" = "0" ] || fail "рабочая нагрузка (${WORKLOAD:-load}) под роем не прошла"
 [ "${ERRORS:-1}" = "0" ] || fail "у роя ${ERRORS:-?} ошибок вызовов оркестратора"
 [ "${JOBS:-0}" = "$CREATED" ] || fail "агентам роя досталось ${JOBS:-0} задач из ${CREATED}"
 log "Масштабный прогон пройден"

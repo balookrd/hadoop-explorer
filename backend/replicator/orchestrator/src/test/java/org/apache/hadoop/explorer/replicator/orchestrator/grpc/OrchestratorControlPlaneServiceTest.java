@@ -593,4 +593,22 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals("agent-dc1-worker", jobProto.getAssignedAgentId());
         assertEquals("hdfs/hadoop@REALM", jobProto.getExecutionPrincipal());
     }
+
+    @Test
+    @DisplayName("createHdfsSubjob: данные HMS-задачи пишутся от ее пользователя, без пользователя — от служебной учетки")
+    void hmsSubjobRunsAsExecutionPrincipal() {
+        when(hmsCoordinatorService.acceptsSubjobFrom(any(), any())).thenReturn(true);
+        when(jobService.findReusableSubjob(any(), any(), any())).thenReturn(Optional.empty());
+        when(jobService.createJob(any(), any())).thenReturn(null);
+
+        stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-a").setSourcePath("/s")
+                .setTargetPath("/t").setExecutionPrincipal("analyst@COMPANY.LOCAL").setAgentId("agent-dc1").build());
+        stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-b").setSourcePath("/s2")
+                .setTargetPath("/t2").setAgentId("agent-dc1").build());
+
+        verify(jobService).createJob(argThat(r -> r != null && "analyst@COMPANY.LOCAL".equals(r.executionPrincipal())
+                && Boolean.FALSE.equals(r.runAsServiceAccount())), any());
+        verify(jobService).createJob(argThat(r -> r != null && "/s2".equals(r.sourcePath())
+                && Boolean.TRUE.equals(r.runAsServiceAccount())), any());
+    }
 }

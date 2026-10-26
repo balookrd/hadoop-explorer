@@ -635,14 +635,19 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                 return;
             }
 
+            // Данные пишутся от того же пользователя, что и метаданные HMS-задачи: метастор создает
+            // каталоги баз и таблиц от его имени (doAs), и служебная учетка агента без прав
+            // суперпользователя HDFS не могла писать в них (Permission denied на стенде), а
+            // файлы на приемнике получали чужого владельца. Без пользователя — служебная учетка.
+            boolean hasPrincipal = request.getExecutionPrincipal() != null && !request.getExecutionPrincipal().isBlank();
             CreateJobRequest domainReq = new CreateJobRequest(
                     request.getSourcePath(),
                     request.getTargetPath(),
                     request.getSourceCluster() != null && !request.getSourceCluster().isBlank() ? request.getSourceCluster() : "default",
                     request.getTargetCluster() != null && !request.getTargetCluster().isBlank() ? request.getTargetCluster() : "default",
                     0L,
-                    request.getExecutionPrincipal() != null && !request.getExecutionPrincipal().isBlank() ? request.getExecutionPrincipal() : "hdfs@EXAMPLE.COM",
-                    true,
+                    hasPrincipal ? request.getExecutionPrincipal() : "hdfs@EXAMPLE.COM",
+                    !hasPrincipal,
                     false,
                     null,
                     7,

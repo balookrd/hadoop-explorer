@@ -83,8 +83,9 @@ GEN_START=$(date +%s)
 docker exec replicator-agent-dc1 "${TOOL[@]}" generate-partitions "$DB" "$TABLE" "$SRC_LOCATION" "$PARTITIONS" 1000
 log "Генерация заняла $(( $(date +%s) - GEN_START )) с"
 
-# Старые задачи по той же базе мешают: удаляем
-for j in $(api "${ORCHESTRATOR_URL}/api/v1/hms/jobs?size=250" | grep -o "\"id\":\"hms-[^\"]*" | cut -d'"' -f4); do
+# Старые задачи по той же базе мешают: удаляем только их — чужие задачи (например, роя
+# в run-hms-scale-test.sh) трогать нельзя
+for j in $(api "${ORCHESTRATOR_URL}/api/v1/hms/jobs?size=250" | grep -o "\"id\":\"hms-job-${DB}-[^\"]*" | cut -d'"' -f4); do
   api -X DELETE "${ORCHESTRATOR_URL}/api/v1/hms/jobs/$j" > /dev/null || true
 done
 

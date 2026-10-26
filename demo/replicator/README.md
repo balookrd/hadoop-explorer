@@ -175,6 +175,19 @@ docker exec replicator-agent-dc1 java -cp /app/replicator-agent.jar \
 
 ---
 
+### Живая проверка событий INSERT
+
+```bash
+./run-hms-insert-test.sh                          # на поднятом стенде с метасторами 3.1 и барьером
+WORKLOAD=insert SKIP_UP=1 ./run-hms-scale-test.sh # то же под нагрузкой роя из 200 агентов
+```
+
+Событие `INSERT` метастор пишет, когда DML-клиент после записи файлов вызывает `fire_listener_event` (HiveServer2 делает это в `Hive.fireInsertEvent` при `hive.metastore.dml.events=true`). Сценарий делает то же самое: кладет настоящие файлы в каталог партиции на HDFS-источнике и вызывает `fire_listener_event` (`HmsTool fire-insert`), и метастор 3.1 пишет настоящее событие в формате `json-0.2`. Проверяется, что bootstrap с барьером переносит файлы партиции, `INSERT INTO` доносит новый файл свежей подзадачей, а `INSERT OVERWRITE` убирает на приемнике устаревшие файлы.
+
+HiveServer2 3.1.3 из образа `apache/hive` для этого не используется: на Hadoop 3 внутри образа он не исполняет запросы локально (MapReduce падает на `NoClassDefFound metrics/Updater`, Tez в локальном режиме не проходит Kerberos).
+
+---
+
 ## 🧩 Совместимость с Hive Metastore 3.1 (HDP 3.1)
 
 Агент работает с клиентом метастора Hive 3.1. Он нативно говорит на Thrift-контракте 3.1, а с метастором 4.x работает через сохраненные там методы 3.x. Проверка на метасторах `apache/hive:3.1.3` с Kerberos:

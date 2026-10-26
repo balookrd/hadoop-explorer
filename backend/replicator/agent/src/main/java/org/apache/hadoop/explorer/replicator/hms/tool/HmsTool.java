@@ -185,6 +185,21 @@ public class HmsTool {
                     break;
                 }
 
+                case "fire-insert": {
+                    // Событие INSERT от имени DML-клиента (как HiveServer2 после записи файлов)
+                    if (args.length < 6) {
+                        System.err.println("Использование: fire-insert <dbName> <tableName> <partValue|-> <replace true|false> <file1,file2,...>");
+                        System.exit(1);
+                    }
+                    List<String> partVals = "-".equals(args[3]) ? List.of() : List.of(args[3]);
+                    boolean replace = Boolean.parseBoolean(args[4]);
+                    List<String> files = List.of(args[5].split(","));
+                    ((ThriftHmsClient) client).fireInsertEvent(args[1], args[2], partVals, files, replace);
+                    System.out.println("Событие INSERT отправлено: " + args[1] + "." + args[2] + " " + partVals
+                            + " replace=" + replace + " files=" + files.size());
+                    break;
+                }
+
                 case "count-partitions": {
                     if (args.length < 3) {
                         System.err.println("Использование: count-partitions <dbName> <tableName>");

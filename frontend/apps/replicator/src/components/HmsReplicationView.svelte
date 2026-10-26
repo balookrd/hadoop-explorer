@@ -1441,7 +1441,7 @@
     onclick={(e) => { if (e.target === e.currentTarget) isDetailsModalOpen = false; }}
   >
     <div
-      class="w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-7 flex flex-col gap-5 select-auto text-slate-900 dark:text-slate-100 max-h-[92vh] overflow-hidden"
+      class="w-full max-w-5xl xl:max-w-7xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-7 flex flex-col gap-5 select-auto text-slate-900 dark:text-slate-100 max-h-[92vh] overflow-hidden"
     >
       <!-- Шапка окна -->
       <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
@@ -1609,8 +1609,8 @@
             <table class="w-full table-fixed text-left border-collapse text-xs">
               <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold text-[10px] uppercase tracking-wider sticky top-0">
                 <tr>
-                  <th class="py-2.5 px-3 w-28">Событие</th>
-                  <th class="py-2.5 px-3 w-40">Таблица / Партиция</th>
+                  <th class="py-2.5 px-3 w-56">Событие</th>
+                  <th class="py-2.5 px-3 w-64">Таблица / Партиция</th>
                   <th class="py-2.5 px-3">HDFS Маршрут / URI</th>
                   <th class="py-2.5 px-3 w-24">Статус</th>
                   <th class="py-2.5 px-3 w-24 text-right">Время</th>
@@ -1619,8 +1619,9 @@
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                 {#each events as ev}
                   <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-850/50">
-                    <td class="py-2.5 px-3">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-semibold {ev.event_type.startsWith('BOOTSTRAP') ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800'}">
+                    <td class="py-2.5 px-3 overflow-hidden">
+                      <!-- Длинные типы (BOOTSTRAP_PARTITION_CHUNK) не должны наезжать на соседнюю колонку -->
+                      <span title={ev.event_type} class="inline-block max-w-full truncate align-middle px-2 py-0.5 rounded text-[10px] font-semibold {ev.event_type.startsWith('BOOTSTRAP') ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800'}">
                         {ev.event_type}
                       </span>
                     </td>

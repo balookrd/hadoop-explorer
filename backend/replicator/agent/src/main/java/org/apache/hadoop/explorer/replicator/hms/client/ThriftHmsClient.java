@@ -536,6 +536,32 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         });
     }
 
+    /**
+     * Событие INSERT от имени DML-клиента: то же, что HiveServer2 делает после записи файлов
+     * (Hive.fireInsertEvent). Нужно стендам, чтобы получить настоящее событие метастора без
+     * движка исполнения запросов.
+     */
+    public void fireInsertEvent(String dbName, String tableName, List<String> partVals, List<String> files, boolean replace) {
+        executeWithRetry(c -> {
+            org.apache.hadoop.hive.metastore.api.InsertEventRequestData data =
+                    new org.apache.hadoop.hive.metastore.api.InsertEventRequestData(new ArrayList<>(files));
+            data.setReplace(replace);
+            // Метастор 3.1 (JSONInsertMessage) читает контрольную сумму каждого файла без проверки
+            // на пустоту; HiveServer2 передает их всегда. Сумма служит только для REPL-копий,
+            // агенту она не нужна — передаем по одной на файл.
+            data.setFilesAddedChecksum(files.stream().map(f -> "0").collect(java.util.stream.Collectors.toList()));
+            org.apache.hadoop.hive.metastore.api.FireEventRequest req = new org.apache.hadoop.hive.metastore.api.FireEventRequest(
+                    true, org.apache.hadoop.hive.metastore.api.FireEventRequestData.insertData(data));
+            req.setDbName(dbName);
+            req.setTableName(tableName);
+            if (partVals != null && !partVals.isEmpty()) {
+                req.setPartitionVals(new ArrayList<>(partVals));
+            }
+            c.fireListenerEvent(req);
+            return null;
+        });
+    }
+
     @Override
     public void renameTable(String dbName, String oldTableName, HmsTableDto renamed) {
         executeWithRetry(c -> {
