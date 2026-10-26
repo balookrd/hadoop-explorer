@@ -246,6 +246,43 @@ public class DisasterRecoveryService {
     }
 
 
+    /**
+     * Приведение локальных снимков ограждения в соответствие с базой.
+     *
+     * <p>База — единственный источник правды: снимок живет дольше узла, который его создал, и
+     * виден всем остальным. Прежде карта снимков наполнялась только своими ограждениями и
+     * читалась из БД один раз, в {@code @PostConstruct}. За балансировщиком это означало, что
+     * оператор видит разный DR-статус в зависимости от того, какой узел ответил: Kill-Switch,
+     * включенный на соседнем узле, выглядел выключенным, а снятый — все еще активным.
+     *
+     * <p>Снимки — единицы записей, обычно ни одной, поэтому сверка идет на каждом чтении статуса,
+     * а не по расписанию: окно рассинхронизации не нужно там, где речь об аварийном ограждении.
+     */
+    private void refreshSnapshotsFromDatabase() {
+        if (drSnapshotRepository == null) {
+            return;
+        }
+        try {
+            Map<String, EmergencySnapshot> fromDb = new LinkedHashMap<>();
+            for (DrSnapshotEntity entity : drSnapshotRepository.findAll()) {
+                String json = entity.getSnapshotJson();
+                if (json == null || json.isBlank()) {
+                    continue;
+                }
+                try {
+                    fromDb.put(entity.getId(), objectMapper.readValue(json, EmergencySnapshot.class));
+                } catch (Exception e) {
+                    log.warn("Не удалось разобрать снимок ограждения '{}': {}", entity.getId(), e.getMessage());
+                }
+            }
+            activeSnapshots.keySet().retainAll(fromDb.keySet());
+            activeSnapshots.putAll(fromDb);
+        } catch (Exception e) {
+            // Недоступная база не должна гасить статус: остаемся на том, что знаем локально
+            log.warn("[Disaster Recovery] Не удалось сверить снимки ограждения с БД: {}", e.getMessage());
+        }
+    }
+
     /** Снимок ограждения из БД: нужен узлу, который сам ограждение не выставлял. */
     private EmergencySnapshot loadSnapshotFromDatabase(String snapshotKey) {
         try {
@@ -313,10 +350,11 @@ public class DisasterRecoveryService {
      */
     @Transactional(readOnly = true)
     public Map<String, Boolean> getClusterFencingStatus() {
+        refreshSnapshotsFromDatabase();
         Map<String, Boolean> fencing = new LinkedHashMap<>();
         for (var cluster : topologyRegistry.getClusters()) {
             if (cluster.getId() != null && !cluster.getId().isBlank()) {
-                fencing.put(cluster.getId(), isClusterFenced(cluster.getId()));
+                fencing.put(cluster.getId(), isClusterFencedLocally(cluster.getId()));
             }
         }
         if (fencing.isEmpty()) {
@@ -334,6 +372,12 @@ public class DisasterRecoveryService {
      */
     @Transactional(readOnly = true)
     public boolean isClusterFenced(String clusterId) {
+        refreshSnapshotsFromDatabase();
+        return isClusterFencedLocally(clusterId);
+    }
+
+    /** Та же проверка без обращения к БД: для обхода по всем кластерам после одной сверки. */
+    private boolean isClusterFencedLocally(String clusterId) {
         if (clusterId == null || clusterId.isBlank()) {
             return false;
         }
@@ -377,6 +421,7 @@ public class DisasterRecoveryService {
      */
     @Transactional(readOnly = true)
     public DrStatusResponse getDrStatus() {
+        refreshSnapshotsFromDatabase();
         List<AgentResponseDto> agents = agentRegistry.getAgentDtos();
         List<ReplicatorProperties.DatacenterConfig> dcs = topologyRegistry.getDatacenters();
         // Сводка показывает корневые задания: служебные подзадачи метастора в маршруты не идут.
@@ -770,8 +815,8 @@ public class DisasterRecoveryService {
             }
         }
 
-        // Регистрируем снимок для отката
-        activeSnapshots.put(clusterId.toLowerCase(), snapshot);
+        // Регистрируем снимок для отката: сначала в БД, затем в память, иначе параллельная
+        // сверка с базой снесет свой же снимок, которого там еще нет
         if (drSnapshotRepository != null) {
             try {
                 String json = objectMapper.writeValueAsString(snapshot);
@@ -788,6 +833,7 @@ public class DisasterRecoveryService {
                 log.warn("[Disaster Recovery] Не удалось сохранить DR-снимок в БД: {}", e.getMessage());
             }
         }
+        activeSnapshots.put(clusterId.toLowerCase(), snapshot);
 
         String msg = String.format("Аварийный останов выполнен: остановлено %d HDFS задач и %d HMS задач для кластера '%s'",
                 stoppedHdfs, stoppedHms, clusterId);

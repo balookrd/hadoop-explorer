@@ -89,4 +89,37 @@ class ActiveActiveSnapshotVisibilityTest {
         assertFalse(snapshotRepository.findAll().isEmpty(),
                 "Ограждение dc1 должно остаться в силе");
     }
+
+    @Test
+    @DisplayName("Kill-Switch без сетевого ограждения виден узлу, который его не включал")
+    void testKillSwitchWithoutNetworkFencingIsVisibleOnAnotherNode() {
+        // Задачи остановлены, но канал не перекрыт: в БД есть снимок и ни одного нулевого лимита
+        drService.emergencyStop(new DrEmergencyStopRequest("dc1", "ошибка выкатки", false), "operator");
+        assertFalse(snapshotRepository.findAll().isEmpty(), "Снимок должен быть в БД");
+        assertTrue(limitRepository.findAll().stream().noneMatch(l -> l.getLimitBytesPerSec() == 0L),
+                "Сетевого ограждения в этом сценарии нет");
+
+        // Узел B: своего снимка он не создавал
+        drService.forgetLocalSnapshotsForTesting();
+
+        var summary = drService.getDrStatus().summary();
+        assertTrue(summary.killSwitchActive(),
+                "Узел, не включавший Kill-Switch, обязан показывать его активным: "
+                        + "иначе оператор видит разное в зависимости от того, какой узел ответил");
+        assertEquals("dc1", summary.fencedClusterId(), "Кластер под ограждением берется из БД");
+        assertEquals("ошибка выкатки", summary.lastEmergencyReason(), "Причина ограждения берется из БД");
+    }
+
+    @Test
+    @DisplayName("Снятое на другом узле ограждение перестает считаться активным")
+    void testFencingRemovedElsewhereStopsBeingActive() {
+        drService.emergencyStop(new DrEmergencyStopRequest("dc1", "ошибка выкатки", false), "operator");
+
+        // Узел A снял ограждение напрямую в БД — локальная память узла B об этом не знает
+        snapshotRepository.deleteAll();
+
+        var summary = drService.getDrStatus().summary();
+        assertFalse(summary.killSwitchActive(),
+                "Снимок удален из БД: узел обязан перестать считать Kill-Switch активным");
+    }
 }
