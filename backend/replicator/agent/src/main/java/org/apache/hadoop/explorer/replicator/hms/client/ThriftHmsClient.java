@@ -1,10 +1,7 @@
 package org.apache.hadoop.explorer.replicator.hms.client;
 
-import org.apache.commons.pool2.BasePooledObjectFactory;
-import org.apache.commons.pool2.PooledObject;
-import org.apache.commons.pool2.impl.DefaultPooledObject;
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsFieldSchemaDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
@@ -43,7 +40,7 @@ public class ThriftHmsClient implements HmsClient, Closeable {
     /** Размер порции при выборке партиций по именам. */
     private static final int PARTITION_FETCH_BATCH = 1000;
 
-    private final GenericObjectPool<IMetaStoreClient> clientPool;
+    private final GenericKeyedObjectPool<String, IMetaStoreClient> clientPool;
     private final ThreadLocal<String> currentExecutionPrincipal = new ThreadLocal<>();
 
     public ThriftHmsClient(String clusterId, String thriftUris, String kerberosPrincipal, String keytabPath) {
@@ -60,6 +57,9 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         if (thriftUris != null && !thriftUris.isBlank()) {
             this.conf.set("hive.metastore.uris", thriftUris);
         }
+        // Без этого метастор не станет смотреть на пользователя, переданного при открытии
+        // соединения, и выполнит операцию от имени того, кто прошел SASL, то есть агента
+        this.conf.set("hive.metastore.execute.setugi", "true");
 
         // Kerberos / SASL конфигурация Hive Metastore и изоляция UGI
         UserGroupInformation resolvedUgi = null;
@@ -87,20 +87,38 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         }
         this.ugi = resolvedUgi;
 
-        GenericObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericObjectPoolConfig<>();
+        this.clientPool = buildPool(
+                new MetaStoreConnectionFactory(clusterId, conf, this.ugi, HiveMetaStoreClient::new),
+                maxPoolSize);
+        log.info("[ThriftHmsClient:{}] Инициализирован пул Thrift клиентов к '{}' (maxTotal={}, kerberos={})",
+                clusterId, thriftUris, clientPool.getMaxTotal(), kerberosPrincipal != null);
+    }
+
+    /**
+     * Пул соединений, ключованный по принципалу.
+     *
+     * <p>Соединения пользователей не простаивают в пуле бесконечно: перенос от имени
+     * конкретного человека — редкое событие, а каждое соединение держит поток и сокет на
+     * стороне метастора. Поэтому простаивающие вытесняются, и {@code minIdlePerKey} равен нулю:
+     * прогревать соединение под пользователя, который больше не придет, незачем.
+     */
+    private static GenericKeyedObjectPool<String, IMetaStoreClient> buildPool(
+            MetaStoreConnectionFactory factory, int maxPoolSize) {
+        GenericKeyedObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericKeyedObjectPoolConfig<>();
+        int perKey = Math.max(2, maxPoolSize / 2);
         poolConfig.setMaxTotal(Math.max(4, maxPoolSize));
-        poolConfig.setMaxIdle(Math.max(2, maxPoolSize / 2));
-        poolConfig.setMinIdle(1);
+        poolConfig.setMaxTotalPerKey(perKey);
+        poolConfig.setMaxIdlePerKey(Math.max(1, perKey / 2));
+        poolConfig.setMinIdlePerKey(0);
         poolConfig.setTestOnBorrow(true);
         poolConfig.setBlockWhenExhausted(true);
         poolConfig.setMaxWait(Duration.ofSeconds(30));
-
-        this.clientPool = new GenericObjectPool<>(new MetaStoreClientFactory(), poolConfig);
-        log.info("[ThriftHmsClient:{}] Инициализирован пул Thrift клиентов к '{}' (maxTotal={}, kerberos={})",
-                clusterId, thriftUris, poolConfig.getMaxTotal(), kerberosPrincipal != null);
+        poolConfig.setTimeBetweenEvictionRuns(Duration.ofMinutes(1));
+        poolConfig.setMinEvictableIdleDuration(Duration.ofMinutes(5));
+        return new GenericKeyedObjectPool<>(factory, poolConfig);
     }
 
-    ThriftHmsClient(String clusterId, String thriftUris, GenericObjectPool<IMetaStoreClient> clientPool) {
+    ThriftHmsClient(String clusterId, String thriftUris, GenericKeyedObjectPool<String, IMetaStoreClient> clientPool) {
         this.clusterId = clusterId;
         this.thriftUris = thriftUris != null ? thriftUris : "thrift://localhost:9083";
         this.kerberosPrincipal = null;
@@ -110,60 +128,35 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         this.ugi = null;
     }
 
-    public GenericObjectPool<IMetaStoreClient> getClientPool() {
-        return clientPool;
+    /** Тестовый конструктор: свой способ открывать соединение, без Kerberos. */
+    ThriftHmsClient(String clusterId, String thriftUris, MetaStoreConnectionFactory.Opener opener, int maxPoolSize) {
+        this.clusterId = clusterId;
+        this.thriftUris = thriftUris != null ? thriftUris : "thrift://localhost:9083";
+        this.kerberosPrincipal = null;
+        this.keytabPath = null;
+        this.conf = new Configuration();
+        this.ugi = null;
+        this.clientPool = buildPool(new MetaStoreConnectionFactory(clusterId, conf, null, opener), maxPoolSize);
     }
 
-    private class MetaStoreClientFactory extends BasePooledObjectFactory<IMetaStoreClient> {
-        @Override
-        public IMetaStoreClient create() throws Exception {
-            if (ugi != null) {
-                log.info("[ThriftHmsClient:{}] Создание нового Thrift клиента с Kerberos UGI: {}", clusterId, ugi.getUserName());
-                return ugi.doAs((PrivilegedExceptionAction<IMetaStoreClient>) () -> new HiveMetaStoreClient(conf));
-            } else {
-                log.info("[ThriftHmsClient:{}] Создание нового Thrift клиента без Kerberos", clusterId);
-                return new HiveMetaStoreClient(conf);
-            }
-        }
-
-        @Override
-        public PooledObject<IMetaStoreClient> wrap(IMetaStoreClient client) {
-            return new DefaultPooledObject<>(client);
-        }
-
-        @Override
-        public void destroyObject(PooledObject<IMetaStoreClient> p) {
-            try {
-                p.getObject().close();
-            } catch (Exception ignored) {}
-        }
-
-        @Override
-        public boolean validateObject(PooledObject<IMetaStoreClient> p) {
-            try {
-                if (p == null || p.getObject() == null) {
-                    return false;
-                }
-                return true;
-            } catch (Exception e) {
-                return false;
-            }
-        }
+    public GenericKeyedObjectPool<String, IMetaStoreClient> getClientPool() {
+        return clientPool;
     }
 
     @Override
     /**
      * Выполнение операций от имени пользователя.
      *
-     * <p><b>Ограничение, о котором нужно знать.</b> Соединения берутся из общего пула, открытого
-     * под техучеткой агента, а SASL-аутентификация и {@code set_ugi} происходят в момент
-     * установки соединения. {@code doAs} вокруг вызова меняет Subject только на стороне JVM
-     * агента, поэтому метастор и Ranger видят принципала агента, а не пользователя: запись в
-     * логе {@code doAs=user@REALM} отражает намерение, а не то, что увидел HMS.
+     * <p>SASL-аутентификация и {@code set_ugi} происходят в момент установки соединения, поэтому
+     * соединения разделены по принципалу: операции пользователя идут по соединению, открытому с
+     * его delegation token. Пока пул был общим и открывался под техучеткой агента, {@code doAs}
+     * вокруг вызова менял Subject только внутри JVM агента — метастор и Ranger видели агента, а
+     * запись {@code doAs=user@REALM} в логе отражала одно лишь намерение.
      *
-     * <p>Полноценная имперсонация требует пула, ключованного по принципалу, с открытием
-     * соединения внутри {@code doAs} и {@code hive.metastore.execute.setugi=true}. Это отдельная
-     * работа: у пула меняются жизненный цикл, вытеснение и учет соединений.
+     * <p>Чтобы имперсонация доехала до метастора, нужны еще две вещи на той стороне:
+     * {@code hive.metastore.execute.setugi=true} (клиент выставляет его сам) и доверие к
+     * принципалу агента как к proxy-пользователю ({@code hadoop.proxyuser.<агент>.hosts} и
+     * {@code .groups} в core-site метастора). Без второго метастор отвергнет подмену.
      */
     public <T> T executeAs(String executionPrincipal, java.util.concurrent.Callable<T> action) throws Exception {
         if (executionPrincipal == null || executionPrincipal.isBlank()) {
@@ -207,27 +200,38 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         }
     }
 
+    /** Ключ пула: соединения пользователя отделены от соединений агента. */
+    private String poolKey() {
+        String principal = currentExecutionPrincipal.get();
+        if (principal == null || principal.isBlank()) {
+            return MetaStoreConnectionFactory.AGENT_KEY;
+        }
+        return org.apache.hadoop.explorer.replicator.security.KerberosUgiProvider
+                .extractUsername(principal).toLowerCase();
+    }
+
     private <T> T executeWithRetry(HmsOperation<T> operation) {
+        String key = poolKey();
         IMetaStoreClient client = null;
         try {
-            client = clientPool.borrowObject();
+            client = clientPool.borrowObject(key);
             return doExecute(client, operation);
         } catch (TException e) {
             log.warn("[ThriftHmsClient:{}] Ошибка Thrift/MetaException ({}): {}, попытка повтора с новым соединением...",
                     clusterId, e.getClass().getSimpleName(), e.getMessage());
             if (client != null) {
                 try {
-                    clientPool.invalidateObject(client);
+                    clientPool.invalidateObject(key, client);
                 } catch (Exception ignored) {}
                 client = null;
             }
             try {
-                client = clientPool.borrowObject();
+                client = clientPool.borrowObject(key);
                 return doExecute(client, operation);
             } catch (Exception ex) {
                 if (client != null) {
                     try {
-                        clientPool.invalidateObject(client);
+                        clientPool.invalidateObject(key, client);
                     } catch (Exception ignored) {}
                     client = null;
                 }
@@ -236,14 +240,14 @@ public class ThriftHmsClient implements HmsClient, Closeable {
         } catch (Exception e) {
             if (client != null && isConnectionException(e)) {
                 try {
-                    clientPool.invalidateObject(client);
+                    clientPool.invalidateObject(key, client);
                 } catch (Exception ignored) {}
                 client = null;
             }
             throw new RuntimeException("Ошибка выполнения операции Hive Metastore: " + e.getMessage(), e);
         } finally {
             if (client != null) {
-                clientPool.returnObject(client);
+                clientPool.returnObject(key, client);
             }
         }
     }

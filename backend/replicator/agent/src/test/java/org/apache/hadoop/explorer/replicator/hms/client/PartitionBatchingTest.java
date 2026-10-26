@@ -1,10 +1,10 @@
 package org.apache.hadoop.explorer.replicator.hms.client;
 
-import org.apache.commons.pool2.BasePooledObjectFactory;
+import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -38,15 +38,15 @@ import static org.mockito.Mockito.when;
 class PartitionBatchingTest {
 
     private IMetaStoreClient metaStore;
-    private GenericObjectPool<IMetaStoreClient> pool;
+    private GenericKeyedObjectPool<String, IMetaStoreClient> pool;
     private ThriftHmsClient client;
 
     @BeforeEach
     void setUp() {
         metaStore = mock(IMetaStoreClient.class);
-        BasePooledObjectFactory<IMetaStoreClient> factory = new BasePooledObjectFactory<>() {
+        BaseKeyedPooledObjectFactory<String, IMetaStoreClient> factory = new BaseKeyedPooledObjectFactory<>() {
             @Override
-            public IMetaStoreClient create() {
+            public IMetaStoreClient create(String principalKey) {
                 return metaStore;
             }
 
@@ -55,10 +55,11 @@ class PartitionBatchingTest {
                 return new DefaultPooledObject<>(obj);
             }
         };
-        GenericObjectPoolConfig<IMetaStoreClient> config = new GenericObjectPoolConfig<>();
+        GenericKeyedObjectPoolConfig<IMetaStoreClient> config = new GenericKeyedObjectPoolConfig<>();
         config.setMaxTotal(2);
+        config.setMaxTotalPerKey(2);
         config.setMaxWait(Duration.ofSeconds(2));
-        pool = new GenericObjectPool<>(factory, config);
+        pool = new GenericKeyedObjectPool<>(factory, config);
         client = new ThriftHmsClient("dc1", "thrift://localhost:9083", pool);
     }
 

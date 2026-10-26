@@ -1,10 +1,10 @@
 package org.apache.hadoop.explorer.replicator.hms.client;
 
-import org.apache.commons.pool2.BasePooledObjectFactory;
+import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsFieldSchemaDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsPartitionDto;
 import org.apache.hadoop.explorer.replicator.hms.model.HmsTableDto;
@@ -29,7 +29,7 @@ public class ThriftHmsClientTest {
 
     private IMetaStoreClient mockClient1;
     private IMetaStoreClient mockClient2;
-    private GenericObjectPool<IMetaStoreClient> pool;
+    private GenericKeyedObjectPool<String, IMetaStoreClient> pool;
     private ThriftHmsClient thriftHmsClient;
 
     @BeforeEach
@@ -37,11 +37,11 @@ public class ThriftHmsClientTest {
         mockClient1 = mock(IMetaStoreClient.class);
         mockClient2 = mock(IMetaStoreClient.class);
 
-        BasePooledObjectFactory<IMetaStoreClient> factory = new BasePooledObjectFactory<>() {
+        BaseKeyedPooledObjectFactory<String, IMetaStoreClient> factory = new BaseKeyedPooledObjectFactory<>() {
             private int count = 0;
 
             @Override
-            public IMetaStoreClient create() {
+            public IMetaStoreClient create(String principalKey) {
                 count++;
                 return (count == 1) ? mockClient1 : mockClient2;
             }
@@ -52,10 +52,11 @@ public class ThriftHmsClientTest {
             }
         };
 
-        GenericObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericObjectPoolConfig<>();
+        GenericKeyedObjectPoolConfig<IMetaStoreClient> poolConfig = new GenericKeyedObjectPoolConfig<>();
         poolConfig.setMaxTotal(5);
+        poolConfig.setMaxTotalPerKey(5);
         poolConfig.setMaxWait(Duration.ofSeconds(2));
-        pool = new GenericObjectPool<>(factory, poolConfig);
+        pool = new GenericKeyedObjectPool<>(factory, poolConfig);
 
         thriftHmsClient = new ThriftHmsClient("dc1", "thrift://localhost:9083", pool);
     }

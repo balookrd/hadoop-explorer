@@ -47,6 +47,16 @@
     <name>hadoop.proxyuser.svc_sql_explorer.groups</name>
     <value>*</value>
   </property>
+  <!-- Агент репликатора ходит в метастор под hdfs/<хост> и переносит схемы от имени
+       пользователей: без доверия к нему как к proxy-пользователю метастор отвергнет подмену -->
+  <property>
+    <name>hadoop.proxyuser.hdfs.hosts</name>
+    <value>*</value>
+  </property>
+  <property>
+    <name>hadoop.proxyuser.hdfs.groups</name>
+    <value>*</value>
+  </property>
   <property>
     <name>hadoop.proxyuser.hive.hosts</name>
     <value>*</value>
