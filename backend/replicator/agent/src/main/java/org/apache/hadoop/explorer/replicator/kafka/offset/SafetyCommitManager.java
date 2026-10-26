@@ -67,8 +67,22 @@ public class SafetyCommitManager {
 
         try {
             // 1. Проверяем статус группы в целевом кластере
-            boolean isActive = isGroupActiveInTarget(groupId);
-            if (isActive && !force) {
+            GroupLiveness liveness = describeGroupLiveness(groupId);
+            if (liveness == GroupLiveness.UNKNOWN && !force) {
+                // Неизвестно, читает ли кто-то группу прямо сейчас. Прежде любая ошибка —
+                // недоступный брокер, таймаут, отказ по правам — означала «группа не активна»,
+                // и смещения живой группы перезаписывались: консьюмеры целевого ДЦ откатывались
+                // назад или перепрыгивали вперед.
+                log.warn("Синхронизация оффсетов группы '{}' отменена: состояние группы в целевом ДЦ неизвестно", groupId);
+                return OffsetSyncResponse.newBuilder()
+                        .setGroupId(groupId)
+                        .setSuccess(false)
+                        .setBypassedActiveGroup(false)
+                        .setErrorMessage("Состояние группы '" + groupId + "' в целевом кластере неизвестно: "
+                                + "перенос смещений отменен, чтобы не перезаписать живую группу")
+                        .build();
+            }
+            if (liveness == GroupLiveness.ACTIVE && !force) {
                 log.info("Синхронизация оффсетов группы '{}' пропущена: группа АКТИВНА в целевом ДЦ (защита от перезаписи)", groupId);
                 return OffsetSyncResponse.newBuilder()
                         .setGroupId(groupId)
@@ -95,7 +109,13 @@ public class SafetyCommitManager {
                 }
             }
 
-            // 3. Формируем мапу для alterConsumerGroupOffsets
+            // 3. Текущие смещения группы: перенос не должен двигать группу назад, иначе
+            // целевой ДЦ перечитает уже обработанное
+            Map<TopicPartition, OffsetAndMetadata> committed = targetAdminClient
+                    .listConsumerGroupOffsets(groupId)
+                    .partitionsToOffsetAndMetadata()
+                    .get(5, TimeUnit.SECONDS);
+
             Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = new HashMap<>();
             List<TopicPartitionOffset> appliedOffsets = new ArrayList<>();
 
@@ -108,6 +128,13 @@ public class SafetyCommitManager {
                     targetOffset = match.offset();
                 } else if (tpo.hasTargetOffset()) {
                     targetOffset = tpo.getTargetOffset();
+                }
+
+                OffsetAndMetadata current = committed != null ? committed.get(tp) : null;
+                if (targetOffset >= 0 && current != null && targetOffset < current.offset() && !force) {
+                    log.warn("Смещение группы '{}' для {}-{} не переносится: {} назад от текущего {}",
+                            groupId, tpo.getTopic(), tpo.getPartition(), targetOffset, current.offset());
+                    continue;
                 }
 
                 if (targetOffset >= 0) {
@@ -147,9 +174,28 @@ public class SafetyCommitManager {
     }
 
     /**
-     * Проверяет, активны ли живые консьюмеры в данной группе в целевом кластере.
+     * Состояние группы в целевом кластере: активна, неактивна или неизвестно.
+     */
+    enum GroupLiveness {
+        ACTIVE,
+        INACTIVE,
+        UNKNOWN
+    }
+
+    /**
+     * Активны ли живые консьюмеры группы в целевом кластере.
+     *
+     * <p>Неизвестное состояние трактуется как «активна»: не зная ответа, безопаснее считать,
+     * что группу кто-то читает.
      */
     public boolean isGroupActiveInTarget(String groupId) {
+        return describeGroupLiveness(groupId) != GroupLiveness.INACTIVE;
+    }
+
+    /**
+     * Опрос состояния группы с разделением «группы нет» и «не удалось узнать».
+     */
+    GroupLiveness describeGroupLiveness(String groupId) {
         try {
             Map<String, ConsumerGroupDescription> descriptions = targetAdminClient
                     .describeConsumerGroups(List.of(groupId))
@@ -158,19 +204,39 @@ public class SafetyCommitManager {
 
             ConsumerGroupDescription desc = descriptions.get(groupId);
             if (desc == null) {
-                return false;
+                return GroupLiveness.INACTIVE;
             }
 
             ConsumerGroupState state = desc.state();
             // Если состояние STABLE, PREPARING_REBALANCE или COMPLETING_REBALANCE — группа активна
-            return state == ConsumerGroupState.STABLE ||
+            boolean active = state == ConsumerGroupState.STABLE ||
                     state == ConsumerGroupState.PREPARING_REBALANCE ||
                     state == ConsumerGroupState.COMPLETING_REBALANCE ||
                     !desc.members().isEmpty();
+            return active ? GroupLiveness.ACTIVE : GroupLiveness.INACTIVE;
         } catch (Exception e) {
-            // Если группы еще не существует в целевом кластере — она не активна
-            log.debug("Группа '{}' не найдена в целевом кластере (будет создана при первом коммите): {}", groupId, e.getMessage());
-            return false;
+            if (isGroupNotFound(e)) {
+                // Группы в целевом кластере еще нет — перезаписывать нечего
+                log.debug("Группа '{}' не найдена в целевом кластере (будет создана при первом коммите): {}",
+                        groupId, e.getMessage());
+                return GroupLiveness.INACTIVE;
+            }
+            // Недоступный брокер, таймаут, отказ по правам: ответа нет, и выдавать это за
+            // «группа не активна» нельзя
+            log.warn("Не удалось определить состояние группы '{}' в целевом кластере: {}", groupId, e.getMessage());
+            return GroupLiveness.UNKNOWN;
         }
+    }
+
+    private static boolean isGroupNotFound(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.apache.kafka.common.errors.GroupIdNotFoundException) {
+                return true;
+            }
+            if (cause == cause.getCause()) {
+                break;
+            }
+        }
+        return false;
     }
 }

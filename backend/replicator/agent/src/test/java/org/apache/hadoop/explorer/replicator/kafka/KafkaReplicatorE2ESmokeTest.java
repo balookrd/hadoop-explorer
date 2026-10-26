@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
@@ -391,6 +392,13 @@ class KafkaReplicatorE2ESmokeTest {
         when(mockResolverConsumer.offsetsForTimes(any())).thenReturn(
                 Map.of(new TopicPartition("orders-avro", 0), new OffsetAndTimestamp(500L, System.currentTimeMillis()))
         );
+
+        // Текущие смещения группы: перенос сверяет их, чтобы не двигать группу назад
+        org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult listOffsetsResult =
+                mock(org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult.class);
+        when(listOffsetsResult.partitionsToOffsetAndMetadata())
+                .thenReturn(org.apache.kafka.common.KafkaFuture.completedFuture(Map.of()));
+        when(mockAdminClient.listConsumerGroupOffsets(anyString())).thenReturn(listOffsetsResult);
 
         OffsetSyncRequest emptyRequest = OffsetSyncRequest.newBuilder()
                 .setGroupId("standby-group")

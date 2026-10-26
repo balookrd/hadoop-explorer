@@ -119,6 +119,12 @@ class SafetyCommitManagerTest {
         when(describeResult.all()).thenReturn(KafkaFuture.completedFuture(Map.of(groupId, desc)));
         when(mockAdminClient.describeConsumerGroups(anyCollection())).thenReturn(describeResult);
 
+        // Текущие смещения группы: перенос сверяет их, чтобы не двигать группу назад
+        org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult listResult =
+                mock(org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult.class);
+        when(listResult.partitionsToOffsetAndMetadata()).thenReturn(KafkaFuture.completedFuture(java.util.Map.of()));
+        when(mockAdminClient.listConsumerGroupOffsets(anyString())).thenReturn(listResult);
+
         AlterConsumerGroupOffsetsResult alterResult = mock(AlterConsumerGroupOffsetsResult.class);
         when(alterResult.all()).thenReturn(KafkaFuture.completedFuture(null));
         when(mockAdminClient.alterConsumerGroupOffsets(eq(groupId), anyMap())).thenReturn(alterResult);
