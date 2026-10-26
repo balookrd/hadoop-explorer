@@ -48,6 +48,8 @@ public class HmsTaskExecutor implements Closeable {
     private final String agentSecret;
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<String, AtomicInteger> syncedCdcEventsPerJob;
+    /** Каналы к агентам приемников, переживающие отдельный опрос CDC. */
+    private final ConcurrentMap<String, HmsPipelineSender> cdcSenders;
     private final ConcurrentMap<String, AtomicInteger> totalPartitionsPerJob;
     private final AtomicBoolean running = new AtomicBoolean(true);
 
@@ -144,6 +146,7 @@ public class HmsTaskExecutor implements Closeable {
         this.maxEventRetries = maxEventRetries > 0 ? maxEventRetries : 3;
         this.objectMapper = new ObjectMapper();
         this.syncedCdcEventsPerJob = new ConcurrentHashMap<>();
+        this.cdcSenders = new ConcurrentHashMap<>();
         this.totalPartitionsPerJob = new ConcurrentHashMap<>();
 
         int threads = Math.max(1, bootstrapConcurrency);
@@ -252,7 +255,7 @@ public class HmsTaskExecutor implements Closeable {
                 "Агент " + agentId + " запустил начальный перенос схемы (Bootstrap)", Collections.emptyList(), agentId
         ));
 
-        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
+        try (HmsPipelineSender sender = newPipelineSender(job.targetAgentGrpcAddress())) {
             long highWaterMark = hmsClient.getCurrentNotificationEventId();
 
             // 1. Создание БД на целевой стороне и валидация ответа
@@ -654,7 +657,8 @@ public class HmsTaskExecutor implements Closeable {
         long failedEventId = -1;
         String batchFailureReason = null;
 
-        try (HmsPipelineSender sender = new HmsPipelineSender(job.targetAgentGrpcAddress(), grpcTlsEnabled, insecureSkipVerify, agentSecret)) {
+        HmsPipelineSender sender = cdcSender(job.targetAgentGrpcAddress());
+        try {
             for (HmsNotificationEventDto event : events) {
                 if (!running.get() || (isFenced != null && isFenced.get())) break;
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
@@ -971,11 +975,38 @@ public class HmsTaskExecutor implements Closeable {
         return tableName.matches(regex);
     }
 
+    /**
+     * Канал к агенту приемника для опроса CDC.
+     *
+     * <p>Опрос идет по расписанию для каждой задачи, поэтому канал живет между вызовами: иначе на
+     * каждый опрос приходится разрешение имени, TCP-соединение и TLS-рукопожатие — ради нескольких
+     * событий, а при пустом журнале и вовсе впустую. Переподключение внутри живого канала gRPC
+     * берет на себя сам. Бутстрап — разовая операция, и там канал по-прежнему свой.
+     */
+    private HmsPipelineSender cdcSender(String targetAddress) {
+        return cdcSenders.computeIfAbsent(targetAddress, this::newPipelineSender);
+    }
+
+    /**
+     * Создание канала к агенту приемника. Точка подмены в тестах.
+     */
+    protected HmsPipelineSender newPipelineSender(String targetAddress) {
+        return new HmsPipelineSender(targetAddress, grpcTlsEnabled, insecureSkipVerify, agentSecret);
+    }
+
     @Override
     public void close() {
         running.set(false);
         if (bootstrapExecutor != null) {
             bootstrapExecutor.shutdownNow();
         }
+        for (HmsPipelineSender sender : cdcSenders.values()) {
+            try {
+                sender.close();
+            } catch (Exception e) {
+                log.warn("[HmsTaskExecutor] Не удалось закрыть канал к приемнику: {}", e.getMessage());
+            }
+        }
+        cdcSenders.clear();
     }
 }
