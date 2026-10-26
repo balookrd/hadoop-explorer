@@ -11,7 +11,22 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicationJobEntity, String> {
+public interface HmsReplicationJobRepository extends JpaRepository<HmsReplicationJobEntity, String>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<HmsReplicationJobEntity> {
+
+    /**
+     * Авторы видимых заданий — для выпадающего фильтра.
+     *
+     * <p>Берутся из базы, а не из загруженной страницы: иначе в фильтре оказывались бы только
+     * авторы случайной сотни записей.
+     */
+    @Query("SELECT DISTINCT j.createdBy FROM HmsReplicationJobEntity j "
+            + "WHERE j.createdBy IS NOT NULL AND j.createdBy <> '' "
+            + "AND (:owner IS NULL OR LOWER(j.createdBy) = LOWER(:owner)) "
+            + "ORDER BY j.createdBy")
+    List<String> listAuthors(@Param("owner") String owner);
+
+
     List<HmsReplicationJobEntity> findByStatus(String status);
     List<HmsReplicationJobEntity> findByStatusIn(Collection<String> statuses);
     List<HmsReplicationJobEntity> findByAssignedAgentIdIsNotNullAndStatusIn(Collection<String> statuses);

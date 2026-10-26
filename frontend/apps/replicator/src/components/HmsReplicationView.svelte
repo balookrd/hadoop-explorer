@@ -41,7 +41,8 @@
     Job,
     TopologyResponse,
     ClusterInfo,
-    CreateHmsJobPayload
+    CreateHmsJobPayload,
+    HmsJobListingSummary
   } from '../types';
   import { StatusBadge, type UserSession } from '@hadoop-explorer/common';
 
@@ -55,6 +56,13 @@
   // Состояние списка задач и топологии
   let internalTopology: TopologyResponse | null = $state(null);
   let jobs: HmsReplicationJob[] = $state([]);
+  // Список приходит постранично: таблица заданий метастора неограничена
+  let jobsPage = $state(0);
+  let jobsPageSize = $state(50);
+  let jobsTotal = $state(0);
+  let jobsTotalPages = $state(0);
+  // Счетчики по всему набору: по странице их не посчитать
+  let jobsSummary = $state<HmsJobListingSummary | null>(null);
   let loading = $state(false);
   let timer: any = null;
 
@@ -160,25 +168,9 @@
     return isDc1 ? ' — HDP 3.1' : ' — Apache Hive 3.1.3';
   }
 
-  // Фильтрация задач
-  const filteredJobs = $derived(
-    jobs.filter((j) => {
-      if (statusFilter !== 'ALL' && j.status !== statusFilter) {
-        return false;
-      }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchSrcDb = (j.source_db_name || '').toLowerCase().includes(q);
-        const matchDstDb = (j.target_db_name || '').toLowerCase().includes(q);
-        const matchId = (j.id || '').toLowerCase().includes(q);
-        const matchClusters = `${j.source_cluster_id} ${j.target_cluster_id}`.toLowerCase().includes(q);
-        if (!matchSrcDb && !matchDstDb && !matchId && !matchClusters) {
-          return false;
-        }
-      }
-      return true;
-    })
-  );
+  // Отбор делает сервер: в браузере он работал ровно до первой страницы — нужное задание
+  // просто не попадало в загруженную сотню, и поиск отвечал «ничего не найдено»
+  const filteredJobs = $derived(jobs);
 
   const hasActiveFilters = $derived(
     statusFilter !== 'ALL' || searchQuery.trim().length > 0
@@ -187,27 +179,63 @@
   function resetFilters() {
     statusFilter = 'ALL';
     searchQuery = '';
+    applyFilters();
+  }
+
+  /** Смена отбора всегда возвращает на первую страницу: иначе она окажется за концом набора. */
+  function applyFilters() {
+    jobsPage = 0;
+    loadJobs();
+  }
+
+  let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+  function onSearchInput() {
+    clearTimeout(searchDebounce);
+    // Запрос на каждую букву ни к чему: ждем, пока ввод остановится
+    searchDebounce = setTimeout(applyFilters, 300);
   }
 
   function toggleStatusFilter(status: string) {
     statusFilter = statusFilter === status ? 'ALL' : status;
+    applyFilters();
   }
 
   // Сводная статистика
+  // Пока сводка не пришла, показываем счет по загруженной странице — иначе на первом
+  // рендере в карточках стояли бы нули
   const stats = $derived({
-    total: jobs.length,
-    active: jobs.filter(j => j.status === 'ACTIVE').length,
-    bootstrapping: jobs.filter(j => j.status === 'BOOTSTRAPPING').length,
-    paused: jobs.filter(j => j.status === 'PAUSED').length,
-    tables: jobs.reduce((acc, j) => acc + (j.replicated_tables || 0), 0),
-    partitions: jobs.reduce((acc, j) => acc + (j.replicated_partitions || 0), 0),
+    total: jobsSummary?.total ?? jobs.length,
+    active: jobsSummary?.by_status?.ACTIVE ?? jobs.filter(j => j.status === 'ACTIVE').length,
+    bootstrapping: jobsSummary?.by_status?.BOOTSTRAPPING
+      ?? jobs.filter(j => j.status === 'BOOTSTRAPPING').length,
+    paused: jobsSummary?.by_status?.PAUSED ?? jobs.filter(j => j.status === 'PAUSED').length,
+    tables: jobsSummary?.replicated_tables
+      ?? jobs.reduce((acc, j) => acc + (j.replicated_tables || 0), 0),
+    partitions: jobsSummary?.replicated_partitions
+      ?? jobs.reduce((acc, j) => acc + (j.replicated_partitions || 0), 0),
   });
 
   // Загрузка данных
   async function loadJobs() {
     try {
       loading = true;
-      jobs = await api.getHmsJobs();
+      const filters = { status: statusFilter, search: searchQuery, page: jobsPage, size: jobsPageSize };
+      const [page, summary] = await Promise.all([
+        api.getHmsJobs(filters),
+        api.getHmsJobsSummary({ search: searchQuery }).catch(() => null),
+      ]);
+      jobs = page.content ?? [];
+      jobsTotal = page.total_elements ?? jobs.length;
+      jobsTotalPages = page.total_pages ?? 1;
+      // Страница могла исчезнуть, пока ее смотрели: возвращаемся на последнюю имеющуюся
+      if (jobs.length === 0 && jobsPage > 0 && jobsTotalPages > 0 && jobsPage >= jobsTotalPages) {
+        jobsPage = jobsTotalPages - 1;
+        const fallback = await api.getHmsJobs({ ...filters, page: jobsPage });
+        jobs = fallback.content ?? [];
+        jobsTotal = fallback.total_elements ?? jobs.length;
+        jobsTotalPages = fallback.total_pages ?? 1;
+      }
+      if (summary) jobsSummary = summary;
       if (modalJob) {
         const updated = jobs.find(j => j.id === modalJob!.id);
         if (updated) modalJob = updated;
@@ -622,7 +650,7 @@
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-1">
       <button
         type="button"
-        onclick={() => (statusFilter = 'ALL')}
+        onclick={() => { statusFilter = 'ALL'; applyFilters(); }}
         class="p-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs hover:shadow-xs {statusFilter === 'ALL'
           ? 'bg-slate-100 dark:bg-slate-800 border-slate-400 dark:border-slate-500 ring-2 ring-slate-400/30'
           : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}"
@@ -705,13 +733,14 @@
           <input
             type="text"
             bind:value={searchQuery}
+            oninput={onSearchInput}
             placeholder="Поиск по базе, кластерам, ID..."
             class="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:outline-none transition"
           />
           {#if searchQuery}
             <button
               type="button"
-              onclick={() => (searchQuery = '')}
+              onclick={() => { searchQuery = ''; applyFilters(); }}
               class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
               title="Очистить поиск"
             >
@@ -729,6 +758,7 @@
           <select
             id="filter-hms-status"
             bind:value={statusFilter}
+            onchange={applyFilters}
             class="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
             <option value="ALL">Все статусы ({jobs.length})</option>
@@ -742,7 +772,7 @@
       <!-- Правая часть: Счетчик и Сброс -->
       <div class="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800/80">
         <span class="text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-          Показано: <strong class="text-slate-800 dark:text-slate-200 font-semibold">{filteredJobs.length}</strong> из {jobs.length}
+          Показано: <strong class="text-slate-800 dark:text-slate-200 font-semibold">{filteredJobs.length}</strong> из {jobsTotal}
         </span>
 
         {#if hasActiveFilters}
@@ -1270,6 +1300,72 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Навигация по страницам: список приходит с сервера постранично -->
+    {#if jobsTotal > 0}
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-2.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+        <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>
+            {jobs.length === 0 ? 0 : jobsPage * jobsPageSize + 1}–{jobsPage * jobsPageSize + jobs.length} из {jobsTotal}
+          </span>
+          <label class="flex items-center gap-1.5">
+            <span class="sr-only">Размер страницы</span>
+            <select
+              value={jobsPageSize}
+              onchange={(e) => { jobsPageSize = Number((e.currentTarget as HTMLSelectElement).value); jobsPage = 0; loadJobs(); }}
+              class="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-750 text-slate-700 dark:text-slate-300 cursor-pointer"
+              title="Сколько задач показывать на странице"
+            >
+              {#each [25, 50, 100, 250] as option}
+                <option value={option}>{option} на странице</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            onclick={() => { jobsPage = 0; loadJobs(); }}
+            disabled={jobsPage === 0 || loading}
+            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Первая страница"
+            aria-label="Первая страница"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            onclick={() => { jobsPage = Math.max(jobsPage - 1, 0); loadJobs(); }}
+            disabled={jobsPage === 0 || loading}
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            Назад
+          </button>
+          <span class="px-2 text-slate-600 dark:text-slate-300 font-medium whitespace-nowrap">
+            {jobsPage + 1} / {Math.max(jobsTotalPages, 1)}
+          </span>
+          <button
+            type="button"
+            onclick={() => { jobsPage = jobsPage + 1; loadJobs(); }}
+            disabled={jobsPage + 1 >= jobsTotalPages || loading}
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            Вперед
+          </button>
+          <button
+            type="button"
+            onclick={() => { jobsPage = Math.max(jobsTotalPages - 1, 0); loadJobs(); }}
+            disabled={jobsPage + 1 >= jobsTotalPages || loading}
+            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Последняя страница"
+            aria-label="Последняя страница"
+          >
+            »
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 </div>
 

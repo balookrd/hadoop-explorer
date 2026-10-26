@@ -9,6 +9,8 @@ import type {
   DatacenterInfo,
   AgentInfo,
   HmsReplicationJob,
+  HmsJobPage,
+  HmsJobListingSummary,
   HmsEventLog,
   HmsDeadLetterEvent,
   HmsCdcState,
@@ -26,6 +28,16 @@ import type {
 
 /** Предел выборки заданий за запрос: сервер жестко ограничивает размер страницы 1000. */
 const JOBS_PAGE_SIZE = 50;
+const HMS_JOBS_PAGE_SIZE = 50;
+
+/** Общие параметры отбора заданий метастора: страница и сводка обязаны отбирать одно и то же. */
+function hmsJobFilterParams(filters?: { status?: string; search?: string; author?: string }): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'ALL') params.set('status', filters.status);
+  if (filters?.search?.trim()) params.set('search', filters.search.trim());
+  if (filters?.author) params.set('author', filters.author);
+  return params;
+}
 
 /** Общие параметры отбора заданий: одинаковы для страницы и для сводки. */
 function jobFilterParams(filters?: { status?: string; author?: string; search?: string }): URLSearchParams {
@@ -181,8 +193,24 @@ export class ReplicatorApiClient extends BaseApiClient {
 
   // --- Репликация Hive Metastore (HMS Replication) ---
 
-  async getHmsJobs(): Promise<HmsReplicationJob[]> {
-    return this.request<HmsReplicationJob[]>('/hms/jobs');
+  async getHmsJobs(filters?: {
+    status?: string;
+    search?: string;
+    author?: string;
+    page?: number;
+    size?: number;
+  }): Promise<HmsJobPage> {
+    const params = hmsJobFilterParams(filters);
+    params.set('page', String(filters?.page ?? 0));
+    params.set('size', String(filters?.size ?? HMS_JOBS_PAGE_SIZE));
+    return this.request<HmsJobPage>(`/hms/jobs?${params.toString()}`);
+  }
+
+  /** Счетчики и авторы по всему отобранному набору: на странице их не посчитать. */
+  async getHmsJobsSummary(filters?: { search?: string; author?: string }): Promise<HmsJobListingSummary> {
+    const params = hmsJobFilterParams(filters);
+    const query = params.toString();
+    return this.request<HmsJobListingSummary>(`/hms/jobs/summary${query ? `?${query}` : ''}`);
   }
 
   async getHmsJob(id: string): Promise<HmsReplicationJob> {

@@ -79,8 +79,23 @@ describe('HMS Replication Bootstrap Sync Metrics', () => {
         if (url.includes('/api/v1/topology')) {
           return mockJsonResponse(mockTopology);
         }
+        if (url.includes('/api/v1/hms/jobs/summary')) {
+          return mockJsonResponse({
+            total: mockHmsJobs.length,
+            by_status: { BOOTSTRAPPING: mockHmsJobs.length },
+            replicated_tables: 0,
+            replicated_partitions: 0
+          });
+        }
         if (url.includes('/api/v1/hms/jobs')) {
-          return mockJsonResponse(mockHmsJobs);
+          // Список заданий метастора приходит страницами
+          return mockJsonResponse({
+            content: mockHmsJobs,
+            total_elements: mockHmsJobs.length,
+            total_pages: 1,
+            number: 0,
+            size: 50
+          });
         }
         if (url.includes('/events')) {
           return mockJsonResponse([]);

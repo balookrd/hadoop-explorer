@@ -254,6 +254,22 @@ export interface JobPage {
   size: number;
 }
 
+export interface HmsJobPage {
+  content: HmsReplicationJob[];
+  total_elements: number;
+  total_pages: number;
+  number: number;
+  size: number;
+}
+
+export interface HmsJobListingSummary {
+  total: number;
+  by_status: Record<string, number>;
+  replicated_tables: number;
+  replicated_partitions: number;
+  authors: string[];
+}
+
 export interface HmsCdcState {
   triggered: boolean;
   status: string;

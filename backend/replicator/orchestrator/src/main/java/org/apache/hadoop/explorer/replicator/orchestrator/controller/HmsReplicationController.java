@@ -22,7 +22,17 @@ import java.util.Map;
 @RequestMapping({"/api/v1/hms/jobs", "/hms/jobs"})
 public class HmsReplicationController {
 
+    /** Статусы заданий метастора: по ним считаются чипы интерфейса. */
+    private static final List<String> HMS_JOB_STATUSES =
+            List.of("BOOTSTRAPPING", "ACTIVE", "PAUSED", "ERROR");
+
+    private static final int DEFAULT_JOBS_PAGE_SIZE = 100;
+    private static final int MAX_JOBS_PAGE_SIZE = 1000;
+
     private final HmsReplicationJobRepository jobRepository;
+    /** Суммы по отобранным заданиям: считает база, не контроллер. */
+    private final org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsJobListingAggregates
+            listingAggregates;
     private final HmsEventLogRepository eventLogRepository;
     private final HmsCoordinatorService coordinatorService;
     private final JobService jobService;
@@ -33,10 +43,22 @@ public class HmsReplicationController {
             HmsCoordinatorService coordinatorService,
             JobService jobService
     ) {
+        this(jobRepository, eventLogRepository, coordinatorService, jobService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public HmsReplicationController(
+            HmsReplicationJobRepository jobRepository,
+            HmsEventLogRepository eventLogRepository,
+            HmsCoordinatorService coordinatorService,
+            JobService jobService,
+            org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsJobListingAggregates listingAggregates
+    ) {
         this.jobRepository = jobRepository;
         this.eventLogRepository = eventLogRepository;
         this.coordinatorService = coordinatorService;
         this.jobService = jobService;
+        this.listingAggregates = listingAggregates;
     }
 
     private UserSession getSession(Authentication auth) {
@@ -160,25 +182,103 @@ public class HmsReplicationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    /**
+     * Список заданий метастора страницами.
+     *
+     * <p>Прежде отдавался {@code findAll()}: все задания разом, а чужие вычеркивались уже в
+     * памяти. Порядок задан явно — без него страницы нестабильны и запись может попасть на две
+     * сразу или не попасть никуда.
+     */
     @GetMapping
-    public ResponseEntity<List<HmsReplicationJobEntity>> listJobs(Authentication auth) {
+    public ResponseEntity<org.springframework.data.domain.Page<HmsReplicationJobEntity>> listJobs(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            Authentication auth) {
+        UserSession session = requireSession(auth);
+
+        int pageNumber = (page != null && page >= 0) ? page : 0;
+        int pageSize = (size != null && size > 0) ? Math.min(size, MAX_JOBS_PAGE_SIZE) : DEFAULT_JOBS_PAGE_SIZE;
+        var pageable = PageRequest.of(pageNumber, pageSize,
+                org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+
+        var spec = org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsJobListingSpecifications
+                .forListing(normalizeUpper(status), normalizeLower(search), normalizeLower(author),
+                        ownerFilter(session));
+        var jobs = jobRepository.findAll(spec, pageable);
+        coordinatorService.enrichAllWithSubtasksMetrics(jobs.getContent());
+        return ResponseEntity.ok(jobs);
+    }
+
+    /**
+     * Кого пользователю видно: {@code null} — все, иначе только свои задания.
+     *
+     * <p>Список раскрывает имена баз, таблиц и кластеров источника, поэтому условие уходит в
+     * запрос, а не отсекает записи после выборки.
+     */
+    private String ownerFilter(UserSession session) {
+        boolean seesEverything = session.isAdmin() || AGENT_AUTH_METHOD.equalsIgnoreCase(session.authMethod());
+        return seesEverything ? null : normalizeLower(session.username());
+    }
+
+    private UserSession requireSession(Authentication auth) {
         UserSession session = getSession(auth);
         if (session == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
             );
         }
-        List<HmsReplicationJobEntity> jobs = jobRepository.findAll();
-        // Непривилегированный пользователь видит только свои задачи: список раскрывает
-        // имена баз, таблиц и кластеров источника.
-        if (!session.isAdmin() && !AGENT_AUTH_METHOD.equalsIgnoreCase(session.authMethod())) {
-            jobs = jobs.stream()
-                    .filter(job -> job.getCreatedBy() == null
-                            || job.getCreatedBy().equalsIgnoreCase(session.username()))
-                    .toList();
+        return session;
+    }
+
+    private static String normalizeLower(String value) {
+        return value == null || value.isBlank() ? null : value.trim().toLowerCase();
+    }
+
+    private static String normalizeUpper(String value) {
+        return value == null || value.isBlank() || "ALL".equalsIgnoreCase(value.trim())
+                ? null : value.trim().toUpperCase();
+    }
+
+    /**
+     * Сводка по всему набору заданий: счетчики статусов и суммы перенесенного.
+     *
+     * <p>Отдельно от страницы, потому что считать это по странице — показывать счет по сотне
+     * записей вместо счета по всем заданиям пользователя.
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<org.apache.hadoop.explorer.replicator.orchestrator.dto.HmsJobListingSummary>
+            jobsSummary(
+                    @RequestParam(required = false) String search,
+                    @RequestParam(required = false) String author,
+                    Authentication auth) {
+        UserSession session = requireSession(auth);
+        String owner = ownerFilter(session);
+
+        // Условие то же, что у страницы, но без статуса: счетчики как раз и показывают,
+        // сколько заданий в каждом статусе при текущем поиске
+        var base = org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsJobListingSpecifications
+                .forListing(null, normalizeLower(search), normalizeLower(author), owner);
+
+        java.util.Map<String, Long> byStatus = new java.util.LinkedHashMap<>();
+        for (String status : HMS_JOB_STATUSES) {
+            byStatus.put(status, jobRepository.count(base.and(
+                    org.apache.hadoop.explorer.replicator.orchestrator.repository.HmsJobListingSpecifications
+                            .withStatus(status))));
         }
-        coordinatorService.enrichAllWithSubtasksMetrics(jobs);
-        return ResponseEntity.ok(jobs);
+
+        var totals = listingAggregates != null
+                ? listingAggregates.sumReplicated(base)
+                : new org.apache.hadoop.explorer.replicator.orchestrator.repository
+                        .HmsJobListingAggregates.Totals(0L, 0L);
+
+        return ResponseEntity.ok(new org.apache.hadoop.explorer.replicator.orchestrator.dto
+                .HmsJobListingSummary(jobRepository.count(base), byStatus,
+                totals.replicatedTables(), totals.replicatedPartitions(),
+                jobRepository.listAuthors(owner)));
     }
 
     @GetMapping("/{id}")
