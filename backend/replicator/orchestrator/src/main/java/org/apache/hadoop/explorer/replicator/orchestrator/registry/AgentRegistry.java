@@ -301,9 +301,7 @@ public class AgentRegistry {
     }
 
     public boolean register(AgentRegisterRequest request, String secretHeader) {
-        if (properties.isEnforceAgentSecret() || secretHeader != null) {
-            verifySecret(secretHeader);
-        }
+        verifySecret(secretHeader);
         validateGrpcAddress(request.getGrpcAddress());
 
         String agentId = request.getAgentId();
@@ -343,9 +341,7 @@ public class AgentRegistry {
     }
 
     public boolean heartbeat(AgentHeartbeatRequest request, String secretHeader) {
-        if (properties.isEnforceAgentSecret() || secretHeader != null) {
-            verifySecret(secretHeader);
-        }
+        verifySecret(secretHeader);
         String agentId = request.getAgentId();
         if (agentId == null || agentId.isBlank()) {
             return false;
@@ -433,9 +429,7 @@ public class AgentRegistry {
     }
 
     public boolean unregister(String agentId, String secretHeader) {
-        if (properties.isEnforceAgentSecret() || secretHeader != null) {
-            verifySecret(secretHeader);
-        }
+        verifySecret(secretHeader);
         dirtyAgentIds.remove(agentId);
         AgentEntry entry = agents.remove(agentId);
         if (entry != null) {
@@ -632,6 +626,18 @@ public class AgentRegistry {
         return aNorm.equals(tNorm);
     }
 
+    /**
+     * Проверка секрета агента.
+     *
+     * <p>Вызывается всегда, а не по условию {@code enforce || secretHeader != null}: с таким
+     * условием достаточно было не прислать заголовок, чтобы проверка не выполнилась вовсе, и при
+     * выключенном {@code enforce-agent-secret} — значении по умолчанию — заданный секрет защищал
+     * только тех, кто его присылал. Кто угодно мог зарегистрировать агента, принять на себя его
+     * задачи и слать heartbeat за него.
+     *
+     * <p>Контур без заданного секрета остается открытым: это режим разработки, и он обозначен
+     * предупреждением при старте.
+     */
     public void verifySecret(String secretHeader) {
         String expected = properties.getAgentSecret();
         if (properties.isEnforceAgentSecret() && (expected == null || expected.isBlank() || expected.trim().length() < 16)) {
