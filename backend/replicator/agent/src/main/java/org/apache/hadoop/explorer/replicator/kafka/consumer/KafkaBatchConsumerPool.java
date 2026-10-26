@@ -446,6 +446,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
                     // Группировка строго по TopicPartition для сохранения порядка при балансировке по агентам
                     Map<TopicPartition, List<KafkaRecord>> recordsByTp = new LinkedHashMap<>();
+                    // Записи, отброшенные фильтром петель: если в партиции за опрос не осталось
+                    // ничего на перенос, подтверждать нечего, и без явной фиксации смещение
+                    // стоит на месте вечно — лаг растет, а перезапуск перечитывает топик заново
+                    Map<TopicPartition, Long> filteredOnlyOffsets = new HashMap<>();
 
                     for (ConsumerRecord<byte[], byte[]> record : records) {
                         TopicPartition tp = new TopicPartition(record.topic(), record.partition());
@@ -457,6 +461,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
                         // 1. Проверяем на бесконечную петлю (Loop / Echo)
                         if (!loopFilter.shouldReplicate(record)) {
+                            filteredOnlyOffsets.merge(tp, record.offset(), Math::max);
                             continue;
                         }
 
@@ -490,6 +495,16 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                 .add(recBuilder.build());
                     }
                     currentLagMs.set(maxRecordLag);
+
+                    // 3.1 Партиции, где все записи отброшены фильтром: батча не будет, и
+                    // смещение надо продвинуть самим. Партиции, задержанные из-за отсутствия
+                    // маршрута, сюда не попадают — их записи еще предстоит перенести.
+                    for (Map.Entry<TopicPartition, Long> filtered : filteredOnlyOffsets.entrySet()) {
+                        TopicPartition tp = filtered.getKey();
+                        if (!recordsByTp.containsKey(tp) && !routingBlockedPartitions.contains(tp)) {
+                            pendingCommittedOffsets.merge(tp, filtered.getValue() + 1, Math::max);
+                        }
+                    }
 
                     // 4. Отправляем батчи по партициям в соответствующие gRPC-стримы
                     for (Map.Entry<TopicPartition, List<KafkaRecord>> entry : recordsByTp.entrySet()) {
