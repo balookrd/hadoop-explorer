@@ -660,10 +660,33 @@ public class HmsCoordinatorService {
         return hmsDeadLetterEventRepository.findById(dlqId)
                 .filter(e -> e.getHmsJobId().equals(jobId))
                 .map(e -> {
+                    // Переигрывание возвращает задачу к событию: агент читает журнал метастора
+                    // по позиции, и пока позиция стоит за ядовитым событием, к нему никто не
+                    // вернется. Прежняя версия только меняла статус записи, и оператор видел
+                    // «переиграно» там, где ничего не произошло.
+                    //
+                    // Откат двигает позицию всей задачи, поэтому события после ядовитого будут
+                    // прочитаны заново: применение DDL идемпотентно (upsert таблиц и партиций),
+                    // а иного механизма точечного переигрывания у агента нет.
+                    hmsJobRepository.findById(jobId).ifPresent(job -> {
+                        Long eventId = e.getEventId();
+                        long current = job.getLastProcessedEventId() != null ? job.getLastProcessedEventId() : 0L;
+                        if (eventId != null && eventId > 0 && eventId - 1 < current) {
+                            job.setLastProcessedEventId(eventId - 1);
+                            job.setUpdatedAt(Instant.now());
+                            hmsJobRepository.save(job);
+                            log.warn("[HmsCoordinator] Задача {} возвращена к позиции {} для переигрывания события {}",
+                                    jobId, eventId - 1, eventId);
+                        } else {
+                            log.info("[HmsCoordinator] Позиция задачи {} не изменена: событие {} не пройдено (позиция {})",
+                                    jobId, eventId, current);
+                        }
+                    });
+
                     e.setStatus("REPLAYED");
                     e.setRetryCount(e.getRetryCount() + 1);
                     hmsDeadLetterEventRepository.save(e);
-                    log.info("[HmsCoordinator] Событие DLQ {} для задачи {} помечено как REPLAYED", dlqId, jobId);
+                    log.info("[HmsCoordinator] Событие DLQ {} для задачи {} отправлено на переигрывание", dlqId, jobId);
                     return true;
                 }).orElse(false);
     }
