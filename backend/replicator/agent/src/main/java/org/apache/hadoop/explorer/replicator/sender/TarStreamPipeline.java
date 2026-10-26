@@ -39,6 +39,25 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class TarStreamPipeline {
 
+    /**
+     * Копирование ровно {@code limit} байт: лишнее в записи TAR не помещается, а недостающее
+     * означает, что файл уменьшился после анализа.
+     */
+    private static long copyExactly(InputStream in, java.io.OutputStream out, long limit) throws IOException {
+        byte[] buffer = new byte[32 * 1024];
+        long copied = 0;
+        while (copied < limit) {
+            int toRead = (int) Math.min(buffer.length, limit - copied);
+            int read = in.read(buffer, 0, toRead);
+            if (read < 0) {
+                break;
+            }
+            out.write(buffer, 0, read);
+            copied += read;
+        }
+        return copied;
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(TarStreamPipeline.class);
 
     private final ObjectMapper objectMapper;
@@ -179,12 +198,23 @@ public class TarStreamPipeline {
                         continue;
                     }
 
+                    // Размер записи TAR берется из манифеста, а файл мог измениться после
+                    // анализа каталога. Поток логов дописывается постоянно: лишние байты рвали
+                    // TAR-поток, и падал весь бандл, в котором до 500 файлов. Читаем ровно
+                    // столько, сколько заявлено, остальное догонит следующий проход.
+                    long declaredSize = entry.getSize();
                     TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
-                    tarEntry.setSize(entry.getSize());
+                    tarEntry.setSize(declaredSize);
                     tarOut.putArchiveEntry(tarEntry);
 
                     try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
-                        IOUtils.copyBytes(in, tarOut, 32 * 1024, false);
+                        long copied = copyExactly(in, tarOut, declaredSize);
+                        if (copied < declaredSize) {
+                            // Файл уменьшился: заголовок записи уже отправлен, и поток не
+                            // склеить — бандл придется провалить, но с внятной причиной
+                            throw new IOException("Файл '" + entry.getSourcePath() + "' уменьшился между анализом"
+                                    + " и передачей: прочитано " + copied + " из заявленных " + declaredSize + " байт");
+                        }
                     }
                     tarOut.closeArchiveEntry();
                 }

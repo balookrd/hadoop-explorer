@@ -10,6 +10,7 @@ import org.apache.hadoop.explorer.replicator.receiver.DataTransferServiceImpl;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -344,5 +345,71 @@ public class TarStreamReplicationTest {
             }
         }
         file.delete();
+    }
+
+    @Test
+    @DisplayName("Файл, выросший между анализом и передачей, не ломает весь бандл")
+    public void testFileGrownAfterAnalysisDoesNotBreakBundle() throws Exception {
+        // Поток логов: файл дописывается между анализом каталога и отправкой бандла. Размер
+        // записи TAR брался из манифеста, и лишние байты рвали поток — падал весь бандл,
+        // а в нем до 500 файлов.
+        File growing = new File(tempSourceDir, "logs/app.log");
+        growing.getParentFile().mkdirs();
+        byte[] atAnalysis = "строка журнала\n".repeat(20).getBytes(StandardCharsets.UTF_8);
+        Files.write(growing.toPath(), atAnalysis);
+
+        File stable = new File(tempSourceDir, "logs/stable.log");
+        byte[] stableData = "стабильный файл\n".repeat(10).getBytes(StandardCharsets.UTF_8);
+        Files.write(stable.toPath(), stableData);
+
+        ReplicationSender sender = new ReplicationSender(
+                "worker-tar-grow",
+                orchestratorMock,
+                fsManager,
+                null,
+                32 * 1024,
+                false, null, null, null, false,
+                1024 * 1024L, 16 * 1024 * 1024L, 500
+        );
+
+        JobDto job = new JobDto(
+                "job-tar-grow",
+                "dc1",
+                "dc2",
+                tempSourceDir.getAbsolutePath(),
+                tempTargetDir.getAbsolutePath(),
+                "QUEUED",
+                "hdfs@REALM.LOCAL",
+                false
+        );
+        String targetAddress = "inprocess:" + serverName;
+
+        assertTrue(sender.analyzeAndCreateTaskPool(job, targetAddress));
+        TaskCreateItem bundleTaskCreate = orchestratorMock.batchRequests.get(0).getTasks().get(0);
+        assertEquals("BUNDLE_TAR", bundleTaskCreate.getTaskType());
+
+        // Файл дописали уже после анализа
+        Files.write(growing.toPath(), "дописанная строка\n".repeat(30).getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND);
+
+        TaskItemDto taskToExecute = new TaskItemDto(
+                bundleTaskCreate.getId(), job.getId(), "run-1",
+                bundleTaskCreate.getSourcePath(), bundleTaskCreate.getTargetPath(),
+                bundleTaskCreate.getFileSize(), "QUEUED", "worker-tar-grow", null, targetAddress,
+                "hdfs@REALM.LOCAL", false, 0, 3, null,
+                bundleTaskCreate.getTaskType(), bundleTaskCreate.getFileCount(),
+                bundleTaskCreate.getBundleManifest());
+
+        boolean transferred = sender.transferTask(taskToExecute);
+
+        assertTrue(transferred, "Бандл должен передаться, несмотря на дописанный файл");
+        File stableTarget = new File(tempTargetDir, "logs/stable.log");
+        assertTrue(stableTarget.exists(), "Соседний файл бандла не должен пострадать из-за выросшего файла");
+        assertArrayEquals(stableData, Files.readAllBytes(stableTarget.toPath()));
+
+        File grownTarget = new File(tempTargetDir, "logs/app.log");
+        assertTrue(grownTarget.exists(), "Выросший файл должен быть передан в объеме, известном на момент анализа");
+        assertEquals(atAnalysis.length, grownTarget.length(),
+                "Передается ровно столько, сколько было заявлено в манифесте");
     }
 }
