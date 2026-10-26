@@ -50,6 +50,9 @@ public class HdfsInotifyListener {
     private Thread listenerThread;
     private Thread leaseThread;
     private volatile long currentTxid = 0L;
+
+    /** Список потоковых задач не удалось обновить: решать по нему, что событий ждать не нужно, нельзя. */
+    private volatile boolean streamingJobsUnknown = false;
     private volatile long currentEpoch = 0L;
     private volatile long lastSuccessfulLeaseRenewTimeMs = System.currentTimeMillis();
     private static final long LEASE_EXPIRATION_SAFETY_TIMEOUT_MS = 10_000L;
@@ -67,6 +70,35 @@ public class HdfsInotifyListener {
     private volatile long lastJobsFetchTimeMs = 0L;
     private static final long JOBS_CACHE_TTL_MS = 5000L;
 
+    /**
+     * Обработка пачки событий журнала NameNode.
+     *
+     * @return {@code true}, если позицию журнала можно двигать вперед
+     */
+    boolean processBatch(EventBatch batch, long lag) {
+        long txid = batch.getTxid();
+        List<JobDto> jobs = getStreamingJobs();
+        if (streamingJobsUnknown) {
+            // Список потоковых задач неизвестен: оркестратор недоступен, а кэш пуст или устарел.
+            // Двинуть позицию сейчас значит потерять события безвозвратно — после перезапуска
+            // стример продолжит с новой позиции и к ним не вернется.
+            log.warn("[Inotify] Позиция журнала (txid={}) не продвинута: список потоковых задач неизвестен", txid);
+            return false;
+        }
+
+        if (!jobs.isEmpty()) {
+            // Исключение на постановке в очередь (переполнение) не дает продвинуть позицию:
+            // пачка будет перечитана после переоткрытия потока
+            for (var event : batch.getEvents()) {
+                batchProcessor.processEvent(event, txid, lag, jobs);
+            }
+            batchProcessor.flush();
+        }
+
+        this.currentTxid = txid;
+        return true;
+    }
+
     public List<JobDto> getStreamingJobs() {
         long now = System.currentTimeMillis();
         if (now - lastJobsFetchTimeMs > JOBS_CACHE_TTL_MS || cachedStreamingJobs.isEmpty()) {
@@ -75,8 +107,12 @@ public class HdfsInotifyListener {
                         .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
                         .toList();
                 lastJobsFetchTimeMs = now;
+                streamingJobsUnknown = false;
             } catch (Exception e) {
-                log.debug("[Inotify] Не удалось обновить список потоковых задач: {}", e.getMessage());
+                // Пустой список из-за недоступного оркестратора — это не «задач нет»:
+                // по нему нельзя решать, что события никому не нужны
+                streamingJobsUnknown = true;
+                log.warn("[Inotify] Не удалось обновить список потоковых задач: {}", e.getMessage());
             }
         }
         return cachedStreamingJobs;
@@ -342,18 +378,11 @@ public class HdfsInotifyListener {
                 if (stream != null) {
                     EventBatch batch = stream.poll(1000, TimeUnit.MILLISECONDS);
                     if (batch != null) {
-                        long txid = batch.getTxid();
-                        this.currentTxid = txid;
                         long lag = stream.getTxidsBehindEstimate();
-
-                        // Получаем список активных потоковых задач для кластера текущего стримера (с кэшированием)
-                        List<JobDto> jobs = getStreamingJobs();
-
-                        if (!jobs.isEmpty()) {
-                            for (var event : batch.getEvents()) {
-                                batchProcessor.processEvent(event, txid, lag, jobs);
-                            }
-                            batchProcessor.flush();
+                        if (!processBatch(batch, lag)) {
+                            // Позиция осталась прежней: переоткрываем поток, чтобы перечитать пачку
+                            stream = null;
+                            Thread.sleep(1000);
                         }
                     }
                 } else {
