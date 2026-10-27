@@ -66,7 +66,7 @@ public class KafkaJobPoolManager implements Closeable {
     private record JobRuntime(JobPipeline pipeline, List<String> topics,
                               List<String> endpoints, double bandwidthLimitMb,
                               int offsetSyncIntervalSec, boolean schemaTranscoding,
-                              String registrySignature) {
+                              String registrySignature, int consumerThreads, int batchSize) {
         KafkaBatchConsumerPool pool() {
             return pipeline.pool();
         }
@@ -246,7 +246,8 @@ public class KafkaJobPoolManager implements Closeable {
         try {
             pipeline.pool().start();
             runtimes.put(jobId, new JobRuntime(pipeline, topics, endpoints, spec.bandwidthLimitMb(),
-                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding(), registrySignature(job)));
+                    spec.offsetSyncIntervalSec(), spec.schemaTranscoding(), registrySignature(job),
+                    spec.consumerThreads(), spec.batchSize()));
             log.info("Задача '{}' запущена: группа '{}', топики {}, приемники {}, потоков {}",
                     jobId, spec.groupId(), topics, endpoints, spec.consumerThreads());
         } catch (Exception e) {
@@ -257,18 +258,25 @@ public class KafkaJobPoolManager implements Closeable {
 
     private void updateJob(KafkaJobItemProto job, String jobId, List<String> topics,
                            List<String> endpoints, JobRuntime existing) {
-        // Транскодер схем и перенос смещений создаются вместе с конвейером задачи, поэтому их
-        // настройки нельзя поменять на живом пуле: задача пересоздается целиком.
+        // Транскодер схем, перенос смещений, число консьюмеров и размер батча (он же
+        // max.poll.records) задаются при создании конвейера, поэтому их нельзя поменять на
+        // живом пуле: задача пересоздается целиком. Static membership возвращает консьюмеры
+        // в группу под теми же идентификаторами, без ребаланса всей группы.
         int offsetSyncInterval = Math.max(0, job.getOffsetSyncIntervalSec());
         boolean transcoding = job.getSchemaTranscoding();
         String registries = registrySignature(job);
+        int threads = Math.max(1, job.getConsumerThreads());
+        int batchSize = Math.max(1, job.getBatchSize());
         if (offsetSyncInterval != existing.offsetSyncIntervalSec()
                 || transcoding != existing.schemaTranscoding()
-                || !registries.equals(existing.registrySignature())) {
+                || !registries.equals(existing.registrySignature())
+                || threads != existing.consumerThreads()
+                || batchSize != existing.batchSize()) {
             log.info("Задача '{}': изменились настройки конвейера (перенос смещений {} -> {} с, "
-                            + "транскодинг {} -> {}), пул пересоздается",
+                            + "транскодинг {} -> {}, потоков {} -> {}, батч {} -> {}), пул пересоздается",
                     jobId, existing.offsetSyncIntervalSec(), offsetSyncInterval,
-                    existing.schemaTranscoding(), transcoding);
+                    existing.schemaTranscoding(), transcoding,
+                    existing.consumerThreads(), threads, existing.batchSize(), batchSize);
             stopJob(jobId);
             startJob(job, jobId, topics, endpoints);
             return;
@@ -288,7 +296,7 @@ public class KafkaJobPoolManager implements Closeable {
         runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints,
                 limit,
                 existing.offsetSyncIntervalSec(), existing.schemaTranscoding(),
-                existing.registrySignature()));
+                existing.registrySignature(), existing.consumerThreads(), existing.batchSize()));
     }
 
     private void stopJob(String jobId) {

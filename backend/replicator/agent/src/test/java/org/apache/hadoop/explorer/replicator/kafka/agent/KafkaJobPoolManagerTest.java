@@ -397,4 +397,23 @@ class KafkaJobPoolManagerTest {
         assertEquals("dc2", KafkaJobPoolManager.canonicalLocalDc(j, "DC2"),
                 "Для обратного направления ЦОД берется в написании задачи");
     }
+
+    @Test
+    @DisplayName("Смена числа потоков или размера батча пересоздает пул задачи")
+    void testThreadsAndBatchSizeChangeRestartsPool() {
+        manager.sync(List.of(job("job-tune", "dc2", List.of("orders"), List.of("r:1"), 2, 1000)));
+        KafkaBatchConsumerPool first = pools.get("job-tune");
+
+        manager.sync(List.of(job("job-tune", "dc2", List.of("orders"), List.of("r:1"), 2, 1000)));
+        assertEquals(1, requests.size(), "Без изменений пул не пересоздается");
+
+        manager.sync(List.of(job("job-tune", "dc2", List.of("orders"), List.of("r:1"), 6, 1000)));
+        assertEquals(2, requests.size(), "Новое число потоков требует нового пула");
+        assertEquals(6, requests.get(1).consumerThreads());
+        verify(first).close();
+
+        manager.sync(List.of(job("job-tune", "dc2", List.of("orders"), List.of("r:1"), 6, 5000)));
+        assertEquals(3, requests.size(), "Новый размер батча требует нового пула");
+        assertEquals(5000, requests.get(2).batchSize());
+    }
 }
