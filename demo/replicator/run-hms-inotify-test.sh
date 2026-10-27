@@ -10,10 +10,11 @@
 #   1. компаньон создан и стример источника в сети;
 #   2. новый файл в существующей партиции без события INSERT доезжает до приемника;
 #   3. перезапись партиции в стиле Spark (файл из .spark-staging, старые файлы удалены):
-#      на приемнике остаются только новые файлы;
+#      при флажке «Удалять лишние партиции» на приемнике остаются только новые файлы;
 #   4. пауза задачи останавливает компаньон, после возобновления файл, записанный на паузе,
-#      доезжает;
-#   5. удаление задачи удаляет и компаньон.
+#      доезжает, а файл, удаленный на паузе, удаляется;
+#   5. удаление задачи удаляет и компаньон;
+#   6. задача без флажков сверки дозапись переносит, но ничего на приемнике не удаляет.
 #
 # Стенд с метасторами 3.1 должен быть поднят (run-hms-scale-test.sh / run-hms-ha-test.sh).
 #
@@ -84,7 +85,7 @@ src_hdfs "hdfs dfs -mkdir -p $SRC_DIR && hdfs dfs -rm -r -f -skipTrash '$SRC_DIR
   echo row1 | hdfs dfs -put -f - $SRC_DIR/000000_0 && echo row2 | hdfs dfs -put -f - $SRC_DIR/000001_0"
 
 JOB=$(api -X POST "${NODE}/api/v1/hms/jobs" -d "{\"source_cluster_id\":\"dc1\",\"target_cluster_id\":\"dc2\",
-  \"source_db\":\"${DB}\",\"target_db\":\"${DB}\",\"enable_hdfs_streaming\":true}" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+  \"source_db\":\"${DB}\",\"target_db\":\"${DB}\",\"enable_hdfs_streaming\":true,\"drop_extraneous_partitions\":true}" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
 [ -n "$JOB" ] || fail "задача не создана"
 job_field() { api "${NODE}/api/v1/hms/jobs/${JOB}" | grep -o "\"$1\":[^,}]*" | head -1 | cut -d: -f2- | tr -d '"'; }
 job_status() { job_field status; }
@@ -108,19 +109,41 @@ src_hdfs "hdfs dfs -mkdir -p $TABLE_DIR/.spark-staging-1 && echo row9 | hdfs dfs
 check "на приемнике только файлы после перезаписи" "$(wait_for "part-00000.parquet" files_in hdfs-cluster-2 "$DST_DIR")" \
   "part-00000.parquet"
 
-log "4. Пауза: компаньон останавливается, файл с паузы доезжает после возобновления"
+log "4. Пауза: компаньон останавливается, после возобновления доезжают запись и удаление с паузы"
 api -X POST "${NODE}/api/v1/hms/jobs/${JOB}/pause" > /dev/null
 check "компаньон остановлен" "$(api "${NODE}/api/v1/jobs/${COMPANION}" | grep -o '"status":"[^"]*' | head -1 | cut -d'"' -f4)" "STOPPED"
-src_hdfs "echo row10 | hdfs dfs -put -f - $SRC_DIR/part-00001.parquet"
+src_hdfs "echo row10 | hdfs dfs -put -f - $SRC_DIR/part-00001.parquet && hdfs dfs -rm -f -skipTrash $SRC_DIR/part-00000.parquet >/dev/null"
 sleep 20
-check "на паузе файл не переносится" "$(files_in hdfs-cluster-2 "$DST_DIR")" "part-00000.parquet"
+check "на паузе приемник не меняется" "$(files_in hdfs-cluster-2 "$DST_DIR")" "part-00000.parquet"
 api -X POST "${NODE}/api/v1/hms/jobs/${JOB}/resume" > /dev/null
-check "после возобновления файл с паузы доехал" \
-  "$(wait_for "part-00000.parquet,part-00001.parquet" files_in hdfs-cluster-2 "$DST_DIR")" "part-00000.parquet,part-00001.parquet"
+check "после возобновления запись и удаление с паузы перенесены" \
+  "$(wait_for "part-00001.parquet" files_in hdfs-cluster-2 "$DST_DIR")" "part-00001.parquet"
 
 log "5. Удаление задачи удаляет компаньон"
 api -X DELETE "${NODE}/api/v1/hms/jobs/${JOB}" > /dev/null
 check "компаньон удален" "$(api -o /dev/null -w '%{http_code}' "${NODE}/api/v1/jobs/${COMPANION}")" "404"
 
+log "6. Без флажков сверки компаньон ничего не удаляет"
+KDB="${DB}_keep"
+KTABLE="hdfs://hdfs-cluster-1:9000/warehouse/${KDB}.db/sales"
+KSRC="${KTABLE}/dt=2026-10-01"
+KDST="hdfs://hdfs-cluster-2:9000/warehouse/${KDB}.db/sales/dt=2026-10-01"
+src_tool create-database "$KDB" > /dev/null || true
+src_tool create-table "$KDB" sales "$KTABLE" true dt > /dev/null || true
+src_tool add-partition "$KDB" sales 2026-10-01 "$KSRC" > /dev/null || true
+src_hdfs "hdfs dfs -mkdir -p $KSRC && echo row1 | hdfs dfs -put -f - $KSRC/000000_0"
+KJOB=$(api -X POST "${NODE}/api/v1/hms/jobs" -d "{\"source_cluster_id\":\"dc1\",\"target_cluster_id\":\"dc2\",
+  \"source_db\":\"${KDB}\",\"target_db\":\"${KDB}\",\"enable_hdfs_streaming\":true}" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+[ -n "$KJOB" ] || fail "задача без флажков не создана"
+kjob_status() { api "${NODE}/api/v1/hms/jobs/${KJOB}" | grep -o '"status":[^,}]*' | head -1 | cut -d: -f2- | tr -d '"'; }
+check "bootstrap без флажков" "$(wait_for ACTIVE kjob_status)" "ACTIVE"
+check "файл партиции после bootstrap" "$(wait_for "000000_0" files_in hdfs-cluster-2 "$KDST")" "000000_0"
+src_hdfs "echo row2 | hdfs dfs -put -f - $KSRC/000001_0 && hdfs dfs -rm -f -skipTrash $KSRC/000000_0 >/dev/null"
+check "дозапись доехала, удаленный файл на приемнике сохранен" \
+  "$(wait_for "000000_0,000001_0" files_in hdfs-cluster-2 "$KDST")" "000000_0,000001_0"
+sleep 15
+check "удаление не перенеслось и позже" "$(files_in hdfs-cluster-2 "$KDST")" "000000_0,000001_0"
+api -X DELETE "${NODE}/api/v1/hms/jobs/${KJOB}" > /dev/null
+
 [ "$FAILED" = "0" ] || fail "проверка inotify не пройдена"
-log "Дозапись, перезапись и пауза с HDFS-стримингом переносятся"
+log "Дозапись, перезапись и пауза с HDFS-стримингом переносятся, удаления — только по флажкам"

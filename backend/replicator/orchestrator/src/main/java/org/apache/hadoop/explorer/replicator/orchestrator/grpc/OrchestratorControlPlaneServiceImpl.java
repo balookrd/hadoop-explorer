@@ -67,7 +67,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -449,8 +451,10 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                 jobs = page.getContent();
             }
             GetJobsResponse.Builder builder = GetJobsResponse.newBuilder();
+            Map<String, HmsCoordinatorService.CompanionDeletes> deletesByParent = new HashMap<>();
 
             for (JobResponse job : jobs) {
+                var deletes = companionDeletesOf(job, deletesByParent);
                 builder.addJobs(JobItemProto.newBuilder()
                         .setId(job.id() != null ? job.id() : "")
                         .setSourceClusterId(job.sourceClusterId() != null ? job.sourceClusterId() : "")
@@ -468,6 +472,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setJobType(job.jobType() != null ? job.jobType() : "HDFS")
                         .setParentJobId(job.parentJobId() != null ? job.parentJobId() : "")
                         .setSyncDeletes(job.syncDeletes())
+                        .setDeleteTableDirs(deletes.tableDirs())
+                        .setDeleteInsideTables(deletes.insideTables())
                         .build());
             }
 
@@ -477,6 +483,16 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             log.error("Ошибка gRPC getJobs: {}", e.getMessage(), e);
             responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
         }
+    }
+
+    /** Флажки удалений для компаньона; родитель читается один раз на запрос. */
+    private HmsCoordinatorService.CompanionDeletes companionDeletesOf(
+            JobResponse job, Map<String, HmsCoordinatorService.CompanionDeletes> cache) {
+        if (hmsCoordinatorService == null || !"HMS_COMPANION_STREAMING".equalsIgnoreCase(job.jobType())
+                || job.parentJobId() == null) {
+            return HmsCoordinatorService.CompanionDeletes.NONE;
+        }
+        return cache.computeIfAbsent(job.parentJobId(), hmsCoordinatorService::companionDeletes);
     }
 
     @Override
@@ -643,6 +659,11 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             // суперпользователя HDFS не могла писать в них (Permission denied на стенде), а
             // файлы на приемнике получали чужого владельца. Без пользователя — служебная учетка.
             boolean hasPrincipal = request.getExecutionPrincipal() != null && !request.getExecutionPrincipal().isBlank();
+            boolean companion = "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType);
+            // Компаньон удаляет на приемнике только то, что разрешают флажки сверки HMS-задачи;
+            // обычные подзадачи данных ничего не удаляют
+            boolean companionDeletes = companion && hmsCoordinatorService != null
+                    && hmsCoordinatorService.companionDeletes(request.getParentJobId()).any();
             CreateJobRequest domainReq = new CreateJobRequest(
                     request.getSourcePath(),
                     request.getTargetPath(),
@@ -657,10 +678,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     jobType,
                     request.getParentJobId(),
                     syncMode,
-                    // Компаньон HMS-задачи зеркалит каталог базы: без удалений перезапись
-                    // партиции (Spark INSERT OVERWRITE, событий метастора нет) оставляла на
-                    // приемнике старые файлы рядом с новыми, и запросы видели строки дважды
-                    "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType)
+                    companionDeletes
             );
 
             // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC
@@ -669,8 +687,13 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     : jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
                             .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
 
-            if (subjob != null && "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType) && hmsCoordinatorService != null) {
-                hmsCoordinatorService.linkCompanionHdfsJob(request.getParentJobId(), subjob.id(), request.getSourcePath());
+            if (subjob != null && companion) {
+                if (subjob.syncDeletes() != companionDeletes) {
+                    jobService.setSyncDeletes(subjob.id(), companionDeletes);
+                }
+                if (hmsCoordinatorService != null) {
+                    hmsCoordinatorService.linkCompanionHdfsJob(request.getParentJobId(), subjob.id(), request.getSourcePath());
+                }
             }
 
             CreateHdfsSubjobResponse resp = CreateHdfsSubjobResponse.newBuilder()

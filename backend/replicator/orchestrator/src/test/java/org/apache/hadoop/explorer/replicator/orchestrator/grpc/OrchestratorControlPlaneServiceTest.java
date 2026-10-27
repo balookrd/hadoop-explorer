@@ -628,21 +628,68 @@ public class OrchestratorControlPlaneServiceTest {
     }
 
     @Test
-    @DisplayName("createHdfsSubjob: компаньон inotify HMS-задачи реплицирует удаления, подзадача данных — нет")
-    void hmsCompanionReplicatesDeletes() {
+    @DisplayName("createHdfsSubjob: удаления компаньона включаются только флажками сверки HMS-задачи")
+    void hmsCompanionDeletesFollowReconciliationFlags() {
         when(hmsCoordinatorService.acceptsSubjobFrom(any(), any())).thenReturn(true);
+        when(hmsCoordinatorService.companionDeletes("hms-job-a"))
+                .thenReturn(new HmsCoordinatorService.CompanionDeletes(false, true));
+        when(hmsCoordinatorService.companionDeletes("hms-job-b"))
+                .thenReturn(HmsCoordinatorService.CompanionDeletes.NONE);
         when(jobService.findReusableSubjob(any(), any(), any())).thenReturn(Optional.empty());
         when(jobService.createJob(any(), any())).thenReturn(null);
 
-        stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-a")
-                .setSourcePath("hdfs://nn1:9000/warehouse/db.db").setTargetPath("hdfs://nn2:9000/warehouse/db.db")
-                .setSyncMode("STREAMING_INOTIFY").setJobType("HMS_COMPANION_STREAMING").setAgentId("agent-dc1").build());
+        stub.createHdfsSubjob(companionRequest("hms-job-a"));
+        stub.createHdfsSubjob(companionRequest("hms-job-b"));
         stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-a")
                 .setSourcePath("/warehouse/db.db/t/dt=1").setTargetPath("/warehouse/db.db/t/dt=1").setAgentId("agent-dc1").build());
 
-        verify(jobService).createJob(argThat(r -> r != null && "HMS_COMPANION_STREAMING".equals(r.jobType())
-                && Boolean.TRUE.equals(r.syncDeletes())), any());
+        verify(jobService).createJob(argThat(r -> r != null && "hms-job-a".equals(r.parentJobId())
+                && "HMS_COMPANION_STREAMING".equals(r.jobType()) && Boolean.TRUE.equals(r.syncDeletes())), any());
+        verify(jobService).createJob(argThat(r -> r != null && "hms-job-b".equals(r.parentJobId())
+                && Boolean.FALSE.equals(r.syncDeletes())), any());
         verify(jobService).createJob(argThat(r -> r != null && "HMS_SUBJOB".equals(r.jobType())
                 && Boolean.FALSE.equals(r.syncDeletes())), any());
+    }
+
+    @Test
+    @DisplayName("createHdfsSubjob: переиспользуемый компаньон получает режим удалений по флажкам")
+    void reusedCompanionTakesDeletesFromFlags() {
+        JobResponse legacy = mock(JobResponse.class);
+        when(legacy.id()).thenReturn("companion-1");
+        when(legacy.syncDeletes()).thenReturn(true);
+        when(hmsCoordinatorService.acceptsSubjobFrom(any(), any())).thenReturn(true);
+        when(hmsCoordinatorService.companionDeletes("hms-job-a")).thenReturn(HmsCoordinatorService.CompanionDeletes.NONE);
+        when(jobService.findReusableSubjob(any(), any(), any())).thenReturn(Optional.of(legacy));
+
+        stub.createHdfsSubjob(companionRequest("hms-job-a"));
+
+        verify(jobService, never()).createJob(any(), any());
+        verify(jobService).setSyncDeletes("companion-1", false);
+        verify(hmsCoordinatorService).linkCompanionHdfsJob(eq("hms-job-a"), eq("companion-1"), any());
+    }
+
+    @Test
+    @DisplayName("getJobs: компаньону передаются флажки удалений по уровню каталога")
+    void getJobsSendsCompanionDeleteScope() {
+        JobResponse companion = mock(JobResponse.class);
+        when(companion.id()).thenReturn("companion-1");
+        when(companion.jobType()).thenReturn("HMS_COMPANION_STREAMING");
+        when(companion.parentJobId()).thenReturn("hms-job-a");
+        when(companion.syncDeletes()).thenReturn(true);
+        when(jobService.listJobsForCluster(any(), any(), anyBoolean(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(companion)));
+        when(hmsCoordinatorService.companionDeletes("hms-job-a"))
+                .thenReturn(new HmsCoordinatorService.CompanionDeletes(true, false));
+
+        var job = stub.getJobs(GetJobsRequest.newBuilder().setClusterId("dc1").setStatus("STREAMING").build()).getJobs(0);
+
+        assertTrue(job.getDeleteTableDirs());
+        assertFalse(job.getDeleteInsideTables());
+    }
+
+    private static CreateHdfsSubjobRequest companionRequest(String parent) {
+        return CreateHdfsSubjobRequest.newBuilder().setParentJobId(parent)
+                .setSourcePath("hdfs://nn1:9000/warehouse/" + parent + ".db").setTargetPath("hdfs://nn2:9000/warehouse/" + parent + ".db")
+                .setSyncMode("STREAMING_INOTIFY").setJobType("HMS_COMPANION_STREAMING").setAgentId("agent-dc1").build();
     }
 }

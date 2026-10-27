@@ -2281,7 +2281,7 @@
                   Удалять лишние таблицы
                 </div>
                 <div class="text-[10px] text-slate-500 leading-tight mt-0.5">
-                  Удаляет из приемника таблицы, отсутствующие в источнике (deleteData=false).
+                  Удаляет из приемника таблицы, отсутствующие в источнике (deleteData=false). Со стримингом HDFS — и каталоги удаленных таблиц.
                 </div>
               </div>
             </label>
@@ -2296,7 +2296,7 @@
                   Удалять лишние партиции
                 </div>
                 <div class="text-[10px] text-slate-500 leading-tight mt-0.5">
-                  Удаляет партиции-сироты из целевого HMS (deleteData=false).
+                  Удаляет партиции-сироты из целевого HMS (deleteData=false). Со стримингом HDFS — и файлы, удаленные внутри таблиц (DROP PARTITION, перезапись).
                 </div>
               </div>
             </label>

@@ -120,6 +120,14 @@ public class JobDto {
     @JsonProperty("job_type")
     private String jobType;
 
+    /** Компаньон HMS-задачи: удалять каталоги таблиц (флажок «Удалять лишние таблицы»). */
+    @JsonProperty("delete_table_dirs")
+    private boolean deleteTableDirs;
+
+    /** Компаньон HMS-задачи: удалять все внутри таблиц (флажок «Удалять лишние партиции»). */
+    @JsonProperty("delete_inside_tables")
+    private boolean deleteInsideTables;
+
     @JsonProperty("parent_job_id")
     private String parentJobId;
 
@@ -143,6 +151,15 @@ public class JobDto {
 
     public String getParentJobId() { return parentJobId; }
     public void setParentJobId(String parentJobId) { this.parentJobId = parentJobId; }
+
+    public boolean isDeleteTableDirs() { return deleteTableDirs; }
+    public void setDeleteTableDirs(boolean deleteTableDirs) { this.deleteTableDirs = deleteTableDirs; }
+
+    public boolean isDeleteInsideTables() { return deleteInsideTables; }
+    public void setDeleteInsideTables(boolean deleteInsideTables) { this.deleteInsideTables = deleteInsideTables; }
+
+    /** Потоковый компаньон HMS-задачи, зеркалящий каталог базы. */
+    public boolean isHmsCompanion() { return "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType); }
 
     /** Подзадача копирования данных HMS-задачи (партиция или таблица), а не самостоятельная задача. */
     public boolean isHmsDataSubjob() { return "HMS_SUBJOB".equalsIgnoreCase(jobType); }

@@ -223,10 +223,13 @@ public class JobService {
             return Optional.empty();
         }
 
-        // 1. Приоритет: активная подзадача (QUEUED, ANALYZING, RUNNING)
+        // 1. Приоритет: активная подзадача (QUEUED, ANALYZING, RUNNING, STREAMING). Компаньон
+        // HMS-задачи живет в STREAMING: без него повторный bootstrap заводил второй компаньон на
+        // тот же каталог, и оба стримера переносили одни и те же файлы
         for (JobEntity j : list) {
             String s = j.getStatus();
-            if ("RUNNING".equalsIgnoreCase(s) || "QUEUED".equalsIgnoreCase(s) || "ANALYZING".equalsIgnoreCase(s)) {
+            if ("RUNNING".equalsIgnoreCase(s) || "QUEUED".equalsIgnoreCase(s) || "ANALYZING".equalsIgnoreCase(s)
+                    || "STREAMING".equalsIgnoreCase(s)) {
                 return Optional.of(JobResponse.fromEntity(j, jobRunRepository.countByJobId(j.getId())));
             }
         }
@@ -714,6 +717,18 @@ public class JobService {
     }
 
     @Transactional
+    /**
+     * Меняет репликацию удалений у существующей задачи. Компаньон HMS-задачи переиспользуется
+     * при повторном bootstrap и иначе сохранял бы режим удалений, с которым был заведен.
+     */
+    public void setSyncDeletes(String id, boolean syncDeletes) {
+        jobRepository.findById(id).filter(job -> job.isSyncDeletes() != syncDeletes).ifPresent(job -> {
+            job.setSyncDeletes(syncDeletes);
+            jobRepository.save(job);
+            log.info("Задача '{}': репликация удалений {}", id, syncDeletes ? "включена" : "выключена");
+        });
+    }
+
     public Optional<JobResponse> stopJob(String id) {
         return jobRepository.findById(id).map(job -> {
             job.setStatus("STOPPED");

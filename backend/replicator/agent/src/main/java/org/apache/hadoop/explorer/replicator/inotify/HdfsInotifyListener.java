@@ -7,6 +7,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.DFSInotifyEventInputStream;
 import org.apache.hadoop.hdfs.client.HdfsAdmin;
+import org.apache.hadoop.hdfs.inotify.Event;
 import org.apache.hadoop.hdfs.inotify.EventBatch;
 import org.apache.hadoop.hdfs.inotify.MissingEventsException;
 import org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentConfig;
@@ -82,6 +83,16 @@ public class HdfsInotifyListener {
 
     /** С какого момента задание замечено остановленным: после возобновления сверяются файлы новее. */
     private final Map<String, Long> stoppedSinceMs = new ConcurrentHashMap<>();
+    /**
+     * Удаления, замеченные в журнале у остановленных заданий. Сверка после паузы смотрит только
+     * на файлы источника и удаленное не видит, поэтому пути копятся здесь и переносятся после
+     * возобновления. Живут в памяти стримера: смена активного стримера на паузе их теряет.
+     */
+    private final Map<String, Set<String>> deletesWhilePaused = new ConcurrentHashMap<>();
+    /** Предел путей на задание: дальше удаления на паузе отбрасываются с предупреждением. */
+    static final int MAX_DELETES_WHILE_PAUSED = 100_000;
+    private volatile List<JobDto> pausedJobs = java.util.Collections.emptyList();
+
     /** Сверка каталогов идет в стороне от чтения журнала, чтобы не задерживать события. */
     private Executor reconcileExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "streamer-reconcile");
@@ -105,11 +116,17 @@ public class HdfsInotifyListener {
             return false;
         }
 
-        if (!jobs.isEmpty()) {
+        List<JobDto> paused = pausedJobs;
+        if (!jobs.isEmpty() || !paused.isEmpty()) {
             // Исключение на постановке в очередь (переполнение) не дает продвинуть позицию:
             // пачка будет перечитана после переоткрытия потока
             for (var event : batch.getEvents()) {
-                batchProcessor.processEvent(event, txid, lag, jobs);
+                if (!jobs.isEmpty()) {
+                    batchProcessor.processEvent(event, txid, lag, jobs);
+                }
+                if (!paused.isEmpty()) {
+                    rememberDeleteWhilePaused(event, paused);
+                }
             }
             batchProcessor.flush();
         }
@@ -149,22 +166,91 @@ public class HdfsInotifyListener {
      */
     private List<JobDto> activeAfterPauseCheck(List<JobDto> streaming, long now) {
         List<JobDto> active = new java.util.ArrayList<>(streaming.size());
+        List<JobDto> paused = new java.util.ArrayList<>();
         for (JobDto job : streaming) {
             String status = job.getStatus() != null ? job.getStatus().toUpperCase() : "";
             if (INACTIVE_STATUSES.contains(status)) {
                 stoppedSinceMs.putIfAbsent(job.getId(), now);
+                paused.add(job);
                 continue;
             }
             active.add(job);
             Long stoppedAt = stoppedSinceMs.remove(job.getId());
             if (stoppedAt != null) {
                 long modifiedAfter = stoppedAt - JOBS_CACHE_TTL_MS - RESUME_RECONCILE_MARGIN_MS;
-                log.info("[Inotify] Задание '{}' возобновлено: сверка каталога '{}' по файлам, измененным после паузы",
-                        job.getId(), job.getSourcePath());
-                reconcileExecutor.execute(() -> reconcileJobDirectory(job, modifiedAfter));
+                Set<String> deleted = deletesWhilePaused.remove(job.getId());
+                log.info("[Inotify] Задание '{}' возобновлено: сверка каталога '{}' по файлам, измененным после паузы, "
+                        + "и {} удалениям с паузы", job.getId(), job.getSourcePath(), deleted != null ? deleted.size() : 0);
+                reconcileExecutor.execute(() -> {
+                    replayDeletesAfterPause(job, deleted);
+                    reconcileJobDirectory(job, modifiedAfter);
+                });
             }
         }
+        // Удаленное задание не возобновится: его накопленные удаления больше не нужны
+        Set<String> known = new java.util.HashSet<>();
+        streaming.forEach(j -> known.add(j.getId()));
+        deletesWhilePaused.keySet().retainAll(known);
+        pausedJobs = paused;
         return active;
+    }
+
+    /** Запоминает удаление (или вынос наружу) пути остановленного задания. */
+    void rememberDeleteWhilePaused(Event event, List<JobDto> paused) {
+        String path;
+        if (event instanceof Event.UnlinkEvent unlink) {
+            path = unlink.getPath();
+        } else if (event instanceof Event.RenameEvent rename) {
+            String src = rename.getSrcPath();
+            String dst = rename.getDstPath();
+            path = src;
+            boolean outward = paused.stream().anyMatch(j -> InotifyPathFilter.matchesJobPrefix(src, j.getSourcePath())
+                    && !InotifyPathFilter.matchesJobPrefix(dst, j.getSourcePath()));
+            if (!outward) {
+                return;
+            }
+        } else {
+            return;
+        }
+        for (JobDto job : paused) {
+            if (!InotifyPathFilter.matchesJobPrefix(path, job.getSourcePath()) || InotifyPathFilter.isStagedPath(path)
+                    || !InotifyBatchProcessor.deleteAllowed(job, path)) {
+                continue;
+            }
+            Set<String> paths = deletesWhilePaused.computeIfAbsent(job.getId(), k -> ConcurrentHashMap.newKeySet());
+            if (paths.size() < MAX_DELETES_WHILE_PAUSED) {
+                paths.add(path);
+            } else if (paths.size() == MAX_DELETES_WHILE_PAUSED) {
+                paths.add(path);
+                log.warn("[Inotify] Задание '{}': на паузе удалено больше {} путей, дальнейшие удаления на приемник не перенесутся",
+                        job.getId(), MAX_DELETES_WHILE_PAUSED);
+            }
+        }
+    }
+
+    /**
+     * Переносит удаления с паузы. Путь, снова созданный на источнике, не удаляется: его новое
+     * содержимое приедет сверкой по времени модификации.
+     */
+    void replayDeletesAfterPause(JobDto job, Set<String> deleted) {
+        if (deleted == null || deleted.isEmpty() || batchProcessor == null) {
+            return;
+        }
+        int queued = 0;
+        try {
+            FileSystem fs = fsManager.getFileSystem();
+            for (String path : deleted) {
+                if (!fs.exists(new Path(path))) {
+                    queued += batchProcessor.enqueueDelete(job, path, currentTxid, 0L);
+                }
+            }
+            if (queued > 0) {
+                batchProcessor.flush();
+            }
+            log.info("[Inotify] Задание '{}': перенесено {} удалений с паузы", job.getId(), queued);
+        } catch (Exception e) {
+            log.error("[Inotify] Задание '{}': ошибка переноса удалений с паузы: {}", job.getId(), e.getMessage(), e);
+        }
     }
 
     void setReconcileExecutorForTesting(Executor executor) {

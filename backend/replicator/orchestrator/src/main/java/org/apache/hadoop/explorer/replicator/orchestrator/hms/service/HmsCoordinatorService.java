@@ -703,6 +703,33 @@ public class HmsCoordinatorService {
     }
 
     /**
+     * Какие удаления на источнике компаньон HMS-задачи переносит на приемник.
+     *
+     * @param tableDirs    каталоги таблиц (флажок «Удалять лишние таблицы»)
+     * @param insideTables все внутри каталогов таблиц (флажок «Удалять лишние партиции»)
+     */
+    public record CompanionDeletes(boolean tableDirs, boolean insideTables) {
+        public static final CompanionDeletes NONE = new CompanionDeletes(false, false);
+
+        public boolean any() {
+            return tableDirs || insideTables;
+        }
+    }
+
+    /**
+     * Удаления компаньона следуют флажкам сверки HMS-задачи: оператор, не включивший их, не
+     * ждет, что на приемнике что-то пропадет. Неизвестная задача — без удалений.
+     */
+    public CompanionDeletes companionDeletes(String hmsJobId) {
+        if (hmsJobId == null || hmsJobId.isBlank()) {
+            return CompanionDeletes.NONE;
+        }
+        return hmsJobRepository.findById(hmsJobId)
+                .map(job -> new CompanionDeletes(job.isDropExtraneousTables(), job.isDropExtraneousPartitions()))
+                .orElse(CompanionDeletes.NONE);
+    }
+
+    /**
      * Привязка связанного фонового HDFS Inotify-стримера к задаче HMS репликации.
      */
     @Transactional

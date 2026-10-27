@@ -216,6 +216,25 @@ public class HmsSubjobIsolationTest {
     }
 
     @Test
+    @DisplayName("Дедупликация: стримящий компаньон переиспользуется, режим удалений меняется на месте")
+    void testStreamingCompanionIsReusedAndGetsDeletes() {
+        String parentHmsJobId = "hms-job-companion-" + UUID.randomUUID();
+        String src = "hdfs://dc1:8020/warehouse/db.db";
+        String dst = "hdfs://dc2:8020/warehouse/db.db";
+        var req = new CreateJobRequest(src, dst, "dc1", "dc2", 0L, "admin", true, false, null, 7,
+                "HMS_COMPANION_STREAMING", parentHmsJobId, "STREAMING_INOTIFY", false);
+        JobResponse legacy = jobService.createJob(req, "system_agent");
+        jobService.startJob(legacy.id());
+
+        var found = jobService.findReusableSubjob(parentHmsJobId, src, dst);
+        assertTrue(found.isPresent(), "Компаньон в STREAMING должен переиспользоваться, а не дублироваться");
+        assertEquals(legacy.id(), found.get().id());
+
+        jobService.setSyncDeletes(legacy.id(), true);
+        assertTrue(jobService.getJob(legacy.id()).orElseThrow().syncDeletes());
+    }
+
+    @Test
     @DisplayName("HMS Валидация: создание задачи с enableHdfsStreaming=true отклоняется если на исходном кластере нет Inotify-агента")
     void testHmsReplicationCreationRejectedWhenNoStreamerAgent() {
         // 1. Попытка создания задачи со стримингом без стримера на кластере -> IllegalArgumentException

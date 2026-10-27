@@ -392,4 +392,72 @@ class InotifyProcessingTest {
                 InotifyBatchProcessor.computeTargetPath(streamingJob,
                         "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=1/part-0.parquet"));
     }
+
+    private static JobDto companion(boolean tableDirs, boolean insideTables) {
+        JobDto companion = new JobDto();
+        companion.setId("companion-1");
+        companion.setJobType("HMS_COMPANION_STREAMING");
+        companion.setSourcePath("hdfs://hdfs-cluster-1:9000/warehouse/ino31.db");
+        companion.setTargetPath("hdfs://hdfs-cluster-2:9000/warehouse/ino31.db");
+        companion.setSyncMode("STREAMING_INOTIFY");
+        companion.setSyncDeletes(tableDirs || insideTables);
+        companion.setDeleteTableDirs(tableDirs);
+        companion.setDeleteInsideTables(insideTables);
+        return companion;
+    }
+
+    @Test
+    @DisplayName("Компаньон HMS удаляет по уровню: каталог таблицы — флажок таблиц, глубже — флажок партиций")
+    void companionDeletesFollowLevelFlags() {
+        String table = "/warehouse/ino31.db/sales";
+        String partition = "/warehouse/ino31.db/sales/dt=1";
+        String file = "/warehouse/ino31.db/sales/dt=1/000000_0";
+        String database = "/warehouse/ino31.db";
+
+        JobDto none = companion(false, false);
+        assertFalse(InotifyBatchProcessor.deleteAllowed(none, table));
+        assertFalse(InotifyBatchProcessor.deleteAllowed(none, file));
+
+        JobDto tablesOnly = companion(true, false);
+        assertTrue(InotifyBatchProcessor.deleteAllowed(tablesOnly, table));
+        assertFalse(InotifyBatchProcessor.deleteAllowed(tablesOnly, partition));
+        assertFalse(InotifyBatchProcessor.deleteAllowed(tablesOnly, file));
+
+        JobDto partitionsOnly = companion(false, true);
+        assertFalse(InotifyBatchProcessor.deleteAllowed(partitionsOnly, table));
+        assertTrue(InotifyBatchProcessor.deleteAllowed(partitionsOnly, partition));
+        assertTrue(InotifyBatchProcessor.deleteAllowed(partitionsOnly, file));
+
+        assertFalse(InotifyBatchProcessor.deleteAllowed(companion(true, true), database),
+                "каталог базы на приемнике не удаляется никогда");
+        assertTrue(InotifyBatchProcessor.deleteAllowed(streamingJob, streamingJob.getSourcePath() + "/x"),
+                "обычное задание удаляет все по syncDeletes");
+    }
+
+    @Test
+    @DisplayName("Компаньон HMS без флажка партиций не удаляет файлы, вытесненные перезаписью")
+    void companionWithoutPartitionFlagKeepsFiles() {
+        int count = processor.processEvent(new Event.UnlinkEvent.Builder()
+                .path("/warehouse/ino31.db/sales/dt=1/000000_0").timestamp(200L).build(), 200L, 0L, List.of(companion(true, false)));
+
+        assertEquals(0, count);
+        verify(orchestratorClient, never()).batchCreateTasks(any(BatchCreateTasksRequest.class));
+    }
+
+    @Test
+    @DisplayName("Вынос каталога в корзину (DROP PARTITION с .Trash) — удаление на приемнике")
+    void renameToTrashIsDelete() {
+        int count = processor.processEvent(new Event.RenameEvent.Builder()
+                .srcPath("/warehouse/ino31.db/sales/dt=1")
+                .dstPath("/user/hive/.Trash/Current/warehouse/ino31.db/sales/dt=1")
+                .timestamp(300L).build(), 300L, 0L, List.of(companion(false, true)));
+        processor.flush();
+
+        assertEquals(1, count);
+        ArgumentCaptor<BatchCreateTasksRequest> captor = ArgumentCaptor.forClass(BatchCreateTasksRequest.class);
+        verify(orchestratorClient).batchCreateTasks(captor.capture());
+        var task = captor.getValue().getTasks().get(0);
+        assertEquals("DELETE", task.getTaskType());
+        assertEquals("hdfs://hdfs-cluster-2:9000/warehouse/ino31.db/sales/dt=1", task.getTargetPath());
+    }
 }

@@ -795,7 +795,8 @@ public class HmsTaskExecutor implements Closeable {
 
         HmsPipelineSender sender = cdcSender(job.targetAgentGrpcAddress());
         try {
-            Map<String, String> readySubjobs = dataBarrierEnabled ? prefetchPartitionData(job, events) : Map.of();
+            Prefetch prefetch = dataBarrierEnabled ? prefetchPartitionData(job, events) : Prefetch.EMPTY;
+            Map<String, String> readySubjobs = prefetch.subjobsBySource();
             for (HmsNotificationEventDto event : events) {
                 if (!running.get() || (isFenced != null && isFenced.get())) break;
                 // Фильтрация событий по исходной базе данных (NOTIFICATION_LOG глобален для всего метастора)
@@ -810,12 +811,17 @@ public class HmsTaskExecutor implements Closeable {
                 String failureReason = null;
 
                 if ("ADD_PARTITION".equalsIgnoreCase(eventType) || "ALTER_PARTITION".equalsIgnoreCase(eventType)) {
-                    Optional<HmsTableDto> optTable = hmsClient.getTable(job.sourceDbName(), tbl);
+                    // Предзагрузка барьера уже прочитала таблицу и партиции этого события: на
+                    // 200k партиций повторное чтение удваивало нагрузку на метастор источника
+                    PrefetchedReads pre = prefetch.readsByEvent().get(event);
+                    Optional<HmsTableDto> optTable = pre != null ? pre.table() : hmsClient.getTable(job.sourceDbName(), tbl);
                     if (optTable.isPresent()) {
                         List<List<String>> targetPartVals = extractPartitionValuesFromEvent(event);
                         List<HmsPartitionDto> partsToSync = new ArrayList<>();
 
-                        if (!targetPartVals.isEmpty()) {
+                        if (!targetPartVals.isEmpty() && pre != null && pre.partitions() != null) {
+                            partsToSync.addAll(pre.partitions());
+                        } else if (!targetPartVals.isEmpty()) {
                             for (List<String> partVal : targetPartVals) {
                                 hmsClient.getPartition(job.sourceDbName(), tbl, partVal).ifPresent(partsToSync::add);
                             }
@@ -1079,10 +1085,15 @@ public class HmsTaskExecutor implements Closeable {
      * используется: события пойдут прежним путем по одному, и неудача достанется конкретному
      * событию (повтор, затем DLQ), а не всей пачке.
      *
-     * @return исходный путь партиции -> готовая подзадача; пусто, если общее ожидание не удалось
+     * <p>Прочитанные таблица и партиции сохраняются по событию, и основной проход их не
+     * перечитывает. Партиции — только если прочитаны все значения события без ошибок.
+     *
+     * @return исходный путь партиции -> готовая подзадача (пусто, если общее ожидание не
+     *         удалось) и прочитанное по событиям
      */
-    private Map<String, String> prefetchPartitionData(HmsPendingJobDto job, List<HmsNotificationEventDto> events) {
+    Prefetch prefetchPartitionData(HmsPendingJobDto job, List<HmsNotificationEventDto> events) {
         Map<String, String> subjobsBySource = new LinkedHashMap<>();
+        Map<HmsNotificationEventDto, PrefetchedReads> reads = new IdentityHashMap<>();
         for (HmsNotificationEventDto event : events) {
             boolean partitionEvent = "ADD_PARTITION".equalsIgnoreCase(event.eventType())
                     || "ALTER_PARTITION".equalsIgnoreCase(event.eventType());
@@ -1092,21 +1103,23 @@ public class HmsTaskExecutor implements Closeable {
             try {
                 Optional<HmsTableDto> table = hmsClient.getTable(job.sourceDbName(), event.tableName());
                 if (table.isEmpty() || !tableFilter.evaluate(table.get()).supported()) {
+                    reads.put(event, new PrefetchedReads(table, null));
                     continue;
                 }
+                List<HmsPartitionDto> parts = new ArrayList<>();
                 for (List<String> vals : extractPartitionValuesFromEvent(event)) {
-                    Optional<HmsPartitionDto> part = hmsClient.getPartition(job.sourceDbName(), event.tableName(), vals);
-                    if (part.isEmpty()) {
-                        continue;
-                    }
-                    var rewrite = rewriteLocation(part.get().location(), job, "партиции таблицы " + event.tableName());
+                    hmsClient.getPartition(job.sourceDbName(), event.tableName(), vals).ifPresent(parts::add);
+                }
+                reads.put(event, new PrefetchedReads(table, parts));
+                for (HmsPartitionDto part : parts) {
+                    var rewrite = rewriteLocation(part.location(), job, "партиции таблицы " + event.tableName());
                     if (subjobsBySource.containsKey(rewrite.sourceUri())) {
                         continue;
                     }
                     String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
                             rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
                     if (subjobId == null) {
-                        return Map.of();
+                        return new Prefetch(Map.of(), reads);
                     }
                     subjobsBySource.put(rewrite.sourceUri(), subjobId);
                 }
@@ -1118,10 +1131,19 @@ public class HmsTaskExecutor implements Closeable {
             }
         }
         if (subjobsBySource.isEmpty()) {
-            return Map.of();
+            return new Prefetch(Map.of(), reads);
         }
         boolean allCopied = orchestratorClient.awaitSubjobsCompletion(subjobsBySource.values(), dataBarrierTimeoutSeconds);
-        return allCopied ? subjobsBySource : Map.of();
+        return new Prefetch(allCopied ? subjobsBySource : Map.of(), reads);
+    }
+
+    /** Таблица и партиции события, прочитанные предзагрузкой; {@code partitions == null} — не читались. */
+    record PrefetchedReads(Optional<HmsTableDto> table, List<HmsPartitionDto> partitions) {
+    }
+
+    /** Итог предзагрузки пачки: готовые подзадачи и прочитанное по событиям (по идентичности события). */
+    record Prefetch(Map<String, String> subjobsBySource, Map<HmsNotificationEventDto, PrefetchedReads> readsByEvent) {
+        static final Prefetch EMPTY = new Prefetch(Map.of(), Map.of());
     }
 
     /**

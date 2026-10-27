@@ -469,6 +469,8 @@ public class OrchestratorGrpcClient implements Closeable {
         dto.setSyncDeletes(job.getSyncDeletes());
         dto.setJobType(job.getJobType());
         dto.setParentJobId(job.getParentJobId());
+        dto.setDeleteTableDirs(job.getDeleteTableDirs());
+        dto.setDeleteInsideTables(job.getDeleteInsideTables());
         return dto;
     }
 

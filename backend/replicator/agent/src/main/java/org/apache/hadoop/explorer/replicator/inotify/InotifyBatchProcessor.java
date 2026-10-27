@@ -138,7 +138,13 @@ public class InotifyBatchProcessor implements AutoCloseable {
                 String src = renameEvent.getSrcPath();
                 String dst = renameEvent.getDstPath();
 
-                if (InotifyPathFilter.matchesJobPrefix(dst, srcPrefix)) {
+                if (!InotifyPathFilter.matchesJobPrefix(dst, srcPrefix)
+                        && InotifyPathFilter.matchesJobPrefix(src, srcPrefix) && !InotifyPathFilter.isStagedPath(src)) {
+                    // Перенос из каталога задания наружу — для приемника это удаление: так Hive
+                    // удаляет таблицы и партиции при включенной корзине (каталог уезжает в .Trash)
+                    log.info("[Inotify Rename] Путь вынесен из каталога задания: '{}' -> '{}' (txid {})", src, dst, txid);
+                    totalQueued += deleteIfAllowed(job, src, txid, lag);
+                } else if (InotifyPathFilter.matchesJobPrefix(dst, srcPrefix)) {
                     if (InotifyPathFilter.isStagingCommit(src, dst)) {
                         log.info("[Inotify Commit] Обнаружена фиксация данных из staging: '{}' -> '{}' (txid {})", src, dst, txid);
                         int count = handleStagingCommit(job, dst, txid, lag);
@@ -153,12 +159,7 @@ public class InotifyBatchProcessor implements AutoCloseable {
                 String path = unlinkEvent.getPath();
                 if (InotifyPathFilter.matchesJobPrefix(path, srcPrefix) && !InotifyPathFilter.isStagedPath(path)) {
                     log.info("[Inotify Unlink] Удаление пути: '{}' (txid {})", path, txid);
-                    if (job.isSyncDeletes()) {
-                        totalQueued += enqueueDelete(job, path, txid, lag);
-                    } else {
-                        log.debug("[Inotify Unlink] Репликация удалений для задачи {} выключена: "
-                                + "путь '{}' на приемнике сохраняется", job.getId(), path);
-                    }
+                    totalQueued += deleteIfAllowed(job, path, txid, lag);
                     if (flushIntervalMs <= 0) {
                         orchestratorClient.updateJobStreamingTxid(job.getId(), txid, lag);
                     }
@@ -268,6 +269,55 @@ public class InotifyBatchProcessor implements AutoCloseable {
         String targetPath = computeTargetPath(job, filePath);
         TaskCreateItem item = new TaskCreateItem(filePath, targetPath, fileSize, false);
         return offerTask(job.getId(), item, txid, lag) ? 1 : 0;
+    }
+
+    private int deleteIfAllowed(JobDto job, String path, long txid, long lag) {
+        if (deleteAllowed(job, path)) {
+            return enqueueDelete(job, path, txid, lag);
+        }
+        log.debug("[Inotify Unlink] Удаление '{}' для задачи {} не разрешено: путь на приемнике сохраняется",
+                path, job.getId());
+        return 0;
+    }
+
+    /**
+     * Можно ли перенести удаление пути на приемник.
+     *
+     * <p>Обычное задание удаляет все по {@code syncDeletes}. Компаньон HMS-задачи зеркалит
+     * каталог базы и удаляет по уровню, как разрешили флажки сверки: каталог таблицы (первый
+     * уровень под каталогом базы) — только при «Удалять лишние таблицы», все глубже (партиции,
+     * старые файлы после перезаписи) — только при «Удалять лишние партиции». Сам каталог базы
+     * не удаляется никогда.
+     */
+    public static boolean deleteAllowed(JobDto job, String sourcePath) {
+        if (!job.isSyncDeletes()) {
+            return false;
+        }
+        if (!job.isHmsCompanion()) {
+            return true;
+        }
+        int depth = depthUnder(job.getSourcePath(), sourcePath);
+        if (depth <= 0) {
+            return false;
+        }
+        return depth == 1 ? job.isDeleteTableDirs() : job.isDeleteInsideTables();
+    }
+
+    /** Число компонентов пути под корнем задания; {@code -1}, если путь вне корня. */
+    static int depthUnder(String root, String path) {
+        String rootPath = InotifyPathFilter.pathOf(root);
+        String p = InotifyPathFilter.pathOf(path);
+        if (!InotifyPathFilter.matchesJobPrefix(p, rootPath)) {
+            return -1;
+        }
+        String rel = p.substring(rootPath.equals("/") ? 0 : rootPath.length());
+        int depth = 0;
+        for (String part : rel.split("/")) {
+            if (!part.isEmpty()) {
+                depth++;
+            }
+        }
+        return depth;
     }
 
     /**

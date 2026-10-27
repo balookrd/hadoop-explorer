@@ -27,6 +27,7 @@ public class HmsTaskExecutorTest {
     private Server targetGrpcServer;
     private int targetGrpcPort;
     private MockHmsClient srcHmsClient;
+    private final List<String> partitionReads = Collections.synchronizedList(new ArrayList<>());
     private MockHmsClient dstHmsClient;
     private HmsTaskExecutor executor;
 
@@ -79,7 +80,13 @@ public class HmsTaskExecutorTest {
             targetGrpcPort = socket.getLocalPort();
         }
 
-        srcHmsClient = new MockHmsClient("dc1", "HDP_3.1");
+        srcHmsClient = new MockHmsClient("dc1", "HDP_3.1") {
+            @Override
+            public Optional<HmsPartitionDto> getPartition(String dbName, String tableName, List<String> partVals) {
+                partitionReads.add(tableName + "/" + partVals);
+                return super.getPartition(dbName, tableName, partVals);
+            }
+        };
         dstHmsClient = new MockHmsClient("dc2", "APACHE_3.1.3");
 
         // Поднимаем gRPC сервер целевого агента
@@ -588,6 +595,31 @@ public class HmsTaskExecutorTest {
         assertEquals(5, processed);
         assertEquals(List.of(5), awaitCallSizes, "одно ожидание на пять копий");
         assertEquals(5, dstHmsClient.getPartitions("cdcb_r", "t").size());
+    }
+
+    @Test
+    @DisplayName("CDC с барьером: партиция события читается из метастора источника один раз")
+    void cdcBarrierReadsEachPartitionOnce() {
+        srcHmsClient.createDatabase("once", "hdfs://ns-hot:8020/warehouse/once.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "once", "t", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/once.db/t", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+        assertTrue(executor.runBootstrap(new HmsPendingJobDto("hms-job-once", "dc1", "dc2", "once", "once_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L)));
+        long position = reports.get(reports.size() - 1).lastProcessedEventId();
+        for (int i = 0; i < 3; i++) {
+            srcHmsClient.addPartitions("once", "t", List.of(new HmsPartitionDto("hive", "once", "t", List.of("p" + i),
+                    "hdfs://ns-hot:8020/warehouse/once.db/t/dt=p" + i, Map.of())));
+            srcHmsClient.emitEvent("ADD_PARTITION", "once", "t", "{\"partitions\": [{\"dt\": \"p" + i + "\"}]}");
+        }
+        partitionReads.clear();
+
+        int processed = executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-once", "dc1", "dc2", "once", "once_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        assertEquals(3, processed);
+        assertEquals(3, dstHmsClient.getPartitions("once_r", "t").size());
+        assertEquals(List.of("t/[p0]", "t/[p1]", "t/[p2]"), partitionReads,
+                "предзагрузка и основной проход не должны читать одну партицию дважды");
     }
 
     @Test
