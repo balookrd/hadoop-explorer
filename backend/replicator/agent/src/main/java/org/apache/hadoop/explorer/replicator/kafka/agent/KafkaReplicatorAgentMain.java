@@ -239,7 +239,7 @@ public class KafkaReplicatorAgentMain {
             var serverBuilder = ServerBuilder.forPort(port)
                     .addService(service)
                     .addService(health.service())
-                    .maxInboundMessageSize(64 * 1024 * 1024);
+                    .maxInboundMessageSize(org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES);
 
             if (tlsEnabled) {
                 if (tlsCertChain != null && !tlsCertChain.isBlank() && tlsPrivateKey != null && !tlsPrivateKey.isBlank()) {

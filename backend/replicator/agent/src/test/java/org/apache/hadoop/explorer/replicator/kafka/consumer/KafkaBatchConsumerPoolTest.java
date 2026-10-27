@@ -272,4 +272,36 @@ class KafkaBatchConsumerPoolTest {
         assertEquals(0.0, pool.getEffectiveBandwidthLimitMb());
         assertNull(pool.getBandwidthLimiter(), "Без лимитов ограничитель снимается");
     }
+
+    private static org.apache.hadoop.explorer.replicator.kafka.generated.KafkaRecord sized(long offset, int payloadBytes) {
+        return org.apache.hadoop.explorer.replicator.kafka.generated.KafkaRecord.newBuilder()
+                .setOriginalOffset(offset)
+                .setPayload(com.google.protobuf.ByteString.copyFrom(new byte[payloadBytes]))
+                .build();
+    }
+
+    @Test
+    @DisplayName("Батч режется и по числу записей, и по объему; крупная запись уходит отдельно")
+    void testBatchesAreSplitByCountAndBytes() {
+        List<org.apache.hadoop.explorer.replicator.kafka.generated.KafkaRecord> records = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            records.add(sized(i, 1000));
+        }
+        records.add(sized(10, 50_000));
+        records.add(sized(11, 1000));
+
+        var batches = KafkaBatchConsumerPool.splitIntoBatches(records, 4, 3500);
+        List<Integer> sizes = batches.stream().map(List::size).toList();
+        assertEquals(List.of(3, 3, 3, 1, 1, 1), sizes,
+                "По 3 записи по ~1 КБ в 3,5 КБ; запись в 50 КБ — отдельным батчем: " + sizes);
+        assertEquals(10L, batches.get(4).get(0).getOriginalOffset());
+        List<Long> offsets = batches.stream().flatMap(List::stream).map(r -> r.getOriginalOffset()).toList();
+        assertEquals(12, offsets.size());
+        for (int i = 0; i < offsets.size(); i++) {
+            assertEquals((long) i, offsets.get(i), "Нарезка не теряет и не переставляет записи");
+        }
+
+        assertEquals(List.of(4, 4, 4), KafkaBatchConsumerPool.splitIntoBatches(records, 4, Long.MAX_VALUE)
+                .stream().map(List::size).toList(), "Без предела объема действует только число записей");
+    }
 }

@@ -31,6 +31,26 @@ public final class KafkaClientSettings {
     /** Kafka допускает не больше пяти запросов в полете при enable.idempotence=true. */
     private static final int MAX_IN_FLIGHT_REQUESTS = 5;
 
+    /**
+     * Наибольшая запись, которую приемник может записать: {@code max.request.size} продюсера.
+     * По умолчанию клиент Kafka ограничивает его 1 МБ, и запись крупнее (топик источника с
+     * увеличенным {@code max.message.bytes}) отвергалась на каждой попытке — партиция вставала.
+     */
+    public static final int MAX_RECORD_BYTES = 64 * 1024 * 1024;
+    /** Буфер продюсера обязан вмещать наибольшую запись, иначе send() отвергает ее сразу. */
+    private static final long PRODUCER_BUFFER_BYTES = 2L * MAX_RECORD_BYTES;
+    /**
+     * Предел сообщения gRPC между агентами, общий для сервера и клиента: батч из одной
+     * наибольшей записи с заголовками протокола обязан в него помещаться.
+     */
+    public static final int GRPC_MAX_MESSAGE_BYTES = 2 * MAX_RECORD_BYTES;
+    /**
+     * Предел объема батча репликации. Батч ограничивался только числом записей: 5000 записей
+     * по 20 КБ давали 100 МБ, приемник отвергал сообщение больше 64 МБ, и повтор упирался в ту
+     * же ошибку. Запись крупнее предела уходит батчем из одной себя.
+     */
+    public static final long MAX_BATCH_BYTES = 16L * 1024 * 1024;
+
     private KafkaClientSettings() {
     }
 
@@ -102,6 +122,8 @@ public final class KafkaClientSettings {
         props.put(ProducerConfig.LINGER_MS_CONFIG, LINGER_MS);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE_BYTES);
         props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, MAX_IN_FLIGHT_REQUESTS);
+        props.put(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, MAX_RECORD_BYTES);
+        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, PRODUCER_BUFFER_BYTES);
         return props;
     }
 }

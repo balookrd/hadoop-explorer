@@ -35,6 +35,29 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaBatchConsumerPool.class);
 
+    /**
+     * Нарезка записей партиции на батчи: не больше {@code maxCount} записей и не больше
+     * {@code maxBytes} байт. Запись крупнее предела уходит отдельным батчем.
+     */
+    static List<List<KafkaRecord>> splitIntoBatches(List<KafkaRecord> records, int maxCount, long maxBytes) {
+        List<List<KafkaRecord>> batches = new ArrayList<>();
+        int start = 0;
+        long bytes = 0;
+        for (int i = 0; i < records.size(); i++) {
+            long size = records.get(i).getSerializedSize();
+            if (i > start && (i - start >= maxCount || bytes + size > maxBytes)) {
+                batches.add(records.subList(start, i));
+                start = i;
+                bytes = 0;
+            }
+            bytes += size;
+        }
+        if (start < records.size()) {
+            batches.add(records.subList(start, records.size()));
+        }
+        return batches;
+    }
+
     private final List<Consumer<byte[], byte[]>> consumers;
     /** Активные воркеры: нужны остановке, чтобы зафиксировать подтвержденные оффсеты. */
     private final List<ConsumerWorker> workers = new CopyOnWriteArrayList<>();
@@ -644,8 +667,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         StreamObserver<KafkaBatchRequest> targetStream = getOrCreateStream(targetIdx);
 
                         // Дробим на пачки до maxBatchSize
-                        for (int i = 0; i < partitionRecords.size(); i += maxBatchSize) {
-                            List<KafkaRecord> chunk = partitionRecords.subList(i, Math.min(i + maxBatchSize, partitionRecords.size()));
+                        for (List<KafkaRecord> chunk : splitIntoBatches(partitionRecords, maxBatchSize,
+                                org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings.MAX_BATCH_BYTES)) {
                             long maxChunkOffset = chunk.get(chunk.size() - 1).getOriginalOffset();
 
                             KafkaBatchRequest.Builder batchBuilder = KafkaBatchRequest.newBuilder()

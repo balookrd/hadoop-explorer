@@ -123,4 +123,17 @@ class KafkaClientSettingsTest {
         assertEquals("kafka-agent-dc1-kafka-job-1-0", KafkaClientSettings.groupInstanceId("kafka-agent-dc1", "kafka-job-1", 0));
         assertEquals("agent_a_b-job-3", KafkaClientSettings.groupInstanceId("agent a/b", "job", 3));
     }
+
+    @Test
+    @DisplayName("Лимиты размеров согласованы: батч и наибольшая запись помещаются в сообщение gRPC")
+    void testSizeLimitsAreConsistent() {
+        Properties props = KafkaClientSettings.producerProps("broker:9092");
+        int maxRequest = (int) props.get(ProducerConfig.MAX_REQUEST_SIZE_CONFIG);
+        long buffer = (long) props.get(ProducerConfig.BUFFER_MEMORY_CONFIG);
+        assertTrue(maxRequest > 1024 * 1024, "Запись крупнее 1 МБ не должна отвергаться продюсером приемника");
+        assertTrue(buffer >= maxRequest, "Буфер продюсера обязан вмещать наибольшую запись");
+        assertTrue(KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES > maxRequest,
+                "Батч из одной наибольшей записи обязан помещаться в сообщение gRPC");
+        assertTrue(KafkaClientSettings.MAX_BATCH_BYTES < KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES);
+    }
 }

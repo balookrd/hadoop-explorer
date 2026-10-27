@@ -116,7 +116,7 @@ public class KafkaReplicationClient implements Closeable {
         int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 50052;
 
         ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port)
-                .maxInboundMessageSize(64 * 1024 * 1024);
+                .maxInboundMessageSize(org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES);
 
         if (tlsEnabled) {
             if (trustCertPath != null && !trustCertPath.isBlank()) {
