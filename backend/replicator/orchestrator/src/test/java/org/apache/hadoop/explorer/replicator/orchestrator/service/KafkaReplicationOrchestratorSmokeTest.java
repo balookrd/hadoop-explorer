@@ -69,6 +69,15 @@ public class KafkaReplicationOrchestratorSmokeTest {
         SecurityContextHolder.getContext().setAuthentication(new CommonAuthenticationToken(adminSession));
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanUpAgents() {
+        // Реестр агентов общий для тестов контекста: зарегистрированные здесь приемники иначе
+        // получали бы задания других тестов (HDFS-диспетчеризация раздает их живым агентам ЦОД)
+        if (agentRegistry != null) {
+            agentRegistry.clear();
+        }
+    }
+
     @Test
     @DisplayName("Smoke Test: Создание и управление жизненным циклом задачи Kafka-репликации с Kerberos/SPNEGO")
     void shouldCreateAndManageKafkaReplicationJobWithKerberosSpnego() {
@@ -264,5 +273,33 @@ public class KafkaReplicationOrchestratorSmokeTest {
         KafkaReplicationJobDto created400G = service.createJob(req400G);
         assertEquals(50000, created400G.getBatchSize(), "Размер батча для 20 000 МБ/с должен быть 50 000");
         assertEquals(32, created400G.getConsumerThreads(), "Потоки на 1 агент должны быть ограничены 32 тредами во избежание трэшинга JVM");
+    }
+
+    @Test
+    @DisplayName("Приемники без явного списка не замораживаются: задача видит агентов, поднявшихся позже")
+    void shouldNotFreezeReceiversAtCreation() {
+        String secret = "test-orchestrator-agent-secret-0123456789";
+        agentRegistry.register(new org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest(
+                "kafka-dc2-a", "dc2", "dual", "10.0.2.11:50052", null, 100.0), secret);
+
+        CreateKafkaJobRequest req = new CreateKafkaJobRequest();
+        req.setName("live-receivers");
+        req.setSourceDc("dc1");
+        req.setTargetDc("dc2");
+        req.setBandwidthLimitMb(100.0);
+        CreateKafkaJobRequest.TopicSetting ts = new CreateKafkaJobRequest.TopicSetting();
+        ts.setTopic("orders");
+        req.setTopics(List.of(ts));
+        KafkaReplicationJobDto created = controller.createJob(req).getBody();
+        assertNotNull(created);
+        assertNull(repository.findById(created.getId()).orElseThrow().getTargetEndpointsJson(),
+                "Снимок живых приемников не должен сохраняться в задачу");
+
+        agentRegistry.register(new org.apache.hadoop.explorer.replicator.model.AgentRegisterRequest(
+                "kafka-dc2-b", "dc2", "dual", "10.0.2.12:50052", null, 100.0), secret);
+
+        KafkaReplicationJobDto later = service.getJobById(created.getId()).orElseThrow();
+        assertEquals(List.of("10.0.2.11:50052", "10.0.2.12:50052"), later.getTargetEndpoints(),
+                "Агент, поднявшийся после создания задачи, должен получать ее данные");
     }
 }

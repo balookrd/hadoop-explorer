@@ -252,12 +252,13 @@ public class KafkaReplicationOrchestratorService {
             }
             entity.setConsumerGroupsJson(mapper.writeValueAsString(filteredGroups));
 
-            List<String> effectiveEndpoints = request.getTargetEndpoints();
-            if ((effectiveEndpoints == null || effectiveEndpoints.isEmpty()) && request.getTargetDc() != null) {
-                effectiveEndpoints = getLiveReceiverEndpoints(request.getTargetDc());
-            }
-            if (effectiveEndpoints != null && !effectiveEndpoints.isEmpty()) {
-                entity.setTargetEndpointsJson(mapper.writeValueAsString(effectiveEndpoints));
+            // Сохраняются только приемники, заданные явно. Снимок живых приемников на момент
+            // создания навсегда привязывал задачу к тем, кто был жив тогда: если работал один
+            // из 12, все отправители так и слали в него. Без явного списка агенты получают
+            // текущих живых приемников при каждом опросе.
+            List<String> explicitEndpoints = request.getTargetEndpoints();
+            if (explicitEndpoints != null && !explicitEndpoints.isEmpty()) {
+                entity.setTargetEndpointsJson(mapper.writeValueAsString(explicitEndpoints));
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize topics or consumer groups to JSON", e);
@@ -447,6 +448,9 @@ public class KafkaReplicationOrchestratorService {
             }
             if (entity.getTargetEndpointsJson() != null) {
                 dto.setTargetEndpoints(mapper.readValue(entity.getTargetEndpointsJson(), new TypeReference<>() {}));
+            } else if (entity.getTargetDc() != null) {
+                // Явного списка нет — задача работает на текущих живых приемниках целевого ЦОД
+                dto.setTargetEndpoints(getLiveReceiverEndpoints(entity.getTargetDc()));
             }
         } catch (Exception e) {
             log.warn("Не удалось распарсить JSON топиков/групп для задачи {}: {}", entity.getId(), e.getMessage());
@@ -463,8 +467,12 @@ public class KafkaReplicationOrchestratorService {
             return List.of();
         }
         var receivers = agentRegistry.getLiveKafkaReceiversForCluster(clusterId);
+        // Порядок фиксированный: реестр хранит агентов в хеш-таблице, и перестановка между
+        // опросами выглядела бы для агента сменой приемников
         return receivers.stream()
                 .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
+                .filter(Objects::nonNull)
+                .sorted()
                 .toList();
     }
 
@@ -478,6 +486,8 @@ public class KafkaReplicationOrchestratorService {
         var senders = agentRegistry.getLiveKafkaSendersForCluster(clusterId);
         return senders.stream()
                 .map(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getGrpcAddress)
+                .filter(Objects::nonNull)
+                .sorted()
                 .toList();
     }
 

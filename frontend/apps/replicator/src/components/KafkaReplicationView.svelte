@@ -745,9 +745,11 @@
       offset_sync_interval_sec: isAutoBandwidth ? autoOffsetSyncInterval : offsetSyncIntervalSec,
       consumer_threads: isAutoBandwidth ? autoConsumerThreadsPerAgent : consumerThreads,
       batch_size: isAutoBandwidth ? autoBatchSize : batchSize,
+      // Только явно введенные приемники: снимок живых агентов навсегда закреплял бы задачу за
+      // теми, кто был жив в момент создания. Без списка оркестратор раздает живых приемников сам
       target_endpoints: targetEndpointsInput.trim()
         ? targetEndpointsInput.split(',').map(s => s.trim()).filter(Boolean)
-        : (isMultiAgentScaling && liveReceivers.length > 0 ? liveReceivers : undefined)
+        : undefined
     };
 
     if (isSubmittingJob) return;
