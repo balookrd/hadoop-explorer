@@ -213,8 +213,8 @@ public class KafkaJobPoolManager implements Closeable {
     private void startJob(KafkaJobItemProto job, String jobId, List<String> topics, List<String> endpoints) {
         JobPoolSpec spec = new JobPoolSpec(
                 jobId,
-                consumerGroupFor(jobId),
-                localDcId,
+                consumerGroupFor(job, jobId),
+                localDcFor(job),
                 peerDcFor(job),
                 topics,
                 endpoints,
@@ -339,8 +339,33 @@ public class KafkaJobPoolManager implements Closeable {
                 + "->" + job.getTargetSchemaRegistryUrl() + "|" + job.getTargetSchemaRegistryType();
     }
 
-    private String consumerGroupFor(String jobId) {
-        return "kafka-replicator-" + localDcId + "-" + jobId;
+    /**
+     * Консьюмер-группа задачи. ЦОД берется в написании задачи, а не из {@code --dc-id}
+     * агента: оркестратор сопоставляет ЦОД без учета регистра, и агенты одного ЦОД с флагами
+     * {@code DC1} и {@code dc1} попадали в разные группы — каждая читала все партиции, и записи
+     * переносились дважды.
+     */
+    static String consumerGroupFor(KafkaJobItemProto job, String localDcId, String jobId) {
+        return "kafka-replicator-" + canonicalLocalDc(job, localDcId) + "-" + jobId;
+    }
+
+    private String consumerGroupFor(KafkaJobItemProto job, String jobId) {
+        return consumerGroupFor(job, localDcId, jobId);
+    }
+
+    private String localDcFor(KafkaJobItemProto job) {
+        return canonicalLocalDc(job, localDcId);
+    }
+
+    /** Локальный ЦОД в написании задачи: тот из ее ЦОД, что совпадает с агентом без учета регистра. */
+    static String canonicalLocalDc(KafkaJobItemProto job, String localDcId) {
+        if (job.getSourceDc().equalsIgnoreCase(localDcId)) {
+            return job.getSourceDc();
+        }
+        if (job.getTargetDc().equalsIgnoreCase(localDcId)) {
+            return job.getTargetDc();
+        }
+        return localDcId;
     }
 
     /** Peer-DC задачи: для обратного направления BIDIRECTIONAL им оказывается ЦОД источника. */

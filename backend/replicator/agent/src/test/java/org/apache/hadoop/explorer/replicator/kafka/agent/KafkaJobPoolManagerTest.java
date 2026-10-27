@@ -385,4 +385,16 @@ class KafkaJobPoolManagerTest {
         // Неизвестно число отправителей — делим на одного
         assertEquals(16, KafkaJobPoolManager.consumerThreadsFor(32, 16, 0));
     }
+
+    @Test
+    @DisplayName("Регистр --dc-id не делит агентов одного ЦОД на разные консьюмер-группы")
+    void testDcIdCaseDoesNotSplitGroup() {
+        KafkaJobItemProto j = job("job-case", "dc2", List.of("orders"), List.of("r:1"), 1, 100);
+        String lower = KafkaJobPoolManager.consumerGroupFor(j, "dc1", "job-case");
+        String upper = KafkaJobPoolManager.consumerGroupFor(j, "DC1", "job-case");
+        assertEquals("kafka-replicator-dc1-job-case", lower);
+        assertEquals(lower, upper, "Агенты ЦОД с флагами dc1 и DC1 обязаны читать одной группой");
+        assertEquals("dc2", KafkaJobPoolManager.canonicalLocalDc(j, "DC2"),
+                "Для обратного направления ЦОД берется в написании задачи");
+    }
 }
