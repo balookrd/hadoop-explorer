@@ -419,6 +419,7 @@ public class KafkaReplicationOrchestratorService {
         dto.setBytesReplicated(entity.getBytesReplicated());
         dto.setCurrentLagMs(entity.getCurrentLagMs());
         dto.setRunningAgents(getRunningAgents(entity.getId()));
+        dto.setAgentErrors(getAgentErrors(entity.getId()));
         dto.setLastErrorMessage(entity.getLastErrorMessage());
         dto.setCreatedAt(entity.getCreatedAt());
         dto.setUpdatedAt(entity.getUpdatedAt());
@@ -744,10 +745,56 @@ public class KafkaReplicationOrchestratorService {
     /** Телеметрия задач по агентам: jobId -> agentId -> статистика. */
     private final Map<String, Map<String, AgentKafkaStats>> jobAgentStats = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Ошибки запуска пулов задач: jobId -> agentId -> причина. */
+    private final Map<String, Map<String, AgentJobError>> jobAgentErrors = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record AgentJobError(String message, long seenAtMs) {}
+
+    /**
+     * Ошибки запуска пулов задач из heartbeat агента.
+     *
+     * <p>Отчет агента полный: задача, которой в нем нет, на этом агенте ошибок не имеет.
+     * Хранятся в памяти — это состояние агентов, а не задачи, и запись в БД на каждый heartbeat
+     * не нужна.
+     */
+    public void updateJobErrorsFromHeartbeat(String agentId,
+                                             List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError> errors) {
+        String agentKey = agentId != null && !agentId.isBlank() ? agentId : "unknown";
+        long now = System.currentTimeMillis();
+        jobAgentErrors.values().forEach(agents -> agents.remove(agentKey));
+        if (errors != null) {
+            for (var error : errors) {
+                if (error.jobId() == null || error.jobId().isBlank()) {
+                    continue;
+                }
+                jobAgentErrors.computeIfAbsent(error.jobId(), k -> new java.util.concurrent.ConcurrentHashMap<>())
+                        .put(agentKey, new AgentJobError(error.message(), now));
+            }
+        }
+        jobAgentErrors.values().removeIf(Map::isEmpty);
+    }
+
+    /** Ошибки задачи на агентах в виде «агент: причина»; агенты без свежего heartbeat не учитываются. */
+    public List<String> getAgentErrors(String jobId) {
+        Map<String, AgentJobError> agents = jobAgentErrors.get(jobId);
+        if (agents == null) {
+            return List.of();
+        }
+        long now = System.currentTimeMillis();
+        List<String> result = new ArrayList<>();
+        new java.util.TreeMap<>(agents).forEach((agent, error) -> {
+            if (now - error.seenAtMs() <= AGENT_LAG_FRESHNESS_MS) {
+                result.add(agent + ": " + error.message());
+            }
+        });
+        return result;
+    }
+
     /** Сброс накопленной телеметрии агентов: оркестратор начинает счет заново. */
     public void resetAgentTelemetry() {
         agentKafkaStats.clear();
         jobAgentStats.clear();
+        jobAgentErrors.clear();
     }
 
     /**

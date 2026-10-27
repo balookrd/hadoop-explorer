@@ -385,6 +385,12 @@ public class OrchestratorGrpcClient implements Closeable {
                         .setLagMs(stats.lagMs())
                         .build());
             }
+            for (var error : request.getKafkaJobErrors()) {
+                builder.addKafkaJobErrors(org.apache.hadoop.explorer.replicator.generated.control.KafkaJobError.newBuilder()
+                        .setJobId(error.jobId() != null ? error.jobId() : "")
+                        .setMessage(error.message() != null ? error.message() : "")
+                        .build());
+            }
 
             var resp = executeWithFailover("heartbeat", s -> s.heartbeat(builder.build()));
             return resp != null && resp.getAcknowledged();

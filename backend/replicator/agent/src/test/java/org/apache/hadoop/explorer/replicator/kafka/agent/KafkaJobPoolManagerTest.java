@@ -416,4 +416,41 @@ class KafkaJobPoolManagerTest {
         assertEquals(3, requests.size(), "Новый размер батча требует нового пула");
         assertEquals(5000, requests.get(2).batchSize());
     }
+
+    @Test
+    @DisplayName("Ошибка запуска пула уходит в отчет агента и снимается после успешного запуска")
+    void testPoolStartErrorIsReported() {
+        java.util.concurrent.atomic.AtomicBoolean fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        KafkaJobPoolManager failing = new KafkaJobPoolManager("dc1", spec -> {
+            if (fail.get()) {
+                throw new IllegalStateException("не удалось создать пул",
+                        new javax.security.auth.login.LoginException("Cannot locate KDC"));
+            }
+            return new KafkaJobPoolManager.JobPipeline(mock(KafkaBatchConsumerPool.class), null);
+        });
+        KafkaJobItemProto j = job("job-krb", "dc2", List.of("orders"), List.of("r:1"), 1, 100);
+
+        failing.sync(List.of(j));
+        assertEquals(1, failing.jobErrors().size());
+        assertEquals("job-krb", failing.jobErrors().get(0).jobId());
+        assertTrue(failing.jobErrors().get(0).message().contains("Cannot locate KDC"),
+                "В отчет попадает корневая причина: " + failing.jobErrors().get(0).message());
+
+        fail.set(false);
+        failing.sync(List.of(j));
+        assertTrue(failing.jobErrors().isEmpty(), "После успешного запуска ошибка снимается");
+
+        failing.sync(List.of(job("job-noreceivers", "dc2", List.of("orders"), List.of(), 1, 100)));
+        assertEquals(List.of("job-noreceivers"), failing.jobErrors().stream().map(e -> e.jobId()).toList(),
+                "Задача без приемников видна как ошибка, а снятая задача из отчета пропадает");
+        assertTrue(failing.jobErrors().get(0).message().contains("нет живых приемников"));
+
+        // Работающий пул потерял приемники, затем они вернулись с теми же адресами
+        KafkaJobItemProto running = job("job-running", "dc2", List.of("orders"), List.of("r:1"), 1, 100);
+        failing.sync(List.of(running));
+        failing.sync(List.of(job("job-running", "dc2", List.of("orders"), List.of(), 1, 100)));
+        assertEquals(1, failing.jobErrors().size());
+        failing.sync(List.of(running));
+        assertTrue(failing.jobErrors().isEmpty(), "Вернувшиеся приемники снимают ошибку без пересоздания пула");
+    }
 }

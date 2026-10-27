@@ -201,6 +201,11 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                 } catch (Exception ex) {
                     log.warn("Не удалось обновить метрики Kafka-задач из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());
                 }
+                kafkaOrchestratorService.updateJobErrorsFromHeartbeat(request.getAgentId(),
+                        request.getKafkaJobErrorsList().stream()
+                                .map(e -> new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError(
+                                        e.getJobId(), e.getMessage()))
+                                .toList());
             } else if (ok && kafkaOrchestratorService != null && isKafkaAgent) {
                 // Агент старой версии: только сумма по агенту, распределяемая по задачам ЦОД
                 try {

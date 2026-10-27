@@ -416,6 +416,7 @@ public class KafkaReplicatorAgentMain {
                     if (finalJobPools != null) {
                         hbReq.setKafkaJobStatsSupported(true);
                         hbReq.setKafkaJobStats(finalJobPools.jobStats());
+                        hbReq.setKafkaJobErrors(finalJobPools.jobErrors());
                     }
                     finalOrch.heartbeat(hbReq);
                 } catch (Exception e) {

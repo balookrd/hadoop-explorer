@@ -63,6 +63,8 @@
     currentLagMs: number;
     /** Агенты с работающим пулом задачи по их heartbeat */
     runningAgents: string[];
+    /** Почему пул задачи не запустился на агентах: «агент: причина» */
+    agentErrors: string[];
     lastErrorMessage?: string;
   }
 
@@ -318,6 +320,7 @@
       bytesReplicated: Number(raw.bytes_replicated ?? raw.bytesReplicated ?? 0),
       currentLagMs: Number(raw.current_lag_ms ?? raw.currentLagMs ?? 0),
       runningAgents: Array.isArray(raw.running_agents) ? raw.running_agents : [],
+      agentErrors: Array.isArray(raw.agent_errors) ? raw.agent_errors : [],
       lastErrorMessage: raw.last_error_message || raw.lastErrorMessage
     };
   }
@@ -1039,6 +1042,18 @@
             <div class="px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
               <AlertCircle class="w-4 h-4 text-amber-500 shrink-0" />
               <span class="font-mono truncate">{job.lastErrorMessage}</span>
+            </div>
+          {/if}
+
+          {#if job.agentErrors.length > 0}
+            <div class="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 space-y-1">
+              <div class="flex items-center gap-2 font-semibold">
+                <AlertCircle class="w-4 h-4 text-rose-500 shrink-0" />
+                <span>Пул задачи не запустился на агентах: {job.agentErrors.length}</span>
+              </div>
+              {#each job.agentErrors as agentError}
+                <div class="font-mono break-all pl-6">{agentError}</div>
+              {/each}
             </div>
           {/if}
 

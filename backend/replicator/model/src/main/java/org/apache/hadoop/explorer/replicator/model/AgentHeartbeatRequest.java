@@ -82,6 +82,13 @@ public class AgentHeartbeatRequest {
     @JsonProperty("kafka_job_stats_supported")
     private boolean kafkaJobStatsSupported;
 
+    /** Задачи, пул которых на агенте не запустился, с причиной. */
+    @JsonProperty("kafka_job_errors")
+    private java.util.List<KafkaJobError> kafkaJobErrors = java.util.List.of();
+
+    /** Причина, по которой пул задачи на агенте не работает. */
+    public record KafkaJobError(String jobId, String message) {}
+
     /** Телеметрия одной Kafka-задачи на агенте. */
     public record KafkaJobStats(String jobId, long messagesReplicated, long bytesReplicated, long lagMs) {}
 
@@ -165,6 +172,11 @@ public class AgentHeartbeatRequest {
 
     public boolean isKafkaJobStatsSupported() { return kafkaJobStatsSupported; }
     public void setKafkaJobStatsSupported(boolean kafkaJobStatsSupported) { this.kafkaJobStatsSupported = kafkaJobStatsSupported; }
+
+    public java.util.List<KafkaJobError> getKafkaJobErrors() { return kafkaJobErrors; }
+    public void setKafkaJobErrors(java.util.List<KafkaJobError> kafkaJobErrors) {
+        this.kafkaJobErrors = kafkaJobErrors != null ? java.util.List.copyOf(kafkaJobErrors) : java.util.List.of();
+    }
 
     public java.util.List<KafkaJobStats> getKafkaJobStats() { return kafkaJobStats; }
     public void setKafkaJobStats(java.util.List<KafkaJobStats> kafkaJobStats) {

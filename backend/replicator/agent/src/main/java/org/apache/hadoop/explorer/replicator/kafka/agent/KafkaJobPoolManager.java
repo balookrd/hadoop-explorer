@@ -83,6 +83,8 @@ public class KafkaJobPoolManager implements Closeable {
     private final AtomicLong retiredBytes = new AtomicLong();
     /** Счетчики остановленных пулов по задачам: [сообщения, байты]. */
     private final Map<String, long[]> retiredByJob = new ConcurrentHashMap<>();
+    /** Задачи, пул которых не запустился, с причиной: уходят в heartbeat оркестратору. */
+    private final Map<String, String> jobErrors = new ConcurrentHashMap<>();
 
     public KafkaJobPoolManager(String localDcId, Function<JobPoolSpec, JobPipeline> poolFactory) {
         this.localDcId = Objects.requireNonNull(localDcId, "localDcId must not be null");
@@ -125,6 +127,24 @@ public class KafkaJobPoolManager implements Closeable {
                     pool.getCurrentLagMs()));
         }
         return stats;
+    }
+
+    /** Задачи, пул которых на агенте не работает, с причиной. */
+    public List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError> jobErrors() {
+        List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError> errors = new ArrayList<>();
+        jobErrors.forEach((jobId, message) -> errors.add(
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError(jobId, message)));
+        return errors;
+    }
+
+    /** Корневая причина: верхнее исключение фабрики обычно говорит только «не удалось создать пул». */
+    private static String rootMessage(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root.getMessage() != null ? root.getMessage() : root.getClass().getSimpleName();
+        return root == e ? message : e.getMessage() + ": " + message;
     }
 
     /** Наибольший лаг среди запущенных пулов. */
@@ -179,6 +199,9 @@ public class KafkaJobPoolManager implements Closeable {
             List<String> endpoints = distinct(job.getTargetEndpointsList());
             if (topics.isEmpty() || endpoints.isEmpty()) {
                 log.debug("Задача '{}' пропущена: нет топиков или приемников", jobId);
+                jobErrors.put(jobId, topics.isEmpty()
+                        ? "у задачи нет топиков"
+                        : "нет живых приемников в ЦОД " + peerDcFor(job));
                 continue;
             }
 
@@ -187,6 +210,8 @@ public class KafkaJobPoolManager implements Closeable {
                 startJob(job, jobId, topics, endpoints);
                 continue;
             }
+            // Пул работает и маршрут снова есть: прежняя причина больше не действует
+            jobErrors.remove(jobId);
 
             // Смена приемников требует пересборки клиента, поэтому пул поднимается заново.
             // Сравнивается состав, а не порядок: оркестратор собирает список из хеш-таблицы,
@@ -208,6 +233,7 @@ public class KafkaJobPoolManager implements Closeable {
                 stopJob(jobId);
             }
         }
+        jobErrors.keySet().retainAll(seen);
     }
 
     private void startJob(KafkaJobItemProto job, String jobId, List<String> topics, List<String> endpoints) {
@@ -237,9 +263,11 @@ public class KafkaJobPoolManager implements Closeable {
             pipeline = poolFactory.apply(spec);
         } catch (Exception e) {
             log.error("Не удалось создать пул консьюмеров для задачи '{}': {}", jobId, e.getMessage());
+            jobErrors.put(jobId, rootMessage(e));
             return;
         }
         if (pipeline == null || pipeline.pool() == null) {
+            jobErrors.put(jobId, "фабрика не создала пул консьюмеров");
             return;
         }
 
@@ -250,8 +278,10 @@ public class KafkaJobPoolManager implements Closeable {
                     spec.consumerThreads(), spec.batchSize()));
             log.info("Задача '{}' запущена: группа '{}', топики {}, приемники {}, потоков {}",
                     jobId, spec.groupId(), topics, endpoints, spec.consumerThreads());
+            jobErrors.remove(jobId);
         } catch (Exception e) {
             log.error("Пул задачи '{}' не запустился: {}", jobId, e.getMessage());
+            jobErrors.put(jobId, rootMessage(e));
             closeQuietly(pipeline, jobId);
         }
     }

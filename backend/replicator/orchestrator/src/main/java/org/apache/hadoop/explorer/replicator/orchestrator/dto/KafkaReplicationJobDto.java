@@ -108,6 +108,11 @@ public class KafkaReplicationJobDto {
     /** Агенты с работающим пулом задачи: после паузы или удаления список пустеет. */
     private List<String> runningAgents = new java.util.ArrayList<>();
     public List<String> getRunningAgents() { return runningAgents; }
+
+    /** Почему пул задачи не запустился на агентах: «агент: причина». */
+    private List<String> agentErrors = new java.util.ArrayList<>();
+    public List<String> getAgentErrors() { return agentErrors; }
+    public void setAgentErrors(List<String> agentErrors) { this.agentErrors = agentErrors; }
     public void setRunningAgents(List<String> runningAgents) { this.runningAgents = runningAgents; }
 
     public Long getCurrentLagMs() { return currentLagMs; }

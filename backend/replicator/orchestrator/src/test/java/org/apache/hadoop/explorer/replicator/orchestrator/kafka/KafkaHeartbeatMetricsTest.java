@@ -203,4 +203,19 @@ class KafkaHeartbeatMetricsTest {
         KafkaReplicationJobEntity job = repository.findById("kafka-stop").orElseThrow();
         assertEquals(20L, job.getMessagesReplicated(), "Остановка пула не обнуляет накопленный объем");
     }
+
+    @Test
+    @DisplayName("Ошибки запуска пула приходят в задачу и снимаются следующим отчетом агента")
+    void testAgentErrorsReachJob() {
+        createJob("kafka-broken", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+        var error = new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError(
+                "kafka-broken", "Cannot locate KDC");
+        service.updateJobErrorsFromHeartbeat("agent-b", List.of(error));
+        service.updateJobErrorsFromHeartbeat("agent-a", List.of(error));
+        assertEquals(List.of("agent-a: Cannot locate KDC", "agent-b: Cannot locate KDC"),
+                service.getJobById("kafka-broken").orElseThrow().getAgentErrors());
+
+        service.updateJobErrorsFromHeartbeat("agent-a", List.of());
+        assertEquals(List.of("agent-b: Cannot locate KDC"), service.getAgentErrors("kafka-broken"));
+    }
 }
