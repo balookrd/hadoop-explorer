@@ -376,6 +376,15 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setKafkaMessagesReplicated(request.getKafkaMessagesReplicated())
                     .setKafkaBytesReplicated(request.getKafkaBytesReplicated())
                     .setKafkaCurrentLagMs(request.getKafkaCurrentLagMs());
+            builder.setKafkaJobStatsSupported(request.isKafkaJobStatsSupported());
+            for (var stats : request.getKafkaJobStats()) {
+                builder.addKafkaJobStats(org.apache.hadoop.explorer.replicator.generated.control.KafkaJobStats.newBuilder()
+                        .setJobId(stats.jobId() != null ? stats.jobId() : "")
+                        .setMessagesReplicated(stats.messagesReplicated())
+                        .setBytesReplicated(stats.bytesReplicated())
+                        .setLagMs(stats.lagMs())
+                        .build());
+            }
 
             var resp = executeWithFailover("heartbeat", s -> s.heartbeat(builder.build()));
             return resp != null && resp.getAcknowledged();

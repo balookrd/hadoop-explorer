@@ -79,6 +79,8 @@ public class KafkaJobPoolManager implements Closeable {
      */
     private final AtomicLong retiredMessages = new AtomicLong();
     private final AtomicLong retiredBytes = new AtomicLong();
+    /** Счетчики остановленных пулов по задачам: [сообщения, байты]. */
+    private final Map<String, long[]> retiredByJob = new ConcurrentHashMap<>();
 
     public KafkaJobPoolManager(String localDcId, Function<JobPoolSpec, JobPipeline> poolFactory) {
         this.localDcId = Objects.requireNonNull(localDcId, "localDcId must not be null");
@@ -101,6 +103,26 @@ public class KafkaJobPoolManager implements Closeable {
             total += runtime.pool().getTotalBytesReplicated();
         }
         return total;
+    }
+
+    /**
+     * Телеметрия по задачам: накопительные счетчики с момента старта агента и текущий лаг.
+     *
+     * <p>Задачи, остановленные на агенте, в отчет не попадают: оркестратор помнит их последние
+     * значения сам, а снятой с агента задаче новые счетчики не нужны.
+     */
+    public List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats> jobStats() {
+        List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats> stats = new ArrayList<>();
+        for (Map.Entry<String, JobRuntime> e : runtimes.entrySet()) {
+            KafkaBatchConsumerPool pool = e.getValue().pool();
+            long[] retired = retiredByJob.getOrDefault(e.getKey(), new long[2]);
+            stats.add(new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats(
+                    e.getKey(),
+                    retired[0] + pool.getTotalMessagesReplicated(),
+                    retired[1] + pool.getTotalBytesReplicated(),
+                    pool.getCurrentLagMs()));
+        }
+        return stats;
     }
 
     /** Наибольший лаг среди запущенных пулов. */
@@ -253,6 +275,13 @@ public class KafkaJobPoolManager implements Closeable {
         JobRuntime runtime = runtimes.remove(jobId);
         if (runtime != null) {
             closeQuietly(runtime.pipeline(), jobId);
+            KafkaBatchConsumerPool pool = runtime.pool();
+            if (pool != null) {
+                // Пересозданный пул задачи считает с нуля: прошлое копится здесь
+                retiredByJob.merge(jobId,
+                        new long[]{pool.getTotalMessagesReplicated(), pool.getTotalBytesReplicated()},
+                        (a, b) -> new long[]{a[0] + b[0], a[1] + b[1]});
+            }
         }
     }
 

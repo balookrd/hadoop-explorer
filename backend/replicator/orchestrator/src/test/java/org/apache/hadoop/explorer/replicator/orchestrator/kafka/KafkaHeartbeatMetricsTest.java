@@ -161,4 +161,26 @@ class KafkaHeartbeatMetricsTest {
         assertEquals(100L, job.getMessagesReplicated(),
                 "В задачу на паузе метрики не пишутся: агенты ее уже не обслуживают");
     }
+
+    @Test
+    @DisplayName("Счетчики по задачам не смешиваются: новая задача ЦОД не получает объем соседней")
+    void testPerJobStatsStaySeparate() {
+        createJob("kafka-busy", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+        createJob("kafka-fresh", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+
+        service.updateJobMetricsFromHeartbeat("agent-1", java.util.List.of(
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-busy", 4000L, 40_000L, 120L),
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-fresh", 0L, 0L, 0L)));
+        service.updateJobMetricsFromHeartbeat("agent-2", java.util.List.of(
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-busy", 1000L, 10_000L, 900L)));
+
+        KafkaReplicationJobEntity busy = repository.findById("kafka-busy").orElseThrow();
+        assertEquals(5000L, busy.getMessagesReplicated(), "Объем задачи — сумма по обслуживающим ее агентам");
+        assertEquals(50_000L, busy.getBytesReplicated());
+        assertEquals(900L, busy.getCurrentLagMs());
+
+        KafkaReplicationJobEntity fresh = repository.findById("kafka-fresh").orElseThrow();
+        assertEquals(0L, fresh.getMessagesReplicated() == null ? 0L : fresh.getMessagesReplicated(),
+                "Новая задача не должна показывать объем соседней задачи того же ЦОД");
+    }
 }

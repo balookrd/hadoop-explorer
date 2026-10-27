@@ -346,4 +346,28 @@ class KafkaJobPoolManagerTest {
                 .toBuilder().setStartPosition("LATEST").build()));
         assertEquals(List.of("LATEST"), positions);
     }
+
+    @Test
+    @DisplayName("Статистика по задачам: своя у каждой задачи и не проседает при пересоздании пула")
+    void testJobStatsPerJobAndMonotonic() {
+        manager.sync(List.of(
+                job("job-a", "dc2", List.of("a"), List.of("kafka-dc2:50052"), 1, 100),
+                job("job-b", "dc2", List.of("b"), List.of("kafka-dc2:50052"), 1, 100)));
+        when(pools.get("job-a").getTotalMessagesReplicated()).thenReturn(700L);
+        when(pools.get("job-b").getTotalMessagesReplicated()).thenReturn(5L);
+
+        Map<String, Long> byJob = new java.util.HashMap<>();
+        manager.jobStats().forEach(s -> byJob.put(s.jobId(), s.messagesReplicated()));
+        assertEquals(Map.of("job-a", 700L, "job-b", 5L), byJob);
+
+        // Пересоздание пула job-a (сменились приемники): новый пул считает с нуля
+        manager.sync(List.of(
+                job("job-a", "dc2", List.of("a"), List.of("kafka-dc2-new:50052"), 1, 100),
+                job("job-b", "dc2", List.of("b"), List.of("kafka-dc2:50052"), 1, 100)));
+        when(pools.get("job-a").getTotalMessagesReplicated()).thenReturn(30L);
+
+        byJob.clear();
+        manager.jobStats().forEach(s -> byJob.put(s.jobId(), s.messagesReplicated()));
+        assertEquals(730L, byJob.get("job-a"), "Счетчик задачи накопительный и переживает пересоздание пула");
+    }
 }

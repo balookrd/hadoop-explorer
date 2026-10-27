@@ -53,6 +53,19 @@ public interface KafkaReplicationJobRepository extends JpaRepository<KafkaReplic
                          @Param("bytes") long bytes, @Param("lagMs") long lagMs,
                          @Param("now") Instant now);
 
+    /** Телеметрия одной задачи: те же правила, что у {@link #applyDcTelemetry}, но по id. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE KafkaReplicationJobEntity j SET "
+            + "j.messagesReplicated = CASE WHEN j.messagesReplicated IS NULL OR j.messagesReplicated < :messages "
+            + "THEN :messages ELSE j.messagesReplicated END, "
+            + "j.bytesReplicated = CASE WHEN j.bytesReplicated IS NULL OR j.bytesReplicated < :bytes "
+            + "THEN :bytes ELSE j.bytesReplicated END, "
+            + "j.currentLagMs = :lagMs, j.updatedAt = :now "
+            + "WHERE j.id = :id AND UPPER(j.status) = 'ACTIVE'")
+    int applyJobTelemetry(@Param("id") String id, @Param("messages") long messages,
+                          @Param("bytes") long bytes, @Param("lagMs") long lagMs,
+                          @Param("now") Instant now);
+
     /** Смена статуса задачи без перезаписи остальных полей строки. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("UPDATE KafkaReplicationJobEntity j SET j.status = :status, j.updatedAt = :now WHERE j.id = :id")

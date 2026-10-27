@@ -189,7 +189,20 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     request.getKafkaMessagesReplicated() > 0 ||
                     request.getKafkaBytesReplicated() > 0;
 
-            if (ok && kafkaOrchestratorService != null && isKafkaAgent) {
+            if (ok && kafkaOrchestratorService != null
+                    && (request.getKafkaJobStatsSupported() || request.getKafkaJobStatsCount() > 0)) {
+                // Агент сообщает счетчики по задачам — они точнее суммы по агенту
+                try {
+                    kafkaOrchestratorService.updateJobMetricsFromHeartbeat(request.getAgentId(),
+                            request.getKafkaJobStatsList().stream()
+                                    .map(s -> new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats(
+                                            s.getJobId(), s.getMessagesReplicated(), s.getBytesReplicated(), s.getLagMs()))
+                                    .toList());
+                } catch (Exception ex) {
+                    log.warn("Не удалось обновить метрики Kafka-задач из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());
+                }
+            } else if (ok && kafkaOrchestratorService != null && isKafkaAgent) {
+                // Агент старой версии: только сумма по агенту, распределяемая по задачам ЦОД
                 try {
                     kafkaOrchestratorService.updateMetricsFromHeartbeat(
                             request.getClusterId(),

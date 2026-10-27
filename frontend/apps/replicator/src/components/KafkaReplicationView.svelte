@@ -320,7 +320,68 @@
   }
 
   let totalMessages = $derived(jobs.reduce((acc, j) => acc + (j.messagesReplicated || 0), 0));
-  let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
+  let totalBytes = $derived(jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0));
+
+  // Скорость задач по разнице накопительных счетчиков между опросами списка
+  let jobRates = $state<Record<string, { msgs: number; bytes: number }>>({});
+  const rateSnapshots = new Map<string, { msgs: number; bytes: number; at: number }>();
+  let totalMsgRate = $derived(Object.values(jobRates).reduce((acc, r) => acc + r.msgs, 0));
+  let totalByteRate = $derived(Object.values(jobRates).reduce((acc, r) => acc + r.bytes, 0));
+
+  function setJobs(next: KafkaJob[]) {
+    const now = Date.now();
+    const rates: Record<string, { msgs: number; bytes: number }> = {};
+    for (const job of next) {
+      const prev = rateSnapshots.get(job.id);
+      const msgs = job.messagesReplicated || 0;
+      const bytes = job.bytesReplicated || 0;
+      if (prev && now > prev.at && job.status === 'ACTIVE') {
+        const sec = (now - prev.at) / 1000;
+        rates[job.id] = {
+          msgs: Math.max(0, (msgs - prev.msgs) / sec),
+          bytes: Math.max(0, (bytes - prev.bytes) / sec)
+        };
+      } else {
+        rates[job.id] = jobRates[job.id] ?? { msgs: 0, bytes: 0 };
+      }
+      rateSnapshots.set(job.id, { msgs, bytes, at: now });
+    }
+    jobRates = rates;
+    jobs = next;
+  }
+
+  function formatBytes(bytes: number): string {
+    const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ', 'ПБ'];
+    let value = Math.max(0, bytes);
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+      value /= 1024;
+      i++;
+    }
+    return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function formatCount(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)} млн`;
+    if (n >= 10_000) return `${(n / 1000).toFixed(1)} тыс.`;
+    return Math.round(n).toLocaleString();
+  }
+
+  function formatDuration(ms: number): string {
+    if (!ms || ms < 1000) return `${Math.max(0, Math.round(ms || 0))} мс`;
+    const sec = ms / 1000;
+    if (sec < 60) return `${sec.toFixed(1)} с`;
+    const min = sec / 60;
+    if (min < 60) return `${min.toFixed(1)} мин`;
+    return `${(min / 60).toFixed(1)} ч`;
+  }
+
+  // Пороги лага: до 5 с — норма, до минуты — внимание, дальше — отставание
+  function lagClass(ms: number): string {
+    if (ms >= 60_000) return 'text-rose-600 dark:text-rose-400';
+    if (ms >= 5_000) return 'text-amber-600 dark:text-amber-400';
+    return 'text-emerald-600 dark:text-emerald-400';
+  }
 
   // Согласованное QoS регулирование: межцодовая WAN HTB квота vs сумма явно заданных лимитов агентов источника
   // Без лимита канала в топологии квоты WAN нет: прежняя подстановка 100 МБ/с давала 40 МБ/с
@@ -392,7 +453,7 @@
       // Фоновое обновление телеметрии задач без мерцания индикатора
       api.getKafkaJobs().then(data => {
         if (Array.isArray(data)) {
-          jobs = data.map(normalizeKafkaJob);
+          setJobs(data.map(normalizeKafkaJob));
         }
       }).catch(() => {});
     }, 4000);
@@ -456,7 +517,7 @@
     jobsLoading = true;
     try {
       const data = await api.getKafkaJobs();
-      jobs = Array.isArray(data) ? data.map(normalizeKafkaJob) : [];
+      setJobs(Array.isArray(data) ? data.map(normalizeKafkaJob) : []);
     } catch (e: any) {
       console.warn('Не удалось загрузить задачи Kafka из API:', e);
       jobs = [];
@@ -792,15 +853,15 @@
 
       <div class="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs">
         <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">Передано сообщений</span>
-        <span class="text-xl font-bold text-slate-900 dark:text-slate-100">{totalMessages.toLocaleString()}</span>
+        <span class="text-xl font-bold text-slate-900 dark:text-slate-100" title={totalMessages.toLocaleString()}>{formatCount(totalMessages)}</span>
       </div>
 
       <div class="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs">
         <div class="flex items-center justify-between">
-          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">Объем WAN / RTT</span>
-          <span class="text-[10px] font-mono text-emerald-600 font-bold">&lt; 10 мс</span>
+          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">Объем WAN</span>
+          <span class="text-[10px] font-mono text-sky-600 font-bold" title="Суммарная скорость активных задач">{formatCount(totalMsgRate)}/с · {formatBytes(totalByteRate)}/с</span>
         </div>
-        <span class="text-xl font-bold text-slate-900 dark:text-slate-100">{totalBytesMb} <span class="text-xs font-normal text-slate-400">МБ</span></span>
+        <span class="text-xl font-bold text-slate-900 dark:text-slate-100">{formatBytes(totalBytes)}</span>
       </div>
     </div>
 
@@ -902,9 +963,11 @@
                 <span>•</span>
                 <span>Батч: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.batchSize ?? 2000}</strong></span>
                 <span>•</span>
-                <span>Сквозной лаг: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">{job.currentLagMs ?? 0} мс</strong></span>
+                <span>Сквозной лаг: <strong class="{lagClass(job.currentLagMs ?? 0)} font-mono">{formatDuration(job.currentLagMs ?? 0)}</strong></span>
                 <span>•</span>
-                <span>Передано: <strong class="text-sky-600 dark:text-sky-400 font-mono">{job.messagesReplicated?.toLocaleString() ?? 0} сообщ. ({((job.bytesReplicated ?? 0) / (1024 * 1024)).toFixed(2)} МБ)</strong></span>
+                <span>Передано: <strong class="text-sky-600 dark:text-sky-400 font-mono" title="{(job.messagesReplicated ?? 0).toLocaleString()} сообщ.">{formatCount(job.messagesReplicated ?? 0)} сообщ. ({formatBytes(job.bytesReplicated ?? 0)})</strong></span>
+                <span class="text-slate-300 dark:text-slate-700">•</span>
+                <span>Скорость: <strong class="text-sky-600 dark:text-sky-400 font-mono">{formatCount(jobRates[job.id]?.msgs ?? 0)}/с · {formatBytes(jobRates[job.id]?.bytes ?? 0)}/с</strong></span>
                 <span>•</span>
                 <span>Синхронизация смещений: <strong class="font-mono">{job.offsetSyncIntervalSec}с</strong></span>
               </div>
@@ -966,7 +1029,6 @@
                   <Radio class="w-3.5 h-3.5 text-sky-500" />
                   <span>Реплицируемые топики ({job.topics?.length ?? 0}):</span>
                 </span>
-                <span class="text-[11px] text-slate-400 font-normal">Сквозной лаг по топикам</span>
               </div>
               <div class="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
                 {#each (job.topics || []) as t}
@@ -974,13 +1036,6 @@
                     <span class="font-semibold text-slate-900 dark:text-slate-100">{t.topic}</span>
                     <span class="text-[9px] font-bold px-1.5 py-0.5 rounded {t.payloadMode === 'PASSTHROUGH' ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400' : 'bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-400'}">
                       {t.payloadMode}
-                    </span>
-                    <span
-                      class="text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 {(t.lag ?? 0) === 0 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800'}"
-                      title="Лаг: {t.lag ?? 0} сообщений{(t.lagMs ?? 0) > 0 ? ` (${t.lagMs} мс)` : ''}"
-                    >
-                      <span class="w-1.5 h-1.5 rounded-full {(t.lag ?? 0) === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}"></span>
-                      <span>lag: {(t.lag ?? 0).toLocaleString()}</span>
                     </span>
                   </div>
                 {/each}

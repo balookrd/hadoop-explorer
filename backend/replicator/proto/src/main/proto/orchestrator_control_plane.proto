@@ -99,6 +99,20 @@ message AgentHeartbeatRequest {
   int64 kafka_messages_replicated = 18;
   int64 kafka_bytes_replicated = 19;
   int64 kafka_current_lag_ms = 20;
+  // Счетчики по задачам: агент обслуживает несколько задач, и сумма по агенту не говорит,
+  // сколько перенесла каждая из них
+  repeated KafkaJobStats kafka_job_stats = 21;
+  // Агент сообщает счетчики по задачам. Пустой kafka_job_stats у такого агента значит «задач
+  // нет», а не «старая версия»: суммарный счетчик агента тогда к задачам не применяется
+  bool kafka_job_stats_supported = 22;
+}
+
+// Телеметрия одной Kafka-задачи на агенте. Счетчики накопительные с момента старта агента
+message KafkaJobStats {
+  string job_id = 1;
+  int64 messages_replicated = 2;
+  int64 bytes_replicated = 3;
+  int64 lag_ms = 4;
 }
 
 message AgentHeartbeatResponse {

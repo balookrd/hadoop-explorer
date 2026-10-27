@@ -410,6 +410,10 @@ public class KafkaReplicatorAgentMain {
                     hbReq.setKafkaMessagesReplicated(messages);
                     hbReq.setKafkaBytesReplicated(bytes);
                     hbReq.setKafkaCurrentLagMs(lagMs);
+                    if (finalJobPools != null) {
+                        hbReq.setKafkaJobStatsSupported(true);
+                        hbReq.setKafkaJobStats(finalJobPools.jobStats());
+                    }
                     finalOrch.heartbeat(hbReq);
 
                     // Опрос Control Plane: состав задач отражается на составе пулов

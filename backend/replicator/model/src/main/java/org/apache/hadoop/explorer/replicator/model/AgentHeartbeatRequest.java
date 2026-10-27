@@ -74,6 +74,17 @@ public class AgentHeartbeatRequest {
     @JsonProperty("kafka_current_lag_ms")
     private long kafkaCurrentLagMs = 0;
 
+    /** Счетчики по Kafka-задачам агента: накопительные с момента старта агента. */
+    @JsonProperty("kafka_job_stats")
+    private java.util.List<KafkaJobStats> kafkaJobStats = java.util.List.of();
+
+    /** Агент сообщает счетчики по задачам; пустой список тогда значит «задач нет». */
+    @JsonProperty("kafka_job_stats_supported")
+    private boolean kafkaJobStatsSupported;
+
+    /** Телеметрия одной Kafka-задачи на агенте. */
+    public record KafkaJobStats(String jobId, long messagesReplicated, long bytesReplicated, long lagMs) {}
+
     public AgentHeartbeatRequest() {}
 
     public AgentHeartbeatRequest(String agentId, String clusterId, String grpcAddress, int activeTransfers) {
@@ -151,4 +162,12 @@ public class AgentHeartbeatRequest {
 
     public long getKafkaCurrentLagMs() { return kafkaCurrentLagMs; }
     public void setKafkaCurrentLagMs(long kafkaCurrentLagMs) { this.kafkaCurrentLagMs = kafkaCurrentLagMs; }
+
+    public boolean isKafkaJobStatsSupported() { return kafkaJobStatsSupported; }
+    public void setKafkaJobStatsSupported(boolean kafkaJobStatsSupported) { this.kafkaJobStatsSupported = kafkaJobStatsSupported; }
+
+    public java.util.List<KafkaJobStats> getKafkaJobStats() { return kafkaJobStats; }
+    public void setKafkaJobStats(java.util.List<KafkaJobStats> kafkaJobStats) {
+        this.kafkaJobStats = kafkaJobStats != null ? java.util.List.copyOf(kafkaJobStats) : java.util.List.of();
+    }
 }

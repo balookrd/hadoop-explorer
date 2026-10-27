@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -696,5 +697,20 @@ public class OrchestratorControlPlaneServiceTest {
         return CreateHdfsSubjobRequest.newBuilder().setParentJobId(parent)
                 .setSourcePath("hdfs://nn1:9000/warehouse/" + parent + ".db").setTargetPath("hdfs://nn2:9000/warehouse/" + parent + ".db")
                 .setSyncMode("STREAMING_INOTIFY").setJobType("HMS_COMPANION_STREAMING").setAgentId("agent-dc1").build();
+    }
+
+    @Test
+    @DisplayName("Агент со счетчиками по задачам без задач не размазывает свою сумму по задачам ЦОД")
+    void testJobStatsAgentWithoutJobsSkipsDcTotals() {
+        when(agentRegistry.heartbeat(any(), any())).thenReturn(true);
+
+        stub.heartbeat(AgentHeartbeatRequest.newBuilder()
+                .setAgentId("kafka-agent-dc1").setClusterId("dc1").setMode("dual")
+                .setKafkaMessagesReplicated(300_000L).setKafkaBytesReplicated(60_000_000L)
+                .setKafkaJobStatsSupported(true)
+                .build());
+
+        // Сумма агента включает объем уже удаленных задач: приписать ее новым задачам ЦОД нельзя
+        verify(kafkaOrchestratorService, never()).updateMetricsFromHeartbeat(any(), any(), anyLong(), anyLong(), anyLong());
     }
 }

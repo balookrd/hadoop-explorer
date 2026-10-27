@@ -728,9 +728,70 @@ public class KafkaReplicationOrchestratorService {
     /** Телеметрия агентов по ЦОД: dc -> agentId -> статистика. */
     private final Map<String, Map<String, AgentKafkaStats>> agentKafkaStats = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Телеметрия задач по агентам: jobId -> agentId -> статистика. */
+    private final Map<String, Map<String, AgentKafkaStats>> jobAgentStats = new java.util.concurrent.ConcurrentHashMap<>();
+
     /** Сброс накопленной телеметрии агентов: оркестратор начинает счет заново. */
     public void resetAgentTelemetry() {
         agentKafkaStats.clear();
+        jobAgentStats.clear();
+    }
+
+    /**
+     * Телеметрия задач из heartbeat агента: у каждой задачи свои счетчики.
+     *
+     * <p>Раньше агент сообщал одну сумму по всем своим задачам, и она приписывалась каждой
+     * активной задаче ЦОД: новая задача на пустом топике показывала миллионы перенесенных
+     * сообщений. Объем задачи — сумма по агентам, которые ее обслуживают, лаг — наибольший
+     * среди живых агентов.
+     */
+    @Transactional
+    public void updateJobMetricsFromHeartbeat(String agentId,
+                                              List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats> stats) {
+        if (stats == null || stats.isEmpty()) {
+            return;
+        }
+        String agentKey = agentId != null && !agentId.isBlank() ? agentId : "unknown";
+        long now = System.currentTimeMillis();
+        for (var jobStats : stats) {
+            if (jobStats.jobId() == null || jobStats.jobId().isBlank()) {
+                continue;
+            }
+            Map<String, AgentKafkaStats> agents = jobAgentStats.computeIfAbsent(jobStats.jobId(),
+                    k -> new java.util.concurrent.ConcurrentHashMap<>());
+            long totalMessages = 0L;
+            long totalBytes = 0L;
+            long maxLag = 0L;
+            synchronized (agents) {
+                record(agents.computeIfAbsent(agentKey, k -> new AgentKafkaStats()),
+                        jobStats.messagesReplicated(), jobStats.bytesReplicated(), jobStats.lagMs(), now);
+                for (AgentKafkaStats agent : agents.values()) {
+                    totalMessages += agent.messages();
+                    totalBytes += agent.bytes();
+                    if (now - agent.seenAtMs <= AGENT_LAG_FRESHNESS_MS) {
+                        maxLag = Math.max(maxLag, agent.lagMs);
+                    }
+                }
+            }
+            repository.applyJobTelemetry(jobStats.jobId(), totalMessages, totalBytes, maxLag, Instant.now());
+        }
+    }
+
+    /** Новые показания агента с учетом его рестарта: после него счетчики идут с нуля. */
+    private static void record(AgentKafkaStats stats, long messagesReplicated, long bytesReplicated,
+                               long lagMs, long nowMs) {
+        long messages = Math.max(0L, messagesReplicated);
+        long bytes = Math.max(0L, bytesReplicated);
+        if (messages < stats.lastMessages) {
+            stats.base += stats.lastMessages;
+        }
+        if (bytes < stats.lastBytes) {
+            stats.baseBytes += stats.lastBytes;
+        }
+        stats.lastMessages = messages;
+        stats.lastBytes = bytes;
+        stats.lagMs = Math.max(0L, lagMs);
+        stats.seenAtMs = nowMs;
     }
 
     /**
@@ -755,19 +816,8 @@ public class KafkaReplicationOrchestratorService {
         long maxLag = 0L;
         Map<String, AgentKafkaStats> dcAgents = agentKafkaStats.computeIfAbsent(dc, k -> new java.util.concurrent.ConcurrentHashMap<>());
         synchronized (dcAgents) {
-            AgentKafkaStats stats = dcAgents.computeIfAbsent(agentKey, k -> new AgentKafkaStats());
-            long messages = Math.max(0L, messagesReplicated);
-            long bytes = Math.max(0L, bytesReplicated);
-            if (messages < stats.lastMessages) {
-                stats.base += stats.lastMessages;
-            }
-            if (bytes < stats.lastBytes) {
-                stats.baseBytes += stats.lastBytes;
-            }
-            stats.lastMessages = messages;
-            stats.lastBytes = bytes;
-            stats.lagMs = Math.max(0L, currentLagMs);
-            stats.seenAtMs = now;
+            record(dcAgents.computeIfAbsent(agentKey, k -> new AgentKafkaStats()),
+                    messagesReplicated, bytesReplicated, currentLagMs, now);
 
             for (AgentKafkaStats agent : dcAgents.values()) {
                 totalMessages += agent.messages();
