@@ -598,6 +598,41 @@ public class HmsTaskExecutorTest {
     }
 
     @Test
+    @DisplayName("CDC: журнал метастора начался заново — задача уходит в ERROR, а не рапортует нулевое отставание")
+    void metastoreResetFailsCdcInsteadOfSilentStall() {
+        srcHmsClient.createDatabase("rst", "hdfs://ns-hot:8020/warehouse/rst.db");
+        assertTrue(executor.runBootstrap(new HmsPendingJobDto("hms-job-rst", "dc1", "dc2", "rst", "rst_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L)));
+        srcHmsClient.emitEvent("CREATE_TABLE", "rst", "t", "{}");
+        long position = srcHmsClient.getCurrentNotificationEventId();
+        srcHmsClient.resetNotificationLog(10);
+        reports.clear();
+
+        int processed = executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-rst", "dc1", "dc2", "rst", "rst_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        assertEquals(0, processed);
+        assertEquals(1, reports.size());
+        assertEquals("ERROR", reports.get(0).status());
+        assertTrue(reports.get(0).message().contains("журнал начался заново"), reports.get(0).message());
+    }
+
+    @Test
+    @DisplayName("CDC: задача, догнавшая метастор, ошибку сброса журнала не получает")
+    void caughtUpJobIsNotMistakenForReset() {
+        srcHmsClient.createDatabase("cau", "hdfs://ns-hot:8020/warehouse/cau.db");
+        assertTrue(executor.runBootstrap(new HmsPendingJobDto("hms-job-cau", "dc1", "dc2", "cau", "cau_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L)));
+        long position = srcHmsClient.getCurrentNotificationEventId();
+        reports.clear();
+
+        executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-cau", "dc1", "dc2", "cau", "cau_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        assertTrue(reports.stream().noneMatch(r -> "ERROR".equals(r.status())));
+    }
+
+    @Test
     @DisplayName("CDC с барьером: партиция события читается из метастора источника один раз")
     void cdcBarrierReadsEachPartitionOnce() {
         srcHmsClient.createDatabase("once", "hdfs://ns-hot:8020/warehouse/once.db");

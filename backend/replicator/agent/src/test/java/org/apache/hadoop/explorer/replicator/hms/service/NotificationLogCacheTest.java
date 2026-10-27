@@ -97,6 +97,39 @@ class NotificationLogCacheTest {
         assertEquals(base + 9, events.get(0).eventId(), "первое доступное событие после разрыва");
     }
 
+    @Test
+    @DisplayName("Номер события метастора запрашивается с первого вызова и обновляется раз в интервал")
+    void currentEventIdIsFetchedAndRefreshed() {
+        CountingHms hms = hmsWithEvents(3);
+        AtomicLong now = new AtomicLong(0);
+        NotificationLogCache cache = new NotificationLogCache(hms, 10_000, 1000, now::get);
+
+        assertEquals(hms.base + 3, cache.currentEventId(), "без первого запроса отставание считалось бы от нуля");
+        hms.emitEvent("CREATE_TABLE", "db1", "t", "{}");
+        assertEquals(hms.base + 3, cache.currentEventId(), "в пределах интервала — из кэша");
+        now.addAndGet(1000);
+        assertEquals(hms.base + 4, cache.currentEventId());
+    }
+
+    @Test
+    @DisplayName("Журнал начался заново: свежий номер сбрасывает окно со старыми событиями")
+    void metastoreResetClearsWindow() {
+        CountingHms hms = hmsWithEvents(10);
+        NotificationLogCache cache = new NotificationLogCache(hms, 10_000, 60_000, System::currentTimeMillis);
+        long base = hms.base;
+        cache.next(base, 1000);
+        cache.currentEventId();
+
+        hms.resetNotificationLog(base);
+        hms.emitEvent("CREATE_TABLE", "db1", "after_reset", "{}");
+
+        assertEquals(base + 10, cache.currentEventId(), "кэш номера еще помнит старый журнал");
+        assertEquals(base + 1, cache.refreshCurrentEventId());
+        List<HmsNotificationEventDto> events = cache.next(base, 1000);
+        assertEquals(1, events.size());
+        assertEquals("after_reset", events.get(0).tableName(), "окно не должно отдавать события старого журнала");
+    }
+
     /** Метастор, чтение журнала которого стоит, пока его не отпустят. */
     private static final class BlockingHms extends MockHmsClient {
         final CountDownLatch insideRead = new CountDownLatch(1);

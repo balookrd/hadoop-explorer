@@ -51,6 +51,12 @@ public class MockHmsClient implements HmsClient {
         events.removeIf(e -> e.eventId() <= eventIdInclusive);
     }
 
+    /** Журнал начинается заново, как после восстановления метастора из резервной копии. */
+    public void resetNotificationLog(long lastEventId) {
+        events.clear();
+        eventSequence.set(lastEventId);
+    }
+
     public void emitEvent(String eventType, String db, String tbl, String message) {
         long id = eventSequence.incrementAndGet();
         HmsNotificationEventDto event = new HmsNotificationEventDto(

@@ -39,8 +39,14 @@ final class NotificationLogCache {
     private final NavigableMap<Long, HmsNotificationEventDto> window = new TreeMap<>();
     private long tailCheckedAtMs = Long.MIN_VALUE;
     private long tailCheckedAfterId = -1;
-    private long currentIdCachedAtMs = Long.MIN_VALUE;
+    private long currentIdCachedAtMs;
     private long currentIdCached;
+    /**
+     * Номер еще не запрашивался. Отдельный флаг, а не {@code Long.MIN_VALUE} во времени запроса:
+     * {@code now - Long.MIN_VALUE} переполнялось в отрицательное, номер не запрашивался ни разу,
+     * и агент рапортовал нулевое отставание CDC при любом отставании.
+     */
+    private boolean currentIdKnown;
 
     NotificationLogCache(HmsClient hmsClient, int maxEvents, long tailIntervalMs, LongSupplier clock) {
         this.hmsClient = hmsClient;
@@ -97,9 +103,32 @@ final class NotificationLogCache {
         lock.lock();
         try {
             long now = clock.getAsLong();
-            if (now - currentIdCachedAtMs >= tailIntervalMs) {
+            if (!currentIdKnown || now - currentIdCachedAtMs >= tailIntervalMs) {
                 currentIdCached = hmsClient.getCurrentNotificationEventId();
                 currentIdCachedAtMs = now;
+                currentIdKnown = true;
+            }
+            return currentIdCached;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Текущий номер события прямо из метастора, мимо кэша. Если он меньше событий в окне,
+     * журнал начался заново (метастор восстановлен из резервной копии или пересоздан), и окно
+     * со старыми событиями сбрасывается: иначе оно отдавало бы их задачам как новые.
+     */
+    long refreshCurrentEventId() {
+        lock.lock();
+        try {
+            currentIdCached = hmsClient.getCurrentNotificationEventId();
+            currentIdCachedAtMs = clock.getAsLong();
+            currentIdKnown = true;
+            if (!window.isEmpty() && window.lastKey() > currentIdCached) {
+                window.clear();
+                tailCheckedAtMs = Long.MIN_VALUE;
+                tailCheckedAfterId = -1;
             }
             return currentIdCached;
         } finally {

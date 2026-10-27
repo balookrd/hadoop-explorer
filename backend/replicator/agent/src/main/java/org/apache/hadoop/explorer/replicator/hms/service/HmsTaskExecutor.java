@@ -761,6 +761,17 @@ public class HmsTaskExecutor implements Closeable {
             reportEventGap(job, lastEventId, "первое доступное событие " + events.get(0).eventId());
             return 0;
         }
+        if (events.isEmpty() && lastEventId > 0 && logCache.currentEventId() < lastEventId) {
+            // Номер события ниже позиции задачи: журнал метастора начался заново. Отставание
+            // считалось бы нулевым, задача выглядела бы здоровой и ничего не переносила, а когда
+            // новые номера перерастут позицию — пропустила бы все изменения до этого момента.
+            // Кэш номера может отставать от уже прочитанных событий, поэтому решение — по свежему
+            long current = logCache.refreshCurrentEventId();
+            if (current < lastEventId) {
+                reportMetastoreReset(job, lastEventId, current);
+                return 0;
+            }
+        }
         if (events.isEmpty()) {
             AtomicBoolean synced = jobLagSynchronized.computeIfAbsent(job.id(), k -> new AtomicBoolean(false));
             if (!synced.get()) {
@@ -1308,6 +1319,17 @@ public class HmsTaskExecutor implements Closeable {
                 "ERROR", 0, 0, 0, 0, null, null, null,
                 String.format("Разрыв журнала событий HMS после события %d (%s): события удалены метастором по TTL. "
                         + "Требуется повторный bootstrap.", lastEventId, detail),
+                Collections.emptyList(), agentId));
+    }
+
+    private void reportMetastoreReset(HmsPendingJobDto job, long lastEventId, long currentEventId) {
+        log.error("[HmsTaskExecutor] Задача {}: номер события метастора {} меньше позиции задачи {}",
+                job.id(), currentEventId, lastEventId);
+        orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+                "ERROR", 0, 0, 0, 0, null, null, null,
+                String.format("Номер события метастора источника (%d) меньше позиции задачи (%d): журнал начался "
+                        + "заново — метастор восстановлен из резервной копии или пересоздан. Требуется повторный bootstrap.",
+                        currentEventId, lastEventId),
                 Collections.emptyList(), agentId));
     }
 
