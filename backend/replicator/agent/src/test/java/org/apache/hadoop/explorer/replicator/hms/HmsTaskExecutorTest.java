@@ -28,6 +28,7 @@ public class HmsTaskExecutorTest {
     private int targetGrpcPort;
     private MockHmsClient srcHmsClient;
     private final List<String> partitionReads = Collections.synchronizedList(new ArrayList<>());
+    private volatile long awaitDelayMs;
     private MockHmsClient dstHmsClient;
     private HmsTaskExecutor executor;
 
@@ -114,6 +115,13 @@ public class HmsTaskExecutorTest {
 
             @Override
             public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
+                if (awaitDelayMs > 0) {
+                    try {
+                        Thread.sleep(awaitDelayMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 awaitedSubjobs.addAll(subjobIds);
                 awaitCallSizes.add(subjobIds.size());
                 if (stopAgentOnAwait) {
@@ -595,6 +603,45 @@ public class HmsTaskExecutorTest {
         assertEquals(5, processed);
         assertEquals(List.of(5), awaitCallSizes, "одно ожидание на пять копий");
         assertEquals(5, dstHmsClient.getPartitions("cdcb_r", "t").size());
+    }
+
+    @Test
+    @DisplayName("CDC: пока пачка ждет копий данных, отставание уходит промежуточными отчетами")
+    void lagIsReportedWhileBatchWaitsForData() {
+        srcHmsClient.createDatabase("lagr", "hdfs://ns-hot:8020/warehouse/lagr.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "lagr", "t", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/lagr.db/t", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+        assertTrue(executor.runBootstrap(new HmsPendingJobDto("hms-job-lagr", "dc1", "dc2", "lagr", "lagr_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L)));
+        long position = reports.get(reports.size() - 1).lastProcessedEventId();
+        for (int i = 0; i < 3; i++) {
+            srcHmsClient.addPartitions("lagr", "t", List.of(new HmsPartitionDto("hive", "lagr", "t", List.of("p" + i),
+                    "hdfs://ns-hot:8020/warehouse/lagr.db/t/dt=p" + i, Map.of())));
+            srcHmsClient.emitEvent("ADD_PARTITION", "lagr", "t", "{\"partitions\": [{\"dt\": \"p" + i + "\"}]}");
+        }
+        executor.setCdcLagReportIntervalMsForTesting(50);
+        awaitDelayMs = 400;
+        reports.clear();
+
+        executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-lagr", "dc1", "dc2", "lagr", "lagr_r", "*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        List<HmsProgressReportRequest> interim = reports.stream()
+                .filter(r -> r.status() == null || r.status().isBlank()).toList();
+        assertFalse(interim.isEmpty(), "за время ожидания копий промежуточного отчета не было");
+        assertEquals(3L, interim.get(0).eventLag(), "отставание от зафиксированной позиции");
+        assertNull(interim.get(0).lastProcessedEventId(), "промежуточный отчет позицию не двигает");
+        long afterBatch = reports.size();
+        sleepQuietly(200);
+        assertEquals(afterBatch, reports.size(), "после пачки промежуточные отчеты прекращаются");
+    }
+
+    private static void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test

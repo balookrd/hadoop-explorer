@@ -42,6 +42,13 @@ public class HmsTaskExecutor implements Closeable {
     private final HmsSchemaDriftDetector driftDetector = new HmsSchemaDriftDetector();
     private final HmsPathRewriter pathRewriter;
     private final ExecutorService bootstrapExecutor;
+    /**
+     * Отчеты об отставании во время долгой пачки CDC. Отставание уходило только с итогом пачки,
+     * и пока пачка ждала копий данных (минуты при барьере), в UI висело прошлое значение — на
+     * стенде 128 при реальных 514.
+     */
+    private final ScheduledExecutorService cdcLagReporter;
+    private volatile long cdcLagReportIntervalMs = 10_000L;
     private final boolean grpcTlsEnabled;
     private final boolean insecureSkipVerify;
     private final int partitionBatchSize;
@@ -158,6 +165,30 @@ public class HmsTaskExecutor implements Closeable {
             t.setDaemon(true);
             return t;
         });
+        this.cdcLagReporter = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "HmsCdcLagReporter-" + agentId);
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    public void setCdcLagReportIntervalMsForTesting(long intervalMs) {
+        this.cdcLagReportIntervalMs = intervalMs;
+    }
+
+    /**
+     * Промежуточный отчет об отставании задачи, пока идет пачка. Позиция в нем не передается:
+     * она фиксируется итогом пачки, а отставание считается от последней зафиксированной — так
+     * оно согласовано с позицией, которую видит оператор.
+     */
+    private void reportCdcLag(HmsPendingJobDto job, long committedPosition) {
+        try {
+            long lag = Math.max(0, logCache.currentEventId() - committedPosition);
+            orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+                    null, 0, 0, 0, 0, null, null, lag, null, Collections.emptyList(), agentId));
+        } catch (Exception e) {
+            log.debug("[HmsTaskExecutor] Задача {}: промежуточный отчет об отставании не отправлен: {}", job.id(), e.getMessage());
+        }
     }
 
     /**
@@ -805,6 +836,9 @@ public class HmsTaskExecutor implements Closeable {
         String batchFailureReason = null;
 
         HmsPipelineSender sender = cdcSender(job.targetAgentGrpcAddress());
+        long interval = cdcLagReportIntervalMs;
+        ScheduledFuture<?> lagReports = cdcLagReporter.scheduleAtFixedRate(
+                () -> reportCdcLag(job, lastEventId), interval, interval, TimeUnit.MILLISECONDS);
         try {
             Prefetch prefetch = dataBarrierEnabled ? prefetchPartitionData(job, events) : Prefetch.EMPTY;
             Map<String, String> readySubjobs = prefetch.subjobsBySource();
@@ -1082,6 +1116,8 @@ public class HmsTaskExecutor implements Closeable {
             isFenced.set(true);
         } catch (Exception e) {
             log.error("[HmsTaskExecutor] Ошибка при передаче CDC событий: {}", e.getMessage(), e);
+        } finally {
+            lagReports.cancel(false);
         }
 
         return processed;
@@ -1381,6 +1417,7 @@ public class HmsTaskExecutor implements Closeable {
         if (bootstrapExecutor != null) {
             bootstrapExecutor.shutdownNow();
         }
+        cdcLagReporter.shutdownNow();
         for (HmsPipelineSender sender : cdcSenders.values()) {
             try {
                 sender.close();
