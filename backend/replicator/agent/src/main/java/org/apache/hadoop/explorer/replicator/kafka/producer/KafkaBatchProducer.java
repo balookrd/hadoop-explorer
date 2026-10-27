@@ -47,6 +47,15 @@ public class KafkaBatchProducer {
      */
     private final ConcurrentMap<String, CompletableFuture<Void>> partitionChains = new ConcurrentHashMap<>();
 
+    /**
+     * Наибольшее смещение источника в последнем принятом батче партиции.
+     *
+     * <p>Батч с {@code prev_max_source_offset} принимается, только если продолжает это значение.
+     * Отказ батча откатывает его к предшественнику отказавшего: батчи, которые отправитель
+     * успел послать следом, отклоняются, и он переотправляет их по порядку после повтора.
+     */
+    private final ConcurrentMap<String, Long> acceptedMaxOffsets = new ConcurrentHashMap<>();
+
     public KafkaBatchProducer(KafkaProducer<byte[], byte[]> producer) {
         this(producer, Executors.newVirtualThreadPerTaskExecutor());
     }
@@ -88,6 +97,9 @@ public class KafkaBatchProducer {
         AtomicReference<Throwable> firstError = new AtomicReference<>(null);
 
         String partitionKey = topic + "#" + partitionOf(records);
+        long batchMaxOffset = records.get(records.size() - 1).getOriginalOffset();
+        boolean sequenced = batch.hasPrevMaxSourceOffset();
+        long prevMaxOffset = batch.getPrevMaxSourceOffset();
         Runnable sendAll = () -> {
             for (KafkaRecord r : records) {
                 byte[] key = r.getKey().isEmpty() ? null : r.getKey().toByteArray();
@@ -122,14 +134,16 @@ public class KafkaBatchProducer {
                         }
 
                         if (remainingCount.decrementAndGet() == 0) {
-                            finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
+                            finishBatch(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(),
+                                    firstError.get(), partitionKey);
                         }
                     });
                 } catch (Exception e) {
                     firstError.compareAndSet(null, e);
                     log.error("Синхронное исключение producer.send() для топика {}: {}", topic, e.getMessage());
                     if (remainingCount.decrementAndGet() == 0) {
-                        finishAck(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(), firstError.get());
+                        finishBatch(resultFuture, batch, topic, receiveTime, committedCount.get(), maxOffset.get(),
+                                firstError.get(), partitionKey);
                     }
                 }
             }
@@ -137,14 +151,52 @@ public class KafkaBatchProducer {
 
         // Следующий батч этой партиции начинает отправку только после того, как предыдущий
         // передал все свои записи продюсеру
+        // Проверка последовательности и постановка в цепочку — одним атомарным шагом по партиции
+        String[] outOfSequence = new String[1];
         partitionChains.compute(partitionKey, (key, previous) -> {
+            Long accepted = acceptedMaxOffsets.get(partitionKey);
+            if (sequenced && accepted != null && accepted != prevMaxOffset) {
+                outOfSequence[0] = "батч вне последовательности партиции " + partitionKey
+                        + ": продолжает смещение " + prevMaxOffset + ", последнее принятое " + accepted;
+                return previous;
+            }
+            acceptedMaxOffsets.put(partitionKey, batchMaxOffset);
             CompletableFuture<Void> base = (previous == null || previous.isDone())
                     ? CompletableFuture.completedFuture(null)
                     : previous;
             return base.thenRunAsync(sendAll, executor);
         });
+        if (outOfSequence[0] != null) {
+            log.debug("Отклонен пакет {}: {}", batch.getBatchId(), outOfSequence[0]);
+            return CompletableFuture.completedFuture(buildAck(batch, topic, receiveTime, 0, -1L,
+                    new IllegalStateException(outOfSequence[0])));
+        }
 
         return resultFuture;
+    }
+
+    /**
+     * Завершение батча: при отказе последовательность партиции откатывается к его
+     * предшественнику, и все, что отправитель послал следом, отклоняется до повтора отказавшего.
+     * Откат только назад: отказ более позднего батча не перекрывает откат раннего.
+     */
+    private void finishBatch(CompletableFuture<KafkaBatchAck> resultFuture,
+                             KafkaBatchRequest batch,
+                             String topic,
+                             long receiveTime,
+                             int committed,
+                             long maxOffset,
+                             Throwable error,
+                             String partitionKey) {
+        if (error != null) {
+            if (batch.hasPrevMaxSourceOffset()) {
+                long rollbackTo = batch.getPrevMaxSourceOffset();
+                acceptedMaxOffsets.merge(partitionKey, rollbackTo, Math::min);
+            } else {
+                acceptedMaxOffsets.remove(partitionKey);
+            }
+        }
+        finishAck(resultFuture, batch, topic, receiveTime, committed, maxOffset, error);
     }
 
     /** Партиция батча: записи батча всегда относятся к одной партиции источника. */

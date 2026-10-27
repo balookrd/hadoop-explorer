@@ -280,12 +280,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
          * либо изолирован в DLQ; только такие батчи позволяют продвинуть коммит оффсетов.
          */
         private final class PendingBatch {
-            private final String batchId;
+            /** Меняется при переотправке: ack прежней отправки после этого не учитывается. */
+            private volatile String batchId;
             private final TopicPartition topicPartition;
             private final long maxSourceOffset;
             private final int recordCount;
             private final long bytesSize;
-            private final KafkaBatchRequest request;
+            private volatile KafkaBatchRequest request;
             private int attempts;
             private volatile boolean settled;
             /** Индекс целевого приемника, на который батч отправлен в данный момент. */
@@ -320,6 +321,14 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
          * непрерывного префикса перешагнул бы через пропуск и записи были бы потеряны.
          */
         private final Set<TopicPartition> routingBlockedPartitions = ConcurrentHashMap.newKeySet();
+        /** Наибольшее смещение в последнем отправленном батче партиции: предшественник следующего. */
+        private final Map<TopicPartition, Long> lastSentMaxOffsets = new ConcurrentHashMap<>();
+        /**
+         * Партиции, батч которых не доставлен и не изолирован (DLQ нет): все следующие батчи
+         * приемник отклонит как нарушающие порядок, поэтому вычитка партиции останавливается.
+         */
+        private final Set<TopicPartition> stalledPartitions = ConcurrentHashMap.newKeySet();
+        private final Set<TopicPartition> pausedStalledPartitions = ConcurrentHashMap.newKeySet();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
         private long localTopicsVersion = 1;
         /** Воркер вышел из цикла и зафиксировал оффсеты: только после этого консьюмер можно закрыть. */
@@ -358,11 +367,14 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             return;
                         }
 
-                        log.error("[Worker {} -> Target {}] Удаленный узел вернул ошибку для пакета {}: {}",
-                                workerId, idx, ack.getBatchId(), ack.getErrorMessage());
                         if (pending == null) {
+                            // Отказ прежней отправки уже переотправленного батча
+                            log.debug("[Worker {} -> Target {}] Отказ по замененному пакету {}: {}",
+                                    workerId, idx, ack.getBatchId(), ack.getErrorMessage());
                             return;
                         }
+                        log.error("[Worker {} -> Target {}] Удаленный узел вернул ошибку для пакета {}: {}",
+                                workerId, idx, ack.getBatchId(), ack.getErrorMessage());
                         handleRejectedBatch(pending, idx, ack.getErrorMessage());
                     }
 
@@ -498,6 +510,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     // 1. Фиксируем оффсеты, успешно подтвержденные целевым узлом через Ack
                     drainAndCommitPendingOffsets();
                     resumePartitionsWithRestoredRoutes();
+                    pauseStalledPartitions();
 
                     // Контроль Backpressure: притормаживаем вычитку, если буфер in-flight переполнен
                     while (running.get() && inFlightCount.get() >= maxInFlightBatches) {
@@ -635,15 +648,19 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             List<KafkaRecord> chunk = partitionRecords.subList(i, Math.min(i + maxBatchSize, partitionRecords.size()));
                             long maxChunkOffset = chunk.get(chunk.size() - 1).getOriginalOffset();
 
-                            KafkaBatchRequest batchRequest = KafkaBatchRequest.newBuilder()
+                            KafkaBatchRequest.Builder batchBuilder = KafkaBatchRequest.newBuilder()
                                     .setBatchId(UUID.randomUUID().toString())
                                     .setSourceDc(sourceDcId)
                                     .setTargetDc(targetDcId)
                                     .setTopic(tp.topic())
                                     .setPayloadFormat(targetFormat)
                                     .setSendTimestampMs(System.currentTimeMillis())
-                                    .addAllRecords(chunk)
-                                    .build();
+                                    .addAllRecords(chunk);
+                            Long prevMaxOffset = lastSentMaxOffsets.put(tp, maxChunkOffset);
+                            if (prevMaxOffset != null) {
+                                batchBuilder.setPrevMaxSourceOffset(prevMaxOffset);
+                            }
+                            KafkaBatchRequest batchRequest = batchBuilder.build();
 
                             // Проверка готовности сетевого буфера gRPC (Client-side Backpressure Flow Control)
                             if (targetStream instanceof io.grpc.stub.ClientCallStreamObserver<?> clientCallStreamObserver) {
@@ -776,13 +793,27 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         /**
          * Освобождение батчей, отправленных на указанный приемник, после обрыва его стрима.
          *
-         * <p>Такие батчи никогда не получат ack, поэтому проходят обычным путем отказа:
-         * повторная отправка на другой приемник, затем DLQ или блокировка коммита партиции.
+         * <p>Такие батчи никогда не получат ack, поэтому проходят обычным путем отказа. Отказ
+         * обрабатывается для самого раннего батча партиции: переотправка идет от него вместе со
+         * всеми следующими и сохраняет их порядок.
          */
         private void releaseBatchesOfTarget(int targetIdx, String reason) {
-            for (PendingBatch pending : new ArrayList<>(inFlightBatches.values())) {
-                if (pending.targetIdx == targetIdx && !pending.settled) {
-                    handleRejectedBatch(pending, targetIdx, reason);
+            for (PartitionAckTracker tracker : new ArrayList<>(partitionTrackers.values())) {
+                PendingBatch earliest = null;
+                tracker.lock.lock();
+                try {
+                    for (PendingBatch pending : tracker.queue) {
+                        if (!pending.settled && pending.targetIdx == targetIdx
+                                && inFlightBatches.containsKey(pending.batchId)) {
+                            earliest = pending;
+                            break;
+                        }
+                    }
+                } finally {
+                    tracker.lock.unlock();
+                }
+                if (earliest != null) {
+                    handleRejectedBatch(earliest, targetIdx, reason);
                 }
             }
         }
@@ -790,55 +821,165 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         /**
          * Обработка батча, отвергнутого приемником: повторная отправка, затем изоляция в DLQ.
          *
-         * <p>Без DLQ-обработчика батч остается нерешенным и блокирует коммит своей партиции:
-         * репликация встает, но записи не теряются. Это осознанный выбор fail-closed.
+         * <p>Переотправляется не только отказавший батч, но и все следующие батчи его партиции,
+         * по порядку и под новыми идентификаторами. Приемник после отказа отклоняет обогнавшие
+         * батчи (см. {@code prev_max_source_offset}), а ack их прежних отправок отбрасываются как
+         * неизвестные. Иначе повтор батча N ложился в целевой топик после уже принятого N+1.
+         *
+         * <p>Без DLQ-обработчика батч остается нерешенным и блокирует коммит своей партиции, а
+         * вычитка партиции останавливается: репликация встает, но записи не теряются и не
+         * переставляются. Это осознанный выбор fail-closed.
          */
         private void handleRejectedBatch(PendingBatch pending, int targetIdx, String reason) {
-            if (pending.attempts < maxBatchRetries) {
-                pending.attempts++;
-                log.warn("[Worker {}] Повторная отправка пакета {} (попытка {} из {}): {}",
-                        workerId, pending.batchId, pending.attempts, maxBatchRetries, reason);
-                try {
-                    int retryIdx = replicationClient.selectTargetIndex(
-                            pending.topicPartition.topic(), pending.topicPartition.partition());
-                    if (retryIdx == KafkaReplicationClient.NO_TARGET) {
-                        // Повторять некуда: батч остается in-flight и держит оффсеты партиции,
-                        // пока приемники маршрута не появятся в пуле
-                        log.warn("[Worker {}] Пакет {} партиции {} ждет приемников своего маршрута",
-                                workerId, pending.batchId, pending.topicPartition);
-                        return;
-                    }
-                    pending.targetIdx = retryIdx;
-                    sendOn(getOrCreateStream(retryIdx), pending.request);
-                    return;
-                } catch (Exception resendFailure) {
-                    log.warn("[Worker {}] Не удалось переотправить пакет {}: {}",
-                            workerId, pending.batchId, resendFailure.getMessage());
-                    replicationClient.markTargetSuspect(targetIdx, resendFailure);
-                    activeStreams.remove(targetIdx);
-                }
-            }
-
-            inFlightBatches.remove(pending.batchId);
-            inFlightCount.decrementAndGet();
-
-            BiConsumer<KafkaBatchRequest, String> handler = deadLetterHandler;
-            if (handler == null) {
-                log.error("[Worker {}] Пакет {} партиции {} не доставлен за {} попыток и DLQ не настроен: "
-                                + "фиксация оффсетов партиции остановлена во избежание потери записей",
-                        workerId, pending.batchId, pending.topicPartition, maxBatchRetries);
+            PartitionAckTracker tracker = partitionTrackers.get(pending.topicPartition);
+            if (tracker == null) {
+                // Партиция уже отозвана: ее батчи выброшены вместе с состоянием
                 return;
             }
-
+            tracker.lock.lock();
             try {
-                handler.accept(pending.request, reason);
-                totalBatchesDeadLettered.incrementAndGet();
-                log.error("[Worker {}] Пакет {} партиции {} изолирован в DLQ после {} попыток: {}",
-                        workerId, pending.batchId, pending.topicPartition, maxBatchRetries, reason);
-                settleAndAdvance(pending);
-            } catch (Exception dlqFailure) {
-                log.error("[Worker {}] Сбой DLQ-обработчика для пакета {}: {} — фиксация оффсетов остановлена",
-                        workerId, pending.batchId, dlqFailure.getMessage());
+                if (pending.settled || inFlightBatches.get(pending.batchId) != pending) {
+                    return;
+                }
+                List<PendingBatch> followers = followersOf(tracker, pending);
+                if (stalledPartitions.contains(pending.topicPartition)) {
+                    // Перед ним уже стоит недоставленный батч: повторять бессмысленно
+                    dropFromFlight(pending);
+                    return;
+                }
+                if (pending.attempts < maxBatchRetries) {
+                    pending.attempts++;
+                    log.warn("[Worker {}] Повторная отправка пакета {} (попытка {} из {}) и следующих за ним: {}",
+                            workerId, pending.batchId, pending.attempts, maxBatchRetries, reason);
+                    try {
+                        int retryIdx = replicationClient.selectTargetIndex(
+                                pending.topicPartition.topic(), pending.topicPartition.partition());
+                        if (retryIdx == KafkaReplicationClient.NO_TARGET) {
+                            // Повторять некуда: батч остается in-flight и держит оффсеты партиции,
+                            // пока приемники маршрута не появятся в пуле
+                            log.warn("[Worker {}] Пакет {} партиции {} ждет приемников своего маршрута",
+                                    workerId, pending.batchId, pending.topicPartition);
+                            return;
+                        }
+                        StreamObserver<KafkaBatchRequest> stream = getOrCreateStream(retryIdx);
+                        resend(pending, stream, retryIdx, false);
+                        for (PendingBatch follower : followers) {
+                            resend(follower, stream, retryIdx, false);
+                        }
+                        return;
+                    } catch (Exception resendFailure) {
+                        log.warn("[Worker {}] Не удалось переотправить пакет {}: {}",
+                                workerId, pending.batchId, resendFailure.getMessage());
+                        replicationClient.markTargetSuspect(targetIdx, resendFailure);
+                        activeStreams.remove(targetIdx);
+                    }
+                }
+
+                dropFromFlight(pending);
+
+                BiConsumer<KafkaBatchRequest, String> handler = deadLetterHandler;
+                if (handler == null) {
+                    log.error("[Worker {}] Пакет {} партиции {} не доставлен за {} попыток и DLQ не настроен: "
+                                    + "вычитка и фиксация оффсетов партиции остановлены во избежание потери записей",
+                            workerId, pending.batchId, pending.topicPartition, maxBatchRetries);
+                    stalledPartitions.add(pending.topicPartition);
+                    followers.forEach(this::dropFromFlight);
+                    return;
+                }
+
+                try {
+                    handler.accept(pending.request, reason);
+                    totalBatchesDeadLettered.incrementAndGet();
+                    log.error("[Worker {}] Пакет {} партиции {} изолирован в DLQ после {} попыток: {}",
+                            workerId, pending.batchId, pending.topicPartition, maxBatchRetries, reason);
+                    settleAndAdvance(pending);
+                } catch (Exception dlqFailure) {
+                    log.error("[Worker {}] Сбой DLQ-обработчика для пакета {}: {} — вычитка и фиксация оффсетов остановлены",
+                            workerId, pending.batchId, dlqFailure.getMessage());
+                    stalledPartitions.add(pending.topicPartition);
+                    followers.forEach(this::dropFromFlight);
+                    return;
+                }
+                // Изолированный батч в целевой топик не попал: следующие начинают
+                // последовательность приемника заново
+                if (!followers.isEmpty()) {
+                    int retryIdx = replicationClient.selectTargetIndex(
+                            pending.topicPartition.topic(), pending.topicPartition.partition());
+                    if (retryIdx != KafkaReplicationClient.NO_TARGET) {
+                        try {
+                            StreamObserver<KafkaBatchRequest> stream = getOrCreateStream(retryIdx);
+                            boolean first = true;
+                            for (PendingBatch follower : followers) {
+                                resend(follower, stream, retryIdx, first);
+                                first = false;
+                            }
+                        } catch (Exception resendFailure) {
+                            log.warn("[Worker {}] Не удалось переотправить батчи за изолированным пакетом {}: {}",
+                                    workerId, pending.batchId, resendFailure.getMessage());
+                        }
+                    }
+                }
+            } finally {
+                tracker.lock.unlock();
+            }
+        }
+
+        /** Нерешенные батчи партиции, отправленные после указанного. Вызывается под локом трекера. */
+        private List<PendingBatch> followersOf(PartitionAckTracker tracker, PendingBatch pending) {
+            List<PendingBatch> followers = new ArrayList<>();
+            boolean after = false;
+            for (PendingBatch queued : tracker.queue) {
+                if (queued == pending) {
+                    after = true;
+                } else if (after && !queued.settled && inFlightBatches.get(queued.batchId) == queued) {
+                    followers.add(queued);
+                }
+            }
+            return followers;
+        }
+
+        /**
+         * Переотправка батча под новым идентификатором: ack прежней отправки станет неизвестным.
+         *
+         * @param restartSequence не передавать предшественника: приемник начинает
+         *                        последовательность партиции с этого батча
+         */
+        private void resend(PendingBatch pending, StreamObserver<KafkaBatchRequest> stream, int targetIdx,
+                            boolean restartSequence) {
+            KafkaBatchRequest.Builder builder = pending.request.toBuilder()
+                    .setBatchId(UUID.randomUUID().toString());
+            if (restartSequence) {
+                builder.clearPrevMaxSourceOffset();
+            }
+            KafkaBatchRequest request = builder.build();
+            inFlightBatches.remove(pending.batchId);
+            pending.request = request;
+            pending.batchId = request.getBatchId();
+            pending.targetIdx = targetIdx;
+            inFlightBatches.put(pending.batchId, pending);
+            sendOn(stream, request);
+        }
+
+        /** Батч больше не ждет ack: он остается в очереди партиции и держит ее коммит. */
+        private void dropFromFlight(PendingBatch pending) {
+            if (inFlightBatches.remove(pending.batchId, pending)) {
+                inFlightCount.decrementAndGet();
+            }
+        }
+
+        /** Остановка вычитки партиций с недоставленным батчем: следующие все равно будут отклонены. */
+        private void pauseStalledPartitions() {
+            if (stalledPartitions.isEmpty()) {
+                return;
+            }
+            for (TopicPartition tp : stalledPartitions) {
+                if (pausedStalledPartitions.add(tp)) {
+                    try {
+                        workerConsumer.pause(List.of(tp));
+                    } catch (Exception e) {
+                        log.warn("[Worker {}] Не удалось приостановить партицию {}: {}", workerId, tp, e.getMessage());
+                    }
+                }
             }
         }
 
@@ -933,6 +1074,9 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     }
                 }
                 pendingCommittedOffsets.remove(tp);
+                lastSentMaxOffsets.remove(tp);
+                stalledPartitions.remove(tp);
+                pausedStalledPartitions.remove(tp);
             }
         }
 

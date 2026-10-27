@@ -178,4 +178,72 @@ class KafkaBatchProducerTest {
         assertNotEquals("kafka-producer-network-thread | test", continuationThread.get(),
                 "Стадии после подтверждения батча обязаны выполняться вне сетевого потока продюсера");
     }
+
+    private static KafkaBatchRequest seqBatch(String id, long firstOffset, long lastOffset, Long prevMax) {
+        KafkaBatchRequest.Builder b = KafkaBatchRequest.newBuilder().setBatchId(id).setTopic("orders");
+        for (long o = firstOffset; o <= lastOffset; o++) {
+            b.addRecords(KafkaRecord.newBuilder().setPartition(3).setOriginalOffset(o)
+                    .setPayload(ByteString.copyFromUtf8("v" + o)).build());
+        }
+        if (prevMax != null) {
+            b.setPrevMaxSourceOffset(prevMax);
+        }
+        return b.build();
+    }
+
+    private KafkaBatchAck write(KafkaBatchRequest batch) throws Exception {
+        return batchProducer.writeBatchAsync(batch).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    @DisplayName("Последовательность партиции: батч, обогнавший отказавший, отклоняется до его повтора")
+    void shouldRejectBatchesThatOvertakeFailedOne() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean failNext = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.List<Long> written = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(mockProducer.send(any(ProducerRecord.class), any(Callback.class))).thenAnswer(inv -> {
+            ProducerRecord<byte[], byte[]> rec = inv.getArgument(0);
+            Callback cb = inv.getArgument(1);
+            if (failNext.get()) {
+                cb.onCompletion(null, new RuntimeException("NOT_ENOUGH_REPLICAS"));
+            } else {
+                written.add(Long.parseLong(new String(rec.value()).substring(1)));
+                cb.onCompletion(new RecordMetadata(new TopicPartition("orders", 3), 0L, 0, 0L, 0, 0), null);
+            }
+            return CompletableFuture.completedFuture(null);
+        });
+
+        assertTrue(write(seqBatch("b1", 0, 9, null)).getSuccess(), "Первый батч начинает последовательность");
+        failNext.set(true);
+        assertFalse(write(seqBatch("b2", 10, 19, 9L)).getSuccess());
+        failNext.set(false);
+
+        KafkaBatchAck overtaking = write(seqBatch("b3", 20, 29, 19L));
+        assertFalse(overtaking.getSuccess(), "Батч за отказавшим не должен лечь раньше его повтора");
+        assertTrue(overtaking.getErrorMessage().contains("вне последовательности"));
+
+        assertTrue(write(seqBatch("b2-retry", 10, 19, 9L)).getSuccess(), "Повтор отказавшего продолжает последовательность");
+        assertTrue(write(seqBatch("b3-retry", 20, 29, 19L)).getSuccess());
+
+        java.util.List<Long> expected = new java.util.ArrayList<>();
+        for (long o = 0; o <= 29; o++) {
+            expected.add(o);
+        }
+        assertEquals(expected, written, "В целевой топик записи легли в порядке источника");
+    }
+
+    @Test
+    @DisplayName("Батч без предшественника начинает последовательность заново: новый владелец партиции, DLQ")
+    void shouldRestartSequenceWithoutPredecessor() throws Exception {
+        when(mockProducer.send(any(ProducerRecord.class), any(Callback.class))).thenAnswer(inv -> {
+            ((Callback) inv.getArgument(1)).onCompletion(
+                    new RecordMetadata(new TopicPartition("orders", 3), 0L, 0, 0L, 0, 0), null);
+            return CompletableFuture.completedFuture(null);
+        });
+        assertTrue(write(seqBatch("b1", 0, 9, null)).getSuccess());
+        assertFalse(write(seqBatch("stale", 30, 39, 29L)).getSuccess());
+        assertTrue(write(seqBatch("restart", 40, 49, null)).getSuccess());
+        assertTrue(write(seqBatch("next", 50, 59, 49L)).getSuccess());
+        assertTrue(write(seqBatch("legacy", 60, 69, null)).getSuccess(),
+                "Батч старого отправителя без поля принимается как раньше");
+    }
 }

@@ -297,4 +297,65 @@ class KafkaOffsetContinuityTest {
                     "Без DLQ потерянный батч обязан блокировать коммит, а не исчезать молча");
         }
     }
+
+    @Test
+    @DisplayName("Отказ батча переотправляет его и все следующие по порядку под новыми id")
+    void testRejectedBatchRewindsPartitionInOrder() throws Exception {
+        try (Harness h = new Harness(100L, 101L, 102L)) {
+            h.pool.setMaxBatchRetries(2);
+            h.pool.start();
+            h.awaitSent(3);
+
+            KafkaBatchRequest first = h.sent.get(0);
+            KafkaBatchRequest second = h.sent.get(1);
+            KafkaBatchRequest third = h.sent.get(2);
+            assertFalse(first.hasPrevMaxSourceOffset(), "Первый батч партиции начинает последовательность");
+            assertEquals(100L, second.getPrevMaxSourceOffset());
+            assertEquals(101L, third.getPrevMaxSourceOffset());
+
+            // Первый подтвержден, второй отвергнут, а третий приемник успел принять
+            h.ack(first, true);
+            h.ack(second, false);
+            h.awaitSent(5);
+            assertEquals(101L, h.sent.get(3).getRecords(0).getOriginalOffset(), "Сначала повтор отказавшего");
+            assertEquals(102L, h.sent.get(4).getRecords(0).getOriginalOffset(), "Затем следующий за ним");
+            assertEquals(100L, h.sent.get(3).getPrevMaxSourceOffset());
+            assertEquals(101L, h.sent.get(4).getPrevMaxSourceOffset());
+            assertNotEquals(third.getBatchId(), h.sent.get(4).getBatchId());
+
+            // Ack прежней отправки третьего батча устарел и не двигает коммит
+            h.ack(third, true);
+            Thread.sleep(300);
+            assertTrue(h.highestCommittedOffset() <= 101L, "Коммит не перешагивает через неподтвержденный повтор");
+
+            h.ack(h.sent.get(3), true);
+            h.ack(h.sent.get(4), true);
+            Thread.sleep(400);
+            assertEquals(103L, h.highestCommittedOffset());
+        }
+    }
+
+    @Test
+    @DisplayName("После изоляции батча в DLQ следующие уходят заново и начинают последовательность")
+    void testDeadLetteredBatchRestartsSequence() throws Exception {
+        try (Harness h = new Harness(100L, 101L)) {
+            List<KafkaBatchRequest> deadLettered = new CopyOnWriteArrayList<>();
+            h.pool.setMaxBatchRetries(0);
+            h.pool.setDeadLetterHandler((request, reason) -> deadLettered.add(request));
+            h.pool.start();
+            h.awaitSent(2);
+
+            h.ack(h.sent.get(0), false);
+            h.awaitSent(3);
+            assertEquals(1, deadLettered.size());
+            KafkaBatchRequest restarted = h.sent.get(2);
+            assertEquals(101L, restarted.getRecords(0).getOriginalOffset());
+            assertFalse(restarted.hasPrevMaxSourceOffset(),
+                    "Изолированный батч в цель не попал: приемник должен начать последовательность заново");
+
+            h.ack(restarted, true);
+            Thread.sleep(400);
+            assertEquals(102L, h.highestCommittedOffset());
+        }
+    }
 }
