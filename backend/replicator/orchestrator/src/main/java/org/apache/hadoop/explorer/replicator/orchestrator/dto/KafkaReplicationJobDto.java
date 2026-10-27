@@ -105,6 +105,11 @@ public class KafkaReplicationJobDto {
     public Long getBytesReplicated() { return bytesReplicated; }
     public void setBytesReplicated(Long bytesReplicated) { this.bytesReplicated = bytesReplicated; }
 
+    /** Агенты с работающим пулом задачи: после паузы или удаления список пустеет. */
+    private List<String> runningAgents = new java.util.ArrayList<>();
+    public List<String> getRunningAgents() { return runningAgents; }
+    public void setRunningAgents(List<String> runningAgents) { this.runningAgents = runningAgents; }
+
     public Long getCurrentLagMs() { return currentLagMs; }
     public void setCurrentLagMs(Long currentLagMs) { this.currentLagMs = currentLagMs; }
 

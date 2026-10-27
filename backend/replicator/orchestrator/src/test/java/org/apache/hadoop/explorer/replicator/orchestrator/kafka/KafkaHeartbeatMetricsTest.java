@@ -183,4 +183,24 @@ class KafkaHeartbeatMetricsTest {
         assertEquals(0L, fresh.getMessagesReplicated() == null ? 0L : fresh.getMessagesReplicated(),
                 "Новая задача не должна показывать объем соседней задачи того же ЦОД");
     }
+
+    @Test
+    @DisplayName("Пауза подтверждается: агент без задачи в отчете выпадает из running_agents")
+    void testRunningAgentsConfirmStop() {
+        createJob("kafka-stop", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+        var stats = new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-stop", 10L, 100L, 0L);
+        service.updateJobMetricsFromHeartbeat("agent-b", List.of(stats));
+        service.updateJobMetricsFromHeartbeat("agent-a", List.of(stats));
+        assertEquals(List.of("agent-a", "agent-b"), service.getRunningAgents("kafka-stop"));
+        assertEquals(List.of("agent-a", "agent-b"), service.getJobById("kafka-stop").orElseThrow().getRunningAgents());
+
+        // Агент остановил пул: задачи больше нет в его отчете, пустой отчет тоже считается
+        service.updateJobMetricsFromHeartbeat("agent-a", List.of());
+        assertEquals(List.of("agent-b"), service.getRunningAgents("kafka-stop"));
+        service.updateJobMetricsFromHeartbeat("agent-b", List.of());
+        assertTrue(service.getRunningAgents("kafka-stop").isEmpty(), "Все агенты остановили пул задачи");
+
+        KafkaReplicationJobEntity job = repository.findById("kafka-stop").orElseThrow();
+        assertEquals(20L, job.getMessagesReplicated(), "Остановка пула не обнуляет накопленный объем");
+    }
 }

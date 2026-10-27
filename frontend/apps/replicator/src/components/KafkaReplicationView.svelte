@@ -61,6 +61,8 @@
     messagesReplicated: number;
     bytesReplicated: number;
     currentLagMs: number;
+    /** Агенты с работающим пулом задачи по их heartbeat */
+    runningAgents: string[];
     lastErrorMessage?: string;
   }
 
@@ -315,6 +317,7 @@
       messagesReplicated: Number(raw.messages_replicated ?? raw.messagesReplicated ?? 0),
       bytesReplicated: Number(raw.bytes_replicated ?? raw.bytesReplicated ?? 0),
       currentLagMs: Number(raw.current_lag_ms ?? raw.currentLagMs ?? 0),
+      runningAgents: Array.isArray(raw.running_agents) ? raw.running_agents : [],
       lastErrorMessage: raw.last_error_message || raw.lastErrorMessage
     };
   }
@@ -917,6 +920,23 @@
               <div class="flex items-center flex-wrap gap-2">
                 <span class="w-2 h-2 rounded-full {job.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}"></span>
                 <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100">{job.name}</h3>
+
+                <!-- Подтверждение от агентов: пауза считается выполненной, когда пулы остановлены -->
+                {#if job.status === 'PAUSED' && job.runningAgents.length > 0}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                        title={job.runningAgents.join(', ')}>
+                    Останавливается: агентов {job.runningAgents.length}
+                  </span>
+                {:else if job.status === 'PAUSED'}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    Остановлена на агентах
+                  </span>
+                {:else if job.status === 'ACTIVE'}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold {job.runningAgents.length > 0 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'}"
+                        title={job.runningAgents.join(', ')}>
+                    {job.runningAgents.length > 0 ? `Работает на агентах: ${job.runningAgents.length}` : 'Ждет запуска на агентах'}
+                  </span>
+                {/if}
 
                 <!-- Бейдж направления -->
                 <span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] {job.direction === 'BIDIRECTIONAL' ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}">

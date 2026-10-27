@@ -418,6 +418,7 @@ public class KafkaReplicationOrchestratorService {
         dto.setMessagesReplicated(entity.getMessagesReplicated());
         dto.setBytesReplicated(entity.getBytesReplicated());
         dto.setCurrentLagMs(entity.getCurrentLagMs());
+        dto.setRunningAgents(getRunningAgents(entity.getId()));
         dto.setLastErrorMessage(entity.getLastErrorMessage());
         dto.setCreatedAt(entity.getCreatedAt());
         dto.setUpdatedAt(entity.getUpdatedAt());
@@ -725,6 +726,8 @@ public class KafkaReplicationOrchestratorService {
         long lastBytes;
         long lagMs;
         long seenAtMs;
+        /** Пул задачи на агенте работает: задача есть в его последнем heartbeat. */
+        volatile boolean running;
 
         long messages() {
             return base + lastMessages;
@@ -758,11 +761,23 @@ public class KafkaReplicationOrchestratorService {
     @Transactional
     public void updateJobMetricsFromHeartbeat(String agentId,
                                               List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats> stats) {
-        if (stats == null || stats.isEmpty()) {
+        if (stats == null) {
             return;
         }
         String agentKey = agentId != null && !agentId.isBlank() ? agentId : "unknown";
         long now = System.currentTimeMillis();
+        // Агент сообщает только задачи с работающим пулом: задача, которой нет в отчете,
+        // на нем остановлена. Так подтверждается, что пауза и удаление дошли до агента
+        java.util.Set<String> reported = new java.util.HashSet<>();
+        for (var jobStats : stats) {
+            reported.add(jobStats.jobId());
+        }
+        for (Map.Entry<String, Map<String, AgentKafkaStats>> job : jobAgentStats.entrySet()) {
+            AgentKafkaStats agent = job.getValue().get(agentKey);
+            if (agent != null && !reported.contains(job.getKey())) {
+                agent.running = false;
+            }
+        }
         for (var jobStats : stats) {
             if (jobStats.jobId() == null || jobStats.jobId().isBlank()) {
                 continue;
@@ -773,8 +788,9 @@ public class KafkaReplicationOrchestratorService {
             long totalBytes = 0L;
             long maxLag = 0L;
             synchronized (agents) {
-                record(agents.computeIfAbsent(agentKey, k -> new AgentKafkaStats()),
-                        jobStats.messagesReplicated(), jobStats.bytesReplicated(), jobStats.lagMs(), now);
+                AgentKafkaStats agentStats = agents.computeIfAbsent(agentKey, k -> new AgentKafkaStats());
+                record(agentStats, jobStats.messagesReplicated(), jobStats.bytesReplicated(), jobStats.lagMs(), now);
+                agentStats.running = true;
                 for (AgentKafkaStats agent : agents.values()) {
                     totalMessages += agent.messages();
                     totalBytes += agent.bytes();
@@ -785,6 +801,29 @@ public class KafkaReplicationOrchestratorService {
             }
             repository.applyJobTelemetry(jobStats.jobId(), totalMessages, totalBytes, maxLag, Instant.now());
         }
+    }
+
+    /**
+     * Агенты, у которых пул задачи работает по последнему heartbeat.
+     *
+     * <p>После паузы или удаления список пустеет за один-два цикла опроса агентов: пока он
+     * не пуст, задача на них еще читает. Агент, переставший слать heartbeat, выпадает из
+     * списка по порогу свежести.
+     */
+    public List<String> getRunningAgents(String jobId) {
+        Map<String, AgentKafkaStats> agents = jobAgentStats.get(jobId);
+        if (agents == null) {
+            return List.of();
+        }
+        long now = System.currentTimeMillis();
+        List<String> running = new ArrayList<>();
+        for (Map.Entry<String, AgentKafkaStats> agent : agents.entrySet()) {
+            if (agent.getValue().running && now - agent.getValue().seenAtMs <= AGENT_LAG_FRESHNESS_MS) {
+                running.add(agent.getKey());
+            }
+        }
+        running.sort(null);
+        return running;
     }
 
     /** Новые показания агента с учетом его рестарта: после него счетчики идут с нуля. */
