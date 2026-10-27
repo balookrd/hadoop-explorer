@@ -164,6 +164,12 @@ hadoop:
         grpc-host: "agent-dc1"
         grpc-port: 50051
         kafka-bootstrap-servers: "${KAFKA_DC1_BOOTSTRAP:kafka-dc1:9092}"
+        # Kafka с TLS: протокол клиентов оркестратора (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL;
+        # по умолчанию SASL_PLAINTEXT при Kerberos) и truststore для SSL/SASL_SSL
+        # kafka-security-protocol: "SASL_SSL"
+        # kafka-truststore-location: "/etc/security/kafka/truststore.jks"
+        # kafka-truststore-password: "${KAFKA_DC1_TRUSTSTORE_PASSWORD:}"
+        # kafka-truststore-type: "JKS"
         schema-registry-url: "${SCHEMA_REGISTRY_DC1_URL:http://schema-registry-1:8081}"
         schema-registry-type: "HORTONWORKS"
       - id: "dc2"

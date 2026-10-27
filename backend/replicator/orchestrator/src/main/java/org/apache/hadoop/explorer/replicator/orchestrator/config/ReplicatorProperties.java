@@ -137,6 +137,15 @@ public class ReplicatorProperties {
         private boolean kerberosEnabled = false;
         private String principal;
         private String keytabPath;
+        /**
+         * Протокол Kafka-клиентов оркестратора: PLAINTEXT, SSL, SASL_PLAINTEXT или SASL_SSL.
+         * Не задан — SASL_PLAINTEXT при Kerberos, иначе PLAINTEXT.
+         */
+        private String kafkaSecurityProtocol;
+        /** Truststore для SSL/SASL_SSL: брокеры с TLS без него не принимают соединение. */
+        private String kafkaTruststoreLocation;
+        private String kafkaTruststorePassword;
+        private String kafkaTruststoreType;
 
         public ClusterConfig() {}
         public ClusterConfig(String id, String name, String dcId, String hdfsRpcAddress, String grpcHost, int grpcPort) {
@@ -172,6 +181,14 @@ public class ReplicatorProperties {
         public void setPrincipal(String principal) { this.principal = principal; }
         public String getKeytabPath() { return keytabPath; }
         public void setKeytabPath(String keytabPath) { this.keytabPath = keytabPath; }
+        public String getKafkaSecurityProtocol() { return kafkaSecurityProtocol; }
+        public void setKafkaSecurityProtocol(String kafkaSecurityProtocol) { this.kafkaSecurityProtocol = kafkaSecurityProtocol; }
+        public String getKafkaTruststoreLocation() { return kafkaTruststoreLocation; }
+        public void setKafkaTruststoreLocation(String kafkaTruststoreLocation) { this.kafkaTruststoreLocation = kafkaTruststoreLocation; }
+        public String getKafkaTruststorePassword() { return kafkaTruststorePassword; }
+        public void setKafkaTruststorePassword(String kafkaTruststorePassword) { this.kafkaTruststorePassword = kafkaTruststorePassword; }
+        public String getKafkaTruststoreType() { return kafkaTruststoreType; }
+        public void setKafkaTruststoreType(String kafkaTruststoreType) { this.kafkaTruststoreType = kafkaTruststoreType; }
     }
 
     private List<FederationMappingConfig> federationMappings = new ArrayList<>();
