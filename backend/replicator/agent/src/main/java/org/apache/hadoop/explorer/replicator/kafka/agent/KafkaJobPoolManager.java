@@ -49,7 +49,9 @@ public class KafkaJobPoolManager implements Closeable {
             String targetSchemaRegistryUrl,
             String targetSchemaRegistryType,
             /** С какой позиции новая группа задачи начинает чтение: LATEST или EARLIEST. */
-            String startPosition
+            String startPosition,
+            /** Живых отправителей ЦОД задачи; 0 — неизвестно. */
+            int liveSenders
     ) {}
 
     /**
@@ -134,6 +136,23 @@ public class KafkaJobPoolManager implements Closeable {
         return max;
     }
 
+    /**
+     * Число консьюмеров задачи на этом агенте.
+     *
+     * <p>В группе задачи партиции делятся между всеми агентами-отправителями, и консьюмер сверх
+     * {@code ceil(партиций / отправителей)} простаивает, но держит свой Kerberos-логин и
+     * соединения с брокерами. Неизвестные число партиций или отправителей (0) ограничением не
+     * служат: тогда действует заданное число потоков.
+     */
+    public static int consumerThreadsFor(int configured, int partitions, int liveSenders) {
+        int threads = Math.max(1, configured);
+        if (partitions > 0) {
+            int perAgent = (int) Math.ceil((double) partitions / Math.max(1, liveSenders));
+            threads = Math.min(threads, Math.max(1, perAgent));
+        }
+        return threads;
+    }
+
     /** Идентификаторы задач, пулы которых запущены. */
     public Set<String> activeJobIds() {
         return Set.copyOf(runtimes.keySet());
@@ -209,7 +228,8 @@ public class KafkaJobPoolManager implements Closeable {
                 job.getSourceSchemaRegistryType(),
                 job.getTargetSchemaRegistryUrl(),
                 job.getTargetSchemaRegistryType(),
-                job.getStartPosition()
+                job.getStartPosition(),
+                Math.max(0, job.getLiveSenders())
         );
 
         JobPipeline pipeline;

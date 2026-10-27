@@ -594,6 +594,23 @@ public class KafkaReplicatorAgentMain {
         };
     }
 
+    /** Число партиций топиков задачи по метаданным брокера; 0 — узнать не удалось. */
+    private static int countPartitions(KafkaConsumer<byte[], byte[]> consumer, List<String> topics) {
+        int total = 0;
+        for (String topic : topics) {
+            try {
+                var partitions = consumer.partitionsFor(topic, java.time.Duration.ofSeconds(10));
+                if (partitions != null) {
+                    total += partitions.size();
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось получить число партиций топика '{}': {}", topic, e.getMessage());
+                return 0;
+            }
+        }
+        return total;
+    }
+
     /**
      * Фабрика пулов задач: у каждой задачи свой консьюмер-пул, своя consumer-группа,
      * свой клиент приемников и свой peer-DC для фильтра петель.
@@ -616,8 +633,7 @@ public class KafkaReplicatorAgentMain {
                     new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
                             spec.targetEndpoints(), agentSecret, tlsEnabled, tlsTrustCert);
 
-            List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
-            for (int i = 0; i < spec.consumerThreads(); i++) {
+            java.util.function.Supplier<KafkaConsumer<byte[], byte[]>> newConsumer = () -> {
                 Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
                         .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
                 props.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
@@ -625,9 +641,22 @@ public class KafkaReplicatorAgentMain {
                                 .offsetResetFor(spec.startPosition()));
                 org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
                         .applyKerberos(props, krbConfig);
-                KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props);
+                return new KafkaConsumer<>(props);
+            };
+            List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
+            KafkaConsumer<byte[], byte[]> first = newConsumer.get();
+            consumers.add(first);
+            int threads = KafkaJobPoolManager.consumerThreadsFor(spec.consumerThreads(),
+                    countPartitions(first, spec.topics()), spec.liveSenders());
+            if (threads < spec.consumerThreads()) {
+                log.info("Задача '{}': потоков на агенте {} вместо {} — больше консьюмеров партиции не займут",
+                        spec.jobId(), threads, spec.consumerThreads());
+            }
+            for (int i = 1; i < threads; i++) {
+                consumers.add(newConsumer.get());
+            }
+            for (KafkaConsumer<byte[], byte[]> consumer : consumers) {
                 consumer.subscribe(spec.topics());
-                consumers.add(consumer);
             }
 
             // Транскодинг схем и формат — настройки самой задачи: интерфейс задает их на задачу,

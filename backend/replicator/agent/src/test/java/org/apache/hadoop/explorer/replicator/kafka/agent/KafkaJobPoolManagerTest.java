@@ -370,4 +370,19 @@ class KafkaJobPoolManagerTest {
         manager.jobStats().forEach(s -> byJob.put(s.jobId(), s.messagesReplicated()));
         assertEquals(730L, byJob.get("job-a"), "Счетчик задачи накопительный и переживает пересоздание пула");
     }
+
+    @Test
+    @DisplayName("Консьюмеров на агенте не больше, чем ему достанется партиций")
+    void testConsumerThreadsCappedByPartitionsPerAgent() {
+        // 128 партиций на 12 агентов — по 11 на агента: 32 потока превратились бы в 21 простой
+        assertEquals(11, KafkaJobPoolManager.consumerThreadsFor(32, 128, 12));
+        // Заданное число меньше доли — действует заданное
+        assertEquals(4, KafkaJobPoolManager.consumerThreadsFor(4, 128, 12));
+        // Партиций меньше, чем агентов: каждому хватает одного консьюмера
+        assertEquals(1, KafkaJobPoolManager.consumerThreadsFor(8, 6, 12));
+        // Неизвестно число партиций — ограничения нет
+        assertEquals(8, KafkaJobPoolManager.consumerThreadsFor(8, 0, 12));
+        // Неизвестно число отправителей — делим на одного
+        assertEquals(16, KafkaJobPoolManager.consumerThreadsFor(32, 16, 0));
+    }
 }

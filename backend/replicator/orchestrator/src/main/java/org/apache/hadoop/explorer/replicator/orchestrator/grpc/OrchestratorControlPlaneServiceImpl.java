@@ -782,6 +782,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setTargetSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getSourceDc() : job.getTargetDc()))
                         .setTargetSchemaRegistryType(schemaRegistryType(isReverse ? job.getSourceDc() : job.getTargetDc()))
                         .setStartPosition(job.getStartPosition() != null ? job.getStartPosition() : "EARLIEST")
+                        .setLiveSenders(kafkaOrchestratorService.getLiveSenderEndpoints(
+                                isReverse ? job.getTargetDc() : job.getSourceDc()).size())
                         .build();
 
                 respBuilder.addJobs(item);
