@@ -315,4 +315,35 @@ class KafkaJobPoolManagerTest {
         assertEquals(1000L, manager.totalMessagesReplicated(),
                 "Оркестратор считает счетчики накопительными: пересоздание пула не должно их обнулять");
     }
+
+    @Test
+    @DisplayName("Снятие лимита (0) и смена доли агента доходят до живого пула")
+    void testBandwidthShareChangesIncludingRemoval() {
+        KafkaJobItemProto limited = job("job-bw", "dc2", List.of("orders"), List.of("kafka-dc2:50052"), 2, 1000)
+                .toBuilder().setBandwidthLimitMb(100.0).build();
+        manager.sync(List.of(limited));
+        KafkaBatchConsumerPool pool = pools.get("job-bw");
+
+        // Отправителей стало больше — доля агента уменьшилась
+        manager.sync(List.of(limited.toBuilder().setBandwidthLimitMb(25.0).build()));
+        verify(pool).setBandwidthLimitMb(25.0);
+
+        // Лимит задачи снят
+        manager.sync(List.of(limited.toBuilder().setBandwidthLimitMb(0.0).build()));
+        verify(pool).setBandwidthLimitMb(0.0);
+        assertEquals(1, requests.size(), "Смена лимита применяется на живом пуле без пересоздания");
+    }
+
+    @Test
+    @DisplayName("Стартовая позиция задачи передается в спецификацию пула")
+    void testStartPositionReachesPoolSpec() {
+        List<String> positions = new ArrayList<>();
+        KafkaJobPoolManager local = new KafkaJobPoolManager("dc1", spec -> {
+            positions.add(spec.startPosition());
+            return new KafkaJobPoolManager.JobPipeline(mock(KafkaBatchConsumerPool.class), null);
+        });
+        local.sync(List.of(job("job-latest", "dc2", List.of("orders"), List.of("kafka-dc2:50052"), 1, 100)
+                .toBuilder().setStartPosition("LATEST").build()));
+        assertEquals(List.of("LATEST"), positions);
+    }
 }

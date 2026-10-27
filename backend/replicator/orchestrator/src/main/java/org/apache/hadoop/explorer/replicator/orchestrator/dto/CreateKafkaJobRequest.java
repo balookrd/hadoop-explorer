@@ -15,7 +15,9 @@ public class CreateKafkaJobRequest {
     private String targetDc = "DC2";
 
     @NotBlank(message = "Направление репликации обязательно")
-    private String direction = "BIDIRECTIONAL"; // BIDIRECTIONAL / UNIDIRECTIONAL
+    // Однонаправленная по умолчанию: задача без явного direction на боевом кластере не должна
+    // начинать писать в обратную сторону
+    private String direction = "UNIDIRECTIONAL"; // BIDIRECTIONAL / UNIDIRECTIONAL
     private List<TopicSetting> topics;
     private List<String> consumerGroups;
     private boolean schemaTranscodingEnabled = false;
@@ -45,6 +47,12 @@ public class CreateKafkaJobRequest {
     private String sourceBootstrapServers;
     private String targetBootstrapServers;
     private boolean autoCreateTopics = true;
+    /**
+     * С какой позиции новая группа задачи начинает чтение: LATEST (только новые записи) или
+     * EARLIEST (весь retention топика). По умолчанию LATEST: иначе задача на боевом топике
+     * перекачивает через WAN всю его историю.
+     */
+    private String startPosition = "LATEST";
 
     public static class TopicSetting {
         private String topic;
@@ -257,6 +265,9 @@ public class CreateKafkaJobRequest {
 
     public String getTargetBootstrapServers() { return targetBootstrapServers; }
     public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public String getStartPosition() { return startPosition; }
+    public void setStartPosition(String startPosition) { this.startPosition = startPosition; }
 
     public boolean isAutoCreateTopics() { return autoCreateTopics; }
     public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }

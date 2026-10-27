@@ -356,8 +356,11 @@ public class OrchestratorControlPlaneServiceTest {
         job.setBatchSize(5000);
         job.setConsumerThreads(4);
         job.setBandwidthLimitMb(120.0);
+        job.setStartPosition("LATEST");
 
         when(kafkaOrchestratorService.getActiveJobsForDc("dc1")).thenReturn(List.of(job));
+        // Лимит задачи суммарный: агент получает долю, посчитанную по живым отправителям ЦОД
+        when(kafkaOrchestratorService.perAgentBandwidthMb(120.0, "dc1")).thenReturn(40.0);
 
         GetActiveKafkaJobsRequest req = GetActiveKafkaJobsRequest.newBuilder()
                 .setDcId("dc1")
@@ -377,7 +380,9 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals("dc1-kafka:9092", item.getSourceBootstrapServers());
         assertEquals(5000, item.getBatchSize());
         assertEquals(4, item.getConsumerThreads());
-        assertEquals(120.0, item.getBandwidthLimitMb());
+        assertEquals(40.0, item.getBandwidthLimitMb(),
+                "Агенту уходит его доля лимита задачи, а не весь лимит");
+        assertEquals("LATEST", item.getStartPosition());
     }
 
     @Test

@@ -41,6 +41,7 @@ public class KafkaReplicationJobDto {
     private String sourceBootstrapServers;
     private String targetBootstrapServers;
     private boolean autoCreateTopics = true;
+    private String startPosition;
     private String topicProvisioningSummary;
 
     private String status;
@@ -151,6 +152,9 @@ public class KafkaReplicationJobDto {
 
     public String getTargetBootstrapServers() { return targetBootstrapServers; }
     public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public String getStartPosition() { return startPosition; }
+    public void setStartPosition(String startPosition) { this.startPosition = startPosition; }
 
     public boolean isAutoCreateTopics() { return autoCreateTopics; }
     public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }

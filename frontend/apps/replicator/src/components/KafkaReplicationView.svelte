@@ -109,7 +109,8 @@
   let liveReceivers = $state<string[]>([]);
   let liveSenders = $state<string[]>([]);
   let liveSenderDetails = $state<any[]>([]);
-  let detectedDcLimitMb = $state(100);
+  // Лимит канала между ЦОД из топологии; null — в топологии не задан
+  let detectedDcLimitMb = $state<number | null>(null);
   let isLoadingAgents = $state(false);
 
   // Справочники обнаруженных топиков и групп
@@ -129,7 +130,12 @@
   let newJobName = $state('Межкластерная репликация Kafka');
   let newSourceDc = $state('');
   let newTargetDc = $state('');
-  let newDirection = $state<'BIDIRECTIONAL' | 'UNIDIRECTIONAL'>('BIDIRECTIONAL');
+  // Однонаправленная по умолчанию: двунаправленная задача, созданная по невнимательности на
+  // боевом кластере, начала бы писать данные DR обратно в прод
+  let newDirection = $state<'BIDIRECTIONAL' | 'UNIDIRECTIONAL'>('UNIDIRECTIONAL');
+  // С какой позиции новая группа задачи начинает чтение. LATEST по умолчанию: EARLIEST
+  // перекачивает через WAN весь retention боевого топика
+  let newStartPosition = $state<'LATEST' | 'EARLIEST'>('LATEST');
 
   // Режимы выбора топиков: 'REGEX' (для сотен и тысяч) или 'CATALOG' (ручной выбор)
   let topicsSelectionMode = $state<'REGEX' | 'CATALOG'>('REGEX');
@@ -290,7 +296,7 @@
       targetSrUrl: raw.target_sr_url || raw.targetSrUrl,
       sourceSrKerberosEnabled: Boolean(raw.source_sr_kerberos_enabled ?? raw.sourceSrKerberosEnabled),
       targetSrKerberosEnabled: Boolean(raw.target_sr_kerberos_enabled ?? raw.targetSrKerberosEnabled),
-      bandwidthLimitMb: Number(raw.bandwidth_limit_mb ?? raw.bandwidthLimitMb ?? 40),
+      bandwidthLimitMb: Number(raw.bandwidth_limit_mb ?? raw.bandwidthLimitMb ?? 0),
       offsetSyncIntervalSec: Number(raw.offset_sync_interval_sec ?? raw.offsetSyncIntervalSec ?? 5),
       consumerThreads: Number(raw.consumer_threads ?? raw.consumerThreads ?? 4),
       batchSize: Number(raw.batch_size ?? raw.batchSize ?? 2000),
@@ -317,25 +323,33 @@
   let totalBytesMb = $derived((jobs.reduce((acc, j) => acc + (j.bytesReplicated || 0), 0) / (1024 * 1024)).toFixed(1));
 
   // Согласованное QoS регулирование: межцодовая WAN HTB квота vs сумма явно заданных лимитов агентов источника
-  let wanHtbBandwidthMb = $derived(Math.round(detectedDcLimitMb * 0.40));
+  // Без лимита канала в топологии квоты WAN нет: прежняя подстановка 100 МБ/с давала 40 МБ/с
+  // на всю задачу и молча душила поток в десятки раз
+  let wanHtbBandwidthMb = $derived(detectedDcLimitMb !== null ? Math.round(detectedDcLimitMb * 0.40) : null);
   let totalSendersCapacityMb = $derived(
     liveSenderDetails.length > 0
       ? liveSenderDetails.reduce((acc, a) => acc + (a.max_bandwidth_mb_s && a.max_bandwidth_mb_s > 0 ? a.max_bandwidth_mb_s : 100), 0)
       : null
   );
-  let effectiveBandwidthMb = $derived(
-    totalSendersCapacityMb !== null ? Math.min(wanHtbBandwidthMb, totalSendersCapacityMb) : wanHtbBandwidthMb
-  );
+  // Суммарный лимит задачи; null — без лимита. Оркестратор делит его между агентами-отправителями
+  let effectiveBandwidthMb = $derived.by((): number | null => {
+    if (wanHtbBandwidthMb !== null && totalSendersCapacityMb !== null) {
+      return Math.min(wanHtbBandwidthMb, totalSendersCapacityMb);
+    }
+    return wanHtbBandwidthMb ?? totalSendersCapacityMb;
+  });
   let autoBandwidthMb = $derived(effectiveBandwidthMb);
+  // Ориентир для подбора потоков, батча и интервала: без лимита рассчитываем на широкий канал
+  let sizingBandwidthMb = $derived(autoBandwidthMb ?? 1000);
   let isAgentBottleneck = $derived(
-    totalSendersCapacityMb !== null && totalSendersCapacityMb < wanHtbBandwidthMb
+    totalSendersCapacityMb !== null && (wanHtbBandwidthMb === null || totalSendersCapacityMb < wanHtbBandwidthMb)
   );
 
   let liveSendersCount = $derived(liveSenders.length > 0 ? liveSenders.length : 1);
 
   // Расчет потоков вычитки на каждый агент-отправитель (шардинг пула без искусственного потолка в 40G: масштабирование на 100G, 200G, 400G+)
   let targetTotalThreads = $derived.by(() => {
-    const bw = autoBandwidthMb;
+    const bw = sizingBandwidthMb;
     if (bw <= 50) return 8;
     if (bw <= 100) return 16;
     if (bw <= 300) return 24;
@@ -350,7 +364,7 @@
   let autoTotalThreads = $derived(autoConsumerThreadsPerAgent * liveSendersCount);
 
   let autoBatchSize = $derived.by(() => {
-    const bw = autoBandwidthMb;
+    const bw = sizingBandwidthMb;
     if (bw <= 20) return 1000;
     if (bw <= 80) return 2000;
     if (bw <= 200) return 5000;
@@ -362,7 +376,7 @@
   });
 
   let autoOffsetSyncInterval = $derived.by(() => {
-    const bw = autoBandwidthMb;
+    const bw = sizingBandwidthMb;
     if (bw >= 1500) return 1;
     if (bw >= 500) return 2;
     if (bw >= 100) return 3;
@@ -414,10 +428,7 @@
         return;
       }
     }
-    detectedDcLimitMb = 100;
-    if (isAutoBandwidth) {
-      bandwidthLimitMb = 40;
-    }
+    detectedDcLimitMb = null;
   }
 
   async function loadLiveAgents(srcDc: string, dstDc: string) {
@@ -667,7 +678,9 @@
       target_kerberos_enabled: targetKerberosEnabled ?? enableKerberos,
       target_principal: targetPrincipal,
       target_keytab_path: targetKeytabPath,
-      bandwidth_limit_mb: isAutoBandwidth ? autoBandwidthMb : bandwidthLimitMb,
+      // Лимит суммарный на задачу (оркестратор делит его между агентами); 0 — без лимита
+      bandwidth_limit_mb: isAutoBandwidth ? (autoBandwidthMb ?? 0) : Math.max(0, Number(bandwidthLimitMb) || 0),
+      start_position: newStartPosition,
       offset_sync_interval_sec: isAutoBandwidth ? autoOffsetSyncInterval : offsetSyncIntervalSec,
       consumer_threads: isAutoBandwidth ? autoConsumerThreadsPerAgent : consumerThreads,
       batch_size: isAutoBandwidth ? autoBatchSize : batchSize,
@@ -883,7 +896,7 @@
                 <span class="text-slate-400">⇄</span>
                 <span class="font-medium text-slate-700 dark:text-slate-300">{job.targetDc}</span>
                 <span>•</span>
-                <span>Полоса WAN: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.bandwidthLimitMb} МБ/с</strong></span>
+                <span>Полоса WAN: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.bandwidthLimitMb > 0 ? `${job.bandwidthLimitMb} МБ/с на задачу` : 'без лимита'}</strong></span>
                 <span>•</span>
                 <span>Потоков: <strong class="text-slate-700 dark:text-slate-300 font-mono">{job.consumerThreads ?? 8}</strong></span>
                 <span>•</span>
@@ -1104,16 +1117,30 @@
           <div class="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-2">
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Режим топологии:</label>
             <div class="grid grid-cols-2 gap-3">
+              <label class="p-3 rounded-xl border cursor-pointer transition-all {newDirection === 'UNIDIRECTIONAL' ? 'border-sky-500 bg-white dark:bg-slate-900 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
+                <input type="radio" bind:group={newDirection} value="UNIDIRECTIONAL" class="sr-only" />
+                <div class="font-bold text-slate-900 dark:text-white">Однонаправленная ({newSourceDc || 'источник'} ➔ {newTargetDc || 'приемник'})</div>
+                <div class="text-[10px] text-slate-400 mt-0.5">Прямой поток данных для Disaster Recovery стенда</div>
+              </label>
+
               <label class="p-3 rounded-xl border cursor-pointer transition-all {newDirection === 'BIDIRECTIONAL' ? 'border-sky-500 bg-white dark:bg-slate-900 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
                 <input type="radio" bind:group={newDirection} value="BIDIRECTIONAL" class="sr-only" />
                 <div class="font-bold text-slate-900 dark:text-white">Active-Active (Двунаправленная)</div>
                 <div class="text-[10px] text-slate-400 mt-0.5">Одинаковые имена топиков с origin заголовком (защита от циклов)</div>
               </label>
+            </div>
 
-              <label class="p-3 rounded-xl border cursor-pointer transition-all {newDirection === 'UNIDIRECTIONAL' ? 'border-sky-500 bg-white dark:bg-slate-900 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
-                <input type="radio" bind:group={newDirection} value="UNIDIRECTIONAL" class="sr-only" />
-                <div class="font-bold text-slate-900 dark:text-white">Однонаправленная ({newSourceDc || 'источник'} ➔ {newTargetDc || 'приемник'})</div>
-                <div class="text-[10px] text-slate-400 mt-0.5">Прямой поток данных для Disaster Recovery стенда</div>
+            <div class="block text-xs font-semibold text-slate-700 dark:text-slate-300 pt-1">Начать чтение с:</div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="p-3 rounded-xl border cursor-pointer transition-all {newStartPosition === 'LATEST' ? 'border-sky-500 bg-white dark:bg-slate-900 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
+                <input type="radio" bind:group={newStartPosition} value="LATEST" class="sr-only" />
+                <div class="font-bold text-slate-900 dark:text-white">Новых сообщений (LATEST)</div>
+                <div class="text-[10px] text-slate-400 mt-0.5">Переносится только то, что появится после запуска задачи</div>
+              </label>
+              <label class="p-3 rounded-xl border cursor-pointer transition-all {newStartPosition === 'EARLIEST' ? 'border-amber-500 bg-white dark:bg-slate-900 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
+                <input type="radio" bind:group={newStartPosition} value="EARLIEST" class="sr-only" />
+                <div class="font-bold text-slate-900 dark:text-white">Начала топика (EARLIEST)</div>
+                <div class="text-[10px] text-slate-400 mt-0.5">Весь retention топика уйдет через WAN — для боевых топиков это может быть очень много</div>
               </label>
             </div>
           </div>
@@ -1645,27 +1672,32 @@
                 <div class="text-xs space-y-1">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-semibold {isAgentBottleneck ? 'text-amber-900 dark:text-amber-200' : 'text-emerald-900 dark:text-emerald-200'}">
-                      Двухконтурное авто-регулирование QoS: ~{autoBandwidthMb} МБ/с
+                      Авто-регулирование QoS: {autoBandwidthMb !== null ? `~${autoBandwidthMb} МБ/с на задачу` : 'без лимита'}
                     </span>
                     {#if isAgentBottleneck}
                       <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300">
                         Ограничено лимитами агентов
                       </span>
-                    {:else}
+                    {:else if wanHtbBandwidthMb !== null}
                       <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300">
                         Ограничено WAN HTB (40%)
                       </span>
                     {/if}
                   </div>
                   <p class="text-[11px] {isAgentBottleneck ? 'text-amber-800/90 dark:text-amber-300/80' : 'text-emerald-700/90 dark:text-emerald-300/80'} leading-relaxed">
-                    WAN квота: <strong>{wanHtbBandwidthMb} МБ/с</strong> (40% от лимита канала {detectedDcLimitMb} МБ/с).
+                    {#if wanHtbBandwidthMb !== null}
+                      WAN квота: <strong>{wanHtbBandwidthMb} МБ/с</strong> (40% от лимита канала {detectedDcLimitMb} МБ/с из топологии;
+                      если канал не настроен, там стоит 100 МБ/с по умолчанию — для боевого канала задайте реальную ширину на вкладке «Топология ЦОД и Полоса» или укажите лимит вручную).
+                    {:else}
+                      Лимит канала между ЦОД в топологии не задан: квота WAN не применяется.
+                    {/if}
                     {#if totalSendersCapacityMb !== null}
                       Суммарный лимит подключенных агентов: <strong>{totalSendersCapacityMb} МБ/с</strong> ({liveSendersCount} {liveSendersCount === 1 ? 'узел' : 'узла'}).
                     {/if}
                     Параллелизм вычитки рассчитан индивидуально под полосу каждого узла (~{autoConsumerThreadsPerAgent} треда/узел, суммарно {autoTotalThreads}), размер пачки ~{autoBatchSize} зап., оффсеты ~{autoOffsetSyncInterval} с.
                   </p>
                   <p class="text-[10px] text-slate-500 dark:text-slate-400">
-                    ℹ️ Соблюдаются локальные лимиты агентов (--max-bandwidth-mb-s), заданные инженером при старте демонов на узлах.
+                    ℹ️ Лимит задачи суммарный: каждый из {liveSendersCount} агентов-отправителей получает свою долю. Поверх нее действуют лимиты узлов (--max-bandwidth-mb-s); агент без этого флага считается каналом 100 МБ/с.
                   </p>
                 </div>
               </div>
@@ -1682,18 +1714,18 @@
                 </div>
                 {#if isAutoBandwidth}
                   <div class="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 py-1">
-                    ~{autoBandwidthMb} МБ/с
+                    {autoBandwidthMb !== null ? `~${autoBandwidthMb} МБ/с` : 'без лимита'}
                   </div>
-                  <div class="text-[10px] text-slate-400 dark:text-slate-500">40% квота линка</div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">на задачу, делится между агентами</div>
                 {:else}
                   <input
                     type="number"
                     bind:value={bandwidthLimitMb}
-                    min="1"
+                    min="0"
                     max="100000"
                     class="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold"
                   />
-                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Ручной лимит МБ/с</div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">МБ/с на задачу, 0 — без лимита</div>
                 {/if}
               </div>
 

@@ -96,4 +96,15 @@ class KafkaClientSettingsTest {
         assertTrue(inFlight >= 1 && inFlight <= 5,
                 "При enable.idempotence=true Kafka требует max.in.flight <= 5, получено " + inFlight);
     }
+
+    @Test
+    @DisplayName("Стартовая позиция задачи превращается в auto.offset.reset")
+    void testOffsetResetForStartPosition() {
+        assertEquals("latest", KafkaClientSettings.offsetResetFor("LATEST"));
+        assertEquals("latest", KafkaClientSettings.offsetResetFor(" latest "));
+        assertEquals("earliest", KafkaClientSettings.offsetResetFor("EARLIEST"));
+        // Задачи, созданные до появления поля, сохраняют прежнее поведение
+        assertEquals("earliest", KafkaClientSettings.offsetResetFor(""));
+        assertEquals("earliest", KafkaClientSettings.offsetResetFor(null));
+    }
 }

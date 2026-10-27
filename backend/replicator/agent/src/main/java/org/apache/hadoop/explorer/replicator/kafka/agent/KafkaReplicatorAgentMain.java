@@ -616,6 +616,9 @@ public class KafkaReplicatorAgentMain {
             for (int i = 0; i < spec.consumerThreads(); i++) {
                 Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
                         .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
+                props.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                        org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                                .offsetResetFor(spec.startPosition()));
                 org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
                         .applyKerberos(props, krbConfig);
                 KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props);
@@ -658,13 +661,12 @@ public class KafkaReplicatorAgentMain {
             pool.setMaxBatchSize(spec.batchSize());
             pool.updateSubscribedTopics(spec.topics());
 
-            double limit = spec.bandwidthLimitMb();
+            // Потолок узла и доля задачи хранятся раздельно: доля меняется на живом пуле, а
+            // потолок узла должен действовать и после ее смены, и при ее отсутствии
             if (hostBandwidthLimitMbS != null && hostBandwidthLimitMbS > 0) {
-                limit = (limit > 0) ? Math.min(limit, hostBandwidthLimitMbS) : hostBandwidthLimitMbS;
+                pool.setHostBandwidthCapMb(hostBandwidthLimitMbS);
             }
-            if (limit > 0) {
-                pool.setBandwidthLimitMb(limit);
-            }
+            pool.setBandwidthLimitMb(spec.bandwidthLimitMb());
 
             // Перенос смещений групп этой задачи: свои группы, свой целевой кластер, свой клиент
             AutoCloseable offsetSync = startOffsetSync(bootstrapServers, krbConfig, client, pool,

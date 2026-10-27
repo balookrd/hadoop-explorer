@@ -99,6 +99,10 @@ public class KafkaReplicationJobEntity {
     @Column(name = "auto_create_topics")
     private boolean autoCreateTopics = true;
 
+    /** С какой позиции новая группа задачи начинает чтение: LATEST или EARLIEST. */
+    @Column(name = "start_position", length = 16)
+    private String startPosition;
+
     @Column(name = "topic_provisioning_summary", length = 1024)
     private String topicProvisioningSummary;
 
@@ -340,6 +344,9 @@ public class KafkaReplicationJobEntity {
 
     public String getTargetBootstrapServers() { return targetBootstrapServers; }
     public void setTargetBootstrapServers(String targetBootstrapServers) { this.targetBootstrapServers = targetBootstrapServers; }
+
+    public String getStartPosition() { return startPosition; }
+    public void setStartPosition(String startPosition) { this.startPosition = startPosition; }
 
     public boolean isAutoCreateTopics() { return autoCreateTopics; }
     public void setAutoCreateTopics(boolean autoCreateTopics) { this.autoCreateTopics = autoCreateTopics; }

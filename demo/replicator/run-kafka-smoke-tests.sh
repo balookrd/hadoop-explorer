@@ -163,6 +163,7 @@ create_replication_job() {
         "source_dc": "DC1",
         "target_dc": "DC2",
         "direction": "UNIDIRECTIONAL",
+        "start_position": "EARLIEST",
         "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
         "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
@@ -309,6 +310,7 @@ create_active_active_job() {
         "source_dc": "DC1",
         "target_dc": "DC2",
         "direction": "BIDIRECTIONAL",
+        "start_position": "EARLIEST",
         "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
         "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [

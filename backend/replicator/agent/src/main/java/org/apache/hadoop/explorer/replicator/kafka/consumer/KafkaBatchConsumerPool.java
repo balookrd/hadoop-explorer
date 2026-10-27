@@ -79,13 +79,42 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         this.bandwidthLimiter = bandwidthLimiter;
     }
 
-    public void setBandwidthLimitMb(double limitMb) {
-        if (limitMb > 0) {
-            if (this.bandwidthLimiter == null) {
-                this.bandwidthLimiter = new org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter(limitMb);
-            } else {
-                this.bandwidthLimiter.setLimit(limitMb);
-            }
+    /** Лимит задачи на этом агенте, МБ/с; 0 — без лимита. */
+    private double jobBandwidthLimitMb;
+    /** Потолок узла ({@code --max-bandwidth-mb-s}), МБ/с; 0 — без потолка. */
+    private double hostBandwidthCapMb;
+
+    /**
+     * Лимит задачи на этом агенте. 0 снимает лимит: оркестратор пересчитывает долю агента при
+     * смене состава отправителей, и снятие лимита тоже должно доезжать до живого пула.
+     */
+    public synchronized void setBandwidthLimitMb(double limitMb) {
+        this.jobBandwidthLimitMb = Math.max(0.0, limitMb);
+        applyBandwidth();
+    }
+
+    /** Потолок полосы узла: действует поверх лимита задачи и при его отсутствии. */
+    public synchronized void setHostBandwidthCapMb(double capMb) {
+        this.hostBandwidthCapMb = Math.max(0.0, capMb);
+        applyBandwidth();
+    }
+
+    /** Действующий лимит: меньший из заданных, 0 — ограничения нет. */
+    public synchronized double getEffectiveBandwidthLimitMb() {
+        if (jobBandwidthLimitMb > 0 && hostBandwidthCapMb > 0) {
+            return Math.min(jobBandwidthLimitMb, hostBandwidthCapMb);
+        }
+        return Math.max(jobBandwidthLimitMb, hostBandwidthCapMb);
+    }
+
+    private void applyBandwidth() {
+        double effective = getEffectiveBandwidthLimitMb();
+        if (effective <= 0) {
+            this.bandwidthLimiter = null;
+        } else if (this.bandwidthLimiter == null) {
+            this.bandwidthLimiter = new org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter(effective);
+        } else {
+            this.bandwidthLimiter.setLimit(effective);
         }
     }
 

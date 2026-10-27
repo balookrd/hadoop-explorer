@@ -97,7 +97,9 @@ public class KafkaReplicationOrchestratorService {
         entity.setName(request.getName() != null && !request.getName().isBlank() ? request.getName() : id);
         entity.setSourceDc(request.getSourceDc());
         entity.setTargetDc(request.getTargetDc());
-        entity.setDirection(request.getDirection() != null ? request.getDirection() : "BIDIRECTIONAL");
+        entity.setDirection(request.getDirection() != null && !request.getDirection().isBlank()
+                ? request.getDirection().trim().toUpperCase(Locale.ROOT) : "UNIDIRECTIONAL");
+        entity.setStartPosition(normalizeStartPosition(request.getStartPosition()));
 
         // Автоматический расчет полосы WAN из TopologyRegistry HTB и заданных при старте лимитов агентов (если не задано вручную)
         Double resolvedBandwidth = request.getBandwidthLimitMb();
@@ -105,7 +107,9 @@ public class KafkaReplicationOrchestratorService {
                 && request.getSourceDc() != null && request.getTargetDc() != null) {
             var dcLimit = topologyRegistry.getDcLimit(request.getSourceDc(), request.getTargetDc());
             Double wanQuotaMb = null;
-            if (dcLimit.isPresent()) {
+            // Нулевой лимит канала — ограждение, а не квота: из него не выводится лимит задачи
+            // (иначе 0 стал бы «без лимита» — ровно обратный смысл)
+            if (dcLimit.isPresent() && dcLimit.get() > 0) {
                 // 40% гарантированная полоса HTB для Kafka (в МБ/с)
                 wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
             }
@@ -129,21 +133,27 @@ public class KafkaReplicationOrchestratorService {
                 resolvedBandwidth = sendersCapacityMb;
             }
         }
-        if (resolvedBandwidth == null || resolvedBandwidth <= 0) {
-            resolvedBandwidth = 50.0; // безопасный дефолт
+        // Лимит не задан и вывести его не из чего — задача идет без лимита (0). Прежний
+        // «безопасный дефолт» 50 МБ/с молча душил поток: для 2 млн событий/с это в десятки раз
+        // меньше нужного, а после деления лимита между агентами — единицы МБ/с на агента.
+        if (resolvedBandwidth == null || resolvedBandwidth < 0) {
+            resolvedBandwidth = 0.0;
         }
         entity.setBandwidthLimitMb(resolvedBandwidth);
+        // Ориентир для подбора батча, потоков и интервала синхронизации: без лимита
+        // рассчитываем на широкий канал, а не на минимальный
+        double sizingBandwidth = resolvedBandwidth > 0 ? resolvedBandwidth : UNLIMITED_SIZING_MB;
 
         // Автоматический расчет интервала синхронизации оффсетов Consumer Groups
         Integer resolvedOffsetSync = request.getOffsetSyncIntervalSec();
         if (resolvedOffsetSync == null || resolvedOffsetSync <= 0) {
-            if (resolvedBandwidth >= 1500.0) {
+            if (sizingBandwidth >= 1500.0) {
                 resolvedOffsetSync = 1;
-            } else if (resolvedBandwidth >= 500.0) {
+            } else if (sizingBandwidth >= 500.0) {
                 resolvedOffsetSync = 2;
-            } else if (resolvedBandwidth >= 100.0) {
+            } else if (sizingBandwidth >= 100.0) {
                 resolvedOffsetSync = 3;
-            } else if (resolvedBandwidth <= 20.0) {
+            } else if (sizingBandwidth <= 20.0) {
                 resolvedOffsetSync = 10;
             } else {
                 resolvedOffsetSync = 5;
@@ -154,19 +164,19 @@ public class KafkaReplicationOrchestratorService {
         // Автоматический расчет размера микробатча
         Integer resolvedBatchSize = request.getBatchSize();
         if (resolvedBatchSize == null || resolvedBatchSize <= 0) {
-            if (resolvedBandwidth <= 20.0) {
+            if (sizingBandwidth <= 20.0) {
                 resolvedBatchSize = 1000;
-            } else if (resolvedBandwidth <= 80.0) {
+            } else if (sizingBandwidth <= 80.0) {
                 resolvedBatchSize = 2000;
-            } else if (resolvedBandwidth <= 200.0) {
+            } else if (sizingBandwidth <= 200.0) {
                 resolvedBatchSize = 5000;
-            } else if (resolvedBandwidth <= 800.0) {
+            } else if (sizingBandwidth <= 800.0) {
                 resolvedBatchSize = 10000;
-            } else if (resolvedBandwidth <= 1500.0) {
+            } else if (sizingBandwidth <= 1500.0) {
                 resolvedBatchSize = 15000;
-            } else if (resolvedBandwidth <= 3000.0) {
+            } else if (sizingBandwidth <= 3000.0) {
                 resolvedBatchSize = 20000;
-            } else if (resolvedBandwidth <= 6000.0) {
+            } else if (sizingBandwidth <= 6000.0) {
                 resolvedBatchSize = 35000;
             } else {
                 resolvedBatchSize = 50000;
@@ -178,19 +188,19 @@ public class KafkaReplicationOrchestratorService {
         Integer resolvedConsumerThreads = request.getConsumerThreads();
         if (resolvedConsumerThreads == null || resolvedConsumerThreads <= 0) {
             int targetTotalThreads;
-            if (resolvedBandwidth <= 50.0) {
+            if (sizingBandwidth <= 50.0) {
                 targetTotalThreads = 8;
-            } else if (resolvedBandwidth <= 100.0) {
+            } else if (sizingBandwidth <= 100.0) {
                 targetTotalThreads = 16;
-            } else if (resolvedBandwidth <= 300.0) {
+            } else if (sizingBandwidth <= 300.0) {
                 targetTotalThreads = 24;
-            } else if (resolvedBandwidth <= 800.0) {
+            } else if (sizingBandwidth <= 800.0) {
                 targetTotalThreads = 32;
-            } else if (resolvedBandwidth <= 2000.0) {
+            } else if (sizingBandwidth <= 2000.0) {
                 targetTotalThreads = 64;
             } else {
                 // Динамическое линейное масштабирование для 100G/200G/400G+ сетей (~30 МБ/с на тред)
-                targetTotalThreads = Math.max(64, (int) Math.round(resolvedBandwidth / 30.0));
+                targetTotalThreads = Math.max(64, (int) Math.round(sizingBandwidth / 30.0));
             }
             int sendersCount = 1;
             if (request.getSourceDc() != null) {
@@ -414,6 +424,7 @@ public class KafkaReplicationOrchestratorService {
         dto.setSourceBootstrapServers(entity.getSourceBootstrapServers());
         dto.setTargetBootstrapServers(entity.getTargetBootstrapServers());
         dto.setAutoCreateTopics(entity.isAutoCreateTopics());
+        dto.setStartPosition(entity.getStartPosition() != null ? entity.getStartPosition() : "EARLIEST");
         dto.setTopicProvisioningSummary(entity.getTopicProvisioningSummary());
 
         try {
@@ -656,6 +667,38 @@ public class KafkaReplicationOrchestratorService {
                     bootstrapServers, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Стартовая позиция задачи. Незаданная — LATEST, неизвестное значение — ошибка: опечатка
+     * не должна молча превращаться в перекачку всего топика.
+     */
+    public static String normalizeStartPosition(String value) {
+        if (value == null || value.isBlank()) {
+            return "LATEST";
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if (!normalized.equals("LATEST") && !normalized.equals("EARLIEST")) {
+            throw new IllegalArgumentException("start_position должен быть LATEST или EARLIEST, получено: " + value);
+        }
+        return normalized;
+    }
+
+    /** Ориентир полосы (МБ/с) для подбора параметров задачи без лимита. */
+    private static final double UNLIMITED_SIZING_MB = 1000.0;
+
+    /**
+     * Доля лимита задачи на одного агента-отправителя.
+     *
+     * <p>Лимит задачи — суммарный на задачу, а применяет его каждый агент у себя. Без деления
+     * 12 агентов пропускали в 12 раз больше заданного. 0 — без лимита, и делить нечего.
+     */
+    public double perAgentBandwidthMb(Double jobLimitMb, String sendingDc) {
+        if (jobLimitMb == null || jobLimitMb <= 0) {
+            return 0.0;
+        }
+        int senders = sendingDc != null ? getLiveSenderEndpoints(sendingDc).size() : 0;
+        return jobLimitMb / Math.max(1, senders);
     }
 
     /** Агент считается живым для лага, пока его heartbeat не старше этого порога. */

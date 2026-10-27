@@ -49,10 +49,18 @@ public class KafkaReplicationOrchestratorSmokeTest {
     @Autowired(required = false)
     private org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry agentRegistry;
 
+    @Autowired(required = false)
+    private org.apache.hadoop.explorer.replicator.orchestrator.topology.TopologyRegistry topologyRegistry;
+
     @BeforeEach
     void setUpSecurity() {
         if (agentRegistry != null) {
             agentRegistry.clear();
+        }
+        // Лимиты каналов живут в синглтоне топологии: нулевое ограждение, оставленное другим
+        // тестом контекста, меняло автоподбор полосы в зависимости от порядка запуска
+        if (topologyRegistry != null) {
+            topologyRegistry.resetLimitsToDefaults();
         }
         UserSession adminSession = new UserSession(
                 "kafka_admin", "Kafka Admin", "admin@kafka.local",

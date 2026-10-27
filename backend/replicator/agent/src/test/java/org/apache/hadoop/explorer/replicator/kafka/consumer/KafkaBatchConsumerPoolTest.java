@@ -247,4 +247,29 @@ class KafkaBatchConsumerPoolTest {
 
         pool.close();
     }
+
+    @Test
+    @DisplayName("Действующий лимит — меньший из лимита задачи и потолка узла, 0 снимает лимит задачи")
+    void testEffectiveBandwidthLimit() {
+        KafkaBatchConsumerPool pool = new KafkaBatchConsumerPool(
+                new org.apache.kafka.clients.consumer.MockConsumer<byte[], byte[]>(
+                        org.apache.kafka.clients.consumer.OffsetResetStrategy.EARLIEST),
+                mockClient, loopFilter, formatClassifier, transcoder, "DC1", "DC2",
+                PayloadFormat.PAYLOAD_PASSTHROUGH,
+                PayloadFormat.PAYLOAD_PASSTHROUGH);
+
+        pool.setHostBandwidthCapMb(200.0);
+        pool.setBandwidthLimitMb(50.0);
+        assertEquals(50.0, pool.getEffectiveBandwidthLimitMb(), 1e-9);
+
+        pool.setBandwidthLimitMb(500.0);
+        assertEquals(200.0, pool.getEffectiveBandwidthLimitMb(), 1e-9, "Потолок узла действует поверх доли задачи");
+
+        pool.setBandwidthLimitMb(0.0);
+        assertEquals(200.0, pool.getEffectiveBandwidthLimitMb(), 1e-9, "Без лимита задачи остается потолок узла");
+
+        pool.setHostBandwidthCapMb(0.0);
+        assertEquals(0.0, pool.getEffectiveBandwidthLimitMb());
+        assertNull(pool.getBandwidthLimiter(), "Без лимитов ограничитель снимается");
+    }
 }

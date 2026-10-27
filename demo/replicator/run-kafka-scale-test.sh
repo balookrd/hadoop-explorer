@@ -150,6 +150,7 @@ JOB_JSON=$(api POST /jobs '{
   "source_dc": "dc1",
   "target_dc": "dc2",
   "direction": "UNIDIRECTIONAL",
+  "start_position": "EARLIEST",
   "topics": [{"topic": "'"$TOPIC"'", "payload_mode": "PASSTHROUGH"}],
   "consumer_groups": [],
   "source_kerberos_enabled": true,

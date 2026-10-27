@@ -47,7 +47,9 @@ public class KafkaJobPoolManager implements Closeable {
             String sourceSchemaRegistryUrl,
             String sourceSchemaRegistryType,
             String targetSchemaRegistryUrl,
-            String targetSchemaRegistryType
+            String targetSchemaRegistryType,
+            /** С какой позиции новая группа задачи начинает чтение: LATEST или EARLIEST. */
+            String startPosition
     ) {}
 
     /**
@@ -184,7 +186,8 @@ public class KafkaJobPoolManager implements Closeable {
                 job.getSourceSchemaRegistryUrl(),
                 job.getSourceSchemaRegistryType(),
                 job.getTargetSchemaRegistryUrl(),
-                job.getTargetSchemaRegistryType()
+                job.getTargetSchemaRegistryType(),
+                job.getStartPosition()
         );
 
         JobPipeline pipeline;
@@ -233,13 +236,15 @@ public class KafkaJobPoolManager implements Closeable {
             existing.pool().updateSubscribedTopics(topics);
             log.info("Задача '{}': список топиков обновлен {} -> {}", jobId, existing.topics(), topics);
         }
-        double limit = job.getBandwidthLimitMb();
-        if (limit > 0 && limit != existing.bandwidthLimitMb()) {
+        // Доля агента в лимите задачи меняется вместе с числом отправителей ЦОД; 0 — лимит снят
+        double limit = Math.max(0.0, job.getBandwidthLimitMb());
+        if (Math.abs(limit - existing.bandwidthLimitMb()) > 1e-6) {
             existing.pool().setBandwidthLimitMb(limit);
-            log.info("Задача '{}': лимит полосы обновлен {} -> {} МБ/с", jobId, existing.bandwidthLimitMb(), limit);
+            log.info("Задача '{}': лимит полосы агента {} -> {} МБ/с", jobId, existing.bandwidthLimitMb(),
+                    limit > 0 ? limit : "без лимита");
         }
         runtimes.put(jobId, new JobRuntime(existing.pipeline(), topics, endpoints,
-                limit > 0 ? limit : existing.bandwidthLimitMb(),
+                limit,
                 existing.offsetSyncIntervalSec(), existing.schemaTranscoding(),
                 existing.registrySignature()));
     }

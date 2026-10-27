@@ -66,4 +66,28 @@ class CreateKafkaJobRequestJsonTest {
         assertEquals(5000, request.getBatchSize());
         assertEquals(2, request.getTargetEndpoints().size());
     }
+
+    @Test
+    @DisplayName("Без явных полей задача однонаправленная и читает с LATEST")
+    void testSafeDefaults() throws Exception {
+        CreateKafkaJobRequest request = objectMapper.readValue("""
+                {"name": "defaults", "source_dc": "dc1", "target_dc": "dc2",
+                 "topics": [{"topic": "orders"}]}
+                """, CreateKafkaJobRequest.class);
+
+        assertEquals("UNIDIRECTIONAL", request.getDirection(),
+                "Задача без direction не должна писать в обратную сторону");
+        assertEquals("LATEST", request.getStartPosition(),
+                "Задача без start_position не должна перекачивать весь retention топика");
+    }
+
+    @Test
+    @DisplayName("start_position из JSON доходит до DTO")
+    void testStartPositionIsBound() throws Exception {
+        CreateKafkaJobRequest request = objectMapper.readValue("""
+                {"name": "full", "source_dc": "dc1", "target_dc": "dc2", "start_position": "EARLIEST",
+                 "topics": [{"topic": "orders"}]}
+                """, CreateKafkaJobRequest.class);
+        assertEquals("EARLIEST", request.getStartPosition());
+    }
 }

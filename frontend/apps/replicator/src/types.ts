@@ -341,6 +341,8 @@ export interface CreateKafkaJobPayload {
   consumer_threads?: number;
   batch_size?: number;
   target_endpoints?: string[];
+  /** С какой позиции новая группа задачи начинает чтение */
+  start_position?: 'LATEST' | 'EARLIEST';
 }
 
 export interface StreamingLeaseStatus {

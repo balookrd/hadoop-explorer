@@ -435,6 +435,10 @@ message KafkaJobItemProto {
   string source_schema_registry_type = 18;
   string target_schema_registry_url = 19;
   string target_schema_registry_type = 20;
+  // Позиция, с которой новая consumer-группа задачи начинает чтение: LATEST или EARLIEST.
+  // Действует только до первого коммита оффсетов группы; пусто — EARLIEST (задачи,
+  // созданные до появления поля)
+  string start_position = 21;
 }
 
 message GetActiveKafkaJobsResponse {

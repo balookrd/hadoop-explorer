@@ -752,7 +752,9 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .addAllTargetEndpoints(targetEndpoints != null ? targetEndpoints : Collections.emptyList())
                         .setBatchSize(job.getBatchSize() != null ? job.getBatchSize() : 2000)
                         .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
-                        .setBandwidthLimitMb(job.getBandwidthLimitMb() != null ? job.getBandwidthLimitMb() : 0.0)
+                        // Лимит задачи суммарный: каждый агент получает свою долю
+                        .setBandwidthLimitMb(kafkaOrchestratorService.perAgentBandwidthMb(
+                                job.getBandwidthLimitMb(), isReverse ? job.getTargetDc() : job.getSourceDc()))
                         .setStatus(job.getStatus() != null ? job.getStatus() : "")
                         // Настройки задачи, которые раньше хранились и никуда не доезжали:
                         // интерфейс задает их на задачу, применяет их агент
@@ -766,6 +768,7 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         .setSourceSchemaRegistryType(schemaRegistryType(isReverse ? job.getTargetDc() : job.getSourceDc()))
                         .setTargetSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getSourceDc() : job.getTargetDc()))
                         .setTargetSchemaRegistryType(schemaRegistryType(isReverse ? job.getSourceDc() : job.getTargetDc()))
+                        .setStartPosition(job.getStartPosition() != null ? job.getStartPosition() : "EARLIEST")
                         .build();
 
                 respBuilder.addJobs(item);

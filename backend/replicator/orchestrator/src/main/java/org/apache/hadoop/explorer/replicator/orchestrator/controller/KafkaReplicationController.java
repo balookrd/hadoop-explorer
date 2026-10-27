@@ -82,6 +82,11 @@ public class KafkaReplicationController {
     @PostMapping("/jobs")
     public ResponseEntity<KafkaReplicationJobDto> createJob(@jakarta.validation.Valid @RequestBody CreateKafkaJobRequest request) {
         requireWriterOrAdmin();
+        try {
+            request.setStartPosition(KafkaReplicationOrchestratorService.normalizeStartPosition(request.getStartPosition()));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
         UserSession session = getSession();
         boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
         if (!isAdmin) {

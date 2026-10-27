@@ -58,6 +58,17 @@ public final class KafkaClientSettings {
         return props;
     }
 
+    /**
+     * Значение {@code auto.offset.reset} для стартовой позиции задачи.
+     *
+     * <p>Действует, только пока у группы задачи нет закоммиченных оффсетов, то есть при первом
+     * запуске. Пустая позиция — {@code earliest}: так работали задачи, созданные до появления
+     * поля, и для них поведение не меняется.
+     */
+    public static String offsetResetFor(String startPosition) {
+        return "LATEST".equalsIgnoreCase(startPosition == null ? "" : startPosition.trim()) ? "latest" : "earliest";
+    }
+
     /** Настройки консьюмера для служебных операций (разрешение времени, сканирование групп). */
     public static Properties utilityConsumerProps(String bootstrapServers, String groupId) {
         Properties props = consumerProps(bootstrapServers, groupId, 500);
