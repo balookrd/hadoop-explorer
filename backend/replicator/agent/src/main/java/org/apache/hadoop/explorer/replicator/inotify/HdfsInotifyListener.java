@@ -21,6 +21,11 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -70,6 +75,20 @@ public class HdfsInotifyListener {
     private volatile long lastJobsFetchTimeMs = 0L;
     private static final long JOBS_CACHE_TTL_MS = 5000L;
 
+    /** Статусы, в которых потоковое задание не переносит события (пауза, остановка, завершение). */
+    private static final Set<String> INACTIVE_STATUSES = Set.of("STOPPED", "PAUSED", "CANCELLED", "FAILED", "COMPLETED");
+    /** Запас по времени модификации при сверке после паузы: часы NameNode и агента расходятся. */
+    private static final long RESUME_RECONCILE_MARGIN_MS = 60_000L;
+
+    /** С какого момента задание замечено остановленным: после возобновления сверяются файлы новее. */
+    private final Map<String, Long> stoppedSinceMs = new ConcurrentHashMap<>();
+    /** Сверка каталогов идет в стороне от чтения журнала, чтобы не задерживать события. */
+    private Executor reconcileExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "streamer-reconcile");
+        t.setDaemon(true);
+        return t;
+    });
+
     /**
      * Обработка пачки событий журнала NameNode.
      *
@@ -103,9 +122,10 @@ public class HdfsInotifyListener {
         long now = System.currentTimeMillis();
         if (now - lastJobsFetchTimeMs > JOBS_CACHE_TTL_MS || cachedStreamingJobs.isEmpty()) {
             try {
-                cachedStreamingJobs = orchestratorClient.getJobs().stream()
+                List<JobDto> streaming = orchestratorClient.getJobs("STREAMING", false).stream()
                         .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
                         .toList();
+                cachedStreamingJobs = activeAfterPauseCheck(streaming, now);
                 lastJobsFetchTimeMs = now;
                 streamingJobsUnknown = false;
             } catch (Exception e) {
@@ -116,6 +136,39 @@ public class HdfsInotifyListener {
             }
         }
         return cachedStreamingJobs;
+    }
+
+    /**
+     * Задания, события которых переносятся, и сверка возобновленных.
+     *
+     * <p>Список отбирался только по режиму синхронизации, и пауза HMS-задачи компаньон не
+     * останавливала: файлы продолжали переноситься. Остановленное задание теперь пропускается,
+     * а после возобновления его каталог сверяется по файлам, измененным с момента паузы, —
+     * события, пришедшие на паузе, уже прочитаны и к стримеру не вернутся. Полная сверка
+     * каталога базы на петабайты после каждой паузы заново гнала бы все данные.
+     */
+    private List<JobDto> activeAfterPauseCheck(List<JobDto> streaming, long now) {
+        List<JobDto> active = new java.util.ArrayList<>(streaming.size());
+        for (JobDto job : streaming) {
+            String status = job.getStatus() != null ? job.getStatus().toUpperCase() : "";
+            if (INACTIVE_STATUSES.contains(status)) {
+                stoppedSinceMs.putIfAbsent(job.getId(), now);
+                continue;
+            }
+            active.add(job);
+            Long stoppedAt = stoppedSinceMs.remove(job.getId());
+            if (stoppedAt != null) {
+                long modifiedAfter = stoppedAt - JOBS_CACHE_TTL_MS - RESUME_RECONCILE_MARGIN_MS;
+                log.info("[Inotify] Задание '{}' возобновлено: сверка каталога '{}' по файлам, измененным после паузы",
+                        job.getId(), job.getSourcePath());
+                reconcileExecutor.execute(() -> reconcileJobDirectory(job, modifiedAfter));
+            }
+        }
+        return active;
+    }
+
+    void setReconcileExecutorForTesting(Executor executor) {
+        this.reconcileExecutor = executor;
     }
 
     public HdfsInotifyListener(
@@ -384,6 +437,11 @@ public class HdfsInotifyListener {
                             stream = null;
                             Thread.sleep(1000);
                         }
+                    } else {
+                        // Журнал молчит, а список заданий обновляется по-прежнему: иначе
+                        // возобновленное с паузы задание замечалось бы лишь с первым новым
+                        // событием, и сверка файлов, записанных на паузе, откладывалась бы
+                        getStreamingJobs();
                     }
                 } else {
                     // Если локальное подключение к NameNode отсутствует (например, в демо или тесте)
@@ -451,6 +509,11 @@ public class HdfsInotifyListener {
     }
 
     public int reconcileJobDirectory(JobDto job) {
+        return reconcileJobDirectory(job, Long.MIN_VALUE);
+    }
+
+    /** Сверка каталога задания по файлам, измененным позже {@code modifiedAfterMs}. */
+    int reconcileJobDirectory(JobDto job, long modifiedAfterMs) {
         if (job == null || job.getSourcePath() == null || job.getSourcePath().isBlank()) {
             return 0;
         }
@@ -467,7 +530,7 @@ public class HdfsInotifyListener {
             while (it.hasNext()) {
                 LocatedFileStatus file = it.next();
                 String filePath = file.getPath().toUri().getPath();
-                if (!InotifyPathFilter.isStagedPath(filePath)) {
+                if (file.getModificationTime() > modifiedAfterMs && !InotifyPathFilter.isStagedPath(filePath)) {
                     if (batchProcessor != null) {
                         count += batchProcessor.enqueueFile(job, filePath, file.getLen(), currentTxid, 0L);
                     }

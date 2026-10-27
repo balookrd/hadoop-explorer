@@ -51,6 +51,7 @@ public class ReplicatorAgentConfig {
     private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
     private int maxBundleFiles = 500;
     private int bundleCommitConcurrency = 8;
+    private int analyzerConcurrency = 8;
     private int maxConcurrentTarStreams = 16;
     private int tarPipeBufferBytes = 2 * 1024 * 1024;
     private boolean stagingCleanupEnabled = true;
@@ -164,6 +165,7 @@ public class ReplicatorAgentConfig {
         config.bundleTargetSizeBytes = Long.parseLong(getEnv("REPLICATOR_BUNDLE_TARGET_SIZE_BYTES", String.valueOf(16 * 1024 * 1024L)));
         config.maxBundleFiles = Integer.parseInt(getEnv("REPLICATOR_MAX_BUNDLE_FILES", "500"));
         config.bundleCommitConcurrency = Integer.parseInt(getEnv("REPLICATOR_BUNDLE_COMMIT_CONCURRENCY", "8"));
+        config.analyzerConcurrency = Integer.parseInt(getEnv("ANALYZER_CONCURRENCY", "8"));
         config.maxConcurrentTarStreams = Integer.parseInt(getEnv("REPLICATOR_MAX_CONCURRENT_TAR_STREAMS", "16"));
         config.tarPipeBufferBytes = Integer.parseInt(getEnv("REPLICATOR_TAR_PIPE_BUFFER_BYTES", String.valueOf(2 * 1024 * 1024)));
 
@@ -321,6 +323,8 @@ public class ReplicatorAgentConfig {
     public void setMaxBundleFiles(int maxBundleFiles) { this.maxBundleFiles = maxBundleFiles; }
 
     public int getBundleCommitConcurrency() { return bundleCommitConcurrency; }
+    public int getAnalyzerConcurrency() { return analyzerConcurrency; }
+    public void setAnalyzerConcurrency(int analyzerConcurrency) { this.analyzerConcurrency = analyzerConcurrency; }
     public void setBundleCommitConcurrency(int bundleCommitConcurrency) { this.bundleCommitConcurrency = bundleCommitConcurrency; }
 
     public boolean isStagingCleanupEnabled() { return stagingCleanupEnabled; }

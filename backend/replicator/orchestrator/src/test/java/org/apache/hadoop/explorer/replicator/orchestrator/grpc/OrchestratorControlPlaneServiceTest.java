@@ -269,7 +269,7 @@ public class OrchestratorControlPlaneServiceTest {
 
         JobResponse job = JobResponse.fromEntity(entity);
         // Выборка заданий кластера идет запросом с пределом, а не фильтром по всему списку
-        when(jobService.listJobsForCluster(eq("dc1"), eq(true), any(org.springframework.data.domain.Pageable.class)))
+        when(jobService.listJobsForCluster(eq("dc1"), eq(""), eq(true), any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(job)));
 
         GetJobsRequest req = GetJobsRequest.newBuilder()
@@ -281,6 +281,21 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals(1, resp.getJobsCount());
         assertEquals("job-1", resp.getJobs(0).getId());
         assertEquals("STREAMING_INOTIFY", resp.getJobs(0).getSyncMode());
+    }
+
+    @Test
+    @DisplayName("gRPC getJobs: очередь анализа — отбор по статусу на сервере, старые первыми")
+    void getJobsFiltersByStatusOldestFirst() {
+        when(jobService.listJobsForCluster(any(), eq("QUEUED"), eq(true), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        stub.getJobs(GetJobsRequest.newBuilder().setIncludeSubjobs(true).setStatus("QUEUED").setOldestFirst(true).build());
+
+        // Без отбора агент получал 5000 последних заданий любых статусов и терял среди
+        // завершенных подзадач барьера и QUEUED, и компаньоны inotify
+        verify(jobService).listJobsForCluster(any(), eq("QUEUED"), eq(true), argThat(
+                (org.springframework.data.domain.Pageable p) -> p.getSort().getOrderFor("createdAt") != null
+                        && p.getSort().getOrderFor("createdAt").isAscending()));
     }
 
     @Test
@@ -610,5 +625,24 @@ public class OrchestratorControlPlaneServiceTest {
                 && Boolean.FALSE.equals(r.runAsServiceAccount())), any());
         verify(jobService).createJob(argThat(r -> r != null && "/s2".equals(r.sourcePath())
                 && Boolean.TRUE.equals(r.runAsServiceAccount())), any());
+    }
+
+    @Test
+    @DisplayName("createHdfsSubjob: компаньон inotify HMS-задачи реплицирует удаления, подзадача данных — нет")
+    void hmsCompanionReplicatesDeletes() {
+        when(hmsCoordinatorService.acceptsSubjobFrom(any(), any())).thenReturn(true);
+        when(jobService.findReusableSubjob(any(), any(), any())).thenReturn(Optional.empty());
+        when(jobService.createJob(any(), any())).thenReturn(null);
+
+        stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-a")
+                .setSourcePath("hdfs://nn1:9000/warehouse/db.db").setTargetPath("hdfs://nn2:9000/warehouse/db.db")
+                .setSyncMode("STREAMING_INOTIFY").setJobType("HMS_COMPANION_STREAMING").setAgentId("agent-dc1").build());
+        stub.createHdfsSubjob(CreateHdfsSubjobRequest.newBuilder().setParentJobId("hms-job-a")
+                .setSourcePath("/warehouse/db.db/t/dt=1").setTargetPath("/warehouse/db.db/t/dt=1").setAgentId("agent-dc1").build());
+
+        verify(jobService).createJob(argThat(r -> r != null && "HMS_COMPANION_STREAMING".equals(r.jobType())
+                && Boolean.TRUE.equals(r.syncDeletes())), any());
+        verify(jobService).createJob(argThat(r -> r != null && "HMS_SUBJOB".equals(r.jobType())
+                && Boolean.FALSE.equals(r.syncDeletes())), any());
     }
 }

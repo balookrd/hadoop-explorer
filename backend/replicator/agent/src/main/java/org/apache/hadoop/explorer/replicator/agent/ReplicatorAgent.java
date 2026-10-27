@@ -60,6 +60,13 @@ public class ReplicatorAgent {
     private ScheduledExecutorService stagingCleanupExecutor;
     private ExecutorService workerTaskPool;
     private final ExecutorService hmsTaskPool;
+    /**
+     * Анализ заданий в QUEUED параллельно: подзадачи барьера данных (по одной на партицию)
+     * разбирались одним потоком, и CDC с тысячами новых партиций упирался в него. Платформенные
+     * потоки, а не виртуальные: клиент HDFS полон synchronized.
+     */
+    private final ExecutorService analyzerPool;
+    private final Set<String> analyzingJobs = ConcurrentHashMap.newKeySet();
     private final Set<String> activeRunningHmsJobs = ConcurrentHashMap.newKeySet();
     private Thread senderThread;
     private Thread hmsThread;
@@ -79,6 +86,11 @@ public class ReplicatorAgent {
         this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
         this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal(), config.getLocalSandboxDir());
         this.hmsTaskPool = Executors.newVirtualThreadPerTaskExecutor();
+        this.analyzerPool = Executors.newFixedThreadPool(Math.max(1, config.getAnalyzerConcurrency()), r -> {
+            Thread t = new Thread(r, "job-analyzer-" + config.getAgentId());
+            t.setDaemon(true);
+            return t;
+        });
         this.workerTaskPool = Executors.newFixedThreadPool(
                 Math.max(2, config.getBundleCommitConcurrency()),
                 r -> {
@@ -250,7 +262,11 @@ public class ReplicatorAgent {
                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .addService(receiverService)
                 .addService(health.service())
-                .maxInboundMessageSize(64 * 1024 * 1024);
+                .maxInboundMessageSize(64 * 1024 * 1024)
+                // Агенты-отправители пингуют приемник каждые 30 с и без вызовов: без разрешения
+                // сервер рвет соединение с GOAWAY (too_many_pings)
+                .permitKeepAliveTime(20, TimeUnit.SECONDS)
+                .permitKeepAliveWithoutCalls(true);
 
         if (hmsClient != null) {
             serverBuilder.addService(new org.apache.hadoop.explorer.replicator.hms.service.HmsTransferServiceImpl(hmsClient));
@@ -467,9 +483,10 @@ public class ReplicatorAgent {
             try {
                 // 1. Фаза анализатора: поиск заданий в QUEUED и создание пула подзадач
                 if (canAnalyze) {
-                    List<JobDto> jobs = orchestratorClient.getJobs();
+                    int capacity = Math.max(1, config.getAnalyzerConcurrency());
+                    List<JobDto> jobs = orchestratorClient.getJobs("QUEUED", true);
                     for (JobDto job : jobs) {
-                        if (!running.get()) break;
+                        if (!running.get() || analyzingJobs.size() >= capacity) break;
 
                         if (!"QUEUED".equalsIgnoreCase(job.getStatus())) {
                             continue;
@@ -480,22 +497,19 @@ public class ReplicatorAgent {
                             continue;
                         }
 
-                        boolean claimed = orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
-                                "Анализ каталога и вычисление diff деревьев"));
-                        if (!claimed) {
-                            logger.info("Агент '{}' пропустил задачу '{}': задача уже взята на анализ другим агентом (CAS)",
-                                    config.getAgentId(), job.getId());
+                        if (!analyzingJobs.add(job.getId())) {
                             continue;
                         }
-
-                        logger.info("Агент '{}' успешно захватил задачу '{}' на анализ каталога и формирование пула задач",
-                                config.getAgentId(), job.getId());
-
-                        String targetAddress = resolveTargetAddress(job.getTargetClusterId());
-                        boolean ok = sender.analyzeAndCreateTaskPool(job, targetAddress);
-                        if (ok) {
-                            didWork = true;
-                        }
+                        didWork = true;
+                        analyzerPool.submit(() -> {
+                            try {
+                                analyzeJob(job);
+                            } catch (Throwable t) {
+                                logger.error("Ошибка анализа задачи {}: {}", job.getId(), t.getMessage(), t);
+                            } finally {
+                                analyzingJobs.remove(job.getId());
+                            }
+                        });
                     }
                 }
 
@@ -535,6 +549,16 @@ public class ReplicatorAgent {
             if (didWork) {
                 // При наличии активных задач сбрасываем интервал к базовому
                 currentIntervalSec = baseIntervalSec;
+            } else if (!analyzingJobs.isEmpty()) {
+                // Слоты анализа заняты: короткая пауза до освобождения слота, а не нарастающий
+                // простой — иначе очередь подзадач барьера ждала по 15 с при свободном пуле
+                currentIntervalSec = baseIntervalSec;
+                try {
+                    Thread.sleep(100L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             } else {
                 try {
                     // Адаптивный Idle Backoff с Jitter ±20% для предотвращения Thundering Herd при сотнях агентов
@@ -549,6 +573,20 @@ public class ReplicatorAgent {
                 }
             }
         }
+    }
+
+    /** Захват задания на анализ (CAS) и формирование пула подзадач. */
+    private void analyzeJob(JobDto job) {
+        boolean claimed = orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
+                "Анализ каталога и вычисление diff деревьев"));
+        if (!claimed) {
+            logger.info("Агент '{}' пропустил задачу '{}': задача уже взята на анализ другим агентом (CAS)",
+                    config.getAgentId(), job.getId());
+            return;
+        }
+        logger.info("Агент '{}' успешно захватил задачу '{}' на анализ каталога и формирование пула задач",
+                config.getAgentId(), job.getId());
+        sender.analyzeAndCreateTaskPool(job, resolveTargetAddress(job.getTargetClusterId()));
     }
 
     public static boolean matchesCluster(String agentCluster, String jobCluster) {
@@ -681,6 +719,8 @@ public class ReplicatorAgent {
         if (inotifyListener != null) {
             inotifyListener.stop();
         }
+
+        analyzerPool.shutdownNow();
 
         if (workerTaskPool != null) {
             workerTaskPool.shutdown();

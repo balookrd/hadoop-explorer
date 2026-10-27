@@ -51,6 +51,15 @@ public class DirectoryDiffEngine {
 
         boolean asService = job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount();
         if (!fsManager.exists(sourcePath, job.getExecutionPrincipal(), asService)) {
+            if (job.isHmsDataSubjob()) {
+                // Каталога партиции (таблицы) на источнике нет — у больших таблиц такие
+                // партиции встречаются. Копировать нечего, и метаданные переносятся как есть:
+                // на приемнике каталога не будет, как и на источнике. Отказ подзадачи ронял
+                // барьер «данные раньше DDL» и вместе с ним bootstrap всей таблицы.
+                logger.info("Каталог {} на источнике отсутствует: копировать нечего", sourcePath);
+                orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, Collections.emptyList()));
+                return true;
+            }
             String err = "Исходный путь не найден: " + sourcePath;
             logger.error(err);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));

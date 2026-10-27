@@ -362,4 +362,34 @@ class InotifyProcessingTest {
 
         verify(orchestratorClient, atLeastOnce()).batchCreateTasks(any(BatchCreateTasksRequest.class));
     }
+
+    /**
+     * Компаньон HMS-задачи хранит каталог базы полным URI (так его отдает метастор), а события
+     * inotify приходят с путями без схемы. Префикс сравнивался строкой: «/hdfs://nn:9000/...»
+     * не совпадал ни с одним событием, и HDFS-стриминг HMS-задач не переносил ни одного файла.
+     */
+    @Test
+    @DisplayName("Компаньон HMS с полным URI: события каталога базы ставятся в очередь")
+    void hmsCompanionWithFullUriMatchesEvents() {
+        assertTrue(InotifyPathFilter.matchesJobPrefix("/warehouse/ino31.db/sales/dt=1/000002_0",
+                "hdfs://hdfs-cluster-1:9000/warehouse/ino31.db"));
+        assertFalse(InotifyPathFilter.matchesJobPrefix("/warehouse/ino31.dbx/sales/000000_0",
+                "hdfs://hdfs-cluster-1:9000/warehouse/ino31.db"), "граница каталога: соседняя база не входит");
+        assertFalse(InotifyPathFilter.matchesJobPrefix("/warehouse/ino31.dbx/sales/000000_0", "/warehouse/ino31.db"));
+        assertTrue(InotifyPathFilter.matchesJobPrefix("/warehouse/ino31.db", "/warehouse/ino31.db/"));
+    }
+
+    @Test
+    @DisplayName("Компаньон HMS с полным URI: путь приемника сохраняет кластер-приемник")
+    void hmsCompanionTargetPathKeepsTargetCluster() {
+        JobDto companion = new JobDto();
+        companion.setSourcePath("hdfs://hdfs-cluster-1:9000/warehouse/ino31.db");
+        companion.setTargetPath("hdfs://hdfs-cluster-2:9000/warehouse/ino31.db/");
+
+        assertEquals("hdfs://hdfs-cluster-2:9000/warehouse/ino31.db/sales/dt=1/000002_0",
+                InotifyBatchProcessor.computeTargetPath(companion, "/warehouse/ino31.db/sales/dt=1/000002_0"));
+        assertEquals("/backup/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=1/part-0.parquet",
+                InotifyBatchProcessor.computeTargetPath(streamingJob,
+                        "/warehouse/tablespace/managed/hive/analytics.db/sales_daily/dt=1/part-0.parquet"));
+    }
 }

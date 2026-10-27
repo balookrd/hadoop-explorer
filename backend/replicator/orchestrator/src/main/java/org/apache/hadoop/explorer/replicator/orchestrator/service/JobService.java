@@ -369,7 +369,12 @@ public class JobService {
      */
     public org.springframework.data.domain.Page<JobResponse> listJobsForCluster(
             String clusterId, boolean includeSubjobs, org.springframework.data.domain.Pageable pageable) {
-        return listJobsPage(null, clusterId, null, true, false, includeSubjobs, pageable);
+        return listJobsForCluster(clusterId, null, includeSubjobs, pageable);
+    }
+
+    public org.springframework.data.domain.Page<JobResponse> listJobsForCluster(
+            String clusterId, String status, boolean includeSubjobs, org.springframework.data.domain.Pageable pageable) {
+        return listJobsPage(status, clusterId, null, true, false, includeSubjobs, pageable);
     }
 
     private org.springframework.data.domain.Page<JobResponse> listJobsPage(

@@ -5,11 +5,15 @@ import org.apache.hadoop.explorer.replicator.hms.model.HmsNotificationEventDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Общее окно журнала событий: метастор читается один раз на несколько задач.
@@ -91,5 +95,59 @@ class NotificationLogCacheTest {
         List<HmsNotificationEventDto> events = cache.next(base + 2, 1000);
 
         assertEquals(base + 9, events.get(0).eventId(), "первое доступное событие после разрыва");
+    }
+
+    /** Метастор, чтение журнала которого стоит, пока его не отпустят. */
+    private static final class BlockingHms extends MockHmsClient {
+        final CountDownLatch insideRead = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+
+        BlockingHms() {
+            super("dc1", "HDP_3.1");
+        }
+
+        @Override
+        public List<HmsNotificationEventDto> getNextNotifications(long lastEventId, int maxEvents) {
+            insideRead.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return super.getNextNotifications(lastEventId, maxEvents);
+        }
+    }
+
+    /**
+     * CDC-задачи агента исполняются в виртуальных потоках. Пока окно было {@code synchronized},
+     * задача, ждущая входа в монитор, в Java 21 прикрепляла к себе поток-носитель. Десятки задач
+     * занимали все носители, и поток, которому метастор уже ответил, не мог продолжить и вернуть
+     * соединение в пул: читающий журнал внутри монитора ждал соединение 30 с (стенд CDC под
+     * нагрузкой: 30 задач на 6 ядрах стояли, CPU агента — ноль).
+     */
+    @Test
+    @DisplayName("Задачи, ждущие окно журнала, не занимают потоки-носители")
+    void waitingJobsDoNotPinCarrierThreads() throws Exception {
+        BlockingHms hms = new BlockingHms();
+        NotificationLogCache cache = new NotificationLogCache(hms, 10_000, 0, System::currentTimeMillis);
+
+        List<Thread> threads = new ArrayList<>();
+        threads.add(Thread.ofVirtual().start(() -> cache.next(0, 100)));
+        assertTrue(hms.insideRead.await(5, TimeUnit.SECONDS), "чтение журнала не началось");
+        int contenders = 4 * Runtime.getRuntime().availableProcessors();
+        for (int i = 0; i < contenders; i++) {
+            threads.add(Thread.ofVirtual().start(() -> cache.next(0, 100)));
+        }
+        Thread.sleep(300);
+
+        // Ответ метастора обрабатывает такой же виртуальный поток: ему нужен свободный носитель
+        threads.add(Thread.ofVirtual().start(hms.release::countDown));
+        boolean released = hms.release.await(10, TimeUnit.SECONDS);
+        hms.release.countDown();
+        for (Thread t : threads) {
+            t.join(5_000);
+        }
+
+        assertTrue(released, "все потоки-носители заняты задачами, ждущими окно журнала");
     }
 }

@@ -422,8 +422,21 @@ public class OrchestratorGrpcClient implements Closeable {
      * Получение всех задач репликации из Оркестратора.
      */
     public List<JobDto> getJobs() {
+        return getJobs(null, false);
+    }
+
+    /**
+     * Задания в статусе {@code status} (все при {@code null}), старые первыми по {@code oldestFirst}.
+     * Отбор идет на стороне оркестратора: выборка ограничена, и без него нужные задания
+     * терялись среди тысяч завершенных подзадач.
+     */
+    public List<JobDto> getJobs(String status, boolean oldestFirst) {
         try {
-            var protoReq = GetJobsRequest.newBuilder().setIncludeSubjobs(true).build();
+            var builder = GetJobsRequest.newBuilder().setIncludeSubjobs(true).setOldestFirst(oldestFirst);
+            if (status != null) {
+                builder.setStatus(status);
+            }
+            var protoReq = builder.build();
             var resp = executeWithFailover("getJobs", s -> s.getJobs(protoReq));
             if (resp == null) return Collections.emptyList();
 
@@ -454,6 +467,8 @@ public class OrchestratorGrpcClient implements Closeable {
         dto.setMessage(job.getMessage());
         dto.setSyncMode(job.getSyncMode());
         dto.setSyncDeletes(job.getSyncDeletes());
+        dto.setJobType(job.getJobType());
+        dto.setParentJobId(job.getParentJobId());
         return dto;
     }
 

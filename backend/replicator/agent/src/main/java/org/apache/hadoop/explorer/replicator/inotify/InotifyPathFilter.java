@@ -65,18 +65,37 @@ public class InotifyPathFilter {
         if (eventPath == null || jobSourcePath == null) {
             return false;
         }
-        String normalizedEvent = normalize(eventPath);
-        String normalizedJob = normalize(jobSourcePath);
+        String normalizedEvent = pathOf(eventPath);
+        String normalizedJob = pathOf(jobSourcePath);
 
-        return normalizedEvent.startsWith(normalizedJob);
+        // Граница каталога: задача на /db.db не забирает события соседнего /db.dbx
+        return normalizedEvent.equals(normalizedJob)
+                || normalizedJob.equals("/")
+                || normalizedEvent.startsWith(normalizedJob + "/");
     }
 
-    private static String normalize(String p) {
+    /**
+     * Путь без схемы и адреса NameNode, с ведущим и без завершающего слеша.
+     *
+     * <p>События inotify приходят с путями без схемы, а каталог задачи бывает полным URI:
+     * компаньон HMS-задачи хранит расположение базы так, как его отдает метастор
+     * ({@code hdfs://nn:9000/warehouse/db.db}). Сравнение строк целиком не совпадало ни с одним
+     * событием, и стриминг HMS-задач не переносил ничего.
+     */
+    static String pathOf(String p) {
+        if (p == null) {
+            return "/";
+        }
         String s = p.trim();
+        int scheme = s.indexOf("://");
+        if (scheme > 0) {
+            int pathStart = s.indexOf('/', scheme + 3);
+            s = pathStart >= 0 ? s.substring(pathStart) : "/";
+        }
         if (!s.startsWith("/")) {
             s = "/" + s;
         }
-        if (s.endsWith("/") && s.length() > 1) {
+        while (s.endsWith("/") && s.length() > 1) {
             s = s.substring(0, s.length() - 1);
         }
         return s;

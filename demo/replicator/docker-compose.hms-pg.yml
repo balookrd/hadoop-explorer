@@ -1,0 +1,61 @@
+# =============================================================================
+# Метастор-источник (dc1) на PostgreSQL, как в бою.
+#
+# Накладывается поверх docker-compose.hms31.yml. На Derby метастор не блокирует счетчик
+# событий (FOR UPDATE в Derby Hive не использует), и при параллельных DDL-клиентах в
+# NOTIFICATION_LOG появляются события с одинаковыми номерами: клиент Hive 3.1 видит в этом
+# «пропуск» журнала, и CDC встает. Нагрузку на журнал событий (run-hms-cdc-load-test.sh)
+# поэтому проверяем только на метасторе с настоящей СУБД.
+#
+# Схема создается при первом старте; повторные старты ее только проверяют.
+# =============================================================================
+
+volumes:
+  hms-pg-data:
+
+services:
+  hms-db:
+    image: postgres:16-alpine
+    container_name: hms-db
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    volumes:
+      - hms-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 3s
+      retries: 20
+    networks:
+      - demo-platform-net
+
+  sql-hive-metastore:
+    image: hadoop-explorer/hive-metastore-pg:3.1.3
+    build:
+      dockerfile_inline: |
+        FROM apache/hive:3.1.3
+        ADD --chmod=644 https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar /opt/hive/lib/
+    environment:
+      DB_DRIVER: postgres
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://hms-db:5432/metastore
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hive
+    # Entrypoint образа создает схему на каждом старте и падает, если она уже есть
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if HADOOP_CLIENT_OPTS="$$SERVICE_OPTS" /opt/hive/bin/schematool -dbType postgres -info > /dev/null 2>&1; then
+          export IS_RESUME=true
+        else
+          export IS_RESUME=false
+        fi
+        exec /entrypoint.sh
+    depends_on:
+      kdc:
+        condition: service_healthy
+      hms-db:
+        condition: service_healthy

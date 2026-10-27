@@ -80,7 +80,13 @@ public class OrchestratorGrpcServer implements SmartLifecycle {
                     .addService(health.service())
                     .maxInboundMessageSize(grpcConfig.getMaxInboundMessageSize())
                     .keepAliveTime(30, TimeUnit.SECONDS)
-                    .keepAliveTimeout(10, TimeUnit.SECONDS);
+                    .keepAliveTimeout(10, TimeUnit.SECONDS)
+                    // Агенты пингуют каждые 30 с и без активных вызовов. По умолчанию сервер
+                    // разрешает пинг раз в 5 минут и только при вызовах, а на чаще отвечает
+                    // GOAWAY (too_many_pings): соединение рвалось, вызовы на нем падали, и у
+                    // десятков HMS-задач разом истекала аренда
+                    .permitKeepAliveTime(20, TimeUnit.SECONDS)
+                    .permitKeepAliveWithoutCalls(true);
 
             // Аутентификация по X-Agent-Secret: интерцептор ставится всегда (fail-closed).
             // При незаданном секрете все вызовы отклоняются, иначе control plane был бы

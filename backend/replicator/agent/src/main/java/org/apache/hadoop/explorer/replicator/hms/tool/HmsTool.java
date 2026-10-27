@@ -185,6 +185,81 @@ public class HmsTool {
                     break;
                 }
 
+                case "current-event-id": {
+                    System.out.println(client.getCurrentNotificationEventId());
+                    break;
+                }
+
+                case "churn": {
+                    // Нагрузка на журнал событий для проверки CDC: потоки добавляют партиции по
+                    // одной (каждая — отдельное событие ADD_PARTITION) в таблицы N баз и время от
+                    // времени удаляют добавленные раньше (DROP_PARTITION)
+                    if (args.length < 7) {
+                        System.err.println("Использование: churn <dbPrefix> <dbCount> <tableName> <warehouseRoot> <seconds> <threads> [dropEvery] [partitionsPerEvent]");
+                        System.exit(1);
+                    }
+                    String prefix = args[1];
+                    int dbCount = Integer.parseInt(args[2]);
+                    String tableName = args[3];
+                    String root = args[4].replaceAll("/+$", "");
+                    long deadline = System.currentTimeMillis() + Long.parseLong(args[5]) * 1000L;
+                    int threads = Integer.parseInt(args[6]);
+                    int dropEvery = args.length > 7 ? Integer.parseInt(args[7]) : 10;
+                    // Пачка add_partitions — одно событие ADD_PARTITION на все партиции пачки
+                    int perEvent = args.length > 8 ? Math.max(1, Integer.parseInt(args[8])) : 1;
+                    String in = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+                    String out = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+                    String serde = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+                    HmsClient pooled = new ThriftHmsClient(config.getClusterId(), thriftUris, hmsPrincipal,
+                            config.getKeytabPath(), 2 * threads + 2);
+                    java.util.concurrent.atomic.AtomicLong adds = new java.util.concurrent.atomic.AtomicLong();
+                    java.util.concurrent.atomic.AtomicLong partitions = new java.util.concurrent.atomic.AtomicLong();
+                    java.util.concurrent.atomic.AtomicLong drops = new java.util.concurrent.atomic.AtomicLong();
+                    java.util.concurrent.atomic.AtomicLong errors = new java.util.concurrent.atomic.AtomicLong();
+                    long firstEvent = pooled.getCurrentNotificationEventId();
+                    long started = System.currentTimeMillis();
+                    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+                    for (int t = 0; t < threads; t++) {
+                        final int thread = t;
+                        pool.submit(() -> {
+                            java.util.ArrayDeque<String[]> added = new java.util.ArrayDeque<>();
+                            for (long seq = 0; System.currentTimeMillis() < deadline; seq++) {
+                                String db = prefix + ((seq * threads + thread) % dbCount + 1);
+                                List<HmsPartitionDto> batch = new java.util.ArrayList<>(perEvent);
+                                for (int k = 0; k < perEvent; k++) {
+                                    String val = String.format("c%02d_%07d_%03d", thread, seq, k);
+                                    batch.add(new HmsPartitionDto("hive", db, tableName, List.of(val),
+                                            root + "/" + db + ".db/" + tableName + "/dt=" + val, Collections.emptyMap(),
+                                            Collections.emptyList(), Collections.emptyMap(), in, out, serde));
+                                }
+                                try {
+                                    pooled.addPartitions(db, tableName, batch);
+                                    adds.incrementAndGet();
+                                    partitions.addAndGet(perEvent);
+                                    added.add(new String[]{db, batch.get(0).values().get(0)});
+                                    if (dropEvery > 0 && seq % dropEvery == dropEvery - 1 && added.size() > 1) {
+                                        String[] victim = added.pollFirst();
+                                        pooled.dropPartition(victim[0], tableName, List.of(victim[1]), false);
+                                        drops.incrementAndGet();
+                                    }
+                                } catch (Exception e) {
+                                    if (errors.incrementAndGet() <= 5) {
+                                        System.err.println("Ошибка нагрузки: " + e.getMessage());
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    pool.shutdown();
+                    pool.awaitTermination(1, java.util.concurrent.TimeUnit.DAYS);
+                    double secs = (System.currentTimeMillis() - started) / 1000.0;
+                    long lastEvent = pooled.getCurrentNotificationEventId();
+                    System.out.printf(java.util.Locale.ROOT,
+                            "{\"adds\":%d,\"partitions\":%d,\"drops\":%d,\"errors\":%d,\"first_event\":%d,\"last_event\":%d,\"seconds\":%.1f,\"events_per_sec\":%.1f}%n",
+                            adds.get(), partitions.get(), drops.get(), errors.get(), firstEvent, lastEvent, secs, (lastEvent - firstEvent) / secs);
+                    break;
+                }
+
                 case "fire-insert": {
                     // Событие INSERT от имени DML-клиента (как HiveServer2 после записи файлов)
                     if (args.length < 6) {
@@ -293,6 +368,8 @@ public class HmsTool {
         System.out.println("  list-partitions <dbName> <tableName>");
         System.out.println("  drop-partition <dbName> <tableName> <partValue>");
         System.out.println("  drop-table <dbName> <tableName> [deleteData]");
+        System.out.println("  current-event-id");
+        System.out.println("  churn <dbPrefix> <dbCount> <tableName> <warehouseRoot> <seconds> <threads> [dropEvery] [partitionsPerEvent]");
         System.exit(code);
     }
 }

@@ -2,7 +2,11 @@ package org.apache.hadoop.explorer.replicator.sender;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hadoop.explorer.replicator.client.OrchestratorGrpcClient;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
+import org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest;
+import org.apache.hadoop.explorer.replicator.model.JobDto;
+import org.apache.hadoop.explorer.replicator.model.UpdateJobRequest;
 import org.apache.hadoop.explorer.replicator.model.TaskCreateItem;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @DisplayName("DirectoryDiffEngine Unit Tests")
 class DirectoryDiffEngineTest {
@@ -63,5 +69,38 @@ class DirectoryDiffEngineTest {
         assertNotNull(task);
         assertEquals(1, task.getFileCount());
         assertEquals("[]", task.getBundleManifest().trim());
+    }
+
+    private static JobDto missingSourceJob(String jobType) {
+        JobDto job = new JobDto("job-1", "dc1", "dc2", "/warehouse/db.db/t/dt=1", "/warehouse/db.db/t/dt=1",
+                "RUNNING", "user@REALM", false);
+        job.setJobType(jobType);
+        return job;
+    }
+
+    @Test
+    @DisplayName("HMS-подзадача: каталога партиции на источнике нет — копировать нечего, подзадача успешна")
+    void hmsSubjobWithMissingSourceSucceedsEmpty() {
+        HadoopFsManager fs = mock(HadoopFsManager.class);
+        when(fs.exists(anyString(), any(), anyBoolean())).thenReturn(false);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        DirectoryDiffEngine engine = new DirectoryDiffEngine(fs, orchestrator, objectMapper, 1024, 1024, 10);
+
+        assertTrue(engine.analyzeAndCreateTaskPool(missingSourceJob("HMS_SUBJOB"), null),
+                "отказ подзадачи ронял барьер данных и bootstrap всей таблицы");
+        verify(orchestrator).batchCreateTasks(argThat((BatchCreateTasksRequest r) -> r.getTasks().isEmpty()));
+        verify(orchestrator, never()).updateJobProgress(anyString(), any(UpdateJobRequest.class));
+    }
+
+    @Test
+    @DisplayName("Обычная задача: отсутствующий источник — по-прежнему отказ")
+    void standaloneJobWithMissingSourceFails() {
+        HadoopFsManager fs = mock(HadoopFsManager.class);
+        when(fs.exists(anyString(), any(), anyBoolean())).thenReturn(false);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        DirectoryDiffEngine engine = new DirectoryDiffEngine(fs, orchestrator, objectMapper, 1024, 1024, 10);
+
+        assertFalse(engine.analyzeAndCreateTaskPool(missingSourceJob("HDFS"), null));
+        verify(orchestrator).updateJobProgress(eq("job-1"), argThat((UpdateJobRequest r) -> "FAILED".equals(r.getStatus())));
     }
 }

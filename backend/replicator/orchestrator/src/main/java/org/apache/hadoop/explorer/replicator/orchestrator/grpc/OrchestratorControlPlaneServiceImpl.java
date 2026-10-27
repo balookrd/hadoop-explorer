@@ -435,10 +435,13 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             if (request.getJobIdsCount() > 0) {
                 jobs = jobService.getJobsByIds(request.getJobIdsList().stream().limit(AGENT_JOBS_LIMIT).toList());
             } else {
-                var page = jobService.listJobsForCluster(request.getClusterId(), request.getIncludeSubjobs(),
+                var direction = request.getOldestFirst()
+                        ? org.springframework.data.domain.Sort.Direction.ASC
+                        : org.springframework.data.domain.Sort.Direction.DESC;
+                var page = jobService.listJobsForCluster(request.getClusterId(), request.getStatus(),
+                        request.getIncludeSubjobs(),
                         org.springframework.data.domain.PageRequest.of(0, AGENT_JOBS_LIMIT,
-                                org.springframework.data.domain.Sort.by(
-                                        org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+                                org.springframework.data.domain.Sort.by(direction, "createdAt")));
                 if (page.getTotalElements() > AGENT_JOBS_LIMIT) {
                     log.warn("Агенту кластера '{}' отдано {} заданий из {}: предел выборки контрольного канала",
                             request.getClusterId(), AGENT_JOBS_LIMIT, page.getTotalElements());
@@ -653,7 +656,11 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     7,
                     jobType,
                     request.getParentJobId(),
-                    syncMode
+                    syncMode,
+                    // Компаньон HMS-задачи зеркалит каталог базы: без удалений перезапись
+                    // партиции (Spark INSERT OVERWRITE, событий метастора нет) оставляла на
+                    // приемнике старые файлы рядом с новыми, и запросы видели строки дважды
+                    "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType)
             );
 
             // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC

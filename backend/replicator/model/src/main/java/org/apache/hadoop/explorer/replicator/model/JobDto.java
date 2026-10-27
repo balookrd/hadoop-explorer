@@ -117,6 +117,12 @@ public class JobDto {
     @JsonProperty("sync_deletes")
     private Boolean syncDeletes;
 
+    @JsonProperty("job_type")
+    private String jobType;
+
+    @JsonProperty("parent_job_id")
+    private String parentJobId;
+
     @JsonProperty("last_processed_txid")
     private Long lastProcessedTxid;
 
@@ -131,6 +137,15 @@ public class JobDto {
 
     public Boolean isSyncDeletes() { return Boolean.TRUE.equals(syncDeletes); }
     public void setSyncDeletes(Boolean syncDeletes) { this.syncDeletes = syncDeletes; }
+
+    public String getJobType() { return jobType; }
+    public void setJobType(String jobType) { this.jobType = jobType; }
+
+    public String getParentJobId() { return parentJobId; }
+    public void setParentJobId(String parentJobId) { this.parentJobId = parentJobId; }
+
+    /** Подзадача копирования данных HMS-задачи (партиция или таблица), а не самостоятельная задача. */
+    public boolean isHmsDataSubjob() { return "HMS_SUBJOB".equalsIgnoreCase(jobType); }
 
     public Long getLastProcessedTxid() { return lastProcessedTxid; }
     public void setLastProcessedTxid(Long lastProcessedTxid) { this.lastProcessedTxid = lastProcessedTxid; }

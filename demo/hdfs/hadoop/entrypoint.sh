@@ -49,6 +49,12 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
         </value>
     </property>
     <property>
+        <!-- Статические группы пользователей (HDFS_GROUP_OVERRIDES), например hdfs=hadoop-admins:
+             стримеру репликатора inotify доступен только суперпользователям HDFS -->
+        <name>hadoop.user.group.static.mapping.overrides</name>
+        <value>dr.who=;${HDFS_GROUP_OVERRIDES:-}</value>
+    </property>
+    <property>
         <name>hadoop.http.authentication.type</name>
         <value>kerberos</value>
     </property>

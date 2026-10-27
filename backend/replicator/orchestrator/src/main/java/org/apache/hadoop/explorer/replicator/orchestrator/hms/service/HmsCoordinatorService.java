@@ -1009,19 +1009,25 @@ public class HmsCoordinatorService {
         var srcOpt = agentRegistry.getLiveHmsAgentForCluster(job.getSourceClusterId());
         var dstOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId());
 
-        if (srcOpt.isEmpty() || dstOpt.isEmpty()) {
+        String agent = failedAgentId != null ? failedAgentId : "неизвестен";
+        if ("ACTIVE".equalsIgnoreCase(job.getStatus())) {
+            // CDC-задача остается ACTIVE со своей позицией журнала и без агентов: ее подхватит
+            // первый живой агент кластера. Раньше без живых агентов она уходила в
+            // WAITING_FOR_AGENTS, а при их возвращении — в QUEUED, то есть на полный повторный
+            // bootstrap: перезапуск агента стоил часа работы на таблице в 200k партиций.
+            job.setMessage(srcOpt.isEmpty() || dstOpt.isEmpty()
+                    ? String.format("Авто-failover: сбой CDC на агенте '%s' (%s). Ожидание агентов кластера, "
+                            + "CDC продолжится с события %s.", agent, reason, job.getLastProcessedEventId())
+                    : String.format("Авто-failover: сбой CDC на агенте '%s' (%s). Задача доступна для перехвата "
+                            + "другим агентом кластера.", agent, reason));
+        } else if (srcOpt.isEmpty() || dstOpt.isEmpty()) {
             job.setStatus("WAITING_FOR_AGENTS");
             job.setMessage(String.format("Авто-failover: сбой на агенте '%s' (%s). Ожидание подключения новых агентов.",
-                    failedAgentId != null ? failedAgentId : "неизвестен", reason));
-        } else {
-            if ("BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
-                job.setStatus("QUEUED");
-                job.setMessage(String.format("Авто-failover: сбой Bootstrap на агенте '%s' (%s). Задача возвращена в очередь.",
-                        failedAgentId != null ? failedAgentId : "неизвестен", reason));
-            } else if ("ACTIVE".equalsIgnoreCase(job.getStatus())) {
-                job.setMessage(String.format("Авто-failover: сбой CDC на агенте '%s' (%s). Задача доступна для перехвата другим агентом кластера.",
-                        failedAgentId != null ? failedAgentId : "неизвестен", reason));
-            }
+                    agent, reason));
+        } else if ("BOOTSTRAPPING".equalsIgnoreCase(job.getStatus())) {
+            job.setStatus("QUEUED");
+            job.setMessage(String.format("Авто-failover: сбой Bootstrap на агенте '%s' (%s). Задача возвращена в очередь.",
+                    agent, reason));
         }
 
         hmsJobRepository.saveAndFlush(job);

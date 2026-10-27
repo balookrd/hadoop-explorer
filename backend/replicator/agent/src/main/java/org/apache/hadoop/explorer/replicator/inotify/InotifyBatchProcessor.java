@@ -439,26 +439,28 @@ public class InotifyBatchProcessor implements AutoCloseable {
     }
 
     public static String computeTargetPath(JobDto job, String sourceFilePath) {
-        String srcRoot = normalize(job.getSourcePath());
-        String dstRoot = normalize(job.getTargetPath());
-        String normalizedFile = normalize(sourceFilePath);
+        // Относительный путь — по компонентам пути без схемы, а корень приемника сохраняет свою
+        // схему и NameNode: у компаньона HMS-задачи это полный URI кластера-приемника
+        String srcRoot = InotifyPathFilter.pathOf(job.getSourcePath());
+        String dstRoot = targetRoot(job.getTargetPath());
+        String normalizedFile = InotifyPathFilter.pathOf(sourceFilePath);
 
-        if (normalizedFile.startsWith(srcRoot)) {
+        if (InotifyPathFilter.matchesJobPrefix(normalizedFile, srcRoot)) {
             String rel = normalizedFile.substring(srcRoot.length());
             if (rel.startsWith("/")) {
                 rel = rel.substring(1);
             }
-            return dstRoot + (dstRoot.endsWith("/") ? "" : "/") + rel;
+            return rel.isEmpty() ? dstRoot : dstRoot + (dstRoot.endsWith("/") ? "" : "/") + rel;
         }
 
         return dstRoot + "/" + new Path(sourceFilePath).getName();
     }
 
-    private static String normalize(String p) {
+    private static String targetRoot(String p) {
         if (p == null) return "";
         String s = p.trim();
-        if (!s.startsWith("/")) s = "/" + s;
-        if (s.endsWith("/") && s.length() > 1) s = s.substring(0, s.length() - 1);
+        if (!s.contains("://") && !s.startsWith("/")) s = "/" + s;
+        while (s.endsWith("/") && s.length() > 1 && !s.endsWith("://")) s = s.substring(0, s.length() - 1);
         return s;
     }
 

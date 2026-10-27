@@ -1,0 +1,23 @@
+# =============================================================================
+# HMS-репликация с HDFS-стримингом (inotify): стримеры журнала NameNode источника.
+#
+# Накладывается поверх docker-compose.ha.yml (и остальных слоев стенда HMS 3.1). Сценарий —
+# run-hms-inotify-test.sh.
+#
+# Журнал правок NameNode (getInotifyEventStream) читают только суперпользователи HDFS.
+# NameNode стенда работает от пользователя hadoop, и принципал стримера (hdfs) включается
+# в группу суперпользователей dfs.permissions.superusergroup статическим сопоставлением.
+# =============================================================================
+
+services:
+  hdfs-cluster-1:
+    environment:
+      HDFS_GROUP_OVERRIDES: "hdfs=hadoop-admins"
+
+  streamer-dc1-01:
+    environment: &streamer
+      ORCHESTRATOR_GRPC_ADDRESSES: "orchestrator:50050,orchestrator-2:50050"
+      REPLICATOR_AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
+
+  streamer-dc1-02:
+    environment: *streamer

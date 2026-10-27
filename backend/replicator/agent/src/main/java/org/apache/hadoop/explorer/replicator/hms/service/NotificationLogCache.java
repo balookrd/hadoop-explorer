@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 
 /**
@@ -21,6 +22,11 @@ import java.util.function.LongSupplier;
  * <p>Из окна отдается только непрерывный участок, начинающийся ровно со следующего события:
  * разрыв журнала (события удалены по TTL) задача должна увидеть сама, как и при прямом чтении.
  * Задачи, догнавшие метастор, опрашивают хвост журнала не чаще {@code tailIntervalMs}.
+ *
+ * <p>Окно защищено {@link ReentrantLock}, а не {@code synchronized}: CDC-задачи исполняются в
+ * виртуальных потоках, и в Java 21 ожидание входа в монитор прикрепляет поток-носитель. Десятки
+ * задач, ждущих окно, занимали все носители, и поток, которому метастор уже ответил, не мог
+ * вернуть соединение в пул — читающий журнал ждал его по 30 с, CDC стоял.
  */
 final class NotificationLogCache {
 
@@ -29,6 +35,7 @@ final class NotificationLogCache {
     private final long tailIntervalMs;
     private final LongSupplier clock;
 
+    private final ReentrantLock lock = new ReentrantLock();
     private final NavigableMap<Long, HmsNotificationEventDto> window = new TreeMap<>();
     private long tailCheckedAtMs = Long.MIN_VALUE;
     private long tailCheckedAfterId = -1;
@@ -43,7 +50,16 @@ final class NotificationLogCache {
     }
 
     /** События после {@code afterId}, не больше {@code limit}. */
-    synchronized List<HmsNotificationEventDto> next(long afterId, int limit) {
+    List<HmsNotificationEventDto> next(long afterId, int limit) {
+        lock.lock();
+        try {
+            return nextLocked(afterId, limit);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private List<HmsNotificationEventDto> nextLocked(long afterId, int limit) {
         List<HmsNotificationEventDto> fromWindow = contiguousFrom(afterId, limit);
         if (fromWindow.size() >= limit) {
             return fromWindow;
@@ -77,13 +93,18 @@ final class NotificationLogCache {
     }
 
     /** Текущий номер события метастора, не чаще одного запроса за {@code tailIntervalMs}. */
-    synchronized long currentEventId() {
-        long now = clock.getAsLong();
-        if (now - currentIdCachedAtMs >= tailIntervalMs) {
-            currentIdCached = hmsClient.getCurrentNotificationEventId();
-            currentIdCachedAtMs = now;
+    long currentEventId() {
+        lock.lock();
+        try {
+            long now = clock.getAsLong();
+            if (now - currentIdCachedAtMs >= tailIntervalMs) {
+                currentIdCached = hmsClient.getCurrentNotificationEventId();
+                currentIdCachedAtMs = now;
+            }
+            return currentIdCached;
+        } finally {
+            lock.unlock();
         }
-        return currentIdCached;
     }
 
     private List<HmsNotificationEventDto> contiguousFrom(long afterId, int limit) {

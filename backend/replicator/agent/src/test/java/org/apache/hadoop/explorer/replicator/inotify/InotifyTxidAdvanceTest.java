@@ -62,7 +62,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Обработанная пачка двигает позицию вперед")
     void processedBatchShouldAdvanceTxid() {
-        when(orchestratorClient.getJobs()).thenReturn(List.of(streamingJob()));
+        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
 
         assertTrue(listener.processBatch(batch(4200L), 0L));
 
@@ -73,7 +73,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Оркестратор недоступен — позиция остается на месте")
     void unknownJobListShouldNotAdvanceTxid() {
-        when(orchestratorClient.getJobs()).thenThrow(new RuntimeException("оркестратор недоступен"));
+        when(orchestratorClient.getJobs("STREAMING", false)).thenThrow(new RuntimeException("оркестратор недоступен"));
 
         assertFalse(listener.processBatch(batch(4200L), 0L),
                 "Пока список задач неизвестен, события обрабатывать не с чем");
@@ -86,7 +86,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Переполнение очереди не двигает позицию")
     void queueOverflowShouldNotAdvanceTxid() {
-        when(orchestratorClient.getJobs()).thenReturn(List.of(streamingJob()));
+        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
         doThrow(new InotifyBatchProcessor.InotifyQueueOverflowException("очередь переполнена"))
                 .when(processor).processEvent(any(), anyLong(), anyLong(), anyList());
 
@@ -99,7 +99,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Потоковых задач нет — позиция двигается, перечитывать нечего")
     void emptyJobListShouldStillAdvanceTxid() {
-        when(orchestratorClient.getJobs()).thenReturn(List.of());
+        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of());
 
         assertTrue(listener.processBatch(batch(4200L), 0L));
 
