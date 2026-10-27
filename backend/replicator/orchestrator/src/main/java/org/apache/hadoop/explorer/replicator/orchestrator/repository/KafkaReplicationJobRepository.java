@@ -75,6 +75,18 @@ public interface KafkaReplicationJobRepository extends JpaRepository<KafkaReplic
     @Query("UPDATE KafkaReplicationJobEntity j SET j.topicProvisioningSummary = :summary WHERE j.id = :id")
     int updateProvisioningSummary(@Param("id") String id, @Param("summary") String summary);
 
+    /** Настройки задачи без перезаписи статуса и телеметрии, которые меняются параллельно. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE KafkaReplicationJobEntity j SET j.name = :name, j.topicsJson = :topicsJson, "
+            + "j.consumerGroupsJson = :groupsJson, j.consumerThreads = :threads, j.batchSize = :batchSize, "
+            + "j.bandwidthLimitMb = :bandwidth, j.offsetSyncIntervalSec = :syncInterval, j.updatedAt = :now "
+            + "WHERE j.id = :id")
+    int updateSettings(@Param("id") String id, @Param("name") String name, @Param("topicsJson") String topicsJson,
+                       @Param("groupsJson") String groupsJson, @Param("threads") Integer threads,
+                       @Param("batchSize") Integer batchSize, @Param("bandwidth") Double bandwidth,
+                       @Param("syncInterval") Integer syncInterval, @Param("now") Instant now);
+
     /** Смена статуса задачи без перезаписи остальных полей строки. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("UPDATE KafkaReplicationJobEntity j SET j.status = :status, j.updatedAt = :now WHERE j.id = :id")

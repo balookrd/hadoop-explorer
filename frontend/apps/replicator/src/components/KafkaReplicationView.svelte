@@ -21,6 +21,9 @@
     Layers,
     Radio,
     Clock,
+    Pencil,
+    RotateCcw,
+    ListChecks,
   } from 'lucide-svelte';
 
   interface TopicSetting {
@@ -818,6 +821,96 @@
     }
   }
 
+  // --- Изменение задачи ---
+  let editingJob = $state<KafkaJob | null>(null);
+  let editName = $state('');
+  let editTopics = $state('');
+  let editGroups = $state('');
+  let editThreads = $state(4);
+  let editBatchSize = $state(2000);
+  let editBandwidth = $state(0);
+  let editSyncInterval = $state(5);
+  let isSavingEdit = $state(false);
+
+  function openEdit(job: KafkaJob) {
+    editingJob = job;
+    editName = job.name;
+    editTopics = job.topics.map(t => t.topic).join(', ');
+    editGroups = job.consumerGroups.join(', ');
+    editThreads = job.consumerThreads ?? 4;
+    editBatchSize = job.batchSize ?? 2000;
+    editBandwidth = job.bandwidthLimitMb;
+    editSyncInterval = job.offsetSyncIntervalSec;
+  }
+
+  async function saveEdit() {
+    const job = editingJob;
+    if (!job || isSavingEdit) return;
+    const topicNames = editTopics.split(',').map(s => s.trim()).filter(Boolean);
+    if (topicNames.length === 0) {
+      alert('У задачи должен остаться хотя бы один топик');
+      return;
+    }
+    // Режим полезной нагрузки сохраняется у оставшихся топиков, новые получают режим по умолчанию
+    const modes = new Map(job.topics.map(t => [t.topic, t.payloadMode]));
+    isSavingEdit = true;
+    try {
+      await api.updateKafkaJob(job.id, {
+        name: editName.trim() || job.name,
+        topics: topicNames.map(topic => ({ topic, payload_mode: modes.get(topic) || 'PASSTHROUGH' })),
+        consumer_groups: editGroups.split(',').map(s => s.trim()).filter(Boolean),
+        consumer_threads: Number(editThreads),
+        batch_size: Number(editBatchSize),
+        bandwidth_limit_mb: Math.max(0, Number(editBandwidth) || 0),
+        offset_sync_interval_sec: Math.max(0, Number(editSyncInterval) || 0)
+      });
+      editingJob = null;
+      showNotification(`Задача "${job.name}" изменена: агенты применят настройки на следующем опросе`);
+      await loadJobs();
+    } catch (e: any) {
+      alert(`Ошибка изменения задачи: ${e.message || e}`);
+    } finally {
+      isSavingEdit = false;
+    }
+  }
+
+  async function provisionTopics(job: KafkaJob) {
+    let result: any = null;
+    const ok = await runJobAction(job, async () => {
+      result = await api.provisionKafkaJobTopics(job.id);
+    }, 'Ошибка проверки топиков');
+    if (!ok || !result) return;
+    const created: string[] = result.created_topics || [];
+    const conflicts: string[] = result.conflicts || [];
+    if (result.success === false) {
+      // Существующие топики оркестратор не меняет: расхождения устраняет оператор
+      alert(`Топики задачи "${job.name}" расходятся с источником:\n`
+        + (conflicts.length ? conflicts.join('\n') : (result.message || '')));
+      return;
+    }
+    showNotification(created.length
+      ? `Топики "${job.name}": создано ${created.length} — ${created.join(', ')}`
+      : `Топики "${job.name}" согласованы с источником`);
+  }
+
+  async function resetOffsets(job: KafkaJob) {
+    const answer = prompt(
+      `Сброс смещений группы задачи "${job.name}".\n`
+      + `LATEST — пропустить накопленный хвост, EARLIEST — перечитать retention топиков.\n`
+      + `Введите LATEST или EARLIEST:`, 'LATEST');
+    if (answer === null) return;
+    const position = answer.trim().toUpperCase();
+    if (position !== 'LATEST' && position !== 'EARLIEST') {
+      alert('Позиция должна быть LATEST или EARLIEST');
+      return;
+    }
+    const ok = await runJobAction(job, () => api.resetKafkaJobOffsets(job.id, position as 'LATEST' | 'EARLIEST'),
+      'Ошибка сброса смещений');
+    if (ok) {
+      showNotification(`Смещения "${job.name}" сброшены на ${position}: задача продолжит с этой позиции после возобновления`);
+    }
+  }
+
   async function deleteJob(job: KafkaJob) {
     const warning = job.status === 'ACTIVE'
       ? '\nЗадача активна: агенты остановят пулы консьюмеров в течение нескольких секунд.'
@@ -1019,10 +1112,42 @@
 
               <button
                 type="button"
+                onclick={() => openEdit(job)}
+                disabled={isJobPending(job.id)}
+                class="disabled:opacity-50 disabled:cursor-not-allowed p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer"
+                title="Изменить задачу"
+              >
+                <Pencil class="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onclick={() => provisionTopics(job)}
+                disabled={isJobPending(job.id)}
+                class="disabled:opacity-50 disabled:cursor-not-allowed p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer"
+                title="Проверить и создать топики в целевом кластере"
+              >
+                <ListChecks class="w-3.5 h-3.5" />
+              </button>
+
+              {#if job.status === 'PAUSED'}
+                <button
+                  type="button"
+                  onclick={() => resetOffsets(job)}
+                  disabled={isJobPending(job.id) || job.runningAgents.length > 0}
+                  class="disabled:opacity-50 disabled:cursor-not-allowed p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
+                  title={job.runningAgents.length > 0 ? 'Дождитесь остановки пулов на агентах' : 'Сбросить смещения группы задачи'}
+                >
+                  <RotateCcw class="w-3.5 h-3.5" />
+                </button>
+              {/if}
+
+              <button
+                type="button"
                 onclick={() => triggerFailover(job)}
                 disabled={isJobPending(job.id)}
                 class="disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-semibold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
-                title="Форсировать смещения консьюмеров в целевом ЦОД"
+                title="Остановить репликацию и перенести смещения групп в целевой ЦОД"
               >
                 <Zap class="w-3.5 h-3.5" />
                 <span>Failover</span>
@@ -2064,6 +2189,65 @@
               Создать задачу
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if editingJob}
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Изменение задачи"
+      tabindex="-1"
+      onclick={(e) => { if (e.target === e.currentTarget) editingJob = null; }}
+      onkeydown={(e) => { if (e.key === 'Escape') editingJob = null; }}
+    >
+      <div class="w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 flex flex-col gap-4 text-slate-900 dark:text-slate-100 max-h-[92vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div>
+            <h2 class="text-base font-bold">Изменение задачи</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{editingJob.sourceDc} → {editingJob.targetDc}, {editingJob.direction}: направление и ЦОД задаются только при создании</p>
+          </div>
+          <button type="button" onclick={() => (editingJob = null)} class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <label class="flex flex-col gap-1 text-xs font-semibold">
+          Название
+          <input bind:value={editName} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-normal" />
+        </label>
+        <label class="flex flex-col gap-1 text-xs font-semibold">
+          Топики (через запятую)
+          <input bind:value={editTopics} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono font-normal" />
+        </label>
+        <label class="flex flex-col gap-1 text-xs font-semibold">
+          Консьюмер-группы для переноса смещений (через запятую)
+          <input bind:value={editGroups} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono font-normal" />
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1 text-xs font-semibold">
+            Потоков на агенте
+            <input type="number" min="1" max="256" bind:value={editThreads} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-normal" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs font-semibold">
+            Размер батча, записей
+            <input type="number" min="1" max="100000" bind:value={editBatchSize} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-normal" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs font-semibold">
+            Лимит полосы задачи, МБ/с (0 — без лимита)
+            <input type="number" min="0" bind:value={editBandwidth} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-normal" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs font-semibold">
+            Перенос смещений, с (0 — выключен)
+            <input type="number" min="0" bind:value={editSyncInterval} class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-normal" />
+          </label>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Смена потоков или размера батча пересоздает пулы задачи на агентах; консьюмеры возвращаются в группу без ребаланса.</p>
+        <div class="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <button type="button" onclick={() => (editingJob = null)} class="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm cursor-pointer">Отмена</button>
+          <button type="button" onclick={saveEdit} disabled={isSavingEdit} class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold cursor-pointer disabled:opacity-50">Сохранить</button>
         </div>
       </div>
     </div>

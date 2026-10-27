@@ -122,6 +122,41 @@ public class KafkaReplicationController {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("status", 409, "message", e.getMessage()));
     }
 
+    @ExceptionHandler(KafkaReplicationOrchestratorService.JobStateException.class)
+    public ResponseEntity<Map<String, Object>> handleJobState(KafkaReplicationOrchestratorService.JobStateException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("status", 409, "message", e.getMessage()));
+    }
+
+    @PutMapping("/jobs/{id}")
+    public ResponseEntity<KafkaReplicationJobDto> updateJob(@PathVariable String id,
+                                                            @RequestBody org.apache.hadoop.explorer.replicator.orchestrator.dto.UpdateKafkaJobRequest request) {
+        requireWriterOrAdmin();
+        try {
+            return service.updateJob(id, request).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    @PostMapping("/jobs/{id}/reset-offsets")
+    public ResponseEntity<Map<String, Object>> resetOffsets(@PathVariable String id,
+                                                            @RequestBody(required = false) Map<String, String> body) {
+        requireWriterOrAdmin();
+        String position = body != null ? body.get("position") : null;
+        if (position == null || position.isBlank()) {
+            // Без явной позиции сброс пропустил бы данные (LATEST) или перечитал бы retention
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "position обязателен: LATEST или EARLIEST");
+        }
+        try {
+            return service.resetOffsets(id, position)
+                    .map(groups -> ResponseEntity.ok(Map.<String, Object>of("id", id, "position",
+                            KafkaReplicationOrchestratorService.normalizeStartPosition(position), "groups", groups)))
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
     @PostMapping("/jobs/{id}/pause")
     public ResponseEntity<Map<String, Object>> pauseJob(@PathVariable String id) {
         requireWriterOrAdmin();

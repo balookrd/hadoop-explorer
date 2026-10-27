@@ -385,6 +385,29 @@ export class ReplicatorApiClient extends BaseApiClient {
     });
   }
 
+  /** Изменение настроек задачи: незаданные поля не меняются. */
+  async updateKafkaJob(id: string, payload: Record<string, unknown>): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /** Повторная проверка и автосоздание топиков задачи в целевом кластере. */
+  async provisionKafkaJobTopics(id: string): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/provision-topics`, {
+      method: 'POST',
+    });
+  }
+
+  /** Сброс смещений группы задачи на начало или конец топиков; задача должна стоять на паузе. */
+  async resetKafkaJobOffsets(id: string, position: 'LATEST' | 'EARLIEST'): Promise<any> {
+    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/reset-offsets`, {
+      method: 'POST',
+      body: JSON.stringify({ position }),
+    });
+  }
+
   async triggerKafkaFailover(id: string): Promise<any> {
     return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/failover`, {
       method: 'POST',

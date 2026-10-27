@@ -764,6 +764,148 @@ public class KafkaReplicationOrchestratorService {
      * Стартовая позиция задачи. Незаданная — LATEST, неизвестное значение — ошибка: опечатка
      * не должна молча превращаться в перекачку всего топика.
      */
+    /** Действие недопустимо в текущем состоянии задачи (например, сброс смещений активной задачи). */
+    public static class JobStateException extends RuntimeException {
+        public JobStateException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Изменение настроек задачи. Пишутся только настройки, точечным UPDATE: статус и телеметрия
+     * меняются параллельно агентами и оператором. Агенты применяют изменения на следующем
+     * опросе (смена потоков и размера батча пересоздает пул), новые топики проходят провижининг.
+     *
+     * @return задача после изменения или пусто, если ее нет
+     */
+    public Optional<KafkaReplicationJobDto> updateJob(String id,
+                                                      org.apache.hadoop.explorer.replicator.orchestrator.dto.UpdateKafkaJobRequest req) {
+        Optional<KafkaReplicationJobEntity> found = repository.findById(id);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        KafkaReplicationJobEntity job = found.get();
+        String name = req.getName() != null && !req.getName().isBlank() ? req.getName().trim() : job.getName();
+        String topicsJson = job.getTopicsJson();
+        boolean topicsChanged = false;
+        try {
+            if (req.getTopics() != null) {
+                List<CreateKafkaJobRequest.TopicSetting> topics = req.getTopics().stream()
+                        .filter(t -> t != null && t.getTopic() != null && !t.getTopic().isBlank())
+                        .peek(t -> t.setTopic(t.getTopic().trim()))
+                        .toList();
+                List<String> names = topics.stream().map(CreateKafkaJobRequest.TopicSetting::getTopic).distinct().toList();
+                if (names.isEmpty()) {
+                    throw new IllegalArgumentException("У задачи должен остаться хотя бы один топик");
+                }
+                findOverlap(id, job.getSourceDc(), job.getTargetDc(), job.getDirection(), names, false)
+                        .ifPresent(conflict -> {
+                            throw new JobOverlapException(conflict);
+                        });
+                topicsChanged = !new HashSet<>(names).equals(new HashSet<>(topicsOf(job)));
+                topicsJson = mapper.writeValueAsString(topics);
+            }
+            String groupsJson = job.getConsumerGroupsJson();
+            if (req.getConsumerGroups() != null) {
+                List<String> groups = ConsumerGroupBlacklistFilter.defaultFilter().filterAllowed(
+                        req.getConsumerGroups().stream().filter(g -> g != null && !g.isBlank()).map(String::trim).toList());
+                groupsJson = mapper.writeValueAsString(groups);
+            }
+            Integer threads = bounded("consumer_threads", req.getConsumerThreads(), job.getConsumerThreads(), 1, 256);
+            Integer batch = bounded("batch_size", req.getBatchSize(), job.getBatchSize(), 1, 100_000);
+            Integer interval = bounded("offset_sync_interval_sec", req.getOffsetSyncIntervalSec(),
+                    job.getOffsetSyncIntervalSec(), 0, 86_400);
+            Double bandwidth = job.getBandwidthLimitMb();
+            if (req.getBandwidthLimitMb() != null) {
+                if (req.getBandwidthLimitMb() < 0) {
+                    throw new IllegalArgumentException("bandwidth_limit_mb не может быть отрицательным (0 — без лимита)");
+                }
+                bandwidth = req.getBandwidthLimitMb();
+            }
+            repository.updateSettings(id, name, topicsJson, groupsJson, threads, batch, bandwidth, interval, Instant.now());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException("Не удалось сохранить топики или группы задачи: " + e.getMessage(), e);
+        }
+        log.info("Настройки задачи Kafka '{}' изменены", id);
+        if (topicsChanged && job.isAutoCreateTopics()) {
+            provisionTopicsForJob(id);
+        }
+        return repository.findById(id).map(this::toDto);
+    }
+
+    private static Integer bounded(String field, Integer requested, Integer current, int min, int max) {
+        if (requested == null) {
+            return current;
+        }
+        if (requested < min || requested > max) {
+            throw new IllegalArgumentException(field + " должен быть от " + min + " до " + max + ", получено: " + requested);
+        }
+        return requested;
+    }
+
+    /**
+     * Сброс смещений консьюмер-групп задачи на начало или конец топиков.
+     *
+     * <p>Нужен, когда задачу надо пустить с другой позиции: пропустить накопленный хвост
+     * (LATEST) или перечитать retention (EARLIEST). Допустим только на паузе, после того как
+     * агенты отпустили пулы: в группе с активными участниками брокер смещения не меняет.
+     * Участники со static membership числятся в группе до истечения session.timeout, хотя
+     * пулы уже закрыты, поэтому они удаляются из группы явно.
+     *
+     * @return число партиций, выставленных по каждой группе, или пусто, если задачи нет
+     */
+    public Optional<Map<String, Integer>> resetOffsets(String id, String position) {
+        Optional<KafkaReplicationJobEntity> found = repository.findById(id);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        KafkaReplicationJobEntity job = found.get();
+        String pos = normalizeStartPosition(position);
+        if (!"PAUSED".equalsIgnoreCase(job.getStatus())) {
+            throw new JobStateException("Смещения сбрасываются только у задачи на паузе: поставьте задачу на паузу");
+        }
+        List<String> running = getRunningAgents(id);
+        if (!running.isEmpty()) {
+            throw new JobStateException("Агенты еще не остановили пулы задачи: " + running + ". Повторите через несколько секунд");
+        }
+        List<String> topics = topicsOf(job);
+        Map<String, Integer> result = new LinkedHashMap<>();
+        for (var target : consumerGroupsOf(job)) {
+            try (AdminClient admin = adminClientFactory.createAdminClient(target.bootstrapServers(),
+                    target.kerberosEnabled(), target.principal(), target.keytabPath(), target.serviceName())) {
+                Map<String, TopicDescription> descriptions = admin.describeTopics(topics).allTopicNames().get(10, TimeUnit.SECONDS);
+                Map<org.apache.kafka.common.TopicPartition, OffsetSpec> specs = new HashMap<>();
+                for (TopicDescription d : descriptions.values()) {
+                    d.partitions().forEach(p -> specs.put(new org.apache.kafka.common.TopicPartition(d.name(), p.partition()),
+                            "EARLIEST".equals(pos) ? OffsetSpec.earliest() : OffsetSpec.latest()));
+                }
+                var offsets = admin.listOffsets(specs).all().get(10, TimeUnit.SECONDS);
+                try {
+                    admin.removeMembersFromConsumerGroup(target.groupId(), new RemoveMembersFromConsumerGroupOptions())
+                            .all().get(10, TimeUnit.SECONDS);
+                } catch (Exception noMembers) {
+                    // Группы еще нет или в ней никого: менять смещения это не мешает
+                    log.debug("Участники группы '{}' не удалены: {}", target.groupId(), noMembers.getMessage());
+                }
+                Map<org.apache.kafka.common.TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> newOffsets = new HashMap<>();
+                offsets.forEach((tp, info) -> newOffsets.put(tp, new org.apache.kafka.clients.consumer.OffsetAndMetadata(info.offset())));
+                admin.alterConsumerGroupOffsets(target.groupId(), newOffsets).all().get(10, TimeUnit.SECONDS);
+                result.put(target.groupId(), newOffsets.size());
+            } catch (JobStateException e) {
+                throw e;
+            } catch (Exception e) {
+                Throwable root = e;
+                while (root.getCause() != null && root.getCause() != root) {
+                    root = root.getCause();
+                }
+                throw new JobStateException("Смещения группы '" + target.groupId() + "' не сброшены: "
+                        + (root.getMessage() != null ? root.getMessage() : root.getClass().getSimpleName()));
+            }
+        }
+        log.warn("Смещения задачи Kafka '{}' сброшены на {}: {}", id, pos, result);
+        return Optional.of(result);
+    }
+
     /** Задача пересекается с другой: тот же топик в том же направлении между теми же ЦОД. */
     public static class JobOverlapException extends RuntimeException {
         public JobOverlapException(String message) {
