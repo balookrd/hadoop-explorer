@@ -113,6 +113,15 @@ public class KafkaReplicationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    /**
+     * Пересечение задач — 409 с причиной в теле: стандартный ответ Spring причину не включает,
+     * и оператор видел только «Conflict» без имени мешающей задачи.
+     */
+    @ExceptionHandler(KafkaReplicationOrchestratorService.JobOverlapException.class)
+    public ResponseEntity<Map<String, Object>> handleJobOverlap(KafkaReplicationOrchestratorService.JobOverlapException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("status", 409, "message", e.getMessage()));
+    }
+
     @PostMapping("/jobs/{id}/pause")
     public ResponseEntity<Map<String, Object>> pauseJob(@PathVariable String id) {
         requireWriterOrAdmin();

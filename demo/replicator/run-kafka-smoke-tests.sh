@@ -156,6 +156,19 @@ authenticate_orchestrator() {
 }
 run_check "Аутентификация в Control Plane (JWT Bearer Token)" authenticate_orchestrator
 
+# Задачи прошлого прогона на тех же топиках: оркестратор отклоняет пересекающуюся задачу (409),
+# потому что две задачи на одном топике и направлении пишут в цель каждую запись дважды
+remove_previous_smoke_jobs() {
+    local ids
+    ids=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" \
+        | python3 -c "import json,sys; [print(j['id']) for j in json.load(sys.stdin) if str(j.get('name','')).startswith('e2e-smoke-')]" 2>/dev/null)
+    for id in $ids; do
+        curl -s -o /dev/null -X DELETE -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}"
+    done
+    return 0
+}
+run_check "Удаление задач прошлого smoke-прогона" remove_previous_smoke_jobs
+
 JOB_ID=""
 create_replication_job() {
     local payload='{

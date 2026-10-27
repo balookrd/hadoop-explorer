@@ -91,6 +91,16 @@ public class KafkaReplicationOrchestratorService {
     }
 
     public KafkaReplicationJobDto createJob(CreateKafkaJobRequest request) {
+        String direction = request.getDirection() != null && !request.getDirection().isBlank()
+                ? request.getDirection() : "UNIDIRECTIONAL";
+        List<String> requestedTopics = request.getTopics() == null ? List.of() : request.getTopics().stream()
+                .map(CreateKafkaJobRequest.TopicSetting::getTopic)
+                .filter(Objects::nonNull)
+                .toList();
+        findOverlap(null, request.getSourceDc(), request.getTargetDc(), direction, requestedTopics, false)
+                .ifPresent(conflict -> {
+                    throw new JobOverlapException(conflict);
+                });
         String id = "kafka-job-" + UUID.randomUUID().toString().substring(0, 8);
         KafkaReplicationJobEntity entity = new KafkaReplicationJobEntity();
         entity.setId(id);
@@ -357,6 +367,10 @@ public class KafkaReplicationOrchestratorService {
 
     @Transactional
     public boolean resumeJob(String id) {
+        repository.findById(id).ifPresent(job -> findOverlap(id, job.getSourceDc(), job.getTargetDc(),
+                job.getDirection(), topicsOf(job), true).ifPresent(conflict -> {
+                    throw new JobOverlapException(conflict);
+                }));
         boolean updated = repository.updateStatus(id, "ACTIVE", Instant.now()) > 0;
         if (updated) {
             log.info("Задача репликации Kafka '{}' возобновлена", id);
@@ -711,6 +725,81 @@ public class KafkaReplicationOrchestratorService {
      * Стартовая позиция задачи. Незаданная — LATEST, неизвестное значение — ошибка: опечатка
      * не должна молча превращаться в перекачку всего топика.
      */
+    /** Задача пересекается с другой: тот же топик в том же направлении между теми же ЦОД. */
+    public static class JobOverlapException extends RuntimeException {
+        public JobOverlapException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Поиск задачи, которая уже переносит один из топиков в том же направлении.
+     *
+     * <p>У каждой задачи своя консьюмер-группа, поэтому две такие задачи читают топик
+     * независимо и пишут в цель каждую запись дважды. Задача на паузе тоже мешает созданию:
+     * после возобновления она начнет дублировать. При возобновлении учитываются только
+     * активные задачи.
+     *
+     * @return описание конфликта или пусто
+     */
+    public Optional<String> findOverlap(String excludeId, String sourceDc, String targetDc, String direction,
+                                        Collection<String> topics, boolean activeOnly) {
+        if (topics == null || topics.isEmpty() || sourceDc == null || targetDc == null) {
+            return Optional.empty();
+        }
+        Set<String> wanted = new HashSet<>(topics);
+        Set<String> legs = legs(sourceDc, targetDc, direction);
+        for (KafkaReplicationJobEntity other : repository.findAll()) {
+            if (other.getId().equals(excludeId)) {
+                continue;
+            }
+            if (activeOnly && !"ACTIVE".equalsIgnoreCase(other.getStatus())) {
+                continue;
+            }
+            Set<String> sharedLegs = new HashSet<>(legs(other.getSourceDc(), other.getTargetDc(), other.getDirection()));
+            sharedLegs.retainAll(legs);
+            if (sharedLegs.isEmpty()) {
+                continue;
+            }
+            List<String> sharedTopics = topicsOf(other).stream().filter(wanted::contains).sorted().toList();
+            if (!sharedTopics.isEmpty()) {
+                return Optional.of(String.format(
+                        "Топики %s уже реплицирует задача '%s' (%s, %s): вторая задача писала бы каждую запись дважды",
+                        sharedTopics, other.getName(), other.getId(), other.getStatus()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Направления задачи как пары ЦОД; BIDIRECTIONAL дает оба. */
+    private static Set<String> legs(String sourceDc, String targetDc, String direction) {
+        if (sourceDc == null || targetDc == null) {
+            return Set.of();
+        }
+        String forward = sourceDc.trim().toLowerCase(Locale.ROOT) + "->" + targetDc.trim().toLowerCase(Locale.ROOT);
+        if (!"BIDIRECTIONAL".equalsIgnoreCase(direction)) {
+            return Set.of(forward);
+        }
+        return Set.of(forward, targetDc.trim().toLowerCase(Locale.ROOT) + "->" + sourceDc.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private List<String> topicsOf(KafkaReplicationJobEntity job) {
+        try {
+            if (job.getTopicsJson() == null) {
+                return List.of();
+            }
+            List<CreateKafkaJobRequest.TopicSetting> settings =
+                    mapper.readValue(job.getTopicsJson(), new TypeReference<>() {});
+            return settings == null ? List.of() : settings.stream()
+                    .map(CreateKafkaJobRequest.TopicSetting::getTopic)
+                    .filter(Objects::nonNull)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать топики задачи {}: {}", job.getId(), e.getMessage());
+            return List.of();
+        }
+    }
+
     public static String normalizeStartPosition(String value) {
         if (value == null || value.isBlank()) {
             return "LATEST";
