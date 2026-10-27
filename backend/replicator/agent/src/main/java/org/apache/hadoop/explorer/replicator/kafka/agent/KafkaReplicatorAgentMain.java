@@ -29,6 +29,8 @@ import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Точка входа отдельного демона kafka-replicator-agent.
@@ -350,6 +352,7 @@ public class KafkaReplicatorAgentMain {
         // 3. Подключение к Orchestrator Control Plane
         OrchestratorGrpcClient orchestratorClient = null;
         ScheduledExecutorService heartbeatExecutor = null;
+        ScheduledExecutorService jobSyncExecutor = null;
 
         if (orchestratorGrpc != null && !orchestratorGrpc.isBlank()) {
             // Задачи, приходящие из Control Plane, обслуживаются отдельными пулами:
@@ -415,22 +418,15 @@ public class KafkaReplicatorAgentMain {
                         hbReq.setKafkaJobStats(finalJobPools.jobStats());
                     }
                     finalOrch.heartbeat(hbReq);
-
-                    // Опрос Control Plane: состав задач отражается на составе пулов
-                    try {
-                        // null — оркестратор не ответил: пулы продолжают работать как есть,
-                        // останавливает их только успешный ответ без задачи
-                        List<KafkaJobItemProto> activeJobs = finalOrch.getActiveKafkaJobs(finalDcId);
-                        if (activeJobs != null && finalJobPools != null) {
-                            finalJobPools.sync(activeJobs);
-                        }
-                    } catch (Exception jobEx) {
-                        log.debug("Не удалось синхронизировать задачи Kafka из оркестратора: {}", jobEx.getMessage());
-                    }
                 } catch (Exception e) {
                     log.debug("Ошибка отправки heartbeat в оркестратор: {}", e.getMessage());
                 }
             }, 1, 3, TimeUnit.SECONDS);
+
+            // Синхронизация пулов идет в своем потоке: создание пула (partitionsFor, Kerberos-логин)
+            // и остановка с финальным коммитом занимают секунды, и в общем потоке heartbeat
+            // замирал, а оркестратор после 30 с тишины снимал агента с задач
+            jobSyncExecutor = startJobSync(() -> finalOrch.getActiveKafkaJobs(finalDcId), finalJobPools::sync, 3_000L);
         }
 
         final Server finalServer = server;
@@ -441,6 +437,7 @@ public class KafkaReplicatorAgentMain {
         final org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient finalClient = replicationClient;
         final OrchestratorGrpcClient finalOrchestratorClient = orchestratorClient;
         final ScheduledExecutorService finalHeartbeatExecutor = heartbeatExecutor;
+        final ScheduledExecutorService finalJobSyncExecutor = jobSyncExecutor;
         final String finalShutdownAgentId = agentId;
         final KafkaJobPoolManager finalJobPoolsForShutdown = jobPoolManager;
         final AutoCloseable finalCliOffsetSync = cliOffsetSync;
@@ -448,6 +445,9 @@ public class KafkaReplicatorAgentMain {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Остановка kafka-replicator-agent...");
             try {
+                if (finalJobSyncExecutor != null) {
+                    finalJobSyncExecutor.shutdownNow();
+                }
                 if (finalHeartbeatExecutor != null) {
                     finalHeartbeatExecutor.shutdownNow();
                 }
@@ -595,6 +595,35 @@ public class KafkaReplicatorAgentMain {
     }
 
     /** Число партиций топиков задачи по метаданным брокера; 0 — узнать не удалось. */
+    /**
+     * Периодически сверяет пулы задач с Control Plane в отдельном потоке.
+     *
+     * <p>{@code scheduleWithFixedDelay}: следующий опрос начинается только после завершения
+     * предыдущей синхронизации, поэтому долгое создание пула не копит очередь опросов.
+     * {@code null} от опроса — оркестратор не ответил: пулы продолжают работать как есть,
+     * останавливает их только успешный ответ без задачи.
+     */
+    static ScheduledExecutorService startJobSync(Supplier<List<KafkaJobItemProto>> poll,
+                                                 Consumer<List<KafkaJobItemProto>> sync,
+                                                 long periodMs) {
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "kafka-agent-job-sync");
+            t.setDaemon(true);
+            return t;
+        });
+        executor.scheduleWithFixedDelay(() -> {
+            try {
+                List<KafkaJobItemProto> activeJobs = poll.get();
+                if (activeJobs != null) {
+                    sync.accept(activeJobs);
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось синхронизировать задачи Kafka из оркестратора: {}", e.getMessage());
+            }
+        }, 1_000L, periodMs, TimeUnit.MILLISECONDS);
+        return executor;
+    }
+
     private static int countPartitions(KafkaConsumer<byte[], byte[]> consumer, List<String> topics) {
         int total = 0;
         for (String topic : topics) {
