@@ -124,7 +124,7 @@ public class KafkaTopicProvisioner {
         }
 
         List<String> createdTopics = new ArrayList<>();
-        List<String> expandedTopics = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>();
         List<String> matchedTopics = new ArrayList<>();
 
         log.info("Запуск предварительной проверки и автосоздания {} топиков [{} -> {}]",
@@ -161,7 +161,7 @@ public class KafkaTopicProvisioner {
                     targetAdmin.listTopics(new ListTopicsOptions().listInternal(false)).names().get(8, TimeUnit.SECONDS);
 
             List<NewTopic> toCreate = new ArrayList<>();
-            Map<String, NewPartitions> toExpand = new HashMap<>();
+            int targetBrokers = targetBrokerCount(targetAdmin);
 
             for (String topic : uniqueTopics) {
                 TopicDescription srcDesc = sourceDescriptions.get(topic);
@@ -171,32 +171,46 @@ public class KafkaTopicProvisioner {
                 }
 
                 int srcPartitions = srcDesc.partitions().size();
-                short replicationFactor = (short) Math.max(1,
+                short srcReplication = (short) Math.max(1,
                         srcDesc.partitions().isEmpty() ? 1 : srcDesc.partitions().get(0).replicas().size());
+                Config srcCfg = sourceConfigs.get(new ConfigResource(ConfigResource.Type.TOPIC, topic));
 
                 if (!existingTargetTopics.contains(topic)) {
-                    // Топик отсутствует на целевом кластере — создаем с идентичными параметрами и конфигурацией
+                    // RF источника на кластере с меньшим числом брокеров отвергался целиком,
+                    // вместе со всеми топиками пачки
+                    short replicationFactor = targetBrokers > 0
+                            ? (short) Math.min(srcReplication, targetBrokers) : srcReplication;
                     NewTopic newTopic = new NewTopic(topic, srcPartitions, replicationFactor);
-                    Config srcCfg = sourceConfigs.get(new ConfigResource(ConfigResource.Type.TOPIC, topic));
                     Map<String, String> topicConfigsToApply = extractReplicableConfigs(srcCfg);
+                    capMinInsyncReplicas(topicConfigsToApply, replicationFactor);
                     if (!topicConfigsToApply.isEmpty()) {
                         newTopic.configs(topicConfigsToApply);
                     }
                     toCreate.add(newTopic);
                     String configSummary = topicConfigsToApply.isEmpty() ? "" : String.format(", configs: %s", topicConfigsToApply.keySet());
-                    createdTopics.add(String.format("%s (партиций: %d, RF: %d%s)", topic, srcPartitions, replicationFactor, configSummary));
+                    String rfNote = replicationFactor < srcReplication
+                            ? String.format(" (в источнике %d, брокеров в цели %d)", srcReplication, targetBrokers) : "";
+                    createdTopics.add(String.format("%s (партиций: %d, RF: %d%s%s)",
+                            topic, srcPartitions, replicationFactor, rfNote, configSummary));
                 } else {
-                    // Топик уже существует на целевом кластере — проверяем количество партиций
+                    // Существующий топик не меняется: расширение партиций на боевом кластере
+                    // перераспределяет ключи у его собственных продюсеров. Расхождения
+                    // сообщаются, решение принимает оператор.
                     TopicDescription tgtDesc = targetAdmin.describeTopics(List.of(topic))
                             .allTopicNames().get(8, TimeUnit.SECONDS).get(topic);
                     if (tgtDesc != null) {
                         int tgtPartitions = tgtDesc.partitions().size();
+                        List<String> topicConflicts = new ArrayList<>();
                         if (tgtPartitions < srcPartitions) {
-                            // Расширяем партиции до исходного значения
-                            toExpand.put(topic, NewPartitions.increaseTo(srcPartitions));
-                            expandedTopics.add(String.format("%s (партиций увеличено: %d -> %d)", topic, tgtPartitions, srcPartitions));
-                        } else {
+                            topicConflicts.add(String.format(
+                                    "партиций %d < %d в источнике: записи партиций %d..%d не будут доставлены",
+                                    tgtPartitions, srcPartitions, tgtPartitions, srcPartitions - 1));
+                        }
+                        topicConflicts.addAll(configConflicts(srcCfg, targetConfig(targetAdmin, topic)));
+                        if (topicConflicts.isEmpty()) {
                             matchedTopics.add(String.format("%s (партиций: %d)", topic, tgtPartitions));
+                        } else {
+                            conflicts.add(topic + ": " + String.join("; ", topicConflicts));
                         }
                     }
                 }
@@ -209,15 +223,13 @@ public class KafkaTopicProvisioner {
                         toCreate.size(), targetBootstrapServers, createdTopics);
             }
 
-            // 4. Расширяем партиции при необходимости
-            if (!toExpand.isEmpty()) {
-                targetAdmin.createPartitions(toExpand).all().get(10, TimeUnit.SECONDS);
-                log.info("Успешно расширены партиции для {} топиков на целевом брокере [{}]: {}",
-                        toExpand.size(), targetBootstrapServers, expandedTopics);
+            if (!conflicts.isEmpty()) {
+                log.warn("Целевые топики расходятся с источником [{}]: {}", targetBootstrapServers, conflicts);
+                return new TopicProvisioningResult(createdTopics, conflicts, matchedTopics, false,
+                        "Существующие целевые топики не изменены: устраните расхождения вручную");
             }
-
             return new TopicProvisioningResult(
-                    createdTopics, expandedTopics, matchedTopics, true, "Топология топиков успешно проверена и синхронизирована");
+                    createdTopics, conflicts, matchedTopics, true, "Топология топиков успешно проверена и синхронизирована");
 
         } catch (Exception e) {
             // У TimeoutException и ExecutionException сообщение пустое: причина в цепочке
@@ -231,10 +243,90 @@ public class KafkaTopicProvisioner {
             if (failOnError) {
                 throw new RuntimeException(errorMsg, e);
             }
-            return new TopicProvisioningResult(createdTopics, expandedTopics, matchedTopics, false, errorMsg);
+            return new TopicProvisioningResult(createdTopics, conflicts, matchedTopics, false, errorMsg);
         } finally {
             closeQuietly(sourceAdmin);
             closeQuietly(targetAdmin);
+        }
+    }
+
+    /** Параметры, расхождение которых ломает репликацию или меняет смысл данных в цели. */
+    static List<String> configConflicts(Config source, Config target) {
+        List<String> result = new ArrayList<>();
+        if (source == null || target == null) {
+            return result;
+        }
+        String srcPolicy = value(source, TopicConfig.CLEANUP_POLICY_CONFIG);
+        String tgtPolicy = value(target, TopicConfig.CLEANUP_POLICY_CONFIG);
+        if (srcPolicy != null && tgtPolicy != null && !normalizePolicy(srcPolicy).equals(normalizePolicy(tgtPolicy))) {
+            result.add(String.format("cleanup.policy %s, в источнике %s", tgtPolicy, srcPolicy));
+        }
+        Long srcMax = longValue(source, TopicConfig.MAX_MESSAGE_BYTES_CONFIG);
+        Long tgtMax = longValue(target, TopicConfig.MAX_MESSAGE_BYTES_CONFIG);
+        if (srcMax != null && tgtMax != null && tgtMax < srcMax) {
+            result.add(String.format("max.message.bytes %d < %d в источнике: крупные записи будут отвергнуты", tgtMax, srcMax));
+        }
+        return result;
+    }
+
+    private static String normalizePolicy(String policy) {
+        return Arrays.stream(policy.split(",")).map(String::trim).sorted().collect(java.util.stream.Collectors.joining(","));
+    }
+
+    private static String value(Config config, String key) {
+        ConfigEntry entry = config.get(key);
+        return entry != null ? entry.value() : null;
+    }
+
+    private static Long longValue(Config config, String key) {
+        try {
+            String v = value(config, key);
+            return v != null ? Long.parseLong(v.trim()) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** min.insync.replicas больше RF делает топик недоступным для записи с acks=all. */
+    static void capMinInsyncReplicas(Map<String, String> configs, short replicationFactor) {
+        String minIsr = configs.get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG);
+        if (minIsr == null) {
+            return;
+        }
+        try {
+            if (Integer.parseInt(minIsr.trim()) > replicationFactor) {
+                configs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(replicationFactor));
+            }
+        } catch (NumberFormatException ignored) {
+            configs.remove(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG);
+        }
+    }
+
+    private static int targetBrokerCount(AdminClient admin) {
+        try {
+            var result = admin.describeCluster();
+            if (result == null || result.nodes() == null) {
+                return 0;
+            }
+            var nodes = result.nodes().get(8, TimeUnit.SECONDS);
+            return nodes != null ? nodes.size() : 0;
+        } catch (Exception e) {
+            log.warn("Не удалось получить число брокеров целевого кластера: RF берется из источника: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    private static Config targetConfig(AdminClient admin, String topic) {
+        try {
+            ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, topic);
+            DescribeConfigsResult result = admin.describeConfigs(List.of(resource));
+            if (result == null || result.all() == null) {
+                return null;
+            }
+            return result.all().get(8, TimeUnit.SECONDS).get(resource);
+        } catch (Exception e) {
+            log.warn("Не удалось получить конфигурацию целевого топика '{}': {}", topic, e.getMessage());
+            return null;
         }
     }
 

@@ -8,7 +8,12 @@ import java.util.List;
  */
 public record TopicProvisioningResult(
         List<String> createdTopics,
-        List<String> expandedTopics,
+        /**
+         * Расхождения существующих целевых топиков с источником: меньше партиций, другая
+         * политика очистки, меньший предел сообщения. Существующий топик не меняется: на
+         * боевом кластере им пользуются и другие продюсеры.
+         */
+        List<String> conflicts,
         List<String> matchedTopics,
         boolean success,
         String message
@@ -26,8 +31,8 @@ public record TopicProvisioningResult(
         if (!createdTopics.isEmpty()) {
             sb.append("Созданы топики: ").append(String.join(", ", createdTopics)).append("; ");
         }
-        if (!expandedTopics.isEmpty()) {
-            sb.append("Расширены партиции: ").append(String.join(", ", expandedTopics)).append("; ");
+        if (!conflicts.isEmpty()) {
+            sb.append("Расхождения с источником: ").append(String.join(", ", conflicts)).append("; ");
         }
         if (!matchedTopics.isEmpty()) {
             sb.append("Уже согласованы: ").append(String.join(", ", matchedTopics)).append("; ");

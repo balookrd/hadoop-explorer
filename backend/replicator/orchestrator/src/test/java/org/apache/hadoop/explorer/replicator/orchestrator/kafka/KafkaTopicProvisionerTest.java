@@ -109,8 +109,8 @@ public class KafkaTopicProvisionerTest {
     }
 
     @Test
-    @DisplayName("Расширение партиций: увеличение числа партиций целевого топика при несовпадении")
-    void shouldExpandTargetPartitionsWhenTargetHasFewerPartitions() throws Exception {
+    @DisplayName("Существующий целевой топик с меньшим числом партиций не меняется, расхождение сообщается")
+    void shouldReportFewerTargetPartitionsWithoutExpanding() throws Exception {
         String topic = "payments-v1";
 
         // Исходный топик имеет 8 партиций
@@ -130,28 +130,73 @@ public class KafkaTopicProvisionerTest {
         when(tgtDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, tgtDesc)));
         when(targetAdmin.describeTopics(anyCollection())).thenReturn(tgtDescResult);
 
-        // Мок создания партиций
-        CreatePartitionsResult tgtPartResult = mock(CreatePartitionsResult.class);
-        when(tgtPartResult.all()).thenReturn(KafkaFuture.completedFuture(null));
-        when(targetAdmin.createPartitions(anyMap())).thenReturn(tgtPartResult);
-
         TopicProvisioningResult result = provisioner.provisionTopics(
                 "source:9092", false, null, null, null,
                 "target:9092", false, null, null, null,
                 List.of(topic), true
         );
 
-        assertTrue(result.success());
-        assertEquals(1, result.expandedTopics().size());
-        assertTrue(result.expandedTopics().get(0).contains("3 -> 8"));
+        assertFalse(result.success(), "Расхождение — повод для оператора, а не успех");
+        assertEquals(1, result.conflicts().size());
+        assertTrue(result.conflicts().get(0).contains("партиций 3 < 8"), result.conflicts().get(0));
+        verify(targetAdmin, never()).createPartitions(anyMap());
+    }
+
+    @Test
+    @DisplayName("RF нового топика ограничен числом брокеров цели, min.insync.replicas — RF")
+    void shouldCapReplicationFactorByTargetBrokers() throws Exception {
+        String topic = "audit";
+        TopicDescription srcDesc = createTopicDescription(topic, 4, 2);
+        DescribeTopicsResult srcDescResult = mock(DescribeTopicsResult.class);
+        when(srcDescResult.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(topic, srcDesc)));
+        when(sourceAdmin.describeTopics(anyCollection())).thenReturn(srcDescResult);
+
+        ConfigResource res = new ConfigResource(ConfigResource.Type.TOPIC, topic);
+        Config srcCfg = new Config(List.of(new ConfigEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2")));
+        DescribeConfigsResult srcCfgResult = mock(DescribeConfigsResult.class);
+        when(srcCfgResult.all()).thenReturn(KafkaFuture.completedFuture(Map.of(res, srcCfg)));
+        when(sourceAdmin.describeConfigs(anyCollection())).thenReturn(srcCfgResult);
+
+        DescribeClusterResult cluster = mock(DescribeClusterResult.class);
+        when(cluster.nodes()).thenReturn(KafkaFuture.completedFuture(List.of(node1)));
+        when(targetAdmin.describeCluster()).thenReturn(cluster);
+        ListTopicsResult tgtListResult = mock(ListTopicsResult.class);
+        when(tgtListResult.names()).thenReturn(KafkaFuture.completedFuture(Collections.emptySet()));
+        when(targetAdmin.listTopics(any(ListTopicsOptions.class))).thenReturn(tgtListResult);
+        CreateTopicsResult tgtCreateResult = mock(CreateTopicsResult.class);
+        when(tgtCreateResult.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(targetAdmin.createTopics(anyCollection())).thenReturn(tgtCreateResult);
+
+        TopicProvisioningResult result = provisioner.provisionTopics(
+                "source:9092", false, null, null, null, "target:9092", false, null, null, null, List.of(topic), true);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, NewPartitions>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(targetAdmin).createPartitions(captor.capture());
+        ArgumentCaptor<Collection<NewTopic>> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(targetAdmin).createTopics(captor.capture());
+        NewTopic created = captor.getValue().iterator().next();
+        assertEquals(1, created.replicationFactor(), "RF 2 на кластере из одного брокера отвергается брокером");
+        assertEquals("1", created.configs().get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG),
+                "min.insync.replicas больше RF запрещает запись с acks=all");
+        assertTrue(result.createdTopics().get(0).contains("в источнике 2"));
+    }
 
-        Map<String, NewPartitions> map = captor.getValue();
-        assertTrue(map.containsKey(topic));
-        assertEquals(8, map.get(topic).totalCount());
+    @Test
+    @DisplayName("Расхождение политики очистки и предела сообщения существующего топика сообщается")
+    void shouldReportConfigConflicts() {
+        Config src = new Config(List.of(
+                new ConfigEntry(TopicConfig.CLEANUP_POLICY_CONFIG, "compact"),
+                new ConfigEntry(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "8388608")));
+        Config tgt = new Config(List.of(
+                new ConfigEntry(TopicConfig.CLEANUP_POLICY_CONFIG, "delete"),
+                new ConfigEntry(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "1048588")));
+        List<String> conflicts = KafkaTopicProvisioner.configConflicts(src, tgt);
+        assertEquals(2, conflicts.size(), conflicts.toString());
+        assertTrue(conflicts.get(0).contains("cleanup.policy delete"));
+        assertTrue(conflicts.get(1).contains("max.message.bytes 1048588 < 8388608"));
+
+        Config same = new Config(List.of(new ConfigEntry(TopicConfig.CLEANUP_POLICY_CONFIG, "delete,compact")));
+        Config reordered = new Config(List.of(new ConfigEntry(TopicConfig.CLEANUP_POLICY_CONFIG, "compact, delete")));
+        assertTrue(KafkaTopicProvisioner.configConflicts(same, reordered).isEmpty());
     }
 
     @Test

@@ -331,7 +331,7 @@ public class KafkaReplicationOrchestratorService {
                             topicNames,
                             false
                     );
-                    if (!reverseResult.createdTopics().isEmpty() || !reverseResult.expandedTopics().isEmpty()) {
+                    if (!reverseResult.createdTopics().isEmpty() || !reverseResult.conflicts().isEmpty()) {
                         summary = summary + " [Обратная репликация: " + reverseResult.toSummaryString() + "]";
                     }
                 }
