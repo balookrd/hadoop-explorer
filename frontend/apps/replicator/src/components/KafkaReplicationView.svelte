@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../api/client';
   import type { CreateKafkaJobPayload } from '../types';
+  import { matchesPattern, patternError } from '../lib/topicPattern';
   import {
     ArrowLeftRight,
     RefreshCw,
@@ -194,35 +195,9 @@
   let batchSize = $state(2000);
   let targetEndpointsInput = $state('');
 
-  // Проверка Regex
-  // Пустой шаблон не выбирает ничего, «*» — всё: иначе пустая форма выбрала бы весь кластер
-  function matchesPattern(name: string, includePattern: string, excludePattern: string): boolean {
-    if (!includePattern || includePattern.trim() === '') {
-      return false;
-    }
-    if (includePattern.trim() === '*') {
-      if (excludePattern && excludePattern.trim() !== '') {
-        try {
-          const exRe = new RegExp(excludePattern.trim());
-          return !exRe.test(name);
-        } catch {
-          return true;
-        }
-      }
-      return true;
-    }
-    try {
-      const inRe = new RegExp(includePattern.trim());
-      if (!inRe.test(name)) return false;
-      if (excludePattern && excludePattern.trim() !== '') {
-        const exRe = new RegExp(excludePattern.trim());
-        if (exRe.test(name)) return false;
-      }
-      return true;
-    } catch {
-      return name.includes(includePattern.trim());
-    }
-  }
+  // Шаблон сравнивается с именем целиком, некорректный не выбирает ничего (см. lib/topicPattern)
+  let topicPatternError = $derived(patternError(topicRegexPattern) || patternError(topicExcludePattern));
+  let groupPatternError = $derived(patternError(groupRegexPattern) || patternError(groupExcludePattern));
 
   let regexMatchedTopics = $derived(
     availableTopics.filter(t => matchesPattern(t.name, topicRegexPattern, topicExcludePattern))
@@ -1459,6 +1434,13 @@
                   </div>
                 </div>
 
+                {#if topicPatternError}
+                  <p class="text-[11px] text-rose-600 dark:text-rose-400">Ошибка в шаблоне: {topicPatternError}</p>
+                {/if}
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                  Шаблон сравнивается с именем топика целиком. Список фиксируется при создании задачи:
+                  появившиеся позже добавляйте через «Изменить».
+                </p>
                 {#if isTopicMatchPreviewOpen}
                   <div class="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 max-h-36 overflow-y-auto">
                     <div class="flex flex-wrap gap-1">
@@ -1714,6 +1696,13 @@
                   </button>
                 </div>
 
+                {#if groupPatternError}
+                  <p class="text-[11px] text-rose-600 dark:text-rose-400">Ошибка в шаблоне: {groupPatternError}</p>
+                {/if}
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                  Шаблон сравнивается с именем группы целиком. Список фиксируется при создании задачи:
+                  появившиеся позже добавляйте через «Изменить».
+                </p>
                 {#if isGroupMatchPreviewOpen}
                   <div class="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 max-h-32 overflow-y-auto">
                     <div class="flex flex-wrap gap-1">
