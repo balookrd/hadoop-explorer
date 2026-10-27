@@ -107,4 +107,20 @@ class KafkaClientSettingsTest {
         assertEquals("earliest", KafkaClientSettings.offsetResetFor(""));
         assertEquals("earliest", KafkaClientSettings.offsetResetFor(null));
     }
+
+    @Test
+    @DisplayName("Консьюмер репликации использует инкрементальный ребаланс")
+    void testCooperativeStickyAssignor() {
+        java.util.Properties props = KafkaClientSettings.consumerProps("b:9092", "g", 1000);
+        assertEquals(org.apache.kafka.clients.consumer.CooperativeStickyAssignor.class.getName(),
+                props.get(org.apache.kafka.clients.consumer.ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG),
+                "Eager-ребаланс отзывает все партиции группы при каждом перезапуске пула");
+    }
+
+    @Test
+    @DisplayName("group.instance.id уникален по агенту, задаче и потоку и допустим для брокера")
+    void testGroupInstanceId() {
+        assertEquals("kafka-agent-dc1-kafka-job-1-0", KafkaClientSettings.groupInstanceId("kafka-agent-dc1", "kafka-job-1", 0));
+        assertEquals("agent_a_b-job-3", KafkaClientSettings.groupInstanceId("agent a/b", "job", 3));
+    }
 }

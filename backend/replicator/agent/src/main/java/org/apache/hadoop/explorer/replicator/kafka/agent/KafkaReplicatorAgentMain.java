@@ -355,7 +355,7 @@ public class KafkaReplicatorAgentMain {
             // Задачи, приходящие из Control Plane, обслуживаются отдельными пулами:
             // своя consumer-группа на задачу вместо общей группы на весь агент
             jobPoolManager = new KafkaJobPoolManager(dcId, jobPoolFactory(
-                    bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS,
+                    agentId, bootstrapServers, krbConfig, agentSecret, tlsEnabled, tlsTrustCert, maxBandwidthMbS,
                     sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, payloadFormatName));
             log.info("Регистрация в Orchestrator Control Plane: {} (agentId={})", orchestratorGrpc, agentId);
             orchestratorClient = new OrchestratorGrpcClient(orchestratorGrpc, agentSecret);
@@ -617,6 +617,7 @@ public class KafkaReplicatorAgentMain {
      */
     private static java.util.function.Function<KafkaJobPoolManager.JobPoolSpec,
             KafkaJobPoolManager.JobPipeline> jobPoolFactory(
+            String agentId,
             String bootstrapServers,
             org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig,
             String agentSecret,
@@ -633,9 +634,15 @@ public class KafkaReplicatorAgentMain {
                     new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
                             spec.targetEndpoints(), agentSecret, tlsEnabled, tlsTrustCert);
 
+            java.util.concurrent.atomic.AtomicInteger consumerIndex = new java.util.concurrent.atomic.AtomicInteger();
             java.util.function.Supplier<KafkaConsumer<byte[], byte[]>> newConsumer = () -> {
                 Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
                         .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
+                // Static membership: пересозданный пул возвращается в группу под теми же
+                // идентификаторами и забирает свои партиции без ребаланса всей группы
+                props.put(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_INSTANCE_ID_CONFIG,
+                        org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                                .groupInstanceId(agentId, spec.jobId(), consumerIndex.getAndIncrement()));
                 props.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
                         org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
                                 .offsetResetFor(spec.startPosition()));

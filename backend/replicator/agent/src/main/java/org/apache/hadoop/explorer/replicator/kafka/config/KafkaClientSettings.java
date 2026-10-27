@@ -55,7 +55,21 @@ public final class KafkaClientSettings {
         props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, MAX_POLL_INTERVAL_MS);
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, SESSION_TIMEOUT_MS);
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, HEARTBEAT_INTERVAL_MS);
+        // Инкрементальный ребаланс: при входе или уходе участника переезжают только его
+        // партиции. Eager-стратегия по умолчанию отзывала все 128 партиций у всех консьюмеров
+        // группы и останавливала репликацию целиком на каждом перезапуске пула любого агента.
+        props.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+                org.apache.kafka.clients.consumer.CooperativeStickyAssignor.class.getName());
         return props;
+    }
+
+    /**
+     * Идентификатор участника группы для static membership: агент, задача и номер потока.
+     * Символы вне {@code [A-Za-z0-9._-]} заменяются: брокер ограничивает допустимый набор.
+     */
+    public static String groupInstanceId(String agentId, String jobId, int index) {
+        String raw = (agentId == null ? "agent" : agentId) + "-" + (jobId == null ? "job" : jobId) + "-" + index;
+        return raw.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     /**
