@@ -380,12 +380,43 @@ public class KafkaReplicationOrchestratorService {
 
     @Transactional
     public boolean deleteJob(String id) {
-        if (repository.existsById(id)) {
-            repository.deleteById(id);
-            log.info("Задача репликации Kafka '{}' удалена", id);
-            return true;
+        Optional<KafkaReplicationJobEntity> job = repository.findById(id);
+        if (job.isEmpty()) {
+            return false;
         }
-        return false;
+        repository.deleteById(id);
+        log.info("Задача репликации Kafka '{}' удалена", id);
+        if (groupCleaner != null) {
+            groupCleaner.scheduleDeletion(id, consumerGroupsOf(job.get()));
+        }
+        return true;
+    }
+
+    private org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner groupCleaner;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setGroupCleaner(org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner groupCleaner) {
+        this.groupCleaner = groupCleaner;
+    }
+
+    /**
+     * Консьюмер-группы задачи на кластерах, откуда она читает. Имя повторяет агентское:
+     * {@code kafka-replicator-<ЦОД в написании задачи>-<jobId>}.
+     */
+    static List<org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget> consumerGroupsOf(
+            KafkaReplicationJobEntity job) {
+        List<org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget> targets = new ArrayList<>();
+        targets.add(new org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget(
+                job.getSourceBootstrapServers(), job.isSourceKerberosEnabled(), job.getSourcePrincipal(),
+                job.getSourceKeytabPath(), job.getSourceServiceName(),
+                "kafka-replicator-" + job.getSourceDc() + "-" + job.getId()));
+        if ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection())) {
+            targets.add(new org.apache.hadoop.explorer.replicator.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget(
+                    job.getTargetBootstrapServers(), job.isTargetKerberosEnabled(), job.getTargetPrincipal(),
+                    job.getTargetKeytabPath(), job.getTargetServiceName(),
+                    "kafka-replicator-" + job.getTargetDc() + "-" + job.getId()));
+        }
+        return targets;
     }
 
     @Transactional
