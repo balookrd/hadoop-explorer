@@ -419,14 +419,22 @@ public class KafkaReplicationOrchestratorService {
         return targets;
     }
 
+    /**
+     * Failover: репликация в целевой ЦОД останавливается, чтобы приложения переключились на него.
+     *
+     * <p>Раньше метод только писал «Failover triggered» в last_error_message: задача продолжала
+     * писать в цель, смещения групп не переносились, а в карточке появлялась «ошибка». Теперь
+     * задача ставится на паузу; агенты, останавливая пулы, делают последний проход переноса
+     * смещений консьюмер-групп задачи в цель. Завершение видно по пустому running_agents.
+     */
     @Transactional
     public boolean triggerFailover(String id) {
-        return repository.findById(id).map(job -> {
-            log.warn("Инициирован принудительный Failover консьюмеров для задачи Kafka '{}'", id);
-            job.setLastErrorMessage("Failover triggered at " + java.time.Instant.now());
-            repository.save(job);
-            return true;
-        }).orElse(false);
+        boolean updated = repository.updateStatus(id, "PAUSED", Instant.now()) > 0;
+        if (updated) {
+            log.warn("Failover задачи Kafka '{}': репликация остановлена, агенты выполнят "
+                    + "финальный перенос смещений консьюмер-групп", id);
+        }
+        return updated;
     }
 
     private KafkaReplicationJobDto toDto(KafkaReplicationJobEntity entity) {

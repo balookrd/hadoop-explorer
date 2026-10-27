@@ -453,4 +453,21 @@ class KafkaJobPoolManagerTest {
         failing.sync(List.of(running));
         assertTrue(failing.jobErrors().isEmpty(), "Вернувшиеся приемники снимают ошибку без пересоздания пула");
     }
+
+    @Test
+    @DisplayName("Остановка задачи: сначала пул (финальный коммит), затем последний перенос смещений")
+    void testPoolClosesBeforeOffsetSync() throws Exception {
+        List<String> order = new java.util.concurrent.CopyOnWriteArrayList<>();
+        KafkaBatchConsumerPool pool = mock(KafkaBatchConsumerPool.class);
+        doAnswer(inv -> { order.add("pool"); return null; }).when(pool).close();
+        AutoCloseable afterPool = () -> order.add("offset-sync");
+        KafkaJobPoolManager ordered = new KafkaJobPoolManager("dc1",
+                spec -> new KafkaJobPoolManager.JobPipeline(pool, afterPool));
+
+        ordered.sync(List.of(job("job-fo", "dc2", List.of("orders"), List.of("r:1"), 1, 100)));
+        ordered.sync(List.of());
+
+        assertEquals(List.of("pool", "offset-sync"), order,
+                "Последний перенос смещений обязан видеть финальные подтвержденные смещения пула");
+    }
 }

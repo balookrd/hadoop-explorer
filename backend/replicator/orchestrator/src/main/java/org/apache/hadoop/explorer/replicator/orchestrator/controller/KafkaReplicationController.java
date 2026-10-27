@@ -151,7 +151,8 @@ public class KafkaReplicationController {
         requireWriterOrAdmin();
         boolean ok = service.triggerFailover(id);
         if (!ok) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(Map.of("id", id, "action", "FAILOVER_TRIGGERED", "status", "SUCCESS"));
+        return ResponseEntity.ok(Map.of("id", id, "action", "FAILOVER_TRIGGERED", "status", "SUCCESS",
+                "job_status", "PAUSED"));
     }
 
     @PostMapping("/jobs/{id}/provision-topics")

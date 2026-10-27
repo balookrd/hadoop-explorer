@@ -807,11 +807,13 @@
   }
 
   async function triggerFailover(job: KafkaJob) {
-    if (confirm(`Зарегистрировать запрос Failover для задачи "${job.name}" (${job.sourceDc} → ${job.targetDc})?`)) {
+    if (confirm(`Failover задачи "${job.name}" (${job.sourceDc} → ${job.targetDc}):\n`
+        + `репликация в ${job.targetDc} остановится, агенты перенесут смещения консьюмер-групп задачи в ${job.targetDc}.\n`
+        + `Перевод смещений консервативный: после переключения приложения могут перечитать часть записей. Продолжить?`)) {
       const ok = await runJobAction(job, () => api.triggerKafkaFailover(job.id), 'Ошибка Failover');
       if (ok) {
-        // Оркестратор пока только фиксирует запрос: смещения групп переносит offset-sync агентов
-        showNotification(`Запрос Failover для "${job.name}" зарегистрирован`);
+        // Задача на паузе; завершение видно по бейджу «Остановлена на агентах»
+        showNotification(`Failover "${job.name}": репликация остановлена, смещения групп переносятся`);
       }
     }
   }

@@ -347,13 +347,8 @@ public class KafkaJobPoolManager implements Closeable {
         if (pipeline == null) {
             return;
         }
-        if (pipeline.offsetSync() != null) {
-            try {
-                pipeline.offsetSync().close();
-            } catch (Exception e) {
-                log.warn("Ошибка остановки переноса смещений задачи '{}': {}", jobId, e.getMessage());
-            }
-        }
+        // Сначала пул: его финальный коммит фиксирует подтвержденные смещения, и только после
+        // этого перенос смещений делает последний проход и останавливается
         if (pipeline.pool() != null) {
             try {
                 pipeline.pool().close();
@@ -361,6 +356,13 @@ public class KafkaJobPoolManager implements Closeable {
                 retiredBytes.addAndGet(pipeline.pool().getTotalBytesReplicated());
             } catch (Exception e) {
                 log.warn("Ошибка остановки пула задачи '{}': {}", jobId, e.getMessage());
+            }
+        }
+        if (pipeline.offsetSync() != null) {
+            try {
+                pipeline.offsetSync().close();
+            } catch (Exception e) {
+                log.warn("Ошибка остановки переноса смещений задачи '{}': {}", jobId, e.getMessage());
             }
         }
     }

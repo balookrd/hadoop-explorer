@@ -587,6 +587,10 @@ public class KafkaReplicatorAgentMain {
 
         return () -> {
             synchronizer.close();
+            // Последний проход после остановки пула: подтвержденные смещения уже финальные, и
+            // группы в цели получают ровно ту позицию, до которой дошла репликация. Это и есть
+            // контракт failover: остановить перенос и передать приложениям точные смещения
+            synchronizer.syncOnce();
             try {
                 scannerAdmin.close(java.time.Duration.ofSeconds(2));
             } catch (Exception ignored) {
@@ -663,87 +667,120 @@ public class KafkaReplicatorAgentMain {
             org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client =
                     new org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient(
                             spec.targetEndpoints(), agentSecret, tlsEnabled, tlsTrustCert);
-
-            java.util.concurrent.atomic.AtomicInteger consumerIndex = new java.util.concurrent.atomic.AtomicInteger();
-            java.util.function.Supplier<KafkaConsumer<byte[], byte[]>> newConsumer = () -> {
-                Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
-                        .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
-                // Static membership: пересозданный пул возвращается в группу под теми же
-                // идентификаторами и забирает свои партиции без ребаланса всей группы
-                props.put(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_INSTANCE_ID_CONFIG,
-                        org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
-                                .groupInstanceId(agentId, spec.jobId(), consumerIndex.getAndIncrement()));
-                props.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-                        org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
-                                .offsetResetFor(spec.startPosition()));
-                org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
-                        .applyKerberos(props, krbConfig);
-                return new KafkaConsumer<>(props);
-            };
-            List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
-            KafkaConsumer<byte[], byte[]> first = newConsumer.get();
-            consumers.add(first);
-            int threads = KafkaJobPoolManager.consumerThreadsFor(spec.consumerThreads(),
-                    countPartitions(first, spec.topics()), spec.liveSenders());
-            if (threads < spec.consumerThreads()) {
-                log.info("Задача '{}': потоков на агенте {} вместо {} — больше консьюмеров партиции не займут",
-                        spec.jobId(), threads, spec.consumerThreads());
+            try {
+                return buildJobPipeline(spec, client, agentId, bootstrapServers, krbConfig,
+                        hostBandwidthLimitMbS, sourceSrUrl, sourceSrType, targetSrUrl, targetSrType, payloadFormatName);
+            } catch (RuntimeException e) {
+                // Иначе каналы клиента к приемникам оставались открытыми после каждой неудачи
+                client.close();
+                throw e;
             }
-            for (int i = 1; i < threads; i++) {
-                consumers.add(newConsumer.get());
-            }
-            for (KafkaConsumer<byte[], byte[]> consumer : consumers) {
-                consumer.subscribe(spec.topics());
-            }
-
-            // Транскодинг схем и формат — настройки самой задачи: интерфейс задает их на задачу,
-            // а адреса реестров остаются конфигурацией узла
-            // Реестры приходят от оркестратора из топологии выбранных кластеров; переменные
-            // окружения узла остаются запасным вариантом для топиков из командной строки
-            String jobSourceSrUrl = firstNonBlank(spec.sourceSchemaRegistryUrl(), sourceSrUrl);
-            String jobSourceSrType = firstNonBlank(spec.sourceSchemaRegistryType(), sourceSrType);
-            String jobTargetSrUrl = firstNonBlank(spec.targetSchemaRegistryUrl(), targetSrUrl);
-            String jobTargetSrType = firstNonBlank(spec.targetSchemaRegistryType(), targetSrType);
-
-            org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver =
-                    spec.schemaTranscoding()
-                            ? org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
-                                    jobSourceSrUrl, jobSourceSrType, jobTargetSrUrl, jobTargetSrType,
-                                    krbConfig, krbConfig)
-                            : org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
-                                    .passthroughResolver();
-            org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat =
-                    org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
-                            .format(payloadFormatName, spec.schemaTranscoding());
-
-            org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool =
-                    new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
-                            consumers,
-                            client,
-                            new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(
-                                    spec.sourceDc(), spec.targetDc()),
-                            new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier(),
-                            new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(schemaResolver),
-                            spec.sourceDc(),
-                            spec.targetDc(),
-                            wireFormat,
-                            wireFormat);
-            pool.setMaxBatchSize(spec.batchSize());
-            pool.updateSubscribedTopics(spec.topics());
-
-            // Потолок узла и доля задачи хранятся раздельно: доля меняется на живом пуле, а
-            // потолок узла должен действовать и после ее смены, и при ее отсутствии
-            if (hostBandwidthLimitMbS != null && hostBandwidthLimitMbS > 0) {
-                pool.setHostBandwidthCapMb(hostBandwidthLimitMbS);
-            }
-            pool.setBandwidthLimitMb(spec.bandwidthLimitMb());
-
-            // Перенос смещений групп этой задачи: свои группы, свой целевой кластер, свой клиент
-            AutoCloseable offsetSync = startOffsetSync(bootstrapServers, krbConfig, client, pool,
-                    spec.consumerGroups(), spec.sourceDc(), spec.targetDc(),
-                    spec.offsetSyncIntervalSec());
-
-            return new KafkaJobPoolManager.JobPipeline(pool, offsetSync);
         };
+    }
+
+    private static KafkaJobPoolManager.JobPipeline buildJobPipeline(
+            KafkaJobPoolManager.JobPoolSpec spec,
+            org.apache.hadoop.explorer.replicator.kafka.client.KafkaReplicationClient client,
+            String agentId,
+            String bootstrapServers,
+            org.apache.hadoop.explorer.replicator.kafka.security.KafkaKerberosConfig krbConfig,
+            Double hostBandwidthLimitMbS,
+            String sourceSrUrl,
+            String sourceSrType,
+            String targetSrUrl,
+            String targetSrType,
+            String payloadFormatName) {
+        java.util.concurrent.atomic.AtomicInteger consumerIndex = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Supplier<KafkaConsumer<byte[], byte[]>> newConsumer = () -> {
+            Properties props = org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                    .consumerProps(bootstrapServers, spec.groupId(), spec.batchSize());
+            // Static membership: пересозданный пул возвращается в группу под теми же
+            // идентификаторами и забирает свои партиции без ребаланса всей группы
+            props.put(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_INSTANCE_ID_CONFIG,
+                    org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                            .groupInstanceId(agentId, spec.jobId(), consumerIndex.getAndIncrement()));
+            props.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                    org.apache.hadoop.explorer.replicator.kafka.config.KafkaClientSettings
+                            .offsetResetFor(spec.startPosition()));
+            org.apache.hadoop.explorer.replicator.kafka.security.KafkaSecurityConfigBuilder
+                    .applyKerberos(props, krbConfig);
+            return new KafkaConsumer<>(props);
+        };
+        List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.ArrayList<>();
+        KafkaConsumer<byte[], byte[]> first = newConsumer.get();
+        consumers.add(first);
+        int threads = KafkaJobPoolManager.consumerThreadsFor(spec.consumerThreads(),
+                countPartitions(first, spec.topics()), spec.liveSenders());
+        if (threads < spec.consumerThreads()) {
+            log.info("Задача '{}': потоков на агенте {} вместо {} — больше консьюмеров партиции не займут",
+                    spec.jobId(), threads, spec.consumerThreads());
+        }
+        for (int i = 1; i < threads; i++) {
+            consumers.add(newConsumer.get());
+        }
+        for (KafkaConsumer<byte[], byte[]> consumer : consumers) {
+            consumer.subscribe(spec.topics());
+        }
+
+        // Транскодинг схем и формат — настройки самой задачи: интерфейс задает их на задачу,
+        // а адреса реестров остаются конфигурацией узла
+        // Реестры приходят от оркестратора из топологии выбранных кластеров; переменные
+        // окружения узла остаются запасным вариантом для топиков из командной строки
+        String jobSourceSrUrl = firstNonBlank(spec.sourceSchemaRegistryUrl(), sourceSrUrl);
+        String jobSourceSrType = firstNonBlank(spec.sourceSchemaRegistryType(), sourceSrType);
+        String jobTargetSrUrl = firstNonBlank(spec.targetSchemaRegistryUrl(), targetSrUrl);
+        String jobTargetSrType = firstNonBlank(spec.targetSchemaRegistryType(), targetSrType);
+
+        org.apache.hadoop.explorer.replicator.kafka.schema.SchemaIdResolver schemaResolver =
+                spec.schemaTranscoding()
+                        ? org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding.resolver(
+                                jobSourceSrUrl, jobSourceSrType, jobTargetSrUrl, jobTargetSrType,
+                                krbConfig, krbConfig)
+                        : org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                                .passthroughResolver();
+        org.apache.hadoop.explorer.replicator.kafka.generated.PayloadFormat wireFormat =
+                org.apache.hadoop.explorer.replicator.kafka.schema.KafkaSchemaTranscoding
+                        .format(payloadFormatName, spec.schemaTranscoding());
+
+        org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool pool =
+                new org.apache.hadoop.explorer.replicator.kafka.consumer.KafkaBatchConsumerPool(
+                        consumers,
+                        client,
+                        new org.apache.hadoop.explorer.replicator.kafka.filter.LoopPreventionFilter(
+                                spec.sourceDc(), spec.targetDc()),
+                        new org.apache.hadoop.explorer.replicator.kafka.schema.PayloadFormatClassifier(),
+                        new org.apache.hadoop.explorer.replicator.kafka.schema.ZeroCopyWireTranscoder(schemaResolver),
+                        spec.sourceDc(),
+                        spec.targetDc(),
+                        wireFormat,
+                        wireFormat);
+        pool.setMaxBatchSize(spec.batchSize());
+        pool.updateSubscribedTopics(spec.topics());
+
+        // Потолок узла и доля задачи хранятся раздельно: доля меняется на живом пуле, а
+        // потолок узла должен действовать и после ее смены, и при ее отсутствии
+        if (hostBandwidthLimitMbS != null && hostBandwidthLimitMbS > 0) {
+            pool.setHostBandwidthCapMb(hostBandwidthLimitMbS);
+        }
+        pool.setBandwidthLimitMb(spec.bandwidthLimitMb());
+
+        // Перенос смещений групп этой задачи: свои группы, свой целевой кластер, свой клиент
+        AutoCloseable offsetSync = startOffsetSync(bootstrapServers, krbConfig, client, pool,
+                spec.consumerGroups(), spec.sourceDc(), spec.targetDc(),
+                spec.offsetSyncIntervalSec());
+
+        // Закрывается после пула: последний проход переноса смещений идет через клиент
+        // приемников, и только затем каналы клиента закрываются. Раньше клиент задачи не
+        // закрывался вовсе, и каждый перезапуск пула оставлял открытые каналы
+        AutoCloseable afterPool = () -> {
+            try {
+                if (offsetSync != null) {
+                    offsetSync.close();
+                }
+            } finally {
+                client.close();
+            }
+        };
+        return new KafkaJobPoolManager.JobPipeline(pool, afterPool);
     }
 }

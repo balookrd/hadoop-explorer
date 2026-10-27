@@ -183,6 +183,9 @@ public class KafkaReplicationOrchestratorSmokeTest {
         ResponseEntity<Map<String, Object>> failoverResp = controller.triggerFailover(createdJob.getId());
         assertEquals(HttpStatus.OK, failoverResp.getStatusCode());
         assertEquals("SUCCESS", failoverResp.getBody().get("status"));
+        KafkaReplicationJobEntity failedOver = repository.findById(createdJob.getId()).orElseThrow();
+        assertEquals("PAUSED", failedOver.getStatus(), "Failover останавливает репликацию в целевой ЦОД");
+        assertNull(failedOver.getLastErrorMessage(), "Failover — действие оператора, а не ошибка задачи");
 
         // 8. Удаление задачи (DELETE)
         ResponseEntity<Void> deleteResp = controller.deleteJob(createdJob.getId());
