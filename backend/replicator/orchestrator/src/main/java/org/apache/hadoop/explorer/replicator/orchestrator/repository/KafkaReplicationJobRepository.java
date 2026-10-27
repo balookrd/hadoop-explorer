@@ -66,6 +66,15 @@ public interface KafkaReplicationJobRepository extends JpaRepository<KafkaReplic
                           @Param("bytes") long bytes, @Param("lagMs") long lagMs,
                           @Param("now") Instant now);
 
+    /**
+     * Сводка провижининга без перезаписи остальных полей строки: провижининг идет секунды, и
+     * сохранение целой сущности после него откатывало паузу и телеметрию, пришедшие за это время.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE KafkaReplicationJobEntity j SET j.topicProvisioningSummary = :summary WHERE j.id = :id")
+    int updateProvisioningSummary(@Param("id") String id, @Param("summary") String summary);
+
     /** Смена статуса задачи без перезаписи остальных полей строки. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("UPDATE KafkaReplicationJobEntity j SET j.status = :status, j.updatedAt = :now WHERE j.id = :id")

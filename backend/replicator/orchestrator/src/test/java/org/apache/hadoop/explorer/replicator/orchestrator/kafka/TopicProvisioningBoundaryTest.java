@@ -84,8 +84,33 @@ class TopicProvisioningBoundaryTest {
 
         assertDoesNotThrow(() -> service.createJob(request()));
 
-        // Сводка провижининга дописывается отдельной записью
-        verify(repository, atLeast(2)).save(any(KafkaReplicationJobEntity.class));
+        // Сводка дописывается точечным UPDATE, а не повторным сохранением всей строки:
+        // за время провижининга агенты и оператор могли поменять статус и метрики задачи
+        verify(repository, times(1)).save(any(KafkaReplicationJobEntity.class));
+        verify(repository).updateProvisioningSummary(anyString(), contains("orders"));
+    }
+
+    @Test
+    @DisplayName("Повторный провижининг не перезаписывает строку задачи: пауза за это время сохраняется")
+    void testReprovisioningDoesNotOverwriteJob() {
+        KafkaReplicationJobEntity entity = new KafkaReplicationJobEntity();
+        entity.setId("kafka-job-1");
+        entity.setStatus("ACTIVE");
+        entity.setDirection("BIDIRECTIONAL");
+        entity.setSourceBootstrapServers("kafka-dc1:9092");
+        entity.setTargetBootstrapServers("kafka-dc2:9092");
+        entity.setTopicsJson("[{\"topic\":\"orders\"}]");
+        when(repository.findById("kafka-job-1")).thenReturn(java.util.Optional.of(entity));
+        when(provisioner.provisionTopics(anyString(), anyBoolean(), any(), any(), any(),
+                anyString(), anyBoolean(), any(), any(), any(), anyList(), anyBoolean()))
+                .thenReturn(new TopicProvisioningResult(List.of(), List.of(), List.of("orders"), true, "ok"));
+
+        service.provisionTopicsForJob("kafka-job-1");
+
+        verify(repository, never()).save(any(KafkaReplicationJobEntity.class));
+        verify(repository).updateProvisioningSummary(eq("kafka-job-1"), anyString());
+        verify(provisioner, times(2)).provisionTopics(anyString(), anyBoolean(), any(), any(), any(),
+                anyString(), anyBoolean(), any(), any(), any(), anyList(), anyBoolean());
     }
 
     @Test

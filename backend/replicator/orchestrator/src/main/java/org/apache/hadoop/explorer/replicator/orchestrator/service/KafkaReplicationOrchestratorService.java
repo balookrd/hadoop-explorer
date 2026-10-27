@@ -271,8 +271,8 @@ public class KafkaReplicationOrchestratorService {
 
         String provisioningSummary = provisionTopicsOutsideTransaction(request, saved);
         if (provisioningSummary != null) {
+            repository.updateProvisioningSummary(saved.getId(), provisioningSummary);
             saved.setTopicProvisioningSummary(provisioningSummary);
-            saved = repository.save(saved);
         }
 
         log.info("Создана новая задача репликации Kafka '{}' ({}) [{} <-> {}], провижининг топиков: {}",
@@ -544,7 +544,10 @@ public class KafkaReplicationOrchestratorService {
     /**
      * Повторный или ручной запуск предварительной проверки и автосоздания топиков для существующей задачи.
      */
-    @Transactional
+    /*
+     * Без транзакции: вызовы AdminClient к двум брокерам с таймаутами держали бы соединение
+     * с БД все это время. Сводка пишется точечным UPDATE.
+     */
     public TopicProvisioningResult provisionTopicsForJob(String jobId) {
         return repository.findById(jobId).map(entity -> {
             List<String> topics = Collections.emptyList();
@@ -575,8 +578,31 @@ public class KafkaReplicationOrchestratorService {
                     topics,
                     false
             );
-            entity.setTopicProvisioningSummary(res.toSummaryString());
-            repository.save(entity);
+            String summary = res.toSummaryString();
+            if ("BIDIRECTIONAL".equalsIgnoreCase(entity.getDirection())) {
+                TopicProvisioningResult reverse = topicProvisioner.provisionTopics(
+                        entity.getTargetBootstrapServers(),
+                        entity.isTargetKerberosEnabled(),
+                        entity.getTargetPrincipal(),
+                        entity.getTargetKeytabPath(),
+                        entity.getTargetServiceName(),
+                        entity.getSourceBootstrapServers(),
+                        entity.isSourceKerberosEnabled(),
+                        entity.getSourcePrincipal(),
+                        entity.getSourceKeytabPath(),
+                        entity.getSourceServiceName(),
+                        topics,
+                        false
+                );
+                if (!reverse.createdTopics().isEmpty() || !reverse.conflicts().isEmpty() || !reverse.success()) {
+                    summary = summary + " [Обратная репликация: " + reverse.toSummaryString() + "]";
+                }
+                if (!reverse.success()) {
+                    res = new TopicProvisioningResult(res.createdTopics(), res.conflicts(), res.matchedTopics(),
+                            false, summary);
+                }
+            }
+            repository.updateProvisioningSummary(jobId, summary);
             return res;
         }).orElse(TopicProvisioningResult.warning("Задача не найдена: " + jobId));
     }
