@@ -1,0 +1,308 @@
+# ==============================================================================
+# Масштабный стенд Kafka-репликации: несколько агентов на DC, топик на 128 партиций.
+#
+# Накладывается поверх docker-compose.kafka.yml:
+#   docker compose -f docker-compose.kafka.yml -f docker-compose.kafka-scale.yml up -d
+#
+# На каждый DC приходится по три агента в роли dual: один консьюмер-группой они делят
+# партиции источника, а приемниками служат все агенты противоположного DC. Боевая схема
+# (12 агентов на кластер) отличается только числом реплик сервиса, логика распределения
+# партиций та же. Реестры схем поднимаются, как в базовом стенде, с урезанным хипом.
+# ==============================================================================
+name: hadoop-replicator-kafka-demo
+
+x-agent-common: &agent-common
+  build:
+    context: ../..
+    dockerfile: docker/Dockerfile.replicator-agent
+  image: hadoop-replicator-kafka-agent:scale
+  restart: unless-stopped
+  environment:
+    KRB5_CONFIG: "/shared/conf/krb5.conf"
+    AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
+    RECEIVER_PORT: "50052"
+  volumes:
+    - demo-shared-keytabs:/etc/security/keytabs:ro
+    - demo-shared-krb5:/shared/conf:ro
+  entrypoint: ["java", "-Xms256m", "-Xmx${AGENT_HEAP:-640m}", "-XX:+UseG1GC",
+               "-Djava.security.krb5.conf=/shared/conf/krb5.conf",
+               "-cp", "/app/replicator-agent.jar",
+               "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+
+services:
+  kafka-cluster-1:
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms768m -Xmx768m"
+      KAFKA_NUM_PARTITIONS: 128
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_NUM_IO_THREADS: 8
+
+  kafka-cluster-2:
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms768m -Xmx768m"
+      KAFKA_NUM_PARTITIONS: 128
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_NUM_IO_THREADS: 8
+
+  schema-registry-1:
+    environment:
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms128m -Xmx256m"
+
+  schema-registry-2:
+    environment:
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms128m -Xmx256m"
+
+  orchestrator:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Xmx768m"
+      # Без адреса spring-ldap ходит на localhost:389, и /actuator/health отдает 503 даже при
+      # mock-аутентификации: стенду нужен LDAP из demo/infra
+      SPRING_LDAP_URLS: "ldap://ldap:389"
+      # Без лимита DC троттлер по умолчанию режет поток до 100 МБ/с на весь стенд
+      REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "${GLOBAL_LIMIT_BYTES:-1073741824}"
+      # Топология керберизованных кластеров стенда: discovery и провижининг топиков ходят к
+      # брокерам по SASL/GSSAPI. Список задается целиком: Spring не сливает элементы списка
+      # из разных источников, и переопределение по индексу затерло бы остальные поля.
+      SPRING_APPLICATION_JSON: >-
+        {"hadoop":{"replicator":{"clusters":[
+        {"id":"dc1","name":"Kafka DC1","dc-id":"dc1","grpc-host":"kafka-agent-dc1","grpc-port":50052,
+        "kafka-bootstrap-servers":"kafka-cluster-1.demo-platform-net:9092",
+        "schema-registry-url":"http://schema-registry-1:8081","schema-registry-type":"HORTONWORKS",
+        "kerberos-enabled":true,"principal":"kafka-replicator@COMPANY.LOCAL",
+        "keytab-path":"/etc/security/keytabs/kafka-replicator.keytab"},
+        {"id":"dc2","name":"Kafka DC2","dc-id":"dc2","grpc-host":"kafka-agent-dc2","grpc-port":50052,
+        "kafka-bootstrap-servers":"kafka-cluster-2.demo-platform-net:9092",
+        "schema-registry-url":"http://schema-registry-2:8082","schema-registry-type":"CONFLUENT",
+        "kerberos-enabled":true,"principal":"kafka-replicator@COMPANY.LOCAL",
+        "keytab-path":"/etc/security/keytabs/kafka-replicator.keytab"}]}}}
+
+  # Базовые агенты переводятся на общий порт 50052, чтобы все приемники DC были одинаковыми
+  kafka-agent-dc1:
+    <<: *agent-common
+    healthcheck:
+      disable: true
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc1"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc1:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC1"
+      - "--target-dc"
+      - "DC2"
+      - "--target-endpoints"
+      - "kafka-agent-dc2:50052,kafka-agent-dc2-b:50052,kafka-agent-dc2-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-1.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+
+  kafka-agent-dc2:
+    <<: *agent-common
+    healthcheck:
+      disable: true
+    ports: !override
+      - "50053:50052"
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc2"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc2:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC2"
+      - "--target-dc"
+      - "DC1"
+      - "--target-endpoints"
+      - "kafka-agent-dc1:50052,kafka-agent-dc1-b:50052,kafka-agent-dc1-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-2.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+
+  kafka-agent-dc1-b: &dc1-extra
+    <<: *agent-common
+    healthcheck:
+      disable: true
+    hostname: kafka-agent-dc1-b
+    container_name: kafka-replicator-agent-dc1-b
+    depends_on: [kafka-cluster-1, orchestrator, kafka-agent-dc1]
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc1-b"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc1-b:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC1"
+      - "--target-dc"
+      - "DC2"
+      - "--target-endpoints"
+      - "kafka-agent-dc2:50052,kafka-agent-dc2-b:50052,kafka-agent-dc2-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-1.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+    networks:
+      demo-platform-net:
+        aliases: [kafka-agent-dc1-b]
+
+  kafka-agent-dc1-c:
+    <<: *dc1-extra
+    hostname: kafka-agent-dc1-c
+    container_name: kafka-replicator-agent-dc1-c
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc1-c"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc1-c:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC1"
+      - "--target-dc"
+      - "DC2"
+      - "--target-endpoints"
+      - "kafka-agent-dc2:50052,kafka-agent-dc2-b:50052,kafka-agent-dc2-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-1.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+    networks:
+      demo-platform-net:
+        aliases: [kafka-agent-dc1-c]
+
+  kafka-agent-dc2-b: &dc2-extra
+    <<: *agent-common
+    healthcheck:
+      disable: true
+    hostname: kafka-agent-dc2-b
+    container_name: kafka-replicator-agent-dc2-b
+    depends_on: [kafka-cluster-2, orchestrator, kafka-agent-dc2]
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc2-b"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc2-b:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC2"
+      - "--target-dc"
+      - "DC1"
+      - "--target-endpoints"
+      - "kafka-agent-dc1:50052,kafka-agent-dc1-b:50052,kafka-agent-dc1-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-2.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+    networks:
+      demo-platform-net:
+        aliases: [kafka-agent-dc2-b]
+
+  kafka-agent-dc2-c:
+    <<: *dc2-extra
+    hostname: kafka-agent-dc2-c
+    container_name: kafka-replicator-agent-dc2-c
+    command:
+      - "--port"
+      - "50052"
+      - "--agent-id"
+      - "kafka-agent-dc2-c"
+      - "--advertised-grpc-address"
+      - "kafka-agent-dc2-c:50052"
+      - "--role"
+      - "dual"
+      - "--dc-id"
+      - "DC2"
+      - "--target-dc"
+      - "DC1"
+      - "--target-endpoints"
+      - "kafka-agent-dc1:50052,kafka-agent-dc1-b:50052,kafka-agent-dc1-c:50052"
+      - "--bootstrap-servers"
+      - "kafka-cluster-2.demo-platform-net:9092"
+      - "--orchestrator-grpc"
+      - "orchestrator:50050"
+      - "--kerberos-enabled"
+      - "--principal"
+      - "kafka-replicator@COMPANY.LOCAL"
+      - "--keytab"
+      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "--security-protocol"
+      - "SASL_PLAINTEXT"
+      - "--service-name"
+      - "kafka"
+      - "--krb5-conf"
+      - "/shared/conf/krb5.conf"
+    networks:
+      demo-platform-net:
+        aliases: [kafka-agent-dc2-c]

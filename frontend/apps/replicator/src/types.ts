@@ -314,6 +314,35 @@ export interface CreateHmsJobPayload {
   enable_hdfs_streaming?: boolean;
 }
 
+/**
+ * Тело POST /replicator/kafka/jobs. Оркестратор читает JSON в snake_case: поля в camelCase
+ * он молча отбрасывает и создает задачу с дефолтами.
+ */
+export interface CreateKafkaJobPayload {
+  name: string;
+  source_dc: string;
+  target_dc: string;
+  direction: string;
+  topics: { topic: string; payload_mode: string }[];
+  consumer_groups: string[];
+  schema_transcoding_enabled: boolean;
+  source_sr_type?: string;
+  target_sr_type?: string;
+  source_sr_url?: string;
+  target_sr_url?: string;
+  source_kerberos_enabled: boolean;
+  source_principal?: string;
+  source_keytab_path?: string;
+  target_kerberos_enabled: boolean;
+  target_principal?: string;
+  target_keytab_path?: string;
+  bandwidth_limit_mb?: number;
+  offset_sync_interval_sec?: number;
+  consumer_threads?: number;
+  batch_size?: number;
+  target_endpoints?: string[];
+}
+
 export interface StreamingLeaseStatus {
   status: 'ACTIVE' | 'STANDBY' | 'EXPIRED' | 'DISABLED';
   epoch: number;

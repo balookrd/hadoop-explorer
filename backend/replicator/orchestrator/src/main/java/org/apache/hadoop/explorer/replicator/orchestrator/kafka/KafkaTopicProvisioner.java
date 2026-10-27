@@ -220,7 +220,13 @@ public class KafkaTopicProvisioner {
                     createdTopics, expandedTopics, matchedTopics, true, "Топология топиков успешно проверена и синхронизирована");
 
         } catch (Exception e) {
-            String errorMsg = "Автопроверка/создание топиков Kafka завершились с предупреждением: " + e.getMessage();
+            // У TimeoutException и ExecutionException сообщение пустое: причина в цепочке
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            String reason = root.getMessage() != null ? root.getMessage() : root.getClass().getSimpleName();
+            String errorMsg = "Автопроверка/создание топиков Kafka завершились с предупреждением: " + reason;
             log.warn(errorMsg);
             if (failOnError) {
                 throw new RuntimeException(errorMsg, e);

@@ -137,4 +137,45 @@ class KafkaBatchProducerTest {
         assertEquals(1, ack.getCommittedRecords());
         assertEquals(42L, ack.getMaxTargetOffset());
     }
+
+    @Test
+    @DisplayName("Подтверждение батча не выполняется в сетевом потоке продюсера")
+    void ackContinuationDoesNotRunOnProducerIoThread() throws Exception {
+        // Колбэк send() Kafka вызывает в своем сетевом потоке Sender. Если future батча
+        // завершается прямо там, зависимые стадии (ответ в gRPC, flush при закрытии стрима)
+        // тоже выполняются в нем, и KafkaProducer.flush() ждет сам себя — вечная блокировка.
+        java.util.concurrent.atomic.AtomicReference<Callback> captured = new java.util.concurrent.atomic.AtomicReference<>();
+        when(mockProducer.send(any(ProducerRecord.class), any(Callback.class))).thenAnswer(inv -> {
+            captured.set(inv.getArgument(1));
+            return CompletableFuture.completedFuture(null);
+        });
+
+        KafkaBatchRequest batch = KafkaBatchRequest.newBuilder()
+                .setBatchId("io-thread-batch")
+                .setTopic("orders")
+                .addRecords(org.apache.hadoop.explorer.replicator.kafka.generated.KafkaRecord.newBuilder()
+                        .setPartition(0).setOriginalOffset(1).build())
+                .build();
+        CompletableFuture<KafkaBatchAck> future = batchProducer.writeBatchAsync(batch);
+        java.util.concurrent.atomic.AtomicReference<String> continuationThread = new java.util.concurrent.atomic.AtomicReference<>();
+        CompletableFuture<Void> continuation = future.thenAccept(ack ->
+                continuationThread.set(Thread.currentThread().getName()));
+
+        long deadline = System.currentTimeMillis() + 5000;
+        while (captured.get() == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
+        assertNotNull(captured.get(), "send() должен быть вызван");
+
+        Thread sender = new Thread(() -> captured.get().onCompletion(
+                new org.apache.kafka.clients.producer.RecordMetadata(
+                        new org.apache.kafka.common.TopicPartition("orders", 0), 0, 0, 0L, 0, 0), null),
+                "kafka-producer-network-thread | test");
+        sender.start();
+        sender.join(5000);
+        continuation.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertNotEquals("kafka-producer-network-thread | test", continuationThread.get(),
+                "Стадии после подтверждения батча обязаны выполняться вне сетевого потока продюсера");
+    }
 }

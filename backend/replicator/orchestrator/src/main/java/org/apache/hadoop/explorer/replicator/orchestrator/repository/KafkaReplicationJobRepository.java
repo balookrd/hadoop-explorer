@@ -2,10 +2,12 @@ package org.apache.hadoop.explorer.replicator.orchestrator.repository;
 
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 
 @Repository
@@ -27,6 +29,34 @@ public interface KafkaReplicationJobRepository extends JpaRepository<KafkaReplic
             + "AND (LOWER(j.sourceDc) = LOWER(:dc) "
             + "OR (UPPER(j.direction) = 'BIDIRECTIONAL' AND LOWER(j.targetDc) = LOWER(:dc)))")
     List<KafkaReplicationJobEntity> findActiveJobsReportedByDc(@Param("dc") String dc);
+
+    /**
+     * Запись телеметрии агентов ЦОД в его активные задачи одним UPDATE, без чтения сущностей.
+     *
+     * <p>Heartbeat раньше читал задачу и сохранял ее целиком. Если пауза фиксировалась между
+     * чтением и записью heartbeat, сохранение возвращало статус ACTIVE, и пауза «не держалась».
+     * Точечный UPDATE не трогает статус и не пишет в строку, ставшую неактивной. Счетчики
+     * только растут: после рестарта оркестратора сумма по агентам набирается заново и не
+     * должна откатывать уже показанное значение.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE KafkaReplicationJobEntity j SET "
+            + "j.messagesReplicated = CASE WHEN j.messagesReplicated IS NULL OR j.messagesReplicated < :messages "
+            + "THEN :messages ELSE j.messagesReplicated END, "
+            + "j.bytesReplicated = CASE WHEN j.bytesReplicated IS NULL OR j.bytesReplicated < :bytes "
+            + "THEN :bytes ELSE j.bytesReplicated END, "
+            + "j.currentLagMs = :lagMs, j.updatedAt = :now "
+            + "WHERE UPPER(j.status) = 'ACTIVE' "
+            + "AND (LOWER(j.sourceDc) = LOWER(:dc) "
+            + "OR (UPPER(j.direction) = 'BIDIRECTIONAL' AND LOWER(j.targetDc) = LOWER(:dc)))")
+    int applyDcTelemetry(@Param("dc") String dc, @Param("messages") long messages,
+                         @Param("bytes") long bytes, @Param("lagMs") long lagMs,
+                         @Param("now") Instant now);
+
+    /** Смена статуса задачи без перезаписи остальных полей строки. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE KafkaReplicationJobEntity j SET j.status = :status, j.updatedAt = :now WHERE j.id = :id")
+    int updateStatus(@Param("id") String id, @Param("status") String status, @Param("now") Instant now);
 
     /**
      * Итоги по всем задачам Kafka одной строкой: всего, активных, на паузе, сообщения, байты,

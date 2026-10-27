@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
@@ -70,10 +71,43 @@ public class KafkaJobPoolManager implements Closeable {
     private final String localDcId;
     private final Function<JobPoolSpec, JobPipeline> poolFactory;
     private final Map<String, JobRuntime> runtimes = new ConcurrentHashMap<>();
+    /**
+     * Счетчики остановленных пулов. Оркестратор считает метрики агента накопительными, поэтому
+     * при пересоздании пула (смена приемников, настроек) их сумма не должна проседать.
+     */
+    private final AtomicLong retiredMessages = new AtomicLong();
+    private final AtomicLong retiredBytes = new AtomicLong();
 
     public KafkaJobPoolManager(String localDcId, Function<JobPoolSpec, JobPipeline> poolFactory) {
         this.localDcId = Objects.requireNonNull(localDcId, "localDcId must not be null");
         this.poolFactory = Objects.requireNonNull(poolFactory, "poolFactory must not be null");
+    }
+
+    /** Перенесенные записи по всем пулам агента, включая уже остановленные. */
+    public long totalMessagesReplicated() {
+        long total = retiredMessages.get();
+        for (JobRuntime runtime : runtimes.values()) {
+            total += runtime.pool().getTotalMessagesReplicated();
+        }
+        return total;
+    }
+
+    /** Перенесенные байты по всем пулам агента, включая уже остановленные. */
+    public long totalBytesReplicated() {
+        long total = retiredBytes.get();
+        for (JobRuntime runtime : runtimes.values()) {
+            total += runtime.pool().getTotalBytesReplicated();
+        }
+        return total;
+    }
+
+    /** Наибольший лаг среди запущенных пулов. */
+    public long maxLagMs() {
+        long max = 0L;
+        for (JobRuntime runtime : runtimes.values()) {
+            max = Math.max(max, runtime.pool().getCurrentLagMs());
+        }
+        return max;
     }
 
     /** Идентификаторы задач, пулы которых запущены. */
@@ -111,8 +145,10 @@ public class KafkaJobPoolManager implements Closeable {
                 continue;
             }
 
-            // Смена приемников требует пересборки клиента, поэтому пул поднимается заново
-            if (!existing.endpoints().equals(endpoints)) {
+            // Смена приемников требует пересборки клиента, поэтому пул поднимается заново.
+            // Сравнивается состав, а не порядок: оркестратор собирает список из хеш-таблицы,
+            // и перестановка без изменения состава перезапускала бы пулы и группу целиком.
+            if (!Set.copyOf(existing.endpoints()).equals(Set.copyOf(endpoints))) {
                 log.info("Задача '{}': сменились приемники {} -> {}, пул перезапускается",
                         jobId, existing.endpoints(), endpoints);
                 stopJob(jobId);
@@ -229,6 +265,8 @@ public class KafkaJobPoolManager implements Closeable {
         if (pipeline.pool() != null) {
             try {
                 pipeline.pool().close();
+                retiredMessages.addAndGet(pipeline.pool().getTotalMessagesReplicated());
+                retiredBytes.addAndGet(pipeline.pool().getTotalBytesReplicated());
             } catch (Exception e) {
                 log.warn("Ошибка остановки пула задачи '{}': {}", jobId, e.getMessage());
             }

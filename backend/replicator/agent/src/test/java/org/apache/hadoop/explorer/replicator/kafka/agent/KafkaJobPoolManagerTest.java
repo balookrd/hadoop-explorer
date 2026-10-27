@@ -278,4 +278,41 @@ class KafkaJobPoolManagerTest {
         pools.values().forEach(pool -> verify(pool, times(1)).close());
         assertTrue(manager.activeJobIds().isEmpty());
     }
+
+    @Test
+    @DisplayName("Перестановка приемников без смены состава не пересоздает пул")
+    void testEndpointReorderDoesNotRestartPool() {
+        manager.sync(List.of(job("job-orders", "dc2", List.of("orders"),
+                List.of("a:50052", "b:50052", "c:50052"), 4, 2000)));
+        manager.sync(List.of(job("job-orders", "dc2", List.of("orders"),
+                List.of("c:50052", "a:50052", "b:50052"), 4, 2000)));
+
+        assertEquals(1, requests.size(),
+                "Оркестратор собирает приемников из хеш-таблицы, порядок между опросами плавает: "
+                        + "перезапуск пула на каждую перестановку дает ребаланс всех партиций группы");
+        verify(pools.get("job-orders"), never()).close();
+    }
+
+    @Test
+    @DisplayName("Метрики агента — сумма по пулам задач и не проседают при пересоздании пула")
+    void testMetricsAreSummedAndMonotonic() {
+        manager.sync(List.of(
+                job("job-a", "dc2", List.of("a"), List.of("kafka-dc2:50052"), 1, 100),
+                job("job-b", "dc2", List.of("b"), List.of("kafka-dc2:50052"), 1, 100)));
+        when(pools.get("job-a").getTotalMessagesReplicated()).thenReturn(700L);
+        when(pools.get("job-b").getTotalMessagesReplicated()).thenReturn(300L);
+        when(pools.get("job-a").getCurrentLagMs()).thenReturn(50L);
+        when(pools.get("job-b").getCurrentLagMs()).thenReturn(900L);
+
+        assertEquals(1000L, manager.totalMessagesReplicated());
+        assertEquals(900L, manager.maxLagMs());
+
+        // Смена приемников пересоздает пул job-a: его 700 записей должны остаться в сумме
+        manager.sync(List.of(
+                job("job-a", "dc2", List.of("a"), List.of("kafka-dc2-new:50052"), 1, 100),
+                job("job-b", "dc2", List.of("b"), List.of("kafka-dc2:50052"), 1, 100)));
+
+        assertEquals(1000L, manager.totalMessagesReplicated(),
+                "Оркестратор считает счетчики накопительными: пересоздание пула не должно их обнулять");
+    }
 }

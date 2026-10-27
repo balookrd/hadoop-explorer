@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../api/client';
+  import type { CreateKafkaJobPayload } from '../types';
   import {
     ArrowLeftRight,
     RefreshCw,
@@ -115,6 +116,11 @@
   let availableTopics = $state<DiscoveredTopic[]>([]);
   let availableGroups = $state<DiscoveredGroup[]>([]);
   let isLoadingDiscovery = $state(false);
+  // Счетчик запросов discovery: ответ по ранее выбранному кластеру не должен затереть текущий
+  let discoveryRequestSeq = 0;
+  let isSubmittingJob = $state(false);
+  // Задачи, по которым выполняется действие: кнопки блокируются до ответа сервера
+  let pendingJobIds = $state<string[]>([]);
 
   // Модальное окно
   let isCreateModalOpen = $state(false);
@@ -127,7 +133,8 @@
 
   // Режимы выбора топиков: 'REGEX' (для сотен и тысяч) или 'CATALOG' (ручной выбор)
   let topicsSelectionMode = $state<'REGEX' | 'CATALOG'>('REGEX');
-  let topicRegexPattern = $state('orders-.*|payments-.*|billing-.*');
+  // Шаблоны пустые: демо-значения на боевом кластере выбирали чужие топики и группы
+  let topicRegexPattern = $state('');
   let topicExcludePattern = $state('__.*|.*-dlq');
   let defaultTopicPayloadMode = $state<'AUTO_DETECT' | 'PASSTHROUGH' | 'SCHEMA_REGISTRY'>('AUTO_DETECT');
   let isTopicMatchPreviewOpen = $state(false);
@@ -140,7 +147,7 @@
 
   // Режимы выбора Consumer Groups: 'REGEX' (для сотен и тысяч) или 'CATALOG' (ручной)
   let groupsSelectionMode = $state<'REGEX' | 'CATALOG'>('REGEX');
-  let groupRegexPattern = $state('billing-.*|fraud-.*|analytics-.*');
+  let groupRegexPattern = $state('');
   let groupExcludePattern = $state('.*-archiver.*|dev-.*');
   let isGroupMatchPreviewOpen = $state(false);
 
@@ -160,6 +167,8 @@
 
   // Kerberos Kafka
   let enableKerberos = $state(true);
+  // Kerberos приемника задается своим кластером; null — как у источника
+  let targetKerberosEnabled = $state<boolean | null>(null);
   let sourcePrincipal = $state('kafka-replicator@COMPANY.LOCAL');
   let sourceKeytabPath = $state('/etc/security/keytabs/kafka-replicator.keytab');
   let targetPrincipal = $state('kafka-replicator@COMPANY.LOCAL');
@@ -173,8 +182,12 @@
   let targetEndpointsInput = $state('');
 
   // Проверка Regex
+  // Пустой шаблон не выбирает ничего, «*» — всё: иначе пустая форма выбрала бы весь кластер
   function matchesPattern(name: string, includePattern: string, excludePattern: string): boolean {
-    if (!includePattern || includePattern.trim() === '' || includePattern.trim() === '*') {
+    if (!includePattern || includePattern.trim() === '') {
+      return false;
+    }
+    if (includePattern.trim() === '*') {
       if (excludePattern && excludePattern.trim() !== '') {
         try {
           const exRe = new RegExp(excludePattern.trim());
@@ -466,40 +479,48 @@
   }
 
   async function loadDiscovery(dc: string) {
+    const seq = ++discoveryRequestSeq;
     isLoadingDiscovery = true;
     try {
       const [topics, groups] = await Promise.all([
         api.getKafkaDiscoveryTopics(dc),
         api.getKafkaDiscoveryGroups(dc)
       ]);
-      if (Array.isArray(topics) && topics.length > 0) {
-        availableTopics = topics;
+      if (seq !== discoveryRequestSeq) {
+        return;
       }
-      if (Array.isArray(groups) && groups.length > 0) {
-        availableGroups = groups;
-      }
+      // Пустой ответ тоже результат: иначе в форме остаются топики предыдущего кластера
+      availableTopics = Array.isArray(topics) ? topics : [];
+      availableGroups = Array.isArray(groups) ? groups : [];
     } catch (e) {
       console.warn('Не удалось загрузить discovery топиков/групп:', e);
     } finally {
-      isLoadingDiscovery = false;
+      if (seq === discoveryRequestSeq) {
+        isLoadingDiscovery = false;
+      }
     }
   }
 
+  // Оркестратор скрывает путь keytab от не-администраторов: маска не должна попасть в задачу
+  const PROTECTED_VALUE = '[PROTECTED]';
+
+  // Задачи агентам раздаются по dcId, поэтому в задачу уходит именно он, а не имя кластера
   function applyClusterToSource(cluster: DiscoveryCluster) {
-    newSourceDc = cluster.name || cluster.id;
+    newSourceDc = cluster.dcId || cluster.id;
     if (cluster.srUrl) sourceSrUrl = cluster.srUrl;
     if (cluster.srType) sourceSrType = cluster.srType;
     if (cluster.principal) sourcePrincipal = cluster.principal;
-    if (cluster.keytabPath) sourceKeytabPath = cluster.keytabPath;
+    if (cluster.keytabPath) sourceKeytabPath = cluster.keytabPath === PROTECTED_VALUE ? '' : cluster.keytabPath;
     if (cluster.kerberosEnabled !== undefined) enableKerberos = cluster.kerberosEnabled;
   }
 
   function applyClusterToTarget(cluster: DiscoveryCluster) {
-    newTargetDc = cluster.name || cluster.id;
+    newTargetDc = cluster.dcId || cluster.id;
     if (cluster.srUrl) targetSrUrl = cluster.srUrl;
     if (cluster.srType) targetSrType = cluster.srType;
     if (cluster.principal) targetPrincipal = cluster.principal;
-    if (cluster.keytabPath) targetKeytabPath = cluster.keytabPath;
+    if (cluster.keytabPath) targetKeytabPath = cluster.keytabPath === PROTECTED_VALUE ? '' : cluster.keytabPath;
+    targetKerberosEnabled = cluster.kerberosEnabled !== undefined ? cluster.kerberosEnabled : null;
   }
 
   function handleSourceClusterSelect(clusterId: string) {
@@ -614,50 +635,49 @@
         topic: t.name,
         payloadMode: defaultTopicPayloadMode === 'AUTO_DETECT' ? ((t.detectedFormat as any) || 'AUTO_DETECT') : defaultTopicPayloadMode
       }));
-      if (resolvedTopics.length === 0 && topicRegexPattern) {
-        resolvedTopics = [{ topic: topicRegexPattern, payloadMode: defaultTopicPayloadMode }];
-      }
     } else {
       resolvedTopics = [...selectedTopics];
     }
 
     let resolvedGroups: string[] = [];
     if (groupsSelectionMode === 'REGEX') {
+      // Шаблон без совпадений не превращается в имя группы: такой «группы» нет на кластере
       resolvedGroups = regexMatchedGroups.map(g => g.groupId);
-      if (resolvedGroups.length === 0 && groupRegexPattern) {
-        resolvedGroups = [groupRegexPattern];
-      }
     } else {
       resolvedGroups = [...selectedGroups];
     }
 
-    const payload = {
+    // Оркестратор читает JSON в snake_case (spring.jackson.property-naming-strategy): поля в
+    // camelCase молча отбрасывались, и задача создавалась с дефолтами — DC1 -> DC2 без Kerberos
+    const payload: CreateKafkaJobPayload = {
       name: newJobName,
-      sourceDc: newSourceDc,
-      targetDc: newTargetDc,
+      source_dc: newSourceDc,
+      target_dc: newTargetDc,
       direction: newDirection,
-      topics: resolvedTopics,
-      consumerGroups: resolvedGroups,
-      schemaTranscodingEnabled: enableSchemaTranscoding,
-      sourceSrType,
-      targetSrType,
-      sourceSrUrl,
-      targetSrUrl,
-      sourceKerberosEnabled: enableKerberos,
-      sourcePrincipal,
-      sourceKeytabPath,
-      targetKerberosEnabled: enableKerberos,
-      targetPrincipal,
-      targetKeytabPath,
-      bandwidthLimitMb: isAutoBandwidth ? autoBandwidthMb : bandwidthLimitMb,
-      offsetSyncIntervalSec: isAutoBandwidth ? autoOffsetSyncInterval : offsetSyncIntervalSec,
-      consumerThreads: isAutoBandwidth ? autoConsumerThreadsPerAgent : consumerThreads,
-      batchSize: isAutoBandwidth ? autoBatchSize : batchSize,
-      targetEndpoints: targetEndpointsInput.trim()
+      topics: resolvedTopics.map(t => ({ topic: t.topic, payload_mode: t.payloadMode })),
+      consumer_groups: resolvedGroups,
+      schema_transcoding_enabled: enableSchemaTranscoding,
+      source_sr_type: sourceSrType,
+      target_sr_type: targetSrType,
+      source_sr_url: sourceSrUrl,
+      target_sr_url: targetSrUrl,
+      source_kerberos_enabled: enableKerberos,
+      source_principal: sourcePrincipal,
+      source_keytab_path: sourceKeytabPath,
+      target_kerberos_enabled: targetKerberosEnabled ?? enableKerberos,
+      target_principal: targetPrincipal,
+      target_keytab_path: targetKeytabPath,
+      bandwidth_limit_mb: isAutoBandwidth ? autoBandwidthMb : bandwidthLimitMb,
+      offset_sync_interval_sec: isAutoBandwidth ? autoOffsetSyncInterval : offsetSyncIntervalSec,
+      consumer_threads: isAutoBandwidth ? autoConsumerThreadsPerAgent : consumerThreads,
+      batch_size: isAutoBandwidth ? autoBatchSize : batchSize,
+      target_endpoints: targetEndpointsInput.trim()
         ? targetEndpointsInput.split(',').map(s => s.trim()).filter(Boolean)
         : (isMultiAgentScaling && liveReceivers.length > 0 ? liveReceivers : undefined)
     };
 
+    if (isSubmittingJob) return;
+    isSubmittingJob = true;
     try {
       const created = await api.createKafkaJob(payload);
       if (created) {
@@ -669,44 +689,59 @@
       showNotification(`Задача "${newJobName}" успешно запущена!`);
     } catch (e: any) {
       alert(`Ошибка при создании задачи: ${e.message || e}`);
+    } finally {
+      isSubmittingJob = false;
+    }
+  }
+
+  function isJobPending(id: string): boolean {
+    return pendingJobIds.includes(id);
+  }
+
+  /** Действие над задачей: кнопки задачи заблокированы до ответа, затем список перечитывается. */
+  async function runJobAction(job: KafkaJob, action: () => Promise<unknown>, errorPrefix: string): Promise<boolean> {
+    if (isJobPending(job.id)) return false;
+    pendingJobIds = [...pendingJobIds, job.id];
+    try {
+      await action();
+      return true;
+    } catch (e: any) {
+      alert(`${errorPrefix}: ${e.message || e}`);
+      return false;
+    } finally {
+      pendingJobIds = pendingJobIds.filter(id => id !== job.id);
+      await loadJobs();
     }
   }
 
   async function toggleJobStatus(job: KafkaJob) {
-    try {
-      if (job.status === 'ACTIVE') {
-        await api.pauseKafkaJob(job.id);
-        job.status = 'PAUSED';
-      } else {
-        await api.resumeKafkaJob(job.id);
-        job.status = 'ACTIVE';
-      }
-      jobs = [...jobs];
-      showNotification(`Статус задачи "${job.name}" изменен на ${job.status}`);
-    } catch (e: any) {
-      alert(`Ошибка изменения статуса: ${e.message || e}`);
+    const pausing = job.status === 'ACTIVE';
+    const ok = await runJobAction(job,
+      () => pausing ? api.pauseKafkaJob(job.id) : api.resumeKafkaJob(job.id),
+      'Ошибка изменения статуса');
+    if (ok) {
+      showNotification(`Задача "${job.name}" ${pausing ? 'поставлена на паузу' : 'возобновлена'}`);
     }
   }
 
   async function triggerFailover(job: KafkaJob) {
-    if (confirm(`Инициировать принудительный Failover смещений для задачи "${job.name}"?\nВсе потребители в ${job.targetDc} продолжат чтение с актуальных реплицированных оффсетов.`)) {
-      try {
-        await api.triggerKafkaFailover(job.id);
-        showNotification(`Смещения консьюмер-групп успешно форсированы в ${job.targetDc}. Трафик переключен.`);
-      } catch (e: any) {
-        alert(`Ошибка Failover: ${e.message || e}`);
+    if (confirm(`Зарегистрировать запрос Failover для задачи "${job.name}" (${job.sourceDc} → ${job.targetDc})?`)) {
+      const ok = await runJobAction(job, () => api.triggerKafkaFailover(job.id), 'Ошибка Failover');
+      if (ok) {
+        // Оркестратор пока только фиксирует запрос: смещения групп переносит offset-sync агентов
+        showNotification(`Запрос Failover для "${job.name}" зарегистрирован`);
       }
     }
   }
 
-  async function deleteJob(id: string) {
-    if (confirm('Вы уверены, что хотите удалить эту задачу репликации Kafka?')) {
-      try {
-        await api.deleteKafkaJob(id);
-        jobs = jobs.filter(j => j.id !== id);
-        showNotification('Задача репликации удалена');
-      } catch (e: any) {
-        alert(`Ошибка удаления: ${e.message || e}`);
+  async function deleteJob(job: KafkaJob) {
+    const warning = job.status === 'ACTIVE'
+      ? '\nЗадача активна: агенты остановят пулы консьюмеров в течение нескольких секунд.'
+      : '';
+    if (confirm(`Удалить задачу репликации Kafka "${job.name}" (${job.sourceDc} → ${job.targetDc})?${warning}`)) {
+      const ok = await runJobAction(job, () => api.deleteKafkaJob(job.id), 'Ошибка удаления');
+      if (ok) {
+        showNotification(`Задача "${job.name}" удалена`);
       }
     }
   }
@@ -867,7 +902,8 @@
               <button
                 type="button"
                 onclick={() => toggleJobStatus(job)}
-                class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer shadow-2xs flex items-center gap-1.5"
+                disabled={isJobPending(job.id)}
+                class="disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer shadow-2xs flex items-center gap-1.5"
               >
                 {#if job.status === 'ACTIVE'}
                   <Pause class="w-3.5 h-3.5 text-amber-500" />
@@ -881,7 +917,8 @@
               <button
                 type="button"
                 onclick={() => triggerFailover(job)}
-                class="px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-semibold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
+                disabled={isJobPending(job.id)}
+                class="disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-semibold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
                 title="Форсировать смещения консьюмеров в целевом ЦОД"
               >
                 <Zap class="w-3.5 h-3.5" />
@@ -890,8 +927,9 @@
 
               <button
                 type="button"
-                onclick={() => deleteJob(job.id)}
-                class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                onclick={() => deleteJob(job)}
+                disabled={isJobPending(job.id)}
+                class="disabled:opacity-50 disabled:cursor-not-allowed p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
                 title="Удалить задачу"
               >
                 <Trash2 class="w-3.5 h-3.5" />
@@ -1074,7 +1112,7 @@
 
               <label class="p-3 rounded-xl border cursor-pointer transition-all {newDirection === 'UNIDIRECTIONAL' ? 'border-sky-500 bg-white dark:bg-slate-900 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'}">
                 <input type="radio" bind:group={newDirection} value="UNIDIRECTIONAL" class="sr-only" />
-                <div class="font-bold text-slate-900 dark:text-white">Однонаправленная (DC1 ➔ DC2)</div>
+                <div class="font-bold text-slate-900 dark:text-white">Однонаправленная ({newSourceDc || 'источник'} ➔ {newTargetDc || 'приемник'})</div>
                 <div class="text-[10px] text-slate-400 mt-0.5">Прямой поток данных для Disaster Recovery стенда</div>
               </label>
             </div>
@@ -1894,7 +1932,7 @@
             <button
               type="button"
               onclick={handleCreateJob}
-              disabled={effectiveTopicsCount === 0}
+              disabled={effectiveTopicsCount === 0 || isSubmittingJob}
               class="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-600/20 transition cursor-pointer disabled:opacity-50"
             >
               Создать задачу

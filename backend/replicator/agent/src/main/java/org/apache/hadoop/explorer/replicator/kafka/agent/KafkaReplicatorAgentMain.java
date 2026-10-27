@@ -269,9 +269,12 @@ public class KafkaReplicatorAgentMain {
         }
 
         // 2. Инициализация отправителя (Sender / Dual)
+        // Статический пул нужен только топикам, заданным в командной строке. Задачи Control
+        // Plane обслуживает KafkaJobPoolManager своими пулами: пул без --topics, который
+        // переподписывался на топики задач, читал их второй consumer-группой, и каждая запись
+        // уходила в целевой кластер дважды, а после снятия задачи продолжал репликацию.
         boolean hasCliTopics = !topics.isBlank();
-        boolean hasOrchestrator = orchestratorGrpc != null && !orchestratorGrpc.isBlank();
-        if (("sender".equals(role) || "dual".equals(role)) && (hasCliTopics || hasOrchestrator)) {
+        if (("sender".equals(role) || "dual".equals(role)) && hasCliTopics) {
             List<String> topicList = hasCliTopics
                     ? Arrays.stream(topics.split(","))
                             .map(String::trim)
@@ -395,30 +398,27 @@ public class KafkaReplicatorAgentMain {
                     if (finalMaxBandwidthMbS != null && finalMaxBandwidthMbS > 0) {
                         hbReq.setBandwidthLimitMbS(finalMaxBandwidthMbS);
                     }
+                    // Метрики агента — сумма по всем его пулам: статическому и пулам задач
+                    long messages = finalJobPools != null ? finalJobPools.totalMessagesReplicated() : 0L;
+                    long bytes = finalJobPools != null ? finalJobPools.totalBytesReplicated() : 0L;
+                    long lagMs = finalJobPools != null ? finalJobPools.maxLagMs() : 0L;
                     if (finalPool != null) {
-                        hbReq.setKafkaMessagesReplicated(finalPool.getTotalMessagesReplicated());
-                        hbReq.setKafkaBytesReplicated(finalPool.getTotalBytesReplicated());
-                        hbReq.setKafkaCurrentLagMs(finalPool.getCurrentLagMs());
+                        messages += finalPool.getTotalMessagesReplicated();
+                        bytes += finalPool.getTotalBytesReplicated();
+                        lagMs = Math.max(lagMs, finalPool.getCurrentLagMs());
                     }
+                    hbReq.setKafkaMessagesReplicated(messages);
+                    hbReq.setKafkaBytesReplicated(bytes);
+                    hbReq.setKafkaCurrentLagMs(lagMs);
                     finalOrch.heartbeat(hbReq);
 
                     // Опрос Control Plane: состав задач отражается на составе пулов
                     try {
+                        // null — оркестратор не ответил: пулы продолжают работать как есть,
+                        // останавливает их только успешный ответ без задачи
                         List<KafkaJobItemProto> activeJobs = finalOrch.getActiveKafkaJobs(finalDcId);
                         if (activeJobs != null && finalJobPools != null) {
                             finalJobPools.sync(activeJobs);
-                        }
-                        if (activeJobs != null && finalPool != null) {
-                            // Статический пул (запуск без Control Plane) продолжает работать
-                            // по объединенному списку топиков своей задачи
-                            List<String> dynamicTopics = activeJobs.stream()
-                                    .flatMap(j -> j.getTopicsList().stream())
-                                    .filter(t -> t != null && !t.isBlank())
-                                    .distinct()
-                                    .toList();
-                            if (!dynamicTopics.isEmpty()) {
-                                finalPool.updateSubscribedTopics(dynamicTopics);
-                            }
                         }
                     } catch (Exception jobEx) {
                         log.debug("Не удалось синхронизировать задачи Kafka из оркестратора: {}", jobEx.getMessage());

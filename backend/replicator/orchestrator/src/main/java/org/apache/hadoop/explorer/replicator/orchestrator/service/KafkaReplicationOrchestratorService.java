@@ -337,22 +337,20 @@ public class KafkaReplicationOrchestratorService {
 
     @Transactional
     public boolean pauseJob(String id) {
-        return repository.findById(id).map(job -> {
-            job.setStatus("PAUSED");
-            repository.save(job);
+        boolean updated = repository.updateStatus(id, "PAUSED", Instant.now()) > 0;
+        if (updated) {
             log.info("Задача репликации Kafka '{}' приостановлена", id);
-            return true;
-        }).orElse(false);
+        }
+        return updated;
     }
 
     @Transactional
     public boolean resumeJob(String id) {
-        return repository.findById(id).map(job -> {
-            job.setStatus("ACTIVE");
-            repository.save(job);
+        boolean updated = repository.updateStatus(id, "ACTIVE", Instant.now()) > 0;
+        if (updated) {
             log.info("Задача репликации Kafka '{}' возобновлена", id);
-            return true;
-        }).orElse(false);
+        }
+        return updated;
     }
 
     @Transactional
@@ -660,31 +658,84 @@ public class KafkaReplicationOrchestratorService {
         }
     }
 
+    /** Агент считается живым для лага, пока его heartbeat не старше этого порога. */
+    private static final long AGENT_LAG_FRESHNESS_MS = 30_000L;
+
+    /**
+     * Последняя телеметрия агента. {@code base} накапливает счетчики прошлых жизней агента:
+     * после рестарта он начинает счет с нуля, и без этого сумма по ЦОД проседала бы.
+     */
+    private static final class AgentKafkaStats {
+        long base;
+        long lastMessages;
+        long baseBytes;
+        long lastBytes;
+        long lagMs;
+        long seenAtMs;
+
+        long messages() {
+            return base + lastMessages;
+        }
+
+        long bytes() {
+            return baseBytes + lastBytes;
+        }
+    }
+
+    /** Телеметрия агентов по ЦОД: dc -> agentId -> статистика. */
+    private final Map<String, Map<String, AgentKafkaStats>> agentKafkaStats = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Сброс накопленной телеметрии агентов: оркестратор начинает счет заново. */
+    public void resetAgentTelemetry() {
+        agentKafkaStats.clear();
+    }
+
     /**
      * Обновление агрегированных счетчиков телеметрии Kafka (сообщения, байты, лаг)
      * из периодического keepalive heartbeat агента.
+     *
+     * <p>Партиции задачи делят между собой все агенты ЦОД, поэтому объем задачи — сумма их
+     * счетчиков, а не максимум (иначе при 12 агентах интерфейс показывал бы ~1/12 объема), а
+     * лаг — наибольший среди живых агентов, а не значение последнего приславшего heartbeat.
      */
     @Transactional
     public void updateMetricsFromHeartbeat(String dcId, String agentId, long messagesReplicated, long bytesReplicated, long currentLagMs) {
         if (dcId == null || dcId.isBlank()) {
             return;
         }
-        String dc = dcId.trim();
-        // Точечная выборка вместо чтения всей таблицы задач на каждый heartbeat агента
-        List<KafkaReplicationJobEntity> activeJobs = repository.findActiveJobsReportedByDc(dc);
+        String dc = dcId.trim().toLowerCase(Locale.ROOT);
+        String agentKey = agentId != null && !agentId.isBlank() ? agentId : "unknown";
+        long now = System.currentTimeMillis();
 
-        for (KafkaReplicationJobEntity job : activeJobs) {
-            if (messagesReplicated > 0) {
-                job.setMessagesReplicated(Math.max(job.getMessagesReplicated() != null ? job.getMessagesReplicated() : 0L, messagesReplicated));
+        long totalMessages = 0L;
+        long totalBytes = 0L;
+        long maxLag = 0L;
+        Map<String, AgentKafkaStats> dcAgents = agentKafkaStats.computeIfAbsent(dc, k -> new java.util.concurrent.ConcurrentHashMap<>());
+        synchronized (dcAgents) {
+            AgentKafkaStats stats = dcAgents.computeIfAbsent(agentKey, k -> new AgentKafkaStats());
+            long messages = Math.max(0L, messagesReplicated);
+            long bytes = Math.max(0L, bytesReplicated);
+            if (messages < stats.lastMessages) {
+                stats.base += stats.lastMessages;
             }
-            if (bytesReplicated > 0) {
-                job.setBytesReplicated(Math.max(job.getBytesReplicated() != null ? job.getBytesReplicated() : 0L, bytesReplicated));
+            if (bytes < stats.lastBytes) {
+                stats.baseBytes += stats.lastBytes;
             }
-            if (currentLagMs >= 0) {
-                job.setCurrentLagMs(currentLagMs);
+            stats.lastMessages = messages;
+            stats.lastBytes = bytes;
+            stats.lagMs = Math.max(0L, currentLagMs);
+            stats.seenAtMs = now;
+
+            for (AgentKafkaStats agent : dcAgents.values()) {
+                totalMessages += agent.messages();
+                totalBytes += agent.bytes();
+                if (now - agent.seenAtMs <= AGENT_LAG_FRESHNESS_MS) {
+                    maxLag = Math.max(maxLag, agent.lagMs);
+                }
             }
-            job.setUpdatedAt(Instant.now());
-            repository.save(job);
         }
+
+        // Точечный UPDATE вместо чтения и сохранения сущностей: не затирает статус задачи
+        repository.applyDcTelemetry(dc, totalMessages, totalBytes, maxLag, Instant.now());
     }
 }

@@ -152,6 +152,16 @@ public class KafkaBatchProducer {
         return records.isEmpty() ? -1 : records.get(0).getPartition();
     }
 
+    /**
+     * Завершение future батча.
+     *
+     * <p>Вызывается из колбэка {@code send()}, то есть в сетевом потоке продюсера (Sender).
+     * Завершать future прямо здесь нельзя: зависимые стадии — ответ в gRPC-стрим, закрытие
+     * стрима — выполнились бы в этом же потоке. Блокирующий вызов продюсера оттуда
+     * ({@code flush()}) ждал бы сам себя, и запись в Kafka останавливалась навсегда; даже без
+     * блокировки отправка ответов под локом в этом потоке тормозила всю запись. Поэтому
+     * завершение уходит в пул продюсера.
+     */
     private void finishAck(CompletableFuture<KafkaBatchAck> resultFuture,
                            KafkaBatchRequest batch,
                            String topic,
@@ -159,26 +169,32 @@ public class KafkaBatchProducer {
                            int committed,
                            long maxOffset,
                            Throwable error) {
-        if (error != null) {
-            resultFuture.complete(KafkaBatchAck.newBuilder()
-                    .setBatchId(batch.getBatchId())
-                    .setTopic(topic)
-                    .setSuccess(false)
-                    .setCommittedRecords(committed)
-                    .setMaxTargetOffset(maxOffset)
-                    .setErrorMessage(error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName())
-                    .setReceiveTimestampMs(receiveTime)
-                    .build());
-        } else {
-            resultFuture.complete(KafkaBatchAck.newBuilder()
-                    .setBatchId(batch.getBatchId())
-                    .setTopic(topic)
-                    .setSuccess(true)
-                    .setCommittedRecords(committed)
-                    .setMaxTargetOffset(maxOffset)
-                    .setReceiveTimestampMs(receiveTime)
-                    .build());
+        KafkaBatchAck ack = buildAck(batch, topic, receiveTime, committed, maxOffset, error);
+        try {
+            executor.execute(() -> resultFuture.complete(ack));
+        } catch (java.util.concurrent.RejectedExecutionException shuttingDown) {
+            // Пул уже остановлен: подтвердить батч важнее, чем уйти из потока продюсера
+            resultFuture.complete(ack);
         }
+    }
+
+    private static KafkaBatchAck buildAck(KafkaBatchRequest batch,
+                                          String topic,
+                                          long receiveTime,
+                                          int committed,
+                                          long maxOffset,
+                                          Throwable error) {
+        KafkaBatchAck.Builder ack = KafkaBatchAck.newBuilder()
+                .setBatchId(batch.getBatchId())
+                .setTopic(topic)
+                .setSuccess(error == null)
+                .setCommittedRecords(committed)
+                .setMaxTargetOffset(maxOffset)
+                .setReceiveTimestampMs(receiveTime);
+        if (error != null) {
+            ack.setErrorMessage(error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
+        }
+        return ack.build();
     }
 
     /**

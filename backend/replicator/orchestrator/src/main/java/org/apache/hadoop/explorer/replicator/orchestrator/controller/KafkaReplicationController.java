@@ -97,7 +97,12 @@ public class KafkaReplicationController {
             if (request.getTargetPrincipal() != null && !request.getTargetPrincipal().isBlank()) {
                 PrincipalSafety.validate(request.getTargetPrincipal());
             }
-            applyTopologyDefaultsForNonAdmin(request);
+            applyTopologyDefaults(request, true);
+        } else {
+            // Администратор может задать учетную запись явно; если не задал, берется учетная
+            // запись кластера из топологии. Без этого задача на керберизованном кластере
+            // уходила в провижининг без кредов, и AdminClient молча шел к брокерам без SASL.
+            applyTopologyDefaults(request, false);
         }
         KafkaReplicationJobDto created = service.createJob(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -303,6 +308,9 @@ public class KafkaReplicationController {
             map.put("keytabPath", keytabDisplay);
             list.add(map);
         }
+        // Реестр хранит кластеры в хеш-таблице, а форма берет первый кластер источником по
+        // умолчанию: без сортировки направление новой задачи менялось от запуска к запуску
+        list.sort(java.util.Comparator.comparing(m -> String.valueOf(m.get("id"))));
         return list;
     }
 
@@ -316,8 +324,9 @@ public class KafkaReplicationController {
             @RequestParam(required = false) String bootstrapServers,
             @RequestParam(required = false) String search) {
         requireAuthentication();
-        String effectiveBootstrap = resolveBootstrap(dc, clusterId, bootstrapServers);
-        List<Map<String, Object>> all = service.discoverTopics(effectiveBootstrap, false, null, null, null);
+        DiscoveryTarget target = resolveCluster(dc, clusterId, bootstrapServers);
+        List<Map<String, Object>> all = service.discoverTopics(target.bootstrap(),
+                target.kerberosEnabled(), target.principal(), target.keytabPath(), null);
         if (search == null || search.isBlank()) {
             return all;
         }
@@ -339,8 +348,9 @@ public class KafkaReplicationController {
             @RequestParam(required = false) String bootstrapServers,
             @RequestParam(required = false) String search) {
         requireAuthentication();
-        String effectiveBootstrap = resolveBootstrap(dc, clusterId, bootstrapServers);
-        List<Map<String, Object>> all = service.discoverConsumerGroups(effectiveBootstrap, false, null, null, null);
+        DiscoveryTarget target = resolveCluster(dc, clusterId, bootstrapServers);
+        List<Map<String, Object>> all = service.discoverConsumerGroups(target.bootstrap(),
+                target.kerberosEnabled(), target.principal(), target.keytabPath(), null);
         if (search == null || search.isBlank()) {
             return all;
         }
@@ -352,7 +362,13 @@ public class KafkaReplicationController {
         return discoverGroups(dc, null, null, search);
     }
 
-    private void applyTopologyDefaultsForNonAdmin(CreateKafkaJobRequest request) {
+    /**
+     * Учетная запись Kerberos кластеров задачи из топологии.
+     *
+     * @param override заменить переданные значения (не-администратор не вправе задавать свои);
+     *                 иначе заполняются только незаданные principal и keytab
+     */
+    private void applyTopologyDefaults(CreateKafkaJobRequest request, boolean override) {
         if (topologyRegistry == null) return;
         for (var c : topologyRegistry.getClusters()) {
             var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
@@ -360,18 +376,30 @@ public class KafkaReplicationController {
             if (request.getSourceDc() != null && request.getSourceDc().equalsIgnoreCase(cfg.getDcId())) {
                 if (cfg.isKerberosEnabled()) {
                     request.setSourceKerberosEnabled(true);
-                    request.setSourcePrincipal(cfg.getPrincipal());
-                    request.setSourceKeytabPath(cfg.getKeytabPath());
+                    if (override || isBlank(request.getSourcePrincipal())) {
+                        request.setSourcePrincipal(cfg.getPrincipal());
+                    }
+                    if (override || isBlank(request.getSourceKeytabPath())) {
+                        request.setSourceKeytabPath(cfg.getKeytabPath());
+                    }
                 }
             }
             if (request.getTargetDc() != null && request.getTargetDc().equalsIgnoreCase(cfg.getDcId())) {
                 if (cfg.isKerberosEnabled()) {
                     request.setTargetKerberosEnabled(true);
-                    request.setTargetPrincipal(cfg.getPrincipal());
-                    request.setTargetKeytabPath(cfg.getKeytabPath());
+                    if (override || isBlank(request.getTargetPrincipal())) {
+                        request.setTargetPrincipal(cfg.getPrincipal());
+                    }
+                    if (override || isBlank(request.getTargetKeytabPath())) {
+                        request.setTargetKeytabPath(cfg.getKeytabPath());
+                    }
                 }
             }
         }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private boolean isKnownBootstrap(String bootstrap) {
@@ -388,7 +416,25 @@ public class KafkaReplicationController {
         return false;
     }
 
-    private String resolveBootstrap(String dc, String clusterId, String bootstrapServers) {
+    /**
+     * Кластер, к которому обращается discovery: адрес брокеров и учетная запись Kerberos.
+     *
+     * <p>Discovery ходил к брокерам без SASL, и на керберизованном кластере AdminClient
+     * получал отказ: список топиков в форме оставался пустым, и задачу нельзя было создать.
+     * Учетная запись берется из топологии того же кластера, что и адрес брокеров.
+     */
+    private record DiscoveryTarget(String bootstrap, boolean kerberosEnabled,
+                                   String principal, String keytabPath) {
+        static DiscoveryTarget of(String bootstrap,
+                                  org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig cfg) {
+            if (cfg == null || !cfg.isKerberosEnabled()) {
+                return new DiscoveryTarget(bootstrap, false, null, null);
+            }
+            return new DiscoveryTarget(bootstrap, true, cfg.getPrincipal(), cfg.getKeytabPath());
+        }
+    }
+
+    private DiscoveryTarget resolveCluster(String dc, String clusterId, String bootstrapServers) {
         if (bootstrapServers != null && !bootstrapServers.isBlank()) {
             String trimmed = bootstrapServers.trim();
             if (trimmed.contains("169.254.") || trimmed.toLowerCase().contains("metadata")) {
@@ -401,26 +447,34 @@ public class KafkaReplicationController {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Указание произвольного bootstrap-сервера разрешено только администраторам платформы");
             }
-            return trimmed;
+            // Известный адрес получает учетную запись своего кластера, произвольный — без SASL
+            if (topologyRegistry != null) {
+                for (var c : topologyRegistry.getClusters()) {
+                    var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+                    if (cfg != null && trimmed.equalsIgnoreCase(cfg.getKafkaBootstrapServers())) {
+                        return DiscoveryTarget.of(trimmed, cfg);
+                    }
+                }
+            }
+            return new DiscoveryTarget(trimmed, false, null, null);
         }
         if (topologyRegistry == null) {
-            return null;
+            return new DiscoveryTarget(null, false, null, null);
         }
         if (clusterId != null && !clusterId.isBlank()) {
             var cfg = topologyRegistry.getCluster(clusterId).orElse(null);
             if (cfg != null && cfg.getKafkaBootstrapServers() != null && !cfg.getKafkaBootstrapServers().isBlank()) {
-                return cfg.getKafkaBootstrapServers();
+                return DiscoveryTarget.of(cfg.getKafkaBootstrapServers(), cfg);
             }
         }
         if (dc != null && !dc.isBlank()) {
             for (var c : topologyRegistry.getClusters()) {
                 var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
                 if (cfg != null && dc.equalsIgnoreCase(cfg.getDcId()) && cfg.getKafkaBootstrapServers() != null && !cfg.getKafkaBootstrapServers().isBlank()) {
-                    return cfg.getKafkaBootstrapServers();
+                    return DiscoveryTarget.of(cfg.getKafkaBootstrapServers(), cfg);
                 }
             }
         }
-        return null;
+        return new DiscoveryTarget(null, false, null, null);
     }
 }
-

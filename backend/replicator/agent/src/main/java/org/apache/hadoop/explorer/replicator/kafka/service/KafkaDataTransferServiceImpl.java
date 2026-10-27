@@ -136,9 +136,11 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 });
             }
 
+            // flush() здесь не нужен и опасен: ack уходит только после подтверждения записей
+            // брокером, а цепочка подтверждения может выполняться в сетевом потоке продюсера,
+            // где KafkaProducer.flush() ждет сам себя и останавливает запись навсегда
             private void checkCompletion() {
                 if (inFlightBatches.decrementAndGet() == 0 && clientCompleted.get()) {
-                    batchProducer.flush();
                     responseLock.lock();
                     try {
                         responseObserver.onCompleted();
@@ -163,7 +165,6 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             public void onCompleted() {
                 clientCompleted.set(true);
                 if (inFlightBatches.get() == 0) {
-                    batchProducer.flush();
                     responseLock.lock();
                     try {
                         responseObserver.onCompleted();

@@ -39,6 +39,8 @@ class KafkaHeartbeatMetricsTest {
     @BeforeEach
     void setup() {
         repository.deleteAll();
+        // Телеметрия агентов живет в синглтоне сервиса и переживает тесты одного контекста
+        service.resetAgentTelemetry();
     }
 
     @org.junit.jupiter.api.AfterEach
@@ -112,5 +114,51 @@ class KafkaHeartbeatMetricsTest {
         KafkaReplicationJobEntity job = repository.findById("kafka-bidi").orElseThrow();
         assertEquals(500L, job.getMessagesReplicated(),
                 "Для BIDIRECTIONAL агент целевого ЦОД тоже отчитывается по этой задаче");
+    }
+
+    @Test
+    @DisplayName("Объем задачи — сумма по агентам ЦОД, лаг — максимум, а не последний heartbeat")
+    void testMetricsAreSummedAcrossAgents() {
+        createJob("kafka-wide", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+
+        service.updateMetricsFromHeartbeat("dc1", "agent-1", 1000L, 10_000L, 900L);
+        service.updateMetricsFromHeartbeat("dc1", "agent-2", 3000L, 30_000L, 20L);
+        service.updateMetricsFromHeartbeat("dc1", "agent-3", 2000L, 20_000L, 5L);
+
+        KafkaReplicationJobEntity job = repository.findById("kafka-wide").orElseThrow();
+        assertEquals(6000L, job.getMessagesReplicated(),
+                "Партиции задачи делят все агенты ЦОД: максимум вместо суммы занижает объем в N раз");
+        assertEquals(60_000L, job.getBytesReplicated());
+        assertEquals(900L, job.getCurrentLagMs(),
+                "Лаг задачи — худший среди агентов, а не значение последнего приславшего heartbeat");
+    }
+
+    @Test
+    @DisplayName("Рестарт агента не откатывает счетчики задачи")
+    void testAgentRestartKeepsTotals() {
+        createJob("kafka-restart", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+
+        service.updateMetricsFromHeartbeat("dc1", "agent-1", 5000L, 50_000L, 0L);
+        // Агент перезапустился и считает с нуля
+        service.updateMetricsFromHeartbeat("dc1", "agent-1", 100L, 1000L, 0L);
+
+        KafkaReplicationJobEntity job = repository.findById("kafka-restart").orElseThrow();
+        assertEquals(5100L, job.getMessagesReplicated());
+        assertEquals(51_000L, job.getBytesReplicated());
+    }
+
+    @Test
+    @DisplayName("Heartbeat не возвращает задаче на паузе статус ACTIVE и не пишет в нее метрики")
+    void testHeartbeatDoesNotOverridePause() {
+        createJob("kafka-paused", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+        service.updateMetricsFromHeartbeat("dc1", "agent-1", 100L, 1000L, 3L);
+
+        assertTrue(service.pauseJob("kafka-paused"));
+        service.updateMetricsFromHeartbeat("dc1", "agent-1", 200L, 2000L, 3L);
+
+        KafkaReplicationJobEntity job = repository.findById("kafka-paused").orElseThrow();
+        assertEquals("PAUSED", job.getStatus());
+        assertEquals(100L, job.getMessagesReplicated(),
+                "В задачу на паузе метрики не пишутся: агенты ее уже не обслуживают");
     }
 }

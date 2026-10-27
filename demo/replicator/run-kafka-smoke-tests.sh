@@ -160,28 +160,28 @@ JOB_ID=""
 create_replication_job() {
     local payload='{
         "name": "e2e-smoke-replication",
-        "sourceDc": "DC1",
-        "targetDc": "DC2",
+        "source_dc": "DC1",
+        "target_dc": "DC2",
         "direction": "UNIDIRECTIONAL",
-        "sourceBootstrapServers": "kafka-cluster-1.demo-platform-net:9092",
-        "targetBootstrapServers": "kafka-cluster-2.demo-platform-net:9092",
+        "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
+        "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
-            {"topic": "orders-avro", "payloadMode": "SCHEMA_REGISTRY"},
-            {"topic": "metrics-raw", "payloadMode": "PASSTHROUGH"},
-            {"topic": "user-cache", "payloadMode": "PASSTHROUGH"}
+            {"topic": "orders-avro", "payload_mode": "SCHEMA_REGISTRY"},
+            {"topic": "metrics-raw", "payload_mode": "PASSTHROUGH"},
+            {"topic": "user-cache", "payload_mode": "PASSTHROUGH"}
         ],
-        "consumerGroups": ["billing-group", "analytics-group"],
-        "schemaTranscodingEnabled": true,
-        "sourceSrType": "HORTONWORKS",
-        "targetSrType": "CONFLUENT",
-        "sourceSrUrl": "'"${SR1_URL}"'",
-        "targetSrUrl": "'"${SR2_URL}"'",
-        "sourceSrKerberosEnabled": true,
-        "targetSrKerberosEnabled": true,
-        "sourceKerberosEnabled": true,
-        "targetKerberosEnabled": true,
-        "bandwidthLimitMb": 80.0,
-        "offsetSyncIntervalSec": 2
+        "consumer_groups": ["billing-group", "analytics-group"],
+        "schema_transcoding_enabled": true,
+        "source_sr_type": "HORTONWORKS",
+        "target_sr_type": "CONFLUENT",
+        "source_sr_url": "'"${SR1_URL}"'",
+        "target_sr_url": "'"${SR2_URL}"'",
+        "source_sr_kerberos_enabled": true,
+        "target_sr_kerberos_enabled": true,
+        "source_kerberos_enabled": true,
+        "target_kerberos_enabled": true,
+        "bandwidth_limit_mb": 80.0,
+        "offset_sync_interval_sec": 2
     }'
 
     local response=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" -H "Content-Type: application/json" \
@@ -306,18 +306,18 @@ ACTIVE_JOB_ID=""
 create_active_active_job() {
     local payload='{
         "name": "e2e-smoke-active-active-orders",
-        "sourceDc": "DC1",
-        "targetDc": "DC2",
+        "source_dc": "DC1",
+        "target_dc": "DC2",
         "direction": "BIDIRECTIONAL",
-        "sourceBootstrapServers": "kafka-cluster-1.demo-platform-net:9092",
-        "targetBootstrapServers": "kafka-cluster-2.demo-platform-net:9092",
+        "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
+        "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
-            {"topic": "active-orders", "payloadMode": "PASSTHROUGH"}
+            {"topic": "active-orders", "payload_mode": "PASSTHROUGH"}
         ],
-        "sourceKerberosEnabled": true,
-        "targetKerberosEnabled": true,
-        "bandwidthLimitMb": 60.0,
-        "offsetSyncIntervalSec": 2
+        "source_kerberos_enabled": true,
+        "target_kerberos_enabled": true,
+        "bandwidth_limit_mb": 60.0,
+        "offset_sync_interval_sec": 2
     }'
 
     local response=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" -H "Content-Type: application/json" \

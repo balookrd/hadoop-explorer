@@ -18,6 +18,7 @@ import type {
   JobPage,
   HmsSchemaDriftReport,
   CreateHmsJobPayload,
+  CreateKafkaJobPayload,
   StreamingLeaseStatus,
   DrStatusResponse,
   DrEmergencyStopPayload,
@@ -359,7 +360,7 @@ export class ReplicatorApiClient extends BaseApiClient {
     return this.request<any[]>('/replicator/kafka/jobs');
   }
 
-  async createKafkaJob(payload: any): Promise<any> {
+  async createKafkaJob(payload: CreateKafkaJobPayload): Promise<any> {
     return this.request<any>('/replicator/kafka/jobs', {
       method: 'POST',
       body: JSON.stringify(payload),

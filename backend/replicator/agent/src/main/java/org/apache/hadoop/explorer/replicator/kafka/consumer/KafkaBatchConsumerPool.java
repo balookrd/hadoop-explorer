@@ -293,6 +293,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final Set<TopicPartition> routingBlockedPartitions = ConcurrentHashMap.newKeySet();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
         private long localTopicsVersion = 1;
+        /** Воркер вышел из цикла и зафиксировал оффсеты: только после этого консьюмер можно закрыть. */
+        private final java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
 
         ConsumerWorker(int workerId, Consumer<byte[], byte[]> workerConsumer) {
             this.workerId = workerId;
@@ -631,7 +633,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             }
 
                             try {
-                                targetStream.onNext(batchRequest);
+                                sendOn(targetStream, batchRequest);
                             } catch (Exception ex) {
                                 log.warn("[Worker {} -> Target {}] Ошибка отправки батча, failover: {}",
                                         workerId, targetIdx, ex.getMessage());
@@ -647,7 +649,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                     // Батч уже зарегистрирован и остается в очереди партиции:
                                     // переотправка не создает дубликат записи о нем.
                                     pending.targetIdx = fallbackIdx;
-                                    getOrCreateStream(fallbackIdx).onNext(batchRequest);
+                                    sendOn(getOrCreateStream(fallbackIdx), batchRequest);
                                 }
                             }
                         }
@@ -661,15 +663,33 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             } catch (Exception e) {
                 log.error("[Worker {}] Фатальная ошибка в цикле вычитки Kafka: {}", workerId, e.getMessage(), e);
             } finally {
-                drainAndCommitPendingOffsets();
+                // Финальная фиксация — синхронно и в своем потоке: KafkaConsumer не
+                // потокобезопасен, а commitAsync без последующего poll до брокера не доходит
+                commitOffsetsSync(null);
                 for (StreamObserver<KafkaBatchRequest> s : activeStreams.values()) {
                     try {
-                        s.onCompleted();
+                        synchronized (s) {
+                            s.onCompleted();
+                        }
                     } catch (Exception ignored) {
                     }
                 }
                 activeStreams.clear();
+                finished.countDown();
                 log.info("Остановлен рабочий поток ConsumerWorker-{}", workerId);
+            }
+        }
+
+        /**
+         * Отправка батча в стрим приемника.
+         *
+         * <p>Клиентский {@code StreamObserver} gRPC не потокобезопасен, а пишут в него двое:
+         * поток воркера и поток gRPC, который переотправляет отвергнутый приемником батч из
+         * обработчика ack. Без сериализации одновременный {@code onNext} ломает стрим.
+         */
+        private void sendOn(StreamObserver<KafkaBatchRequest> stream, KafkaBatchRequest request) {
+            synchronized (stream) {
+                stream.onNext(request);
             }
         }
 
@@ -760,7 +780,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         return;
                     }
                     pending.targetIdx = retryIdx;
-                    getOrCreateStream(retryIdx).onNext(pending.request);
+                    sendOn(getOrCreateStream(retryIdx), pending.request);
                     return;
                 } catch (Exception resendFailure) {
                     log.warn("[Worker {}] Не удалось переотправить пакет {}: {}",
@@ -848,7 +868,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 return;
             }
             try {
-                workerConsumer.commitSync(toCommit);
+                try {
+                    workerConsumer.commitSync(toCommit);
+                } catch (WakeupException pendingWakeup) {
+                    // Сигнал остановки пришел, когда воркер был вне poll(), и сработал здесь:
+                    // флаг уже снят, повтор фиксирует оффсеты
+                    workerConsumer.commitSync(toCommit);
+                }
                 for (TopicPartition tp : toCommit.keySet()) {
                     pendingCommittedOffsets.remove(tp);
                 }
@@ -996,12 +1022,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     @Override
     public void close() {
         running.set(false);
-        // Подтвержденный префикс фиксируется до закрытия консьюмера: commitAsync без
-        // последующего poll до брокера не доходит, и после перезапуска агент заново
-        // гонит через WAN уже перенесенные записи.
-        for (ConsumerWorker worker : workers) {
-            worker.commitOffsetsSync(null);
-        }
+        // Подтвержденный префикс фиксирует сам воркер на выходе из цикла: KafkaConsumer не
+        // потокобезопасен, и commitSync отсюда, пока воркер еще в poll(), падал с
+        // ConcurrentModificationException — после перезапуска агент заново гнал через WAN
+        // уже перенесенные записи. Поэтому здесь только сигнал остановки и ожидание воркеров.
         for (Consumer<byte[], byte[]> c : consumers) {
             try {
                 c.wakeup();
@@ -1011,12 +1035,25 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         if (executor != null) {
             executor.shutdown();
             try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
                     executor.shutdownNow();
                 }
             } catch (InterruptedException e) {
                 executor.shutdownNow();
                 Thread.currentThread().interrupt();
+            }
+        }
+        // Воркер без executor (run() с одним консьюмером) работает в чужом потоке: ждем его
+        // финальную фиксацию, чтобы не закрыть консьюмер у него из-под рук
+        for (ConsumerWorker worker : workers) {
+            try {
+                if (!worker.finished.await(30, TimeUnit.SECONDS)) {
+                    log.warn("Воркер {} не завершился за 30 с, консьюмер закрывается принудительно",
+                            worker.workerId);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
         }
         for (Consumer<byte[], byte[]> c : consumers) {

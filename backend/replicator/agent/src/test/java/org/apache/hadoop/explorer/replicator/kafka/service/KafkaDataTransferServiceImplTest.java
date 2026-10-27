@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -164,5 +165,32 @@ class KafkaDataTransferServiceImplTest {
         SchemaSyncResponse response = responseCaptor.getValue();
         assertTrue(response.getSuccess());
         assertEquals(99, response.getTargetSchemaId());
+    }
+
+    @Test
+    @DisplayName("Закрытие стрима с батчами в полете не вызывает flush и завершает стрим после ack")
+    @SuppressWarnings("unchecked")
+    void halfCloseWithInFlightBatchDoesNotFlush() throws Exception {
+        // flush() из цепочки подтверждения выполнялся в сетевом потоке продюсера и блокировал
+        // его навсегда: приемник переставал писать в Kafka для всех отправителей ЦОД.
+        // Ack отправляется только после подтверждения брокером, поэтому flush здесь не нужен.
+        CompletableFuture<org.apache.hadoop.explorer.replicator.kafka.generated.KafkaBatchAck> pending = new CompletableFuture<>();
+        when(batchProducer.writeBatchAsync(any())).thenReturn(pending);
+        KafkaDataTransferServiceImpl service = new KafkaDataTransferServiceImpl(batchProducer, null, "DC2");
+
+        StreamObserver<org.apache.hadoop.explorer.replicator.kafka.generated.KafkaBatchAck> responses = mock(StreamObserver.class);
+        StreamObserver<org.apache.hadoop.explorer.replicator.kafka.generated.KafkaBatchRequest> requests = service.streamBatches(responses);
+
+        requests.onNext(org.apache.hadoop.explorer.replicator.kafka.generated.KafkaBatchRequest.newBuilder()
+                .setBatchId("b-1").setTopic("orders").build());
+        requests.onCompleted();
+        verify(responses, never()).onCompleted();
+
+        pending.complete(org.apache.hadoop.explorer.replicator.kafka.generated.KafkaBatchAck.newBuilder()
+                .setBatchId("b-1").setTopic("orders").setSuccess(true).build());
+
+        verify(responses, timeout(5000)).onNext(any());
+        verify(responses, timeout(5000)).onCompleted();
+        verify(batchProducer, never()).flush();
     }
 }

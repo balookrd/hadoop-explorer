@@ -967,6 +967,14 @@ public class OrchestratorGrpcClient implements Closeable {
     /**
      * Получение активных задач репликации Kafka для дата-центра.
      */
+    /**
+     * Активные Kafka-задачи ЦОД.
+     *
+     * @return список задач или {@code null}, если оркестратор не ответил. Пустой список
+     *         означает «задач нет» и останавливает пулы, поэтому сбой опроса (рестарт
+     *         оркестратора, обрыв сети, ошибка БД) им быть не может: иначе любой такой сбой
+     *         за один цикл гасил бы репликацию на всех агентах ЦОД.
+     */
     public List<KafkaJobItemProto> getActiveKafkaJobs(String dcId) {
         try {
             var protoReq = GetActiveKafkaJobsRequest.newBuilder()
@@ -974,10 +982,10 @@ public class OrchestratorGrpcClient implements Closeable {
                     .build();
 
             var resp = executeWithFailover("getActiveKafkaJobs", s -> s.getActiveKafkaJobs(protoReq));
-            return resp != null ? resp.getJobsList() : Collections.emptyList();
+            return resp != null ? resp.getJobsList() : null;
         } catch (Exception e) {
             log.warn("Ошибка gRPC получения активных Kafka задач для ДЦ '{}': {}", dcId, e.getMessage());
-            return Collections.emptyList();
+            return null;
         }
     }
 

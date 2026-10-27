@@ -246,4 +246,28 @@ class KafkaRebalanceAndShutdownTest {
         order.verify(consumer).commitSync(anyMap());
         order.verify(consumer).close();
     }
+
+    @Test
+    @DisplayName("Финальная фиксация при остановке идет из потока воркера, а не из вызывающего close()")
+    void testCloseCommitsOnWorkerThread() throws Exception {
+        java.util.List<String> commitThreads = new java.util.concurrent.CopyOnWriteArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            commitThreads.add(Thread.currentThread().getName());
+            return null;
+        }).when(consumer).commitSync(anyMap());
+
+        assign(P0);
+        addRecord(P0, 100);
+        pool.start();
+        awaitSent(1);
+        ack(sent.get(0));
+
+        pool.close();
+        pool = null;
+
+        assertTrue(!commitThreads.isEmpty(), "Подтвержденный префикс обязан фиксироваться при остановке");
+        assertTrue(commitThreads.stream().allMatch(name -> name.startsWith("kafka-consumer-worker-")),
+                "KafkaConsumer не потокобезопасен: commitSync из потока close() при живом poll() "
+                        + "падает с ConcurrentModificationException. Потоки фиксации: " + commitThreads);
+    }
 }
