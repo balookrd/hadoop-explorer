@@ -106,6 +106,12 @@
   // Состояние задач
   let jobs = $state<KafkaJob[]>([]);
   let jobsLoading = $state(false);
+  // Ошибка последнего обновления списка: прежние данные остаются на экране с пометкой времени
+  let jobsError = $state<string | null>(null);
+  let jobsUpdatedAt = $state<number | null>(null);
+  // Опросы не накладываются: ответ медленного запроса не перезаписывает более свежий
+  let jobsRequestSeq = 0;
+  let jobsRequestInFlight = false;
   let actionMessage = $state<string | null>(null);
 
   // Справочники кластеров
@@ -443,15 +449,17 @@
     loadJobs();
     loadClusters();
     loadTopologyLimits();
+    // Фоновое обновление телеметрии без мерцания индикатора; на скрытой вкладке не опрашиваем,
+    // а при возврате на нее обновляем сразу
     const interval = setInterval(() => {
-      // Фоновое обновление телеметрии задач без мерцания индикатора
-      api.getKafkaJobs().then(data => {
-        if (Array.isArray(data)) {
-          setJobs(data.map(normalizeKafkaJob));
-        }
-      }).catch(() => {});
+      if (!document.hidden) fetchJobs(false);
     }, 4000);
-    return () => clearInterval(interval);
+    const onVisible = () => { if (!document.hidden) fetchJobs(false); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   });
 
   async function loadTopologyLimits() {
@@ -507,17 +515,32 @@
     }
   }
 
-  async function loadJobs() {
-    jobsLoading = true;
+  async function fetchJobs(explicit: boolean) {
+    // Фоновый опрос пропускается, пока предыдущий запрос не вернулся; явное обновление идет всегда
+    if (!explicit && jobsRequestInFlight) return;
+    const seq = ++jobsRequestSeq;
+    jobsRequestInFlight = true;
+    if (explicit) jobsLoading = true;
     try {
       const data = await api.getKafkaJobs();
+      if (seq !== jobsRequestSeq) return;
       setJobs(Array.isArray(data) ? data.map(normalizeKafkaJob) : []);
+      jobsError = null;
+      jobsUpdatedAt = Date.now();
     } catch (e: any) {
-      console.warn('Не удалось загрузить задачи Kafka из API:', e);
-      jobs = [];
+      if (seq !== jobsRequestSeq) return;
+      // Список не очищается: пустой экран выглядел как «задач нет», хотя недоступен оркестратор
+      jobsError = e?.message || String(e);
     } finally {
-      jobsLoading = false;
+      if (seq === jobsRequestSeq) {
+        jobsRequestInFlight = false;
+        jobsLoading = false;
+      }
     }
+  }
+
+  async function loadJobs() {
+    await fetchJobs(true);
   }
 
   async function loadClusters() {
@@ -981,11 +1004,20 @@
 
   <!-- СПИСОК ЗАДАЧ РЕПЛИКАЦИИ KAFKA -->
   <div class="space-y-4">
-    {#if jobsLoading}
+    {#if jobsError}
+      <div class="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2">
+        <AlertCircle class="w-4 h-4 text-rose-500 shrink-0" />
+        <span>
+          Не удалось обновить список задач: {jobsError}.
+          {jobsUpdatedAt ? `Показаны данные от ${new Date(jobsUpdatedAt).toLocaleTimeString()}.` : 'Данных пока нет.'}
+        </span>
+      </div>
+    {/if}
+    {#if jobsLoading && jobs.length === 0}
       <div class="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
         Загрузка задач репликации Kafka...
       </div>
-    {:else if jobs.length === 0}
+    {:else if jobs.length === 0 && !jobsError}
       <div class="py-12 text-center text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900">
         <Radio class="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
         <p class="font-medium text-slate-600 dark:text-slate-400">Нет настроенных задач репликации Kafka.</p>
@@ -1005,11 +1037,15 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="space-y-1.5">
               <div class="flex items-center flex-wrap gap-2">
-                <span class="w-2 h-2 rounded-full {job.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}"></span>
+                <span class="w-2 h-2 rounded-full {job.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : job.status === 'ERROR' ? 'bg-rose-500' : 'bg-amber-500'}"></span>
                 <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100">{job.name}</h3>
 
                 <!-- Подтверждение от агентов: пауза считается выполненной, когда пулы остановлены -->
-                {#if job.status === 'PAUSED' && job.runningAgents.length > 0}
+                {#if job.status === 'ERROR'}
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                    Ошибка
+                  </span>
+                {:else if job.status === 'PAUSED' && job.runningAgents.length > 0}
                   <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
                         title={job.runningAgents.join(', ')}>
                     Останавливается: агентов {job.runningAgents.length}
