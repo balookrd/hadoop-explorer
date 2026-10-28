@@ -13,6 +13,17 @@ SR2_URL="${SR2_URL:-http://localhost:8082}"
 KDC_HOST="${KDC_HOST:-localhost}"
 KDC_PORT="${KDC_PORT:-88}"
 
+# Топики каждого прогона уникальны: в постоянных топиках копились записи прошлых прогонов,
+# новая задача с EARLIEST переносила их заново, и проверка «ровно 6» на втором прогоне падала,
+# а проверки «не меньше N» проходили на старых данных, ничего не проверяя.
+# KEEP_SMOKE_TOPICS=1 оставляет задачи и топики прогона для разбора.
+RUN_ID="${SMOKE_RUN_ID:-$(date +%s)}"
+TOPIC_PREFIX="e2e-smoke-"
+T_AVRO="${TOPIC_PREFIX}${RUN_ID}-orders-avro"
+T_RAW="${TOPIC_PREFIX}${RUN_ID}-metrics-raw"
+T_CACHE="${TOPIC_PREFIX}${RUN_ID}-user-cache"
+T_ACTIVE="${TOPIC_PREFIX}${RUN_ID}-active-orders"
+
 # Внутри Docker-сети
 if [ -n "$DOCKER_NETWORK" ] || [ "$ORCHESTRATOR_URL" = "http://orchestrator:8005" ]; then
     KAFKA1_BOOTSTRAP="kafka-cluster-1:9092"
@@ -36,6 +47,7 @@ echo "   DR Kafka (DC2):      ${KAFKA2_BOOTSTRAP} (SASL GSSAPI)"
 echo "   Primary SR (DC1):    ${SR1_URL} (SPNEGO Negotiate)"
 echo "   DR SR (DC2):         ${SR2_URL} (SPNEGO Negotiate)"
 echo "   Kerberos KDC:        ${KDC_HOST}:${KDC_PORT}"
+echo "   Прогон:              ${RUN_ID} (топики ${TOPIC_PREFIX}${RUN_ID}-*)"
 echo "========================================================================"
 
 FAILED_TESTS=""
@@ -85,17 +97,17 @@ sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic orders-avro --partitions 3 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_AVRO}" --partitions 3 --replication-factor 1 >/dev/null 2>&1 || true
 
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic metrics-raw --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_RAW}" --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
 
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic user-cache --partitions 1 --replication-factor 1 \
+        --create --if-not-exists --topic "${T_CACHE}" --partitions 1 --replication-factor 1 \
         --config cleanup.policy=compact >/dev/null 2>&1 || true
     return 0
 }
@@ -110,17 +122,17 @@ sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         kafka-topics --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic orders-avro --partitions 3 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_AVRO}" --partitions 3 --replication-factor 1 >/dev/null 2>&1 || true
 
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         kafka-topics --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic metrics-raw --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_RAW}" --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
 
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         kafka-topics --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic user-cache --partitions 1 --replication-factor 1 \
+        --create --if-not-exists --topic "${T_CACHE}" --partitions 1 --replication-factor 1 \
         --config cleanup.policy=compact >/dev/null 2>&1 || true
     return 0
 }
@@ -136,7 +148,7 @@ register_sr_schema() {
     # Регистрация схемы заказа в Confluent/Hortonworks SR
     local schema_json='{"schema":"{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"}]}"}'
     local resp=$(curl -s -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-        --negotiate -u : "${SR1_URL}/subjects/orders-avro-value/versions" \
+        --negotiate -u : "${SR1_URL}/subjects/${T_AVRO}-value/versions" \
         -d "$schema_json" 2>/dev/null || echo '{"id":1}')
     echo "$resp" | grep -q "id"
 }
@@ -156,18 +168,63 @@ authenticate_orchestrator() {
 }
 run_check "Аутентификация в Control Plane (JWT Bearer Token)" authenticate_orchestrator
 
-# Задачи прошлого прогона на тех же топиках: оркестратор отклоняет пересекающуюся задачу (409),
-# потому что две задачи на одном топике и направлении пишут в цель каждую запись дважды
-remove_previous_smoke_jobs() {
+kafka_admin() {
+    local cluster="$1"
+    shift
+    docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" "kafka-cluster-${cluster}" \
+        kafka-topics --bootstrap-server "kafka-cluster-${cluster}.demo-platform-net:9092" \
+        --command-config /etc/kafka/client.properties "$@"
+}
+
+# Остановка и удаление smoke-задач. Сначала пауза и ожидание, пока агенты остановят пулы
+# (пустой running_agents): консьюмер, еще подписанный на топик, создал бы удаленный топик
+# заново через автосоздание брокера
+stop_and_delete_jobs() {
+    local id agents
+    for id in "$@"; do
+        curl -s -o /dev/null -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}/pause"
+    done
+    for id in "$@"; do
+        for i in $(seq 1 30); do
+            agents=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}" \
+                | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('running_agents') or []))" 2>/dev/null)
+            [ "${agents:-0}" = "0" ] && break
+            sleep 1
+        done
+        curl -s -o /dev/null -X DELETE -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}"
+    done
+}
+
+# Топики smoke-прогонов в обоих кластерах: current — только этого прогона (уборка в конце),
+# others — всех прочих (хвосты прерванных прогонов)
+delete_smoke_topics() {
+    local scope="$1" cluster topic own
+    for cluster in 1 2; do
+        for topic in $(kafka_admin "$cluster" --list 2>/dev/null | grep "^${TOPIC_PREFIX}[0-9][0-9]*-"); do
+            case "$topic" in
+                "${TOPIC_PREFIX}${RUN_ID}-"*) own=1 ;;
+                *) own=0 ;;
+            esac
+            if { [ "$scope" = "current" ] && [ "$own" = 1 ]; } || { [ "$scope" = "others" ] && [ "$own" = 0 ]; }; then
+                kafka_admin "$cluster" --delete --topic "$topic" >/dev/null 2>&1 || true
+            fi
+        done
+    done
+}
+
+# Задачи прошлого прогона: оркестратор отклоняет пересекающуюся задачу (409), а задача прерванного
+# прогона продолжала бы читать его топики. Вместе с ними удаляются и топики прошлых прогонов
+remove_previous_smoke_runs() {
     local ids
     ids=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" \
         | python3 -c "import json,sys; [print(j['id']) for j in json.load(sys.stdin) if str(j.get('name','')).startswith('e2e-smoke-')]" 2>/dev/null)
-    for id in $ids; do
-        curl -s -o /dev/null -X DELETE -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}"
-    done
+    stop_and_delete_jobs $ids
+    delete_smoke_topics others
     return 0
 }
-run_check "Удаление задач прошлого smoke-прогона" remove_previous_smoke_jobs
+run_check "Удаление задач и топиков прошлых smoke-прогонов" remove_previous_smoke_runs
 
 JOB_ID=""
 create_replication_job() {
@@ -180,9 +237,9 @@ create_replication_job() {
         "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
         "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
-            {"topic": "orders-avro", "payload_mode": "SCHEMA_REGISTRY"},
-            {"topic": "metrics-raw", "payload_mode": "PASSTHROUGH"},
-            {"topic": "user-cache", "payload_mode": "PASSTHROUGH"}
+            {"topic": "'"${T_AVRO}"'", "payload_mode": "SCHEMA_REGISTRY"},
+            {"topic": "'"${T_RAW}"'", "payload_mode": "PASSTHROUGH"},
+            {"topic": "'"${T_CACHE}"'", "payload_mode": "PASSTHROUGH"}
         ],
         "consumer_groups": ["billing-group", "analytics-group"],
         "schema_transcoding_enabled": true,
@@ -219,7 +276,7 @@ produce_test_records() {
     # 1. Passthrough JSON
     docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         bash -c "kafka-console-producer --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
-        --producer.config /etc/kafka/client.properties --topic metrics-raw" <<EOF
+        --producer.config /etc/kafka/client.properties --topic ${T_RAW}" <<EOF
 {"host":"srv-01","cpu":45.2,"mem":62.1}
 {"host":"srv-02","cpu":88.7,"mem":91.4}
 EOF
@@ -227,7 +284,7 @@ EOF
     # 2. Compact топик с Tombstone
     docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         bash -c "kafka-console-producer --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
-        --producer.config /etc/kafka/client.properties --topic user-cache \
+        --producer.config /etc/kafka/client.properties --topic ${T_CACHE} \
         --property parse.key=true --property key.separator=:" <<EOF
 user-101:active
 user-102:pending
@@ -248,7 +305,7 @@ verify_dc2_replication() {
     for i in $(seq 1 15); do
         count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
             bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic metrics-raw --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_RAW} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
         if [ -n "$count" ] && [ "$count" -ge 2 ] 2>/dev/null; then
             return 0
         fi
@@ -264,7 +321,7 @@ verify_tombstone_delivery() {
     for i in $(seq 1 10); do
         count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
             bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic user-cache --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_CACHE} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
         if [ -n "$count" ] && [ "$count" -ge 3 ] 2>/dev/null; then
             return 0
         fi
@@ -299,13 +356,13 @@ create_active_active_topics() {
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         kafka-topics --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic active-orders --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_ACTIVE}" --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
 
     # Симметричный топик active-orders в DC2
     docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         kafka-topics --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
         --command-config /etc/kafka/client.properties \
-        --create --if-not-exists --topic active-orders --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
+        --create --if-not-exists --topic "${T_ACTIVE}" --partitions 2 --replication-factor 1 >/dev/null 2>&1 || true
     return 0
 }
 run_check "Создание симметричного топика active-orders в DC1 и DC2" create_active_active_topics
@@ -327,7 +384,7 @@ create_active_active_job() {
         "source_bootstrap_servers": "kafka-cluster-1.demo-platform-net:9092",
         "target_bootstrap_servers": "kafka-cluster-2.demo-platform-net:9092",
         "topics": [
-            {"topic": "active-orders", "payload_mode": "PASSTHROUGH"}
+            {"topic": "'"${T_ACTIVE}"'", "payload_mode": "PASSTHROUGH"}
         ],
         "source_kerberos_enabled": true,
         "target_kerberos_enabled": true,
@@ -356,7 +413,7 @@ produce_active_active_records() {
     # 1. Запись 3 сообщений локально в DC1
     docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         bash -c "kafka-console-producer --bootstrap-server kafka-cluster-1.demo-platform-net:9092 \
-        --producer.config /etc/kafka/client.properties --topic active-orders" <<EOF
+        --producer.config /etc/kafka/client.properties --topic ${T_ACTIVE}" <<EOF
 {"order_id":"DC1-ORD-101","producer_dc":"DC1","amount":150.0}
 {"order_id":"DC1-ORD-102","producer_dc":"DC1","amount":250.0}
 {"order_id":"DC1-ORD-103","producer_dc":"DC1","amount":350.0}
@@ -365,7 +422,7 @@ EOF
     # 2. Запись 3 встречных сообщений локально в DC2
     docker exec -i -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         bash -c "kafka-console-producer --bootstrap-server kafka-cluster-2.demo-platform-net:9092 \
-        --producer.config /etc/kafka/client.properties --topic active-orders" <<EOF
+        --producer.config /etc/kafka/client.properties --topic ${T_ACTIVE}" <<EOF
 {"order_id":"DC2-ORD-201","producer_dc":"DC2","amount":990.0}
 {"order_id":"DC2-ORD-202","producer_dc":"DC2","amount":880.0}
 {"order_id":"DC2-ORD-203","producer_dc":"DC2","amount":770.0}
@@ -388,11 +445,11 @@ verify_active_active_cross_delivery() {
     for i in $(seq 1 15); do
         dc2_count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
             bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+            --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_ACTIVE} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
         dc1_count=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
             bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-            --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+            --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_ACTIVE} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
         if [ -n "$dc2_count" ] && [ "$dc2_count" -ge 6 ] && [ -n "$dc1_count" ] && [ "$dc1_count" -ge 6 ] 2>/dev/null; then
             return 0
@@ -415,11 +472,11 @@ verify_loop_prevention_no_echo() {
 
     local dc1_final=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-1 \
         bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        --bootstrap-server kafka-cluster-1.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_ACTIVE} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
     local dc2_final=$(docker exec -e KAFKA_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf" kafka-cluster-2 \
         bash -c "kafka-run-class kafka.tools.GetOffsetShell \
-        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic active-orders --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        --bootstrap-server kafka-cluster-2.demo-platform-net:9092 --command-config /etc/kafka/client.properties --topic ${T_ACTIVE} --time -1" 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
 
     # Точно по 6 сообщений: 3 локальных + 3 отреплицированных. Без паразитного дублирования!
     if [ "$dc1_final" = "6" ] && [ "$dc2_final" = "6" ]; then
@@ -432,7 +489,26 @@ run_check "Anti-Echo: отсутствие циклического размно
 
 
 # ------------------------------------------------------------------------------
-# 13. Итоговый отчет
+# 13. Уборка: задачи и топики прогона
+# ------------------------------------------------------------------------------
+echo "\n${BLUE}▶ Шаг 13: Удаление задач и топиков прогона${NC}"
+
+cleanup_smoke_run() {
+    if [ "${KEEP_SMOKE_TOPICS:-0}" = "1" ]; then
+        echo "(KEEP_SMOKE_TOPICS=1: задачи и топики ${TOPIC_PREFIX}${RUN_ID}-* оставлены)"
+        return 0
+    fi
+    stop_and_delete_jobs $JOB_ID $ACTIVE_JOB_ID
+    delete_smoke_topics current
+    local left
+    left=$( (kafka_admin 1 --list; kafka_admin 2 --list) 2>/dev/null | grep -c "^${TOPIC_PREFIX}${RUN_ID}-" || true)
+    [ "$left" = "0" ]
+}
+run_check "Удаление задач и топиков прогона" cleanup_smoke_run
+
+
+# ------------------------------------------------------------------------------
+# 14. Итоговый отчет
 # ------------------------------------------------------------------------------
 echo "\n========================================================================"
 echo "📊 ИТОГОВЫЙ ОТЧЕТ E2E SMOKE ТЕСТА KAFKA REPLICATOR"
