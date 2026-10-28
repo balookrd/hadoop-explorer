@@ -139,28 +139,28 @@ build:
 build-security-starter: check-jdk21
 	$(JAVA21) mvn clean package -DskipTests -f backend/common-security-starter/pom.xml
 
-build-java: check-jdk21
+build-java: check-jdk21 frontend-build
 	$(JAVA21) mvn clean package -DskipTests
 
-build-yarn:
+build-yarn: frontend-build-yarn
 	$(JAVA21) mvn clean package -DskipTests -f backend/yarn/pom.xml
 
-build-hdfs:
+build-hdfs: frontend-build-hdfs
 	$(JAVA21) mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
-build-sql:
+build-sql: frontend-build-sql
 	$(JAVA21) mvn clean package -DskipTests -f backend/sql/pom.xml
 
-build-spark:
+build-spark: frontend-build-spark
 	$(JAVA21) mvn clean package -DskipTests -f backend/spark/pom.xml
 
-build-replicator:
+build-replicator: frontend-build-replicator
 	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml
 
 build-replicator-agent:
 	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
 
-build-replicator-orchestrator:
+build-replicator-orchestrator: frontend-build-replicator
 	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
 
 build-replicator-agent-java: build-replicator-agent
@@ -184,8 +184,17 @@ frontend-test:
 frontend-e2e:
 	cd frontend && npm run test:e2e
 
-frontend-build:
+# UI собирается прямо в backend/*/src/main/resources/static и в git не хранится, поэтому
+# сборка JAR сначала собирает UI своего сервиса
+frontend/node_modules: frontend/package-lock.json
+	cd frontend && npm ci
+	@touch frontend/node_modules
+
+frontend-build: frontend/node_modules
 	cd frontend && npm run build:all
+
+frontend-build-%: frontend/node_modules
+	cd frontend && npm run build:$*
 
 generate-proto:
 	$(JAVA21) mvn compile -DskipTests -f backend/replicator/agent/pom.xml

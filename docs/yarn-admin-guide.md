@@ -133,11 +133,9 @@ cd hadoop-explorer
 # Сборка фронтенда (Svelte 5)
 cd frontend
 npm ci --workspace=apps/yarn --include-workspace-root
+# Бандл собирается сразу в backend/yarn/src/main/resources/static и попадает в JAR
 npm run build --workspace=apps/yarn
 cd ..
-
-# Копирование статики фронтенда в ресурсы Spring Boot
-cp -r frontend/apps/yarn/dist/* backend/yarn/src/main/resources/static/
 
 # Сборка исполняемого Spring Boot fat JAR
 mvn clean package -DskipTests -f backend/yarn/pom.xml

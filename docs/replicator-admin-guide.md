@@ -653,6 +653,7 @@ cd hadoop-explorer
 # 1. Сборка фронтенда (Svelte 5 SPA)
 cd frontend
 npm ci --workspace=apps/replicator --include-workspace-root
+# Бандл собирается сразу в backend/replicator/orchestrator/src/main/resources/static и попадает в JAR
 npm run build:replicator
 cd ..
 

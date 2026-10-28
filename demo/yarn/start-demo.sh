@@ -8,15 +8,17 @@ cd "$SCRIPT_DIR"
 echo "=== Запуск демонстрационного стенда YARN Explorer (Java 21 / Spring Boot 3) ==="
 echo "Компоненты: KDC (Kerberos), OpenLDAP, 2x Kerberized YARN RM, Yarn-Explorer (Java 21)"
 
+# UI собирается в ресурсы Spring Boot и в git не хранится: он нужен и JAR, и образу,
+# поэтому собирается до них
+if [[ ! -f "${REPO_ROOT}/backend/yarn/src/main/resources/static/index.html" ]]; then
+    echo "==> Сборка Frontend YARN Explorer..."
+    (cd "${REPO_ROOT}/frontend" && npm run build --workspace=apps/yarn)
+fi
+
 YARN_JAR="${REPO_ROOT}/backend/yarn/target/yarn-explorer-java-1.0.0.jar"
 if [[ ! -f "$YARN_JAR" ]]; then
     echo "==> Сборка JAR-пакета YARN Explorer Java..."
     (cd "$REPO_ROOT" && make build-yarn)
-fi
-
-if [[ ! -d "${REPO_ROOT}/frontend/apps/yarn/dist" ]]; then
-    echo "==> Сборка Frontend YARN Explorer..."
-    (cd "${REPO_ROOT}/frontend" && npm run build --workspace=apps/yarn)
 fi
 
 docker compose up --build -d

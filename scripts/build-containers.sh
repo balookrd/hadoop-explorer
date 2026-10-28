@@ -16,6 +16,18 @@ build_app() {
   echo "=========================================="
   echo "🐳 Сборка Docker-образа: $REGISTRY/$app:$TAG (Dockerfile: $(basename "$dockerfile"))"
   echo "=========================================="
+  # Образ берет UI из backend/*/src/main/resources/static: в git его нет, он появляется
+  # после сборки фронтенда (make frontend-build)
+  local static_dir
+  case "$app" in
+    replicator-orchestrator) static_dir="backend/replicator/orchestrator/src/main/resources/static" ;;
+    replicator-agent) static_dir="" ;;
+    *) static_dir="backend/$app/src/main/resources/static" ;;
+  esac
+  if [ -n "$static_dir" ] && [ ! -f "$ROOT_DIR/$static_dir/index.html" ]; then
+    echo "Нет собранного UI в $static_dir: выполните make frontend-build" >&2
+    exit 1
+  fi
   docker build -t "$REGISTRY/$app:$TAG" -f "$dockerfile" "$ROOT_DIR"
   echo "✅ Образ $REGISTRY/$app:$TAG успешно собран!"
 }

@@ -13,4 +13,10 @@ export default defineConfig({
       },
     },
   },
+  // Бандл собирается прямо в ресурсы Spring Boot и в git не хранится (см. .gitignore);
+  // каталог очищается, чтобы старые бандлы не копились
+  build: {
+    outDir: '../../../backend/yarn/src/main/resources/static',
+    emptyOutDir: true,
+  }
 });

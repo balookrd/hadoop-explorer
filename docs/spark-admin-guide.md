@@ -135,6 +135,7 @@ cd hadoop-explorer
 # Сборка фронтенда Spark Explorer
 cd frontend
 npm ci --workspace=apps/spark --include-workspace-root
+# Бандл собирается сразу в backend/spark/src/main/resources/static и попадает в JAR
 npm run build --workspace=apps/spark
 cd ..
 

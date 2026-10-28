@@ -136,11 +136,9 @@ cd hadoop-explorer
 # Сборка фронтенда HDFS (Svelte 5)
 cd frontend
 npm ci --workspace=apps/hdfs --include-workspace-root
+# Бандл собирается сразу в backend/hdfs/src/main/resources/static и попадает в JAR
 npm run build --workspace=apps/hdfs
 cd ..
-
-# Копирование статики фронтенда в ресурсы Spring Boot
-cp -r frontend/apps/hdfs/dist/* backend/hdfs/src/main/resources/static/
 
 # Сборка исполняемого Spring Boot fat-JAR
 mvn clean package -DskipTests -f backend/hdfs/pom.xml

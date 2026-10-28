@@ -14,15 +14,17 @@ echo "  4. HDFS Кластер 2 (Archive & Analytics) -> WebHDFS порт 9872"
 echo "  5. Сервис hdfs-explorer (Java 21 Web UI + Backend) -> http://localhost:8002"
 echo ""
 
+# UI собирается в ресурсы Spring Boot и в git не хранится: он нужен и JAR, и образу,
+# поэтому собирается до них
+if [[ ! -f "${REPO_ROOT}/backend/hdfs/src/main/resources/static/index.html" ]]; then
+    echo "==> Сборка Frontend HDFS Explorer..."
+    (cd "${REPO_ROOT}/frontend" && npm run build --workspace=apps/hdfs)
+fi
+
 HDFS_JAR="${REPO_ROOT}/backend/hdfs/target/hdfs-explorer-java-1.0.0.jar"
 if [[ ! -f "$HDFS_JAR" ]]; then
     echo "==> Сборка JAR-пакета HDFS Explorer Java..."
     (cd "$REPO_ROOT" && make build-hdfs)
-fi
-
-if [[ ! -d "${REPO_ROOT}/frontend/apps/hdfs/dist" ]]; then
-    echo "==> Сборка Frontend HDFS Explorer..."
-    (cd "${REPO_ROOT}/frontend" && npm run build --workspace=apps/hdfs)
 fi
 
 docker compose up --build -d

@@ -21,8 +21,10 @@ export default defineConfig({
       },
     },
   },
+  // Бандл собирается прямо в ресурсы Spring Boot и в git не хранится (см. .gitignore);
+  // каталог очищается, чтобы старые бандлы не копились
   build: {
     outDir: '../../../backend/replicator/orchestrator/src/main/resources/static',
-    emptyOutDir: false,
+    emptyOutDir: true,
   },
 });

@@ -88,3 +88,7 @@ private/
 .agent/
 .context/
 
+
+# Собранный UI: Vite кладет бандлы в ресурсы Spring Boot при сборке (npm run build:all),
+# CI и релиз собирают их сами
+backend/**/src/main/resources/static/

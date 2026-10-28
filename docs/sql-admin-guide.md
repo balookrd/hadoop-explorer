@@ -135,6 +135,7 @@ cd hadoop-explorer
 # Сборка фронтенда SQL Explorer (Monaco Editor)
 cd frontend
 npm ci --workspace=apps/sql --include-workspace-root
+# Бандл собирается сразу в backend/sql/src/main/resources/static и попадает в JAR
 npm run build --workspace=apps/sql
 cd ..
 
