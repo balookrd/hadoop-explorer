@@ -333,9 +333,11 @@ export interface CreateKafkaJobPayload {
   source_kerberos_enabled: boolean;
   source_principal?: string;
   source_keytab_path?: string;
+  source_service_name?: string;
   target_kerberos_enabled: boolean;
   target_principal?: string;
   target_keytab_path?: string;
+  target_service_name?: string;
   bandwidth_limit_mb?: number;
   offset_sync_interval_sec?: number;
   consumer_threads?: number;

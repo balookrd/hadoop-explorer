@@ -167,6 +167,7 @@ hadoop:
         # Kafka с TLS: протокол клиентов оркестратора (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL;
         # по умолчанию SASL_PLAINTEXT при Kerberos) и truststore для SSL/SASL_SSL
         # kafka-security-protocol: "SASL_SSL"
+        # kafka-service-name: "kafka"
         # kafka-truststore-location: "/etc/security/kafka/truststore.jks"
         # kafka-truststore-password: "${KAFKA_DC1_TRUSTSTORE_PASSWORD:}"
         # kafka-truststore-type: "JKS"

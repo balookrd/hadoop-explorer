@@ -42,6 +42,10 @@ class KafkaJobKeytabPolicyTest {
         dc1.setKerberosEnabled(true);
         dc1.setPrincipal("replicator@PROD.LOCAL");
         dc1.setKeytabPath(KEYTAB);
+        dc1.setKafkaSecurityProtocol("SASL_SSL");
+        dc1.setKafkaServiceName("kafka-prod");
+        dc1.setKafkaTruststoreLocation("/etc/security/kafka/truststore.jks");
+        dc1.setKafkaTruststorePassword("secret");
         ReplicatorProperties props = new ReplicatorProperties();
         props.setClusters(List.of(dc1));
         service = mock(KafkaReplicationOrchestratorService.class);
@@ -81,5 +85,24 @@ class KafkaJobKeytabPolicyTest {
                 () -> controller.createJob(request("/home/analyst/stolen.keytab")));
         assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
         verify(service, never()).createJob(any());
+    }
+
+    @Test
+    @DisplayName("Discovery показывает протокол, service name и наличие truststore, но не путь и пароль")
+    void testDiscoveryExposesSecuritySummary() {
+        var cluster = controller.discoverClusters().get(0);
+        assertEquals("SASL_SSL", cluster.get("securityProtocol"));
+        assertEquals("kafka-prod", cluster.get("serviceName"));
+        assertEquals(true, cluster.get("truststoreConfigured"));
+        assertEquals("[PROTECTED]", cluster.get("keytabPath"));
+        assertFalse(cluster.toString().contains("truststore.jks"), cluster.toString());
+        assertFalse(cluster.toString().contains("secret"), cluster.toString());
+    }
+
+    @Test
+    @DisplayName("Service name брокеров подставляется из топологии")
+    void testServiceNameFromTopology() {
+        controller.createJob(request(null));
+        verify(service).createJob(argThat(r -> "kafka-prod".equals(r.getSourceServiceName())));
     }
 }

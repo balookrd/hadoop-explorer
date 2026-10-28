@@ -142,6 +142,8 @@ public class ReplicatorProperties {
          * Не задан — SASL_PLAINTEXT при Kerberos, иначе PLAINTEXT.
          */
         private String kafkaSecurityProtocol;
+        /** sasl.kerberos.service.name брокеров кластера; не задан — kafka. */
+        private String kafkaServiceName;
         /** Truststore для SSL/SASL_SSL: брокеры с TLS без него не принимают соединение. */
         private String kafkaTruststoreLocation;
         private String kafkaTruststorePassword;
@@ -183,6 +185,8 @@ public class ReplicatorProperties {
         public void setKeytabPath(String keytabPath) { this.keytabPath = keytabPath; }
         public String getKafkaSecurityProtocol() { return kafkaSecurityProtocol; }
         public void setKafkaSecurityProtocol(String kafkaSecurityProtocol) { this.kafkaSecurityProtocol = kafkaSecurityProtocol; }
+        public String getKafkaServiceName() { return kafkaServiceName; }
+        public void setKafkaServiceName(String kafkaServiceName) { this.kafkaServiceName = kafkaServiceName; }
         public String getKafkaTruststoreLocation() { return kafkaTruststoreLocation; }
         public void setKafkaTruststoreLocation(String kafkaTruststoreLocation) { this.kafkaTruststoreLocation = kafkaTruststoreLocation; }
         public String getKafkaTruststorePassword() { return kafkaTruststorePassword; }

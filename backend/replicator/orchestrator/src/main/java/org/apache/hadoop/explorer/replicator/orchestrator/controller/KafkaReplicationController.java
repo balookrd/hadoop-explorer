@@ -358,6 +358,17 @@ public class KafkaReplicationController {
             map.put("kerberosEnabled", cfg.isKerberosEnabled());
             map.put("principal", cfg.getPrincipal() != null ? cfg.getPrincipal() : "");
             map.put("keytabPath", keytabDisplay);
+            // Защита соединения с брокерами — из топологии; путь и пароль truststore не отдаются
+            String protocol;
+            try {
+                protocol = org.apache.hadoop.explorer.replicator.orchestrator.kafka.DefaultKafkaAdminClientFactory
+                        .securityProtocol(cfg, cfg.isKerberosEnabled());
+            } catch (IllegalArgumentException e) {
+                protocol = "INVALID: " + cfg.getKafkaSecurityProtocol();
+            }
+            map.put("securityProtocol", protocol);
+            map.put("serviceName", !isBlank(cfg.getKafkaServiceName()) ? cfg.getKafkaServiceName() : "kafka");
+            map.put("truststoreConfigured", !isBlank(cfg.getKafkaTruststoreLocation()));
             list.add(map);
         }
         // Реестр хранит кластеры в хеш-таблице, а форма берет первый кластер источником по
@@ -434,6 +445,10 @@ public class KafkaReplicationController {
                     if (override || isBlank(request.getSourceKeytabPath())) {
                         request.setSourceKeytabPath(cfg.getKeytabPath());
                     }
+                    if (!isBlank(cfg.getKafkaServiceName())
+                            && (override || isBlank(request.getSourceServiceName()) || "kafka".equals(request.getSourceServiceName()))) {
+                        request.setSourceServiceName(cfg.getKafkaServiceName());
+                    }
                 }
             }
             if (request.getTargetDc() != null && request.getTargetDc().equalsIgnoreCase(cfg.getDcId())) {
@@ -444,6 +459,10 @@ public class KafkaReplicationController {
                     }
                     if (override || isBlank(request.getTargetKeytabPath())) {
                         request.setTargetKeytabPath(cfg.getKeytabPath());
+                    }
+                    if (!isBlank(cfg.getKafkaServiceName())
+                            && (override || isBlank(request.getTargetServiceName()) || "kafka".equals(request.getTargetServiceName()))) {
+                        request.setTargetServiceName(cfg.getKafkaServiceName());
                     }
                 }
             }

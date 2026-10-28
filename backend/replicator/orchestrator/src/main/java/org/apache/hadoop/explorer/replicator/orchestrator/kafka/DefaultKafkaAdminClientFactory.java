@@ -88,7 +88,7 @@ public class DefaultKafkaAdminClientFactory implements KafkaAdminClientFactory {
      * Протокол клиента: из топологии кластера, иначе по флагу Kerberos. При Kerberos протокол
      * обязан быть SASL: заданный в топологии SSL поднимается до SASL_SSL.
      */
-    static String securityProtocol(ReplicatorProperties.ClusterConfig cluster, boolean kerberosEnabled) {
+    public static String securityProtocol(ReplicatorProperties.ClusterConfig cluster, boolean kerberosEnabled) {
         String configured = cluster != null && cluster.getKafkaSecurityProtocol() != null
                 ? cluster.getKafkaSecurityProtocol().trim().toUpperCase(Locale.ROOT) : "";
         if (!configured.isEmpty() && !PROTOCOLS.contains(configured)) {

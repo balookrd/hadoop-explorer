@@ -83,6 +83,10 @@
     kerberosEnabled?: boolean;
     principal?: string;
     keytabPath?: string;
+    /** Протокол клиентов к брокерам кластера по топологии: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL */
+    securityProtocol?: string;
+    serviceName?: string;
+    truststoreConfigured?: boolean;
   }
 
   interface DiscoveredTopic {
@@ -189,6 +193,10 @@
   let sourceKeytabPath = $state('');
   let targetPrincipal = $state('kafka-replicator@COMPANY.LOCAL');
   let targetKeytabPath = $state('');
+  let sourceServiceName = $state('kafka');
+  let targetServiceName = $state('kafka');
+  let sourceClusterInfo = $derived(availableClusters.find(c => c.id === selectedSourceClusterId));
+  let targetClusterInfo = $derived(availableClusters.find(c => c.id === selectedTargetClusterId));
 
   // QoS и параллелизм
   let bandwidthLimitMb = $state(50);
@@ -569,6 +577,7 @@
     if (cluster.srType) sourceSrType = cluster.srType;
     if (cluster.principal) sourcePrincipal = cluster.principal;
     if (cluster.keytabPath) sourceKeytabPath = cluster.keytabPath === PROTECTED_VALUE ? '' : cluster.keytabPath;
+    if (cluster.serviceName) sourceServiceName = cluster.serviceName;
     if (cluster.kerberosEnabled !== undefined) enableKerberos = cluster.kerberosEnabled;
   }
 
@@ -578,6 +587,7 @@
     if (cluster.srType) targetSrType = cluster.srType;
     if (cluster.principal) targetPrincipal = cluster.principal;
     if (cluster.keytabPath) targetKeytabPath = cluster.keytabPath === PROTECTED_VALUE ? '' : cluster.keytabPath;
+    if (cluster.serviceName) targetServiceName = cluster.serviceName;
     targetKerberosEnabled = cluster.kerberosEnabled !== undefined ? cluster.kerberosEnabled : null;
   }
 
@@ -722,9 +732,11 @@
       source_kerberos_enabled: enableKerberos,
       source_principal: sourcePrincipal,
       source_keytab_path: sourceKeytabPath.trim() || undefined,
+      source_service_name: sourceServiceName.trim() || 'kafka',
       target_kerberos_enabled: targetKerberosEnabled ?? enableKerberos,
       target_principal: targetPrincipal,
       target_keytab_path: targetKeytabPath.trim() || undefined,
+      target_service_name: targetServiceName.trim() || 'kafka',
       // Лимит суммарный на задачу (оркестратор делит его между агентами); 0 — без лимита
       bandwidth_limit_mb: isAutoBandwidth ? (autoBandwidthMb ?? 0) : Math.max(0, Number(bandwidthLimitMb) || 0),
       start_position: newStartPosition,
@@ -1839,6 +1851,18 @@
                     placeholder="/etc/security/keytabs/kafka-replicator.keytab"
                     class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
+                  <input
+                    type="text"
+                    bind:value={sourceServiceName}
+                    placeholder="kafka"
+                    title="sasl.kerberos.service.name брокеров источника"
+                    class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                  />
+                  {#if sourceClusterInfo?.securityProtocol}
+                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Протокол {sourceClusterInfo.securityProtocol}{sourceClusterInfo.securityProtocol.endsWith('SSL') ? ` · truststore ${sourceClusterInfo.truststoreConfigured ? 'задан' : 'не задан'}` : ''} (топология)
+                    </p>
+                  {/if}
                 </div>
                 <div>
                   <label class="block text-[11px] font-medium text-slate-500 mb-1">Target Principal & Keytab:</label>
@@ -1854,6 +1878,18 @@
                     placeholder="/etc/security/keytabs/kafka-replicator.keytab"
                     class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
+                  <input
+                    type="text"
+                    bind:value={targetServiceName}
+                    placeholder="kafka"
+                    title="sasl.kerberos.service.name брокеров приемника"
+                    class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                  />
+                  {#if targetClusterInfo?.securityProtocol}
+                    <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Протокол {targetClusterInfo.securityProtocol}{targetClusterInfo.securityProtocol.endsWith('SSL') ? ` · truststore ${targetClusterInfo.truststoreConfigured ? 'задан' : 'не задан'}` : ''} (топология)
+                    </p>
+                  {/if}
                 </div>
               </div>
             {/if}
