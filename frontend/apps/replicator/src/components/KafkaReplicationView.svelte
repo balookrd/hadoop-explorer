@@ -184,9 +184,11 @@
   // Kerberos приемника задается своим кластером; null — как у источника
   let targetKerberosEnabled = $state<boolean | null>(null);
   let sourcePrincipal = $state('kafka-replicator@COMPANY.LOCAL');
-  let sourceKeytabPath = $state('/etc/security/keytabs/kafka-replicator.keytab');
+  // Путь keytab не зашит: его подставляет топология кластера, а заданный путь у
+  // не-администратора оркестратор отвергает (403)
+  let sourceKeytabPath = $state('');
   let targetPrincipal = $state('kafka-replicator@COMPANY.LOCAL');
-  let targetKeytabPath = $state('/etc/security/keytabs/kafka-replicator.keytab');
+  let targetKeytabPath = $state('');
 
   // QoS и параллелизм
   let bandwidthLimitMb = $state(50);
@@ -719,10 +721,10 @@
       target_sr_url: targetSrUrl,
       source_kerberos_enabled: enableKerberos,
       source_principal: sourcePrincipal,
-      source_keytab_path: sourceKeytabPath,
+      source_keytab_path: sourceKeytabPath.trim() || undefined,
       target_kerberos_enabled: targetKerberosEnabled ?? enableKerberos,
       target_principal: targetPrincipal,
-      target_keytab_path: targetKeytabPath,
+      target_keytab_path: targetKeytabPath.trim() || undefined,
       // Лимит суммарный на задачу (оркестратор делит его между агентами); 0 — без лимита
       bandwidth_limit_mb: isAutoBandwidth ? (autoBandwidthMb ?? 0) : Math.max(0, Number(bandwidthLimitMb) || 0),
       start_position: newStartPosition,

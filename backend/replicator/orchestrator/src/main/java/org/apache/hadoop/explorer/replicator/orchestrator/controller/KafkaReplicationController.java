@@ -90,9 +90,11 @@ public class KafkaReplicationController {
         UserSession session = getSession();
         boolean isAdmin = session != null && session.systemRole() == Role.ADMIN;
         if (!isAdmin) {
-            // [SEC-05] Запрет задания произвольных путей keytab для не-администраторов
-            if ((request.getSourceKeytabPath() != null && !request.getSourceKeytabPath().isBlank()) ||
-                (request.getTargetKeytabPath() != null && !request.getTargetKeytabPath().isBlank())) {
+            // [SEC-05] Запрет задания произвольных путей keytab для не-администраторов. Путь
+            // keytab этого ЦОД из топологии произвольным не является: интерфейс подставляет его
+            // сам, и отказ на нем закрывал создание задач всем, кроме администраторов
+            if (isCustomKeytab(request.getSourceKeytabPath(), request.getSourceDc())
+                    || isCustomKeytab(request.getTargetKeytabPath(), request.getTargetDc())) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Задание путей к файлам keytab разрешено исключительно администраторам платформы");
             }
@@ -446,6 +448,23 @@ public class KafkaReplicationController {
                 }
             }
         }
+    }
+
+    /** Путь keytab задан и отличается от keytab ЦОД в топологии. */
+    private boolean isCustomKeytab(String keytabPath, String dc) {
+        if (isBlank(keytabPath)) {
+            return false;
+        }
+        if (topologyRegistry != null && dc != null) {
+            for (var c : topologyRegistry.getClusters()) {
+                var cfg = topologyRegistry.getCluster(c.getId()).orElse(null);
+                if (cfg != null && dc.equalsIgnoreCase(cfg.getDcId())
+                        && keytabPath.trim().equals(cfg.getKeytabPath() != null ? cfg.getKeytabPath().trim() : null)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static boolean isBlank(String value) {
