@@ -24,6 +24,14 @@ public class BatchCreateTasksRequest {
     @JsonProperty("last_processed_txid")
     private Long lastProcessedTxid;
 
+    /** Порция дописывается к задачам, заведенным предыдущими порциями того же пула. */
+    @JsonProperty("append")
+    private boolean append;
+
+    /** За этой порцией придут еще: задание запускается по последней. */
+    @JsonProperty("more_chunks")
+    private boolean moreChunks;
+
     public BatchCreateTasksRequest() {}
 
     public BatchCreateTasksRequest(List<TaskCreateItem> tasks) {
@@ -52,4 +60,10 @@ public class BatchCreateTasksRequest {
 
     public Long getLastProcessedTxid() { return lastProcessedTxid; }
     public void setLastProcessedTxid(Long lastProcessedTxid) { this.lastProcessedTxid = lastProcessedTxid; }
+
+    public boolean isAppend() { return append; }
+    public void setAppend(boolean append) { this.append = append; }
+
+    public boolean isMoreChunks() { return moreChunks; }
+    public void setMoreChunks(boolean moreChunks) { this.moreChunks = moreChunks; }
 }

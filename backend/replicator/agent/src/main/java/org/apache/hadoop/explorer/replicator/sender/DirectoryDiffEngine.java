@@ -20,6 +20,12 @@ public class DirectoryDiffEngine {
 
     private static final Logger logger = LoggerFactory.getLogger(DirectoryDiffEngine.class);
 
+    /**
+     * Задач в одном вызове регистрации пула. Каталог таблицы или партиции на миллионы файлов
+     * одним сообщением не проходил ни в лимит gRPC оркестратора (16 МБ), ни в deadline вызова.
+     */
+    static final int TASK_POOL_CHUNK_SIZE = 2000;
+
     private final HadoopFsManager fsManager;
     private final OrchestratorGrpcClient orchestratorClient;
     private final ObjectMapper objectMapper;
@@ -177,7 +183,7 @@ public class DirectoryDiffEngine {
                 ));
             }
 
-            boolean ok = orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, taskItems));
+            boolean ok = sendTaskPool(jobId, taskItems);
             logger.info("Для задания '{}' успешно сформирован и зарегистрирован пул из {} пофайловых задач", jobId, taskItems.size());
             return ok;
         } catch (Exception e) {
@@ -186,6 +192,29 @@ public class DirectoryDiffEngine {
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("FAILED", 0L, 0L, err));
             return false;
         }
+    }
+
+    /**
+     * Регистрация пула порциями: первая заменяет прежние задачи задания, следующие дописываются,
+     * задание запускается по последней. Сбой любой порции — сбой анализа: задание остается
+     * в ANALYZING, и его задачи никто не берет.
+     */
+    boolean sendTaskPool(String jobId, List<TaskCreateItem> taskItems) {
+        if (taskItems.size() <= TASK_POOL_CHUNK_SIZE) {
+            return orchestratorClient.batchCreateTasks(new BatchCreateTasksRequest(jobId, taskItems));
+        }
+        for (int from = 0; from < taskItems.size(); from += TASK_POOL_CHUNK_SIZE) {
+            int to = Math.min(taskItems.size(), from + TASK_POOL_CHUNK_SIZE);
+            BatchCreateTasksRequest chunk = new BatchCreateTasksRequest(jobId, new ArrayList<>(taskItems.subList(from, to)));
+            chunk.setAppend(from > 0);
+            chunk.setMoreChunks(to < taskItems.size());
+            if (!orchestratorClient.batchCreateTasks(chunk)) {
+                logger.error("Задание '{}': оркестратор не принял порцию пула задач [{}..{}) из {}",
+                        jobId, from, to, taskItems.size());
+                return false;
+            }
+        }
+        return true;
     }
 
     public DirectoryManifestResponse fetchRemoteManifest(ManagedChannel channel, String targetDir, JobDto job) {

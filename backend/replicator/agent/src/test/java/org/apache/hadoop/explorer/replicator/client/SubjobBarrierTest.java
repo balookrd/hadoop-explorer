@@ -73,4 +73,15 @@ class SubjobBarrierTest {
 
         assertFalse(client.awaitSubjobsCompletion(List.of("s1", "s2"), 30));
     }
+
+    @Test
+    @DisplayName("Пауза или fencing прерывают ожидание сразу, а не по таймауту барьера")
+    void cancellationStopsWaitingBeforeTimeout() {
+        OrchestratorGrpcClient client = scripted(n -> Map.of("s1", job("s1", "RUNNING")));
+        AtomicInteger checks = new AtomicInteger();
+
+        long started = System.currentTimeMillis();
+        assertFalse(client.awaitSubjobsCompletion(List.of("s1"), 3600, () -> checks.incrementAndGet() >= 2));
+        assertTrue(System.currentTimeMillis() - started < 10_000, "ожидание должно прерваться за несколько секунд");
+    }
 }

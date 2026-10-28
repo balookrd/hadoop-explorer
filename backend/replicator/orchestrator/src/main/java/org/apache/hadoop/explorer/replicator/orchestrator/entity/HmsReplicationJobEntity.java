@@ -95,7 +95,7 @@ public class HmsReplicationJobEntity {
     @Column(name = "replicated_partitions", nullable = false)
     private int replicatedPartitions = 0;
 
-    @Column(name = "message")
+    @Column(name = "message", length = ColumnText.MESSAGE_LENGTH)
     private String message;
 
     @Column(name = "created_by", nullable = false)
@@ -268,7 +268,7 @@ public class HmsReplicationJobEntity {
     public int getReplicatedPartitions() { return replicatedPartitions; }
     public void setReplicatedPartitions(int replicatedPartitions) { this.replicatedPartitions = replicatedPartitions; }
     public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
+    public void setMessage(String message) { this.message = ColumnText.message(message); }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public String getExecutionPrincipal() { return executionPrincipal; }

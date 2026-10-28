@@ -103,4 +103,60 @@ class DirectoryDiffEngineTest {
         assertFalse(engine.analyzeAndCreateTaskPool(missingSourceJob("HDFS"), null));
         verify(orchestrator).updateJobProgress(eq("job-1"), argThat((UpdateJobRequest r) -> "FAILED".equals(r.getStatus())));
     }
+
+    @Test
+    @DisplayName("sendTaskPool: пул больше порции уходит частями, первая заменяет, остальные дописываются")
+    void testSendTaskPoolInChunks() {
+        OrchestratorGrpcClient client = mock(OrchestratorGrpcClient.class);
+        when(client.batchCreateTasks(any(BatchCreateTasksRequest.class))).thenReturn(true);
+        DirectoryDiffEngine engine = new DirectoryDiffEngine(null, client, objectMapper, 0, 0, 1);
+
+        int total = DirectoryDiffEngine.TASK_POOL_CHUNK_SIZE * 2 + 5;
+        List<TaskCreateItem> items = new ArrayList<>();
+        for (int i = 0; i < total; i++) {
+            items.add(new TaskCreateItem("t" + i, "/src/f" + i, "/dst/f" + i, 10L, i % 2 == 0));
+        }
+        assertTrue(engine.sendTaskPool("job-chunks", items));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(BatchCreateTasksRequest.class);
+        verify(client, times(3)).batchCreateTasks(captor.capture());
+        List<BatchCreateTasksRequest> sent = captor.getAllValues();
+        assertFalse(sent.get(0).isAppend());
+        assertTrue(sent.get(0).isMoreChunks());
+        assertTrue(sent.get(1).isAppend());
+        assertTrue(sent.get(1).isMoreChunks());
+        assertTrue(sent.get(2).isAppend());
+        assertFalse(sent.get(2).isMoreChunks());
+        assertEquals(total, sent.stream().mapToInt(r -> r.getTasks().size()).sum());
+        assertEquals(5, sent.get(2).getTasks().size());
+    }
+
+    @Test
+    @DisplayName("sendTaskPool: отказ порции — отказ всего пула, следующие порции не уходят")
+    void testSendTaskPoolStopsOnRejectedChunk() {
+        OrchestratorGrpcClient client = mock(OrchestratorGrpcClient.class);
+        when(client.batchCreateTasks(any(BatchCreateTasksRequest.class))).thenReturn(true, false);
+        DirectoryDiffEngine engine = new DirectoryDiffEngine(null, client, objectMapper, 0, 0, 1);
+
+        List<TaskCreateItem> items = new ArrayList<>();
+        for (int i = 0; i < DirectoryDiffEngine.TASK_POOL_CHUNK_SIZE * 3; i++) {
+            items.add(new TaskCreateItem("t" + i, "/src/f" + i, "/dst/f" + i, 10L, false));
+        }
+        assertFalse(engine.sendTaskPool("job-rejected", items));
+        verify(client, times(2)).batchCreateTasks(any(BatchCreateTasksRequest.class));
+    }
+
+    @Test
+    @DisplayName("sendTaskPool: небольшой пул уходит одним вызовом без признаков порций")
+    void testSendSmallTaskPoolInOneCall() {
+        OrchestratorGrpcClient client = mock(OrchestratorGrpcClient.class);
+        when(client.batchCreateTasks(any(BatchCreateTasksRequest.class))).thenReturn(true);
+        DirectoryDiffEngine engine = new DirectoryDiffEngine(null, client, objectMapper, 0, 0, 1);
+
+        assertTrue(engine.sendTaskPool("job-small", List.of(new TaskCreateItem("t", "/s", "/d", 1L, false))));
+        var captor = org.mockito.ArgumentCaptor.forClass(BatchCreateTasksRequest.class);
+        verify(client).batchCreateTasks(captor.capture());
+        assertFalse(captor.getValue().isAppend());
+        assertFalse(captor.getValue().isMoreChunks());
+    }
 }

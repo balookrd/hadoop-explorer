@@ -170,6 +170,9 @@ message TaskCreateItemProto {
   int64 file_size = 3;
   string task_type = 4;
   string manifest_json = 5;
+  // File already present on the target with the same size: the task is registered as SKIPPED
+  // instead of being copied again (resume and rebootstrap of petabyte schemas)
+  bool skipped = 6;
 }
 
 message BatchCreateTasksRequest {
@@ -177,6 +180,11 @@ message BatchCreateTasksRequest {
   repeated TaskCreateItemProto tasks = 2;
   int64 epoch = 3;
   int64 last_processed_txid = 4;
+  // Large pools are sent in chunks: the first chunk replaces earlier tasks of the job,
+  // later chunks (append=true) add to them, and the job starts once the chunk with
+  // more_chunks=false arrives. Defaults keep the single-request behaviour of older agents.
+  bool append = 5;
+  bool more_chunks = 6;
 }
 
 message BatchCreateTasksResponse {

@@ -33,7 +33,7 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
 
     @org.springframework.data.jpa.repository.Modifying
     @Query("UPDATE JobEntity j SET j.status = 'CANCELLED' WHERE j.parentJobId = :parentJobId "
-            + "AND upper(j.status) IN ('QUEUED', 'RUNNING', 'SCHEDULED', 'PENDING')")
+            + "AND upper(j.status) IN ('QUEUED', 'ANALYZING', 'RUNNING', 'SCHEDULED', 'PENDING')")
     int cancelActiveSubjobs(@Param("parentJobId") String parentJobId);
 
     @org.springframework.data.jpa.repository.Modifying
@@ -160,6 +160,33 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
             j.message = :message
         WHERE j.id = :jobId
           AND j.status = 'QUEUED'
+          AND NOT EXISTS (SELECT h.id FROM HmsReplicationJobEntity h
+                          WHERE h.id = j.parentJobId AND h.status IN ('PAUSED', 'STOPPED'))
     """)
     int claimJobForAnalysis(@Param("jobId") String jobId, @Param("message") String message, @Param("now") Instant now);
+
+    /**
+     * Родительская HMS-задача на паузе или остановлена: ее подзадачи данных не анализируются и
+     * не раздаются. Пауза снимала только аренду задачи метаданных, а копирование тысяч уже
+     * заведенных партиций продолжало грузить кластеры.
+     */
+    @Query("SELECT count(h) > 0 FROM HmsReplicationJobEntity h "
+            + "WHERE h.id = :parentJobId AND h.status IN ('PAUSED', 'STOPPED')")
+    boolean isHmsParentHalted(@Param("parentJobId") String parentJobId);
+
+    /**
+     * RUNNING-задания, у которых все объекты учтены и не осталось активных задач, — кандидаты на
+     * финализацию. Сверка раньше грузила все RUNNING-задания раз в секунду и проверяла каждое
+     * отдельным запросом, а при подзадаче на партицию их сотни тысяч.
+     */
+    @Query("""
+        SELECT j.id FROM JobEntity j
+        WHERE j.status = 'RUNNING'
+          AND (j.syncMode IS NULL OR j.syncMode <> 'STREAMING_INOTIFY')
+          AND j.totalObjects >= 0
+          AND j.transferredObjects + j.skippedObjects + j.failedObjects >= j.totalObjects
+          AND NOT EXISTS (SELECT t.id FROM TaskEntity t
+                          WHERE t.jobId = j.id AND t.status IN ('QUEUED', 'RUNNING'))
+    """)
+    List<String> findRunningJobsReadyToFinalize(org.springframework.data.domain.Pageable pageable);
 }

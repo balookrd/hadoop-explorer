@@ -61,9 +61,10 @@ for i in $(seq 1 "$SWARM_JOBS"); do
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${ORCHESTRATOR_URL}/api/v1/hms/jobs" \
     -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
     -d "{\"source_cluster_id\":\"swarm-src\",\"target_cluster_id\":\"swarm-dst\",\"source_db\":\"swarm_db_${i}\",\"target_db\":\"swarm_db_${i}\",\"enable_hdfs_streaming\":false}")
-  [ "$code" = "201" ] && CREATED=$((CREATED + 1))
+  # 409 — задача роя осталась от прошлого прогона на том же стенде (SKIP_UP=1): она тоже в работе
+  { [ "$code" = "201" ] || [ "$code" = "409" ]; } && CREATED=$((CREATED + 1))
 done
-log "Создано задач роя: ${CREATED}"
+log "Задач роя в работе: ${CREATED}"
 
 LOAD_RC=0
 if [ "${WORKLOAD:-load}" = "insert" ]; then

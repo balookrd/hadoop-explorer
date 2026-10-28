@@ -289,7 +289,9 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         protoItem.getSourcePath(),
                         protoItem.getTargetPath(),
                         protoItem.getFileSize(),
-                        false,
+                        // Без признака пропуска уже скопированные файлы ставились в очередь заново:
+                        // продолжение и повторный bootstrap перекачивали всю схему
+                        protoItem.getSkipped(),
                         3,
                         protoItem.getTaskType().isBlank() ? "FILE" : protoItem.getTaskType(),
                         1,
@@ -301,6 +303,8 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
             Long lastTxid = request.getLastProcessedTxid() > 0 ? request.getLastProcessedTxid() : null;
             org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest domainReq =
                     new org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest(request.getJobId(), items, epoch, lastTxid);
+            domainReq.setAppend(request.getAppend());
+            domainReq.setMoreChunks(request.getMoreChunks());
             boolean ok = taskService.batchCreateTasks(request.getJobId(), domainReq);
 
             boolean fenced = false;
@@ -642,13 +646,14 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                         // настоящую и выглядел бы откатом
                         request.getLastEventId() != 0L ? request.getLastEventId() : null,
                         request.getBootstrapEventId() != 0L ? request.getBootstrapEventId() : null,
-                        request.getEventLag(),
+                        // Отчет без статуса — heartbeat агента, ждущего данные: отставания он не знает
+                        request.getStatus().isEmpty() ? null : request.getEventLag(),
                         request.getMessage(),
                         domainEvents,
                         request.getAgentId().isEmpty() ? null : request.getAgentId(),
                         request.getBootstrapCheckpoint().isEmpty() ? null : request.getBootstrapCheckpoint()
                 );
-                accepted = hmsCoordinatorService.updateJobProgress(request.getJobId(), domainReq);
+                accepted = updateHmsProgressWithRetry(request.getJobId(), domainReq);
             }
 
             // Отказ должен дойти до агента: по нему он прекращает работу над отобранной задачей
@@ -657,6 +662,31 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
         } catch (Exception e) {
             log.error("Ошибка gRPC reportHmsProgress для job '{}': {}", request.getJobId(), e.getMessage(), e);
             responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    /** Попыток применить отчет HMS при конфликте версий задачи. */
+    private static final int HMS_PROGRESS_ATTEMPTS = 4;
+
+    /**
+     * Отчет о прогрессе с повтором при конфликте версий.
+     *
+     * <p>Агент продлевает аренду опросом раз в несколько секунд условным UPDATE с ростом версии, а
+     * отчет сохраняет задачу целиком. Пересечение давало optimistic lock, отчет откатывался вместе
+     * с позицией CDC, журналом событий и DLQ, а агент принимал ошибку за обрыв связи и считал отчет
+     * доставленным. Каждая попытка — новая транзакция со свежим чтением задачи, поэтому fencing
+     * (пауза, смена владельца) проверяется заново.
+     */
+    private boolean updateHmsProgressWithRetry(String jobId, HmsProgressReportRequest report) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return hmsCoordinatorService.updateJobProgress(jobId, report);
+            } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+                if (attempt >= HMS_PROGRESS_ATTEMPTS) {
+                    throw e;
+                }
+                log.debug("Конфликт версий отчета HMS-задачи '{}', попытка {}: {}", jobId, attempt, e.getMessage());
+            }
         }
     }
 

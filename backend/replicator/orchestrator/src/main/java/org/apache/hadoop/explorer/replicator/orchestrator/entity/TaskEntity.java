@@ -62,10 +62,10 @@ public class TaskEntity implements org.springframework.data.domain.Persistable<S
     @Column(name = "run_id", length = 64)
     private String runId;
 
-    @Column(name = "source_path", nullable = false)
+    @Column(name = "source_path", nullable = false, length = ColumnText.PATH_LENGTH)
     private String sourcePath;
 
-    @Column(name = "target_path", nullable = false)
+    @Column(name = "target_path", nullable = false, length = ColumnText.PATH_LENGTH)
     private String targetPath;
 
     @Column(name = "file_size", nullable = false)
@@ -80,7 +80,7 @@ public class TaskEntity implements org.springframework.data.domain.Persistable<S
     @Column(name = "checksum")
     private String checksum;
 
-    @Column(name = "error_message")
+    @Column(name = "error_message", length = ColumnText.MESSAGE_LENGTH)
     private String errorMessage;
 
     @Column(name = "retry_count", nullable = false)
@@ -127,7 +127,7 @@ public class TaskEntity implements org.springframework.data.domain.Persistable<S
     public String getChecksum() { return checksum; }
     public void setChecksum(String checksum) { this.checksum = checksum; }
     public String getErrorMessage() { return errorMessage; }
-    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = ColumnText.message(errorMessage); }
     public int getRetryCount() { return retryCount; }
     public void setRetryCount(int retryCount) { this.retryCount = retryCount; }
     public int getMaxRetries() { return maxRetries; }

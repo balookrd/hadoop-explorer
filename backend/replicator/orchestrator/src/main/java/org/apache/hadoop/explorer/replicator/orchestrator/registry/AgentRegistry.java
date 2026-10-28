@@ -467,7 +467,12 @@ public class AgentRegistry {
                 agentRepository.saveAll(toSave);
                 return toSave.size();
             } catch (Exception e) {
-                log.warn("Ошибка фонового сброса dirty-агентов в БД: {}", e.getMessage());
+                // Пачка вернется в следующий сброс: иначе соседний узел HA видел бы устаревший
+                // heartbeat и через порог OFFLINE запускал массовый failover живых агентов
+                for (AgentEntity entity : toSave) {
+                    dirtyAgentIds.add(entity.getAgentId());
+                }
+                log.warn("Ошибка фонового сброса dirty-агентов в БД, повтор в следующем цикле: {}", e.getMessage());
             }
         }
         return 0;
@@ -579,6 +584,22 @@ public class AgentRegistry {
                     && isLive(a)
                     && ("all".equalsIgnoreCase(a.getMode()) || "hms".equalsIgnoreCase(a.getMode())))
             .toList();
+    }
+
+    /**
+     * Живой HMS-агент кластера, закрепленный за ключом (id задачи): задачи раскладываются по
+     * агентам приемника, а не идут все через первого попавшегося. Пока состав агентов не
+     * меняется, задача получает одного и того же агента.
+     */
+    public Optional<AgentEntry> getLiveHmsAgentForCluster(String clusterId, String affinityKey) {
+        List<AgentEntry> live = getLiveHmsAgentsForCluster(clusterId).stream()
+                .sorted(java.util.Comparator.comparing(AgentEntry::getAgentId))
+                .toList();
+        if (live.isEmpty()) {
+            return Optional.empty();
+        }
+        int index = affinityKey == null ? 0 : Math.floorMod(affinityKey.hashCode(), live.size());
+        return Optional.of(live.get(index));
     }
 
     public Optional<AgentEntry> getLiveHmsAgentForCluster(String clusterId) {

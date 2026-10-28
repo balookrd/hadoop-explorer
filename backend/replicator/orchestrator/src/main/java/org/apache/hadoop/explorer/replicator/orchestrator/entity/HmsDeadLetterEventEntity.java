@@ -34,7 +34,7 @@ public class HmsDeadLetterEventEntity {
     @Column(name = "table_name", length = 128)
     private String tableName;
 
-    @Column(name = "partition_name", length = 256)
+    @Column(name = "partition_name", length = ColumnText.PARTITION_NAME_LENGTH)
     private String partitionName;
 
     @Column(name = "payload", columnDefinition = "TEXT")
@@ -93,7 +93,7 @@ public class HmsDeadLetterEventEntity {
     public void setTableName(String tableName) { this.tableName = tableName; }
 
     public String getPartitionName() { return partitionName; }
-    public void setPartitionName(String partitionName) { this.partitionName = partitionName; }
+    public void setPartitionName(String partitionName) { this.partitionName = ColumnText.fit(partitionName, ColumnText.PARTITION_NAME_LENGTH); }
 
     public String getPayload() { return payload; }
     public void setPayload(String payload) { this.payload = payload; }

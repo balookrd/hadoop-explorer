@@ -24,7 +24,8 @@ public class HmsReplicationController {
 
     /** Статусы заданий метастора: по ним считаются чипы интерфейса. */
     private static final List<String> HMS_JOB_STATUSES =
-            List.of("BOOTSTRAPPING", "ACTIVE", "PAUSED", "ERROR");
+            List.of("QUEUED", "WAITING_FOR_AGENTS", "BOOTSTRAPPING", "ACTIVE", "PAUSED", "ERROR",
+                    "FAILED", "STOPPED");
 
     private static final int DEFAULT_JOBS_PAGE_SIZE = 100;
     private static final int MAX_JOBS_PAGE_SIZE = 1000;

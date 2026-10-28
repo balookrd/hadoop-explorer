@@ -556,6 +556,16 @@ public class OrchestratorGrpcClient implements Closeable {
      * @return {@code true}, если все подзадачи завершились успешно до истечения таймаута
      */
     public boolean awaitSubjobsCompletion(Collection<String> subjobIds, long timeoutSeconds) {
+        return awaitSubjobsCompletion(subjobIds, timeoutSeconds, () -> false);
+    }
+
+    /**
+     * Ожидание с отменой: {@code cancelled} проверяется на каждом круге опроса. Задачу, которую
+     * поставили на паузу или отобрали, поток не ждет до таймаута барьера (часы), держа ее место
+     * в пуле: после возобновления она не запустилась бы, пока ожидание не истечет.
+     */
+    public boolean awaitSubjobsCompletion(Collection<String> subjobIds, long timeoutSeconds,
+                                          java.util.function.BooleanSupplier cancelled) {
         Set<String> pending = new HashSet<>();
         for (String id : subjobIds) {
             if (id != null && !id.isBlank()) {
@@ -589,6 +599,10 @@ public class OrchestratorGrpcClient implements Closeable {
             }
             if (pending.isEmpty()) {
                 break;
+            }
+            if (cancelled.getAsBoolean()) {
+                log.info("Data-First Barrier: ожидание подзадач {} отменено (пауза, остановка или fencing)", pending);
+                return false;
             }
             if (System.currentTimeMillis() + sleepMs > deadline) {
                 log.warn("Data-First Barrier: истек таймаут ожидания HDFS подзадач {} ({} с)", pending, timeoutSeconds);
@@ -676,7 +690,9 @@ public class OrchestratorGrpcClient implements Closeable {
     public boolean batchCreateTasks(org.apache.hadoop.explorer.replicator.model.BatchCreateTasksRequest request) {
         try {
             var builder = org.apache.hadoop.explorer.replicator.generated.control.BatchCreateTasksRequest.newBuilder()
-                    .setJobId(request.getJobId() != null ? request.getJobId() : "");
+                    .setJobId(request.getJobId() != null ? request.getJobId() : "")
+                    .setAppend(request.isAppend())
+                    .setMoreChunks(request.isMoreChunks());
 
             if (request.getTasks() != null) {
                 for (TaskCreateItem item : request.getTasks()) {
@@ -686,6 +702,7 @@ public class OrchestratorGrpcClient implements Closeable {
                             .setFileSize(item.getFileSize())
                             .setTaskType(item.getTaskType() != null ? item.getTaskType() : "FILE")
                             .setManifestJson(item.getBundleManifest() != null ? item.getBundleManifest() : "")
+                            .setSkipped(item.isSkipped())
                             .build());
                 }
             }

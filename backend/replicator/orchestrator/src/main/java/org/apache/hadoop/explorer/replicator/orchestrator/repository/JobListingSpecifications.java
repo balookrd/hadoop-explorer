@@ -97,7 +97,12 @@ public final class JobListingSpecifications {
         if (status == null || status.isBlank()) {
             return null;
         }
-        Predicate byStatus = cb.equal(cb.upper(root.get("status")), status);
+        // Равенство по самой колонке, а не upper(status): функция над колонкой исключала индекс
+        // idx_jobs_status, и каждый опрос анализатора каждого агента вместе с count страницы читал
+        // всю таблицу заданий — при подзадаче на партицию это миллионы строк. Статусы пишутся
+        // в верхнем регистре; нижний оставлен для строк, записанных до этого правила
+        Path<String> column = root.get("status");
+        Predicate byStatus = cb.or(cb.equal(column, status), cb.equal(column, status.toLowerCase()));
         if (STREAMING_STATUS.equals(status)) {
             // Потоковое задание может стоять в статусе RUNNING: в интерфейсе это один фильтр
             return cb.or(byStatus, cb.equal(cb.upper(root.get("syncMode")), STREAMING_SYNC_MODE));

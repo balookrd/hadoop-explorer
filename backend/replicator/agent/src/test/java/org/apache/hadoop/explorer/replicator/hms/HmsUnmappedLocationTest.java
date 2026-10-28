@@ -66,7 +66,8 @@ class HmsUnmappedLocationTest {
 
         OrchestratorGrpcClient orchestratorClient = new OrchestratorGrpcClient() {
             @Override
-            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
+            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds,
+                                                  java.util.function.BooleanSupplier cancelled) {
                 // Копирование данных в этих тестах считается успешным: проверяется метаданная часть
                 return true;
             }

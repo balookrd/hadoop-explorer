@@ -58,6 +58,8 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
               WHERE (j.status = 'RUNNING' OR j.status = 'STREAMING')
                 AND (CAST(:clusterId AS string) IS NULL
                      OR LOWER(j.sourceClusterId) = LOWER(CAST(:clusterId AS string)))
+                AND NOT EXISTS (SELECT h.id FROM HmsReplicationJobEntity h
+                                WHERE h.id = j.parentJobId AND h.status IN ('PAUSED', 'STOPPED'))
           )
         ORDER BY t.updatedAt ASC
     """)
@@ -76,6 +78,18 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     @Modifying
     @Query("DELETE FROM TaskEntity t WHERE t.jobId = :jobId")
     void deleteByJobId(@Param("jobId") String jobId);
+
+    /**
+     * Итоги пула задач задания: число задач, объектов и байт, из них пропущенных.
+     *
+     * <p>Пул, пришедший порциями, считается по базе, а не суммой порций: повтор порции после
+     * обрыва связи перезаписывает ее задачи, а сумма учла бы их дважды, и задание не завершилось бы.
+     */
+    @Query("SELECT count(t), coalesce(sum(t.fileCount), 0), coalesce(sum(t.fileSize), 0), "
+            + "coalesce(sum(case when t.status = 'SKIPPED' then t.fileCount else 0 end), 0), "
+            + "coalesce(sum(case when t.status = 'SKIPPED' then t.fileSize else 0 end), 0) "
+            + "FROM TaskEntity t WHERE t.jobId = :jobId")
+    List<Object[]> summarizePool(@Param("jobId") String jobId);
 
     @Modifying
     @Query("DELETE FROM TaskEntity t WHERE t.jobId IN (SELECT j.id FROM JobEntity j WHERE j.parentJobId = :parentJobId)")

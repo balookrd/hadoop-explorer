@@ -577,19 +577,23 @@ public class HmsTaskExecutor implements Closeable {
         // 2. Трансляция пути корня таблицы с учетом федерации HDFS
         var rewrite = rewriteLocation(table.sdLocation(), job, "таблицы " + tblName);
 
-        // 3. Создание 1 корневой саб-джобы HDFS передачи файлов через Оркестратор!
-        String tableSubjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
-                rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
+        // 3. Данные непартиционированной таблицы — одна подзадача на ее каталог. Партиционированная
+        // копируется подзадачами по партициям (ниже, порциями вместе с их DDL): одна подзадача на
+        // корень таблицы в петабайты листала все ее файлы разом, а барьер ждал копии всей таблицы
+        // до первой партиции и падал по таймауту, роняя bootstrap
+        String tableSubjobId = table.isPartitioned() ? null
+                : orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(), rewrite.targetUri(),
+                        rewrite.sourceClusterId(), rewrite.targetClusterId(), job.executionPrincipal());
 
         // Data-First Consistency Barrier: ожидание физической готовности данных в HDFS перед DDL в целевой HMS
-        if (dataBarrierEnabled && tableSubjobId == null) {
+        if (dataBarrierEnabled && !table.isPartitioned() && tableSubjobId == null) {
             // Без подзадачи проверять нечего: DDL без данных — ровно то, от чего барьер защищает
             throw new RuntimeException(String.format(
                     "Data-First Barrier: оркестратор не создал подзадачу копирования данных таблицы '%s'. DDL отменен.",
                     tblName));
         }
-        if (dataBarrierEnabled) {
-            boolean dataReady = orchestratorClient.awaitSubjobCompletion(tableSubjobId, dataBarrierTimeoutSeconds);
+        if (dataBarrierEnabled && tableSubjobId != null) {
+            boolean dataReady = awaitData(job, List.of(tableSubjobId), false);
             if (!dataReady) {
                 throw new RuntimeException(String.format(
                         "Data-First Barrier: HDFS подзадача копирования данных таблицы '%s' (%s) не завершена вовремя. DDL отменен.",
@@ -650,9 +654,9 @@ public class HmsTaskExecutor implements Closeable {
 
                     for (HmsPartitionDto part : chunk) {
                         var partRewrite = rewriteLocation(part.location(), job, "партиции таблицы " + tblName);
-                        String partSubjobId = tableSubjobId;
+                        String partSubjobId = null;
 
-                        if (!isLocationWithinTable(part.location(), tableBaseLocation)) {
+                        if (part.location() != null && !part.location().isBlank()) {
                             partSubjobId = orchestratorClient.createHdfsSubjob(job.id(), partRewrite.sourceUri(),
                                     partRewrite.targetUri(), partRewrite.sourceClusterId(), partRewrite.targetClusterId(), job.executionPrincipal());
                             if (dataBarrierEnabled && partSubjobId == null) {
@@ -677,14 +681,14 @@ public class HmsTaskExecutor implements Closeable {
                     }
 
                     if (dataBarrierEnabled && !chunkSubjobIds.isEmpty()
-                            && !orchestratorClient.awaitSubjobsCompletion(chunkSubjobIds, dataBarrierTimeoutSeconds)) {
+                            && !awaitData(job, chunkSubjobIds, false)) {
                         throw new RuntimeException(String.format(
                                 "Data-First Barrier: копирование данных %d партиций таблицы %s не завершено успешно. DDL отменен.",
                                 chunkSubjobIds.size(), tblName));
                     }
 
                     if (!targetChunk.isEmpty()) {
-                        var chunkResp = sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, targetChunk, job.executionPrincipal());
+                        var chunkResp = applyPartitionChunkWithRetry(sender, job, tblName, targetChunk);
                         if (!chunkResp.getSuccess()) {
                             throw new RuntimeException("Целевой агент вернул ошибку при пакетной вставке партиций: " + chunkResp.getMessage());
                         }
@@ -849,6 +853,13 @@ public class HmsTaskExecutor implements Closeable {
                     lastCommittedEventId = event.eventId();
                     continue;
                 }
+                // Фильтр таблиц задачи действует и в CDC, а не только в bootstrap: иначе события
+                // исключенных таблиц переносились с данными, а DROP_TABLE исключенной таблицы
+                // удалял на приемнике одноименную
+                if (!isEventOfIncludedTable(event, job.tableIncludePattern())) {
+                    lastCommittedEventId = event.eventId();
+                    continue;
+                }
 
                 String tbl = event.tableName();
                 String eventType = event.eventType();
@@ -860,7 +871,14 @@ public class HmsTaskExecutor implements Closeable {
                     // 200k партиций повторное чтение удваивало нагрузку на метастор источника
                     PrefetchedReads pre = prefetch.readsByEvent().get(event);
                     Optional<HmsTableDto> optTable = pre != null ? pre.table() : hmsClient.getTable(job.sourceDbName(), tbl);
-                    if (optTable.isPresent()) {
+                    var partCheck = optTable.map(tableFilter::evaluate).orElse(null);
+                    if (partCheck != null && !partCheck.supported()) {
+                        // Партиции ACID-таблиц не переносятся, как и сама таблица: без проверки каждое
+                        // событие такой партиции (на HDP 3.1 managed-таблицы ACID по умолчанию) шло в
+                        // повторы и DLQ, потому что таблицы на приемнике нет
+                        eventLog.add(new HmsEventReportDto(event.eventId(), eventType, tbl, null,
+                                optTable.get().sdLocation(), null, null, "SKIPPED_ACID", partCheck.reason()));
+                    } else if (optTable.isPresent()) {
                         List<List<String>> targetPartVals = extractPartitionValuesFromEvent(event);
                         List<HmsPartitionDto> partsToSync = new ArrayList<>();
 
@@ -894,7 +912,7 @@ public class HmsTaskExecutor implements Closeable {
                             }
 
                             if (dataBarrierEnabled && !dataAlreadyCopied) {
-                                boolean dataOk = orchestratorClient.awaitSubjobCompletion(subjobId, dataBarrierTimeoutSeconds);
+                                boolean dataOk = awaitData(job, List.of(subjobId), true);
                                 if (!dataOk) {
                                     eventSuccess = false;
                                     failureReason = "Data-First Barrier: HDFS подзадача копирования партиции " + subjobId + " не завершена вовремя";
@@ -926,11 +944,15 @@ public class HmsTaskExecutor implements Closeable {
                         var check = tableFilter.evaluate(table);
                         if (check.supported()) {
                             var rewrite = rewriteLocation(table.sdLocation(), job, "таблицы " + tbl);
-                            String subjobId = orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(),
-                                    rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId(), job.executionPrincipal());
+                            // Данные партиционированной таблицы приходят событиями ADD_PARTITION, у каждой
+                            // партиции своя подзадача. Копия корня здесь дублировала их: при догонке
+                            // журнала после паузы большая таблица копировалась бы дважды
+                            String subjobId = table.isPartitioned() ? null
+                                    : orchestratorClient.createHdfsSubjob(job.id(), rewrite.sourceUri(),
+                                            rewrite.targetUri(), job.sourceClusterId(), job.targetClusterId(), job.executionPrincipal());
 
                             if (dataBarrierEnabled && subjobId != null) {
-                                boolean dataOk = orchestratorClient.awaitSubjobCompletion(subjobId, dataBarrierTimeoutSeconds);
+                                boolean dataOk = awaitData(job, List.of(subjobId), true);
                                 if (!dataOk) {
                                     eventSuccess = false;
                                     failureReason = "Data-First Barrier: HDFS подзадача данных таблицы " + subjobId + " не завершена вовремя";
@@ -1144,7 +1166,8 @@ public class HmsTaskExecutor implements Closeable {
         for (HmsNotificationEventDto event : events) {
             boolean partitionEvent = "ADD_PARTITION".equalsIgnoreCase(event.eventType())
                     || "ALTER_PARTITION".equalsIgnoreCase(event.eventType());
-            if (!partitionEvent || event.dbName() == null || !event.dbName().equalsIgnoreCase(job.sourceDbName())) {
+            if (!partitionEvent || event.dbName() == null || !event.dbName().equalsIgnoreCase(job.sourceDbName())
+                    || !matchesPattern(event.tableName(), job.tableIncludePattern())) {
                 continue;
             }
             try {
@@ -1180,7 +1203,7 @@ public class HmsTaskExecutor implements Closeable {
         if (subjobsBySource.isEmpty()) {
             return new Prefetch(Map.of(), reads);
         }
-        boolean allCopied = orchestratorClient.awaitSubjobsCompletion(subjobsBySource.values(), dataBarrierTimeoutSeconds);
+        boolean allCopied = awaitData(job, subjobsBySource.values(), true);
         return new Prefetch(allCopied ? subjobsBySource : Map.of(), reads);
     }
 
@@ -1252,7 +1275,7 @@ public class HmsTaskExecutor implements Closeable {
             if (subjobId == null) {
                 return "Data-First Barrier: оркестратор не создал подзадачу копирования для INSERT в " + rewrite.sourceUri();
             }
-            if (!orchestratorClient.awaitSubjobsCompletion(List.of(subjobId), dataBarrierTimeoutSeconds)) {
+            if (!awaitData(job, List.of(subjobId), true)) {
                 return "Data-First Barrier: копирование данных INSERT (" + subjobId + ") не завершено успешно";
             }
         }
@@ -1383,13 +1406,105 @@ public class HmsTaskExecutor implements Closeable {
         return cleanPart.startsWith(cleanTable + "/");
     }
 
+    /** Паузы между повторами порции партиций bootstrap при транзиентном сбое связи с приемником. */
+    private static final long[] PARTITION_CHUNK_RETRY_DELAYS_MS = {5_000L, 30_000L};
+
+    /**
+     * Порция партиций bootstrap с повтором при транзиентном сбое gRPC (deadline, недоступность).
+     *
+     * <p>Добавление партиций идемпотентно (add_partitions с ifNotExists, затем alter), поэтому
+     * повтор безопасен. Без него один таймаут нагруженного метастора приемника ронял таблицу,
+     * а с ней многодневный bootstrap схемы.
+     */
+    private org.apache.hadoop.explorer.replicator.generated.HmsOperationResponse applyPartitionChunkWithRetry(
+            HmsPipelineSender sender, HmsPendingJobDto job, String tblName, List<HmsPartitionDto> chunk) {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return sender.applyPartitionBatch(job.id(), job.targetDbName(), tblName, chunk, job.executionPrincipal());
+            } catch (io.grpc.StatusRuntimeException e) {
+                var code = e.getStatus().getCode();
+                boolean transientFailure = code == io.grpc.Status.Code.UNAVAILABLE
+                        || code == io.grpc.Status.Code.DEADLINE_EXCEEDED
+                        || code == io.grpc.Status.Code.RESOURCE_EXHAUSTED;
+                AtomicBoolean fenced = jobFencedFlags.get(job.id());
+                if (!transientFailure || attempt >= PARTITION_CHUNK_RETRY_DELAYS_MS.length
+                        || !running.get() || (fenced != null && fenced.get())) {
+                    throw e;
+                }
+                log.warn("[HmsTaskExecutor] Порция из {} партиций таблицы {} задачи {}: {} — повтор через {} мс",
+                        chunk.size(), tblName, job.id(), code, PARTITION_CHUNK_RETRY_DELAYS_MS[attempt]);
+                try {
+                    Thread.sleep(PARTITION_CHUNK_RETRY_DELAYS_MS[attempt]);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /** Как часто ожидание данных в CDC подтверждает аренду: у CDC нет своего heartbeat, как у bootstrap. */
+    private static final long CDC_BARRIER_HEARTBEAT_MS = 30_000L;
+
+    /**
+     * Ожидание подзадач данных барьера, прерываемое паузой, остановкой и fencing.
+     *
+     * <p>Bootstrap узнает об отказе оркестратора из своего heartbeat. CDC, ожидающий копию, сам
+     * раз в 30 с шлет отчет без полей: оркестратор отклоняет его у задачи на паузе или отобранной,
+     * и ожидание прекращается. Прерванное ожидание — не сбой данных: оно бросает
+     * {@link OrchestratorGrpcClient.SubjobRejectedException}, и событие не уходит в повтор и DLQ.
+     */
+    private boolean awaitData(HmsPendingJobDto job, Collection<String> subjobIds, boolean cdcHeartbeat) {
+        long[] nextHeartbeat = {System.currentTimeMillis() + CDC_BARRIER_HEARTBEAT_MS};
+        java.util.function.BooleanSupplier cancelled = () -> {
+            AtomicBoolean fenced = jobFencedFlags.get(job.id());
+            if (!running.get() || (fenced != null && fenced.get())) {
+                return true;
+            }
+            if (cdcHeartbeat && System.currentTimeMillis() >= nextHeartbeat[0]) {
+                nextHeartbeat[0] = System.currentTimeMillis() + CDC_BARRIER_HEARTBEAT_MS;
+                boolean accepted = orchestratorClient.reportHmsProgress(job.id(), new HmsProgressReportRequest(
+                        null, 0, 0, 0, 0, null, null, null, null, null, agentId, null));
+                if (!accepted) {
+                    jobFencedFlags.computeIfAbsent(job.id(), k -> new AtomicBoolean(false)).set(true);
+                    return true;
+                }
+            }
+            return false;
+        };
+        boolean ready = orchestratorClient.awaitSubjobsCompletion(subjobIds, dataBarrierTimeoutSeconds, cancelled);
+        if (!ready && cancelled.getAsBoolean()) {
+            throw new OrchestratorGrpcClient.SubjobRejectedException(job.id());
+        }
+        return ready;
+    }
+
+    /** Событие касается таблицы из фильтра задачи; переименование — если подходит старое или новое имя. */
+    private boolean isEventOfIncludedTable(HmsNotificationEventDto event, String pattern) {
+        String tbl = event.tableName();
+        if (tbl == null || tbl.isBlank() || matchesPattern(tbl, pattern)) {
+            return true;
+        }
+        if ("ALTER_TABLE".equalsIgnoreCase(event.eventType())) {
+            return HmsEventMessageDecoder.tableRename(event.message(), event.messageFormat())
+                    .filter(HmsEventMessageDecoder.TableRename::isRename)
+                    .map(r -> matchesPattern(r.before(), pattern) || matchesPattern(r.after(), pattern))
+                    .orElse(false);
+        }
+        return false;
+    }
+
     private boolean matchesPattern(String tableName, String pattern) {
         if (pattern == null || pattern.isBlank() || pattern.equals("*") || pattern.equals(".*")) return true;
+        if (tableName == null) return false;
+        // Метастор хранит имена в нижнем регистре, а фильтр вводят как угодно
         try {
-            if (tableName.matches(pattern)) return true;
+            if (java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.CASE_INSENSITIVE).matcher(tableName).matches()) {
+                return true;
+            }
         } catch (Exception ignored) {}
         String regex = pattern.replace(".", "\\.").replace("*", ".*").replace("?", ".");
-        return tableName.matches(regex);
+        return java.util.regex.Pattern.compile(regex, java.util.regex.Pattern.CASE_INSENSITIVE).matcher(tableName).matches();
     }
 
     /**

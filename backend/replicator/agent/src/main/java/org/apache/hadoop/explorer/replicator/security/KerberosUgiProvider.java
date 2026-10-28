@@ -60,16 +60,29 @@ public class KerberosUgiProvider {
         this(new Configuration(), null, null);
     }
 
+    private void setUnlessConfigured(String key, String envName, String defaultValue) {
+        String fromEnv = envName != null ? System.getenv(envName) : null;
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            this.conf.set(key, fromEnv.trim());
+        } else if (this.conf.get(key) == null) {
+            this.conf.set(key, defaultValue);
+        }
+    }
+
     private void initKerberos() {
         if (keytabPath != null && !keytabPath.isBlank()) {
             try {
                 this.conf.set("hadoop.security.authentication", "kerberos");
-                this.conf.set("dfs.namenode.kerberos.principal.pattern", "*");
-                String nnPrincipal = System.getenv().getOrDefault("HDFS_NAMENODE_PRINCIPAL", "nn/*@COMPANY.LOCAL");
-                this.conf.set("dfs.namenode.kerberos.principal", nnPrincipal);
-                this.conf.set("dfs.datanode.kerberos.principal", "dn/*@COMPANY.LOCAL");
-                String dataTransferProtection = System.getenv().getOrDefault("HDFS_DATA_TRANSFER_PROTECTION", "integrity");
-                this.conf.set("dfs.data.transfer.protection", dataTransferProtection);
+                // Настройки кластера (hdfs-site.xml из HADOOP_CONF_DIR) главнее умолчаний стенда:
+                // безусловная запись integrity ломала SASL с DataNode кластера с QOP privacy, а
+                // принципалы с realm стенда не совпадали с боевыми. Переменная окружения задает
+                // значение явно, умолчание — только если в конфигурации его нет
+                Configuration.addDefaultResource("hdfs-site.xml");
+                setUnlessConfigured("dfs.namenode.kerberos.principal.pattern", null, "*");
+                setUnlessConfigured("dfs.namenode.kerberos.principal", "HDFS_NAMENODE_PRINCIPAL", "nn/*@COMPANY.LOCAL");
+                setUnlessConfigured("dfs.datanode.kerberos.principal", "HDFS_DATANODE_PRINCIPAL", "dn/*@COMPANY.LOCAL");
+                setUnlessConfigured("dfs.data.transfer.protection", "HDFS_DATA_TRANSFER_PROTECTION", "integrity");
+                String dataTransferProtection = this.conf.get("dfs.data.transfer.protection");
                 UserGroupInformation.setConfiguration(conf);
                 UserGroupInformation.loginUserFromKeytab(servicePrincipal, keytabPath);
                 this.kerberosLoggedIn = true;

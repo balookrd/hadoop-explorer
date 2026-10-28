@@ -73,6 +73,9 @@ public class HadoopFsManager {
     );
 
     public HadoopFsManager(String defaultFsUri, String keytabPath, String principal, String localSandboxDir) {
+        // hdfs-site.xml кластера (HADOOP_CONF_DIR в classpath): QOP передачи данных, принципалы
+        // NameNode и DataNode берутся из него, а не из умолчаний стенда
+        Configuration.addDefaultResource("hdfs-site.xml");
         this.conf = new Configuration();
         this.defaultFsUri = defaultFsUri;
         this.localSandboxDir = (localSandboxDir != null && !localSandboxDir.isBlank()) ? localSandboxDir : System.getenv("REPLICATOR_LOCAL_SANDBOX");
@@ -81,9 +84,13 @@ public class HadoopFsManager {
             this.conf.set("fs.defaultFS", defaultFsUri);
         }
 
-        String dataTransferProtection = System.getenv().getOrDefault("HDFS_DATA_TRANSFER_PROTECTION", "integrity");
+        // Переменная окружения задает QOP явно; без нее — значение кластера, и только если его нет,
+        // integrity стенда. Безусловная запись ломала SASL с DataNode кластера с QOP privacy
+        String dataTransferProtection = System.getenv("HDFS_DATA_TRANSFER_PROTECTION");
         if (dataTransferProtection != null && !dataTransferProtection.isBlank()) {
-            this.conf.set("dfs.data.transfer.protection", dataTransferProtection);
+            this.conf.set("dfs.data.transfer.protection", dataTransferProtection.trim());
+        } else if (this.conf.get("dfs.data.transfer.protection") == null) {
+            this.conf.set("dfs.data.transfer.protection", "integrity");
         }
 
         String envServicePrincipal = System.getenv("REPLICATOR_SERVICE_PRINCIPAL");

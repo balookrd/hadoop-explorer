@@ -96,6 +96,12 @@ public class TaskService {
         }
 
         JobEntity job = jobOpt.get();
+        if ("CANCELLED".equalsIgnoreCase(job.getStatus())) {
+            // Отменено, пока агент листал каталог (удаление или повтор bootstrap родителя):
+            // иначе пул перевел бы задание в RUNNING, и копия пошла бы после отмены
+            log.info("Пул задач для отмененного задания '{}' отклонен", jobId);
+            return false;
+        }
         boolean isStreaming = "STREAMING_INOTIFY".equalsIgnoreCase(job.getSyncMode());
 
         if (isStreaming && leaseRepository != null && req.getEpoch() != null && req.getEpoch() > 0) {
@@ -109,7 +115,7 @@ public class TaskService {
         }
 
         List<TaskCreateItem> items = req.getTasks();
-        if (items == null || items.isEmpty()) {
+        if ((items == null || items.isEmpty()) && !req.isAppend()) {
             if (!isStreaming) {
                 log.info("Пул задач для job '{}' пуст. Завершение задания.", jobId);
                 job.setStatus("COMPLETED");
@@ -123,8 +129,12 @@ public class TaskService {
             return true;
         }
 
-        if (!isStreaming) {
-            // Очищаем предыдущие таски для этой джобы (если был перезапуск обычной пакетной джобы)
+        if (items == null) {
+            items = List.of();
+        }
+        if (!isStreaming && !req.isAppend()) {
+            // Очищаем предыдущие таски для этой джобы (если был перезапуск обычной пакетной джобы).
+            // Следующие порции того же пула (append) дописываются к первой
             taskRepository.deleteByJobId(jobId);
         }
 
@@ -167,6 +177,21 @@ public class TaskService {
 
         taskRepository.saveAll(entities);
 
+        if (!isStreaming && req.isMoreChunks()) {
+            // Промежуточная порция: задание остается в ANALYZING, и агенты не берут его задачи,
+            // пока не придет последняя порция и не будут посчитаны итоги всего пула
+            return true;
+        }
+        int poolTasks = items.size();
+        if (!isStreaming && req.isAppend()) {
+            Object[] pool = taskRepository.summarizePool(jobId).get(0);
+            poolTasks = ((Number) pool[0]).intValue();
+            totalObjectsCount = ((Number) pool[1]).intValue();
+            totalBytes = ((Number) pool[2]).longValue();
+            skippedObjectsCount = ((Number) pool[3]).intValue();
+            skippedBytes = ((Number) pool[4]).longValue();
+        }
+
         if (isStreaming) {
             int currentTotal = job.getTotalObjects();
             long currentBytes = job.getTotalBytes();
@@ -206,7 +231,7 @@ public class TaskService {
                     job.setStartedAt(Instant.now());
                 }
                 job.setMessage(String.format("Сформирован пул задач: %d объектов к передаче, %d пропущено (всего %d объектов в %d задачах, %d байт)",
-                        totalObjectsCount - skippedObjectsCount, skippedObjectsCount, totalObjectsCount, items.size(), totalBytes));
+                        totalObjectsCount - skippedObjectsCount, skippedObjectsCount, totalObjectsCount, poolTasks, totalBytes));
             }
         }
 
@@ -335,6 +360,7 @@ public class TaskService {
         emptyQueueCooldownUntil.remove("*");
 
         Map<String, JobEntity> cachedJobs = new HashMap<>();
+        Map<String, Boolean> haltedParents = new HashMap<>();
         List<TaskItemDto> claimed = new ArrayList<>(limit);
         for (TaskEntity task : queuedTasks) {
             if (claimed.size() >= limit) {
@@ -346,6 +372,11 @@ public class TaskService {
                 continue;
             }
             if (!"RUNNING".equalsIgnoreCase(job.getStatus()) && !"STREAMING".equalsIgnoreCase(job.getStatus())) {
+                continue;
+            }
+            // Подзадачи данных HMS-задачи на паузе ждут ее возобновления в очереди
+            if (job.getParentJobId() != null && haltedParents.computeIfAbsent(job.getParentJobId(),
+                    jobRepository::isHmsParentHalted)) {
                 continue;
             }
 
@@ -947,15 +978,8 @@ public class TaskService {
         // На холостом ходу не дергаем БД каждую секунду — выполняем опрос раз в 5 секунд или при наличии активного сброса.
         if (!drained.isEmpty() || reconciliationTick.incrementAndGet() % 5 == 0) {
             try {
-                List<JobEntity> runningJobs = jobRepository.findByStatus("RUNNING");
-                for (JobEntity j : runningJobs) {
-                    if (!"STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode())) {
-                        if (j.getTotalObjects() >= 0 && (j.getTransferredObjects() + j.getSkippedObjects() + j.getFailedObjects() >= j.getTotalObjects())) {
-                            if (!taskRepository.existsByJobIdAndStatusIn(j.getId(), List.of("QUEUED", "RUNNING"))) {
-                                finalizeJobCompletion(j.getId(), now);
-                            }
-                        }
-                    }
+                for (String readyJobId : jobRepository.findRunningJobsReadyToFinalize(PageRequest.of(0, 500))) {
+                    finalizeJobCompletion(readyJobId, now);
                 }
             } catch (Exception e) {
                 log.error("Ошибка периодической сверки завершения заданий: {}", e.getMessage(), e);

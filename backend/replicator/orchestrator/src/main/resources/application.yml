@@ -1,5 +1,9 @@
 server:
   port: 8005
+  error:
+    # Причина из ResponseStatusException (409 «задача уже есть», 403 для READER и т.п.) уходит
+    # в поле message: без нее UI показывал оператору только «HTTP 409». Стек не отдается.
+    include-message: always
 
 management:
   endpoints:

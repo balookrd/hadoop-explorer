@@ -31,13 +31,13 @@ public class HmsEventLogEntity {
     @Column(name = "table_name", nullable = false, length = 128)
     private String tableName;
 
-    @Column(name = "partition_name", length = 256)
+    @Column(name = "partition_name", length = ColumnText.PARTITION_NAME_LENGTH)
     private String partitionName;
 
-    @Column(name = "source_uri", length = 1024)
+    @Column(name = "source_uri", length = ColumnText.PATH_LENGTH)
     private String sourceUri;
 
-    @Column(name = "target_uri", length = 1024)
+    @Column(name = "target_uri", length = ColumnText.PATH_LENGTH)
     private String targetUri;
 
     @Column(name = "subjob_id", length = 64)
@@ -46,7 +46,7 @@ public class HmsEventLogEntity {
     @Column(name = "status", nullable = false, length = 32)
     private String status = "PENDING_DATA"; // PENDING_DATA, DATA_COPIED, APPLIED, SKIPPED_ACID, FAILED
 
-    @Column(name = "error_message", length = 2048)
+    @Column(name = "error_message", length = ColumnText.MESSAGE_LENGTH)
     private String errorMessage;
 
     @Column(name = "created_at", nullable = false)
@@ -73,7 +73,7 @@ public class HmsEventLogEntity {
     public String getTableName() { return tableName; }
     public void setTableName(String tableName) { this.tableName = tableName; }
     public String getPartitionName() { return partitionName; }
-    public void setPartitionName(String partitionName) { this.partitionName = partitionName; }
+    public void setPartitionName(String partitionName) { this.partitionName = ColumnText.fit(partitionName, ColumnText.PARTITION_NAME_LENGTH); }
     public String getSourceUri() { return sourceUri; }
     public void setSourceUri(String sourceUri) { this.sourceUri = sourceUri; }
     public String getTargetUri() { return targetUri; }
@@ -83,7 +83,7 @@ public class HmsEventLogEntity {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getErrorMessage() { return errorMessage; }
-    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = ColumnText.message(errorMessage); }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

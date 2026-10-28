@@ -47,10 +47,10 @@ public class JobEntity {
     @Column(name = "id", length = 64)
     private String id;
 
-    @Column(name = "source_path", nullable = false)
+    @Column(name = "source_path", nullable = false, length = ColumnText.PATH_LENGTH)
     private String sourcePath;
 
-    @Column(name = "target_path", nullable = false)
+    @Column(name = "target_path", nullable = false, length = ColumnText.PATH_LENGTH)
     private String targetPath;
 
     @Column(name = "job_type", nullable = false, length = 32)
@@ -113,7 +113,7 @@ public class JobEntity {
     @Column(name = "last_run_at")
     private Instant lastRunAt;
 
-    @Column(name = "message")
+    @Column(name = "message", length = ColumnText.MESSAGE_LENGTH)
     private String message;
 
     @Column(name = "created_at", nullable = false)
@@ -217,7 +217,7 @@ public class JobEntity {
     public Instant getLastRunAt() { return lastRunAt; }
     public void setLastRunAt(Instant lastRunAt) { this.lastRunAt = lastRunAt; }
     public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
+    public void setMessage(String message) { this.message = ColumnText.message(message); }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

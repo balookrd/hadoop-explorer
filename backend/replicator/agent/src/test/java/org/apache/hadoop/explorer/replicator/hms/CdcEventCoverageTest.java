@@ -79,7 +79,8 @@ class CdcEventCoverageTest {
             }
 
             @Override
-            public boolean awaitSubjobCompletion(String subjobId, long timeoutSeconds) {
+            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds,
+                                                  java.util.function.BooleanSupplier cancelled) {
                 return true;
             }
         };

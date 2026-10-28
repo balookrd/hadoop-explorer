@@ -51,13 +51,13 @@ public class JobRunEntity {
     @Column(name = "average_speed_mb_s")
     private Double averageSpeedMbS;
 
-    @Column(name = "message")
+    @Column(name = "message", length = ColumnText.MESSAGE_LENGTH)
     private String message;
 
-    @Column(name = "error_message")
+    @Column(name = "error_message", length = ColumnText.MESSAGE_LENGTH)
     private String errorMessage;
 
-    @Column(name = "error_details")
+    @Column(name = "error_details", length = ColumnText.MESSAGE_LENGTH)
     private String errorDetails;
 
     @Column(name = "triggered_by")
@@ -116,11 +116,11 @@ public class JobRunEntity {
     public Double getAverageSpeedMbS() { return averageSpeedMbS; }
     public void setAverageSpeedMbS(Double averageSpeedMbS) { this.averageSpeedMbS = averageSpeedMbS; }
     public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
+    public void setMessage(String message) { this.message = ColumnText.message(message); }
     public String getErrorMessage() { return errorMessage; }
-    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = ColumnText.message(errorMessage); }
     public String getErrorDetails() { return errorDetails; }
-    public void setErrorDetails(String errorDetails) { this.errorDetails = errorDetails; }
+    public void setErrorDetails(String errorDetails) { this.errorDetails = ColumnText.message(errorDetails); }
     public String getTriggeredBy() { return triggeredBy; }
     public void setTriggeredBy(String triggeredBy) { this.triggeredBy = triggeredBy; }
     public Instant getCreatedAt() { return createdAt; }

@@ -49,6 +49,10 @@
   // Пропсы
   let { topology = null, user = null }: { topology?: TopologyResponse | null; user?: UserSession | null } = $props();
 
+  // READER только смотрит: сервер отвечает ему 403 на любое изменение, и кнопки не должны
+  // обещать действие, которое не выполнится
+  const canWrite = $derived(!user || (user.system_role || '').toLowerCase() !== 'reader');
+
   const isAdmin = $derived(
     user ? user.system_role === 'admin' || user.is_admin : false
   );
@@ -213,6 +217,8 @@
     bootstrapping: jobsSummary?.by_status?.BOOTSTRAPPING
       ?? jobs.filter(j => j.status === 'BOOTSTRAPPING').length,
     paused: jobsSummary?.by_status?.PAUSED ?? jobs.filter(j => j.status === 'PAUSED').length,
+    errors: jobsSummary?.by_status?.ERROR ?? jobs.filter(j => j.status === 'ERROR').length,
+    byStatus: (status: string) => jobsSummary?.by_status?.[status] ?? jobs.filter(j => j.status === status).length,
     tables: jobsSummary?.replicated_tables
       ?? jobs.reduce((acc, j) => acc + (j.replicated_tables || 0), 0),
     partitions: jobsSummary?.replicated_partitions
@@ -336,6 +342,8 @@
 
   async function handleReplayDlq(dlqId: string) {
     if (!modalJob) return;
+    // Повтор откатывает позицию CDC всей задачи к событию: все события после него перечитываются
+    if (!confirm('Повторить событие? Позиция CDC задачи откатится к нему, и все последующие события схемы будут перечитаны.')) return;
     try {
       actingDlqId = dlqId;
       const res = await api.replayHmsDlqEvent(modalJob.id, dlqId);
@@ -530,6 +538,30 @@
     }
   }
 
+  // Сервер отдает фильтр как table_include_pattern, table_pattern — поле формы создания
+  function tableFilterOf(job: HmsReplicationJob): string | undefined {
+    return job.table_include_pattern ?? job.table_pattern;
+  }
+
+  // Окончание дальше суток (bootstrap схемы на петабайты) без даты читалось как сегодняшнее время
+  function formatEtaMoment(isoString: string): string {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '—';
+    if (d.toDateString() === new Date().toDateString()) return formatTime(isoString);
+    return d.toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatRemaining(diffMs: number): string {
+    if (diffMs <= 0) return 'завершение';
+    const totalMin = Math.round(diffMs / 60000);
+    if (totalMin < 1) return '< 1 мин';
+    if (totalMin < 60) return `~${totalMin} мин`;
+    const days = Math.floor(totalMin / 1440);
+    const hours = Math.floor((totalMin % 1440) / 60);
+    const mins = totalMin % 60;
+    return days > 0 ? `~${days} д ${hours} ч` : `~${hours} ч ${mins} мин`;
+  }
+
   function formatTime(isoString?: string): string {
     if (!isoString) return '—';
     try {
@@ -567,8 +599,10 @@
     let subtasksCount = job.subtasks_count ?? 0;
     let activeSubtasksCount = job.active_subtasks_count ?? 0;
 
-    // Если передан детальный список сабтасок (в модалке или раскрытом инлайн-блоке)
-    if (subtasksList && subtasksList.length > 0) {
+    // Список сабтасок (модалка, раскрытая строка) пересчитывает метрики, только если он полный:
+    // сервер отдает последние 200–1000 подзадач, и у таблицы на 200k партиций сумма по ним
+    // показывала бы 100% и ETA по 0,1% данных вместо серверных агрегатов по всем подзадачам
+    if (subtasksList && subtasksList.length > 0 && subtasksList.length >= subtasksCount) {
       subtasksCount = subtasksList.length;
       activeSubtasksCount = 0;
       totalBytes = 0;
@@ -678,11 +712,9 @@
       return `Финиш: ${formatTime(metrics.completedAt)}`;
     }
     if (metrics.estimatedCompletionAt) {
-      const etaTime = formatTime(metrics.estimatedCompletionAt);
+      const etaTime = formatEtaMoment(metrics.estimatedCompletionAt);
       const diffMs = new Date(metrics.estimatedCompletionAt).getTime() - Date.now();
-      const diffMin = Math.round(diffMs / 60000);
-      const remainingStr = diffMin > 0 ? `~${diffMin} мин` : diffMs > 0 ? '< 1 мин' : 'завершение';
-      return `~${etaTime} (${remainingStr})`;
+      return `~${etaTime} (${formatRemaining(diffMs)})`;
     }
     return isRunning ? 'Оценка времени...' : '—';
   }
@@ -724,7 +756,7 @@
   <!-- ВЕРХНЯЯ ПАНЕЛЬ: КАРТОЧКИ СТАТИСТИКИ И КНОПКА СОЗДАНИЯ (ЕДИНЫЙ СТИЛЬ HDFS) -->
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <!-- 6 Карточек статистики с интерактивным фильтром статуса -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-1">
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 flex-1">
       <button
         type="button"
         onclick={() => { statusFilter = 'ALL'; applyFilters(); }}
@@ -769,6 +801,17 @@
         <span class="text-xl font-bold text-slate-600 dark:text-slate-400">{stats.paused}</span>
       </button>
 
+      <button
+        type="button"
+        onclick={() => toggleStatusFilter('ERROR')}
+        class="p-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs hover:shadow-xs {statusFilter === 'ERROR'
+          ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-400 dark:border-rose-600 ring-2 ring-rose-500/30'
+          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-800'}"
+      >
+        <span class="text-[11px] font-medium text-rose-600 dark:text-rose-400 block">Ошибки</span>
+        <span class="text-xl font-bold {stats.errors > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}">{stats.errors}</span>
+      </button>
+
       <div class="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs">
         <span class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 block">Таблиц</span>
         <span class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{stats.tables.toLocaleString('ru-RU')}</span>
@@ -792,7 +835,9 @@
 
       <button
         onclick={openCreateModal}
-        class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition cursor-pointer shadow-md shadow-sky-600/20"
+        disabled={!canWrite}
+        title={canWrite ? undefined : 'Роль READER не создает задачи'}
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition cursor-pointer shadow-md shadow-sky-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <Plus class="w-4 h-4" />
         <span>Новая репликация схемы</span>
@@ -843,6 +888,12 @@
             <option value="ACTIVE">Active CDC ({stats.active})</option>
             <option value="BOOTSTRAPPING">Bootstrap Sync ({stats.bootstrapping})</option>
             <option value="PAUSED">На паузе ({stats.paused})</option>
+            <!-- Упавшие и ждущие агентов задачи иначе не отобрать среди сотен схем -->
+            <option value="ERROR">Ошибка ({stats.errors})</option>
+            <option value="FAILED">Сбой ({stats.byStatus('FAILED')})</option>
+            <option value="QUEUED">В очереди ({stats.byStatus('QUEUED')})</option>
+            <option value="WAITING_FOR_AGENTS">Ждут агентов ({stats.byStatus('WAITING_FOR_AGENTS')})</option>
+            <option value="STOPPED">Остановлены ({stats.byStatus('STOPPED')})</option>
           </select>
         </div>
       </div>
@@ -898,6 +949,7 @@
                   <span>Нет активных или сконфигурированных схем репликации Hive Metastore</span>
                   <button
                     onclick={openCreateModal}
+                    disabled={!canWrite}
                     class="mt-2 text-xs text-sky-600 dark:text-sky-400 hover:underline font-semibold cursor-pointer"
                   >
                     Настроить первую схему
@@ -943,9 +995,9 @@
                       <span class="text-[9px] px-1 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 font-semibold text-sky-700 dark:text-sky-300">doAs</span>
                     </span>
                   </div>
-                  {#if job.table_pattern && job.table_pattern !== '*'}
+                  {#if tableFilterOf(job) && tableFilterOf(job) !== '*' && tableFilterOf(job) !== '.*'}
                     <div class="text-[9px] text-slate-400 font-mono mt-0.5">
-                      фильтр: {job.table_pattern}
+                      фильтр: {tableFilterOf(job)}
                     </div>
                   {/if}
                   {#if job.drop_extraneous_tables || job.drop_extraneous_partitions}
@@ -1113,7 +1165,7 @@
                     <!-- Пауза / Возобновить -->
                     <button
                       onclick={() => togglePause(job)}
-                      disabled={!canTogglePause(job) || pausingJobId === job.id}
+                      disabled={!canWrite || !canTogglePause(job) || pausingJobId === job.id}
                       class="disabled:opacity-40 disabled:cursor-not-allowed p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer {job.status === 'PAUSED'
                         ? 'hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 dark:hover:border-emerald-700 text-emerald-600 dark:text-emerald-400'
                         : 'hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-300 dark:hover:border-amber-700 text-amber-600 dark:text-amber-400'}"
@@ -1129,7 +1181,7 @@
                     <!-- Немедленный опрос CDC -->
                     <button
                       onclick={() => handleSyncNow(job)}
-                      disabled={job.status === 'PAUSED' || syncingJobId === job.id}
+                      disabled={!canWrite || job.status === 'PAUSED' || syncingJobId === job.id}
                       class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-sky-50 dark:hover:bg-sky-950/40 hover:border-sky-300 dark:hover:border-sky-700 text-sky-600 dark:text-sky-400"
                       title="Обновить состояние CDC (NOTIFICATION_LOG опрашивает агент своим циклом)"
                     >
@@ -1139,7 +1191,7 @@
                     <!-- Re-bootstrap -->
                     <button
                       onclick={() => openRebootstrapModal(job)}
-                      disabled={rebootstrappingJobId === job.id}
+                      disabled={!canWrite || rebootstrappingJobId === job.id}
                       class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-sky-50 dark:hover:bg-sky-950/40 hover:border-sky-300 dark:hover:border-sky-700 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400"
                       title="Повторный Bootstrap схемы с подтверждением (Re-bootstrap)"
                     >
@@ -1171,7 +1223,8 @@
                     <!-- Удалить -->
                     <button
                       onclick={() => openDeleteModal(job)}
-                      class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-400 dark:hover:border-rose-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
+                      disabled={!canWrite}
+                      class="disabled:opacity-40 disabled:cursor-not-allowed p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-400 dark:hover:border-rose-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
                       title="Удалить задачу синхронизации"
                     >
                       <Trash2 class="w-3.5 h-3.5" />
@@ -1535,7 +1588,7 @@
         <div class="flex items-center gap-2 shrink-0">
           <button
             onclick={() => handleSyncNow(modalJob!)}
-            disabled={modalJob.status === 'PAUSED' || syncingJobId === modalJob.id}
+            disabled={!canWrite || modalJob.status === 'PAUSED' || syncingJobId === modalJob.id}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
           >
             <Zap class="w-3.5 h-3.5 {syncingJobId === modalJob.id ? 'animate-bounce' : ''}" />
@@ -1544,7 +1597,7 @@
 
           <button
             onclick={() => openRebootstrapModal(modalJob!)}
-            disabled={rebootstrappingJobId === modalJob.id}
+            disabled={!canWrite || rebootstrappingJobId === modalJob.id}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
             title="Запустить повторный Bootstrap схемы с подтверждением"
           >
@@ -2475,6 +2528,12 @@
         <div>• Будет выполнен полный экспорт текущего среза таблиц и партиций из источника ({jobToRebootstrap.source_cluster_id} → {jobToRebootstrap.target_cluster_id}).</div>
         <div>• Чекпоинт CDC будет синхронизирован до актуального High Water Mark в Hive Metastore.</div>
         <div>• <strong class="text-slate-700 dark:text-slate-300">Существующие файлы данных в HDFS не удаляются</strong> (deleteData = false, безопасная синхронизация).</div>
+        <div>• Перенос начнется с нуля, без чекпоинта: {(jobToRebootstrap.total_partitions || 0).toLocaleString('ru-RU')} партиций в {(jobToRebootstrap.total_tables || 0).toLocaleString('ru-RU')} таблицах. Файлы, уже лежащие на приемнике с тем же размером, повторно не копируются.</div>
+        {#if jobToRebootstrap.status === 'BOOTSTRAPPING'}
+          <div class="text-amber-700 dark:text-amber-400">• Идущий bootstrap будет прерван, незавершенные копии данных отменены.</div>
+        {:else if jobToRebootstrap.status === 'PAUSED'}
+          <div class="text-amber-700 dark:text-amber-400">• Задача снимется с паузы и сразу начнет перенос.</div>
+        {/if}
       </div>
 
       <div class="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">

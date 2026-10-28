@@ -303,7 +303,7 @@ public class HmsCoordinatorService {
                 continue;
             }
 
-            var dstOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId());
+            var dstOpt = agentRegistry.getLiveHmsAgentForCluster(job.getTargetClusterId(), job.getId());
             String targetAddress = dstOpt.map(AgentRegistry.AgentEntry::getGrpcAddress).orElse(null);
 
             // В ожидание агентов уходит только еще не начатая задача: идущий bootstrap держит
@@ -629,7 +629,12 @@ public class HmsCoordinatorService {
         job.setBootstrapEventId(0L);
         // Явный повтор оператором — с нуля, а не с чекпоинта
         job.setBootstrapCheckpoint(null);
+        // Повтор — явная команда запуска: задача на паузе запускается и забывает статус до паузы
+        job.setPausedFromStatus(null);
         dispatchJob(job);
+        // Копии прежнего цикла не доделываются: новый bootstrap заведет свои, а файлы, уже
+        // лежащие на приемнике, анализ пометит пропущенными
+        jobService.cancelActiveSubjobs(id);
     }
 
     /**

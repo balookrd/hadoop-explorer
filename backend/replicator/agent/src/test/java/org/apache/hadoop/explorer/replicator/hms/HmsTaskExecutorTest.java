@@ -114,7 +114,8 @@ public class HmsTaskExecutorTest {
             }
 
             @Override
-            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds) {
+            public boolean awaitSubjobsCompletion(java.util.Collection<String> subjobIds, long timeoutSeconds,
+                                                  java.util.function.BooleanSupplier cancelled) {
                 if (awaitDelayMs > 0) {
                     try {
                         Thread.sleep(awaitDelayMs);
@@ -409,18 +410,20 @@ public class HmsTaskExecutorTest {
                 "hdfs://ns-hot:8020/warehouse/bar.db/clicks",
                 Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
         srcHmsClient.addPartitions("bar", "clicks", List.of(
-                new HmsPartitionDto("hive", "bar", "clicks", List.of("a"), "hdfs://ns-cold:8020/archive/clicks/dt=a", Map.of()),
+                new HmsPartitionDto("hive", "bar", "clicks", List.of("a"), "hdfs://ns-hot:8020/warehouse/bar.db/clicks/dt=a", Map.of()),
                 new HmsPartitionDto("hive", "bar", "clicks", List.of("b"), "hdfs://ns-cold:8020/archive/clicks/dt=b", Map.of())));
-        // subjob-0 — корень таблицы, он скопирован; партиции вне корня — нет
-        failedSubjobs.addAll(List.of("subjob-1", "subjob-2"));
+        // Партиционированная таблица копируется по партициям — и в ее каталоге, и вне его;
+        // подзадачи на корень таблицы нет
+        failedSubjobs.addAll(List.of("subjob-0", "subjob-1"));
 
         boolean ok = executor.runBootstrap(new HmsPendingJobDto(
                 "hms-job-bar", "dc1", "dc2", "bar", "bar_replica", "*", false, false,
                 "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L));
 
         assertFalse(ok, "неуспешная копия данных — неуспешный bootstrap");
-        assertTrue(awaitedSubjobs.containsAll(List.of("subjob-1", "subjob-2")),
+        assertTrue(awaitedSubjobs.containsAll(List.of("subjob-0", "subjob-1")),
                 "обе подзадачи порции должны ждаться вместе: " + awaitedSubjobs);
+        assertEquals(List.of(2), awaitCallSizes, "одно ожидание на порцию, без отдельного ожидания корня таблицы");
         assertTrue(dstHmsClient.getPartitions("bar_replica", "clicks").isEmpty(),
                 "партиции без скопированных данных не должны появиться на приемнике");
     }
@@ -524,6 +527,40 @@ public class HmsTaskExecutorTest {
         assertTrue(tables.contains("orders_v2"), "новое имя на приемнике: " + tables);
         assertFalse(tables.contains("orders"), "старого имени быть не должно: " + tables);
         assertEquals(1, dstHmsClient.getPartitions("ren_replica", "orders_v2").size(), "партиции сохраняются");
+    }
+
+    @Test
+    @DisplayName("Фильтр таблиц в CDC: события исключенных таблиц, в том числе DROP_TABLE, на приемник не переносятся")
+    void cdcSkipsEventsOfTablesOutsideTheFilter() {
+        srcHmsClient.createDatabase("flt", "hdfs://ns-hot:8020/warehouse/flt.db");
+        srcHmsClient.createTable(new HmsTableDto("hive", "flt", "keep_a", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/flt.db/keep_a", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
+        srcHmsClient.createTable(new HmsTableDto("hive", "flt", "other_b", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/flt.db/other_b", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
+        HmsPendingJobDto queued = new HmsPendingJobDto("hms-job-flt", "dc1", "dc2", "flt", "flt_replica", "KEEP_.*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "QUEUED", 0L);
+        assertTrue(executor.runBootstrap(queued));
+        assertEquals(List.of("keep_a"), dstHmsClient.getAllTables("flt_replica"),
+                "bootstrap переносит только таблицы фильтра (без учета регистра)");
+        long position = reports.get(reports.size() - 1).lastProcessedEventId();
+
+        // На приемнике есть своя таблица с именем исключенной: ее не должно задеть удаление на источнике
+        dstHmsClient.createTable(new HmsTableDto("hive", "flt_replica", "other_b", "EXTERNAL_TABLE",
+                "hdfs://ns-target:8020/warehouse/flt_replica.db/other_b", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
+        srcHmsClient.createTable(new HmsTableDto("hive", "flt", "other_c", "EXTERNAL_TABLE",
+                "hdfs://ns-hot:8020/warehouse/flt.db/other_c", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
+        srcHmsClient.emitEvent("CREATE_TABLE", "flt", "other_c", "{}");
+        srcHmsClient.emitEvent("DROP_TABLE", "flt", "other_b", "{}");
+
+        executor.pollAndSyncCdc(new HmsPendingJobDto("hms-job-flt", "dc1", "dc2", "flt", "flt_replica", "KEEP_.*",
+                false, false, "127.0.0.1:" + targetGrpcPort, "ACTIVE", position));
+
+        List<String> tables = dstHmsClient.getAllTables("flt_replica");
+        assertTrue(tables.contains("other_b"), "DROP_TABLE исключенной таблицы не применяется: " + tables);
+        assertFalse(tables.contains("other_c"), "CREATE_TABLE исключенной таблицы не применяется: " + tables);
+        HmsProgressReportRequest last = reports.get(reports.size() - 1);
+        assertEquals("ACTIVE", last.status());
+        assertTrue(last.lastProcessedEventId() > position, "позиция идет дальше пропущенных событий");
     }
 
     private void insertSetup() {
@@ -740,8 +777,9 @@ public class HmsTaskExecutorTest {
     @DisplayName("Остановка агента посреди bootstrap — не ошибка: итоговый статус не отправляется")
     void agentStopDoesNotFailBootstrap() {
         srcHmsClient.createDatabase("stop", "hdfs://ns-hot:8020/warehouse/stop.db");
+        // Непартиционированная таблица: ее данные — одна подзадача, и барьер ждет ее до DDL
         srcHmsClient.createTable(new HmsTableDto("hive", "stop", "t", "EXTERNAL_TABLE",
-                "hdfs://ns-hot:8020/warehouse/stop.db/t", Map.of("EXTERNAL", "TRUE"), List.of("dt"), "i", "o", "s"));
+                "hdfs://ns-hot:8020/warehouse/stop.db/t", Map.of("EXTERNAL", "TRUE"), List.of(), "i", "o", "s"));
         stopAgentOnAwait = true;
 
         boolean ok = executor.runBootstrap(new HmsPendingJobDto("hms-job-stop", "dc1", "dc2", "stop", "stop_r", "*",
