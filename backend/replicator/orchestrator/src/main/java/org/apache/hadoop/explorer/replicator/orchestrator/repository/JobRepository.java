@@ -178,12 +178,15 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
      * RUNNING-задания, у которых все объекты учтены и не осталось активных задач, — кандидаты на
      * финализацию. Сверка раньше грузила все RUNNING-задания раз в секунду и проверяла каждое
      * отдельным запросом, а при подзадаче на партицию их сотни тысяч.
+     *
+     * <p>Только задания с пулом задач ({@code totalObjects > 0}): прямая передача файла ставит
+     * RUNNING без пула и завершается отчетом агента, а сверка закрывала ее как COMPLETED сразу.
      */
     @Query("""
         SELECT j.id FROM JobEntity j
         WHERE j.status = 'RUNNING'
           AND (j.syncMode IS NULL OR j.syncMode <> 'STREAMING_INOTIFY')
-          AND j.totalObjects >= 0
+          AND j.totalObjects > 0
           AND j.transferredObjects + j.skippedObjects + j.failedObjects >= j.totalObjects
           AND NOT EXISTS (SELECT t.id FROM TaskEntity t
                           WHERE t.jobId = j.id AND t.status IN ('QUEUED', 'RUNNING'))
