@@ -89,8 +89,21 @@ public class AgentHeartbeatRequest {
     /** Причина, по которой пул задачи на агенте не работает. */
     public record KafkaJobError(String jobId, String message) {}
 
-    /** Телеметрия одной Kafka-задачи на агенте. */
-    public record KafkaJobStats(String jobId, long messagesReplicated, long bytesReplicated, long lagMs) {}
+    /**
+     * Телеметрия одной Kafka-задачи на агенте.
+     *
+     * @param assignedPartitions партиции, назначенные пулу задачи на агенте: топик -> номера
+     */
+    public record KafkaJobStats(String jobId, long messagesReplicated, long bytesReplicated, long lagMs,
+                                java.util.Map<String, java.util.List<Integer>> assignedPartitions) {
+        public KafkaJobStats {
+            assignedPartitions = assignedPartitions != null ? assignedPartitions : java.util.Map.of();
+        }
+
+        public KafkaJobStats(String jobId, long messagesReplicated, long bytesReplicated, long lagMs) {
+            this(jobId, messagesReplicated, bytesReplicated, lagMs, java.util.Map.of());
+        }
+    }
 
     public AgentHeartbeatRequest() {}
 

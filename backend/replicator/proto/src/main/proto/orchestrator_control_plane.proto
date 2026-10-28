@@ -121,6 +121,14 @@ message KafkaJobStats {
   int64 messages_replicated = 2;
   int64 bytes_replicated = 3;
   int64 lag_ms = 4;
+  // Партиции, назначенные пулу задачи на агенте группой консьюмеров: по ним видно, как
+  // партиции топиков разложены по агентам и не осталось ли незанятых
+  repeated KafkaTopicPartitions assigned_partitions = 5;
+}
+
+message KafkaTopicPartitions {
+  string topic = 1;
+  repeated int32 partitions = 2;
 }
 
 message AgentHeartbeatResponse {

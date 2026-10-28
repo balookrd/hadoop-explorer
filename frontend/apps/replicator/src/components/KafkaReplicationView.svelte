@@ -3,6 +3,7 @@
   import { api } from '../api/client';
   import type { CreateKafkaJobPayload } from '../types';
   import { matchesPattern, patternError } from '../lib/topicPattern';
+  import { agentColor, buildPartitionLayout, parseAssignment, type AgentPartitions } from '../lib/partitionLayout';
   import {
     ArrowLeftRight,
     RefreshCw,
@@ -25,6 +26,8 @@
     Pencil,
     RotateCcw,
     ListChecks,
+    LayoutGrid,
+    ChevronDown,
   } from 'lucide-svelte';
 
   interface TopicSetting {
@@ -69,6 +72,8 @@
     runningAgents: string[];
     /** Почему пул задачи не запустился на агентах: «агент: причина» */
     agentErrors: string[];
+    /** Партиции топиков, которые читает каждый агент */
+    partitionAssignment: AgentPartitions[];
     lastErrorMessage?: string;
   }
 
@@ -108,6 +113,8 @@
   let jobsLoading = $state(false);
   // Ошибка последнего обновления списка: прежние данные остаются на экране с пометкой времени
   let jobsError = $state<string | null>(null);
+  /** Задачи с раскрытой раскладкой партиций по агентам */
+  let partitionsOpen = $state<Record<string, boolean>>({});
   let jobsUpdatedAt = $state<number | null>(null);
   // Опросы не накладываются: ответ медленного запроса не перезаписывает более свежий
   let jobsRequestSeq = 0;
@@ -315,6 +322,7 @@
       currentLagMs: Number(raw.current_lag_ms ?? raw.currentLagMs ?? 0),
       runningAgents: Array.isArray(raw.running_agents) ? raw.running_agents : [],
       agentErrors: Array.isArray(raw.agent_errors) ? raw.agent_errors : [],
+      partitionAssignment: parseAssignment(raw.partition_assignment ?? raw.partitionAssignment),
       lastErrorMessage: raw.last_error_message || raw.lastErrorMessage
     };
   }
@@ -1206,6 +1214,58 @@
               {#each job.agentErrors as agentError}
                 <div class="font-mono break-all pl-6">{agentError}</div>
               {/each}
+            </div>
+          {/if}
+
+          {#if job.partitionAssignment.length > 0}
+            {@const layout = buildPartitionLayout(job.partitionAssignment)}
+            {@const agentIds = layout.agents.map((a) => a.agentId)}
+            {@const gaps = layout.topics.reduce((n, t) => n + t.unassigned, 0)}
+            {@const dups = layout.topics.reduce((n, t) => n + t.duplicated, 0)}
+            <div class="rounded-xl border border-slate-200/60 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-xs">
+              <button
+                type="button"
+                class="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 font-semibold text-slate-700 dark:text-slate-300"
+                aria-expanded={partitionsOpen[job.id] === true}
+                onclick={() => (partitionsOpen[job.id] = !partitionsOpen[job.id])}
+              >
+                <span class="flex items-center gap-1.5">
+                  <LayoutGrid class="w-3.5 h-3.5 text-sky-500" />
+                  <span>Партиции по агентам · агентов: {layout.agents.length}, партиций: {layout.agents.reduce((n, a) => n + a.partitions, 0)}</span>
+                  {#if gaps > 0}
+                    <span class="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-medium">не назначено: {gaps}</span>
+                  {/if}
+                  {#if dups > 0}
+                    <span class="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-medium">у двух агентов: {dups}</span>
+                  {/if}
+                </span>
+                <ChevronDown class="w-4 h-4 transition-transform {partitionsOpen[job.id] ? 'rotate-180' : ''}" />
+              </button>
+              {#if partitionsOpen[job.id]}
+                <div class="px-3.5 pb-3 space-y-3">
+                  <div class="flex flex-wrap gap-x-3 gap-y-1">
+                    {#each layout.agents as agent}
+                      <span class="inline-flex items-center gap-1.5 font-mono text-slate-700 dark:text-slate-300">
+                        <span class="w-2.5 h-2.5 rounded-sm {agentColor(agentIds, agent.agentId)}"></span>
+                        {agent.agentId}: {agent.partitions}
+                      </span>
+                    {/each}
+                  </div>
+                  {#each layout.topics as topicLayout}
+                    <div class="space-y-1">
+                      <div class="font-mono text-slate-800 dark:text-slate-200">{topicLayout.topic} <span class="text-slate-400">({topicLayout.cells.length})</span></div>
+                      <div class="flex flex-wrap gap-0.5" data-testid="partition-grid">
+                        {#each topicLayout.cells as cell}
+                          <span
+                            class="w-3.5 h-3.5 rounded-sm {cell.agents.length === 0 ? 'bg-slate-200 dark:bg-slate-700 border border-dashed border-amber-400' : agentColor(agentIds, cell.agents[0])} {cell.agents.length > 1 ? 'ring-2 ring-rose-500' : ''}"
+                            title="{topicLayout.topic}-{cell.partition}: {cell.agents.length === 0 ? 'не назначена' : cell.agents.join(', ')}"
+                          ></span>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/if}
 

@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.kafka;
 
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.CapturingStatementInspector;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.KafkaReplicationJobRepository;
@@ -217,5 +218,28 @@ class KafkaHeartbeatMetricsTest {
 
         service.updateJobErrorsFromHeartbeat("agent-a", List.of());
         assertEquals(List.of("agent-b: Cannot locate KDC"), service.getAgentErrors("kafka-broken"));
+    }
+
+    @Test
+    @DisplayName("Раскладка партиций задачи по агентам: только агенты с работающим пулом")
+    void testPartitionAssignmentByAgent() {
+        createJob("kafka-split", "dc1", "dc2", "ACTIVE", "UNIDIRECTIONAL");
+        service.updateJobMetricsFromHeartbeat("agent-b", List.of(
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-split", 1L, 1L, 0L,
+                        java.util.Map.of("orders", List.of(2, 3), "payments", List.of(0)))));
+        service.updateJobMetricsFromHeartbeat("agent-a", List.of(
+                new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats("kafka-split", 1L, 1L, 0L,
+                        java.util.Map.of("orders", List.of(0, 1)))));
+
+        var assignment = service.getJobById("kafka-split").orElseThrow().getPartitionAssignment();
+        assertEquals(List.of(
+                new KafkaReplicationJobDto.AgentPartitions("agent-a", "orders", List.of(0, 1)),
+                new KafkaReplicationJobDto.AgentPartitions("agent-b", "orders", List.of(2, 3)),
+                new KafkaReplicationJobDto.AgentPartitions("agent-b", "payments", List.of(0))), assignment);
+
+        // Агент остановил пул: его партиции из раскладки уходят
+        service.updateJobMetricsFromHeartbeat("agent-b", List.of());
+        assertEquals(List.of(new KafkaReplicationJobDto.AgentPartitions("agent-a", "orders", List.of(0, 1))),
+                service.getPartitionAssignment("kafka-split"));
     }
 }

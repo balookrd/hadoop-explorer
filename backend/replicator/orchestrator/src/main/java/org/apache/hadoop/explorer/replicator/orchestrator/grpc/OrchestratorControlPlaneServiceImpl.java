@@ -196,7 +196,10 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
                     kafkaOrchestratorService.updateJobMetricsFromHeartbeat(request.getAgentId(),
                             request.getKafkaJobStatsList().stream()
                                     .map(s -> new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobStats(
-                                            s.getJobId(), s.getMessagesReplicated(), s.getBytesReplicated(), s.getLagMs()))
+                                            s.getJobId(), s.getMessagesReplicated(), s.getBytesReplicated(), s.getLagMs(),
+                                            s.getAssignedPartitionsList().stream().collect(java.util.stream.Collectors.toMap(
+                                                    tp -> tp.getTopic(), tp -> List.copyOf(tp.getPartitionsList()),
+                                                    (a, b) -> java.util.stream.Stream.concat(a.stream(), b.stream()).toList()))))
                                     .toList());
                 } catch (Exception ex) {
                     log.warn("Не удалось обновить метрики Kafka-задач из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());

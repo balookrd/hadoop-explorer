@@ -81,6 +81,11 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Map<TopicPartition, Long> lastObservedTimestamps = new ConcurrentHashMap<>();
+    /**
+     * Партиции, назначенные воркерам пула группой консьюмеров. Ведется обработчиком ребаланса:
+     * {@code assignment()} консьюмера из чужого потока читать нельзя.
+     */
+    private final Set<TopicPartition> assignedPartitions = ConcurrentHashMap.newKeySet();
     private final java.util.concurrent.atomic.AtomicLong totalMessagesReplicated = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong totalBytesReplicated = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong currentLagMs = new java.util.concurrent.atomic.AtomicLong(0);
@@ -1023,6 +1028,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                         return;
                     }
                     log.info("[Worker {}] Отзыв партиций при ребалансе: {}", workerId, revoked);
+                    assignedPartitions.removeAll(revoked);
                     commitOffsetsSync(revoked);
                     releasePartitions(revoked);
                 }
@@ -1031,6 +1037,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 public void onPartitionsAssigned(java.util.Collection<TopicPartition> assigned) {
                     if (assigned != null && !assigned.isEmpty()) {
                         log.info("[Worker {}] Назначены партиции при ребалансе: {}", workerId, assigned);
+                        assignedPartitions.addAll(assigned);
                     }
                 }
 
@@ -1039,6 +1046,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     // Партиции потеряны: фиксировать за них оффсеты уже нельзя, только освободить состояние
                     if (lost != null && !lost.isEmpty()) {
                         log.warn("[Worker {}] Партиции потеряны без отзыва: {}", workerId, lost);
+                        assignedPartitions.removeAll(lost);
                         releasePartitions(lost);
                     }
                 }
@@ -1179,6 +1187,16 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         return currentLagMs.get();
     }
 
+    /** Назначенные пулу партиции: топик -> номера по возрастанию. */
+    public Map<String, List<Integer>> getAssignedPartitions() {
+        Map<String, List<Integer>> byTopic = new java.util.TreeMap<>();
+        for (TopicPartition tp : assignedPartitions) {
+            byTopic.computeIfAbsent(tp.topic(), t -> new ArrayList<>()).add(tp.partition());
+        }
+        byTopic.values().forEach(Collections::sort);
+        return byTopic;
+    }
+
     public Map<TopicPartition, Long> getLastObservedTimestamps() {
         return Collections.unmodifiableMap(lastObservedTimestamps);
     }
@@ -1258,5 +1276,6 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             } catch (Exception ignored) {
             }
         }
+        assignedPartitions.clear();
     }
 }

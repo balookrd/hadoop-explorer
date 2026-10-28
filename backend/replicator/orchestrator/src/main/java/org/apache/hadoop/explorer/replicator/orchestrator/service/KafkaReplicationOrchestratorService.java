@@ -472,6 +472,7 @@ public class KafkaReplicationOrchestratorService {
         dto.setBytesReplicated(entity.getBytesReplicated());
         dto.setCurrentLagMs(entity.getCurrentLagMs());
         dto.setRunningAgents(getRunningAgents(entity.getId()));
+        dto.setPartitionAssignment(getPartitionAssignment(entity.getId()));
         dto.setAgentErrors(getAgentErrors(entity.getId()));
         dto.setLastErrorMessage(entity.getLastErrorMessage());
         dto.setCreatedAt(entity.getCreatedAt());
@@ -1025,6 +1026,8 @@ public class KafkaReplicationOrchestratorService {
         long seenAtMs;
         /** Пул задачи на агенте работает: задача есть в его последнем heartbeat. */
         volatile boolean running;
+        /** Партиции, назначенные пулу задачи на агенте: топик -> номера. */
+        volatile Map<String, List<Integer>> partitions = Map.of();
 
         long messages() {
             return base + lastMessages;
@@ -1134,6 +1137,7 @@ public class KafkaReplicationOrchestratorService {
                 AgentKafkaStats agentStats = agents.computeIfAbsent(agentKey, k -> new AgentKafkaStats());
                 record(agentStats, jobStats.messagesReplicated(), jobStats.bytesReplicated(), jobStats.lagMs(), now);
                 agentStats.running = true;
+                agentStats.partitions = jobStats.assignedPartitions();
                 for (AgentKafkaStats agent : agents.values()) {
                     totalMessages += agent.messages();
                     totalBytes += agent.bytes();
@@ -1167,6 +1171,29 @@ public class KafkaReplicationOrchestratorService {
         }
         running.sort(null);
         return running;
+    }
+
+    /**
+     * Раскладка партиций задачи по агентам с работающим пулом, по последним heartbeat.
+     *
+     * <p>Во время ребаланса партиция может на один цикл числиться за двумя агентами или ни за
+     * одним: отчеты агентов приходят в разное время.
+     */
+    public List<KafkaReplicationJobDto.AgentPartitions> getPartitionAssignment(String jobId) {
+        Map<String, AgentKafkaStats> agents = jobAgentStats.get(jobId);
+        if (agents == null) {
+            return List.of();
+        }
+        long now = System.currentTimeMillis();
+        List<KafkaReplicationJobDto.AgentPartitions> result = new ArrayList<>();
+        new java.util.TreeMap<>(agents).forEach((agentId, stats) -> {
+            if (!stats.running || now - stats.seenAtMs > AGENT_LAG_FRESHNESS_MS) {
+                return;
+            }
+            new java.util.TreeMap<>(stats.partitions).forEach((topic, partitions) ->
+                    result.add(new KafkaReplicationJobDto.AgentPartitions(agentId, topic, partitions)));
+        });
+        return result;
     }
 
     /** Новые показания агента с учетом его рестарта: после него счетчики идут с нуля. */

@@ -378,12 +378,17 @@ public class OrchestratorGrpcClient implements Closeable {
                     .setKafkaCurrentLagMs(request.getKafkaCurrentLagMs());
             builder.setKafkaJobStatsSupported(request.isKafkaJobStatsSupported());
             for (var stats : request.getKafkaJobStats()) {
-                builder.addKafkaJobStats(org.apache.hadoop.explorer.replicator.generated.control.KafkaJobStats.newBuilder()
+                var jobStats = org.apache.hadoop.explorer.replicator.generated.control.KafkaJobStats.newBuilder()
                         .setJobId(stats.jobId() != null ? stats.jobId() : "")
                         .setMessagesReplicated(stats.messagesReplicated())
                         .setBytesReplicated(stats.bytesReplicated())
-                        .setLagMs(stats.lagMs())
-                        .build());
+                        .setLagMs(stats.lagMs());
+                stats.assignedPartitions().forEach((topic, partitions) -> jobStats.addAssignedPartitions(
+                        org.apache.hadoop.explorer.replicator.generated.control.KafkaTopicPartitions.newBuilder()
+                                .setTopic(topic)
+                                .addAllPartitions(partitions)
+                                .build()));
+                builder.addKafkaJobStats(jobStats.build());
             }
             for (var error : request.getKafkaJobErrors()) {
                 builder.addKafkaJobErrors(org.apache.hadoop.explorer.replicator.generated.control.KafkaJobError.newBuilder()

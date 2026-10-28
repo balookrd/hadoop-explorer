@@ -124,7 +124,8 @@ public class KafkaJobPoolManager implements Closeable {
                     e.getKey(),
                     retired[0] + pool.getTotalMessagesReplicated(),
                     retired[1] + pool.getTotalBytesReplicated(),
-                    pool.getCurrentLagMs()));
+                    pool.getCurrentLagMs(),
+                    pool.getAssignedPartitions()));
         }
         return stats;
     }

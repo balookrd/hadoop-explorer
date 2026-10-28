@@ -115,6 +115,13 @@ public class KafkaReplicationJobDto {
     public void setAgentErrors(List<String> agentErrors) { this.agentErrors = agentErrors; }
     public void setRunningAgents(List<String> runningAgents) { this.runningAgents = runningAgents; }
 
+    /** Партиции топика, которые читает агент: раскладка партиций задачи по агентам. */
+    public record AgentPartitions(String agentId, String topic, List<Integer> partitions) {}
+
+    private List<AgentPartitions> partitionAssignment = new java.util.ArrayList<>();
+    public List<AgentPartitions> getPartitionAssignment() { return partitionAssignment; }
+    public void setPartitionAssignment(List<AgentPartitions> partitionAssignment) { this.partitionAssignment = partitionAssignment; }
+
     public Long getCurrentLagMs() { return currentLagMs; }
     public void setCurrentLagMs(Long currentLagMs) { this.currentLagMs = currentLagMs; }
 

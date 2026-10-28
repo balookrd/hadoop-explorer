@@ -198,6 +198,25 @@ class KafkaRebalanceAndShutdownTest {
     }
 
     @Test
+    @DisplayName("Назначенные партиции пула следуют за ребалансом и очищаются при остановке")
+    void testAssignedPartitionsFollowRebalance() throws Exception {
+        assign(P0);
+        pool.start();
+        rebalanceOnPollThread(P1, null);
+
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (!pool.getAssignedPartitions().equals(Map.of("orders", List.of(1)))
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
+        assertEquals(Map.of("orders", List.of(1)), pool.getAssignedPartitions());
+
+        pool.close();
+        assertTrue(pool.getAssignedPartitions().isEmpty(),
+                "Остановленный пул не должен числить за собой партиции");
+    }
+
+    @Test
     @DisplayName("Отзыв партиции синхронно фиксирует подтвержденный префикс")
     void testRevokeCommitsAcknowledgedPrefix() throws Exception {
         assign(P0);
