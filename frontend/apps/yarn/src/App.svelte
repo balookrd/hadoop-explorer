@@ -491,8 +491,14 @@
       title,
       description,
       changes,
+      // Mapping edits used to be dropped here: only the direct XML export carried them
+      ...(isMappingsModified
+        ? { queue_mappings: draftQueueMappings, queue_mappings_override: draftQueueMappingsOverride }
+        : {}),
     });
     draftChanges = new Map();
+    draftQueueMappings = liveQueueMappings;
+    draftQueueMappingsOverride = liveQueueMappingsOverride;
     recalcBalances();
     await loadPendingCrCount();
     showCrDrawer = true;

@@ -56,21 +56,21 @@ hadoop:
         groups: ["bi-analysts", "analytics"]
     ldap:
       enabled: true
-      server-uri: "ldap://ldap:389"
-      bind-dn: "cn=admin,dc=company,dc=local"
-      bind-password: "adminpassword"
-      user-base-dn: "ou=users,dc=company,dc=local"
-      user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
-      group-base-dn: "ou=groups,dc=company,dc=local"
-      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+      url: "ldap://ldap:389"
+      manager-dn: "cn=admin,dc=company,dc=local"
+      manager-password: "adminpassword"
+      user-search-base: "ou=users,dc=company,dc=local"
+      user-search-filter: "(&(objectClass=inetOrgPerson)(|(uid={0})(cn={0})))"
+      group-search-base: "ou=groups,dc=company,dc=local"
+      group-search-filter: "(&(objectClass=groupOfNames)(member={0}))"
     kerberos:
       enabled: false
-    rate-limit:
+    rate-limiter:
       enabled: false
-    audit:
-      enabled: true
 
 yarn:
+  # Демо-стенд: встроенное дерево очередей вместо RM и симуляция AWX без изменений на кластере
+  client-mode: mock
   acl:
     enforce-four-eyes: true
   awx:
@@ -79,6 +79,7 @@ yarn:
     token: "mock-token"
     verify-ssl: false
     default-job-template-id: 101
+    simulate: true
   clusters:
     - id: "prod-yarn"
       name: "Production Hadoop Cluster"

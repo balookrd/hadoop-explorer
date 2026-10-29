@@ -1,0 +1,91 @@
+---
+# Применение правок YARN Explorer к развернутому capacity-scheduler.xml.
+# Файл должен быть одинаковым на всех RM: иначе непонятно, к какому из них применять правки,
+# и после деплоя RM разошлись бы по конфигурации.
+
+- name: Read checksum of the deployed capacity-scheduler.xml on every RM
+  ansible.builtin.stat:
+    path: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+    checksum_algorithm: sha256
+  register: deployed_xml_stat
+
+- name: Fail if capacity-scheduler.xml is missing on an RM
+  ansible.builtin.fail:
+    msg: "{{ hadoop_conf_dir }}/capacity-scheduler.xml not found on {{ inventory_hostname }}"
+  when: not deployed_xml_stat.stat.exists
+
+- name: Fail if RM nodes have diverged
+  run_once: true
+  ansible.builtin.fail:
+    msg: >-
+      capacity-scheduler.xml differs between ResourceManagers
+      ({{ ansible_play_hosts | map('extract', hostvars, ['deployed_xml_stat', 'stat', 'checksum']) | list }}).
+      Align the files manually before deploying changes from YARN Explorer.
+  when: >-
+    ansible_play_hosts | map('extract', hostvars, ['deployed_xml_stat', 'stat', 'checksum'])
+    | unique | list | length > 1
+
+- name: Read the deployed capacity-scheduler.xml
+  run_once: true
+  ansible.builtin.slurp:
+    src: "{{ hadoop_conf_dir }}/capacity-scheduler.xml"
+  register: deployed_xml
+
+- name: Create a work directory on the controller
+  run_once: true
+  delegate_to: localhost
+  become: false
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: capacity-patch
+  register: patch_workdir
+
+- name: Stage the deployed file and the patch on the controller
+  run_once: true
+  delegate_to: localhost
+  become: false
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ patch_workdir.path }}/{{ item.name }}"
+    mode: "0600"
+  loop:
+    - { name: "current.xml", content: "{{ deployed_xml.content | b64decode }}" }
+    - { name: "patch.json", content: "{{ capacity_scheduler_patch_b64 | b64decode }}" }
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Apply the patch
+  run_once: true
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ role_path }}/files/apply_capacity_patch.py"
+      - --input
+      - "{{ patch_workdir.path }}/current.xml"
+      - --patch
+      - "{{ patch_workdir.path }}/patch.json"
+      - --output
+      - "{{ patch_workdir.path }}/new.xml"
+  register: patch_result
+  changed_when: false
+
+- name: Log the applied edits
+  run_once: true
+  ansible.builtin.debug:
+    msg: "{{ patch_result.stdout_lines }}"
+
+- name: Load the patched file
+  run_once: true
+  ansible.builtin.set_fact:
+    capacity_scheduler_xml: "{{ lookup('ansible.builtin.file', patch_workdir.path + '/new.xml') }}"
+  no_log: true
+
+- name: Remove the work directory
+  run_once: true
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ patch_workdir.path }}"
+    state: absent

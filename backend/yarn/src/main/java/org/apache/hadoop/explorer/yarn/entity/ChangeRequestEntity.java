@@ -62,6 +62,17 @@ public class ChangeRequestEntity {
     @Column(name = "deployment_error", columnDefinition = "TEXT")
     private String deploymentError;
 
+    /** Edits of capacity-scheduler.xml computed at approval; this is what gets deployed. */
+    @Lob
+    @Column(name = "patch_json", columnDefinition = "TEXT")
+    private String patchJson;
+
+    @Column(name = "queue_mappings", length = 4000)
+    private String queueMappings;
+
+    @Column(name = "queue_mappings_override")
+    private Boolean queueMappingsOverride;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -91,6 +102,8 @@ public class ChangeRequestEntity {
         public Builder awxJobId(Integer awxJobId) { obj.awxJobId = awxJobId; return this; }
         public Builder deployedAt(Instant deployedAt) { obj.deployedAt = deployedAt; return this; }
         public Builder deploymentError(String deploymentError) { obj.deploymentError = deploymentError; return this; }
+        public Builder queueMappings(String queueMappings) { obj.queueMappings = queueMappings; return this; }
+        public Builder queueMappingsOverride(Boolean queueMappingsOverride) { obj.queueMappingsOverride = queueMappingsOverride; return this; }
         public Builder createdAt(Instant createdAt) { obj.createdAt = createdAt; return this; }
         public Builder updatedAt(Instant updatedAt) { obj.updatedAt = updatedAt; return this; }
 
@@ -143,6 +156,12 @@ public class ChangeRequestEntity {
     public void setDeployedAt(Instant deployedAt) { this.deployedAt = deployedAt; }
     public String getDeploymentError() { return deploymentError; }
     public void setDeploymentError(String deploymentError) { this.deploymentError = deploymentError; }
+    public String getPatchJson() { return patchJson; }
+    public void setPatchJson(String patchJson) { this.patchJson = patchJson; }
+    public String getQueueMappings() { return queueMappings; }
+    public void setQueueMappings(String queueMappings) { this.queueMappings = queueMappings; }
+    public Boolean getQueueMappingsOverride() { return queueMappingsOverride; }
+    public void setQueueMappingsOverride(Boolean queueMappingsOverride) { this.queueMappingsOverride = queueMappingsOverride; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -16,11 +16,6 @@ public interface YarnClient {
     QueueNode getQueueTree(String doAs);
 
     /**
-     * Возвращает текущее содержимое capacity-scheduler.xml из YARN RM.
-     */
-    String getCapacitySchedulerXml(String doAs);
-
-    /**
      * Возвращает URL активного ResourceManager.
      */
     String getActiveRmUrl();

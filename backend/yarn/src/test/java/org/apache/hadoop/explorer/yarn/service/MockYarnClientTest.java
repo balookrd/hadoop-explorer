@@ -76,13 +76,4 @@ class MockYarnClientTest {
         assertEquals(40.0, spark.getPartitions().get("DEFAULT").getCapacity());
         assertTrue(spark.getPartitions().containsKey("GPU"));
     }
-
-    @Test
-    @DisplayName("Проверка загрузки базового XML шаблона")
-    void testGetCapacitySchedulerXml() {
-        String xml = mockClient.getCapacitySchedulerXml("admin");
-        assertNotNull(xml);
-        assertTrue(xml.contains("<configuration>"));
-        assertTrue(xml.contains("yarn.scheduler.capacity.root.queues"));
-    }
 }

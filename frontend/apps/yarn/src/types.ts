@@ -231,6 +231,8 @@ export interface ChangeRequestCreate {
   title: string;
   description?: string;
   changes: DraftQueueItem[];
+  queue_mappings?: string;
+  queue_mappings_override?: boolean;
 }
 
 export interface DeployResponse {

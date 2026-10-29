@@ -48,6 +48,15 @@ public class ChangeRequestResponse {
     @JsonProperty("deployment_error")
     private String deploymentError;
 
+    /** Edits of capacity-scheduler.xml that will be (or were) applied. */
+    private List<ConfigPatchOp> operations = new ArrayList<>();
+
+    @JsonProperty("queue_mappings")
+    private String queueMappings;
+
+    @JsonProperty("queue_mappings_override")
+    private Boolean queueMappingsOverride;
+
     public ChangeRequestResponse() {}
 
     public static Builder builder() { return new Builder(); }
@@ -73,6 +82,9 @@ public class ChangeRequestResponse {
         public Builder awxJobId(Integer awxJobId) { obj.awxJobId = awxJobId; return this; }
         public Builder deployedAt(String deployedAt) { obj.deployedAt = deployedAt; return this; }
         public Builder deploymentError(String deploymentError) { obj.deploymentError = deploymentError; return this; }
+        public Builder operations(List<ConfigPatchOp> operations) { obj.operations = operations; return this; }
+        public Builder queueMappings(String queueMappings) { obj.queueMappings = queueMappings; return this; }
+        public Builder queueMappingsOverride(Boolean queueMappingsOverride) { obj.queueMappingsOverride = queueMappingsOverride; return this; }
 
         public ChangeRequestResponse build() { return obj; }
     }
@@ -113,4 +125,8 @@ public class ChangeRequestResponse {
     public void setDeployedAt(String deployedAt) { this.deployedAt = deployedAt; }
     public String getDeploymentError() { return deploymentError; }
     public void setDeploymentError(String deploymentError) { this.deploymentError = deploymentError; }
+    public List<ConfigPatchOp> getOperations() { return operations; }
+    public void setOperations(List<ConfigPatchOp> operations) { this.operations = operations; }
+    public String getQueueMappings() { return queueMappings; }
+    public Boolean getQueueMappingsOverride() { return queueMappingsOverride; }
 }

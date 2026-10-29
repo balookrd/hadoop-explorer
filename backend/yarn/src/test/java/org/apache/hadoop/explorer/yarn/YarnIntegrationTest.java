@@ -94,16 +94,16 @@ class YarnIntegrationTest {
                 .selectedPartition("DEFAULT")
                 .queues(List.of(
                         QueueDraftItem.builder()
-                                .name("spark")
-                                .path("root.spark")
+                                .name("dev")
+                                .path("root.dev")
                                 .parentPath("root")
-                                .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(60.0).maxCapacity(100.0).build()))
+                                .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(20.0).maxCapacity(50.0).build()))
                                 .build(),
                         QueueDraftItem.builder()
-                                .name("flink")
-                                .path("root.flink")
+                                .name("default")
+                                .path("root.default")
                                 .parentPath("root")
-                                .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(40.0).maxCapacity(100.0).build()))
+                                .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(20.0).maxCapacity(100.0).build()))
                                 .build()
                 ))
                 .build();
@@ -182,7 +182,8 @@ class YarnIntegrationTest {
                         .header("Authorization", "Bearer " + writerToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"comment\": \"Self-approve attempt\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail", containsString("ADMIN")));
 
         // 4. Одобрение администратором admin_user
         mockMvc.perform(post("/api/v1/change-requests/" + crId + "/approve")
@@ -198,12 +199,13 @@ class YarnIntegrationTest {
         mockMvc.perform(get("/api/v1/change-requests/" + crId + "/xml")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.xml_content", containsString("<configuration>")));
+                .andExpect(jsonPath("$.xml_content", containsString("<capacity-scheduler-patch")))
+                .andExpect(jsonPath("$.operations[?(@.name == 'yarn.scheduler.capacity.root.prod.spark.capacity')].value").value("50"));
 
         mockMvc.perform(get("/api/v1/change-requests/" + crId + "/preview-xml")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.xml_content", containsString("<configuration>")));
+                .andExpect(jsonPath("$.xml_content", containsString("<capacity-scheduler-patch")));
 
         // 6. Развертывание заявки через AWX
         mockMvc.perform(post("/api/v1/change-requests/" + crId + "/deploy")
@@ -211,7 +213,13 @@ class YarnIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.awx_job_id").exists())
-                .andExpect(jsonPath("$.stdout", containsString("PLAY RECAP")));
+                .andExpect(jsonPath("$.stdout", containsString("SIMULATION")));
+
+        // 6a. Повторный деплой той же заявки не запускает второй AWX Job
+        mockMvc.perform(post("/api/v1/change-requests/" + crId + "/deploy")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail", containsString("уже развертывается или успешно развернута")));
 
         // 7. Проверка статуса деплоя через /deploy-status
         mockMvc.perform(get("/api/v1/change-requests/" + crId + "/deploy-status")
@@ -220,5 +228,82 @@ class YarnIntegrationTest {
                 .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.awx_job_id").exists())
                 .andExpect(jsonPath("$.stdout").exists());
+    }
+
+    private QueueDraftItem draft(String path, double capacity, double maxCapacity) {
+        return QueueDraftItem.builder()
+                .name(path.substring(path.lastIndexOf('.') + 1))
+                .path(path)
+                .parentPath(path.substring(0, path.lastIndexOf('.')))
+                .action("modify")
+                .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(capacity).maxCapacity(maxCapacity).build()))
+                .build();
+    }
+
+    @Test
+    @DisplayName("Заявка, которую RM не примет, отклоняется при создании с объяснением причины")
+    void testInvalidChangeRequestsAreRejected() throws Exception {
+        String writerToken = loginAndGetToken("writer_user", "password123");
+
+        // Сумма дочерних очередей root становится 115%
+        ChangeRequestCreate unbalanced = ChangeRequestCreate.builder()
+                .clusterId("prod-yarn")
+                .title("Unbalanced change")
+                .changes(List.of(draft("root.dev", 40.0, 50.0)))
+                .build();
+        mockMvc.perform(post("/api/v1/change-requests")
+                        .header("Authorization", "Bearer " + writerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(unbalanced)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail", containsString("должна быть 100%")));
+
+        // Новая очередь под несуществующим родителем
+        ChangeRequestCreate orphan = ChangeRequestCreate.builder()
+                .clusterId("prod-yarn")
+                .title("Orphan queue")
+                .changes(List.of(QueueDraftItem.builder()
+                        .name("q").path("root.nope.q").parentPath("root.nope").action("create")
+                        .partitions(Map.of("DEFAULT", PartitionResourceConfig.builder().capacity(100.0).maxCapacity(100.0).build()))
+                        .build()))
+                .build();
+        mockMvc.perform(post("/api/v1/change-requests")
+                        .header("Authorization", "Bearer " + writerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(orphan)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail", containsString("root.nope")));
+
+        // Удаление работающей очереди
+        ChangeRequestCreate deleteRunning = ChangeRequestCreate.builder()
+                .clusterId("prod-yarn")
+                .title("Delete running queue")
+                .changes(List.of(
+                        QueueDraftItem.builder().name("dev").path("root.dev").parentPath("root").action("delete").build(),
+                        draft("root.default", 40.0, 100.0)))
+                .build();
+        mockMvc.perform(post("/api/v1/change-requests")
+                        .header("Authorization", "Bearer " + writerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(deleteRunning)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail", containsString("STOPPED")));
+
+        // Фильтр по неизвестному статусу не возвращает молча все заявки
+        mockMvc.perform(get("/api/v1/change-requests?status=BOGUS")
+                        .header("Authorization", "Bearer " + writerToken))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Прямой деплой XML в обход заявок запрещен при включенном Four-Eyes")
+    void testDirectDeployForbiddenWithFourEyes() throws Exception {
+        String adminToken = loginAndGetToken("admin_user", "password123");
+        mockMvc.perform(post("/api/v1/clusters/prod-yarn/deploy-xml")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"xml_content\": \"<configuration/>\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail", containsString("enforce-four-eyes")));
     }
 }

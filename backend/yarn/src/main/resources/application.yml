@@ -1,3 +1,10 @@
+# Базовая конфигурация YARN Explorer, упакованная в JAR.
+#
+# Значения по умолчанию безопасны для продакшена: без внешнего конфига
+# (SPRING_CONFIG_ADDITIONAL_LOCATION) сервис не стартует — нужен собственный
+# JWT-секрет, LDAP/Kerberos и список кластеров. Демо-режим (mock) включается
+# только явно, см. demo/yarn/application-demo.yml.
+
 server:
   port: 8000
   servlet:
@@ -7,121 +14,48 @@ spring:
   application:
     name: yarn-explorer-java
   datasource:
-    url: jdbc:h2:mem:yarn_explorer;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    driverClassName: org.h2.Driver
-    username: sa
-    password: ""
+    url: ${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}
+    driverClassName: ${YARN_DB_DRIVER:org.h2.Driver}
+    username: ${YARN_DB_USER:sa}
+    password: ${YARN_DB_PASSWORD:}
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: update
     show-sql: false
 
-# Настройки общего стартера безопасности платформы
 hadoop:
   security:
-    auth-mode: mock
+    debug: false
+    auth:
+      mode: ${HADOOP_AUTH_MODE:ldap}
     jwt:
-      secret: "yarn-explorer-super-secret-key-change-in-production-random-hash-2026"
+      # Обязателен: при пустом значении сервис откажется стартовать
+      secret-key: ${JWT_SECRET_KEY:}
       expiration-minutes: 480
-    mock-users:
-      - username: "admin_user"
-        password: "password123"
-        displayName: "Александр Админов"
-        email: "admin@company.local"
-        groups: ["hadoop-admins", "platform-team"]
-      - username: "writer_user"
-        password: "password123"
-        displayName: "Владимир Инженеров"
-        email: "writer@company.local"
-        groups: ["yarn-operators", "dev-leads"]
-      - username: "reader_user"
-        password: "password123"
-        displayName: "Екатерина Наблюдателева"
-        email: "reader@company.local"
-        groups: ["bi-analysts", "junior-devs"]
     ldap:
-      enabled: false
-      server-uri: "ldaps://ad.company.local:636"
-    kerberos:
-      enabled: false
-      keytab-path: "/etc/security/keytabs/yarn-explorer.keytab"
-      principal: "HTTP/yarn-explorer.company.local@COMPANY.LOCAL"
-    rate-limit:
-      enabled: false
-    audit:
       enabled: true
+      url: ${LDAP_URL:ldaps://ldap.company.local:636}
+      manager-dn: ${LDAP_MANAGER_DN:}
+      manager-password: ${LDAP_MANAGER_PASSWORD:}
+      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+      user-search-filter: ${LDAP_USER_SEARCH_FILTER:(uid={0})}
 
-# Настройки модуля YARN Explorer
 yarn:
+  # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)
+  client-mode: native
   acl:
     enforce-four-eyes: true
+  # Учетная запись Explorer для SPNEGO-запросов к кластерам с kerberos-enabled: true
+  kerberos:
+    principal: ${YARN_KERBEROS_PRINCIPAL:}
+    keytab: ${YARN_KERBEROS_KEYTAB:}
   awx:
     enabled: true
-    base-url: "https://awx.company.local"
-    token: "SampleAwxApplicationTokenHere"
+    base-url: ${YARN_AWX_BASE_URL:}
+    token: ${YARN_AWX_TOKEN:}
     verify-ssl: true
-    default-job-template-id: 101
+    default-job-template-id: ${YARN_AWX_JOB_TEMPLATE_ID:101}
     poll-interval-seconds: 2
     timeout-seconds: 180
-  clusters:
-    - id: "prod-yarn"
-      name: "Production Hadoop Cluster"
-      description: "Основной производственный YARN кластер (HDP/CDP, 120 узлов)"
-      resource-manager-urls:
-        - "http://rm1.prod.company.local:8088"
-        - "http://rm2.prod.company.local:8088"
-      kerberos-enabled: true
-      kerberos-principal: "yarn/rm1.prod.company.local@COMPANY.LOCAL"
-      impersonation-enabled: true
-      default-partition: "DEFAULT"
-      partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
-      resource-mode: "percentage"
-      queue-mappings: "u:%user:%user,g:hadoop-admins:root.production"
-      queue-mappings-override: false
-      total-resources:
-        memory-mb: 2097152
-        vcores: 1024
-      awx:
-        enabled: true
-        job-template-id: 101
-      acl:
-        allowed-users: ["*"]
-        allowed-groups: ["*"]
-        roles:
-          admin:
-            users: ["admin_user"]
-            groups: ["hadoop-admins"]
-          writer:
-            users: ["writer_user"]
-            groups: ["yarn-operators"]
-          reader:
-            users: ["*"]
-            groups: ["*"]
-
-    - id: "analytics-yarn"
-      name: "Analytics & ML Cluster"
-      description: "Кластер для Spark, Trino и GPU расчетов"
-      resource-manager-urls:
-        - "http://rm1.analytics.company.local:8088"
-      kerberos-enabled: false
-      impersonation-enabled: true
-      default-partition: "DEFAULT"
-      partitions: ["DEFAULT", "GPU"]
-      resource-mode: "percentage"
-      total-resources:
-        memory-mb: 1048576
-        vcores: 512
-      acl:
-        allowed-users: ["*"]
-        allowed-groups: ["*"]
-        roles:
-          admin:
-            users: ["admin_user"]
-            groups: ["hadoop-admins"]
-          writer:
-            users: ["writer_user"]
-            groups: ["yarn-operators"]
-          reader:
-            users: ["*"]
-            groups: ["*"]
+    simulate: false
+  clusters: []

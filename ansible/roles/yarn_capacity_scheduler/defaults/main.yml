@@ -14,8 +14,10 @@ kerberos_enabled: true
 yarn_keytab: "/etc/security/keytabs/yarn.service.keytab"
 yarn_principal: "yarn/{{ inventory_hostname }}@CORP.DOMAIN"
 
-# Переменные, передаваемые динамически через AWX extra_vars:
-# Base64-закодированное содержимое capacity-scheduler.xml
+# Переменные, передаваемые динамически через AWX extra_vars (задается одна из двух):
+# Base64-кодированный JSON-список правок от YARN Explorer (заявки на изменение)
+capacity_scheduler_patch_b64: ""
+# Base64-кодированный capacity-scheduler.xml целиком (ручная полная замена)
 capacity_scheduler_xml_b64: ""
 
 # Метаданные для аудита в логах AWX

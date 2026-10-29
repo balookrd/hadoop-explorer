@@ -168,34 +168,48 @@ spring:
 # Общие параметры безопасности платформы
 hadoop:
   security:
-    auth-mode: ldap # mock | ldap | kerberos
+    auth:
+      mode: ldap # ldap | kerberos (mock — только для стендов, требует debug: true)
     jwt:
-      secret: "GENERATE_SECURE_KEY_AT_LEAST_32_CHARACTERS_LONG"
+      # Случайная строка не короче 32 символов; без нее сервис не стартует
+      secret-key: "${JWT_SECRET_KEY}"
       expiration-minutes: 480
     ldap:
       enabled: true
-      server-uri: "ldaps://ldap.company.local:636"
-      bind-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
-      bind-password: "SecureServicePassword"
+      url: "ldaps://ldap.company.local:636"
+      manager-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
+      manager-password: "${LDAP_MANAGER_PASSWORD}"
       user-search-base: "ou=users,dc=company,dc=local"
       user-search-filter: "(sAMAccountName={0})"
       group-search-base: "ou=groups,dc=company,dc=local"
       group-search-filter: "(member={0})"
     kerberos:
+      # Входящий SPNEGO (SSO в браузере)
       enabled: true
-      keytab-path: "/etc/security/keytabs/yarn-explorer.keytab"
-      principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
+      keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+      service-principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
 
 # Модуль управления очередями YARN
 yarn:
+  # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)
+  client-mode: native
   acl:
     enforce-four-eyes: true
+  # Учетная запись Explorer для исходящих SPNEGO-запросов к RM с kerberos-enabled: true.
+  # Должна быть proxy user в core-site.xml кластера (hadoop.proxyuser.<user>.hosts/groups),
+  # если включен impersonation-enabled.
+  kerberos:
+    principal: "yarn-explorer@COMPANY.LOCAL"
+    keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+    krb5-conf: "/etc/krb5.conf"
   awx:
     enabled: true
     base-url: "https://awx.company.local"
-    token: "AWX_OAUTH2_APPLICATION_TOKEN"
-    job-template-id: 42
+    token: "${YARN_AWX_TOKEN}"
+    default-job-template-id: 42
     verify-ssl: true
+    poll-interval-seconds: 2
+    timeout-seconds: 180
   clusters:
     - id: "prod-cluster"
       name: "Production DataLake"
@@ -203,17 +217,18 @@ yarn:
         - "http://rm01.prod.company.local:8088"
         - "http://rm02.prod.company.local:8088"
       kerberos-enabled: true
-      kerberos-principal: "yarn/rm01.prod.company.local@COMPANY.LOCAL"
       impersonation-enabled: true
       default-partition: "DEFAULT"
       partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
       resource-mode: "percentage"
+      # Текущие маппинги очередей с кластера: RM не отдает их по REST,
+      # поэтому UI показывает это значение как «текущее»
+      queue-mappings: "u:%user:%user"
+      queue-mappings-override: false
       total-resources:
         memory-mb: 2097152
         vcores: 1024
       acl:
-        allowed-users: ["*"]
-        allowed-groups: ["*"]
         roles:
           admin:
             groups: ["hadoop-admins"]
@@ -222,6 +237,22 @@ yarn:
           reader:
             groups: ["*"]
 ```
+
+#### Проверки на старте
+
+Сервис откажется запускаться, если конфигурация небезопасна:
+
+- `hadoop.security.auth.mode` не задан или равен `mock` без `hadoop.security.debug: true`. По умолчанию действует именно mock: логин демо-учетками и фиктивные данные очередей. Раньше опечатка в ключе (например, `auth-mode` вместо `auth.mode`) молча включала этот режим;
+- JWT-секрет не задан, короче 32 символов или совпадает со встроенным значением из исходников;
+- `auth.mode: ldap` при `ldap.enabled: false`.
+
+Ключи из старых версий этого руководства (`auth-mode`, `ldap.server-uri`, `bind-dn`, `bind-password`, `user-base-dn`, `user-filter`, `kerberos.keytab-path`, `kerberos.principal`) по-прежнему принимаются как синонимы. Для новых конфигураций используйте ключи из примера выше.
+
+#### Как применяются изменения очередей
+
+Explorer не генерирует `capacity-scheduler.xml` целиком. При файловом хранилище конфигурации ResourceManager не отдает этот файл по REST: `/conf` возвращает конфигурацию демона без единого ключа `yarn.scheduler.capacity.*`. Поэтому заявка превращается в список правок только тех свойств, которые она меняет. AWX-роль `yarn_capacity_scheduler` применяет эти правки к файлу на RM, выполняет `yarn rmadmin -refreshQueues` и при ошибке откатывает изменения. ACL очередей, глобальные лимиты, `resource-calculator` и прочие свойства, которых заявка не касается, остаются как есть. Подробности — в [awx-yarn-deployment.md](awx-yarn-deployment.md).
+
+Заявка проверяется при создании и повторно при согласовании, уже против текущего состояния кластера. Проверяются: сумма емкостей дочерних очередей (100% для каждого раздела), существование родителя, удаление только остановленных (`STOPPED`) очередей, допустимость `ordering-policy` для листовых и родительских очередей.
 
 Установите строгие права доступа к файлу:
 ```bash
@@ -628,7 +659,7 @@ make test-java
 ```bash
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8000 \
-  -Dhadoop.security.auth-mode=kerberos \
+  -Dhadoop.security.auth.mode=kerberos \
   -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
   -Dyarn.awx.base-url="https://awx.company.local" \
   -Dyarn.awx.token="secret-awx-token" \

@@ -31,7 +31,7 @@ public class ClusterConfig {
     private String resourceMode = "percentage";
 
     @JsonProperty("queue_mappings")
-    private String queueMappings = "u:%user:%user,g:hadoop-admins:root.production";
+    private String queueMappings;
 
     @JsonProperty("queue_mappings_override")
     private boolean queueMappingsOverride = false;

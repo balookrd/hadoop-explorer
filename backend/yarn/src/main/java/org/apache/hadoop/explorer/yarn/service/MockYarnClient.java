@@ -1,10 +1,7 @@
 package org.apache.hadoop.explorer.yarn.service;
 
 import org.apache.hadoop.explorer.yarn.model.*;
-import org.springframework.core.io.ClassPathResource;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +57,8 @@ public class MockYarnClient implements YarnClient {
         Map<String, PartitionResourceConfig> sparkParts = new HashMap<>();
         sparkParts.put("DEFAULT", makePartition("DEFAULT", 40.0, 80.0, totalMem, totalCores));
         if (partitions.contains("GPU")) {
-            sparkParts.put("GPU", makePartition("GPU", 60.0, 100.0, totalMem, totalCores));
+            // Node-label capacities of siblings must sum to 100%, as the ResourceManager requires
+            sparkParts.put("GPU", makePartition("GPU", 100.0, 100.0, totalMem, totalCores));
         }
 
         QueueNode spark = QueueNode.builder()
@@ -139,7 +137,7 @@ public class MockYarnClient implements YarnClient {
         Map<String, PartitionResourceConfig> prodParts = new HashMap<>();
         prodParts.put("DEFAULT", makePartition("DEFAULT", 60.0, 100.0, totalMem, totalCores));
         if (partitions.contains("GPU")) {
-            prodParts.put("GPU", makePartition("GPU", 80.0, 100.0, totalMem, totalCores));
+            prodParts.put("GPU", makePartition("GPU", 100.0, 100.0, totalMem, totalCores));
         }
 
         QueueNode prod = QueueNode.builder()
@@ -257,17 +255,5 @@ public class MockYarnClient implements YarnClient {
                 .absoluteResources(new ResourceAllocation(mem, cores))
                 .absoluteMaxResources(new ResourceAllocation(maxMem, maxCores))
                 .build();
-    }
-
-    @Override
-    public String getCapacitySchedulerXml(String doAs) {
-        try {
-            ClassPathResource resource = new ClassPathResource("capacity-scheduler-template.xml");
-            try (InputStream is = resource.getInputStream()) {
-                return new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            }
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

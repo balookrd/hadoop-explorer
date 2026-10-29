@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { X, Download, Copy, CheckCircle, Percent, Hash, Rocket, RefreshCw } from 'lucide-svelte';
-  import { api } from '../api/client';
+  import { X, Download, Copy, CheckCircle, Percent, Hash } from 'lucide-svelte';
 
   let {
     xmlContent,
@@ -23,9 +22,6 @@
   } = $props();
 
   let copied = $state(false);
-  let isDeploying = $state(false);
-  let deployMessage = $state<string | null>(null);
-  let deployError = $state<string | null>(null);
 
   function downloadXml() {
     const blob = new Blob([xmlContent], { type: 'application/xml' });
@@ -41,21 +37,6 @@
     await navigator.clipboard.writeText(xmlContent);
     copied = true;
     setTimeout(() => copied = false, 2000);
-  }
-
-  async function handleDeployDirect() {
-    if (!clusterId) return;
-    isDeploying = true;
-    deployMessage = null;
-    deployError = null;
-    try {
-      const resp = await api.deployXmlDirect(clusterId, xmlContent, `Direct XML deployment from modal: ${filename}`);
-      deployMessage = resp.message;
-    } catch (err: any) {
-      deployError = err.message || 'Ошибка применения XML через AWX';
-    } finally {
-      isDeploying = false;
-    }
   }
 </script>
 
@@ -76,7 +57,7 @@
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div class="flex items-center gap-3">
-            <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">Сгенерированный capacity-scheduler.xml</h2>
+            <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">Правки capacity-scheduler.xml</h2>
             {#if onModeChange}
               <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
                 <button
@@ -116,39 +97,14 @@
           <button onclick={downloadXml}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white text-xs font-semibold shadow-sm cursor-pointer hover:shadow-md transition">
             <Download class="w-3.5 h-3.5" />
-            Скачать XML
+            Скачать
           </button>
-          {#if canAdmin && clusterId}
-            <button onclick={handleDeployDirect}
-              disabled={isDeploying}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-semibold shadow-sm cursor-pointer hover:shadow-md disabled:opacity-50 transition">
-              {#if isDeploying}
-                <RefreshCw class="w-3.5 h-3.5 animate-spin" />
-                <span>Применение...</span>
-              {:else}
-                <Rocket class="w-3.5 h-3.5" />
-                <span>Применить через AWX</span>
-              {/if}
-            </button>
-          {/if}
           <button onclick={() => isOpen = false} class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
             <X class="w-4 h-4 text-slate-500 dark:text-slate-400" />
           </button>
         </div>
       </div>
 
-      {#if deployMessage}
-        <div class="px-6 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900 text-xs font-semibold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
-          <CheckCircle class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>{deployMessage}</span>
-        </div>
-      {/if}
-      {#if deployError}
-        <div class="px-6 py-2.5 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-900 text-xs font-semibold text-red-900 dark:text-red-300 flex items-center gap-2">
-          <X class="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
-          <span>{deployError}</span>
-        </div>
-      {/if}
 
       <!-- XML Content -->
       <div class="flex-1 overflow-auto p-4 bg-white dark:bg-slate-900">

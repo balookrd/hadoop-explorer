@@ -20,13 +20,14 @@ sequenceDiagram
 
     Admin->>UI: POST /api/v1/change-requests/{id}/deploy
     UI->>UI: Проверка роли ADMIN и статуса APPROVED
-    UI->>AWX: "POST /api/v2/job_templates/{id}/launch/ (extra_vars: Base64 XML)"
+    UI->>AWX: "POST /api/v2/job_templates/{id}/launch/ (extra_vars: Base64 JSON-список правок)"
     AWX-->>UI: "201 Created (job_id: 1042)"
     AWX->>Runner: "Запуск Job Template (deploy_capacity_scheduler.yml)"
     
     rect rgb(240, 248, 255)
     Note over Runner: Pre-flight валидация
-    Runner->>Runner: "Декодирование Base64 и синтаксическая проверка XML (xmllint/python)"
+    Runner->>ActiveRM: "Чтение развернутого capacity-scheduler.xml, сверка контрольных сумм на всех RM"
+    Runner->>Runner: "Применение правок (apply_capacity_patch.py) и синтаксическая проверка XML"
     end
 
     rect rgb(255, 250, 240)
@@ -84,7 +85,8 @@ ansible/
 ```
 
 ### Ключевые особенности роли `yarn_capacity_scheduler`:
-1. **Безопасная передача содержимого**: XML передается через переменную `capacity_scheduler_xml_b64` в формате **Base64**. Это полностью исключает искажение кавычек, переносов строк и специальных символов JSON.
+1. **Правки вместо полного файла**: YARN Explorer передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
+   Полная замена файла по-прежнему доступна через `capacity_scheduler_xml_b64`.
 2. **Pre-flight-проверка**: Валидация структуры XML выполняется на стороне Runner перед любым изменением файлов на кластере.
 3. **Автоматический Rollback**: В случае ошибки команды `yarn rmadmin -refreshQueues` блок `rescue` автоматически возвращает файлы из резервной копии на всех серверах RM и повторно вызывает `refreshQueues`.
 
@@ -196,8 +198,11 @@ yarn:
     default-job-template-id: 101
     # Интервал опроса статуса выполнения задачи в секундах
     poll-interval-seconds: 2
-    # Максимальное время ожидания завершения деплоя в секундах
+    # Максимальное время ожидания завершения деплоя в секундах. Если задача не успела
+    # завершиться, заявка остается в статусе RUNNING, а итог подтягивается через /deploy-status
     timeout-seconds: 180
+    # Только для демо-стендов: имитировать успешную задачу, не вызывая AWX
+    simulate: false
 
   clusters:
     - id: "prod-yarn"
@@ -217,11 +222,23 @@ yarn:
             groups: ["hadoop-admins"]
 ```
 
+Статус `SUCCESS` ставится только когда AWX сообщил `successful`. Если AWX отключен (`enabled: false`) или не задан `base-url`, деплой завершается со статусом `FAILED`: изменения не применены. Раньше в этом случае возвращался имитированный успех.
+
 ### Переменные окружения для производственного запуска:
-- `YARN_AWX_ENABLED=true` (или `AWX_ENABLED=true`)
-- `YARN_AWX_BASE_URL=https://awx.prod.company.local` (или `AWX_BASE_URL`)
-- `YARN_AWX_TOKEN=xxxxxx` (или `AWX_TOKEN`)
-- `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID=101` (или `AWX_DEFAULT_JOB_TEMPLATE_ID`)
+- `YARN_AWX_BASE_URL=https://awx.prod.company.local`
+- `YARN_AWX_TOKEN=xxxxxx`
+- `YARN_AWX_JOB_TEMPLATE_ID=101`
+
+### Контракт `extra_vars`
+
+| Переменная | Описание |
+|---|---|
+| `capacity_scheduler_patch_b64` | Base64 от JSON-списка правок: `[{"op": "set", "name": "...", "value": "..."}, ...]`. Операции: `set`, `remove`, `remove_prefix`, `list_add`, `list_remove` |
+| `capacity_scheduler_xml_b64` | Base64 от полного `capacity-scheduler.xml` (только прямой деплой) |
+| `cluster_id` | Идентификатор кластера в Explorer |
+| `change_request_id` | Номер заявки или `direct` |
+| `applied_by` | Пользователь, запустивший деплой |
+| `deploy_comment` | Комментарий |
 
 ---
 
@@ -278,7 +295,7 @@ yarn:
 
 ### Вариант 2: Прямой деплой XML администратором (Direct Deploy)
 
-Для экстренных изменений очередей администратор кластера может напрямую применить проверенный XML:
+Прямой деплой обходит согласование, поэтому при `yarn.acl.enforce-four-eyes: true` (значение по умолчанию) он запрещен (`403`). Если принцип «четырех глаз» отключен, администратор может применить полный файл. Explorer проверяет, что это корректный XML с корнем `<configuration>`, только со свойствами `yarn.scheduler.capacity.*` и с заданным `yarn.scheduler.capacity.root.queues`:
 
 ```http
 POST /api/v1/clusters/prod-yarn/deploy-xml
@@ -295,14 +312,16 @@ Content-Type: application/json
 
 ## 7. Устранение неполадок и диагностика
 
-1. **Ошибка `Mandatory variable 'capacity_scheduler_xml_b64' is missing`**:
+1. **Ошибка `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'`**:
    * Проверьте, что в настройках Job Template в AWX включена опция **Prompt on launch** для поля **Variables**.
-2. **Ошибка `Cannot refresh queues: sum of child capacity != 100%`**:
+2. **Ошибка `capacity-scheduler.xml differs between ResourceManagers`**:
+   * Файлы на RM разошлись (например, после ручной правки на одном узле). Выровняйте их вручную и повторите деплой: после статуса `FAILED` повторный запуск разрешен.
+3. **Ошибка `Cannot refresh queues: sum of child capacity != 100%`**:
    * YARN ResourceManager отклонил конфигурацию из-за математического дисбаланса весов.
    * Сработал встроенный в роль механизм **Rollback**: предыдущая версия файла была автоматически восстановлена из `capacity-scheduler-<timestamp>.xml`, а исходное состояние очередей не повреждено.
-3. **Ошибка `User yarn cannot run rmadmin -refreshQueues`**:
+4. **Ошибка `User yarn cannot run rmadmin -refreshQueues`**:
    * Проверьте список администраторов в `yarn-site.xml` (`yarn.admin.acl`).
-4. **Таймаут ожидания в API (`HTTP 504`)**:
+5. **Таймаут ожидания в API (`HTTP 504`)**:
    * Если кластер насчитывает сотни узлов или сеть перегружена, увеличьте параметр `timeout-seconds` в `application.yml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
 
 ---

@@ -1,15 +1,27 @@
 ---
 # Главный пайплайн роли yarn_capacity_scheduler
+#
+# Два режима (задается одна из переменных):
+#   capacity_scheduler_patch_b64 — заявка из YARN Explorer: список правок применяется к файлу,
+#                                  который реально лежит на RM, остальные свойства не меняются;
+#   capacity_scheduler_xml_b64   — полная замена файла (ручной/аварийный путь).
 
-- name: Validate that capacity_scheduler_xml_b64 is provided
+- name: Validate that exactly one of capacity_scheduler_patch_b64 / capacity_scheduler_xml_b64 is provided
   ansible.builtin.fail:
-    msg: "Mandatory variable 'capacity_scheduler_xml_b64' is missing or empty!"
-  when: capacity_scheduler_xml_b64 | default('') | length == 0
+    msg: "Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'"
+  when: >-
+    (capacity_scheduler_patch_b64 | default('') | length > 0) ==
+    (capacity_scheduler_xml_b64 | default('') | length > 0)
+
+- name: Build new capacity-scheduler.xml from the patch
+  ansible.builtin.include_tasks: patch.yml
+  when: capacity_scheduler_patch_b64 | default('') | length > 0
 
 - name: Decode Base64 XML content
   ansible.builtin.set_fact:
     capacity_scheduler_xml: "{{ capacity_scheduler_xml_b64 | b64decode }}"
   no_log: true
+  when: capacity_scheduler_xml_b64 | default('') | length > 0
 
 - name: Pre-flight XML validation on Ansible Controller
   run_once: true

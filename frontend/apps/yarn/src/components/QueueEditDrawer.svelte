@@ -48,6 +48,11 @@
 
   let editUserLimitFactor = $state(1.0);
   let editOrderingPolicy = $state<'fifo' | 'fair'>('fifo');
+  // Values shown when the drawer opened. A field is sent only if the user changed it (or it was
+  // already in the draft): older ResourceManagers do not report the ordering policy, and sending
+  // the displayed fallback would silently overwrite e.g. "fair" with "fifo".
+  let openedUserLimitFactor = 1.0;
+  let openedOrderingPolicy: 'fifo' | 'fair' = 'fifo';
 
   let editMaxApplications = $state<number | null>(null);
   let editMaxAmPercent = $state<number | null>(null);
@@ -203,6 +208,8 @@
     editUserLimitFactor = draft?.user_limit_factor ?? queue.user_limit_factor ?? 1.0;
     const policy = (draft?.ordering_policy || queue.ordering_policy || 'fifo').toLowerCase();
     editOrderingPolicy = policy === 'fair' ? 'fair' : 'fifo';
+    openedUserLimitFactor = editUserLimitFactor;
+    openedOrderingPolicy = editOrderingPolicy;
 
     editMaxApplications = draft?.max_applications ?? queue.max_applications ?? null;
     editMaxAmPercent = draft?.max_am_resource_percent ?? queue.max_am_resource_percent ?? null;
@@ -424,8 +431,14 @@
       is_leaf: queue.is_leaf,
       state: editState,
       resource_mode: inputMode,
-      user_limit_factor: queue.is_leaf ? editUserLimitFactor : undefined,
-      ordering_policy: queue.is_leaf ? editOrderingPolicy : undefined,
+      user_limit_factor:
+        queue.is_leaf && (draftItem?.user_limit_factor != null || editUserLimitFactor !== openedUserLimitFactor)
+          ? editUserLimitFactor
+          : undefined,
+      ordering_policy:
+        queue.is_leaf && (draftItem?.ordering_policy != null || editOrderingPolicy !== openedOrderingPolicy)
+          ? editOrderingPolicy
+          : undefined,
       max_applications: editMaxApplications !== null && !isNaN(editMaxApplications) ? editMaxApplications : undefined,
       max_am_resource_percent: editMaxAmPercent !== null && !isNaN(editMaxAmPercent) ? editMaxAmPercent : undefined,
       max_parallel_apps: editMaxParallelApps !== null && !isNaN(editMaxParallelApps) ? editMaxParallelApps : undefined,

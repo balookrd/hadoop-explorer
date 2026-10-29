@@ -31,7 +31,7 @@ public class ChangeRequestService {
     private final YarnProperties yarnProperties;
     private final YarnClientFactory yarnClientFactory;
     private final CapacitySchedulerService schedulerService;
-    private final XmlGeneratorService xmlGeneratorService;
+    private final CapacitySchedulerPatchService patchService;
     private final AwxClientService awxClientService;
     private final RoleResolver roleResolver;
     private final ObjectMapper objectMapper;
@@ -41,7 +41,7 @@ public class ChangeRequestService {
             YarnProperties yarnProperties,
             YarnClientFactory yarnClientFactory,
             CapacitySchedulerService schedulerService,
-            XmlGeneratorService xmlGeneratorService,
+            CapacitySchedulerPatchService patchService,
             AwxClientService awxClientService,
             RoleResolver roleResolver,
             ObjectMapper objectMapper
@@ -50,7 +50,7 @@ public class ChangeRequestService {
         this.yarnProperties = yarnProperties;
         this.yarnClientFactory = yarnClientFactory;
         this.schedulerService = schedulerService;
-        this.xmlGeneratorService = xmlGeneratorService;
+        this.patchService = patchService;
         this.awxClientService = awxClientService;
         this.roleResolver = roleResolver;
         this.objectMapper = objectMapper;
@@ -64,22 +64,35 @@ public class ChangeRequestService {
         ClusterConfig cluster = findClusterOrThrow(request.getClusterId());
         checkClusterPermission(user, cluster, Role.WRITER);
 
+        List<QueueDraftItem> changes = request.getChanges() != null ? request.getChanges() : List.of();
+        if (changes.isEmpty() && request.getQueueMappings() == null && request.getQueueMappingsOverride() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Заявка не содержит изменений");
+        }
+
         YarnClient client = yarnClientFactory.getClient(cluster);
         QueueNode liveRoot = client.getQueueTree(user.username());
 
+        // Reject at submission what could never be deployed, instead of failing at refreshQueues
+        PatchPlan plan = patchService.buildPlan(cluster, liveRoot, copyOf(changes),
+                request.getQueueMappings(), request.getQueueMappingsOverride());
+        requireValid(plan, "Заявка не прошла проверку");
+        if (plan.operations().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Заявка не меняет конфигурацию кластера");
+        }
+
         DraftDiffResponse diffResponse = schedulerService.computeDiff(
                 cluster,
-                request.getChanges(),
+                changes,
                 liveRoot,
                 cluster.getDefaultPartition(),
-                cluster.getQueueMappings(),
-                cluster.isQueueMappingsOverride()
+                request.getQueueMappings(),
+                request.getQueueMappingsOverride()
         );
 
         String changesJson;
         String diffsJson;
         try {
-            changesJson = objectMapper.writeValueAsString(request.getChanges());
+            changesJson = objectMapper.writeValueAsString(changes);
             diffsJson = objectMapper.writeValueAsString(diffResponse.getDiffs());
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Ошибка сериализации данных заявки: " + e.getMessage());
@@ -93,6 +106,8 @@ public class ChangeRequestService {
                 .status(ChangeRequestStatus.SUBMITTED)
                 .changesJson(changesJson)
                 .diffsJson(diffsJson)
+                .queueMappings(request.getQueueMappings())
+                .queueMappingsOverride(request.getQueueMappingsOverride())
                 .build();
 
         ChangeRequestEntity saved = repository.save(entity);
@@ -106,7 +121,9 @@ public class ChangeRequestService {
         if (statusStr != null && !statusStr.isBlank()) {
             try {
                 status = ChangeRequestStatus.valueOf(statusStr.toUpperCase());
-            } catch (Exception ignored) {
+            } catch (IllegalArgumentException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Неизвестный статус заявки: " + statusStr
+                        + " (допустимо: " + Arrays.toString(ChangeRequestStatus.values()) + ")");
             }
         }
 
@@ -192,30 +209,30 @@ public class ChangeRequestService {
                     "Нельзя одобрить заявку в статусе '" + entity.getStatus() + "' (ожидается SUBMITTED)");
         }
 
-        // Генерируем финальный XML
+        // The edits are recomputed against the cluster as it is now: the request may have been
+        // submitted long ago, and only what still differs is deployed
         YarnClient client = yarnClientFactory.getClient(cluster);
         QueueNode liveRoot = client.getQueueTree(user.username());
-        String baseXml = client.getCapacitySchedulerXml(user.username());
-
-        List<QueueDraftItem> changes = deserializeChanges(entity.getChangesJson());
-        List<QueueDraftItem> mergedQueues = mergeQueues(liveRoot, changes);
-
-        String generatedXml = xmlGeneratorService.generateCapacitySchedulerXml(
-                mergedQueues,
-                cluster,
-                entity.getAuthor() + " (Approved by " + user.username() + ")",
-                (comment != null && !comment.isBlank()) ? comment : "Approved Change Request #" + entity.getId() + ": " + entity.getTitle(),
-                cluster.getResourceMode(),
-                cluster.getQueueMappings(),
-                cluster.isQueueMappingsOverride(),
-                baseXml
-        );
+        PatchPlan plan = patchService.buildPlan(cluster, liveRoot, deserializeChanges(entity.getChangesJson()),
+                entity.getQueueMappings(), entity.getQueueMappingsOverride());
+        if (!plan.isValid()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Заявка больше не применима к текущей конфигурации кластера: " + String.join("; ", plan.errors()));
+        }
+        if (plan.operations().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Изменения заявки уже присутствуют на кластере, развертывать нечего");
+        }
 
         entity.setStatus(ChangeRequestStatus.APPROVED);
         entity.setReviewer(user.username());
         entity.setReviewComment(comment);
         entity.setReviewedAt(Instant.now());
-        entity.setXmlContent(generatedXml);
+        entity.setPatchJson(writeJson(plan.operations()));
+        entity.setXmlContent(patchService.renderPreview(cluster.getId(),
+                "CR #" + entity.getId() + ": " + entity.getTitle() + " (author " + entity.getAuthor()
+                        + ", approved by " + user.username() + ")",
+                plan.operations()));
 
         ChangeRequestEntity saved = repository.save(entity);
         log.info("Заявка #{} одобрена администратором '{}'", saved.getId(), user.username());
@@ -279,42 +296,33 @@ public class ChangeRequestService {
         ClusterConfig cluster = findClusterOrThrow(entity.getClusterId());
         checkClusterPermission(user, cluster, Role.READER);
 
-        if (entity.getXmlContent() != null && entity.getStatus() == ChangeRequestStatus.APPROVED) {
-            return Map.of(
-                    "cr_id", entity.getId(),
-                    "title", entity.getTitle(),
-                    "filename", "capacity-scheduler-" + entity.getClusterId() + ".xml",
-                    "xml_content", entity.getXmlContent()
-            );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cr_id", entity.getId());
+        result.put("title", entity.getTitle());
+        result.put("filename", "capacity-scheduler-patch-" + entity.getClusterId() + "-cr" + entity.getId() + ".xml");
+
+        if (entity.getPatchJson() != null && entity.getStatus() == ChangeRequestStatus.APPROVED) {
+            result.put("xml_content", entity.getXmlContent());
+            result.put("operations", deserializeOps(entity.getPatchJson()));
+            result.put("errors", List.of());
+            return result;
         }
 
         YarnClient client = yarnClientFactory.getClient(cluster);
         QueueNode liveRoot = client.getQueueTree(user.username());
-        String baseXml = client.getCapacitySchedulerXml(user.username());
-
-        List<QueueDraftItem> changes = deserializeChanges(entity.getChangesJson());
-        List<QueueDraftItem> mergedQueues = mergeQueues(liveRoot, changes);
-
-        String generatedXml = xmlGeneratorService.generateCapacitySchedulerXml(
-                mergedQueues,
-                cluster,
-                entity.getAuthor() + " (Preview by " + user.username() + ")",
-                "Preview Change Request #" + entity.getId() + ": " + entity.getTitle(),
-                cluster.getResourceMode(),
-                cluster.getQueueMappings(),
-                cluster.isQueueMappingsOverride(),
-                baseXml
-        );
-
-        return Map.of(
-                "cr_id", entity.getId(),
-                "title", entity.getTitle(),
-                "filename", "capacity-scheduler-" + entity.getClusterId() + ".xml",
-                "xml_content", generatedXml
-        );
+        PatchPlan plan = patchService.buildPlan(cluster, liveRoot, deserializeChanges(entity.getChangesJson()),
+                entity.getQueueMappings(), entity.getQueueMappingsOverride());
+        result.put("xml_content", patchService.renderPreview(cluster.getId(),
+                "Preview CR #" + entity.getId() + ": " + entity.getTitle(), plan.operations()));
+        result.put("operations", plan.operations());
+        result.put("errors", plan.errors());
+        return result;
     }
 
-    @Transactional
+    /**
+     * Not transactional on purpose: the AWX job can run for minutes, and the DEPLOYING mark must be
+     * committed before it starts so that a second click cannot launch a parallel job.
+     */
     public DeployResponse deployChangeRequest(Long id, boolean wait, UserSession user) {
         ChangeRequestEntity entity = repository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Заявка #" + id + " не найдена"));
@@ -326,31 +334,35 @@ public class ChangeRequestService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Развертывание возможно только для согласованных заявок (текущий статус: " + entity.getStatus() + ")");
         }
-
-        if (entity.getXmlContent() == null || entity.getXmlContent().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Отсутствует сгенерированный XML для развертывания");
+        List<ConfigPatchOp> ops = deserializeOps(entity.getPatchJson());
+        if (ops.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "У заявки нет рассчитанных изменений: одобрите ее заново");
+        }
+        if (repository.claimForDeployment(id, ChangeRequestStatus.APPROVED, Instant.now()) == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Заявка #" + id + " уже развертывается или успешно развернута (статус: " + entity.getDeploymentStatus() + ")");
         }
 
-        entity.setDeploymentStatus("DEPLOYING");
-        repository.save(entity);
+        DeployResponse deployResp;
+        try {
+            deployResp = awxClientService.deployPatch(cluster, entity.getId(), ops, user.username(),
+                    "Deploy approved Change Request #" + entity.getId() + " by " + user.username(), wait);
+        } catch (RuntimeException e) {
+            deployResp = DeployResponse.builder()
+                    .crId(entity.getId())
+                    .clusterId(cluster.getId())
+                    .status(AwxClientService.STATUS_FAILED)
+                    .message("Сбой развертывания: " + e.getMessage())
+                    .build();
+        }
 
-        DeployResponse deployResp = awxClientService.deployXml(
-                cluster,
-                entity.getId(),
-                entity.getXmlContent(),
-                "Deploy approved Change Request #" + entity.getId() + " by " + user.username(),
-                wait
-        );
-
-        entity.setDeploymentStatus(deployResp.getStatus());
-        entity.setAwxJobId(deployResp.getAwxJobId());
-        entity.setDeployedAt(Instant.now());
-        repository.save(entity);
-
+        ChangeRequestEntity fresh = repository.findById(id).orElse(entity);
+        applyDeployResult(fresh, deployResp);
+        repository.save(fresh);
         return deployResp;
     }
 
-    @Transactional(readOnly = true)
     public DeployResponse getDeployStatus(Long id, UserSession user) {
         ChangeRequestEntity entity = repository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Заявка #" + id + " не найдена"));
@@ -358,58 +370,75 @@ public class ChangeRequestService {
         ClusterConfig cluster = findClusterOrThrow(entity.getClusterId());
         checkClusterPermission(user, cluster, Role.READER);
 
+        // A job launched with wait=false (or one that outlived the poll timeout) is tracked here
+        if (AwxClientService.STATUS_RUNNING.equals(entity.getDeploymentStatus()) && entity.getAwxJobId() != null) {
+            DeployResponse live = awxClientService.jobStatus(cluster, entity.getId(), entity.getAwxJobId());
+            if (!AwxClientService.STATUS_RUNNING.equals(live.getStatus())) {
+                applyDeployResult(entity, live);
+                repository.save(entity);
+            }
+            return live;
+        }
+
         String deployedAtStr = entity.getDeployedAt() != null
                 ? DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC).format(entity.getDeployedAt())
                 : null;
-
-        String stdout = "AWX Job #" + (entity.getAwxJobId() != null ? entity.getAwxJobId() : "N/A") +
-                " status: " + (entity.getDeploymentStatus() != null ? entity.getDeploymentStatus() : "NOT_DEPLOYED");
+        String status = entity.getDeploymentStatus() != null ? entity.getDeploymentStatus() : "NOT_DEPLOYED";
 
         return DeployResponse.builder()
                 .crId(entity.getId())
+                .clusterId(entity.getClusterId())
                 .awxJobId(entity.getAwxJobId())
-                .status(entity.getDeploymentStatus() != null ? entity.getDeploymentStatus() : "NOT_DEPLOYED")
-                .message("Status: " + entity.getDeploymentStatus())
+                .status(status)
+                .message(entity.getDeploymentError() != null ? entity.getDeploymentError() : "Status: " + status)
                 .deployedAt(deployedAtStr)
-                .stdout(stdout)
+                .stdout("AWX Job #" + (entity.getAwxJobId() != null ? entity.getAwxJobId() : "N/A") + " status: " + status)
                 .build();
     }
 
-    private List<QueueDraftItem> mergeQueues(QueueNode liveRoot, List<QueueDraftItem> changes) {
-        Map<String, QueueDraftItem> queueMap = new LinkedHashMap<>();
-        indexNodeToDrafts(liveRoot, queueMap);
-
-        for (QueueDraftItem draft : changes) {
-            if ("delete".equalsIgnoreCase(draft.getAction())) {
-                queueMap.remove(draft.getPath());
-            } else {
-                queueMap.put(draft.getPath(), draft);
-            }
+    private void applyDeployResult(ChangeRequestEntity entity, DeployResponse resp) {
+        entity.setDeploymentStatus(resp.getStatus());
+        if (resp.getAwxJobId() != null) {
+            entity.setAwxJobId(resp.getAwxJobId());
         }
-        return new ArrayList<>(queueMap.values());
+        entity.setDeployedAt(Instant.now());
+        if (AwxClientService.STATUS_FAILED.equals(resp.getStatus())) {
+            String stdout = resp.getStdout();
+            entity.setDeploymentError(resp.getMessage()
+                    + (stdout != null && !stdout.isBlank() ? "\n" + tail(stdout, 4000) : ""));
+        } else {
+            entity.setDeploymentError(null);
+        }
     }
 
-    private void indexNodeToDrafts(QueueNode node, Map<String, QueueDraftItem> map) {
-        if (node == null) return;
-        map.put(node.getPath(), QueueDraftItem.builder()
-                .name(node.getName())
-                .path(node.getPath())
-                .parentPath(node.getParentPath())
-                .leaf(node.isLeaf())
-                .state(node.getState())
-                .resourceMode(node.getResourceMode())
-                .userLimitFactor(node.getUserLimitFactor())
-                .orderingPolicy(node.getOrderingPolicy())
-                .maxApplications(node.getMaxApplications())
-                .maxAmResourcePercent(node.getMaxAmResourcePercent())
-                .partitions(node.getPartitions())
-                .action("modify")
-                .build());
+    private static String tail(String s, int max) {
+        return s.length() <= max ? s : s.substring(s.length() - max);
+    }
 
-        if (node.getChildren() != null) {
-            for (QueueNode child : node.getChildren()) {
-                indexNodeToDrafts(child, map);
-            }
+    private void requireValid(PatchPlan plan, String prefix) {
+        if (!plan.isValid()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, prefix + ": " + String.join("; ", plan.errors()));
+        }
+    }
+
+    private List<QueueDraftItem> copyOf(List<QueueDraftItem> changes) {
+        return deserializeChanges(writeJson(changes));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Ошибка сериализации: " + e.getMessage());
+        }
+    }
+
+    private List<ConfigPatchOp> deserializeOps(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<ConfigPatchOp>>() {});
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Повреждены сохраненные изменения заявки: " + e.getMessage());
         }
     }
 
@@ -417,7 +446,7 @@ public class ChangeRequestService {
         try {
             return objectMapper.readValue(json, new TypeReference<List<QueueDraftItem>>() {});
         } catch (Exception e) {
-            return Collections.emptyList();
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Повреждены данные заявки: " + e.getMessage());
         }
     }
 
@@ -453,6 +482,9 @@ public class ChangeRequestService {
                 .awxJobId(entity.getAwxJobId())
                 .deployedAt(formatInstant(entity.getDeployedAt()))
                 .deploymentError(entity.getDeploymentError())
+                .operations(deserializeOps(entity.getPatchJson()))
+                .queueMappings(entity.getQueueMappings())
+                .queueMappingsOverride(entity.getQueueMappingsOverride())
                 .build();
     }
 
