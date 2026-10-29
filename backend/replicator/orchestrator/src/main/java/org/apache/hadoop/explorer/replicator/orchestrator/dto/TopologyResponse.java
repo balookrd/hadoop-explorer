@@ -31,8 +31,14 @@ public record TopologyResponse(
         @JsonProperty("source_dc") String sourceDc,
         @JsonProperty("target_dc") String targetDc,
         @JsonProperty("limit_bytes_per_sec") long limitBytesPerSec,
-        @JsonProperty("limit_mb_per_sec") double limitMbPerSec
-    ) {}
+        @JsonProperty("limit_mb_per_sec") double limitMbPerSec,
+        /** Лимит задан явно; false — подставлено значение по умолчанию (100 МБ/с). */
+        @JsonProperty("configured") boolean configured
+    ) {
+        public DcLimitDto(String sourceDc, String targetDc, long limitBytesPerSec, double limitMbPerSec) {
+            this(sourceDc, targetDc, limitBytesPerSec, limitMbPerSec, true);
+        }
+    }
 
     public record HdfsLimitDto(
         @JsonProperty("source_cluster") String sourceCluster,

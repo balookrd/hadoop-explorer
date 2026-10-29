@@ -249,7 +249,7 @@ public class KafkaReplicationController {
 
         Double wanQuotaMb = null;
         if (topologyRegistry != null) {
-            var dcLimit = topologyRegistry.getDcLimit(sourceDc.trim(), targetDc.trim());
+            var dcLimit = topologyRegistry.getConfiguredDcLimit(sourceDc.trim(), targetDc.trim());
             if (dcLimit.isPresent()) {
                 wanQuotaMb = Math.round((dcLimit.get() * 0.40) / (1024.0 * 1024.0) * 10.0) / 10.0;
             }
@@ -258,10 +258,11 @@ public class KafkaReplicationController {
         var senders = service.getLiveSenderAgentDetails(sourceDc.trim());
         int sendersCount = senders.size();
         Double sendersCapacityMb = null;
-        final Double effectiveWanQuota = wanQuotaMb;
-        if (!senders.isEmpty()) {
+        // Емкость известна, только если лимит задан у каждого отправителя
+        if (!senders.isEmpty() && senders.stream()
+                .allMatch(a -> a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0)) {
             sendersCapacityMb = senders.stream()
-                    .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : (effectiveWanQuota != null ? effectiveWanQuota : 100.0))
+                    .mapToDouble(a -> a.getMaxBandwidthMbS())
                     .sum();
         }
 

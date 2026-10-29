@@ -61,6 +61,9 @@ public class KafkaReplicationOrchestratorSmokeTest {
         // тестом контекста, меняло автоподбор полосы в зависимости от порядка запуска
         if (topologyRegistry != null) {
             topologyRegistry.resetLimitsToDefaults();
+            // Авторасчет опирается только на явно заданный канал: подставленные по умолчанию
+            // 100 МБ/с квотой WAN не считаются. Сценарии класса подбирают параметры от канала
+            topologyRegistry.setDcLimit("dc1", "dc2", 100L * 1024 * 1024);
         }
         UserSession adminSession = new UserSession(
                 "kafka_admin", "Kafka Admin", "admin@kafka.local",

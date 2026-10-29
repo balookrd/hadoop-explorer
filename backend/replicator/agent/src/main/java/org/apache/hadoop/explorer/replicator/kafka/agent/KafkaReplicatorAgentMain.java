@@ -368,7 +368,9 @@ public class KafkaReplicatorAgentMain {
                     role,
                     ("receiver".equals(role) || "dual".equals(role)) ? advertisedGrpcAddress : null,
                     null,
-                    (maxBandwidthMbS != null && maxBandwidthMbS > 0) ? maxBandwidthMbS : 100.0
+                    // Без --max-bandwidth-mb-s потолка узла нет: подстановка 100 МБ/с превращалась
+                    // в оркестраторе в лимит задачи 100 МБ/с на каждого отправителя
+                    (maxBandwidthMbS != null && maxBandwidthMbS > 0) ? maxBandwidthMbS : null
             );
             boolean regSuccess = orchestratorClient.register(regReq);
             log.info("Результат регистрации агента '{}' в оркестраторе: {}", agentId, regSuccess);

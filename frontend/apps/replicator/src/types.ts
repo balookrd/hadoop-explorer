@@ -111,6 +111,8 @@ export interface DcLimitItem {
   target_dc: string;
   limit_mb_per_sec: number;
   limit_bytes_per_sec: number;
+  /** Лимит задан явно; false — оркестратор подставил значение по умолчанию */
+  configured?: boolean;
 }
 
 export interface HdfsLimitItem {

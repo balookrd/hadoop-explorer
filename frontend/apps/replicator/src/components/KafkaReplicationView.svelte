@@ -395,9 +395,11 @@
   // Без лимита канала в топологии квоты WAN нет: прежняя подстановка 100 МБ/с давала 40 МБ/с
   // на всю задачу и молча душила поток в десятки раз
   let wanHtbBandwidthMb = $derived(detectedDcLimitMb !== null ? Math.round(detectedDcLimitMb * 0.40) : null);
+  // Емкость известна, только если лимит задан у каждого отправителя: агент без
+  // --max-bandwidth-mb-s считался за 100 МБ/с, и 12 агентов ограничивали задачу 1200 МБ/с
   let totalSendersCapacityMb = $derived(
-    liveSenderDetails.length > 0
-      ? liveSenderDetails.reduce((acc, a) => acc + (a.max_bandwidth_mb_s && a.max_bandwidth_mb_s > 0 ? a.max_bandwidth_mb_s : 100), 0)
+    liveSenderDetails.length > 0 && liveSenderDetails.every((a) => a.max_bandwidth_mb_s && a.max_bandwidth_mb_s > 0)
+      ? liveSenderDetails.reduce((acc, a) => acc + a.max_bandwidth_mb_s, 0)
       : null
   );
   // Суммарный лимит задачи; null — без лимита. Оркестратор делит его между агентами-отправителями
@@ -491,7 +493,9 @@
         const ld = (l.target_dc || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         return (ls === s && ld === d) || (ls === d && ld === s);
       });
-      if (found && found.limit_mb_per_sec) {
+      // Не заданный в топологии канал оркестратор отдает с подставленными 100 МБ/с
+      // (configured=false): квотой WAN он не служит
+      if (found && found.limit_mb_per_sec && found.configured !== false) {
         detectedDcLimitMb = found.limit_mb_per_sec;
         if (isAutoBandwidth) {
           bandwidthLimitMb = Math.round(found.limit_mb_per_sec * 0.40);

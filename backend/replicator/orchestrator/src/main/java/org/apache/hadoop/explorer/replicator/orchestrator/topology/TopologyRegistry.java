@@ -14,6 +14,8 @@ public class TopologyRegistry {
     private final List<ReplicatorProperties.DatacenterConfig> datacenters = new ArrayList<>();
     private final Map<String, ReplicatorProperties.ClusterConfig> clusters = new ConcurrentHashMap<>();
     private final Map<String, Long> dcLimits = new ConcurrentHashMap<>();
+    /** Каналы, лимит которых задан явно, а не подставлен по умолчанию. */
+    private final Set<String> explicitDcLimits = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> hdfsLimits = new ConcurrentHashMap<>();
 
     public TopologyRegistry(ReplicatorProperties properties) {
@@ -36,13 +38,14 @@ public class TopologyRegistry {
      */
     public void resetLimitsToDefaults() {
         dcLimits.clear();
+        explicitDcLimits.clear();
         hdfsLimits.clear();
 
         // Инициализация дефолтных лимитов каналов между ЦОД (100 МБ/с)
         for (var srcDc : datacenters) {
             for (var dstDc : datacenters) {
                 if (!srcDc.getId().equalsIgnoreCase(dstDc.getId())) {
-                    setDcLimit(srcDc.getId(), dstDc.getId(), 100L * 1024 * 1024);
+                    dcLimits.put(srcDc.getId() + "->" + dstDc.getId(), 100L * 1024 * 1024);
                 }
             }
         }
@@ -106,6 +109,7 @@ public class TopologyRegistry {
 
     public void setDcLimit(String srcDc, String dstDc, long limitBytesPerSec) {
         dcLimits.put(srcDc + "->" + dstDc, limitBytesPerSec);
+        explicitDcLimits.add(srcDc + "->" + dstDc);
     }
 
     public Optional<Long> getDcLimit(String srcDc, String dstDc) {
@@ -123,6 +127,33 @@ public class TopologyRegistry {
             }
         }
         return Optional.of(100L * 1024 * 1024);
+    }
+
+    /**
+     * Лимит канала между ЦОД, только если он задан явно.
+     *
+     * <p>{@link #getDcLimit} без настройки возвращает 100 МБ/с: на это опираются троттлер HDFS
+     * и DR. Авторасчет Kafka-задачи брал от этой подстановки 40% и создавал задачу с лимитом
+     * 40 МБ/с на всю задачу — для 2 млн событий/с в десятки раз меньше нужного.
+     */
+    public Optional<Long> getConfiguredDcLimit(String srcDc, String dstDc) {
+        if (srcDc == null || dstDc == null) return Optional.empty();
+        String s = srcDc.trim().toLowerCase();
+        String d = dstDc.trim().toLowerCase();
+        for (var entry : dcLimits.entrySet()) {
+            if (!explicitDcLimits.contains(entry.getKey())) {
+                continue;
+            }
+            String[] parts = entry.getKey().split("->");
+            if (parts.length == 2) {
+                String kSrc = parts[0].trim().toLowerCase();
+                String kDst = parts[1].trim().toLowerCase();
+                if ((kSrc.equals(s) && kDst.equals(d)) || (kSrc.equals(d) && kDst.equals(s))) {
+                    return Optional.of(entry.getValue());
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     public void setHdfsLimit(String srcCluster, String dstCluster, long limitBytesPerSec) {
@@ -146,9 +177,10 @@ public class TopologyRegistry {
             for (var dst : datacenters) {
                 if (src.getId().equalsIgnoreCase(dst.getId())) continue;
                 String key = src.getId() + "->" + dst.getId();
+                boolean configured = explicitDcLimits.contains(key);
                 long bytes = dcLimits.getOrDefault(key, 100L * 1024 * 1024);
                 double mb = Math.round((bytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
-                list.add(new TopologyResponse.DcLimitDto(src.getId(), dst.getId(), bytes, mb));
+                list.add(new TopologyResponse.DcLimitDto(src.getId(), dst.getId(), bytes, mb, configured));
                 seen.add(key);
             }
         }
@@ -159,7 +191,7 @@ public class TopologyRegistry {
                 String[] parts = entry.getKey().split("->");
                 long bytes = entry.getValue();
                 double mb = Math.round((bytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
-                list.add(new TopologyResponse.DcLimitDto(parts[0], parts[1], bytes, mb));
+                list.add(new TopologyResponse.DcLimitDto(parts[0], parts[1], bytes, mb, true));
             }
         }
         return list;

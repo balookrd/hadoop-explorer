@@ -115,7 +115,7 @@ public class KafkaReplicationOrchestratorService {
         Double resolvedBandwidth = request.getBandwidthLimitMb();
         if ((resolvedBandwidth == null || resolvedBandwidth <= 0) && topologyRegistry != null
                 && request.getSourceDc() != null && request.getTargetDc() != null) {
-            var dcLimit = topologyRegistry.getDcLimit(request.getSourceDc(), request.getTargetDc());
+            var dcLimit = topologyRegistry.getConfiguredDcLimit(request.getSourceDc(), request.getTargetDc());
             Double wanQuotaMb = null;
             // Нулевой лимит канала — ограждение, а не квота: из него не выводится лимит задачи
             // (иначе 0 стал бы «без лимита» — ровно обратный смысл)
@@ -128,9 +128,13 @@ public class KafkaReplicationOrchestratorService {
             Double sendersCapacityMb = null;
             List<org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry> liveSenders =
                     agentRegistry != null ? agentRegistry.getLiveKafkaSendersForCluster(request.getSourceDc()) : List.of();
-            if (!liveSenders.isEmpty()) {
+            // Емкость известна, только если лимит задан у каждого отправителя: агент без
+            // --max-bandwidth-mb-s раньше считался за 100 МБ/с, и 12 агентов без флага
+            // ограничивали задачу 1200 МБ/с
+            if (!liveSenders.isEmpty() && liveSenders.stream()
+                    .allMatch(a -> a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0)) {
                 sendersCapacityMb = liveSenders.stream()
-                        .mapToDouble(a -> (a.getMaxBandwidthMbS() != null && a.getMaxBandwidthMbS() > 0) ? a.getMaxBandwidthMbS() : 100.0)
+                        .mapToDouble(org.apache.hadoop.explorer.replicator.orchestrator.registry.AgentRegistry.AgentEntry::getMaxBandwidthMbS)
                         .sum();
             }
 
