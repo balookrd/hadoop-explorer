@@ -148,6 +148,9 @@
         {@const isDelete = draftItem?.action === 'delete'}
         {@const isDraft = hasDraftChange(row.node.path)}
         {@const configuredPartitions = Object.keys({ ...(row.node.partitions || {}), ...(draftItem?.partitions || {}) })}
+        {@const accessibleLabels = draftItem?.accessible_node_labels ?? row.node.accessible_node_labels ?? []}
+        {@const partitionLabels = configuredPartitions.filter(p => p !== 'DEFAULT')}
+        {@const queueLabels = [...new Set([...accessibleLabels, ...partitionLabels])]}
         {@const hasDirectPartition = Boolean(
           (draftItem?.partitions && draftItem.partitions[selectedPartition]) ||
           (row.node.partitions && row.node.partitions[selectedPartition])
@@ -239,31 +242,18 @@
                 <span class="text-[9px] px-1.5 py-0.2 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold whitespace-nowrap shrink-0">DEL</span>
               {/if}
 
-              <!-- Node Labels Badge -->
-              {#if (draftItem?.accessible_node_labels ?? row.node.accessible_node_labels)?.length}
-                {@const effectiveLabels = draftItem?.accessible_node_labels ?? row.node.accessible_node_labels ?? []}
-                <div class="flex items-center gap-1 shrink-0" title="Accessible Node Labels: {effectiveLabels.join(', ')}">
-                  {#each effectiveLabels.slice(0, 2) as lbl}
-                    <span class="text-[9px] px-1 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono font-bold whitespace-nowrap">
-                      {lbl}
-                    </span>
-                  {/each}
-                  {#if effectiveLabels.length > 2}
-                    <span class="text-[9px] text-slate-400 dark:text-slate-500 font-mono font-bold whitespace-nowrap">+{effectiveLabels.length - 2}</span>
-                  {/if}
-                </div>
-              {/if}
-
-              <!-- Configured Partitions Badges (без избыточного DEFAULT) -->
-              {#if configuredPartitions.some(p => p !== 'DEFAULT')}
-                <div class="flex items-center gap-1 shrink-0" title="Настроенные разделы (Partitions): {configuredPartitions.filter(p => p !== 'DEFAULT').join(', ')}">
-                  {#each configuredPartitions.filter(p => p !== 'DEFAULT') as partName}
+              <!-- Node label badges: accessible labels and configured partitions, one badge per label -->
+              {#if queueLabels.length}
+                <div class="flex items-center gap-1 shrink-0" title="Метки узлов: {queueLabels.map(l => `${l} (${[accessibleLabels.includes(l) ? 'доступна' : '', partitionLabels.includes(l) ? 'квоты настроены' : ''].filter(Boolean).join(', ')})`).join('; ')}">
+                  {#each queueLabels as lbl}
                     <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold whitespace-nowrap {
-                      partName === selectedPartition
+                      lbl === selectedPartition
                         ? 'bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-400'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                        : accessibleLabels.includes(lbl)
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                     }">
-                      {partName}
+                      {lbl}
                     </span>
                   {/each}
                 </div>
