@@ -126,8 +126,12 @@ public class KafkaBatchProducer {
                 try {
                     producer.send(prodRecord, (rm, ex) -> {
                         if (ex != null) {
-                            firstError.compareAndSet(null, ex);
-                            log.error("Ошибка при отправке записи в топик {}: {}", topic, ex.getMessage());
+                            // Одна строка на батч: сбой брокера отклоняет все записи батча разом,
+                            // и строка на каждую давала тысячи ERROR в секунду поверх нагрузки
+                            if (firstError.compareAndSet(null, ex)) {
+                                log.error("Ошибка при отправке записей батча {} в топик {}: {}",
+                                        batch.getBatchId(), topic, ex.getMessage());
+                            }
                         } else if (rm != null) {
                             committedCount.incrementAndGet();
                             maxOffset.accumulateAndGet(rm.offset(), Math::max);

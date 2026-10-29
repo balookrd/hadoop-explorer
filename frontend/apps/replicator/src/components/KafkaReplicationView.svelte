@@ -1213,7 +1213,7 @@
             <div class="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 space-y-1">
               <div class="flex items-center gap-2 font-semibold">
                 <AlertCircle class="w-4 h-4 text-rose-500 shrink-0" />
-                <span>Пул задачи не запустился на агентах: {job.agentErrors.length}</span>
+                <span>Ошибки задачи на агентах: {job.agentErrors.length}</span>
               </div>
               {#each job.agentErrors as agentError}
                 <div class="font-mono break-all pl-6">{agentError}</div>

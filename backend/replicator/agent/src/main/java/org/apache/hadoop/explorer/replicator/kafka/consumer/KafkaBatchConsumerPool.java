@@ -90,9 +90,25 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong totalBytesReplicated = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong currentLagMs = new java.util.concurrent.atomic.AtomicLong(0);
 
+    /** Наименьший промежуток между асинхронными коммитами одного консьюмера. */
+    static final long ASYNC_COMMIT_INTERVAL_MS = 250;
+
     private int maxBatchSize = 2000;
     private int maxInFlightBatches = 100;
+    /**
+     * Байты батчей пула, отправленных и еще не подтвержденных: батч хранится до ack ради
+     * повторной отправки.
+     *
+     * <p>Предел был только по числу батчей (100 на поток вычитки), а батч бывает до 16 МБ.
+     * Пока приемник тормозит, неподтвержденные батчи копились в хипе отправителя: на 6 потоках
+     * с авторазмером батча это гигабайты. Поток без батчей в полете отправляет всегда, чтобы
+     * батч крупнее бюджета не вставал навсегда.
+     */
+    private final java.util.concurrent.atomic.AtomicLong inFlightBytes = new java.util.concurrent.atomic.AtomicLong();
+    private volatile long maxInFlightBytes = Math.max(16L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 4);
     private volatile int maxBatchRetries = 3;
+    /** Сколько партиция с недоставленным батчем стоит, прежде чем вычитка повторится. */
+    private volatile long stallRecoveryMs = 30_000L;
     private volatile BiConsumer<KafkaBatchRequest, String> deadLetterHandler;
     private final java.util.concurrent.atomic.AtomicLong totalBatchesDeadLettered =
             new java.util.concurrent.atomic.AtomicLong(0);
@@ -220,6 +236,28 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         return maxBatchRetries;
     }
 
+    /** Пауза перед повтором вычитки остановленной партиции (без DLQ). */
+    public void setStallRecoveryMs(long stallRecoveryMs) {
+        this.stallRecoveryMs = Math.max(0L, stallRecoveryMs);
+    }
+
+    public long getStallRecoveryMs() {
+        return stallRecoveryMs;
+    }
+
+    /**
+     * Партиции, стоящие из-за недоставленного батча: их записи сейчас не переносятся. Лаг
+     * этого не показывает, поэтому агент сообщает о них оркестратору отдельно.
+     */
+    public Set<TopicPartition> getStalledPartitions() {
+        Set<TopicPartition> stalled = new TreeSet<>(Comparator.comparing(TopicPartition::topic)
+                .thenComparingInt(TopicPartition::partition));
+        for (ConsumerWorker worker : workers) {
+            stalled.addAll(worker.stalledPartitions);
+        }
+        return stalled;
+    }
+
     /**
      * Обработчик батчей, которые не удалось доставить за отведенное число попыток.
      *
@@ -241,6 +279,16 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
     public int getMaxInFlightBatches() {
         return maxInFlightBatches;
+    }
+
+    /** Бюджет байтов неподтвержденных батчей на пул; по умолчанию четверть хипа. */
+    public void setMaxInFlightBytes(long maxInFlightBytes) {
+        this.maxInFlightBytes = Math.max(1L, maxInFlightBytes);
+    }
+
+    /** Байты отправленных и еще не подтвержденных батчей пула. */
+    public long getInFlightBytes() {
+        return inFlightBytes.get();
     }
 
     public int getPoolSize() {
@@ -341,6 +389,17 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private final Map<TopicPartition, PartitionAckTracker> partitionTrackers = new ConcurrentHashMap<>();
         private final Map<TopicPartition, Long> pendingCommittedOffsets = new ConcurrentHashMap<>();
         /**
+         * Оффсеты, уже отданные в {@code commitAsync}: повторно та же позиция не отправляется.
+         *
+         * <p>Подтвержденные оффсеты из {@link #pendingCommittedOffsets} раньше коммитились на
+         * каждой итерации цикла и каждые 10-50 мс ожидания backpressure, даже без изменений.
+         * На 12 агентах по 6 консьюмеров это десятки тысяч OffsetCommit в секунду в один
+         * координатор группы на боевом кластере источника.
+         */
+        private final Map<TopicPartition, Long> asyncCommittedOffsets = new ConcurrentHashMap<>();
+        /** Не раньше этого момента ({@code System.nanoTime()}) уходит следующий commitAsync. */
+        private long nextAsyncCommitNanos = System.nanoTime();
+        /**
          * Партиции, снятые с вычитки из-за недоступного маршрута.
          *
          * <p>Отправлять их батчи некуда: приемников маршрута в пуле нет. Партиция ставится на
@@ -352,11 +411,22 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         /** Наибольшее смещение в последнем отправленном батче партиции: предшественник следующего. */
         private final Map<TopicPartition, Long> lastSentMaxOffsets = new ConcurrentHashMap<>();
         /**
+         * Приемник, на который ушел последний батч партиции.
+         *
+         * <p>Приемник помнит последнее принятое смещение партиции. После карантина партиция
+         * возвращается на прежний приемник, а тот помнит смещение до переезда и отклонял каждый
+         * батч как «вне последовательности» — партиция вставала навсегда. Поэтому первый батч на
+         * другом приемнике начинает его последовательность заново.
+         */
+        private final Map<TopicPartition, Integer> lastSentTargets = new ConcurrentHashMap<>();
+        /**
          * Партиции, батч которых не доставлен и не изолирован (DLQ нет): все следующие батчи
          * приемник отклонит как нарушающие порядок, поэтому вычитка партиции останавливается.
          */
         private final Set<TopicPartition> stalledPartitions = ConcurrentHashMap.newKeySet();
         private final Set<TopicPartition> pausedStalledPartitions = ConcurrentHashMap.newKeySet();
+        /** Момент остановки партиции ({@code System.nanoTime()}): от него отсчитывается повтор. */
+        private final Map<TopicPartition, Long> stalledSinceNanos = new ConcurrentHashMap<>();
         private final AtomicInteger inFlightCount = new AtomicInteger(0);
         private long localTopicsVersion = 1;
         /** Воркер вышел из цикла и зафиксировал оффсеты: только после этого консьюмер можно закрыть. */
@@ -381,8 +451,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
 
                         if (ack.getSuccess()) {
                             if (pending != null) {
-                                inFlightBatches.remove(ack.getBatchId());
-                                inFlightCount.decrementAndGet();
+                                if (inFlightBatches.remove(ack.getBatchId(), pending)) {
+                                    inFlightCount.decrementAndGet();
+                                    inFlightBytes.addAndGet(-pending.bytesSize);
+                                }
                                 totalMessagesReplicated.addAndGet(pending.recordCount);
                                 totalBytesReplicated.addAndGet(pending.bytesSize);
                                 log.trace("[Worker {} -> Target {}] Успешно зафиксирован пакет {} в топике {}: {} записей ({} байт)",
@@ -541,7 +613,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     pauseStalledPartitions();
 
                     // Контроль Backpressure: притормаживаем вычитку, если буфер in-flight переполнен
-                    while (running.get() && inFlightCount.get() >= maxInFlightBatches) {
+                    while (running.get() && (inFlightCount.get() >= maxInFlightBatches
+                            || (inFlightCount.get() > 0 && inFlightBytes.get() >= maxInFlightBytes))) {
                         drainAndCommitPendingOffsets();
                         awaitInPollLoop(10);
                     }
@@ -670,6 +743,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             continue;
                         }
                         StreamObserver<KafkaBatchRequest> targetStream = getOrCreateStream(targetIdx);
+                        boolean continuesOnTarget = Objects.equals(lastSentTargets.put(tp, targetIdx), targetIdx);
 
                         // Дробим на пачки до maxBatchSize
                         for (List<KafkaRecord> chunk : splitIntoBatches(partitionRecords, maxBatchSize,
@@ -685,9 +759,10 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                     .setSendTimestampMs(System.currentTimeMillis())
                                     .addAllRecords(chunk);
                             Long prevMaxOffset = lastSentMaxOffsets.put(tp, maxChunkOffset);
-                            if (prevMaxOffset != null) {
+                            if (prevMaxOffset != null && continuesOnTarget) {
                                 batchBuilder.setPrevMaxSourceOffset(prevMaxOffset);
                             }
+                            continuesOnTarget = true;
                             KafkaBatchRequest batchRequest = batchBuilder.build();
 
                             // Проверка готовности сетевого буфера gRPC (Client-side Backpressure Flow Control)
@@ -721,9 +796,13 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                                             "нет доступного приемника маршрута для топика " + tp.topic());
                                 } else {
                                     // Батч уже зарегистрирован и остается в очереди партиции:
-                                    // переотправка не создает дубликат записи о нем.
-                                    pending.targetIdx = fallbackIdx;
-                                    sendOn(getOrCreateStream(fallbackIdx), batchRequest);
+                                    // переотправка не создает дубликат записи о нем. На другом
+                                    // приемнике последовательность партиции начинается заново,
+                                    // и остальные батчи пачки идут туда же следом.
+                                    StreamObserver<KafkaBatchRequest> fallbackStream = getOrCreateStream(fallbackIdx);
+                                    resend(pending, fallbackStream, fallbackIdx, fallbackIdx != targetIdx);
+                                    targetIdx = fallbackIdx;
+                                    targetStream = fallbackStream;
                                 }
                             }
                         }
@@ -786,6 +865,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                 tracker.lock.unlock();
             }
             inFlightCount.incrementAndGet();
+            inFlightBytes.addAndGet(bytesSize);
             return pending;
         }
 
@@ -890,7 +970,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             return;
                         }
                         StreamObserver<KafkaBatchRequest> stream = getOrCreateStream(retryIdx);
-                        resend(pending, stream, retryIdx, false);
+                        resend(pending, stream, retryIdx, retryIdx != pending.targetIdx);
                         for (PendingBatch follower : followers) {
                             resend(follower, stream, retryIdx, false);
                         }
@@ -970,7 +1050,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
          * Переотправка батча под новым идентификатором: ack прежней отправки станет неизвестным.
          *
          * @param restartSequence не передавать предшественника: приемник начинает
-         *                        последовательность партиции с этого батча
+         *                        последовательность партиции с этого батча. Нужно при переезде
+         *                        на другой приемник: тот помнит смещение партиции с прошлого раза
          */
         private void resend(PendingBatch pending, StreamObserver<KafkaBatchRequest> stream, int targetIdx,
                             boolean restartSequence) {
@@ -985,6 +1066,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             pending.batchId = request.getBatchId();
             pending.targetIdx = targetIdx;
             inFlightBatches.put(pending.batchId, pending);
+            lastSentTargets.put(pending.topicPartition, targetIdx);
             sendOn(stream, request);
         }
 
@@ -992,22 +1074,77 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
         private void dropFromFlight(PendingBatch pending) {
             if (inFlightBatches.remove(pending.batchId, pending)) {
                 inFlightCount.decrementAndGet();
+                inFlightBytes.addAndGet(-pending.bytesSize);
             }
         }
 
-        /** Остановка вычитки партиций с недоставленным батчем: следующие все равно будут отклонены. */
+        /**
+         * Остановка вычитки партиций с недоставленным батчем: следующие все равно будут отклонены.
+         *
+         * <p>Повторы отвергнутого батча идут сразу же, и короткий сбой записи на приемнике
+         * исчерпывал их за миллисекунды. Партиция стояла до перезапуска пула, а лаг ее не
+         * показывал: он считается по вычитываемым записям. Поэтому через
+         * {@link #stallRecoveryMs} партиция перечитывается с недоставленного батча.
+         */
         private void pauseStalledPartitions() {
             if (stalledPartitions.isEmpty()) {
                 return;
             }
-            for (TopicPartition tp : stalledPartitions) {
+            long now = System.nanoTime();
+            for (TopicPartition tp : Set.copyOf(stalledPartitions)) {
                 if (pausedStalledPartitions.add(tp)) {
+                    stalledSinceNanos.put(tp, now);
                     try {
                         workerConsumer.pause(List.of(tp));
                     } catch (Exception e) {
                         log.warn("[Worker {}] Не удалось приостановить партицию {}: {}", workerId, tp, e.getMessage());
                     }
+                } else if (now - stalledSinceNanos.getOrDefault(tp, now) >= TimeUnit.MILLISECONDS.toNanos(stallRecoveryMs)) {
+                    recoverStalledPartition(tp);
                 }
+            }
+        }
+
+        /**
+         * Повтор вычитки остановленной партиции с первого недоставленного батча.
+         *
+         * <p>Состояние партиции выбрасывается так же, как при отзыве: следующий батч уходит без
+         * предшественника, и приемник начинает последовательность партиции заново. Подтвержденный
+         * префикс сохраняется, чтобы финальный коммит его не потерял.
+         */
+        private void recoverStalledPartition(TopicPartition tp) {
+            Long resumeFrom = null;
+            PartitionAckTracker tracker = partitionTrackers.get(tp);
+            if (tracker != null) {
+                tracker.lock.lock();
+                try {
+                    for (PendingBatch pending : tracker.queue) {
+                        if (!pending.settled && pending.request.getRecordsCount() > 0) {
+                            resumeFrom = pending.request.getRecords(0).getOriginalOffset();
+                            break;
+                        }
+                    }
+                } finally {
+                    tracker.lock.unlock();
+                }
+            }
+            Long confirmed = pendingCommittedOffsets.get(tp);
+            releasePartitions(List.of(tp));
+            if (confirmed != null) {
+                pendingCommittedOffsets.merge(tp, confirmed, Math::max);
+            }
+            deferredRecords.remove(tp);
+            try {
+                if (resumeFrom != null) {
+                    workerConsumer.seek(tp, resumeFrom);
+                }
+                if (!routingBlockedPartitions.contains(tp)) {
+                    workerConsumer.resume(List.of(tp));
+                }
+                log.warn("[Worker {}] Партиция {} снова вычитывается с оффсета {} после остановки на {} мс",
+                        workerId, tp, resumeFrom, stallRecoveryMs);
+            } catch (Exception e) {
+                log.warn("[Worker {}] Не удалось возобновить остановленную партицию {}: {}", workerId, tp, e.getMessage());
             }
         }
 
@@ -1076,9 +1213,8 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     // флаг уже снят, повтор фиксирует оффсеты
                     workerConsumer.commitSync(toCommit);
                 }
-                for (TopicPartition tp : toCommit.keySet()) {
-                    pendingCommittedOffsets.remove(tp);
-                }
+                // Только зафиксированная позиция: ack из потока gRPC мог успеть продвинуть оффсет
+                toCommit.forEach((tp, offset) -> pendingCommittedOffsets.remove(tp, offset.offset()));
                 log.info("[Worker {}] Синхронно зафиксированы оффсеты: {}", workerId, toCommit);
             } catch (Exception e) {
                 log.warn("[Worker {}] Не удалось синхронно зафиксировать оффсеты {}: {}",
@@ -1097,6 +1233,7 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                             if (!pending.settled && inFlightBatches.remove(pending.batchId) != null) {
                                 pending.settled = true;
                                 inFlightCount.decrementAndGet();
+                                inFlightBytes.addAndGet(-pending.bytesSize);
                             }
                         }
                         tracker.queue.clear();
@@ -1105,9 +1242,12 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
                     }
                 }
                 pendingCommittedOffsets.remove(tp);
+                asyncCommittedOffsets.remove(tp);
                 lastSentMaxOffsets.remove(tp);
+                lastSentTargets.remove(tp);
                 stalledPartitions.remove(tp);
                 pausedStalledPartitions.remove(tp);
+                stalledSinceNanos.remove(tp);
             }
         }
 
@@ -1155,23 +1295,39 @@ public class KafkaBatchConsumerPool implements Runnable, AutoCloseable {
             }
         }
 
+        /**
+         * Асинхронная фиксация подтвержденных оффсетов: только изменившихся и не чаще
+         * {@link #ASYNC_COMMIT_INTERVAL_MS}. Записи остаются в {@link #pendingCommittedOffsets},
+         * поэтому финальный синхронный коммит при отзыве и остановке фиксирует их в любом случае.
+         */
         private void drainAndCommitPendingOffsets() {
             if (pendingCommittedOffsets.isEmpty()) {
                 return;
             }
+            long now = System.nanoTime();
+            if (now - nextAsyncCommitNanos < 0) {
+                return;
+            }
             Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> toCommit = new HashMap<>();
             for (Map.Entry<TopicPartition, Long> entry : pendingCommittedOffsets.entrySet()) {
-                toCommit.put(entry.getKey(), new org.apache.kafka.clients.consumer.OffsetAndMetadata(entry.getValue()));
+                if (!entry.getValue().equals(asyncCommittedOffsets.get(entry.getKey()))) {
+                    toCommit.put(entry.getKey(), new org.apache.kafka.clients.consumer.OffsetAndMetadata(entry.getValue()));
+                }
             }
-            if (!toCommit.isEmpty()) {
-                workerConsumer.commitAsync(toCommit, (offsets, exception) -> {
-                    if (exception != null) {
-                        log.warn("[Worker {}] Предупреждение фиксации подтвержденных оффсетов: {}", workerId, exception.getMessage());
-                    } else {
-                        log.trace("[Worker {}] Успешно зафиксированы подтвержденные оффсеты: {}", workerId, offsets);
-                    }
-                });
+            if (toCommit.isEmpty()) {
+                return;
             }
+            nextAsyncCommitNanos = now + TimeUnit.MILLISECONDS.toNanos(ASYNC_COMMIT_INTERVAL_MS);
+            toCommit.forEach((tp, offset) -> asyncCommittedOffsets.put(tp, offset.offset()));
+            workerConsumer.commitAsync(toCommit, (offsets, exception) -> {
+                if (exception != null) {
+                    // Следующий проход повторит эти позиции
+                    toCommit.forEach((tp, offset) -> asyncCommittedOffsets.remove(tp, offset.offset()));
+                    log.warn("[Worker {}] Предупреждение фиксации подтвержденных оффсетов: {}", workerId, exception.getMessage());
+                } else {
+                    log.trace("[Worker {}] Успешно зафиксированы подтвержденные оффсеты: {}", workerId, offsets);
+                }
+            });
         }
     }
 

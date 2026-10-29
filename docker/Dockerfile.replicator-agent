@@ -33,4 +33,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
         127.0.0.1:${RECEIVER_PORT:-50051} || exit 1
 
 
-ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/replicator-agent.jar"]
+# После OutOfMemoryError JVM завершается: OOM убивал поток heartbeat, и агент оставался
+# зомби, которого оркестратор снимал с задач. Перезапуск отдается супервизору.
+ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/replicator-agent.jar"]

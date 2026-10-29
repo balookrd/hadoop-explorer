@@ -21,10 +21,18 @@ x-agent-common: &agent-common
     KRB5_CONFIG: "/shared/conf/krb5.conf"
     AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
     RECEIVER_PORT: "50052"
+    # Десятки потоков на агент без ограничения арен glibc раздувают RSS: на стенде из 24 JVM
+    # это вытесняло брокеры из памяти Docker
+    MALLOC_ARENA_MAX: "2"
   volumes:
     - demo-shared-keytabs:/etc/security/keytabs:ro
     - demo-shared-krb5:/shared/conf:ro
-  entrypoint: ["java", "-Xms256m", "-Xmx${AGENT_HEAP:-640m}", "-XX:+UseG1GC",
+  entrypoint: ["java", "-Xms256m", "-Xmx${AGENT_HEAP:-640m}", "-XX:+UseG1GC", "-XX:+ExitOnOutOfMemoryError",
+               "-XX:MaxDirectMemorySize=96m", "-XX:MaxMetaspaceSize=128m",
+               "-XX:ReservedCodeCacheSize=64m", "-Xss512k",
+               # На хипе меньше 2 ГБ регион G1 — 1 МБ, и буферы батчей продюсера (512 КБ)
+               # становятся humongous: каждый занимает регион целиком, буфер съедает вдвое больше
+               "-XX:G1HeapRegionSize=2m",
                "-Djava.security.krb5.conf=/shared/conf/krb5.conf",
                "-cp", "/app/replicator-agent.jar",
                "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]

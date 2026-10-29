@@ -30,6 +30,19 @@ public final class KafkaClientSettings {
     private static final int BATCH_SIZE_BYTES = 512 * 1024;
     /** Kafka допускает не больше пяти запросов в полете при enable.idempotence=true. */
     private static final int MAX_IN_FLIGHT_REQUESTS = 5;
+    /**
+     * Запись приемника не истекает по времени, как у продюсеров Kafka Connect и MirrorMaker 2.
+     *
+     * <p>При догонке хвоста 12 отправителей отдают данные быстрее, чем их принимает целевой
+     * кластер, и записи стояли в буфере продюсера дольше дефолтных 120 с. Они отбрасывались
+     * пачками, батч отвергался, отправитель сразу повторял его в тот же забитый буфер, и
+     * догонка превращалась в шторм повторов. Темп задает backpressure приемника: ack уходит
+     * только после записи, и отправитель не шлет больше окна. Неповторяемые ошибки
+     * (авторизация, слишком большая запись) по-прежнему возвращаются сразу.
+     */
+    private static final int DELIVERY_TIMEOUT_MS = Integer.MAX_VALUE;
+    /** Сколько send() ждет места в буфере и метаданных топика, прежде чем отказать батчу. */
+    private static final long MAX_BLOCK_MS = 10 * 60 * 1000L;
 
     /**
      * Наибольшая запись, которую приемник может записать: {@code max.request.size} продюсера.
@@ -37,8 +50,17 @@ public final class KafkaClientSettings {
      * увеличенным {@code max.message.bytes}) отвергалась на каждой попытке — партиция вставала.
      */
     public static final int MAX_RECORD_BYTES = 64 * 1024 * 1024;
-    /** Буфер продюсера обязан вмещать наибольшую запись, иначе send() отвергает ее сразу. */
-    private static final long PRODUCER_BUFFER_BYTES = 2L * MAX_RECORD_BYTES;
+    /**
+     * Буфер продюсера приемника: четверть хипа, но не меньше наибольшей записи (иначе send()
+     * отвергает ее сразу) и не больше двух таких записей.
+     *
+     * <p>Фиксированные 128 МБ при хипе в 256 МБ вместе с принятыми и неподтвержденными батчами
+     * (их бюджет — тоже четверть хипа) не помещались: приемник падал с OutOfMemoryError на
+     * первой же догонке хвоста.
+     */
+    static long producerBufferBytes(long maxHeapBytes) {
+        return Math.max(MAX_RECORD_BYTES, Math.min(2L * MAX_RECORD_BYTES, maxHeapBytes / 4));
+    }
     /**
      * Предел сообщения gRPC между агентами, общий для сервера и клиента: батч из одной
      * наибольшей записи с заголовками протокола обязан в него помещаться.
@@ -123,7 +145,9 @@ public final class KafkaClientSettings {
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE_BYTES);
         props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, MAX_IN_FLIGHT_REQUESTS);
         props.put(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, MAX_RECORD_BYTES);
-        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, PRODUCER_BUFFER_BYTES);
+        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, producerBufferBytes(Runtime.getRuntime().maxMemory()));
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, DELIVERY_TIMEOUT_MS);
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, MAX_BLOCK_MS);
         return props;
     }
 }

@@ -8,7 +8,8 @@
 # (пауза, возобновление, удаление), падение агента под нагрузкой и недоступность оркестратора.
 #
 # Запуск:   ./demo/replicator/run-kafka-scale-test.sh
-# Параметры через окружение: RECORDS, RECORD_SIZE, PARTITIONS, CONSUMER_THREADS, BATCH_SIZE.
+# Параметры через окружение: RECORDS, RECORD_SIZE, PARTITIONS, CONSUMER_THREADS, BATCH_SIZE,
+# AGENTS_PER_DC (12 — стенд с gen-kafka-scale-agents.sh), DRAIN_RECORDS.
 # ==============================================================================
 set -u
 
@@ -21,6 +22,7 @@ CONSUMER_THREADS="${CONSUMER_THREADS:-4}"
 BATCH_SIZE="${BATCH_SIZE:-5000}"
 AGENTS_PER_DC="${AGENTS_PER_DC:-3}"
 CATCHUP_TIMEOUT_SEC="${CATCHUP_TIMEOUT_SEC:-600}"
+DRAIN_RECORDS="${DRAIN_RECORDS:-5000000}"
 
 KRB_OPTS="-Djava.security.krb5.conf=/shared/conf/krb5.conf"
 BOOT1="kafka-cluster-1.demo-platform-net:9092"
@@ -294,6 +296,21 @@ RESUME_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 180)
 check "После возобновления хвост дореплицирован" test "$RESUME_CATCHUP" -ge 0
 check "После паузы и возобновления дублей нет" test "$(topic_total kafka-cluster-2 "$BOOT2")" -eq "$SOURCE_TOTAL"
 
+section "4a. Скорость вычитки накопленного хвоста: $DRAIN_RECORDS записей"
+# Генератор нагрузки на одном брокере упирается раньше репликации, и сквозная скорость
+# раздела 3 показывает его потолок. Здесь хвост копится на паузе, а замеряется его догонка.
+check "Пауза перед накоплением хвоста (HTTP 200)" test "$(api POST "/jobs/${JOB_ID}/pause")" = "200"
+check "Агенты отпустили партиции" pause_releases_group
+produce "$DRAIN_RECORDS" >/dev/null
+SOURCE_TOTAL=$(topic_total kafka-cluster-1 "$BOOT1")
+DRAIN_FROM=$(topic_total kafka-cluster-2 "$BOOT2")
+check "Возобновление (HTTP 200)" test "$(api POST "/jobs/${JOB_ID}/resume")" = "200"
+DRAIN_SEC=$(await_catchup "$SOURCE_TOTAL" "$CATCHUP_TIMEOUT_SEC")
+check "Накопленный хвост догнан" test "$DRAIN_SEC" -ge 0
+if [ "$DRAIN_SEC" -gt 0 ] 2>/dev/null; then
+    info "догонка $((SOURCE_TOTAL - DRAIN_FROM)) записей за ${DRAIN_SEC} с (с учетом старта пулов): $(((SOURCE_TOTAL - DRAIN_FROM) / DRAIN_SEC)) записей/с"
+fi
+
 section "5. Недоступность оркестратора под нагрузкой"
 docker pause replicator-orchestrator >/dev/null
 info "оркестратор приостановлен"
@@ -326,6 +343,43 @@ AFTER_KILL=$(topic_total kafka-cluster-2 "$BOOT2")
 info "дублей после SIGKILL агента (at-least-once): $((AFTER_KILL - SOURCE_TOTAL))"
 docker start kafka-replicator-agent-dc1-b >/dev/null
 info "агент kafka-agent-dc1-b запущен снова"
+
+section "6a. Падение приемника под нагрузкой и его возврат"
+# Партиции убитого приемника уходят на соседей, а после его возврата часть из них
+# возвращается обратно. Приемник помнит смещения партиций, поэтому без перезапуска
+# последовательности на новом приемнике партиция после возврата вставала навсегда.
+no_target_shortfall() {
+    local src dst
+    src=$(topic_offsets kafka-cluster-1 "$BOOT1")
+    dst=$(topic_offsets kafka-cluster-2 "$BOOT2")
+    # At-least-once: в каждой партиции цели записей не меньше, чем в источнике
+    join -t: -j1 <(echo "$src" | awk -F: '{print $2":"$3}' | sort -t: -k1,1) \
+                 <(echo "$dst" | awk -F: '{print $2":"$3}' | sort -t: -k1,1) 2>/dev/null \
+        | awk -F: '$3 < $2 {short++} END {exit short > 0}'
+}
+no_agent_errors() {
+    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${JOB_ID}" \
+        | grep -q '"agent_errors":\[\]'
+}
+produce 1000000 >/dev/null &
+PROD_PID=$!
+sleep 4
+docker kill kafka-replicator-agent-dc2-c >/dev/null
+info "приемник kafka-agent-dc2-c убит (SIGKILL)"
+wait "$PROD_PID"
+SOURCE_TOTAL=$(topic_total kafka-cluster-1 "$BOOT1")
+RECV_KILL_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 300)
+check "Без приемника остальные доставили хвост" test "$RECV_KILL_CATCHUP" -ge 0
+docker start kafka-replicator-agent-dc2-c >/dev/null
+info "приемник kafka-agent-dc2-c запущен снова"
+sleep 30
+produce 500000 >/dev/null
+SOURCE_TOTAL=$(topic_total kafka-cluster-1 "$BOOT1")
+RECV_BACK_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 300)
+check "После возврата приемника записи всех партиций доезжают" test "$RECV_BACK_CATCHUP" -ge 0
+check "Ни одна партиция цели не отстает от источника" no_target_shortfall
+check "Агенты не сообщают о стоящих партициях" no_agent_errors
+info "дублей после падения приемника (at-least-once): $(( $(topic_total kafka-cluster-2 "$BOOT2") - SOURCE_TOTAL ))"
 
 section "7. Удаление задачи"
 check "Удаление задачи (HTTP 204)" test "$(api DELETE "/jobs/${JOB_ID}")" = "204"

@@ -84,6 +84,8 @@ class KafkaClientSettingsTest {
 
         assertEquals("true", props.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
         assertEquals("all", props.get(ProducerConfig.ACKS_CONFIG));
+        // Записи не истекают в буфере при догонке: темп задает backpressure приемника
+        assertEquals(Integer.MAX_VALUE, props.get(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG));
         assertEquals("zstd", props.get(ProducerConfig.COMPRESSION_TYPE_CONFIG));
     }
 
@@ -135,5 +137,15 @@ class KafkaClientSettingsTest {
         assertTrue(KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES > maxRequest,
                 "Батч из одной наибольшей записи обязан помещаться в сообщение gRPC");
         assertTrue(KafkaClientSettings.MAX_BATCH_BYTES < KafkaClientSettings.GRPC_MAX_MESSAGE_BYTES);
+    }
+
+    @Test
+    @DisplayName("Буфер продюсера приемника следует хипу и всегда вмещает наибольшую запись")
+    void testProducerBufferFollowsHeap() {
+        long mb = 1024L * 1024;
+        assertEquals(KafkaClientSettings.MAX_RECORD_BYTES, KafkaClientSettings.producerBufferBytes(256 * mb),
+                "на малом хипе буфер не больше необходимого для наибольшей записи");
+        assertEquals(96 * mb, KafkaClientSettings.producerBufferBytes(384 * mb));
+        assertEquals(2L * KafkaClientSettings.MAX_RECORD_BYTES, KafkaClientSettings.producerBufferBytes(8192 * mb));
     }
 }

@@ -136,8 +136,23 @@ docker compose -f demo/infra/docker-compose.infra.yml up -d kdc ldap
 docker compose -f demo/replicator/docker-compose.kafka.yml \
   -f demo/replicator/docker-compose.kafka-scale.yml up -d --build
 
-# 3. Прогон (параметры: RECORDS, RECORD_SIZE, PARTITIONS, CONSUMER_THREADS, BATCH_SIZE)
+# 3. Прогон (параметры: RECORDS, RECORD_SIZE, PARTITIONS, CONSUMER_THREADS, BATCH_SIZE, DRAIN_RECORDS)
 ./demo/replicator/run-kafka-scale-test.sh
+```
+
+Боевая схема — 12 агентов на ДЦ. Недостающих агентов (d…l) дописывает генератор; хип агента
+задается `AGENT_HEAP`, 24 JVM с хипом 256 МБ укладываются в 12 ГБ памяти Docker рядом с двумя
+брокерами и оркестратором (реестры схем для прогона не нужны):
+```bash
+./demo/replicator/gen-kafka-scale-agents.sh 12 > /tmp/kafka-scale-agents.yml
+AGENT_HEAP=256m docker compose -f demo/replicator/docker-compose.kafka.yml \
+  -f demo/replicator/docker-compose.kafka-scale.yml -f /tmp/kafka-scale-agents.yml \
+  up -d --no-deps kafka-cluster-1 kafka-cluster-2 orchestrator
+AGENT_HEAP=256m docker compose -f demo/replicator/docker-compose.kafka.yml \
+  -f demo/replicator/docker-compose.kafka-scale.yml -f /tmp/kafka-scale-agents.yml \
+  up -d --no-deps $(docker compose -f demo/replicator/docker-compose.kafka.yml \
+  -f demo/replicator/docker-compose.kafka-scale.yml -f /tmp/kafka-scale-agents.yml config --services | grep kafka-agent)
+AGENTS_PER_DC=12 ./demo/replicator/run-kafka-scale-test.sh
 ```
 
 Прогон проверяет:
@@ -146,7 +161,9 @@ docker compose -f demo/replicator/docker-compose.kafka.yml \
 - полноту и отсутствие дублей: число записей совпадает в каждой партиции;
 - паузу, возобновление и удаление задачи: агенты отпускают партиции, а статус паузы не перетирается heartbeat'ами;
 - работу при недоступном оркестраторе: репликация продолжается;
-- `SIGKILL` агента под нагрузкой: оставшиеся агенты забирают его партиции.
+- `SIGKILL` агента под нагрузкой: оставшиеся агенты забирают его партиции;
+- скорость догонки хвоста, накопленного на паузе (сквозная скорость упирается в генератор нагрузки);
+- `SIGKILL` приемника в DC2 под нагрузкой и его возврат: ни одна партиция цели не отстает от источника, а агенты не сообщают о стоящих партициях.
 
 По умолчанию задача однонаправленная и читает топик с позиции `LATEST`: переносятся только записи, появившиеся после ее запуска. Чтобы перенести весь retention, задайте `start_position: EARLIEST`; сценарии стенда так и делают, потому что пишут в топик сразу после создания задачи. Лимит полосы задачи (`bandwidth_limit_mb`) суммарный: оркестратор делит его между живыми агентами-отправителями ЦОД, а 0 означает «без лимита».
 

@@ -26,6 +26,12 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
 
     private static final Logger log = LoggerFactory.getLogger(KafkaDataTransferServiceImpl.class);
     public static final int DEFAULT_PIPELINE_WINDOW = 16;
+    /**
+     * Бюджет байтов батчей, принятых приемником и еще не подтвержденных, по умолчанию: четверть
+     * хипа, но не меньше 32 МБ.
+     */
+    public static final long DEFAULT_MAX_IN_FLIGHT_BYTES =
+            Math.max(32L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 4);
 
     private final KafkaBatchProducer batchProducer;
     private final SafetyCommitManager safetyCommitManager;
@@ -34,6 +40,20 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
     private final SchemaIdResolver schemaIdResolver;
     private final ConfluentRegistryClient targetConfluentClient;
     private final HwxRegistryClient targetHwxClient;
+    /**
+     * Общий на все стримы предел байтов принятых и неподтвержденных батчей.
+     *
+     * <p>Каждый стрим запрашивал окно в {@link #DEFAULT_PIPELINE_WINDOW} батчей сразу. На приемник
+     * приходится по стриму от каждого потока отправителей, чьи партиции на него выпали, и при
+     * догонке хвоста 12 агентов загоняли в хип десятки стримов по 16 батчей до 16 МБ:
+     * приемник падал с OutOfMemoryError. Теперь следующий батч стрима запрашивается, только пока
+     * бюджет не исчерпан; стрим без батчей в работе получает один всегда, чтобы батч крупнее
+     * бюджета не вставал навсегда.
+     */
+    private final long maxInFlightBytes;
+    private final java.util.concurrent.atomic.AtomicLong inFlightBytes = new java.util.concurrent.atomic.AtomicLong();
+    /** Стримы, ждущие освобождения бюджета: их будит подтверждение любого батча. */
+    private final java.util.Set<Runnable> waitingStreams = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
                                         SafetyCommitManager safetyCommitManager,
@@ -65,6 +85,19 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                                         SchemaIdResolver schemaIdResolver,
                                         ConfluentRegistryClient targetConfluentClient,
                                         HwxRegistryClient targetHwxClient) {
+        this(batchProducer, safetyCommitManager, localDcId, pipelineWindow, schemaIdResolver,
+                targetConfluentClient, targetHwxClient, DEFAULT_MAX_IN_FLIGHT_BYTES);
+    }
+
+    public KafkaDataTransferServiceImpl(KafkaBatchProducer batchProducer,
+                                        SafetyCommitManager safetyCommitManager,
+                                        String localDcId,
+                                        int pipelineWindow,
+                                        SchemaIdResolver schemaIdResolver,
+                                        ConfluentRegistryClient targetConfluentClient,
+                                        HwxRegistryClient targetHwxClient,
+                                        long maxInFlightBytes) {
+        this.maxInFlightBytes = Math.max(1L, maxInFlightBytes);
         this.batchProducer = Objects.requireNonNull(batchProducer, "batchProducer must not be null");
         this.safetyCommitManager = safetyCommitManager;
         this.localDcId = localDcId != null ? localDcId : "LOCAL_DC";
@@ -76,24 +109,60 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 (schemaIdResolver instanceof CachedSchemaRegistryResolver csrr ? csrr.getTargetHwxClient() : null);
     }
 
+    /** Байты батчей, принятых и еще не подтвержденных, по всем стримам приемника. */
+    public long getInFlightBytes() {
+        return inFlightBytes.get();
+    }
+
     @Override
     public StreamObserver<KafkaBatchRequest> streamBatches(StreamObserver<KafkaBatchAck> responseObserver) {
         final ServerCallStreamObserver<KafkaBatchAck> serverCallStreamObserver =
                 (responseObserver instanceof ServerCallStreamObserver<KafkaBatchAck> scso) ? scso : null;
 
-        if (serverCallStreamObserver != null) {
-            serverCallStreamObserver.disableAutoInboundFlowControl();
-            serverCallStreamObserver.setOnCancelHandler(() -> {
-                log.warn("Клиент прервал (CANCELLED) gRPC соединение streamBatches");
-            });
-            // Инициализируем скользящее окно (sliding window) упреждающих пакетов для устранения stop-and-wait задержек
-            serverCallStreamObserver.request(pipelineWindow);
-            log.debug("gRPC streamBatches: инициализирован конвейер со скользящим окном pipelineWindow={}", pipelineWindow);
-        }
-
         final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
         final java.util.concurrent.atomic.AtomicBoolean clientCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
         final ReentrantLock responseLock = new ReentrantLock();
+        /** Запрошенные у транспорта, но еще не пришедшие батчи стрима: не больше одного. */
+        final int[] requested = {0};
+
+        // Запрос следующего батча стрима: пока окно стрима не заполнено и бюджет приемника не
+        // исчерпан. Запрос по одному не стоит конвейеру ничего: следующий батч уже лежит в
+        // буфере транспорта, а окно стрима заполняется тем же темпом.
+        final Runnable pump = new Runnable() {
+            @Override
+            public void run() {
+                if (serverCallStreamObserver == null) {
+                    return;
+                }
+                synchronized (requested) {
+                    if (serverCallStreamObserver.isCancelled() || clientCompleted.get()) {
+                        waitingStreams.remove(this);
+                        return;
+                    }
+                    if (requested[0] > 0 || inFlightBatches.get() >= pipelineWindow) {
+                        return;
+                    }
+                    if (inFlightBatches.get() > 0 && inFlightBytes.get() >= maxInFlightBytes) {
+                        waitingStreams.add(this);
+                        return;
+                    }
+                    waitingStreams.remove(this);
+                    requested[0]++;
+                    serverCallStreamObserver.request(1);
+                }
+            }
+        };
+
+        if (serverCallStreamObserver != null) {
+            serverCallStreamObserver.disableAutoInboundFlowControl();
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                waitingStreams.remove(pump);
+                log.warn("Клиент прервал (CANCELLED) gRPC соединение streamBatches");
+            });
+            pump.run();
+            log.debug("gRPC streamBatches: конвейер до {} батчей, бюджет приемника {} байт",
+                    pipelineWindow, maxInFlightBytes);
+        }
 
         return new StreamObserver<>() {
             @Override
@@ -101,39 +170,49 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                 log.trace("Получен входящий gRPC пакет {} (топик {}, {} записей)",
                         batch.getBatchId(), batch.getTopic(), batch.getRecordsCount());
 
+                long batchBytes = batch.getSerializedSize();
+                synchronized (requested) {
+                    requested[0] = Math.max(0, requested[0] - 1);
+                }
                 inFlightBatches.incrementAndGet();
-                batchProducer.writeBatchAsync(batch).thenAccept(ack -> {
+                inFlightBytes.addAndGet(batchBytes);
+                pump.run();
+                batchProducer.writeBatchAsync(batch)
+                        .exceptionally(t -> {
+                            log.error("Сбой асинхронной обработки пакета {}: {}", batch.getBatchId(), t.getMessage(), t);
+                            return KafkaBatchAck.newBuilder()
+                                    .setBatchId(batch.getBatchId())
+                                    .setTopic(batch.getTopic())
+                                    .setSuccess(false)
+                                    .setErrorMessage(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName())
+                                    .setReceiveTimestampMs(System.currentTimeMillis())
+                                    .build();
+                        })
+                        .thenAccept(ack -> complete(ack, batchBytes));
+            }
+
+            /**
+             * Ответ отправителю и освобождение бюджета. Ответ в отмененный стрим бросает
+             * исключение, и без finally байты батча навсегда оставались бы занятыми.
+             */
+            private void complete(KafkaBatchAck ack, long batchBytes) {
+                try {
                     responseLock.lock();
                     try {
                         responseObserver.onNext(ack);
                     } finally {
                         responseLock.unlock();
                     }
-                    if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
-                        serverCallStreamObserver.request(1);
-                    }
+                } catch (RuntimeException e) {
+                    log.debug("Подтверждение пакета {} не доставлено: {}", ack.getBatchId(), e.getMessage());
+                } finally {
+                    inFlightBytes.addAndGet(-batchBytes);
                     checkCompletion();
-                }).exceptionally(t -> {
-                    log.error("Сбой асинхронной обработки пакета {}: {}", batch.getBatchId(), t.getMessage(), t);
-                    KafkaBatchAck errorAck = KafkaBatchAck.newBuilder()
-                            .setBatchId(batch.getBatchId())
-                            .setTopic(batch.getTopic())
-                            .setSuccess(false)
-                            .setErrorMessage(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName())
-                            .setReceiveTimestampMs(System.currentTimeMillis())
-                            .build();
-                    responseLock.lock();
-                    try {
-                        responseObserver.onNext(errorAck);
-                    } finally {
-                        responseLock.unlock();
+                    pump.run();
+                    for (Runnable waiting : waitingStreams) {
+                        waiting.run();
                     }
-                    if (serverCallStreamObserver != null && !serverCallStreamObserver.isCancelled()) {
-                        serverCallStreamObserver.request(1);
-                    }
-                    checkCompletion();
-                    return null;
-                });
+                }
             }
 
             // flush() здесь не нужен и опасен: ack уходит только после подтверждения записей
@@ -144,6 +223,8 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
                     responseLock.lock();
                     try {
                         responseObserver.onCompleted();
+                    } catch (RuntimeException e) {
+                        log.debug("Стрим уже закрыт: {}", e.getMessage());
                     } finally {
                         responseLock.unlock();
                     }
@@ -153,9 +234,12 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             @Override
             public void onError(Throwable t) {
                 log.error("Ошибка в gRPC потоке streamBatches: {}", t.getMessage());
+                waitingStreams.remove(pump);
                 responseLock.lock();
                 try {
                     responseObserver.onError(t);
+                } catch (RuntimeException e) {
+                    log.debug("Стрим уже закрыт: {}", e.getMessage());
                 } finally {
                     responseLock.unlock();
                 }
@@ -164,6 +248,7 @@ public class KafkaDataTransferServiceImpl extends KafkaDataTransferServiceGrpc.K
             @Override
             public void onCompleted() {
                 clientCompleted.set(true);
+                waitingStreams.remove(pump);
                 if (inFlightBatches.get() == 0) {
                     responseLock.lock();
                     try {

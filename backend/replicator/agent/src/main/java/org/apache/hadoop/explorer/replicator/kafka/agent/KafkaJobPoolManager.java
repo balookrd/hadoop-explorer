@@ -130,11 +130,22 @@ public class KafkaJobPoolManager implements Closeable {
         return stats;
     }
 
-    /** Задачи, пул которых на агенте не работает, с причиной. */
+    /**
+     * Задачи, пул которых на агенте не работает, с причиной, и задачи, у которых часть партиций
+     * стоит из-за недоставленного батча: пул при этом работает и лаг остальных партиций в норме.
+     */
     public List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError> jobErrors() {
         List<org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError> errors = new ArrayList<>();
         jobErrors.forEach((jobId, message) -> errors.add(
                 new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError(jobId, message)));
+        runtimes.forEach((jobId, runtime) -> {
+            Set<org.apache.kafka.common.TopicPartition> stalled = runtime.pool().getStalledPartitions();
+            if (!stalled.isEmpty() && !jobErrors.containsKey(jobId)) {
+                errors.add(new org.apache.hadoop.explorer.replicator.model.AgentHeartbeatRequest.KafkaJobError(jobId,
+                        "партиции стоят после отказов приемника, повтор через "
+                                + runtime.pool().getStallRecoveryMs() / 1000 + " с: " + stalled));
+            }
+        });
         return errors;
     }
 

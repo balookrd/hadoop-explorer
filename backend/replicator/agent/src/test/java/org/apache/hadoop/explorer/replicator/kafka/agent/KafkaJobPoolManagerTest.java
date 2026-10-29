@@ -418,6 +418,24 @@ class KafkaJobPoolManagerTest {
     }
 
     @Test
+    @DisplayName("Стоящие партиции работающего пула уходят в отчет агента")
+    void testStalledPartitionsAreReported() {
+        manager.sync(List.of(job("job-orders", "dc2", List.of("orders"), List.of("r:1"), 4, 2000)));
+        KafkaBatchConsumerPool pool = pools.get("job-orders");
+        assertTrue(manager.jobErrors().isEmpty());
+
+        when(pool.getStalledPartitions()).thenReturn(java.util.Set.of(
+                new org.apache.kafka.common.TopicPartition("orders", 7)));
+        when(pool.getStallRecoveryMs()).thenReturn(30_000L);
+
+        assertEquals(1, manager.jobErrors().size());
+        assertEquals("job-orders", manager.jobErrors().get(0).jobId());
+        assertTrue(manager.jobErrors().get(0).message().contains("orders-7"),
+                "Лаг стоящую партицию не показывает, поэтому она обязана быть видна в ошибках: "
+                        + manager.jobErrors().get(0).message());
+    }
+
+    @Test
     @DisplayName("Ошибка запуска пула уходит в отчет агента и снимается после успешного запуска")
     void testPoolStartErrorIsReported() {
         java.util.concurrent.atomic.AtomicBoolean fail = new java.util.concurrent.atomic.AtomicBoolean(true);

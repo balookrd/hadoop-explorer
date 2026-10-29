@@ -215,7 +215,7 @@ services:
     volumes:
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
-    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-XX:+ExitOnOutOfMemoryError", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
     command:
       - "--port"
       - "50052"
@@ -280,7 +280,7 @@ services:
     volumes:
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
-    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+    entrypoint: ["java", "-Xms256m", "-Xmx1024m", "-XX:+ExitOnOutOfMemoryError", "-Djava.security.krb5.conf=/shared/conf/krb5.conf", "-cp", "/app/replicator-agent.jar", "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
     command:
       - "--port"
       - "50053"
