@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- Демо-кластер analytics-yarn (Capacity Scheduler, метка GPU) -->
 <configuration>
+    <!-- Глобальные лимиты -->
     <property>
         <name>yarn.scheduler.capacity.maximum-applications</name>
         <value>10000</value>
@@ -13,6 +14,7 @@
         <name>yarn.scheduler.capacity.resource-calculator</name>
         <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
     </property>
+    <!-- root: batch 50% (метка GPU), interactive 30%, streaming 20% -->
     <property>
         <name>yarn.scheduler.capacity.root.queues</name>
         <value>batch,interactive,streaming</value>
@@ -21,8 +23,14 @@
         <name>yarn.scheduler.capacity.root.capacity</name>
         <value>100</value>
     </property>
-
-    <!-- batch queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.accessible-node-labels</name>
+        <value>GPU</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.accessible-node-labels.GPU.capacity</name>
+        <value>100</value>
+    </property>
     <property>
         <name>yarn.scheduler.capacity.root.batch.capacity</name>
         <value>50</value>
@@ -36,6 +44,34 @@
         <value>RUNNING</value>
     </property>
     <property>
+        <name>yarn.scheduler.capacity.root.batch.user-limit-factor</name>
+        <value>2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.ordering-policy</name>
+        <value>fair</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.maximum-applications</name>
+        <value>8000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.maximum-am-resource-percent</name>
+        <value>0.3</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.accessible-node-labels</name>
+        <value>GPU</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.accessible-node-labels.GPU.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.batch.accessible-node-labels.GPU.maximum-capacity</name>
+        <value>100</value>
+    </property>
+    <property>
         <name>yarn.scheduler.capacity.root.batch.acl_submit_applications</name>
         <value>*</value>
     </property>
@@ -43,8 +79,6 @@
         <name>yarn.scheduler.capacity.root.batch.acl_administer_queue</name>
         <value>admin_user</value>
     </property>
-
-    <!-- interactive queue -->
     <property>
         <name>yarn.scheduler.capacity.root.interactive.capacity</name>
         <value>30</value>
@@ -58,6 +92,22 @@
         <value>RUNNING</value>
     </property>
     <property>
+        <name>yarn.scheduler.capacity.root.interactive.user-limit-factor</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.ordering-policy</name>
+        <value>fair</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.maximum-applications</name>
+        <value>2000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.interactive.maximum-am-resource-percent</name>
+        <value>0.2</value>
+    </property>
+    <property>
         <name>yarn.scheduler.capacity.root.interactive.acl_submit_applications</name>
         <value>*</value>
     </property>
@@ -65,8 +115,6 @@
         <name>yarn.scheduler.capacity.root.interactive.acl_administer_queue</name>
         <value>admin_user</value>
     </property>
-
-    <!-- streaming queue -->
     <property>
         <name>yarn.scheduler.capacity.root.streaming.capacity</name>
         <value>20</value>
@@ -78,6 +126,22 @@
     <property>
         <name>yarn.scheduler.capacity.root.streaming.state</name>
         <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.user-limit-factor</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.ordering-policy</name>
+        <value>fifo</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.maximum-applications</name>
+        <value>1000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.streaming.maximum-am-resource-percent</name>
+        <value>0.1</value>
     </property>
     <property>
         <name>yarn.scheduler.capacity.root.streaming.acl_submit_applications</name>

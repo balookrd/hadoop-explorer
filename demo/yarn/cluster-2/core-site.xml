@@ -45,4 +45,14 @@
         <name>hadoop.proxyuser.HTTP.groups</name>
         <value>*</value>
     </property>
+    <!-- Без фильтра аутентификации RM поднимает KerberosAuthenticationHandler,
+         но REST (/ws/v1/cluster/*) и веб-интерфейс остаются открыты анонимно -->
+    <property>
+        <name>hadoop.http.filter.initializers</name>
+        <value>org.apache.hadoop.security.AuthenticationFilterInitializer</value>
+    </property>
+    <property>
+        <name>hadoop.http.authentication.simple.anonymous.allowed</name>
+        <value>false</value>
+    </property>
 </configuration>

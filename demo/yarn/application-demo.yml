@@ -69,8 +69,13 @@ hadoop:
       enabled: false
 
 yarn:
-  # Демо-стенд: встроенное дерево очередей вместо RM и симуляция AWX без изменений на кластере
-  client-mode: mock
+  # Демо-стенд: очереди читаются с керберизованных RM стенда по SPNEGO, деплой заявок —
+  # симуляция AWX (кластер не меняется)
+  client-mode: native
+  kerberos:
+    principal: "yarn-explorer@COMPANY.LOCAL"
+    keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+    krb5-conf: "/shared-krb5/krb5.conf"
   acl:
     enforce-four-eyes: true
   awx:
@@ -85,12 +90,16 @@ yarn:
       name: "Production Hadoop Cluster"
       description: "Основной производственный YARN кластер (Capacity Scheduler)"
       resource-manager-urls:
-        - "http://yarn-rm-1:8088"
-      kerberos-enabled: false
+        # Полное имя хоста: по нему клиент строит SPNEGO-принципал HTTP/<host>
+        - "http://yarn-rm-1.yarn-demo-net:8088"
+      kerberos-enabled: true
       impersonation-enabled: true
       default-partition: "DEFAULT"
       partitions: ["DEFAULT", "GPU", "HIGH_MEM"]
       resource-mode: "percentage"
+      # Совпадает с cluster-1/capacity-scheduler.xml: RM не отдает маппинги по REST
+      queue-mappings: "g:data-engineers:root.prod.spark,g:bi-analysts:root.dev"
+      queue-mappings-override: false
       total-resources:
         memory-mb: 2097152
         vcores: 1024
@@ -112,8 +121,8 @@ yarn:
       name: "Analytics & ML Cluster"
       description: "Кластер для Spark, Trino и аналитических расчетов"
       resource-manager-urls:
-        - "http://yarn-rm-2:8088"
-      kerberos-enabled: false
+        - "http://yarn-rm-2.yarn-demo-net:8088"
+      kerberos-enabled: true
       impersonation-enabled: true
       default-partition: "DEFAULT"
       partitions: ["DEFAULT", "GPU"]

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- Демо-кластер prod-yarn (Capacity Scheduler, метки GPU и HIGH_MEM) -->
 <configuration>
+    <!-- Глобальные лимиты -->
     <property>
         <name>yarn.scheduler.capacity.maximum-applications</name>
         <value>10000</value>
@@ -14,70 +15,253 @@
         <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
     </property>
     <property>
+        <name>yarn.scheduler.capacity.queue-mappings</name>
+        <value>g:data-engineers:root.prod.spark,g:bi-analysts:root.dev</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.queue-mappings-override.enable</name>
+        <value>false</value>
+    </property>
+    <!-- root: prod 60% (spark / flink / hive), dev 25%, default 15%; метки GPU (spark) и HIGH_MEM (hive) -->
+    <property>
         <name>yarn.scheduler.capacity.root.queues</name>
-        <value>production,analytics,default</value>
+        <value>prod,dev,default</value>
     </property>
     <property>
         <name>yarn.scheduler.capacity.root.capacity</name>
         <value>100</value>
     </property>
-
-    <!-- production queue -->
     <property>
-        <name>yarn.scheduler.capacity.root.production.capacity</name>
+        <name>yarn.scheduler.capacity.root.accessible-node-labels</name>
+        <value>GPU,HIGH_MEM</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.accessible-node-labels.GPU.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.accessible-node-labels.HIGH_MEM.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.queues</name>
+        <value>spark,flink,hive</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.capacity</name>
         <value>60</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.production.maximum-capacity</name>
-        <value>90</value>
+        <name>yarn.scheduler.capacity.root.prod.maximum-capacity</name>
+        <value>100</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.production.state</name>
+        <name>yarn.scheduler.capacity.root.prod.state</name>
         <value>RUNNING</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.production.acl_submit_applications</name>
-        <value>*</value>
+        <name>yarn.scheduler.capacity.root.prod.accessible-node-labels</name>
+        <value>GPU,HIGH_MEM</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.production.acl_administer_queue</name>
-        <value>admin_user</value>
-    </property>
-
-    <!-- analytics queue -->
-    <property>
-        <name>yarn.scheduler.capacity.root.analytics.capacity</name>
-        <value>30</value>
+        <name>yarn.scheduler.capacity.root.prod.accessible-node-labels.GPU.capacity</name>
+        <value>100</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.analytics.maximum-capacity</name>
-        <value>60</value>
+        <name>yarn.scheduler.capacity.root.prod.accessible-node-labels.GPU.maximum-capacity</name>
+        <value>100</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.analytics.state</name>
+        <name>yarn.scheduler.capacity.root.prod.accessible-node-labels.HIGH_MEM.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.accessible-node-labels.HIGH_MEM.maximum-capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.capacity</name>
+        <value>40</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.maximum-capacity</name>
+        <value>80</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.state</name>
         <value>RUNNING</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.analytics.acl_submit_applications</name>
+        <name>yarn.scheduler.capacity.root.prod.spark.user-limit-factor</name>
+        <value>2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.ordering-policy</name>
+        <value>fair</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.maximum-applications</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.maximum-am-resource-percent</name>
+        <value>0.3</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.accessible-node-labels</name>
+        <value>GPU</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.accessible-node-labels.GPU.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.accessible-node-labels.GPU.maximum-capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.spark.acl_submit_applications</name>
         <value>*</value>
     </property>
     <property>
-        <name>yarn.scheduler.capacity.root.analytics.acl_administer_queue</name>
+        <name>yarn.scheduler.capacity.root.prod.spark.acl_administer_queue</name>
         <value>admin_user</value>
     </property>
-
-    <!-- default queue -->
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.capacity</name>
+        <value>35</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.maximum-capacity</name>
+        <value>50</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.user-limit-factor</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.ordering-policy</name>
+        <value>fifo</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.maximum-applications</name>
+        <value>5000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.maximum-am-resource-percent</name>
+        <value>0.2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.flink.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.capacity</name>
+        <value>25</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.maximum-capacity</name>
+        <value>50</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.user-limit-factor</name>
+        <value>1.5</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.ordering-policy</name>
+        <value>fair</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.maximum-applications</name>
+        <value>5000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.maximum-am-resource-percent</name>
+        <value>0.25</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.accessible-node-labels</name>
+        <value>HIGH_MEM</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.accessible-node-labels.HIGH_MEM.capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.accessible-node-labels.HIGH_MEM.maximum-capacity</name>
+        <value>100</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.prod.hive.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.capacity</name>
+        <value>25</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.maximum-capacity</name>
+        <value>50</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.state</name>
+        <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.user-limit-factor</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.ordering-policy</name>
+        <value>fifo</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.maximum-applications</name>
+        <value>2000</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.acl_submit_applications</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.dev.acl_administer_queue</name>
+        <value>admin_user</value>
+    </property>
     <property>
         <name>yarn.scheduler.capacity.root.default.capacity</name>
-        <value>10</value>
+        <value>15</value>
     </property>
     <property>
         <name>yarn.scheduler.capacity.root.default.maximum-capacity</name>
-        <value>20</value>
+        <value>100</value>
     </property>
     <property>
         <name>yarn.scheduler.capacity.root.default.state</name>
         <value>RUNNING</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.user-limit-factor</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.capacity.root.default.ordering-policy</name>
+        <value>fifo</value>
     </property>
     <property>
         <name>yarn.scheduler.capacity.root.default.acl_submit_applications</name>

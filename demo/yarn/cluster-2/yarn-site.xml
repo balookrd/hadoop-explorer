@@ -37,4 +37,13 @@
         <name>yarn.admin.acl</name>
         <value>yarn,yarn-explorer,admin_user</value>
     </property>
+    <!-- Метки узлов: разделы GPU/HIGH_MEM задаются в capacity-scheduler.xml -->
+    <property>
+        <name>yarn.node-labels.enabled</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>yarn.node-labels.fs-store.root-dir</name>
+        <value>file:///tmp/node-labels</value>
+    </property>
 </configuration>
