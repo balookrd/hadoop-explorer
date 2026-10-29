@@ -1,3 +1,6 @@
+# Значения по умолчанию безопасны для продакшена: без внешнего конфига сервис не стартует
+# (нужны JWT_SECRET_KEY и LDAP/Kerberos). Локальная разработка и демо-стенды включают
+# профиль mock явно: SPRING_PROFILES_ACTIVE=mock (см. application-mock.yml).
 server:
   port: 8005
   error:
@@ -78,9 +81,9 @@ spring:
 
 hadoop:
   security:
-    debug: true
+    debug: false
     auth:
-      mode: mock
+      mode: ${HADOOP_AUTH_MODE:ldap}
       admin-groups:
         - "hadoop-admins"
         - "platform-admins"
@@ -90,35 +93,17 @@ hadoop:
         - "etl-developers"
         - "replicator-operators"
         - "operators"
-    mock-users:
-      - username: "admin_user"
-        password: "password123"
-        displayName: "Александр Админов"
-        email: "admin@company.local"
-        groups: ["hadoop-admins", "platform-admins", "superusers"]
-      - username: "writer_user"
-        password: "password123"
-        displayName: "Владимир Инженеров"
-        email: "writer@company.local"
-        groups: ["data-engineers", "etl-developers"]
-      - username: "de_user"
-        password: "password123"
-        displayName: "Иван Датаинженеров"
-        email: "de@company.local"
-        groups: ["data-engineers", "spark-users"]
-      - username: "reader_user"
-        password: "password123"
-        displayName: "Екатерина Наблюдателева"
-        email: "reader@company.local"
-        groups: ["bi-analysts", "junior-devs"]
-      - username: "analyst_user"
-        password: "password123"
-        displayName: "Анна Аналитикова"
-        email: "analyst@company.local"
-        groups: ["bi-analysts", "analytics"]
     jwt:
-      secret-key: "replicator-orchestrator-secret-key-32-chars-minimum!"
+      # Обязателен: при пустом значении сервис откажется стартовать
+      secret-key: ${JWT_SECRET_KEY:}
       expiration-minutes: 480
+    ldap:
+      enabled: true
+      url: ${LDAP_URL:ldaps://ldap.company.local:636}
+      manager-dn: ${LDAP_MANAGER_DN:}
+      manager-password: ${LDAP_MANAGER_PASSWORD:}
+      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+      user-search-filter: "(uid={0})"
     cors:
       allowed-origins:
         - "http://localhost:3000"

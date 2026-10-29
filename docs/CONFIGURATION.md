@@ -63,12 +63,20 @@
 3. **Локальный файл по умолчанию**: `config/config.yaml` внутри каталога соответствующего сервиса.
 
 > [!IMPORTANT]
-> **Production Mode (`debug: false`)**:
-> При установке `server.debug: false` платформа активирует строгие проверки безопасности:
-> - Запрещается режим авторизации `auth.mode: "mock"`.
-> - Флаг `cookie_secure` принудительно переводится в `true`.
-> - Блокируется запуск без явно заданного стойкого `secret_key` / `JWT_SECRET_KEY` (мин. 32 символа) или при использовании дефолтных плейсхолдеров (`CHANGE_THIS...`, `your-secret...`).
-> - В режиме разработки (`debug: true`), если ключ не передан, генерируется безопасный временный ключ (`secrets.token_urlsafe(32)`).
+> **Безопасные значения по умолчанию и проверки на старте (все Java-сервисы)**:
+> Упакованный в JAR `application.yml` каждого сервиса рассчитан на продакшен: `hadoop.security.debug: false`,
+> `auth.mode: ${HADOOP_AUTH_MODE:ldap}`, JWT-секрет только из `JWT_SECRET_KEY`. Стартер безопасности
+> не даст сервису запуститься, если:
+> - `auth.mode` равен `mock` без `hadoop.security.debug: true`. В mock-режиме демо-учетки входят без проверки
+>   в каталоге, а для `admin`/`writer` подходит любой пароль;
+> - `hadoop.security.jwt.secret-key` пуст, короче 32 символов или совпадает со встроенным значением из исходников;
+> - `auth.mode: ldap` задан при `ldap.enabled: false`;
+> - `auth.mode` не входит в `mock | ldap | kerberos | hybrid`.
+>
+> Локальная разработка и демо-стенды включают профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
+> файл `application-mock.yml` в ресурсах сервиса) либо задают `auth.mode`/`debug` в своем конфиге.
+> Ключи из старых руководств (`auth-mode`, `ldap.server-uri`, `bind-dn`, `bind-password`, `user-base-dn`,
+> `user-filter`, `kerberos.keytab-path`, `kerberos.principal`) принимаются как синонимы.
 
 ---
 
@@ -601,8 +609,10 @@ Spark Explorer сохраняет состояние сессий, активн�
 
 ### 7.1.1 Безопасные значения по умолчанию и продуктивный профиль
 
-Дефолтная конфигурация оркестратора (`application.yml`) рассчитана на локальную разработку:
-H2 в памяти и `auth.mode: mock` с тестовыми пользователями. Схема базы во всех профилях
+Дефолтная конфигурация оркестратора (`application.yml`) — H2 в памяти и боевая аутентификация
+(`auth.mode: ldap`, JWT-секрет из `JWT_SECRET_KEY`): без них оркестратор не стартует.
+Тестовые пользователи и `auth.mode: mock` вынесены в профиль `mock` (`SPRING_PROFILES_ACTIVE=mock`),
+который включают демо-стенды `demo/replicator`. Схема базы во всех профилях
 создается миграциями Flyway, а `ddl-auto` стоит в `validate`. Для продуктива
 предусмотрен отдельный профиль `application-prod.yml`, активируемый через
 `SPRING_PROFILES_ACTIVE=prod`: PostgreSQL, `auth.mode: kerberos`,

@@ -38,7 +38,7 @@ hadoop:
       manager-dn: ${LDAP_MANAGER_DN:}
       manager-password: ${LDAP_MANAGER_PASSWORD:}
       user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
-      user-search-filter: ${LDAP_USER_SEARCH_FILTER:(uid={0})}
+      user-search-filter: "(uid={0})"
 
 yarn:
   # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)

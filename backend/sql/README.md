@@ -39,6 +39,10 @@ make build-sql
 # или
 mvn clean package -DskipTests -f backend/sql/pom.xml
 
-# Запуск сервиса
-java -jar backend/sql/target/sql-explorer-java-1.0.0.jar
+# Локальный запуск без кластера и каталога: профиль mock (демо-учетки, debug)
+java -jar backend/sql/target/sql-explorer-java-1.0.0.jar --spring.profiles.active=mock
+
+# Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
+JWT_SECRET_KEY=... java -jar backend/sql/target/sql-explorer-java-1.0.0.jar \
+  --spring.config.additional-location=file:/etc/hadoop-explorer/sql/application.yml
 ```

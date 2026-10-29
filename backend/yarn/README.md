@@ -65,8 +65,12 @@ make build-yarn
 # или
 mvn clean package -DskipTests -f backend/yarn/pom.xml
 
-# Запуск сервиса
-java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar
+# Локальный запуск без кластера и каталога: профиль mock (демо-учетки, debug)
+java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar --spring.profiles.active=mock
+
+# Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
+JWT_SECRET_KEY=... java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar \
+  --spring.config.additional-location=file:/etc/hadoop-explorer/yarn/application.yml
 ```
 
 Сервис запустится на порту `8000` (стандартный порт YARN Explorer API).

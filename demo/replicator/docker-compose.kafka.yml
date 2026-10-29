@@ -170,6 +170,8 @@ services:
       REPLICATOR_GRPC_PORT: "50050"
       REPLICATOR_GRPC_ENABLED: "true"
       REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600"
+      # Демо-учетки и debug: упакованные значения по умолчанию оркестратора — боевые
+      SPRING_PROFILES_ACTIVE: "mock"
       # Единый секрет демо-стенда: control plane и приемники работают в режиме
       # Fail-Closed, поэтому пустое значение отключило бы репликацию целиком.
       HADOOP_REPLICATOR_AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"

@@ -1,3 +1,6 @@
+# Значения по умолчанию безопасны для продакшена: без внешнего конфига сервис не стартует
+# (нужны JWT_SECRET_KEY и LDAP/Kerberos). Локальная разработка и демо-стенды включают
+# профиль mock явно: SPRING_PROFILES_ACTIVE=mock (см. application-mock.yml).
 server:
   port: 8003
 
@@ -18,9 +21,9 @@ spring:
 
 hadoop:
   security:
-    debug: true
+    debug: false
     auth:
-      mode: mock
+      mode: ${HADOOP_AUTH_MODE:ldap}
       admin-groups:
         - "hadoop-admins"
         - "platform-admins"
@@ -29,8 +32,16 @@ hadoop:
         - "data-engineers"
         - "developers"
     jwt:
-      secret-key: "sql-explorer-super-secret-jwt-token-key-32-chars-min!"
+      # Обязателен: при пустом значении сервис откажется стартовать
+      secret-key: ${JWT_SECRET_KEY:}
       expiration-minutes: 480
+    ldap:
+      enabled: true
+      url: ${LDAP_URL:ldaps://ldap.company.local:636}
+      manager-dn: ${LDAP_MANAGER_DN:}
+      manager-password: ${LDAP_MANAGER_PASSWORD:}
+      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+      user-search-filter: "(uid={0})"
     cors:
       allowed-origins:
         - "http://localhost:3000"

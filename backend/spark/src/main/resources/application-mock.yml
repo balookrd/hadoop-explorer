@@ -1,0 +1,10 @@
+# Профиль mock: локальная разработка, тесты и демо-стенды.
+# Вход демо-учетками без проверки в каталоге — никогда не включать в продакшене.
+# Включение: SPRING_PROFILES_ACTIVE=mock
+hadoop:
+  security:
+    debug: true
+    auth:
+      mode: mock
+    jwt:
+      secret-key: "spark-explorer-super-secret-jwt-token-key-32-chars-min!"
