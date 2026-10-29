@@ -25,6 +25,14 @@ public class CommonSecurityProperties {
     private TlsProperties tls = new TlsProperties();
     private List<MockUser> mockUsers = new ArrayList<>();
 
+    /**
+     * Alias for {@code hadoop.security.auth.mode}: the flat {@code auth-mode} key used in older
+     * guides used to be silently ignored, leaving the service in mock mode.
+     */
+    public void setAuthMode(String mode) {
+        this.auth.setMode(mode);
+    }
+
     public List<MockUser> getMockUsers() {
         return mockUsers;
     }
@@ -118,7 +126,10 @@ public class CommonSecurityProperties {
     // ==========================================
 
     public static class JwtProperties {
-        private String secretKey = "hadoop-explorer-default-secret-key-32-chars-minimum-safe-value";
+        /** Built-in placeholder; startup is refused when it is left in place outside mock mode. */
+        public static final String DEFAULT_SECRET_KEY = "hadoop-explorer-default-secret-key-32-chars-minimum-safe-value";
+
+        private String secretKey = DEFAULT_SECRET_KEY;
         private String algorithm = "HS256";
         private int expirationMinutes = 480;
 
@@ -368,6 +379,37 @@ public class CommonSecurityProperties {
         public void setManagerPassword(String managerPassword) {
             this.managerPassword = managerPassword;
         }
+
+        // Aliases for the key names used in older guides and demo configs; without them
+        // those keys were ignored and LDAP silently fell back to ldap://localhost:389.
+
+        public void setServerUri(String serverUri) {
+            this.url = serverUri;
+        }
+
+        public void setBindDn(String bindDn) {
+            this.managerDn = bindDn;
+        }
+
+        public void setBindPassword(String bindPassword) {
+            this.managerPassword = bindPassword;
+        }
+
+        public void setUserBaseDn(String userBaseDn) {
+            this.userSearchBase = userBaseDn;
+        }
+
+        public void setGroupBaseDn(String groupBaseDn) {
+            this.groupSearchBase = groupBaseDn;
+        }
+
+        public void setUserFilter(String userFilter) {
+            this.userSearchFilter = userFilter == null ? null : userFilter.replace("{username}", "{0}");
+        }
+
+        public void setGroupFilter(String groupFilter) {
+            this.groupSearchFilter = groupFilter == null ? null : groupFilter.replace("{user_dn}", "{0}");
+        }
     }
 
     public static class KerberosProperties {
@@ -406,6 +448,15 @@ public class CommonSecurityProperties {
 
         public void setServicePrincipal(String servicePrincipal) {
             this.servicePrincipal = servicePrincipal;
+        }
+
+        // Aliases for the key names used in older guides
+        public void setKeytabPath(String keytabPath) {
+            this.keytab = keytabPath;
+        }
+
+        public void setPrincipal(String principal) {
+            this.servicePrincipal = principal;
         }
     }
 

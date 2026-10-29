@@ -6,6 +6,7 @@ import org.apache.hadoop.explorer.common.audit.AuditAspect;
 import org.apache.hadoop.explorer.common.audit.AuditLogger;
 import org.apache.hadoop.explorer.common.auth.*;
 import org.apache.hadoop.explorer.common.config.CommonSecurityProperties;
+import org.apache.hadoop.explorer.common.config.SecurityConfigurationValidator;
 import org.apache.hadoop.explorer.common.resilience.RateLimiterService;
 import org.apache.hadoop.explorer.common.security.*;
 import org.apache.hadoop.explorer.common.session.DefaultSessionStore;
@@ -38,6 +39,12 @@ import java.util.List;
 @EnableMethodSecurity
 @EnableConfigurationProperties(CommonSecurityProperties.class)
 public class CommonSecurityAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SecurityConfigurationValidator securityConfigurationValidator(CommonSecurityProperties properties) {
+        return new SecurityConfigurationValidator(properties);
+    }
 
     @Bean
     @ConditionalOnMissingBean
