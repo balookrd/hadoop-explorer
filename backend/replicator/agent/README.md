@@ -1,46 +1,48 @@
-# 🚀 Hadoop gRPC Replicator Agent (Java 21)
+# Hadoop gRPC Replicator Agent (Java 21)
 
-Высокопроизводительный нативный Java 21 агент репликации данных для экосистемы Hadoop, разработанный для запуска:
-1. **Непосредственно на нодах Hadoop (DataNode, Edge Nodes, Master Nodes)** как автономный фоновый демон (Standalone Daemon / systemd).
-2. **В кластере Apache Hadoop YARN** в виде распределенного приложения (YARN Client + ApplicationMaster + YARN Containers).
+Агент репликации данных Hadoop на Java 21. Варианты запуска:
+1. На узлах Hadoop (DataNode, edge-узлы, master-узлы) как фоновый демон (standalone, systemd).
+2. В кластере Apache Hadoop YARN как распределенное приложение (YARN Client, ApplicationMaster, контейнеры YARN).
 
 ---
 
-## 1. Преимущества Java-версии агента
+## Сравнение с Python-версией агента
 
 | Характеристика | Python Replicator Agent | Java Replicator Agent (LTS 21) |
 |---|---|---|
-| **Интеграция с HDFS** | PyArrow / WebHDFS (требует C++ бинарники и glibc) | Нативный `org.apache.hadoop.fs.FileSystem` и `HdfsDataInputStream` |
-| **Kerberos & Delegation Tokens** | Ограниченная изоляция окружения `KRB5CCNAME` | Полная поддержка `UserGroupInformation` и YARN Delegation Tokens |
-| **Запуск в YARN** | Требует упаковку Python venv / conda в архив | Нативный запуск через `yarn jar` или `ReplicatorYarnClient` |
-| **Шейпинг трафика** | Локальный Token Bucket + Orchestrator API | Нативный потокобезопасный Token Bucket + Orchestrator API |
-| **Производительность gRPC** | Python asyncio / grpcio | Netty Shaded HTTP/2 transport с нулевым копированием буферов |
+| Интеграция с HDFS | PyArrow / WebHDFS (требует C++ бинарники и glibc) | `org.apache.hadoop.fs.FileSystem` и `HdfsDataInputStream` |
+| Kerberos и delegation tokens | Изоляция только через окружение `KRB5CCNAME` | `UserGroupInformation` и YARN delegation tokens |
+| Запуск в YARN | Требует упаковки Python venv или conda в архив | Запуск через `yarn jar` или `ReplicatorYarnClient` |
+| Шейпинг трафика | Локальный Token Bucket + Orchestrator API | Потокобезопасный Token Bucket + Orchestrator API |
+| Транспорт gRPC | Python asyncio / grpcio | Netty Shaded HTTP/2 transport с нулевым копированием буферов |
 
 ---
 
-## 2. Архитектура и компоненты
+## Компоненты агента
 
-- **`DataTransferServiceImpl`**: gRPC-сервер, реализующий контракт `replicator.proto` (`TransferFile` и `TransferTarStream` streaming RPC). Поддерживает потоковый прием данных блоками, потоковый расчет SHA-256 контрольной суммы, потоковую распаковку виртуальных TAR-стримов (`TarArchiveInputStream`) на лету и надежный параллельный коммит файлов в HDFS пулом потоков (`bundleCommitConcurrency`). Потоковая распаковка виртуальных TAR-стримов изолирована в выделенном пуле виртуальных потоков Java 21 `tarUnpackExecutor` (`tar-stream-unpacker-*`), полностью защищая системный пул `ForkJoinPool.commonPool()` JVM от истощения и блокировок. Распаковка файлов Tar-бандла выполняется по двухфазной схеме: запись во временный staging-файл `targetPath + "._staging_" + jobId` с последующим атомарным `fsManager.renameFile`. Включает строгий контроль пула памяти распаковщика через справедливый `Semaphore` (`maxConcurrentTarStreams`), конфигурируемый размер pipe-буфера (`tarPipeBufferBytes`), сдерживание параллельных коммитов файлов бандла (`fileCommitLimiter`) для предотвращения всплесков Heap GC и реактивную очистку (`cleanup`) недописанных staging-файлов при обрыве потока (`onError`).
-- **`TaskAttestationValidator`**: Специализированный валидатор криптографических токенов аттестации задач (HMAC-SHA256). Проверяет подлинность токена с constant-time сравнением подписи, совпадение целевого пути HDFS, соответствие принципала Kerberos (`executionPrincipal`), флага системной учетной записи (`runAsServiceAccount`) и отсутствие истечения срока действия (TTL). Гарантирует изоляцию и нулевое доверие (Zero-Trust) на стороне приемника данных.
-- **`ZeroCopyWireTranscoder`**: Высокопроизводительный транскодер заголовков форматов Confluent Schema Registry и Hortonworks Schema Registry. Обеспечивает безопасный иммутабельный транскодинг Wire-форматов (с защитной копией массива байт) и специализированный режим `transcodeInPlace(...)` для прямого in-place обновления ID схемы в высоконагруженных сценариях без лишних аллокаций памяти.
-- **`WireCompressor`**: Высокопроизводительный сервис потокового сжатия и декомпрессии чанков на лету (Wire Compression) на базе Zstandard (zstd, по умолчанию уровень 3) и LZ4. Экономит 40–80% полосы WAN на текстовых данных, логах, JSON, CSV и дампах. Автоматически отключает сжатие для уже сжатых форматов (Parquet, ORC, Snappy, Gz, Zip, Avro) и адаптируется при несжимаемых данных.
-- **`ReplicationSender`**: Фасадный gRPC-клиент с поддержкой многоуровневого шейпинга полосы пропускания и пула gRPC каналов. Координирует передачу файлов и бандлов, делегируя построение пулов задач в `DirectoryDiffEngine`, а потоковую передачу архивов — в `TarStreamPipeline`.
-- **`DirectoryDiffEngine`**: Движок рекурсивного сканирования директорий HDFS, сетевого сравнения манифестов (`DirectoryManifestRequest`), in-memory diff и формирования оптимизированных задач в Оркестраторе (с автоматической группировкой мелких файлов в виртуальные бандлы `BUNDLE_TAR`).
-- **`TarStreamPipeline`**: Потоковый конвейер сборки, сжатия (`WireCompressor`) и передачи виртуальных TAR-бандлов на лету через `TarArchiveOutputStream` и Flow Control backpressure со сдерживанием сетевых чанков.
-- **`HdfsStagingReaper`**: Сервис обнаружения и очистки осиротевших staging-файлов (`*._staging_*`) в HDFS и локальной ФС с фильтрацией по идентификатору задания (`jobId`) и возрасту файлов (`olderThanMillis`). Надежно вычищает незавершенные временные файлы как одиночных передач, так и Tar-бандлов при внезапных падениях воркера (`kill -9`, kernel OOM) или разрывах сети.
-- **`KerberosUgiProvider`**: Специализированный провайдер контекстов безопасности Kerberos `UserGroupInformation` и doAs-имперсонации. Обеспечивает безопасный доступ к HDFS с валидацией принципалов (`validatePrincipalSafety`), защитой от эскалации привилегий (`root`, `bin`, `daemon`) и отказоустойчивым fallback на современных JVM.
-- **`AgentMetrics`**: Потокобезопасный сервис сбора Enterprise-метрик на базе **Micrometer** (`SimpleMeterRegistry`). Фиксирует объемы и коэффициент сжатия (`compression_ratio`), таймер задержек передачи gRPC-чанков (`replicator.grpc.chunk.transfer.latency` с SLA-бакетами от 1 мс до 5 с), а также активную очередь и байты буфера staging (`staging.queue.size`, `staging.active.bytes`, `staging.orphans.cleaned`). Агрегированная телеметрия передается в Оркестратор в цикле heartbeat.
-- **`ReplicatorAgent`**: Высокопроизводительный оркестратор воркера и отправителя задач. Включает многопоточный пул `workerTaskPool` (`Executors.newFixedThreadPool(workerConcurrency)`) для параллельной передачи независимых задач передачи данных (`transferTask`) с контролем предельного числа одновременных передач (`activeTransfers`) и graceful shutdown. Сервер gRPC Receiver переведен на виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`), защищая EventLoop потоки Netty от блокировок при длительной потоковой распаковке виртуальных TAR-стримов. Включает алгоритм адаптивного ожидания (Exponential Idle Backoff с рандомизированным Jitter $\pm 20\%$) как в цикле `runSenderLoop`, так и в цикле репликации схемы `runHmsLoop`, увеличивающий интервал опроса очереди при отсутствии новых CDC-событий с 2 до 15 секунд для предотвращения эффекта Thundering Herd при масштабировании на сотни агентов.
-- **`OrchestratorGrpcClient`**: Высокопроизводительное взаимодействие с gRPC Control Plane Оркестратора через постоянный HTTP/2 мультиплексированный канал (`orchestrator_control_plane.proto`): регистрация агента, keepalive heartbeat с телеметрией, взятие пофайловых задач из распределенной очереди (`claimTasks`), подтверждение завершения (`completeTask`), запрос квот Token Bucket, лизинг потоковых Inotify-демонов и координация репликации схем HMS (с получением `last_processed_event_id`, флагов `dropExtraneousTables`/`dropExtraneousPartitions` и назначенного агента). Поддерживает **Client-Side Random Load Balancing** и **прозрачный Failover**: при передаче списка эндпоинтов через `ORCHESTRATOR_GRPC_ADDRESSES` клиент перемешивает узлы при старте для равномерного распределения нагрузки сотен агентов по пулу Active-Active оркестраторов без необходимости развертывания внешнего L7 Load Balancer, а при сетевых сбоях узла (`UNAVAILABLE`, `DEADLINE_EXCEEDED`, обрывы сокетов) бесшовно переключается на следующий доступный узел оркестратора с повтором вызова. Поддерживает защищенное TLS/mTLS соединение со строгой валидацией сертификатов через системные доверенные центры сертификации (TrustManager JVM) с опцией `insecureSkipVerify` исключительно для локальных отладочных сред.
-- **`HadoopFsManager`**: Нативная интеграция с HDFS и локальной файловой системой, делегирующая управление Kerberos UGI в `KerberosUgiProvider`, а очистку staging — в `HdfsStagingReaper`.
-- **`ReplicatorYarnClient` & `ReplicatorApplicationMaster`**: Автономная интеграция с Apache Hadoop YARN для развертывания пула агентов в контейнерах YARN по запросу.
+| Класс | Назначение |
+|---|---|
+| `DataTransferServiceImpl` | gRPC-сервер контракта `replicator.proto` (streaming RPC `TransferFile` и `TransferTarStream`). Принимает данные блоками, считает SHA-256 по потоку, распаковывает виртуальные TAR-стримы (`TarArchiveInputStream`) на лету и параллельно коммитит файлы в HDFS пулом потоков (`bundleCommitConcurrency`). Распаковка TAR-стримов идет в отдельном пуле виртуальных потоков Java 21 `tarUnpackExecutor` (`tar-stream-unpacker-*`), а не в `ForkJoinPool.commonPool()`. Файл бандла пишется во временный staging-файл `targetPath + "._staging_" + jobId` и затем атомарно переименовывается через `fsManager.renameFile`. Память распаковщика ограничивают справедливый `Semaphore` (`maxConcurrentTarStreams`), размер pipe-буфера (`tarPipeBufferBytes`) и лимит параллельных коммитов файлов бандла (`fileCommitLimiter`). При обрыве потока (`onError`) `cleanup` удаляет недописанные staging-файлы. |
+| `TaskAttestationValidator` | Проверка токенов аттестации задач (HMAC-SHA256): подпись (constant-time сравнение), целевой путь HDFS, принципал Kerberos (`executionPrincipal`), флаг системной учетной записи (`runAsServiceAccount`) и срок действия (TTL). Приемник не выполняет запись, если хоть одна проверка не прошла. |
+| `ZeroCopyWireTranscoder` | Транскодер заголовков wire-форматов Confluent Schema Registry и Hortonworks Schema Registry. По умолчанию работает с защитной копией массива байт; `transcodeInPlace(...)` меняет ID схемы на месте без аллокаций. |
+| `WireCompressor` | Сжатие и декомпрессия чанков на лету: Zstandard (zstd, уровень по умолчанию 3) и LZ4. На текстовых данных, логах, JSON, CSV и дампах экономит 40–80% полосы WAN. Для сжатых форматов (Parquet, ORC, Snappy, Gz, Zip, Avro) сжатие отключается, несжимаемый чанк передается как есть. |
+| `ReplicationSender` | gRPC-клиент с многоуровневым шейпингом полосы и пулом gRPC-каналов. Координирует передачу файлов и бандлов; построение пулов задач делегирует `DirectoryDiffEngine`, потоковую передачу архивов — `TarStreamPipeline`. |
+| `DirectoryDiffEngine` | Рекурсивное сканирование директорий HDFS, сравнение манифестов по сети (`DirectoryManifestRequest`), in-memory diff и создание задач в оркестраторе с группировкой мелких файлов в виртуальные бандлы `BUNDLE_TAR`. |
+| `TarStreamPipeline` | Сборка, сжатие (`WireCompressor`) и передача виртуальных TAR-бандлов на лету через `TarArchiveOutputStream` с backpressure по flow control gRPC. |
+| `HdfsStagingReaper` | Поиск и удаление осиротевших staging-файлов (`*._staging_*`) в HDFS и локальной ФС с фильтром по идентификатору задания (`jobId`) и возрасту (`olderThanMillis`). Удаляет временные файлы одиночных передач и TAR-бандлов после падения воркера (`kill -9`, kernel OOM) или разрыва сети. |
+| `KerberosUgiProvider` | Контексты безопасности Kerberos `UserGroupInformation` и doAs-имперсонация. Проверяет принципалы (`validatePrincipalSafety`), запрещает системные учетные записи (`root`, `bin`, `daemon`), содержит fallback для новых JVM. |
+| `AgentMetrics` | Метрики Micrometer (`SimpleMeterRegistry`): объемы и коэффициент сжатия (`compression_ratio`), таймер задержки передачи gRPC-чанков (`replicator.grpc.chunk.transfer.latency`, SLA-бакеты от 1 мс до 5 с), очередь и байты буфера staging (`staging.queue.size`, `staging.active.bytes`, `staging.orphans.cleaned`). Агрегаты передаются оркестратору в heartbeat. |
+| `ReplicatorAgent` | Цикл воркера и отправителя задач. Пул `workerTaskPool` (`Executors.newFixedThreadPool(workerConcurrency)`) параллельно выполняет задачи передачи (`transferTask`) с лимитом одновременных передач (`activeTransfers`) и graceful shutdown. gRPC-сервер приема работает на виртуальных потоках Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`), поэтому долгая распаковка TAR-стримов не блокирует EventLoop-потоки Netty. В циклах `runSenderLoop` и `runHmsLoop` при отсутствии новых CDC-событий интервал опроса растет экспоненциально с 2 до 15 секунд со случайным разбросом $\pm 20\%$, чтобы сотни агентов не опрашивали очередь одновременно. |
+| `OrchestratorGrpcClient` | Клиент gRPC Control Plane оркестратора (`orchestrator_control_plane.proto`) через постоянный мультиплексированный HTTP/2-канал: регистрация агента, heartbeat с телеметрией, взятие пофайловых задач из очереди (`claimTasks`), подтверждение завершения (`completeTask`), запрос квот Token Bucket, лизинг Inotify-стримеров и координация репликации схем HMS (с `last_processed_event_id`, флагами `dropExtraneousTables`/`dropExtraneousPartitions` и назначенным агентом). Если в `ORCHESTRATOR_GRPC_ADDRESSES` передан список адресов, клиент перемешивает их при старте (client-side random load balancing) и при сбое узла (`UNAVAILABLE`, `DEADLINE_EXCEEDED`, обрыв сокета) повторяет вызов на следующем узле; внешний L7-балансировщик не нужен. TLS/mTLS проверяет сертификаты по системным доверенным CA (TrustManager JVM); `insecureSkipVerify` — только для локальной отладки. |
+| `HadoopFsManager` | Работа с HDFS и локальной ФС; Kerberos UGI делегирует `KerberosUgiProvider`, очистку staging — `HdfsStagingReaper`. |
+| `ReplicatorYarnClient`, `ReplicatorApplicationMaster` | Развертывание пула агентов в контейнерах YARN по запросу. |
 
 ---
 
-## 3. Сборка проекта
+## Сборка
 
 Требования:
-- Java Development Kit (JDK 21 LTS или новее)
+- JDK 21 LTS. На другой версии JDK сборку модулей репликатора останавливает `maven-enforcer-plugin`; на JDK 24+ Hadoop 3.3.6 теряет имперсонацию (`Subject.getSubject` бросает `UnsupportedOperationException`).
 - Apache Maven 3.8+
 
 ```bash
@@ -51,14 +53,16 @@ make build-replicator-agent
 mvn clean package -DskipTests -f backend/replicator/agent/pom.xml
 ```
 
-В результате сборки формируется единый исполняемый Fat JAR:
+[проверить: по `AGENTS.md` модуль `agent` собирается только через реактор родителя (`mvn ... -f backend/replicator/pom.xml -pl agent -am`), иначе общие `proto` и `model` берутся из локального репозитория устаревшими]
+
+Результат сборки — исполняемый fat JAR:
 `target/replicator-agent-1.0.0-all.jar` (~72 МБ, включает все зависимости Netty, gRPC, Hadoop Client, YARN Client, Jackson).
 
 ---
 
-## 4. Запуск на нодах Hadoop (Standalone Daemon)
+## Запуск на узлах Hadoop (standalone)
 
-### 4.1. Быстрый запуск через скрипт
+### Запуск через скрипт
 
 ```bash
 ./backend/replicator/agent/bin/replicator-agent.sh \
@@ -70,7 +74,7 @@ mvn clean package -DskipTests -f backend/replicator/agent/pom.xml
     --staging-dir /tmp/replicator-staging
 ```
 
-### 4.2. Прямой запуск через Java / Hadoop CLI
+### Запуск через java с classpath Hadoop
 
 ```bash
 # С использованием системного hadoop classpath:
@@ -84,64 +88,64 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
     --mode all
 ```
 
-### 4.3. Переменные окружения
+### Переменные окружения
 
-| Переменная | По умолчанию | Описание |
+| Переменная | По умолчанию | Что задает |
 |---|---|---|
-| `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента в системе |
+| `AGENT_ID` | `agent-<uuid>` | Уникальный ID агента |
 | `AGENT_CLUSTER_ID` | `null` | Идентификатор обслуживаемого HDFS-кластера |
 | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс), `sender`, `receiver` |
-| `ORCHESTRATOR_GRPC_ADDRESSES` | `${ORCHESTRATOR_GRPC_ADDRESS}` | Список сетевых адресов gRPC Control Plane пула Оркестраторов через запятую (например, `orch-1:50050,orch-2:50050`). Включает случайную балансировку нагрузки между узлами (Client-Side Random LB) и автоматический failover при сбоях |
-| `ORCHESTRATOR_GRPC_ADDRESS` | `localhost:50050` (`orchestrator:50050` в docker) | Сетевой адрес gRPC Control Plane Оркестратора (`host:port`). Используется как одиночный адрес или значение по умолчанию |
-| `RECEIVER_HOST` | `0.0.0.0` | Сетевой адрес для прослушивания входящих соединений gRPC Data Plane |
+| `ORCHESTRATOR_GRPC_ADDRESSES` | `${ORCHESTRATOR_GRPC_ADDRESS}` | Адреса gRPC Control Plane пула оркестраторов через запятую (например, `orch-1:50050,orch-2:50050`). Агент перемешивает их при старте (client-side random LB) и при сбое узла переключается на следующий |
+| `ORCHESTRATOR_GRPC_ADDRESS` | `localhost:50050` (`orchestrator:50050` в docker) | Адрес gRPC Control Plane оркестратора (`host:port`): одиночный адрес или значение по умолчанию для `ORCHESTRATOR_GRPC_ADDRESSES` |
+| `RECEIVER_HOST` | `0.0.0.0` | Адрес, на котором gRPC Data Plane принимает входящие соединения |
 | `RECEIVER_PORT` | `50051` | Порт gRPC сервиса приема файлов |
 | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` (без ограничений) | Локальный лимит скорости репликации в МБ/с |
-| `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов для локальной ФС (при работе с HDFS используется прямой Zero-Staging `._staging_<jobId>` в HDFS) |
+| `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Директория временных файлов для локальной ФС (для HDFS staging-файл `._staging_<jobId>` создается в самом HDFS) |
 | `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | `1048576` (1 МБ) | Порог размера файла для группировки в виртуальные TAR-бандлы |
-| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) | Целевой совокупный объем файлов в одном бандле `BUNDLE_TAR` |
+| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) | Целевой суммарный объем файлов в одном бандле `BUNDLE_TAR` |
 | `REPLICATOR_MAX_BUNDLE_FILES` | `500` | Максимальное количество файлов в одном бандле `BUNDLE_TAR` |
-| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | `8` | Число параллельных потоков прямой записи распаковываемых файлов в HDFS |
-| `REPLICATOR_MAX_CONCURRENT_TAR_STREAMS` | `16` | Максимальное число параллельных потоков TAR-распаковки на приемнике (ограничение пула памяти семафором) |
-| `REPLICATOR_TAR_PIPE_BUFFER_BYTES` | `2097152` (2 МБ) | Размер буфера PipedInputStream для виртуального TAR-стрима (защита от всплесков памяти) |
-| `REPLICATOR_STAGING_CLEANUP_ENABLED` | `true` | Включение фонового сборщика мусора осиротевших staging-файлов |
+| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | `8` | Число параллельных потоков записи распаковываемых файлов в HDFS |
+| `REPLICATOR_MAX_CONCURRENT_TAR_STREAMS` | `16` | Максимальное число параллельных потоков TAR-распаковки на приемнике (семафор ограничивает расход памяти) |
+| `REPLICATOR_TAR_PIPE_BUFFER_BYTES` | `2097152` (2 МБ) | Размер буфера PipedInputStream для виртуального TAR-стрима; ограничивает память на один стрим |
+| `REPLICATOR_STAGING_CLEANUP_ENABLED` | `true` | Включает фоновую очистку осиротевших staging-файлов |
 | `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | `15` | Интервал периодического сканирования и очистки staging-файлов (минуты) |
 | `REPLICATOR_STAGING_TTL_MINUTES` | `30` | Время жизни (TTL) staging-файлов, после которого они считаются осиротевшими и удаляются |
 | `HDFS_DEFAULT_FS` | `core-site.xml` | URI HDFS NameNode (например, `hdfs://namenode:8020`) |
 | `REPLICATOR_AGENT_SECRET` | `null` | Секретный токен авторизации (`X-Agent-Secret`) |
-| `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение защищенного TLS канала для gRPC |
+| `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включает TLS для gRPC |
 | `REPLICATOR_GRPC_CERT_CHAIN_PATH` | `null` | Путь к сертификату сервера/клиента gRPC (X.509 PEM) |
 | `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | `null` | Путь к приватному ключу gRPC (PKCS8 PEM) |
 | `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | `null` | Путь к доверенным CA сертификатам для проверки пиров |
 | `REPLICATOR_GRPC_CLIENT_AUTH` | `NONE` | Режим взаимной аутентификации (mTLS): `NONE`, `OPTIONAL`, `REQUIRE` |
 | `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки TLS сертификатов для gRPC (тестовые стенды) |
-| `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки HTTPS сертификатов Оркестратора |
-| `KRB5_KEYTAB` | `null` | Путь к Kerberos Keytab файлу |
+| `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки HTTPS-сертификатов оркестратора |
+| `KRB5_KEYTAB` | `null` | Путь к keytab-файлу Kerberos |
 | `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs-replicator@REALM`) |
 | `REPLICATOR_WIRE_COMPRESSION` | `zstd` | Кодек потокового сжатия трафика на лету: `zstd` (Zstandard), `lz4` (LZ4), `none` (отключено) |
-| `REPLICATOR_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22, по умолчанию 3 — оптимальный баланс CPU/WAN) |
+| `REPLICATOR_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22); выше уровень — сильнее сжатие и больше нагрузка на CPU |
 | `INOTIFY_QUEUE_CAPACITY` | `10000` | Максимальная емкость локальной очереди `InotifyBatchProcessor` |
-| `INOTIFY_HIGH_WATERMARK` | `0.8` | Верхний порог заполнения очереди для включения Backpressure ($\ge 80\%$) |
-| `INOTIFY_LOW_WATERMARK` | `0.3` | Нижний порог заполнения очереди для снятия Backpressure ($\le 30\%$) |
-| `INOTIFY_MAX_BATCH_SIZE` | `500` | Максимальный размер микробатча Inotify-задач к отправке в Оркестратор |
+| `INOTIFY_HIGH_WATERMARK` | `0.8` | Верхний порог заполнения очереди для включения backpressure ($\ge 80\%$) |
+| `INOTIFY_LOW_WATERMARK` | `0.3` | Нижний порог заполнения очереди для снятия backpressure ($\le 30\%$) |
+| `INOTIFY_MAX_BATCH_SIZE` | `500` | Максимальный размер микробатча Inotify-задач к отправке в оркестратор |
 | `INOTIFY_FLUSH_INTERVAL_MS` | `1000` | Интервал периодического сброса накопившегося батча (мс) |
 | `INOTIFY_BACKPRESSURE_MAX_DELAY_MS` | `5000` | Максимальная задержка цикла опроса `stream.poll()` при насыщении (мс) |
 
 ---
 
-### 4.4. Сжатие трафика на лету в канале gRPC (Wire Compression: Zstandard / LZ4)
+### Сжатие трафика в канале gRPC (Zstandard, LZ4)
 
-При межЦОДной WAN-передаче несжатых текстовых логов, JSON, CSV и дампов БД расходуется дорогостоящая пропускная способность магистрального канала. В агент встроен механизм **Wire Compression**:
-- **Zstandard (`zstd`)**: кодек по умолчанию с экономией от 40% до 80% полосы пропускания WAN при околонулевой нагрузке на CPU.
-- **LZ4 (`lz4`)**: экстремально быстрый кодек (скорость распаковки >2–4 ГБ/с на ядро) для высоконагруженных 10/40/100 Gbps WAN-каналов.
-- **Интеллектуальный обход предсжатых форматов**: для форматов, которые уже сжаты на уровне файлов (`.parquet`, `.orc`, `.snappy`, `.gz`, `.gzip`, `.zst`, `.lz4`, `.bz2`, `.zip`, `.avro`), компрессия автоматически отключается (`COMPRESSION_NONE`). Это исключает пустую трату процессорного времени агента на повторное сжатие энтропийно плотных блоков.
-- **Адаптивный fallback**: если сжатие чанка не дало сокращения размера (`compressedSize >= rawSize`), порция передается в исходном несжатом виде (`COMPRESSION_NONE`).
-- **Сквозная совместимость**: контрольная сумма SHA-256 и расчет токенов Token Bucket вычисляются прозрачно: контрольная сумма считается по исходному содержимому файла, а шейпинг WAN-полосы и квоты токенов списываются по фактически переданным сжатым байтам в сети.
+Агент сжимает чанки перед отправкой по WAN (wire compression). Кодек задает `REPLICATOR_WIRE_COMPRESSION`:
+- Zstandard (`zstd`) — кодек по умолчанию; на текстовых логах, JSON, CSV и дампах БД экономит 40–80% полосы WAN.
+- LZ4 (`lz4`) — распаковка 2–4 ГБ/с на ядро и быстрее, для каналов WAN 10/40/100 Гбит/с.
+- Для файлов, сжатых на уровне формата (`.parquet`, `.orc`, `.snappy`, `.gz`, `.gzip`, `.zst`, `.lz4`, `.bz2`, `.zip`, `.avro`), сжатие отключается (`COMPRESSION_NONE`): повторное сжатие таких блоков тратит CPU и не уменьшает размер.
+- Если сжатие чанка не уменьшило размер (`compressedSize >= rawSize`), чанк передается несжатым (`COMPRESSION_NONE`).
+- SHA-256 считается по исходному содержимому файла, а токены Token Bucket списываются по фактически переданным сжатым байтам.
 
-## 5. Запуск в кластере Apache Hadoop YARN
+## Запуск в кластере Apache Hadoop YARN
 
-Replicator Agent предоставляет встроенный YARN Client и ApplicationMaster, что позволяет запускать пул агентов в изолированных контейнерах NodeManager с выделенными ресурсами памяти и ядер CPU.
+В агент входят YARN Client и ApplicationMaster: пул агентов запускается в контейнерах NodeManager с заданными памятью и числом ядер CPU.
 
-### 5.1. Запуск через вспомогательный скрипт
+### Запуск через скрипт
 
 ```bash
 ./backend/replicator/agent/bin/submit-yarn.sh \
@@ -153,7 +157,7 @@ Replicator Agent предоставляет встроенный YARN Client и 
     --queue default
 ```
 
-### 5.2. Запуск через стандартную команду `hadoop jar`
+### Запуск через `hadoop jar`
 
 ```bash
 hadoop jar target/replicator-agent-1.0.0-all.jar \
@@ -167,16 +171,16 @@ hadoop jar target/replicator-agent-1.0.0-all.jar \
     --queue default
 ```
 
-При этом:
-1. `ReplicatorYarnClient` загрузит JAR в HDFS staging директорию `.replicator-staging/<appId>`.
-2. YARN ResourceManager выделит контейнер для `ReplicatorApplicationMaster`.
-3. ApplicationMaster зарегистрируется в RM и запросит указанное количество контейнеров (`num_containers`).
-4. На выделенных нодах запустятся контейнеры с `ReplicatorAgentMain`, которые автоматически зарегистрируются в Оркестраторе (`POST /api/v1/agents/register`) и начнут обрабатывать задачи репликации из очереди.
-5. При остановке приложения в YARN (`yarn application -kill <appId>`) агенты корректно снимутся с регистрации (OFFLINE) и освободят ресурсы.
+Что происходит после запуска:
+1. `ReplicatorYarnClient` загружает JAR в HDFS staging директорию `.replicator-staging/<appId>`.
+2. YARN ResourceManager выделяет контейнер для `ReplicatorApplicationMaster`.
+3. ApplicationMaster регистрируется в RM и запрашивает указанное количество контейнеров (`num_containers`).
+4. На выделенных узлах запускаются контейнеры с `ReplicatorAgentMain`, которые регистрируются в оркестраторе (`POST /api/v1/agents/register`) [проверить: Control Plane агентов переведен на gRPC `RegisterAgent`, см. `backend/replicator/README.md`] и начинают обрабатывать задачи репликации из очереди.
+5. При остановке приложения в YARN (`yarn application -kill <appId>`) агенты снимаются с регистрации (статус OFFLINE) и освобождают ресурсы.
 
 ---
 
-## 6. Тестирование
+## Запуск тестов
 
 ```bash
 # Запуск JUnit 5 тестов (LocalBandwidthLimiter, InProcess gRPC, ReplicatorAgent):

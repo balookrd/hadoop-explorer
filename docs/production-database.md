@@ -1,16 +1,16 @@
 # Переход со SQLite на PostgreSQL для High Availability (HA)
 
-По умолчанию микросервисы платформы **Hadoop Explorer** (`hdfs-explorer`, `sql-explorer`, `spark-explorer`, `yarn-explorer`) сконфигурированы для работы с локальной базой данных **SQLite** (хранение сессий, отзывов токенов, rate limits, истории запросов).
+Документ описывает перевод сервисов Hadoop Explorer (`hdfs-explorer`, `sql-explorer`, `spark-explorer`, `yarn-explorer`) с локальной SQLite на PostgreSQL. По умолчанию сервисы хранят в SQLite сессии, отозванные токены, счетчики rate limiting и историю запросов.
 
 > [!WARNING]
-> SQLite допускает запуск **только одной реплики** сервиса (`replicaCount: 1`).
-> Для обеспечения высокой доступности (HA), запуска 2+ реплик и использования автоматического масштабирования (HPA) обязательно требуется подключение к внешней реляционной базе данных **PostgreSQL**.
+> С SQLite сервис запускается только в одной реплике (`replicaCount: 1`).
+> Для двух и более реплик и автомасштабирования (HPA) подключите внешний PostgreSQL.
 
 ---
 
 ## 1. Подготовка базы данных PostgreSQL
 
-Создайте базы данных и пользователей для каждого микросервиса (или единую БД с разделением схем/пользователей):
+Создайте пользователя и по базе данных на каждый сервис (или одну базу с отдельными схемами и пользователями):
 
 ```sql
 CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
@@ -25,7 +25,7 @@ CREATE DATABASE yarn_explorer OWNER hadoop_explorer;
 
 ## 2. Конфигурация через Helm (Kubernetes)
 
-В production-окружении параметры подключения передаются через `values.yaml` или флаги `--set`:
+Параметры подключения передаются через `values.yaml` или флаги `--set`.
 
 ### 2.1 Настройка `values.yaml` для подчарта
 
@@ -56,14 +56,13 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
 ```
 
-> [!NOTE]
-> При указании строки подключения `jdbc:postgresql://...` Helm автоматически снимает ограничение на `replicaCount = 1`.
+Шаблоны Deployment всех четырех чартов (`helm/charts/*/templates/deployment.yaml`) при `autoscaling.enabled: false` ставят `replicas: 1`, если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), и молча игнорируют больший `replicaCount`. С URL `jdbc:postgresql://...` используется значение `replicaCount`.
 
 ---
 
 ## 3. Настройка через переменные окружения (Standalone / Docker)
 
-Если сервисы развертываются вне Kubernetes, переопределите переменные окружения:
+Вне Kubernetes задайте подключение переменными окружения:
 
 | Переменная | Пример значения | Описание |
 |---|---|---|
@@ -84,11 +83,11 @@ docker run -d \
 
 ---
 
-## 4. Чек-лист проверки готовности к Production
+## 4. Проверка перед запуском в production
 
 - [ ] В `values.yaml` задан URL базы данных `jdbc:postgresql://...`.
 - [ ] Пароль базы данных вынесен в Kubernetes Secret (`secrets.databasePassword` или SealedSecrets / HashiCorp Vault).
 - [ ] Параметр `replicaCount >= 2`.
 - [ ] Включен `PodDisruptionBudget` (`maxUnavailable: 1`).
 - [ ] Включена `NetworkPolicy` (`networkPolicy.enabled: true`).
-- [ ] Настроен эндпоинт готовности `/readyz` (проверяет доступность PostgreSQL).
+- [ ] Readiness-проба чарта смотрит на `/actuator/health/readiness`. По умолчанию группа readiness проверяет только состояние приложения, не PostgreSQL. Чтобы под выходил из Service при недоступной базе, добавьте в конфигурацию сервиса `management.endpoint.health.group.readiness.include: readinessState,db`; при сбое PostgreSQL из Service тогда выйдут все поды сразу.

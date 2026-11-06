@@ -1,25 +1,27 @@
-# Helm Chart: SQL Web Explorer
+# Helm-чарт SQL Web Explorer
 
-Production Helm chart для развертывания веб-портала аналитических запросов **SQL Web Explorer (Trino & Hive)** в Kubernetes.
+Helm-чарт для установки SQL Web Explorer (веб-интерфейс запросов к Trino и Hive) в Kubernetes.
 
-## Возможности
+## Состав чарта
 
-- 🚀 **Trino & Hive (HS2)**: готовая интеграция с аналитическими кластерами компании.
-- 🔐 **Безопасность**:
-  - Kerberos SPNEGO SSO и LDAPS аутентификация.
-  - Автоматическая инициализация сервисного билета Kerberos (`kinit`) из Secret keytab с правами `0400`.
-  - Проброс реального пользователя (`X-Trino-User` для Trino, `doAs` для Hive).
-  - RBAC / ACL правила доступа на уровне кластеров и UI.
-- ⚡ **Стриминг результатов**: конфигурация Ingress оптимизирована под Server-Sent Events (отключена буферизация Nginx, увеличены таймауты).
-- 💾 **Хранение состояния**: поддержка внешнего PostgreSQL или встроенного SQLite через PersistentVolumeClaim.
+- Подключение к Trino и Hive (HiveServer2).
+- Безопасность:
+  - аутентификация через Kerberos SPNEGO SSO и LDAPS;
+  - получение сервисного билета Kerberos (`kinit`) из keytab, смонтированного из Secret с правами `0400`;
+  - запросы выполняются от имени пользователя (`X-Trino-User` для Trino, `doAs` для Hive);
+  - правила доступа RBAC / ACL на уровне кластеров и UI.
+- Стриминг результатов: в аннотациях Ingress по умолчанию отключена буферизация Nginx (`proxy-buffering: "off"`) и увеличены таймауты (`proxy-read-timeout` и `proxy-send-timeout` — `1800`), чтобы Server-Sent Events доходили до браузера без задержек и обрывов.
+- Хранение состояния: внешний PostgreSQL или встроенный SQLite на PersistentVolumeClaim.
 
-## Быстрый старт
+## Установка
 
-### 1. Добавление или локальная установка чарта
+### 1. Установка со значениями по умолчанию
+
+Команды выполняются из корня репозитория.
 
 ```bash
 # Установка с дефолтными значениями
-helm install my-sql-explorer ./helm/sql-explorer -n analytics --create-namespace
+helm install my-sql-explorer helm/charts/sql-explorer -n analytics --create-namespace
 ```
 
 ### 2. Установка с Kerberos Keytab и внешним PostgreSQL
@@ -86,10 +88,10 @@ kerberos:
         company.local = COMPANY.LOCAL
 ```
 
-Примените установку:
+Установите чарт:
 
 ```bash
-helm upgrade --install sql-explorer ./helm/sql-explorer \
+helm upgrade --install sql-explorer helm/charts/sql-explorer \
   -n analytics \
   -f custom-values.yaml
 ```
@@ -103,10 +105,10 @@ kubectl logs -n analytics -l app.kubernetes.io/name=sql-explorer -c sql-explorer
 
 ---
 
-## Рекомендации по безопасности для Production
+## Настройка безопасности для промышленной установки
 
-### 1. Ingress, Rate Limiting и Заголовки
-Для защиты от подбора паролей к Active Directory на `/api/auth/login` и стабилизации сетевой нагрузки рекомендуется настроить аннотации Ingress Controller:
+### 1. Ограничение частоты запросов и заголовки в Ingress
+Чтобы ограничить подбор паролей к Active Directory через `/api/auth/login`, добавьте аннотации Ingress Controller:
 
 ```yaml
 ingress:
@@ -122,8 +124,8 @@ ingress:
       more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
 ```
 
-### 2. Запуск от непривилегированного пользователя (Non-Root)
-Контейнер собран для выполнения от имени пользователя `appuser` (UID: 10001, GID: 10001). Значения `podSecurityContext` и `securityContext` в `values.yaml` настроены для соблюдения профиля безопасности **Restricted**:
+### 2. Запуск от непривилегированного пользователя
+Контейнер запускается от пользователя `appuser` (UID 10001, GID 10001). Значения `podSecurityContext` и `securityContext` в `values.yaml` соответствуют профилю Pod Security Restricted:
 ```yaml
 podSecurityContext:
   runAsNonRoot: true
@@ -138,11 +140,11 @@ securityContext:
       - ALL
 ```
 
-### 3. Горизонтальное масштабирование и персистентный отзыв токенов (High Availability)
-При масштабировании приложения (`replicaCount: 2+`) подключите внешний PostgreSQL (`config.database.url`). Реестр отозванных JWT-токенов (`revoked_tokens`) хранится в общей базе данных с двухуровневым кэшированием (L1 Memory Cache + L2 PostgreSQL). При выходе пользователя (`POST /api/auth/logout`) токен немедленно блокируется во всех репликах приложения.
+### 3. Несколько реплик и отзыв токенов
+При `replicaCount` 2 и больше подключите внешний PostgreSQL (`config.database.url`). Реестр отозванных JWT-токенов (`revoked_tokens`) хранится в общей базе с двухуровневым кэшем (L1 — память процесса, L2 — PostgreSQL). После выхода пользователя (`POST /api/auth/logout`) токен отклоняется всеми репликами.
 
-### 4. Сбор и мониторинг событий аудита (SIEM / SOC)
-Приложение генерирует события аудита информационной безопасности через логгер `security.audit` в формате структурированного JSON. Логи выводятся в стандартный поток вывода (`stdout`) пода:
+### 4. Сбор событий аудита (SIEM / SOC)
+Приложение пишет события аудита в логгер `security.audit` в формате JSON, вывод идет в `stdout` пода:
 ```json
 {"timestamp": "2026-09-06T12:00:00Z", "event_type": "AUTH_LOGIN_SUCCESS", "username": "analyst_user", "client_ip": "10.244.0.1", "status": "SUCCESS", "details": {"auth_method": "ldap", "groups": ["bi-analysts"]}}
 ```

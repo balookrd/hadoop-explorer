@@ -1,38 +1,36 @@
 # Helm Chart: YARN Queue Explorer
 
-Production-ready Helm-чарт для развертывания веб-приложения **YARN Queue Explorer** (Apache Hadoop Capacity Scheduler UI) в кластере Kubernetes.
+Helm-чарт для развертывания YARN Queue Explorer (веб-интерфейс Apache Hadoop Capacity Scheduler) в Kubernetes. Версия чарта `0.1.0`, `appVersion` `0.1.0` (`Chart.yaml`).
 
-## 🚀 Возможности чарта
+## Что разворачивает чарт
 
-- **Безопасность (Non-root)**: запуск контейнера от непривилегированного пользователя (UID 10001) с настраиваемым `securityContext`.
-- **Интеграция с Kerberos / SPNEGO**:
-  - Монтирование пользовательского файла конфигурации `krb5.conf` через ConfigMap.
-  - Поддержка создания K8s Secret с base64-кодированным keytab (`keytabBase64`) или использование существующего секрета (`existingSecret`).
-- **Хранение состояния (PostgreSQL / SQLite)**: поддержка внешней базы данных PostgreSQL (`config.database.url`) или встроенного SQLite через `PersistentVolumeClaim` (`/app/data/yarn_explorer.db`). При использовании SQLite количество реплик автоматически ограничивается `replicas: 1` для предотвращения блокировок файлов.
-- **Корпоративная аутентификация**: полная поддержка конфигурации LDAP/Active Directory и сопоставления групп с ролями (ADMIN, WRITER, READER).
-- **Ingress & TLS**: интеграция с Ingress-контроллерами (`ingress-nginx`, Traefik и др.) и автоматическая TLS-терминация.
-- **Health Probes**: Liveness и Readiness пробы по эндпоинту `/health`.
-- **Автоматический перезапуск подов**: аннотации с контрольными суммами конфигурации (`checksum/config`, `checksum/krb5`) для автоматического бесшовного перезапуска подов при обновлении ConfigMap/Secret.
+- Контейнер запускается от непривилегированного пользователя (UID 10001), `allowPrivilegeEscalation: false`, все capabilities сброшены; параметры в `securityContext`.
+- Kerberos / SPNEGO:
+  - `krb5.conf` из `kerberos.krb5Config` монтируется через ConfigMap в `/etc/krb5.conf`.
+  - Keytab берется из существующего Secret (`kerberos.keytab.existingSecret`) или чарт создает Secret из base64-строки (`kerberos.keytab.keytabBase64`).
+- Хранение заявок: внешний PostgreSQL (`config.database.url`) или SQLite на `PersistentVolumeClaim` (`/app/data/yarn_explorer.db`). Если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), Deployment создается с `replicas: 1` независимо от `replicaCount`: несколько подов не могут писать в один файл базы. При `autoscaling.enabled: true` поле `replicas` не выставляется и ограничение не действует.
+- Аутентификация через LDAP / Active Directory и сопоставление групп с ролями ADMIN, WRITER, READER (секция `config.acl`).
+- Ingress с TLS через `ingress.tls` для ingress-контроллеров (`ingress-nginx`, Traefik и др.).
+- Пробы: liveness — `GET /healthz`, readiness — `GET /actuator/health/readiness` (группа readiness Spring Boot Actuator: 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения).
+- Аннотации `checksum/config` и `checksum/krb5` (вторая — только при `kerberos.enabled: true`) содержат sha256 ConfigMap, поэтому `helm upgrade` с измененной конфигурацией перезапускает поды.
 
----
-
-## 📦 Установка чарта
+## Установка чарта
 
 ### 1. Добавление репозитория или локальная установка
 ```bash
 # Клонирование репозитория
-git clone https://github.com/balookrd/yarn-explorer.git
-cd yarn-explorer
+git clone https://github.com/balookrd/hadoop-explorer.git
+cd hadoop-explorer
 
 # Установка чарта в namespace yarn-system
-helm install yarn-explorer ./helm/yarn-explorer \
+helm install yarn-explorer helm/charts/yarn-explorer \
   --namespace yarn-system \
   --create-namespace
 ```
 
 ### 2. Установка с пользовательскими параметрами (`custom-values.yaml`)
 ```bash
-helm upgrade --install yarn-explorer ./helm/yarn-explorer \
+helm upgrade --install yarn-explorer helm/charts/yarn-explorer \
   -f custom-values.yaml \
   --namespace yarn-system \
   --create-namespace
@@ -43,81 +41,79 @@ helm upgrade --install yarn-explorer ./helm/yarn-explorer \
 helm uninstall yarn-explorer --namespace yarn-system
 ```
 
----
-
-## ⚙️ Параметры конфигурации (`values.yaml`)
+## Параметры `values.yaml`
 
 ### Основные параметры
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `replicaCount` | Количество реплик Deployment | `1` |
-| `image.repository` | Docker-образ приложения | `ghcr.io/balookrd/yarn-explorer` |
-| `image.tag` | Тег Docker-образа | `latest` (или `appVersion`) |
-| `image.pullPolicy` | Политика скачивания образа | `IfNotPresent` |
-| `imagePullSecrets` | Секреты для скачивания из приватных реестров | `[]` |
-| `nameOverride` | Переопределение короткого имени релиза | `""` |
-| `fullnameOverride` | Переопределение полного имени релиза | `""` |
+| `replicaCount` | `1` | Количество реплик Deployment |
+| `image.repository` | `balookrd/yarn-explorer` | Docker-образ приложения |
+| `image.tag` | `""` (берется `appVersion` из `Chart.yaml`) | Тег Docker-образа |
+| `image.pullPolicy` | `IfNotPresent` | Политика скачивания образа |
+| `imagePullSecrets` | `[]` | Секреты для скачивания из приватных реестров |
+| `nameOverride` | `""` | Переопределение короткого имени релиза |
+| `fullnameOverride` | `""` | Переопределение полного имени релиза |
 
 ### Сеть и Ingress
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `service.type` | Тип Kubernetes Service | `ClusterIP` |
-| `service.port` | Внешний порт сервиса | `80` |
-| `service.targetPort` | Порт контейнера | `8080` |
-| `ingress.enabled` | Включение создания Ingress | `false` |
-| `ingress.className` | Имя IngressClass (например `nginx`) | `""` |
-| `ingress.annotations` | Дополнительные аннотации Ingress | `{}` |
-| `ingress.hosts` | Список виртуальных хостов и путей | `[{host: "yarn-explorer.local", paths: [{path: "/", pathType: "Prefix"}]}]` |
-| `ingress.tls` | Настройки TLS сертификатов | `[]` |
+| `service.type` | `ClusterIP` | Тип Kubernetes Service |
+| `service.port` | `80` | Внешний порт сервиса |
+| `service.targetPort` | `8000` | Порт контейнера |
+| `ingress.enabled` | `false` | Включение создания Ingress |
+| `ingress.className` | `""` | Имя IngressClass (например `nginx`) |
+| `ingress.annotations` | `{}` | Дополнительные аннотации Ingress |
+| `ingress.hosts` | `[{host: "yarn-explorer.local", paths: [{path: "/", pathType: "ImplementationSpecific"}]}]` | Список виртуальных хостов и путей |
+| `ingress.tls` | `[]` | Настройки TLS сертификатов |
 
 ### Безопасность и переменные окружения
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `securityContext.runAsNonRoot` | Запуск от непривилегированного пользователя | `true` |
-| `securityContext.runAsUser` | UID непривилегированного пользователя | `1000` |
-| `securityContext.runAsGroup` | GID группы пользователя | `1000` |
-| `extraEnv` | Список дополнительных env-переменных (включая secretKeyRef) | `[]` |
-| `envFrom` | Источники envFrom (например, secretRef с секретами) | `[]` |
+| `securityContext.runAsNonRoot` | `true` | Запуск от непривилегированного пользователя |
+| `securityContext.runAsUser` | `10001` | UID пользователя процесса |
+| `securityContext.runAsGroup` | `10001` | GID пользователя процесса |
+| `extraEnv` | `[]` | Список дополнительных env-переменных (включая secretKeyRef) |
+| `envFrom` | `[]` | Источники envFrom (например, secretRef с секретами) |
 
-### Ресурсы и Probes
+### Ресурсы и пробы
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `resources.limits.cpu` | Лимит CPU | `1000m` |
-| `resources.limits.memory` | Лимит оперативной памяти | `1Gi` |
-| `resources.requests.cpu` | Гарантированный CPU | `100m` |
-| `resources.requests.memory` | Гарантированная память | `256Mi` |
-| `livenessProbe.httpGet.path` | Путь Liveness пробы | `/health` |
-| `readinessProbe.httpGet.path` | Путь Readiness пробы | `/health` |
+| `resources.limits.cpu` | `1000m` | Лимит CPU |
+| `resources.limits.memory` | `1Gi` | Лимит оперативной памяти |
+| `resources.requests.cpu` | `100m` | Запрос CPU (requests) |
+| `resources.requests.memory` | `256Mi` | Запрос памяти (requests) |
+| `livenessProbe.httpGet.path` | `/healthz` | Путь liveness-пробы |
+| `readinessProbe.httpGet.path` | `/actuator/health/readiness` | Путь readiness-пробы |
 
-### Персистентное хранилище (SQLite)
+### Постоянное хранилище (SQLite)
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `persistence.enabled` | Включение PersistentVolumeClaim | `true` |
-| `persistence.storageClassName` | StorageClass тома (null — дефолтный) | `null` |
-| `persistence.accessMode` | Режим доступа тома | `ReadWriteOnce` |
-| `persistence.size` | Размер постоянного тома | `1Gi` |
-| `persistence.mountPath` | Точка монтирования тома в контейнере | `/app/data` |
-| `persistence.dbName` | Имя файла SQLite базы данных | `yarn_explorer.db` |
+| `persistence.enabled` | `true` | Включение PersistentVolumeClaim |
+| `persistence.storageClass` | `""` | StorageClass тома: пусто — StorageClass кластера по умолчанию, `"-"` — `storageClassName: ""` |
+| `persistence.accessMode` | `ReadWriteOnce` | Режим доступа тома |
+| `persistence.size` | `1Gi` | Размер постоянного тома |
+| `persistence.mountPath` | `/app/data` | Точка монтирования тома в контейнере |
+| `persistence.existingClaim` | `""` | Имя существующего PVC; если задано, чарт не создает свой PVC |
 
 ### Kerberos / SPNEGO
 
-| Параметр | Описание | Значение по умолчанию |
+| Параметр | По умолчанию | Что делает |
 |---|---|---|
-| `kerberos.enabled` | Включение монтирования Kerberos конфигурации | `false` |
-| `kerberos.keytab.keytabBase64` | Base64-строка keytab файла (создаст K8s Secret) | `""` |
-| `kerberos.keytab.existingSecret` | Имя уже созданного K8s Secret с keytab | `""` |
-| `kerberos.keytab.secretKey` | Ключ внутри Secret, содержащий keytab | `yarn-explorer.keytab` |
-| `kerberos.keytab.mountPath` | Директория монтирования keytab в контейнере | `/etc/security/keytabs` |
-| `kerberos.krb5Conf` | Текстовое содержимое файла `krb5.conf` | `""` |
+| `kerberos.enabled` | `false` | Включение монтирования Kerberos конфигурации |
+| `kerberos.keytab.keytabBase64` | `""` | Base64-строка keytab файла (создаст K8s Secret) |
+| `kerberos.keytab.existingSecret` | `""` | Имя уже созданного K8s Secret с keytab |
+| `kerberos.keytab.fileName` | `yarn-explorer.keytab` | Ключ в Secret и имя файла keytab |
+| `kerberos.keytab.mountPath` | `/etc/security/keytabs` | Директория монтирования keytab в контейнере |
+| `kerberos.krb5Config` | пример для realm `COMPANY.LOCAL` | Текстовое содержимое файла `krb5.conf` |
 
----
+## Пример `custom-values.yaml` для production
 
-## 📝 Пример production `custom-values.yaml`
+[проверить: пример расходится с `values.yaml`: ключ `kerberos.krb5Conf` в чарте называется `kerberos.krb5Config`, `persistence.storageClassName` — `persistence.storageClass`, `config.server.port` по умолчанию `8000`; блок `secrets:` вставлен внутрь секции `config.auth`, из-за чего YAML невалиден]
 
 ```yaml
 replicaCount: 1

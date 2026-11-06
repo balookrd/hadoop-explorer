@@ -1,34 +1,36 @@
 # Helm Chart: HDFS Web Explorer
 
-Production-ready Helm-чарт для развертывания веб-портала **HDFS Web Explorer** (WebHDFS & HttpFS) в кластере Kubernetes.
+Helm-чарт для развертывания HDFS Web Explorer (WebHDFS и HttpFS) в Kubernetes.
 
-## 🚀 Возможности чарта
+## Что разворачивает чарт
 
-- **Безопасность (Non-root)**: запуск контейнера от непривилегированного пользователя (`UID/GID 10001`, `appuser`), `readOnlyRootFilesystem: true`, capabilities сброшены (`drop: [ALL]`).
-- **Сетевая изоляция (NetworkPolicy)**: декларативная политика, разрешающая входящий трафик только на целевой порт сервиса (8000), а исходящий трафик — строго к необходимым сервисам: DNS (53), Kerberos KDC (88, 749), LDAP/LDAPS (389, 636) и WebHDFS / DataNodes (9870, 9864, 50070, 50075).
-- **Интеграция с Kerberos / SPNEGO**:
-  - Монтирование пользовательского файла конфигурации `krb5.conf` через ConfigMap.
-  - Поддержка создания K8s Secret с base64-кодированным keytab или использование существующего секрета (`existingSecret`).
-  - Автоматическая инициализация Kerberos-билета (`kinit`) через `docker-entrypoint.sh`.
-- **Хранение данных (PostgreSQL / SQLite)**: поддержка внешней базы данных PostgreSQL (`config.database.url`) или локального SQLite через `PersistentVolumeClaim` (`/app/data/hdfs_explorer.db`). При использовании SQLite количество реплик автоматически ограничивается `replicas: 1` для предотвращения блокировок файлов.
-- **Корпоративная аутентификация**: поддержка LDAP/Active Directory и сопоставления групп с правами доступа.
-- **Ingress & TLS**: оптимизация под потоковую передачу данных большого объема (отключена буферизация Nginx `proxy-buffering: off`, увеличены таймауты) и автоматическая TLS-терминация.
-- **Health Probes**: Liveness и Readiness пробы по эндпоинту `/health`.
+- Контейнер без root: пользователь `appuser` (`UID/GID 10001`), `readOnlyRootFilesystem: true`, capabilities сброшены (`drop: [ALL]`).
+- NetworkPolicy: входящий трафик разрешен только на порт сервиса 8000, исходящий — только к DNS (53), Kerberos KDC (88, 749), LDAP/LDAPS (389, 636) и WebHDFS / DataNode (9870, 9864, 50070, 50075).
+- Kerberos / SPNEGO:
+  - `krb5.conf` монтируется из ConfigMap.
+  - Keytab берется из Secret, который чарт создает из base64-строки, либо из существующего Secret (`existingSecret`). [проверить: `existingSecret` не используется в `values.yaml` и `templates/`]
+  - Kerberos-билет получается через `kinit` в `docker-entrypoint.sh`. [проверить: в `docker/Dockerfile.hdfs-java` нет `docker-entrypoint.sh`, ENTRYPOINT запускает `java -jar` напрямую]
+- Хранилище: внешний PostgreSQL (`config.database.url`) или SQLite на `PersistentVolumeClaim` (по умолчанию `sqlite:////app/data/hdfs_tokens.db`). Если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), Deployment создается с `replicas: 1` независимо от `replicaCount`: несколько подов не могут писать в один файл базы. При `autoscaling.enabled: true` поле `replicas` не выставляется и ограничение не действует.
+- Аутентификация через LDAP / Active Directory с сопоставлением групп и прав доступа.
+- Ingress и TLS: для потоковой передачи больших файлов отключена буферизация Nginx (`proxy-buffering: off`, `proxy-request-buffering: off`), таймауты `proxy-read-timeout` и `proxy-send-timeout` подняты до 600 с, `proxy-body-size` — 500m. Сертификат выпускает cert-manager (аннотация `cert-manager.io/cluster-issuer`).
+- Пробы на порту 8000: liveness — `GET /healthz`, readiness — `GET /actuator/health/readiness` (группа readiness Spring Boot Actuator: 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения).
 
 ---
 
-## 📦 Установка чарта
+## Установка чарта
+
+Команды выполняются из корня репозитория.
 
 ### 1. Локальная установка
 ```bash
-helm install hdfs-explorer ./helm/hdfs-explorer \
+helm install hdfs-explorer helm/charts/hdfs-explorer \
   --namespace hdfs-system \
   --create-namespace
 ```
 
 ### 2. Установка с пользовательскими параметрами (`custom-values.yaml`)
 ```bash
-helm upgrade --install hdfs-explorer ./helm/hdfs-explorer \
+helm upgrade --install hdfs-explorer helm/charts/hdfs-explorer \
   -f custom-values.yaml \
   --namespace hdfs-system \
   --create-namespace
@@ -36,9 +38,9 @@ helm upgrade --install hdfs-explorer ./helm/hdfs-explorer \
 
 ---
 
-## ⚙️ Конфигурация секретов и Keytab
+## Секреты и keytab
 
-### Вариант А: Передача параметров через Values
+### Вариант А: параметры в values
 ```yaml
 ingress:
   enabled: true
@@ -94,8 +96,8 @@ networkPolicy:
     allowHdfs: true
 ```
 
-### Вариант Б: Использование существующих Kubernetes Secrets / Vault
-Если вы используете **External Secrets Operator** или **SealedSecrets**:
+### Вариант Б: существующий Secret (External Secrets Operator, SealedSecrets, Vault)
+Создайте Secret заранее:
 ```bash
 kubectl create secret generic hdfs-explorer-secrets \
   --from-literal=jwt-secret="super-secret-jwt-key" \
@@ -110,8 +112,8 @@ existingSecret: "hdfs-explorer-secrets"
 
 ---
 
-## 🔒 Доверенные сертификаты LDAPS
-Если Active Directory использует корпоративный самоподписанный центр сертификации (Enterprise Root CA):
+## CA-сертификат для LDAPS
+Если сертификат Active Directory выпущен внутренним центром сертификации (Enterprise Root CA), передайте корневой сертификат:
 ```yaml
 customLdapCaCert: |
   -----BEGIN CERTIFICATE-----
@@ -119,4 +121,4 @@ customLdapCaCert: |
   ...
   -----END CERTIFICATE-----
 ```
-Helm-чарт автоматически смонтирует его в `/etc/ssl/certs/ldap-ca.crt` и включит безопасную проверку `verify_cert: true`.
+Чарт смонтирует его в `/etc/ssl/certs/ldap-ca.crt`. Проверку сертификата LDAP включает `config.ldap.verify_cert` (в `values.yaml` по умолчанию `true`).

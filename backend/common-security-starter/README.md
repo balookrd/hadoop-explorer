@@ -1,52 +1,67 @@
-# 🛡️ Hadoop Explorer :: Common Security Starter (Java 21 / Spring Boot 3)
+# Hadoop Explorer :: Common Security Starter (Java 21 / Spring Boot 3)
 
-Единый повторно используемый стартер безопасности и инфраструктурной отказоустойчивости для платформы **Hadoop Explorer Platform** на базе **Java 21 LTS** и **Spring Boot 3.3+**.
+Spring Boot стартер аутентификации, сессий, CSRF-защиты, RBAC, rate limiting, circuit breaker и аудита для сервисов Hadoop Explorer Platform. Java 21 LTS, Spring Boot 3.3+.
 
-Модуль является Java-эквивалентом `backend/common` и реализует требования корпоративной безопасности, предотвращая уязвимости OWASP Top-10 / CWE.
-
----
-
-## 🚀 Возможности
-
-1. **Единый контур аутентификации**:
-   - **Kerberos SPNEGO SSO** (RFC 4559) через нативный Java GSS-API (`org.ietf.jgss`) без сторонних бинарных зависимостей.
-   - **LDAPS / Active Directory** с защитой от LDAP Injection (RFC 4515 / CWE-90).
-   - **Mock-режим** для локальной разработки и демо-стендов (строго блокируется при `debug: false`).
-2. **Безопасная работа с токенами и сессиями**:
-   - **Cookie-First & Zero LocalStorage**: выпуск токенов исключительно через `HttpOnly`, `SameSite=Lax`, `Secure` Cookie.
-   - Поддержка `Authorization: Bearer <token>` для межсервисного взаимодействия.
-   - **Двухуровневое хранилище сессий (`SessionStore`)**:
-     - **L1**: In-Memory LRU кэш на базе **Caffeine** для моментальной проверки отзыва токенов (O(1)).
-     - **L2**: База данных через JDBC (PostgreSQL / SQLite WAL / H2) с автоматической инициализацией таблиц `active_sessions` и `revoked_tokens`.
-     - Защита от **Fail-Open** при сбоях L2 хранилища (CWE-613).
-3. **Защита от CSRF (CWE-352)**:
-   - Анализ заголовка `Sec-Fetch-Site: cross-site` с мгновенным отклонением межсайтовых вызовов.
-   - Валидация заголовков `Origin` и `Referer` по белому списку разрешенных CORS-источников.
-   - Поддержка заголовка `X-Requested-With: XMLHttpRequest` для асинхронных AJAX-запросов.
-4. **Ролевая модель доступа (RBAC)**:
-   - Системные роли: `ADMIN`, `WRITER`, `READER`.
-   - Резолвер ролей `RoleResolver` с поддержкой корпоративных групп по умолчанию (`hadoop-admins`, `data-engineers` и др.) и настраиваемых списков.
-5. **Отказоустойчивость и мониторинг**:
-   - **Rate Limiter** на базе алгоритма Token Bucket (**Bucket4j**).
-   - **Circuit Breaker** (`SimpleCircuitBreaker`) с состояниями `CLOSED`, `OPEN`, `HALF_OPEN` для защиты от лавинных сбоев NameNode/RM.
-   - **Структурированный JSON-аудит** (`AuditLogger` и AOP-аннотация `@Audited`).
-6. **Готовые REST-эндпоинты**:
-   - `POST /api/v1/auth/login` — вход по логину/паролю.
-   - `GET /api/v1/auth/sso` — автоматический Kerberos SPNEGO вход.
-   - `POST /api/v1/auth/logout` — отзыв токена и удаление Cookie.
-   - `GET /api/v1/auth/me` — получение профиля текущей сессии.
-7. **Сквозная защита TLS / HTTPS и mTLS**:
-   - Автоматическая конфигурация HTTPS для REST API через `TlsWebServerCustomizer`.
-   - Поддержка защищенных хранилищ PKCS12 / JKS Keystore и Truststore.
-   - Двусторонняя взаимная аутентификация сертификатами (**mTLS** `client-auth: REQUIRE / OPTIONAL`).
-   - Фабрика `TlsContextFactory` для настройки исходящих REST-клиентов (`HttpClient`).
-   - Автогенерация временных PKCS12 сертификатов (`auto-generate-self-signed`) и режим тестирования (`insecure-skip-verify`).
+Модуль заменяет на Java прежний `backend/common` [проверить: каталога `backend/common` в репозитории нет]. Закрывает уязвимости из OWASP Top-10 и CWE, перечисленные ниже.
 
 ---
 
-## 📦 Подключение к Spring Boot сервису
+## Возможности стартера
 
-Добавьте зависимость в `pom.xml` вашего микросервиса:
+### Аутентификация
+
+- Kerberos SPNEGO SSO (RFC 4559) через Java GSS-API (`org.ietf.jgss`) без внешних бинарных зависимостей.
+- LDAPS / Active Directory с экранированием фильтров от LDAP Injection (RFC 4515 / CWE-90).
+- Mock-режим для локальной разработки и демо-стендов; при `debug: false` запрещен.
+
+### Токены и сессии
+
+- Токены выдаются только в cookies с флагами `HttpOnly`, `SameSite=Lax`, `Secure`; `localStorage` не используется.
+- `Authorization: Bearer <token>` для межсервисных вызовов.
+- Двухуровневое хранилище сессий (`SessionStore`):
+  - L1 — in-memory LRU-кэш на Caffeine, проверка отзыва токена за O(1);
+  - L2 — БД через JDBC (PostgreSQL, SQLite в режиме WAL, H2); таблицы `active_sessions` и `revoked_tokens` создаются при старте.
+- Защита от fail-open при сбое хранилища L2 (CWE-613) включается параметром `session-store.fail-closed: true`; значение по умолчанию в `CommonSecurityProperties` — `false`.
+
+### Защита от CSRF (CWE-352)
+
+- Запрос с заголовком `Sec-Fetch-Site: cross-site` отклоняется.
+- Заголовки `Origin` и `Referer` проверяются по белому списку CORS-источников.
+- Заголовок `X-Requested-With: XMLHttpRequest` для AJAX-запросов.
+
+### Ролевая модель (RBAC)
+
+- Системные роли: `ADMIN`, `WRITER`, `READER`.
+- `RoleResolver` сопоставляет группам роли: группы по умолчанию (`hadoop-admins`, `data-engineers` и др.) и списки из конфигурации.
+
+### Отказоустойчивость и аудит
+
+- Rate limiter на алгоритме Token Bucket (Bucket4j).
+- Circuit breaker (`SimpleCircuitBreaker`) с состояниями `CLOSED`, `OPEN`, `HALF_OPEN`: после `failureThreshold` сбоев подряд вызовы к NameNode или RM отклоняются, пока не истечет `recoveryTimeoutMs`; затем пропускается пробный вызов (`HALF_OPEN`).
+- JSON-аудит (`AuditLogger` и AOP-аннотация `@Audited`).
+
+### REST-эндпоинты
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| `POST` | `/api/v1/auth/login` | Вход по логину и паролю |
+| `GET` | `/api/v1/auth/sso` | Вход через Kerberos SPNEGO |
+| `POST` | `/api/v1/auth/logout` | Отзыв токена и удаление cookie |
+| `GET` | `/api/v1/auth/me` | Профиль текущей сессии |
+
+### TLS/HTTPS и mTLS
+
+- HTTPS для REST API настраивает `TlsWebServerCustomizer`.
+- Хранилища ключей PKCS12 и JKS (keystore и truststore).
+- Взаимная аутентификация сертификатами (mTLS, `client-auth: REQUIRE / OPTIONAL`).
+- `TlsContextFactory` настраивает TLS для исходящих REST-клиентов (`HttpClient`).
+- Генерация временных самоподписанных PKCS12-сертификатов (`auto-generate-self-signed`) и отключение проверки сертификатов для тестовых стендов (`insecure-skip-verify`).
+
+---
+
+## Подключение к сервису Spring Boot
+
+Добавьте зависимость в `pom.xml` сервиса:
 
 ```xml
 <dependency>
@@ -56,11 +71,11 @@
 </dependency>
 ```
 
-Стартер автоматически зарегистрирует `SecurityFilterChain`, фильтры аутентификации, контроллеры и компоненты управления сессиями.
+Стартер регистрирует через автоконфигурацию `SecurityFilterChain`, фильтры аутентификации, контроллеры и компоненты управления сессиями.
 
 ---
 
-## ⚙️ Конфигурация (`application.yml`)
+## Конфигурация (`application.yml`)
 
 ```yaml
 hadoop:
@@ -138,11 +153,13 @@ hadoop:
 
 ---
 
-## 🧪 Запуск тестов
+## Запуск тестов
 
-Сборка и запуск полного тестового набора JUnit 5:
+Все тесты JUnit 5 модуля:
 
 ```bash
 cd backend/common-security-starter
 mvn clean test
 ```
+
+Команду запускайте на JDK 21 (`JAVA_HOME=<jdk21>`). Цель `make test-security-starter` из корня репозитория находит JDK 21 сама.

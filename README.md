@@ -2,9 +2,9 @@
 
 <img src="images/logo_white.png" alt="Hadoop Explorer Platform" width="380" />
 
-<p><strong>Единая корпоративная веб-платформа для управления экосистемой Apache Hadoop</strong></p>
+<p>Веб-интерфейсы для YARN, HDFS, SQL (Trino, Hive), Spark и межкластерной репликации HDFS</p>
 
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#-тестирование-платформы)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#запуск-тестов)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Maven](https://img.shields.io/badge/Maven-3.9-red.svg)](https://maven.apache.org/)
@@ -17,58 +17,58 @@
 
 ---
 
-## 📑 Содержание
+## Содержание
 
-- [Обзор платформы](#-обзор-платформы)
-- [Архитектура монорепозитория](#-архитектура-монорепозитория)
+- [Состав платформы](#состав-платформы)
+- [Структура монорепозитория](#структура-монорепозитория)
 - [Детальная системная архитектура (docs/ARCHITECTURE.md)](docs/ARCHITECTURE.md)
 - [Руководство по конфигурации компонентов (docs/CONFIGURATION.md)](docs/CONFIGURATION.md)
-- 🚀 **Руководства администратора и DevOps (Standalone / Docker / K8s)**:
-  - [Единый DevOps Hub платформы (docs/admin-guide.md)](docs/admin-guide.md)
+- Руководства администратора и DevOps (standalone, Docker, Kubernetes):
+  - [Общее руководство администратора платформы (docs/admin-guide.md)](docs/admin-guide.md)
   - [Администрирование YARN Explorer (docs/yarn-admin-guide.md)](docs/yarn-admin-guide.md)
   - [Администрирование HDFS Explorer (docs/hdfs-admin-guide.md)](docs/hdfs-admin-guide.md)
   - [Администрирование SQL Explorer (docs/sql-admin-guide.md)](docs/sql-admin-guide.md)
   - [Администрирование Spark Explorer (docs/spark-admin-guide.md)](docs/spark-admin-guide.md)
   - [Администрирование Hadoop gRPC Replicator (docs/replicator-admin-guide.md)](docs/replicator-admin-guide.md)
-  - [Регламент Disaster Recovery и защита от Split-Brain (docs/replicator-disaster-recovery-guide.md)](docs/replicator-disaster-recovery-guide.md)
+  - [Регламент Disaster Recovery и защита от split-brain (docs/replicator-disaster-recovery-guide.md)](docs/replicator-disaster-recovery-guide.md)
   - [Отказоустойчивость и распределенный лизинг Replicator (docs/replicator-fault-tolerance.md)](docs/replicator-fault-tolerance.md)
-  - [📊 Презентация Replicator для команды (docs/replicator-presentation.md)](docs/replicator-presentation.md) ([Интерактивный HTML](docs/replicator-presentation.html), [Файл PowerPoint PPTX](docs/replicator-presentation.pptx))
-- 📖 **Руководства пользователя**:
+  - [Презентация Replicator для команды (docs/replicator-presentation.md)](docs/replicator-presentation.md) ([HTML](docs/replicator-presentation.html), [PPTX](docs/replicator-presentation.pptx))
+- Руководства пользователя:
   - [Руководство пользователя YARN Explorer (docs/yarn-user-guide.md)](docs/yarn-user-guide.md)
-  - [Автоматизированная доставка и применение через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
+  - [Доставка и применение конфигурации очередей через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
   - [Руководство пользователя HDFS Explorer (docs/hdfs-user-guide.md)](docs/hdfs-user-guide.md)
   - [Руководство пользователя SQL Explorer (docs/sql-user-guide.md)](docs/sql-user-guide.md)
   - [Руководство пользователя Spark Explorer (docs/spark-user-guide.md)](docs/spark-user-guide.md)
   - [Руководство пользователя Hadoop gRPC Replicator (docs/replicator-user-guide.md)](docs/replicator-user-guide.md)
   - [Работа Hive и Spark без кластера YARN (docs/hive-spark-without-yarn.md)](docs/hive-spark-without-yarn.md)
-- [Выделенные общие модули](#-выделенные-общие-модули)
-- [Компоненты платформы](#-компоненты-платформы)
-- [Мониторинг, Prometheus и Grafana Dashboards](#-мониторинг-prometheus-и-grafana-dashboards)
-- [Быстрый старт: Раздельные демо-стенды](#-быстрый-старт-раздельные-демо-стенды)
-- [Сборка Docker-контейнеров](#-сборка-docker-контейнеров)
-- [Развертывание в Kubernetes (Helm)](#️-развертывание-в-kubernetes-helm)
-- [Тестирование платформы](#-тестирование-платформы)
-- [CLI команды (Makefile)](#-cli-команды-makefile)
-- [Структура каталогов](#-структура-каталогов)
-- [Лицензия](#-лицензия)
+- [Общие модули](#общие-модули)
+- [Адреса, health-check и образы сервисов](#адреса-health-check-и-образы-сервисов)
+- [Метрики Prometheus и дашборды Grafana](#метрики-prometheus-и-дашборды-grafana)
+- [Запуск демо-стендов](#запуск-демо-стендов)
+- [Сборка JAR-пакетов и CI/CD](#сборка-jar-пакетов-и-cicd)
+- [Сборка Docker-образов](#сборка-docker-образов)
+- [Развертывание в Kubernetes (Helm)](#развертывание-в-kubernetes-helm)
+- [Запуск тестов](#запуск-тестов)
+- [Цели Makefile](#цели-makefile)
+- [Лицензия](#лицензия)
 
 ---
 
-## 🎯 Обзор платформы
+## Состав платформы
 
-**Hadoop Explorer Platform** объединяет в единый монорепозиторий пять ключевых корпоративных инструментов для работы с Big Data инфраструктурой:
+Hadoop Explorer Platform — монорепозиторий из пяти сервисов для работы с инфраструктурой Apache Hadoop:
 
-1. **YARN Explorer** — интерактивная консоль для мониторинга кластеров, моделирования весов и управления иерархией очередей **Apache Hadoop YARN Capacity Scheduler**, версионированием и согласованием заявок на изменение (Change Requests) с защитой Four-Eyes, а также автоматизированной доставкой и горячим применением (`yarn rmadmin -refreshQueues`) через **Ansible AWX** с автоматическим откатом (Rollback).
-2. **HDFS Explorer** — файловый менеджер распределенного хранилища Apache Hadoop (WebHDFS & HttpFS) с NameNode HA и защитой Circuit Breaker. Поддерживает виртуализацию списков файлов для мгновенной отрисовки директорий любого масштаба, превью Parquet, ORC, CSV, JSON, списки контроля доступа (ACL), квоты директорий и имперсонацию пользователей (`doAs`).
-3. **SQL Explorer** — аналитический веб-редактор запросов к **Trino** и **Apache Hive (HiveServer2 / Cloudera / Hortonworks)** на базе Monaco Editor с автодополнением, TTL-кэшированием метаданных, историей запросов, асинхронным выполнением, встроенным AI-помощником и персистентным хранением рабочих пространств пользователей.
-4. **Spark Explorer** — интерактивная веб-студия разработки и аналитики для **Apache Spark** (PySpark, Scala Spark, Spark SQL) через **Apache Livy** на кластерах YARN и Kubernetes с защитой от сбоев через Circuit Breaker. Поддерживает управление интерактивными сессиями, выбор версий Spark/Python, подключение каталогов Hive Metastore / Iceberg, визуальный DAG/ETL-конструктор с топологической валидацией циклов.
-5. **Hadoop gRPC Replicator** — высокоскоростная межкластерная репликация HDFS (DC1 → DC2) с глобальным ограничением полосы пропускания (Hierarchical Token Bucket Throttler), бинарным gRPC-стримингом, атомарным staging/rename, инкрементальным Snapshot Diff, Kerberos-изоляцией (включая выполнение от системной техучетки) и метриками Prometheus.
+1. YARN Explorer — консоль мониторинга кластеров и управления иерархией очередей Apache Hadoop YARN Capacity Scheduler: моделирование весов, версионирование конфигурации, заявки на изменение (Change Requests) с согласованием по принципу Four-Eyes, доставка и применение конфигурации (`yarn rmadmin -refreshQueues`) через Ansible AWX с автоматическим откатом.
+2. HDFS Explorer — файловый менеджер HDFS через WebHDFS и HttpFS с поддержкой NameNode HA и circuit breaker. Список файлов виртуализирован: в DOM отрисовываются только видимые строки, поэтому размер директории не влияет на скорость отрисовки. Поддерживает превью Parquet, ORC, CSV и JSON, ACL, квоты директорий и имперсонацию пользователей (`doAs`).
+3. SQL Explorer — веб-редактор запросов к Trino и Apache Hive (HiveServer2, Cloudera, Hortonworks) на базе Monaco Editor: автодополнение, TTL-кэш метаданных, история запросов, асинхронное выполнение, AI-помощник и сохранение рабочих пространств пользователей.
+4. Spark Explorer — веб-среда для Apache Spark (PySpark, Scala Spark, Spark SQL) через Apache Livy на кластерах YARN и Kubernetes, вызовы Livy защищены circuit breaker. Поддерживает интерактивные сессии, выбор версий Spark и Python, подключение каталогов Hive Metastore и Iceberg, визуальный конструктор DAG/ETL с проверкой графа на циклы.
+5. Hadoop gRPC Replicator — межкластерная репликация HDFS (DC1 → DC2): глобальное ограничение полосы пропускания (Hierarchical Token Bucket Throttler), бинарный gRPC-стриминг, атомарная запись через staging и rename, инкрементальная репликация по Snapshot Diff, Kerberos-изоляция (включая выполнение от системной технической учетной записи) и метрики Prometheus.
 
-Каждое приложение реализовано на базе **Java 21 LTS** и **Spring Boot 3.3.4**, собирается в **независимый легковесный Docker-контейнер**, развертывается автономно или в составе единого **Umbrella Helm Chart**, а также запускается в собственном **раздельном демо-стенде**.
+Каждый сервис написан на Java 21 LTS и Spring Boot 3.3.4, собирается в отдельный Docker-образ, разворачивается самостоятельно или в составе umbrella Helm chart и имеет собственный демо-стенд.
 
 ---
 
-## 🏛️ Архитектура монорепозитория
+## Структура монорепозитория
 
 ```
 hadoop-explorer/
@@ -130,80 +130,90 @@ hadoop-explorer/
 
 ---
 
-## 📦 Выделенные общие модули
+## Общие модули
 
-### 1. `backend/common-security-starter` (Java 21 / Spring Boot 3 Стартер Безопасности)
-- **Аутентификация и SSO**:
-  - Kerberos SPNEGO SSO через HTTP-заголовок `Authorization: Negotiate <ticket>` с нативным Java GSS-API.
-  - Полнофункциональный клиент LDAPS / OpenLDAP / Active Directory с пулом соединений, валидацией групп и защитой от LDAP Injection (CWE-90).
-  - Поддержка тестовых и локальных Mock-пользователей для автономной разработки.
-- **Сессии и управление токенами**:
-  - Единая архитектура Cookie-First (Zero LocalStorage): токены сессий передаются исключительно в `HttpOnly`, `SameSite=Lax`, `Secure` cookies.
-  - Двухуровневое хранилище сессий: L1 In-Memory кэш Caffeine + L2 персистентная БД (H2 / PostgreSQL) с проверкой отзыва токенов (CWE-613).
-  - Строгая CSRF-защита (SameSite, Origin/Referer whitelist, заголовок `X-Requested-With`).
-- **Отказоустойчивость и безопасность**:
-  - `SimpleCircuitBreaker` (CLOSED, OPEN, HALF_OPEN) для защиты кластерных вызовов Hadoop и мгновенного HA Failover.
-  - Контроль частоты запросов (Rate Limiting) для защиты от перегрузок и DoS.
-  - AOP JSON-аудит ключевых событий авторизации и мутирующих операций.
-  - Централизованный `GlobalExceptionHandler` (CWE-209 защита со структурированным ответом и кодами ошибок).
-  - Автоматическая раздача собранных SPA Svelte 5 через Spring Boot Web MVC (`SpaController`).
+### `backend/common-security-starter`
 
-### 2. `frontend/common` и архитектура SPA
-- **`api/client.ts`**: Базовый HTTP fetcher с Cookie-first подходом (Zero LocalStorage для защиты от XSS), поддержкой Sliding Sessions, автоматическим добавлением заголовков CSRF (`X-Requested-With`), `credentials: include` и методом Kerberos SSO Negotiate.
-- **Унифицированный UI/UX на Svelte 5 (Runes) & Tailwind CSS 4**:
-  - Быстрая **виртуализация списков файлов** (`FileList.svelte`) с O(1) DOM-узлов для директорий любого объема.
-  - **Интерактивное изменение размера областей (Resizable Split Panes)** с перетаскиванием мышью и сохранением пропорций для боковых панелей каталогов, редактора кода и результатов в SQL и Spark Explorer.
-  - **Lazy Loading (Code-Splitting)** всех тяжелых модальных окон и диалоговых панелей через асинхронные импорты.
-  - **Унифицированное закрытие модальных окон** по клику вне диалога (Backdrop Overlay) и по нажатию клавиши `Escape`.
-- **`types/auth.ts`**: Унифицированные TypeScript интерфейсы сессий и ролей пользователей.
-- **`components/`**: Переиспользуемые Svelte 5-компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и всплывающих уведомлений (`NotificationToast`).
+Spring Boot 3 стартер безопасности на Java 21, подключается всеми сервисами.
+
+Аутентификация:
+- Kerberos SPNEGO SSO через заголовок `Authorization: Negotiate <ticket>` на Java GSS-API.
+- Клиент LDAPS, OpenLDAP и Active Directory с пулом соединений, проверкой групп и экранированием ввода от LDAP Injection (CWE-90).
+- Mock-пользователи для локальной разработки без KDC и LDAP.
+
+Сессии и токены:
+- Токены сессий передаются только в cookies с флагами `HttpOnly`, `SameSite=Lax`, `Secure`; `localStorage` не используется.
+- Двухуровневое хранилище сессий: L1 — in-memory кэш Caffeine, L2 — БД (H2 или PostgreSQL) с проверкой отзыва токенов (CWE-613).
+- Защита от CSRF: `SameSite`, белый список Origin/Referer, заголовок `X-Requested-With`.
+
+Отказоустойчивость и безопасность:
+- `SimpleCircuitBreaker` с состояниями CLOSED, OPEN, HALF_OPEN для вызовов кластеров Hadoop и переключения при HA failover.
+- Ограничение частоты запросов (rate limiting).
+- JSON-аудит через AOP: события авторизации и изменяющие операции.
+- `GlobalExceptionHandler` возвращает структурированный ответ с кодом ошибки без деталей исключения (CWE-209).
+- Раздача собранных SPA на Svelte 5 через Spring Web MVC (`SpaController`).
+
+### `frontend/common`
+
+- `api/client.ts` — базовый HTTP-клиент: сессия в cookie (без `localStorage`, чтобы токен не был доступен скриптам при XSS), продление сессии (sliding sessions), заголовок `X-Requested-With` для CSRF, `credentials: include`, вход через Kerberos SSO Negotiate.
+- UI-компоненты на Svelte 5 (Runes) и Tailwind CSS 4:
+  - виртуализация списка файлов (`FileList.svelte`): число DOM-узлов не зависит от размера директории (O(1));
+  - панели с изменяемым размером (resizable split panes) с сохранением пропорций — для панелей каталогов, редактора кода и результатов в SQL и Spark Explorer;
+  - ленивая загрузка (code splitting) модальных окон и диалогов через асинхронные импорты;
+  - закрытие модальных окон по клику вне диалога и по клавише `Escape`.
+- `types/auth.ts` — TypeScript-интерфейсы сессий и ролей пользователей.
+- `components/` — компоненты статусов (`StatusBadge`), модальных окон (`LoginModal`) и уведомлений (`NotificationToast`).
 
 ---
 
-## 🧩 Компоненты платформы
+## Адреса, health-check и образы сервисов
 
-| Приложение | Веб-интерфейс | Проверка Health | Метрики Prometheus | Контейнер | Helm Chart |
+| Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ | Helm chart |
 |---|---|---|---|---|---|
-| **YARN Explorer** | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
-| **HDFS Explorer** | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
-| **SQL Explorer** | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
-| **Spark Explorer** | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
-| **Hadoop gRPC Replicator** | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator:latest` | `helm/charts/replicator` |
+| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
+| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
+| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
+| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
+| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator:latest` [проверить: `scripts/build-containers.sh` собирает `replicator-orchestrator` и `replicator-agent`] | `helm/charts/replicator` [проверить: каталога нет в `helm/charts/`] |
 
 ---
 
-## 📊 Мониторинг, Prometheus и Grafana Dashboards
+## Метрики Prometheus и дашборды Grafana
 
-Все микросервисы платформы оснащены встроенным легковесным коллектором метрик в формате OpenMetrics / Prometheus, доступным на эндпоинтах `GET /metrics` и `GET /api/v1/metrics`.
+Каждый сервис отдает метрики в формате OpenMetrics/Prometheus на `GET /metrics` и `GET /api/v1/metrics`.
 
-### 1. Состав экспортируемых метрик
-- **HTTP Golden Signals**:
-  - `http_requests_total{app="...", method="...", path="...", status="..."}` — счетчик запросов с нормализацией URI.
-  - `http_request_duration_seconds` (гистограмма задержек p50, p90, p99 с бакетами от `5ms` до `10s`).
-  - `http_requests_in_progress{app="..."}` — количество запросов в параллельной обработке (concurrency).
-- **Отказоустойчивость и зависимости**:
-  - `hadoop_circuit_breaker_state{name="..."}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN) — состояние автоматов защиты NameNode, YARN RM, Livy, Trino.
-  - `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}` — статистика вызовов.
-  - `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}` — учет срабатываний retry с backoff.
-- **Безопасность и сбои**:
-  - `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}` — аудит попыток аутентификации.
-  - `hadoop_rate_limit_blocks_total{app="..."}` — количество заблокированных по частоте запросов (429).
-  - `hadoop_exceptions_total{app="...", exception_type="..."}` — учет непредвиденных ошибок HTTP 500 (защита от CWE-209).
+### Экспортируемые метрики
 
-### 2. Готовые дашборды для Grafana
-В репозитории подготовлен production-grade дашборд для визуализации состояния всей платформы:
-- 📁 **JSON-модель**: [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
-- ⚙️ **Файл автопровижининга**: [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](monitoring/grafana/provisioning/dashboards/dashboards.yaml)
+HTTP (golden signals):
+- `http_requests_total{app="...", method="...", path="...", status="..."}` — счетчик запросов с нормализацией URI.
+- `http_request_duration_seconds` — гистограмма задержек (p50, p90, p99), бакеты от `5ms` до `10s`.
+- `http_requests_in_progress{app="..."}` — число запросов в обработке.
 
-> 📖 **Подробное описание параметров, форматов файлов и переменных окружения приведено в [Руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).**
+Внешние зависимости:
+- `hadoop_circuit_breaker_state{name="..."}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN) — состояние circuit breaker для NameNode, YARN RM, Livy, Trino.
+- `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}` — счетчик вызовов через circuit breaker.
+- `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}` — счетчик повторов с backoff.
+
+Безопасность и ошибки:
+- `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}` — попытки аутентификации.
+- `hadoop_rate_limit_blocks_total{app="..."}` — запросы, отклоненные лимитом частоты (HTTP 429).
+- `hadoop_exceptions_total{app="...", exception_type="..."}` — необработанные ошибки, ответ HTTP 500 без деталей исключения (CWE-209).
+
+### Дашборд Grafana
+
+Дашборд состояния всех сервисов платформы:
+- JSON-модель: [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
+- файл автопровижининга: [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](monitoring/grafana/provisioning/dashboards/dashboards.yaml)
+
+Параметры, форматы файлов и переменные окружения описаны в [руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).
 
 ---
 
-## 🚀 Быстрый старт: Раздельные демо-стенды
+## Запуск демо-стендов
 
-Каждый сервис укомплектован изолированным демонстрационным стендом в Docker Compose с тестовым KDC (Kerberos), OpenLDAP и необходимым окружением.
+У каждого сервиса есть отдельный демо-стенд на Docker Compose с тестовым KDC (Kerberos), OpenLDAP и окружением сервиса.
 
-### 1. Демо-стенд YARN Explorer
+### Демо-стенд YARN Explorer
 Включает: KDC, OpenLDAP, 2 кластера YARN ResourceManager с иерархией очередей Capacity Scheduler и YARN Explorer:
 ```bash
 make demo-yarn
@@ -211,15 +221,15 @@ make demo-yarn
 # Остановка: make demo-yarn-stop
 ```
 
-### 2. Демо-стенд HDFS Explorer
-Включает: KDC, OpenLDAP, 2 кластера DataLake с Kerberized WebHDFS и сервис HDFS Explorer:
+### Демо-стенд HDFS Explorer
+Включает: KDC, OpenLDAP, 2 кластера DataLake с WebHDFS под Kerberos и сервис HDFS Explorer:
 ```bash
 make demo-hdfs
 # Веб-интерфейс: http://localhost:8002
 # Остановка: make demo-hdfs-stop
 ```
 
-### 3. Демо-стенд SQL Explorer
+### Демо-стенд SQL Explorer
 Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и SQL Explorer:
 ```bash
 make demo-sql
@@ -227,31 +237,31 @@ make demo-sql
 # Остановка: make demo-sql-stop
 ```
 
-### 4. Демо-стенд Spark Explorer
-Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN Resource Manager и сервис Spark Explorer:
+### Демо-стенд Spark Explorer
+Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN ResourceManager и сервис Spark Explorer:
 ```bash
 make demo-spark
 # Веб-интерфейс: http://localhost:8004
 # Остановка: make demo-spark-stop
 ```
 
-### 5. Демо-стенд Hadoop gRPC Replicator
-Включает: Orchestrator (:8005) с иерархическим Token Bucket и шедулером, Receiver (:50051) и Worker daemon:
+### Демо-стенд Hadoop gRPC Replicator
+Включает: Orchestrator (:8005) с Hierarchical Token Bucket и планировщиком, Receiver (:50051) и Worker daemon:
 ```bash
 make demo-replicator
 # Веб-интерфейс: http://localhost:8005
 # Остановка: make demo-replicator-stop
 ```
 
-### 6. Объединенный запуск всех стендов
+### Все стенды одновременно
 ```bash
 make demo-all
 # Остановка: make demo-all-stop
 ```
 
-> 💡 **Подробное руководство по работе без YARN**: Описание архитектуры выполнения запросов Hive и Spark в легковесных стендах без запуска ResourceManager/NodeManager см. в [docs/hive-spark-without-yarn.md](docs/hive-spark-without-yarn.md).
+Как стенды выполняют запросы Hive и Spark без ResourceManager и NodeManager, описано в [docs/hive-spark-without-yarn.md](docs/hive-spark-without-yarn.md).
 
-### 🔑 Тестовые учетные записи (LDAP)
+### Тестовые учетные записи LDAP
 | Пользователь | Пароль | Роли и группы | Назначение |
 |---|---|---|---|
 | `admin_user` / `admin` | `password123` | `hadoop-admins`, `ADMIN` | Полный административный доступ |
@@ -260,9 +270,9 @@ make demo-all
 
 ---
 
-## ☕ Сборка Java JAR-пакетов и CI/CD
+## Сборка JAR-пакетов и CI/CD
 
-Платформа собирается как единый Maven Reactor (Java 21 LTS):
+Платформа собирается одним Maven reactor на Java 21 LTS:
 
 ```bash
 # Сборка всех JAR-пакетов платформы (fat JAR / shaded JAR):
@@ -276,20 +286,22 @@ make test-java
 mvn test
 ```
 
-В репозитории настроен автоматический CI/CD на базе GitHub Actions:
-- **Nightly Release** (`.github/workflows/nightly-release.yml`): при каждом коммите в ветку `main` автоматически прогоняет тесты, собирает JAR-пакеты, генерирует список изменений (`git-cliff`) и публикует pre-release с тегом `nightly`, прикрепляя все JAR-архивы и `SHA256SUMS.txt`.
-- **CI** (`.github/workflows/ci.yml`): при создании Pull Request и push в ветки выполняет полную валидацию, модульные/интеграционные тесты и тестовую сборку пакетов.
-- **Tag Release** (`.github/workflows/tag-release.yml`): при пуше тега `v*` выполняет релизную сборку и создает стабильный релиз на GitHub.
-- **Cleanup Artifacts** (`.github/workflows/cleanup-artifacts.yml`): ежедневная очистка устаревших артефактов Actions по расписанию.
+Workflow GitHub Actions:
+- Nightly Release (`.github/workflows/nightly-release.yml`): при каждом коммите в `main` прогоняет тесты, собирает JAR-пакеты, генерирует список изменений (`git-cliff`) и публикует pre-release с тегом `nightly`, прикрепляя все JAR-архивы и `SHA256SUMS.txt`.
+- CI (`.github/workflows/ci.yml`): на pull request и push в ветки запускает проверки, модульные и интеграционные тесты и тестовую сборку пакетов.
+- Tag Release (`.github/workflows/tag-release.yml`): на push тега `v*` собирает релиз и публикует стабильный релиз на GitHub.
+- Cleanup Artifacts (`.github/workflows/cleanup-artifacts.yml`): раз в сутки по расписанию удаляет устаревшие артефакты Actions.
 
 ---
 
-## 🐳 Сборка Docker-контейнеров
+## Сборка Docker-образов
 
-Все образы базируются на легковесном образе `eclipse-temurin:21-jre-jammy`:
-1. Установка системных библиотек Kerberos (`krb5-user`).
-2. Копирование собранного Spring Boot Fat JAR и фронтенд-статики.
-3. Запуск под непривилегированным пользователем `appuser (UID 10001)`.
+Все образы собираются на базе `eclipse-temurin:21-jre-jammy`. Dockerfile:
+1. Устанавливает библиотеки Kerberos (`krb5-user`).
+2. Копирует собранный Spring Boot fat JAR и статику фронтенда.
+3. Запускает сервис от непривилегированного пользователя `appuser` (UID 10001).
+
+[проверить: цели `make build-yarn`, `make build-hdfs`, `make build-sql`, `make build-spark`, `make build-replicator` в `Makefile` собирают фронтенд и JAR через `mvn clean package`, а не Docker-образ; образ одного сервиса собирает `./scripts/build-containers.sh <yarn|hdfs|sql|spark|replicator>`]
 
 ```bash
 # Сборка всех контейнеров платформы
@@ -314,17 +326,17 @@ docker build -t hadoop-explorer/replicator-orchestrator:latest -f docker/Dockerf
 
 ---
 
-## ☸️ Развертывание в Kubernetes (Helm)
+## Развертывание в Kubernetes (Helm)
 
-### Вариант 1: Единая платформа (Umbrella Chart)
+### Вариант 1: вся платформа (umbrella chart)
 
-Развертывание всех компонентов платформы одной командой:
+Установка всех сервисов одной командой:
 ```bash
 helm dependency update helm/hadoop-explorer
 helm install hadoop-explorer helm/hadoop-explorer -n hadoop --create-namespace
 ```
 
-Выборочное включение компонентов через `values.yaml`:
+Выбор устанавливаемых сервисов в `values.yaml`:
 ```yaml
 yarn-explorer:
   enabled: true
@@ -339,7 +351,7 @@ spark-explorer:
   enabled: true
 ```
 
-Либо через параметры командной строки:
+То же через параметры командной строки:
 ```bash
 helm install hadoop-explorer helm/hadoop-explorer \
   --set yarn-explorer.enabled=true \
@@ -348,9 +360,9 @@ helm install hadoop-explorer helm/hadoop-explorer \
   --set spark-explorer.enabled=true
 ```
 
-### Вариант 2: Автономные чарты
+### Вариант 2: отдельные чарты
 
-Каждое приложение можно установить в кластер независимо:
+Каждый сервис устанавливается своим чартом:
 ```bash
 helm install yarn-explorer helm/charts/yarn-explorer -n hadoop
 helm install hdfs-explorer helm/charts/hdfs-explorer -n hadoop
@@ -358,11 +370,10 @@ helm install sql-explorer helm/charts/sql-explorer -n hadoop
 helm install spark-explorer helm/charts/spark-explorer -n hadoop
 ```
 
-> [!NOTE]
-> **Production-стандарты в Helm-чартах**:
-> - **Сетевая изоляция (NetworkPolicy)**: включена по умолчанию во всех чартах с ограничением ingress-трафика от Ingress-контроллера.
-> - **Отказоустойчивость (PodDisruptionBudget)**: активируется автоматически при `replicaCount > 1`.
-> - **High Availability (HA)**: для горизонтального масштабирования (2+ реплики) используйте внешний PostgreSQL вместо локального SQLite. Подробное руководство см. в [docs/production-database.md](docs/production-database.md).
+Что включено в чартах:
+- NetworkPolicy включена по умолчанию во всех чартах; входящий трафик разрешен только от Ingress-контроллера.
+- PodDisruptionBudget создается при `replicaCount > 1`.
+- Для двух и более реплик нужен внешний PostgreSQL вместо локального SQLite, см. [docs/production-database.md](docs/production-database.md).
 
 Проверка синтаксиса чартов:
 ```bash
@@ -371,15 +382,15 @@ make helm-lint
 
 ---
 
-## 🧪 Тестирование платформы
+## Запуск тестов
 
-Все тесты (**350 тестов**: 255 бэкенд + 95 Frontend UI Vitest) успешно проходят комплексную проверку:
-- **Frontend UI & Static Suite**: 95 тестов Vitest + строгий `svelte-check` (статическая верификация контрактов и типов во всех 5 SPA, компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также Playwright E2E с Zero Console Errors).
-- **YARN Explorer**: 28 тестов (13 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
-- **HDFS Explorer**: 44 теста (16 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
-- **SQL Explorer**: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
-- **Spark Explorer**: 24 теста (Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic-валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
-- **Hadoop gRPC Replicator**: 146 тестов Java (Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
+Всего 350 тестов: 255 бэкенд и 95 Vitest [проверить: число тестов могло устареть]:
+- Frontend: 95 тестов Vitest и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
+- YARN Explorer: 28 тестов (13 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
+- HDFS Explorer: 44 теста (16 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
+- SQL Explorer: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- Spark Explorer: 24 теста (Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic-валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
+- Hadoop gRPC Replicator: 146 тестов Java (Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
 
 ```bash
 # Запуск всех 350 тестов платформы (Backend + Frontend UI)
@@ -403,9 +414,9 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 
 ---
 
-## 🛠️ CLI команды (Makefile)
+## Цели Makefile
 
-| Команда | Описание |
+| Цель | Что делает |
 |---|---|
 | `make test` | Запуск всех модульных, компонентных и интеграционных тестов (Java + UI) |
 | `make test-java` | Запуск всех тестов Java 21 сервисов бэкенда |
@@ -421,14 +432,14 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make frontend-test` | Запуск компонентных и юнит-тестов фронтенда |
 | `make frontend-e2e` | Запуск браузерных E2E тестов Playwright |
 | `make frontend-build` | Компиляция всех 5 SPA фронтендов через Vite |
-| `make build-java` | Сборка всех Java JAR-пакетов платформы (Maven Reactor) |
+| `make build-java` | Сборка фронтенда и всех JAR-пакетов платформы (Maven reactor) |
 | `make build-security-starter` | Сборка JAR-пакета `common-security-starter` |
 | `make build` | Сборка Docker-образов всех приложений платформы |
-| `make build-yarn` | Сборка Docker-образа YARN Explorer (Java 21) |
-| `make build-hdfs` | Сборка Docker-образа HDFS Explorer (Java 21) |
-| `make build-sql` | Сборка Docker-образа SQL Explorer (Java 21) |
-| `make build-spark` | Сборка Docker-образа Spark Explorer (Java 21) |
-| `make build-replicator` | Сборка Docker-образа Hadoop gRPC Replicator (Java 21) |
+| `make build-yarn` | Сборка фронтенда и JAR-пакета YARN Explorer (`mvn clean package`) |
+| `make build-hdfs` | Сборка фронтенда и JAR-пакета HDFS Explorer (`mvn clean package`) |
+| `make build-sql` | Сборка фронтенда и JAR-пакета SQL Explorer (`mvn clean package`) |
+| `make build-spark` | Сборка фронтенда и JAR-пакета Spark Explorer (`mvn clean package`) |
+| `make build-replicator` | Сборка фронтенда и JAR-пакета Hadoop gRPC Replicator (`mvn clean package`) |
 | `make demo-yarn` | Запуск демо-стенда YARN Explorer (`:8001`) |
 | `make demo-yarn-stop` | Остановка демо-стенда YARN Explorer |
 | `make demo-hdfs` | Запуск демо-стенда HDFS Explorer (`:8002`) |
@@ -444,9 +455,8 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make java-index` | Построение автономного AST-индекса Java для поиска символов |
 | `make java-query Q="..."` | Структурный поиск по Java AST-индексу (класс, метод, вызовы, тесты) |
 
-
 ---
 
-## 📄 Лицензия
+## Лицензия
 
 Распространяется под лицензией Apache License 2.0.

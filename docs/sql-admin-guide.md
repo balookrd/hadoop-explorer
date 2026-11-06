@@ -1,27 +1,27 @@
-# 🛠️ Руководство администратора: SQL Explorer
+# Руководство администратора SQL Explorer
 
-Это руководство для инженеров **DevOps / SRE / системных администраторов** по установке, конфигурированию, промышленному развертыванию и эксплуатации сервиса **SQL Explorer** в трех режимах:
-1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
-2. **Docker & Docker Compose** (Контейнеризированный запуск)
-3. **Kubernetes** (Промышленное развертывание через Helm-чарт и манифесты)
+Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса SQL Explorer в трех режимах:
+1. Standalone — сервер или ВМ под управлением systemd.
+2. Docker и Docker Compose.
+3. Kubernetes — Helm-чарт.
 
 ---
 
 ## 1. Архитектура и требования
 
-### 1.1 Назначение сервиса
-**SQL Explorer** — корпоративная среда выполнения SQL-запросов и исследования каталогов метаданных Data Lake:
-- Выполнение распределенных аналитических запросов через **Trino DB API** (с отменой долгих запросов и стримингом результатов).
-- Подключение к **Apache Hive** (через HiveServer2 и прямой опрос Hive Metastore).
-- Каталог баз данных, схем и таблиц с интеллектуальным TTL-кэшированием метаданных.
-- Персистентное рабочее пространство аналитика (**SqlUserWorkspace**): вкладки редактора, сохраненные запросы, история выполнений с метриками.
-- Встроенный контекстный **ИИ-ассистент генерации и оптимизации SQL** (интеграция с локальными On-Premise LLM через Ollama/vLLM или внешние API).
-- Защита от внедрения SQL-инъекций и подмены идентификаторов (`validate_identifier`).
+### 1.1 Функции сервиса
+SQL Explorer выполняет SQL-запросы и показывает каталоги метаданных Data Lake:
+- Распределенные аналитические запросы через Trino DB API, с отменой долгих запросов и стримингом результатов.
+- Подключение к Apache Hive через HiveServer2 и прямой опрос Hive Metastore.
+- Каталог баз данных, схем и таблиц с TTL-кэшированием метаданных.
+- Рабочее пространство аналитика (`SqlUserWorkspace`), хранимое на сервере: вкладки редактора, сохраненные запросы, история выполнений с метриками.
+- ИИ-ассистент для генерации и оптимизации SQL: локальные LLM через Ollama/vLLM или внешние API.
+- Проверка идентификаторов каталогов, схем и таблиц перед подстановкой в запрос (`validate_identifier`) — защита от SQL-инъекций.
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|
-| `8000` (или `8003`) | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5 + Monaco Editor) и REST API |
+| `8003` | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5 + Monaco Editor) и REST API |
 | `8080` / `8443` | HTTP/HTTPS | Outbound | Trino Coordinator REST API |
 | `9083` | TCP (Thrift) | Outbound | Apache Hive Metastore Thrift Service |
 | `10000` | TCP (Thrift) | Outbound | Apache HiveServer2 (PyHive / JDBC) |
@@ -29,40 +29,43 @@
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Корпоративный сервер аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
-- **Диагностика доступности (Healthcheck)**: `GET /healthz`
-- **Метрики Prometheus**: `GET /metrics`
+- Проверка доступности (healthcheck): `GET /healthz`.
+- Метрики Prometheus: `GET /metrics`.
 
 ### 1.3 Системные требования
 
-#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
-- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
-- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
-- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1.5 ГБ` (рек. `2–4 ГБ`), Диск: `5–10 ГБ`.
-- > [!IMPORTANT]
-  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
+#### Запуск готового JAR или Docker-образа
 
-#### Только для сборки из исходников (Build Environment):
+| Ресурс | Требование |
+|---|---|
+| ОС | Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12), macOS |
+| Среда выполнения | Java 21 LTS JRE (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`) |
+| Системные пакеты | `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates` |
+| CPU на реплику | минимум 1 ядро, рекомендуется 2 |
+| RAM на реплику | минимум 1.5 ГБ, рекомендуется 2–4 ГБ |
+| Диск | 5–10 ГБ |
+
+При установке из готового релиза Git, Apache Maven, Node.js и npm на сервере не нужны.
+
+#### Сборка из исходников
 - JDK: `21 LTS`
 - Maven: `3.9+`
 - Node.js: `20+` / `22 LTS` и npm `10+`
 
-### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
-- **GitHub Releases (`v${VERSION}`)**:
-  - `sql-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA (Monaco Editor), коннекторами Trino и Hive, AI-помощником и драйверами БД;
-  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
-- **GitHub Container Registry (GHCR)**:
+### 1.4 Дистрибутивы
+- GitHub Releases (`v${VERSION}`):
+  - `sql-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR, в который включены веб-интерфейс (Svelte 5 SPA, Monaco Editor), коннекторы Trino и Hive, ИИ-ассистент и драйверы БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
+- GitHub Container Registry (GHCR):
   - `ghcr.io/company/hadoop-explorer/sql:${VERSION}`
 
 ---
 
-## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
-
-Развертывание на выделенном сервере или ВМ под управлением `systemd`.
+## 2. Установка на сервер или ВМ (systemd)
 
 ### Шаг 1: Установка системных зависимостей
 
-#### Вариант для Production (Запуск из готового релиза — только JRE):
+#### Запуск из готового релиза (только JRE)
 ```bash
 # Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -73,7 +76,7 @@ sudo dnf install -y --setopt=install_weak_deps=False \
     java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
+#### Сборка из исходников на сервере
 ```bash
 # Ubuntu / Debian:
 sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
@@ -98,11 +101,11 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/sql
 ```
 
-### Шаг 3: Получение артефакта (Два варианта)
+### Шаг 3: Получение JAR
 
-#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+#### Вариант А: загрузка из GitHub Releases
 
-В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+Рекомендуется для промышленной установки. Готовый JAR уже содержит собранный веб-интерфейс и все зависимости.
 
 ```bash
 sudo -u appuser -i
@@ -125,7 +128,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ln -sfn "${RELEASE_DIR}/sql-explorer-java-${VERSION}.jar" "${BIN_DIR}/sql-explorer.jar"
 ```
 
-#### Способ Б: Сборка из исходных кодов (для разработчиков)
+#### Вариант Б: сборка из исходников
 ```bash
 sudo -u appuser -i
 cd /tmp
@@ -147,11 +150,11 @@ cp backend/sql/target/sql-explorer-java-*.jar /opt/hadoop-explorer/sql/bin/sql-e
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/sql/config.yaml`:
+Создайте файл `/etc/hadoop-explorer/sql/config.yaml` [проверить: юнит systemd на шаге 5 подключает `/etc/hadoop-explorer/sql/application.yml` через `SPRING_CONFIG_ADDITIONAL_LOCATION`, а сервис читает Spring-конфигурацию `application.yml`; формат и имя этого файла с кодом не сверены]:
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 8000
+  port: 8003
   debug: false
   secure_cookies: true
   cors_origins:
@@ -256,20 +259,20 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-### Шаг 6: Запуск и валидация
+### Шаг 6: Запуск и проверка
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable sql-explorer
 sudo systemctl start sql-explorer
 
 sudo systemctl status sql-explorer
-curl -I http://127.0.0.1:8000/healthz
+curl -I http://127.0.0.1:8003/healthz
 # HTTP/1.1 200 OK
 ```
 
-### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+### Шаг 7: Обновление версии
 
-При выходе новой версии на GitHub Releases:
+Загрузите новую версию из GitHub Releases, переключите символическую ссылку и перезапустите сервис. На время перезапуска (2–3 с) сервис недоступен.
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
@@ -289,10 +292,10 @@ sudo systemctl restart sql-explorer
 
 ---
 
-## 3. Режим 2: Docker & Docker Compose
+## 3. Запуск в Docker и Docker Compose
 
-### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
-Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
+### 3.1 Загрузка образа из GHCR
+Рекомендуемый вариант. Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
 ```bash
 # Авторизация (при необходимости):
 echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
@@ -302,17 +305,17 @@ VERSION="1.0.0"
 docker pull ghcr.io/company/hadoop-explorer/sql:${VERSION}
 ```
 
-### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+### 3.2 Локальная сборка Docker-образа
 ```bash
 docker build -t ghcr.io/company/hadoop-explorer/sql:latest -f docker/Dockerfile.sql-java .
 ```
 
-### 3.3 Автономный запуск одного контейнера (`docker run`)
+### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name sql-explorer \
   --restart unless-stopped \
-  -p 8003:8000 \
+  -p 8003:8003 \
   -e CONFIG_PATH=/app/config/config.yaml \
   -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
   -e KRB5_CONFIG=/etc/krb5.conf \
@@ -323,7 +326,7 @@ docker run -d \
   ghcr.io/company/hadoop-explorer/sql:1.0.0
 ```
 
-### 3.4 Промышленный запуск через `docker-compose.yml`
+### 3.4 Запуск через `docker-compose.yml`
 ```yaml
 version: "3.8"
 
@@ -333,7 +336,7 @@ services:
     container_name: sql-explorer
     restart: unless-stopped
     ports:
-      - "8003:8000"
+      - "8003:8003"
     environment:
       - APP_NAME=sql
       - WEB_CONCURRENCY=2
@@ -348,7 +351,7 @@ services:
       - /etc/security/keytabs/sql-explorer.keytab:/etc/security/keytabs/sql-explorer.keytab:ro
       - sql-storage:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8003/healthz"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -375,10 +378,10 @@ networks:
 
 ---
 
-## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
+## 4. Развертывание в Kubernetes
 
-### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/sql-explorer`](../helm/charts/sql-explorer).
+### 4.1 Установка Helm-чарта
+Чарт находится в репозитории: [`helm/charts/sql-explorer`](../helm/charts/sql-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash
@@ -406,6 +409,8 @@ kubectl create configmap krb5-config \
 ```
 
 #### Шаг 2: Параметры `custom-values.yaml`
+
+[проверить: ключей `extraEnv`, `extraVolumes`, `extraVolumeMounts` нет в `helm/charts/sql-explorer/values.yaml`; секреты и keytab чарт берет из `secrets.*` и `kerberos.*`, см. `helm/charts/sql-explorer/README.md`.]
 ```yaml
 replicaCount: 2
 
@@ -432,7 +437,7 @@ extraEnv:
 service:
   type: ClusterIP
   port: 80
-  targetPort: 8000
+  targetPort: 8003
 
 ingress:
   enabled: true
@@ -496,18 +501,21 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=sql-explorer
 
 ---
 
-## 5. Мониторинг и Troubleshooting
+## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
+
+[проверить: имена метрик ниже в коде `backend/sql` не найдены.]
+
 - `http_requests_total{app="sql", ...}`
 - `sql_queries_total{engine="trino|hive", status="success|failed|cancelled"}`
 - `sql_query_duration_seconds{engine="trino|hive", ...}`
 - `hadoop_circuit_breaker_state{name="trino_coordinator"}`
 
-### 5.2 Решение инцидентов (FAQ)
+### 5.2 Типовые ошибки
 
 | Ошибка | Причина | Решение |
 |---|---|---|
-| `TrinoQueryError: Query exceeded maximum execution time` | Слишком тяжелый запрос превысил таймаут | Увеличьте `timeout_seconds` в `config.yaml` или используйте партиционирование в предложении `WHERE`. |
+| `TrinoQueryError: Query exceeded maximum execution time` | Запрос не уложился в таймаут | Увеличьте `timeout_seconds` в `config.yaml` или используйте партиционирование в предложении `WHERE`. |
 | `Cannot connect to Hive Metastore thrift://...:9083` | Служба Hive Metastore недоступна или заблокирован сетевой порт | Проверьте статус службы `systemctl status hive-metastore` и сетевой доступ `nc -zv hive-metastore 9083`. |
 | `AI Service Unavailable` | Локальный сервер Ollama/vLLM не отвечает | Проверьте доступность контейнера Ollama: `curl http://ollama:11434/api/tags`. |

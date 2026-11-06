@@ -1,27 +1,27 @@
-# 🛠️ Руководство администратора: Spark Explorer
+# Руководство администратора Spark Explorer
 
-Это руководство для инженеров **DevOps / SRE / системных администраторов** по установке, конфигурированию, промышленному развертыванию и эксплуатации сервиса **Spark Explorer** в трех режимах:
-1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
-2. **Docker & Docker Compose** (Контейнеризированный запуск)
-3. **Kubernetes** (Промышленное развертывание через Helm-чарт и манифесты)
+Руководство для инженеров DevOps/SRE и системных администраторов: установка, настройка и эксплуатация Spark Explorer в трёх режимах:
+1. Standalone: bare-metal или ВМ под управлением systemd.
+2. Docker и Docker Compose.
+3. Kubernetes через Helm-чарт.
 
 ---
 
 ## 1. Архитектура и требования
 
-### 1.1 Назначение сервиса
-**Spark Explorer** — интерактивная веб-среда запуска и управления вычислениями Apache Spark в Data Lake:
-- Управление жизненным циклом сессий **Apache Livy REST API** (создание, мониторинг состояния, отмена statement, логирование вывода).
-- Поддержка языков **PySpark** и **Spark Scala**.
-- Автоматическая остановка простаивающих сессий (`idle_timeout`) и остановка при завершении сеанса пользователя (`auto_stop_on_logout`).
-- Профилирование и выделение ресурсов в YARN-очередях (`driver_memory`, `executor_memory`, `executor_cores`, `num_executors`).
-- Интеграция с **Spark History Server** для аудита завершенных вычислений.
-- Персистентное рабочее пространство пользователя (**SparkUserWorkspace**): интерактивные блокноты, сохраненные пайплайны и история выполнения.
+### 1.1 Функции сервиса
+Spark Explorer — веб-среда для запуска вычислений Apache Spark через Apache Livy:
+- Жизненный цикл сессий через Apache Livy REST API: создание, отслеживание состояния, отмена statement, вывод результата.
+- Языки PySpark и Spark Scala.
+- Остановка простаивающих сессий (`idle_timeout`) и остановка сессий при выходе пользователя (`auto_stop_on_logout`).
+- Профили ресурсов для запуска в очередях YARN (`driver_memory`, `executor_memory`, `executor_cores`, `num_executors`).
+- Ссылки на Spark History Server для просмотра завершённых приложений.
+- Рабочее пространство пользователя (`SparkUserWorkspace`), хранимое на сервере: блокноты, сохранённые пайплайны и история выполнения.
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|
-| `8000` (или `8004`) | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5 + Monaco Editor) и REST API |
+| `8004` | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5 + Monaco Editor) и REST API |
 | `8998` | HTTP/HTTPS | Outbound | Apache Livy Server REST API |
 | `18080` | HTTP/HTTPS | Outbound | Spark History Server Web UI |
 | `8088` | HTTP/HTTPS | Outbound | YARN ResourceManager REST API |
@@ -29,40 +29,43 @@
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Корпоративный сервер аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
-- **Диагностика доступности (Healthcheck)**: `GET /healthz`
-- **Метрики Prometheus**: `GET /metrics`
+- Проверка доступности (healthcheck): `GET /healthz`
+- Метрики Prometheus: `GET /metrics`
 
 ### 1.3 Системные требования
 
-#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
-- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
-- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
-- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1.5 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
-- > [!IMPORTANT]
-  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
+#### Запуск готового JAR или Docker-образа
 
-#### Только для сборки из исходников (Build Environment):
+| Компонент | Требование |
+|---|---|
+| ОС | Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12), macOS |
+| Среда выполнения | Java 21 LTS JRE (Eclipse Temurin 21 JRE или `openjdk-21-jre-headless`) |
+| Системные пакеты | `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates` |
+| Ресурсы на реплику | CPU: 1 ядро (рекомендуется 2), RAM: 1,5 ГБ (рекомендуется 2 ГБ), диск: 5–10 ГБ |
+
+Для установки из готового релиза Git, Apache Maven, Node.js и npm на целевых серверах не нужны.
+
+#### Сборка из исходников
 - JDK: `21 LTS`
 - Maven: `3.9+`
 - Node.js: `20+` / `22 LTS` и npm `10+`
 
-### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
-- **GitHub Releases (`v${VERSION}`)**:
-  - `spark-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA, клиентом Livy/YARN, DAG-пайплайнами и драйверами БД;
-  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
-- **GitHub Container Registry (GHCR)**:
+### 1.4 Дистрибутивы (GitHub Releases и GHCR)
+- GitHub Releases (`v${VERSION}`):
+  - `spark-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR со встроенным веб-интерфейсом (Svelte 5 SPA), клиентом Livy/YARN, DAG-пайплайнами и драйверами БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
+- GitHub Container Registry (GHCR):
   - `ghcr.io/company/hadoop-explorer/spark:${VERSION}`
 
 ---
 
-## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
+## 2. Режим 1: Standalone (bare-metal, ВМ, systemd)
 
-Развертывание на выделенном сервере или ВМ под управлением `systemd`.
+Установка на выделенный сервер или ВМ с запуском через `systemd`.
 
 ### Шаг 1: Установка системных зависимостей
 
-#### Вариант для Production (Запуск из готового релиза — только JRE):
+#### Установка из готового релиза (только JRE)
 ```bash
 # Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -73,7 +76,7 @@ sudo dnf install -y --setopt=install_weak_deps=False \
     java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
+#### Сборка из исходников на сервере
 ```bash
 # Ubuntu / Debian:
 sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
@@ -98,11 +101,11 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/spark
 ```
 
-### Шаг 3: Получение артефакта (Два варианта)
+### Шаг 3: Получение JAR
 
-#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+#### Способ А: загрузка из GitHub Releases
 
-В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+Готовый JAR уже содержит собранный веб-интерфейс (Svelte 5 SPA) и все зависимости. Этот способ рекомендуется для production.
 
 ```bash
 sudo -u appuser -i
@@ -125,7 +128,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ln -sfn "${RELEASE_DIR}/spark-explorer-java-${VERSION}.jar" "${BIN_DIR}/spark-explorer.jar"
 ```
 
-#### Способ Б: Сборка из исходных кодов (для разработчиков)
+#### Способ Б: сборка из исходников (для разработчиков)
 ```bash
 sudo -u appuser -i
 cd /tmp
@@ -148,10 +151,13 @@ cp backend/spark/target/spark-explorer-java-*.jar /opt/hadoop-explorer/spark/bin
 
 ### Шаг 4: Настройка конфигурационного файла
 Создайте файл `/etc/hadoop-explorer/spark/config.yaml`:
+
+[проверить: формат и имя файла. Unit-файл на шаге 5 передаёт сервису `file:/etc/hadoop-explorer/spark/application.yml`, а ключи ниже (`security.secret_key`, `auth.ldap.server_uri` и т. п.) не совпадают с ключами `backend/spark/src/main/resources/application.yml` (`hadoop.security.jwt.secret-key`, `hadoop.security.ldap.url`).]
+
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 8000
+  port: 8004
   debug: false
   secure_cookies: true
   cors_origins:
@@ -253,20 +259,20 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-### Шаг 6: Запуск и валидация
+### Шаг 6: Запуск и проверка
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable spark-explorer
 sudo systemctl start spark-explorer
 
 sudo systemctl status spark-explorer
-curl -I http://127.0.0.1:8000/healthz
+curl -I http://127.0.0.1:8004/healthz
 # HTTP/1.1 200 OK
 ```
 
-### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+### Шаг 7: Обновление версии
 
-При выходе новой версии на GitHub Releases:
+Загрузите новый релиз, переключите символическую ссылку и перезапустите сервис. На время перезапуска сервис недоступен.
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
@@ -286,10 +292,10 @@ sudo systemctl restart spark-explorer
 
 ---
 
-## 3. Режим 2: Docker & Docker Compose
+## 3. Режим 2: Docker и Docker Compose
 
-### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
-Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
+### 3.1 Загрузка образа из GHCR
+Готовые образы публикуются в GitHub Container Registry (`ghcr.io`). Этот способ рекомендуется для production.
 ```bash
 # Авторизация (при необходимости):
 echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
@@ -299,17 +305,17 @@ VERSION="1.0.0"
 docker pull ghcr.io/company/hadoop-explorer/spark:${VERSION}
 ```
 
-### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+### 3.2 Локальная сборка образа (для разработки)
 ```bash
 docker build -t ghcr.io/company/hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
 ```
 
-### 3.3 Автономный запуск одного контейнера (`docker run`)
+### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name spark-explorer \
   --restart unless-stopped \
-  -p 8004:8000 \
+  -p 8004:8004 \
   -e CONFIG_PATH=/app/config/config.yaml \
   -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
   -e KRB5_CONFIG=/etc/krb5.conf \
@@ -320,7 +326,7 @@ docker run -d \
   ghcr.io/company/hadoop-explorer/spark:1.0.0
 ```
 
-### 3.4 Промышленный запуск через `docker-compose.yml`
+### 3.4 Запуск через `docker-compose.yml`
 ```yaml
 version: "3.8"
 
@@ -330,7 +336,7 @@ services:
     container_name: spark-explorer
     restart: unless-stopped
     ports:
-      - "8004:8000"
+      - "8004:8004"
     environment:
       - APP_NAME=spark
       - WEB_CONCURRENCY=2
@@ -345,7 +351,7 @@ services:
       - /etc/security/keytabs/spark-explorer.keytab:/etc/security/keytabs/spark-explorer.keytab:ro
       - spark-storage:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8004/healthz"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -372,10 +378,10 @@ networks:
 
 ---
 
-## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
+## 4. Режим 3: Kubernetes (Helm)
 
-### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/spark-explorer`](../helm/charts/spark-explorer).
+### 4.1 Установка через Helm-чарт
+Чарт находится в [`helm/charts/spark-explorer`](../helm/charts/spark-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash
@@ -403,6 +409,9 @@ kubectl create configmap krb5-config \
 ```
 
 #### Шаг 2: Параметры `custom-values.yaml`
+
+[проверить: ключи `extraEnv`, `extraVolumes` и `extraVolumeMounts` не используются в шаблонах `helm/charts/spark-explorer/templates`; секреты и `krb5.conf` чарт берёт из `secrets.*` и `kerberos.krb5Conf` в `values.yaml`.]
+
 ```yaml
 replicaCount: 2
 
@@ -429,7 +438,7 @@ extraEnv:
 service:
   type: ClusterIP
   port: 80
-  targetPort: 8000
+  targetPort: 8004
 
 ingress:
   enabled: true
@@ -493,15 +502,18 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=spark-explorer
 
 ---
 
-## 5. Мониторинг и Troubleshooting
+## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
+
+[проверить: имена метрик ниже не найдены в `backend/spark/src/main` и `backend/common-security-starter/src/main`.]
+
 - `http_requests_total{app="spark", ...}`
 - `spark_sessions_total{status="starting|idle|busy|dead|killed"}`
 - `spark_statements_total{status="waiting|running|available|error|cancelled"}`
 - `hadoop_circuit_breaker_state{name="livy_server"}`
 
-### 5.2 Решение инцидентов (FAQ)
+### 5.2 Типовые ошибки
 
 | Ошибка | Причина | Решение |
 |---|---|---|

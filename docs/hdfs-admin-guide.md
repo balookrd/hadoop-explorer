@@ -1,22 +1,22 @@
-# 🛠️ Руководство администратора: HDFS Explorer
+# Руководство администратора: HDFS Explorer
 
-Это руководство для инженеров **DevOps / SRE / системных администраторов** по установке, конфигурированию, промышленному развертыванию и эксплуатации сервиса **HDFS Explorer** в трех режимах:
-1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
-2. **Docker & Docker Compose** (Контейнеризированный запуск)
-3. **Kubernetes** (Промышленное развертывание через Helm-чарт и манифесты)
+Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация HDFS Explorer в трех режимах:
+1. Standalone: bare-metal или виртуальная машина под управлением systemd.
+2. Docker и Docker Compose.
+3. Kubernetes через Helm-чарт.
 
 ---
 
 ## 1. Архитектура и требования
 
-### 1.1 Назначение сервиса
-**HDFS Explorer** — высокопроизводительный веб-менеджер файловой системы Apache Hadoop (HDFS), обеспечивающий:
-- Навигацию по каталогам, загрузку, выгрузку, удаление и перемещение файлов через **нативный клиент Hadoop FileSystem (RPC)** с поддержкой WebHDFS в качестве резервного механизма (fallback).
-- Автоматическое **отказоустойчивое переключение (Failover) при NameNode High Availability (HA)** с перехватом `StandbyException`.
-- Корпоративную сквозную аутентификацию **Kerberos SPNEGO SSO** с поддержкой Impersonation (`doAs`).
-- Интерактивный предпросмотр структурированных и текстовых форматов данных (**Parquet, ORC, CSV, TSV, JSON, XML, YAML, SQL, Logs**).
-- Отображение прав доступа **POSIX Permissions** (`rwxr-xr-x`) и атрибутов владения (`owner:group`).
-- Межкластерное потоковое копирование (**Cross-Cluster Copy**).
+### 1.1 Функции сервиса
+HDFS Explorer — веб-менеджер файлов Apache Hadoop HDFS:
+- Навигация по каталогам, загрузка, скачивание, удаление и перемещение файлов через нативный клиент Hadoop FileSystem (RPC); WebHDFS используется как резервный канал (fallback).
+- Переключение на другую NameNode в HA-конфигурации при получении `StandbyException`.
+- Вход через Kerberos SPNEGO SSO и выполнение операций от имени пользователя (`doAs`).
+- Предпросмотр Parquet, ORC, CSV, TSV, JSON, XML, YAML, SQL и логов.
+- Отображение POSIX-прав (`rwxr-xr-x`) и владельца (`owner:group`).
+- Потоковое копирование между кластерами (Cross-Cluster Copy).
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
@@ -30,40 +30,44 @@
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Сервер каталогов аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
-- **Диагностика доступности (Healthcheck)**: `GET /health` или `GET /healthz`
-- **Метрики Spring Boot**: `GET /actuator/prometheus` (при включенном Actuator)
+- Проверка доступности (healthcheck): `GET /health` или `GET /healthz`.
+- Метрики Spring Boot: `GET /actuator/prometheus` (при включенном Actuator).
 
 ### 1.3 Системные требования
 
-#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
-- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
-- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
-- **Ресурсы на реплику**: CPU: `1 ядро` (рекомендуется `2 ядра` при частом чтении Parquet/ORC), RAM: `1 ГБ` (рекомендуется `2 ГБ`), Диск: `5–10 ГБ`.
-- > [!IMPORTANT]
-  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
+#### Запуск готового JAR или Docker-образа
+| Ресурс | Требование |
+|---|---|
+| ОС | Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12), macOS |
+| Среда выполнения | Java 21 LTS JRE (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`) |
+| Системные пакеты | `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates` |
+| CPU на реплику | 1 ядро; 2 ядра при частом чтении Parquet/ORC |
+| RAM на реплику | 1 ГБ, рекомендуется 2 ГБ |
+| Диск | 5–10 ГБ |
 
-#### Только для сборки из исходников (Build Environment):
+Git, Apache Maven, Node.js и npm на целевых серверах при установке из готового релиза не нужны.
+
+#### Сборка из исходников
 - JDK: `21 LTS`
 - Maven: `3.9+`
 - Node.js: `20+` / `22 LTS` и npm `10+`
 
-### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
-- **GitHub Releases (`v${VERSION}`)**:
-  - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat-JAR со встроенным веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
-  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
-- **GitHub Container Registry (GHCR)**:
+### 1.4 Дистрибутивы (GitHub Releases и GHCR)
+- GitHub Releases (`v${VERSION}`):
+  - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat-JAR с веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
+- GitHub Container Registry (GHCR):
   - `ghcr.io/company/hadoop-explorer/hdfs:${VERSION}`
 
 ---
 
 ## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
 
-Развертывание на выделенном сервере или ВМ под управлением `systemd`.
+Установка на выделенный сервер или ВМ с `systemd`.
 
-### Шаг 1: Установка системных зависимостей
+### Шаг 1: установка системных зависимостей
 
-#### Вариант для Production (Запуск из готового релиза — только JRE):
+#### Запуск из готового релиза (только JRE)
 ```bash
 # Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -74,7 +78,7 @@ sudo dnf install -y --setopt=install_weak_deps=False \
     java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
+#### Сборка из исходников на сервере
 ```bash
 # Ubuntu / Debian:
 sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
@@ -82,7 +86,7 @@ sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
 sudo dnf install -y java-21-openjdk-devel maven nodejs npm git
 ```
 
-### Шаг 2: Создание пользователя и структуры каталогов
+### Шаг 2: создание пользователя и каталогов
 ```bash
 # Создание непривилегированного пользователя appuser
 sudo groupadd -g 10001 appuser
@@ -99,11 +103,11 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/hdfs
 ```
 
-### Шаг 3: Получение артефакта (Два варианта)
+### Шаг 3: получение артефакта
 
-#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+#### Способ А: загрузка из GitHub Releases (для production)
 
-В готовый бинарный JAR уже включены скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+JAR из релиза уже содержит собранный веб-интерфейс Svelte 5 SPA и все зависимости:
 
 ```bash
 sudo -u appuser -i
@@ -126,7 +130,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${VERSION}.jar" "${BIN_DIR}/hdfs-explorer.jar"
 ```
 
-#### Способ Б: Сборка из исходных кодов (для разработчиков)
+#### Способ Б: сборка из исходников (для разработчиков)
 ```bash
 sudo -u appuser -i
 cd /tmp
@@ -147,7 +151,7 @@ mvn clean package -DskipTests -f backend/hdfs/pom.xml
 cp backend/hdfs/target/hdfs-explorer-java-*.jar /opt/hadoop-explorer/hdfs/bin/hdfs-explorer.jar
 ```
 
-### Шаг 4: Настройка конфигурационного файла
+### Шаг 4: конфигурационный файл
 Создайте файл `/etc/hadoop-explorer/hdfs/application.yml`:
 ```yaml
 server:
@@ -220,13 +224,13 @@ hadoop:
             - "hadoop-admins"
 ```
 
-Установите права доступа:
+Ограничьте доступ к файлу: в нем пароль LDAP и JWT-ключ.
 ```bash
 sudo chmod 600 /etc/hadoop-explorer/hdfs/application.yml
 sudo chown appuser:appuser /etc/hadoop-explorer/hdfs/application.yml
 ```
 
-### Шаг 5: Создание systemd-сервиса
+### Шаг 5: systemd-юнит
 Создайте файл `/etc/systemd/system/hdfs-explorer.service`:
 ```ini
 [Unit]
@@ -258,7 +262,7 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-### Шаг 6: Запуск и валидация
+### Шаг 6: запуск и проверка
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable hdfs-explorer
@@ -270,9 +274,9 @@ curl -I http://127.0.0.1:8000/healthz
 # HTTP/1.1 200 OK
 ```
 
-### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+### Шаг 7: обновление версии
 
-При выходе новой версии на GitHub Releases:
+Загрузите новый релиз, переключите симлинк и перезапустите сервис. Во время перезапуска сервис недоступен:
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
@@ -294,8 +298,8 @@ sudo systemctl restart hdfs-explorer
 
 ## 3. Режим 2: Docker & Docker Compose
 
-### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
-Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
+### 3.1 Образ из GHCR (рекомендуется)
+Образы публикуются в GitHub Container Registry (`ghcr.io`):
 ```bash
 # Авторизация (при необходимости):
 echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
@@ -305,12 +309,12 @@ VERSION="1.0.0"
 docker pull ghcr.io/company/hadoop-explorer/hdfs:${VERSION}
 ```
 
-### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+### 3.2 Локальная сборка образа (для разработки)
 ```bash
 docker build -t ghcr.io/company/hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
 ```
 
-### 3.3 Автономный запуск одного контейнера (`docker run`)
+### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name hdfs-explorer \
@@ -325,7 +329,7 @@ docker run -d \
   ghcr.io/company/hadoop-explorer/hdfs:1.0.0
 ```
 
-### 3.4 Промышленный запуск через `docker-compose.yml`
+### 3.4 Запуск через `docker-compose.yml`
 ```yaml
 version: "3.8"
 
@@ -379,12 +383,12 @@ docker compose logs -f hdfs-explorer
 
 ---
 
-## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
+## 4. Режим 3: Kubernetes (Helm)
 
-### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/hdfs-explorer`](../helm/charts/hdfs-explorer).
+### 4.1 Установка Helm-чарта
+Чарт лежит в [`helm/charts/hdfs-explorer`](../helm/charts/hdfs-explorer).
 
-#### Шаг 1: Подготовка секретов Kubernetes
+#### Шаг 1: секреты Kubernetes
 ```bash
 kubectl create namespace hadoop-explorer
 
@@ -409,7 +413,7 @@ kubectl create configmap krb5-config \
   --from-file=krb5.conf=/etc/krb5.conf
 ```
 
-#### Шаг 2: Параметры `custom-values.yaml`
+#### Шаг 2: параметры `custom-values.yaml`
 ```yaml
 replicaCount: 2
 
@@ -502,7 +506,7 @@ podDisruptionBudget:
   minAvailable: 1
 ```
 
-#### Шаг 3: Установка через Helm
+#### Шаг 3: установка через Helm
 ```bash
 helm upgrade --install hdfs-explorer ./helm/charts/hdfs-explorer \
   --namespace hadoop-explorer \
@@ -513,15 +517,15 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ---
 
-## 5. Мониторинг и Troubleshooting
+## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
 - `http_requests_total{app="hdfs", ...}`
 - `hadoop_circuit_breaker_state{name="hdfs_namenode"}`
 - `hadoop_circuit_breaker_calls_total{name="hdfs_namenode", status="success|failed"}`
-- `hdfs_operations_total{op="list|read|write|delete|quota"}`
+- `hdfs_operations_total{op="list|read|write|delete|quota"}` [проверить: метрика есть в дашбордах `monitoring/grafana/`, но в коде `backend/` не регистрируется]
 
-### 5.2 Решение инцидентов (FAQ)
+### 5.2 Известные проблемы
 
 | Ошибка / Симптом | Причина | Решение |
 |---|---|---|
@@ -529,15 +533,15 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 
 ---
 
-## 6. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
+## 6. Бэкенд на Java 21 / Spring Boot 3
 
-Бэкенд **HDFS Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/hdfs`), используя официальные библиотеки Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
+Бэкенд (`backend/hdfs`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует библиотеку Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
-### 6.1 Преимущества реализации на Java 21
-1. **Нативный Hadoop FileSystem Client**: прямое взаимодействие с NameNode через бинарный RPC-протокол (`hdfs://`) и HTTP (`webhdfs://`), исключая накладные расходы промежуточных шлюзов.
-2. **Встроенный High Availability Failover**: поддержка автоматического переключения между Active/Standby NameNode через `ConfiguredFailoverProxyProvider`.
-3. **Нативный Kerberos GSS-API**: строгая изоляция контекстов и прозрачная doAs-имперсонация пользователя (`UserGroupInformation.createProxyUser`), гарантирующая полное соответствие политикам Apache Ranger.
-4. **Общее ядро безопасности `common-security-starter`**: единая сессионная модель (L1 Caffeine + L2 JDBC), CSRF Guard, Bucket4j Rate Limiting и AOP-аудит `@Audited`.
+### 6.1 Компоненты бэкенда
+1. Клиент Hadoop FileSystem: обращается к NameNode напрямую по RPC (`hdfs://`) или HTTP (`webhdfs://`), без промежуточных шлюзов.
+2. HA NameNode: переключение между Active и Standby NameNode через `ConfiguredFailoverProxyProvider`.
+3. Kerberos GSS-API и doAs: операции выполняются от имени пользователя (`UserGroupInformation.createProxyUser`), поэтому политики Apache Ranger применяются к нему, а не к сервисной учетной записи.
+4. Стартер `common-security-starter`: сессии (L1 Caffeine + L2 JDBC), CSRF Guard, ограничение частоты запросов Bucket4j и аудит через AOP `@Audited`.
 
 ### 6.2 Сборка и тестирование
 
@@ -555,7 +559,7 @@ make build-hdfs
 make test-java
 ```
 
-### 6.3 Промышленный запуск
+### 6.3 Запуск JAR с параметрами в командной строке
 
 ```bash
 java -jar -Dspring.profiles.active=prod \

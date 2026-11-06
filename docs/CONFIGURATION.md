@@ -1,17 +1,17 @@
-# ⚙️ Руководство по конфигурации Hadoop Explorer Platform
+# Руководство по конфигурации Hadoop Explorer Platform
 
-В этом документе подробно описаны параметры конфигурации, форматы файлов, переменные окружения и лучшие практики настройки компонентов платформы **Hadoop Explorer**:
-- **Общий стартер безопасности** (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
-- **YARN Explorer** (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
-- **HDFS Explorer** (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
-- **SQL Explorer** (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
-- **Spark Explorer** (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
-- **Hadoop gRPC Replicator** (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
-- **Развертывание в Kubernetes (Helm)**.
+Документ для администраторов платформы Hadoop Explorer: параметры конфигурации, форматы файлов и переменные окружения компонентов.
+- Общий стартер безопасности (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
+- YARN Explorer (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
+- HDFS Explorer (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
+- SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
+- Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
+- Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
+- Развертывание в Kubernetes (Helm).
 
 ---
 
-## 📑 Содержание
+## Содержание
 1. [Общие принципы и приоритеты конфигурации](#1-общие-принципы-и-приоритеты-конфигурации)
 2. [Общая конфигурация (backend/common)](#2-общая-конфигурация-backendcommon)
    - [Сервер и безопасность (CORS, CSRF, Cookies, JWT)](#21-сервер-и-безопасность-cors-csrf-cookies-jwt)
@@ -58,12 +58,12 @@
 ## 1. Общие принципы и приоритеты конфигурации
 
 Каждый бэкенд-сервис загружает конфигурацию по следующей цепочке приоритетов:
-1. **Переменные окружения** (наивысший приоритет — переопределяют значения из YAML для секретов и путей).
-2. **Файл конфигурации YAML**, заданный через переменную `CONFIG_PATH` или `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH`.
-3. **Локальный файл по умолчанию**: `config/config.yaml` внутри каталога соответствующего сервиса.
+1. Переменные окружения (наивысший приоритет — переопределяют значения из YAML для секретов и путей).
+2. Файл конфигурации YAML, заданный через переменную `CONFIG_PATH` или `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH`.
+3. Локальный файл по умолчанию: `config/config.yaml` внутри каталога соответствующего сервиса.
 
 > [!IMPORTANT]
-> **Безопасные значения по умолчанию и проверки на старте (все Java-сервисы)**:
+> Значения по умолчанию и проверки на старте (все Java-сервисы).
 > Упакованный в JAR `application.yml` каждого сервиса рассчитан на продакшен: `hadoop.security.debug: false`,
 > `auth.mode: ${HADOOP_AUTH_MODE:ldap}`, JWT-секрет только из `JWT_SECRET_KEY`. Стартер безопасности
 > не даст сервису запуститься, если:
@@ -103,18 +103,18 @@ security:                       # или auth.jwt
   cookie_samesite: "lax"
 ```
 
-> [!NOTE]
-> **Автоматические HTTP-заголовки безопасности и CSP**:
-> Все бэкенд-сервисы автоматически инжектируют в ответы HTTP-заголовки безопасности через middleware `apply_security_headers`:
-> - `Content-Security-Policy`: строгие директивы защиты контента для предотвращения XSS (`CSP_DEFAULT_DIRECTIVES` для HDFS/YARN и `CSP_CODE_EDITOR_DIRECTIVES` с поддержкой Web Workers для Monaco Editor в Spark/SQL).
-> - `X-Frame-Options: DENY`: предотвращение встраивания в iframe (Clickjacking).
-> - `X-Content-Type-Options: nosniff`: защита от подмены MIME-типов.
-> - `Referrer-Policy: strict-origin-when-cross-origin`: контроль заголовка `Referer`.
-> - `Strict-Transport-Security` (HSTS): автоматически активируется при `secure_cookies: true` или `debug: false`.
+#### HTTP-заголовки безопасности и CSP
+
+Бэкенд-сервисы добавляют в ответы HTTP-заголовки безопасности через middleware `apply_security_headers` [проверить: в Java-коде сервисов нет ни этого имени, ни `CSP_DEFAULT_DIRECTIVES`]:
+- `Content-Security-Policy`: директивы против XSS (`CSP_DEFAULT_DIRECTIVES` для HDFS/YARN и `CSP_CODE_EDITOR_DIRECTIVES` с разрешением Web Workers для Monaco Editor в Spark/SQL).
+- `X-Frame-Options: DENY`: запрет встраивания в iframe (clickjacking).
+- `X-Content-Type-Options: nosniff`: браузер не подменяет MIME-тип ответа.
+- `Referrer-Policy: strict-origin-when-cross-origin`: ограничивает содержимое заголовка `Referer`.
+- `Strict-Transport-Security` (HSTS): включается при `secure_cookies: true` или `debug: false`.
 
 ### 2.2 Аутентификация: LDAPS / Active Directory
 
-Модуль `CommonLdapAuthService` поддерживает подключение к корпоративным каталогам OpenLDAP, FreeIPA и Microsoft Active Directory с защитой от LDAP Injection (экранирование спецсимволов):
+Модуль `CommonLdapAuthService` [проверить: класса с таким именем в Java-коде нет] подключается к каталогам OpenLDAP, FreeIPA и Microsoft Active Directory. Спецсимволы в имени пользователя экранируются перед подстановкой в фильтр (защита от LDAP injection).
 
 ```yaml
 auth:
@@ -144,9 +144,11 @@ ldap:
   memberof_attribute: "memberOf"
 ```
 
+Значения `ldaps_only` и `kerberos_only` из комментария к `auth.mode` не проходят проверку на старте: `SecurityConfigurationValidator` принимает только `mock`, `ldap`, `kerberos` и `hybrid` (см. раздел 1).
+
 ### 2.3 Аутентификация: Kerberos SPNEGO SSO
 
-Позволяет пользователям бесшовно аутентифицироваться в веб-интерфейсе через системный Kerberos-тикет (заголовок `Authorization: Negotiate <ticket>`):
+Пользователь входит в веб-интерфейс по Kerberos-тикету из своей системной сессии, без ввода пароля: браузер передает заголовок `Authorization: Negotiate <ticket>`.
 
 ```yaml
 kerberos_sso:                   # или auth.kerberos
@@ -157,7 +159,7 @@ kerberos_sso:                   # или auth.kerberos
 
 ### 2.4 Конфигурация ролевой модели и прав доступа (RBAC)
 
-Все сервисы платформы используют унифицированную модель определения прав пользователя `resolve_system_role`:
+Все сервисы платформы вычисляют роль пользователя по одной модели (`resolve_system_role` [проверить: функции с таким именем в Java-коде нет]):
 
 ```yaml
 auth:
@@ -167,24 +169,24 @@ auth:
   writer_groups: ["data-engineers", "yarn-operators", "etl-developers"]
 ```
 
-**Определение ролей**:
-- Пользователи из `admin_users` или состоящие в любой группе из `admin_groups` получают роль **`ADMIN`** (краткий UI-бейдж `ADM`).
-- Пользователи, входящие в группы из `writer_groups`, получают роль **`WRITER`** (краткий UI-бейдж `RW`).
-- Все остальные аутентифицированные пользователи получают роль **`READER`** (краткий UI-бейдж `RO`).
+Роли:
+- Пользователи из `admin_users` или из любой группы `admin_groups` получают роль `ADMIN` (бейдж в UI — `ADM`).
+- Пользователи из групп `writer_groups` получают роль `WRITER` (бейдж `RW`).
+- Остальные аутентифицированные пользователи получают роль `READER` (бейдж `RO`).
 - Роль вычисляется на сервере, включается в полезную нагрузку токена и сессии, и возвращается через `/api/v1/auth/me`.
 
 ### 2.5 Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)
 
-Платформа использует универсальный слой хранения данных (`SessionStore` и `BaseStorageService`), поддерживающий:
-- **Персистентность сессий пользователей (`active_sessions`)**: При авторизации пользователя активная сессия сохраняется в базе данных с абсолютным Unix Timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). При перезапуске бэкенд-контейнеров или сервисов пользователи **не разлогиниваются**, сессия автоматически восстанавливается из БД.
-- **Автоконвертация TTL**: Модуль `SessionStore` автоматически определяет формат времени жизни токена (абсолютный timestamp или дельта секунд) и исключает ошибки истечения срока.
-- **Черный список отозванных токенов (`revoked_tokens`)**: Двухуровневое кэширование (L1 In-Memory LRU Cache `L1RevokedTokenCache` со сроком устаревания + L2 база данных/Redis) для мгновенной валидации отозванных токенов при logout без задержек I/O.
-- **Ограничение частоты запросов (Rate Limiting)**: Алгоритм скользящего окна (Sliding Window) с хранением счетчиков в БД/Redis.
+Слой хранения (`SessionStore` и `BaseStorageService` [проверить: `BaseStorageService` и `L1RevokedTokenCache` в Java-коде не найдены]) хранит:
+- Сессии пользователей (`active_sessions`). При входе сессия записывается в базу с абсолютным Unix timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). После перезапуска контейнеров или сервисов сессия читается из базы, и пользователю не нужно входить заново.
+- Срок жизни токена. `SessionStore` определяет, задан TTL абсолютным timestamp или числом секунд, и приводит его к одному виду.
+- Черный список отозванных токенов (`revoked_tokens`). Два уровня: L1 — LRU-кэш в памяти (`L1RevokedTokenCache`) с истечением записей, L2 — база данных или Redis. Проверка отозванного токена после logout идет по L1 без обращения к базе.
+- Счетчики rate limiting. Алгоритм скользящего окна (sliding window), счетчики в базе данных или Redis.
 
-Поддерживаемые бэкенды:
-- **SQLite WAL** (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — встроенное хранилище по умолчанию с режимом Write-Ahead Logging.
-- **PostgreSQL** (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — рекомендуется для High Availability и мультиинстанс-развертываний в Kubernetes.
-- **Redis** (`redis://redis-host:6379/0`) — опционально для распределенного L2 кэширования и распределенных блокировок (`DistributedLock`).
+Поддерживаемые хранилища:
+- SQLite в режиме WAL (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — хранилище по умолчанию.
+- PostgreSQL (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — для запуска нескольких реплик сервиса в Kubernetes.
+- Redis (`redis://redis-host:6379/0`) — необязательный L2-кэш и распределенные блокировки (`DistributedLock`).
 
 ```yaml
 database:
@@ -197,15 +199,17 @@ database:
 
 ### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 
-- **Circuit Breaker & Prometheus Metrics**: автоматическое обнаружение сбоев сетевых вызовов к кластерам Hadoop/Spark/YARN. При 5 подряд сетевых ошибках или таймаутах узел помечается как `OPEN` на 30 секунд (Fast-Fail без блокировки пула потоков), после чего переходит в `HALF_OPEN` для пробного запроса. 4xx клиентские ошибки игнорируются. Метрики экспортируются через Actuator `/actuator/prometheus` (или `/metrics`).
-- **Retry с экспоненциальным Backoff**: автоматический повтор при возникновении транзиентных ошибок соединения и сокетов (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`) со случайным джиттером.
-- **Global Exception Handlers (`@ControllerAdvice`)**: перехват всех необработанных исключений 500 с сокрытием внутреннего stack trace (защита от CWE-209), генерацией `incidentId` и возвратом стандартизированного ответа.
-- **Distributed Lock**: поддержка взаимного исключения для критических секций через Redis (`SET NX PX` + Lua) с fallback на in-memory locks.
-- **Graceful Shutdown**: перехват сигналов SIGTERM/SIGINT с корректным завершением `ThreadPoolTaskExecutor`, отменой фоновых задач и закрытием соединений с базами данных и сетевыми клиентами.
+| Механизм | Поведение |
+|---|---|
+| Circuit Breaker | Считает сетевые ошибки вызовов к кластерам Hadoop/Spark/YARN. После 5 ошибок или таймаутов подряд узел переходит в `OPEN` на 30 секунд: вызовы к нему сразу завершаются ошибкой и не занимают потоки пула. Затем узел переходит в `HALF_OPEN`, и следующий запрос идет как пробный. Клиентские ошибки 4xx не учитываются. Метрики — через Actuator `/actuator/prometheus` (или `/metrics`). |
+| Retry с экспоненциальным backoff | Повторяет вызов при ошибках соединения и сокета (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`), к задержке добавляется случайный джиттер. |
+| Глобальный обработчик исключений (`@ControllerAdvice`) | Перехватывает необработанные исключения, возвращает 500 со стандартным телом и `incidentId`, stack trace наружу не отдает (CWE-209). |
+| Distributed Lock | Взаимное исключение для критических секций через Redis (`SET NX PX` + Lua); без Redis — блокировки в памяти процесса. |
+| Graceful shutdown | По SIGTERM/SIGINT останавливает `ThreadPoolTaskExecutor`, отменяет фоновые задачи и закрывает соединения с базами данных и сетевыми клиентами. |
 
 ### 2.7 Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов
 
-Все микросервисы платформы (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) поддерживают централизованную конфигурацию HTTPS/TLS веб-серверов и исходящих REST-клиентов через `common-security-starter`:
+TLS для встроенного веб-сервера и исходящих REST-клиентов сервисов `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator` настраивается в одном месте — в секции `hadoop.security.tls` стартера `common-security-starter`:
 
 ```yaml
 hadoop:
@@ -227,7 +231,7 @@ hadoop:
       ciphers: []                       # Список допустимых шифронаборов (по умолчанию все безопасные)
 ```
 
-**Переменные окружения для Spring Boot сервисов**:
+Те же параметры через переменные окружения:
 - `HADOOP_SECURITY_TLS_ENABLED=true`
 - `HADOOP_SECURITY_TLS_KEY_STORE_PATH=/etc/security/tls/keystore.p12`
 - `HADOOP_SECURITY_TLS_KEY_STORE_PASSWORD=secret`
@@ -269,7 +273,7 @@ yarn:
 
 ### 3.2 Ролевая модель и Change Requests
 
-YARN Explorer поддерживает трехуровневую ролевую модель (`ADMIN`, `WRITER`, `READER`) с соблюдением принципа четырех глаз (Four-Eyes Principle, запрет самосогласования заявок их создателем):
+В YARN Explorer три роли: `ADMIN`, `WRITER`, `READER`. При `enforce-four-eyes: true` действует принцип четырех глаз: автор заявки не может сам ее согласовать.
 
 ```yaml
 yarn:
@@ -294,7 +298,7 @@ yarn:
 
 ### 3.3 Интеграция с Ansible AWX (доставка и применение конфигурации)
 
-YARN Explorer поддерживает автоматизированную доставку и горячее применение сгенерированной XML-конфигурации через запуск Job Template в **Ansible AWX / Red Hat Ansible Automation Platform**:
+YARN Explorer доставляет сгенерированную XML-конфигурацию на кластер и применяет ее без перезапуска, запуская Job Template в Ansible AWX / Red Hat Ansible Automation Platform:
 
 ```yaml
 yarn:
@@ -327,8 +331,8 @@ clusters:
 | `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
 | `YARN_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
 
-> 📖 **Пошаговая инструкция по развертыванию роли Ansible, настройке шаблона AWX и процессу Rollback приведена в [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).**
-> 📖 **Сценарии применения в интерфейсе Change Requests описаны в [docs/yarn-user-guide.md](yarn-user-guide.md).**
+Развертывание роли Ansible, настройка шаблона AWX и откат: [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).
+Применение изменений из интерфейса Change Requests: [docs/yarn-user-guide.md](yarn-user-guide.md).
 
 ---
 
@@ -438,18 +442,19 @@ query_defaults:
 ```
 
 #### Кэш результатов запросов и ротация по TTL (`data/results/`)
-Результаты выполнения запросов сохраняются в сжатом виде (`{id}.json.gz`) в единую директорию платформы `data/results/` (как для SQL Explorer, так и для Spark Explorer).
-- **TTL хранения**: `results_ttl_seconds` или переменная окружения `RESULTS_TTL_SECONDS` (по умолчанию `604800` с / 7 дней).
-- **Периодическая очистка**: фоновый процесс проверяет директорию с интервалом `RESULTS_CLEANUP_INTERVAL_SECONDS` (по умолчанию `3600` с / 1 час) и при старте сервиса, удаляя устаревшие файлы.
+SQL Explorer и Spark Explorer сохраняют результаты запросов в сжатом виде (`{id}.json.gz`) в общий каталог `data/results/`.
+
+| Параметр | По умолчанию | Что делает |
+|---|---|---|
+| `results_ttl_seconds` / `RESULTS_TTL_SECONDS` | `604800` (7 дней) | Срок хранения файла результата |
+| `RESULTS_CLEANUP_INTERVAL_SECONDS` | `3600` (1 час) | Интервал фоновой очистки каталога от файлов старше TTL. Очистка также запускается при старте сервиса |
 
 #### Персистентность рабочих пространств (User Workspace)
-SQL Explorer сохраняет открытые вкладки редактора, введённый SQL-код, привязанные кластеры и каталоги, а также последние результаты выполнения в БД (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`).
-- Для каждого аутентифицированного пользователя создается изолированное рабочее пространство.
-- При смене пользователя загружается его персональный контекст, исключая отображение чужой истории.
+SQL Explorer сохраняет в БД открытые вкладки редактора, введенный SQL-код, выбранные кластеры и каталоги и последние результаты (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`). Рабочее пространство у каждого аутентифицированного пользователя свое: после смены пользователя в браузере загружается его контекст, чужая история не показывается.
 
 ### 5.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
-SQL Explorer включает модуль генерации, оптимизации и автоисправления SQL-запросов:
+ИИ-ассистент SQL Explorer генерирует, оптимизирует и исправляет SQL-запросы через OpenAI-совместимый API (Ollama, vLLM, LiteLLM):
 
 ```yaml
 ai:
@@ -471,7 +476,7 @@ ai:
 
 ### 6.1 Кластеры и интеграция с Apache Livy
 
-Spark Explorer связывается с серверами **Apache Livy** для выполнения интерактивных сессий и пакетных расчетов:
+Spark Explorer запускает интерактивные сессии и пакетные задачи через Apache Livy:
 
 ```yaml
 clusters:
@@ -494,7 +499,7 @@ clusters:
 
 ### 6.2 Версии Spark и среды Python (HDFS Archives)
 
-Поддерживается выбор версии Spark и изолированных Conda/Venv окружений, упакованных в HDFS:
+Пользователь выбирает версию Spark и окружение Python (Conda/venv, упакованное в архив на HDFS) из списка в конфигурации:
 
 ```yaml
     spark_versions:
@@ -525,10 +530,14 @@ clusters:
 ```
 
 #### Пользовательские (Ad-hoc) виртуальные окружения Python
-Помимо преднастроенных пресетов в `config.yaml`, пользователи могут подключать собственные изолированные virtualenv/conda-пакеты прямо в диалоговом окне параметров сессии UI:
-- **`custom_python_archive`**: HDFS-путь к архиву окружения (`hdfs:///.../*.tar.gz#environment`). Если фрагмент `#алиас` опущен, платформа автоматически добавляет `#environment`.
-- **`custom_python_path`**: относительный путь к интерпретатору внутри распакованного каталога (по умолчанию `./environment/bin/python`).
-- Платформа передает архив в директиву `archives` Apache Livy и проставляет конфигурации `spark.pyspark.python` и `spark.pyspark.driver.python`.
+Кроме окружений из `config.yaml`, пользователь может указать собственный архив virtualenv/conda в окне параметров сессии:
+
+| Параметр | По умолчанию | Что делает |
+|---|---|---|
+| `custom_python_archive` | — | HDFS-путь к архиву окружения (`hdfs:///.../*.tar.gz#environment`). Если фрагмент `#алиас` не указан, добавляется `#environment` |
+| `custom_python_path` | `./environment/bin/python` | Относительный путь к интерпретатору внутри распакованного архива |
+
+Архив передается в параметр `archives` сессии Apache Livy, путь к интерпретатору — в `spark.pyspark.python` и `spark.pyspark.driver.python`.
 
 
 ### 6.3 Интеграция с YARN и разграничение очередей
@@ -581,35 +590,35 @@ clusters:
 
 ### 6.5 Персистентность рабочих пространств пользователя
 
-Spark Explorer сохраняет состояние сессий, активные вкладки, отдельные буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов в базу данных (`SparkUserWorkspace`, `/api/v1/workspace`):
-- При смене языка (PySpark ↔ Scala ↔ SQL) результаты вычислений изолируются и не затираются.
-- При входе нового пользователя загружается его индивидуальное рабочее пространство.
+Spark Explorer сохраняет в базу данных состояние сессий, активные вкладки, буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов (`SparkUserWorkspace`, `/api/v1/workspace`):
+- У каждого языка (PySpark, Scala, SQL) свой буфер результатов: переключение языка не затирает результаты другого.
+- При входе другого пользователя загружается его рабочее пространство.
 
 ---
 
 ## 7. Настройка Hadoop gRPC Replicator (DC-DC WAN Sync & Throttling)
 
-Сервис межкластерной репликации `backend/replicator` реализован на стеке Java 21 LTS (Spring Boot 3 + gRPC) и предназначен для высокоскоростной и управляемой синхронизации больших массивов данных HDFS между распределенными ЦОД через WAN-соединения. Конфигурация сервиса задается через `application.yml` или системные переменные окружения.
+Сервис межкластерной репликации `backend/replicator` (Java 21 LTS, Spring Boot 3, gRPC) копирует данные HDFS между ЦОД по WAN с ограничением полосы. Конфигурация задается в `application.yml` или переменными окружения.
 
 ### 7.1 Архитектура и компоненты (Orchestrator, Agent)
 
-Сервис состоит из следующих компонентов:
-1. **Replicator Orchestrator** (Java 21 / Spring Boot 3 `:8005`):
-   - Управляет жизненным циклом задач репликации (`Job` / `JobRun`) в реляционной БД (H2 / PostgreSQL).
-   - Предоставляет REST API и встроенный Web UI (Svelte 5 SPA) в единой дизайн-системе платформы.
-   - Реализует централизованный потокобезопасный многоуровневый Token Bucket Throttler (выдача сетевых квот агентам).
-   - Запускает встроенный планировщик периодических задач (Cron Scheduler).
-   - Экспортирует метрики для Prometheus (`/actuator/prometheus`).
-2. **Replicator Agent** (Java 21 / gRPC-сервис `:50051`):
-   - Полнодуплексный агент (`agent`), развертываемый в каждом дата-центре (например, DC1 и DC2).
-   - Включает встроенный Receiver (gRPC streaming на HTTP/2, проверка SHA-256, атомарный commit в HDFS) и Sender (опрос задач `QUEUED`, запрос токенов у Оркестратора, потоковая передача).
-   - Прямая работа с HDFS через нативный `HadoopFsManager` с поддержкой Kerberos UGI и doAs-имперсонации для Apache Ranger.
+Сервис состоит из двух компонентов:
+1. Replicator Orchestrator (Java 21 / Spring Boot 3, порт `8005`):
+   - хранит задачи репликации (`Job` / `JobRun`) и их состояние в реляционной БД (H2 / PostgreSQL);
+   - отдает REST API и Web UI (Svelte 5 SPA);
+   - выдает агентам сетевые квоты через многоуровневый Token Bucket;
+   - запускает периодические задачи по расписанию (Cron Scheduler);
+   - экспортирует метрики Prometheus (`/actuator/prometheus`).
+2. Replicator Agent (Java 21, gRPC, порт `50051`):
+   - разворачивается в каждом ЦОД (например, DC1 и DC2) и работает в обе стороны;
+   - Receiver принимает данные по gRPC streaming (HTTP/2), сверяет SHA-256 и атомарно фиксирует файл в HDFS; Sender опрашивает задачи в статусе `QUEUED`, запрашивает токены у оркестратора и передает данные потоком;
+   - работает с HDFS через `HadoopFsManager`: Kerberos UGI и doAs-имперсонация, чтобы политики Apache Ranger применялись к пользователю задачи.
 
 ---
 
 ### 7.1.1 Безопасные значения по умолчанию и продуктивный профиль
 
-Дефолтная конфигурация оркестратора (`application.yml`) — H2 в памяти и боевая аутентификация
+Конфигурация оркестратора по умолчанию (`application.yml`) — H2 в памяти и боевая аутентификация
 (`auth.mode: ldap`, JWT-секрет из `JWT_SECRET_KEY`): без них оркестратор не стартует.
 Тестовые пользователи и `auth.mode: mock` вынесены в профиль `mock` (`SPRING_PROFILES_ACTIVE=mock`),
 который включают демо-стенды `demo/replicator`. Схема базы во всех профилях
@@ -620,7 +629,7 @@ Spark Explorer сохраняет состояние сессий, активн�
 Control Plane. Все секреты в этом профиле читаются только из окружения
 (`REPLICATOR_AGENT_SECRET`, `JWT_SECRET_KEY`, `POSTGRES_USER`, `POSTGRES_PASSWORD`).
 
-Защитные механизмы включены по умолчанию:
+Защитные параметры и их значения по умолчанию:
 
 | Параметр | Значение по умолчанию | Назначение |
 | :--- | :--- | :--- |
@@ -631,7 +640,7 @@ Control Plane. Все секреты в этом профиле читаются
 
 > [!IMPORTANT]
 > gRPC-серверы (Control Plane оркестратора, HDFS Receiver и приемник Kafka-батчей агента)
-> работают в режиме **Fail-Closed**: интерцептор аутентификации устанавливается всегда, и при
+> работают в режиме fail-closed: интерцептор аутентификации устанавливается всегда, и при
 > незаданном `x-agent-secret` все входящие вызовы отклоняются со статусом `UNAUTHENTICATED`.
 > Поэтому пустой секрет не «открывает» стенд, а полностью останавливает репликацию.
 > Демо-стенд (`demo/replicator`) задает общий секрет через переменную `DEMO_AGENT_SECRET`.
@@ -667,7 +676,7 @@ REST API остается интерфейсом Web UI и операторов.
 же trace, а `trace_id` и `span_id` выставляются в MDC — по логам разных процессов собирается одна
 операция.
 
-Трассировка включена по умолчанию, но **экспорт спанов** в коллектор включается отдельно: пока
+Трассировка включена по умолчанию, но экспорт спанов в коллектор включается отдельно: пока
 адрес не задан, экспортер не создается и спаны никуда не уходят (корреляция в логах и
 `traceparent` в вызовах при этом работают).
 
@@ -682,7 +691,7 @@ REST API остается интерфейсом Web UI и операторов.
 стандартному протоколу `grpc.health.v1.Health`. Статус выставляется и в целом по серверу, и
 отдельно по подсистемам (`replicator.DataTransferService`,
 `replicator.kafka.KafkaDataTransferService`), а при остановке переводится в терминальное
-состояние **до** закрытия порта, чтобы балансировщик и отправители успели увести трафик.
+состояние до закрытия порта, чтобы балансировщик и отправители успели увести трафик.
 
 Health-проба освобождена от аутентификации по `x-agent-secret`: пробы балансировщика, kubelet и
 docker секрета агента не знают, а наблюдают они только `SERVING`/`NOT_SERVING`. Остальные вызовы
@@ -717,11 +726,11 @@ java -cp /app/replicator-agent.jar \
 
 ### 7.2 Топология дата-центров и кластеров
 
-Топология описывает физическое размещение оборудования и привязку кластеров HDFS к конкретным дата-центрам (`dc_id`).
+Топология описывает ЦОД и привязку кластеров HDFS к ним (`dc_id`).
 
-На демонстрационном стенде настроена топология из **2 ЦОД**:
-- **ЦОД 1 (Москва / Primary)**: содержит **2 кластера HDFS** (`demo-cluster` — Prod DataLake и `analytics-cluster` — Secondary DataLake).
-- **ЦОД 2 (Санкт-Петербург / Disaster Recovery)**: содержит **1 кластер HDFS** (`backup-cluster` — DR Mirror DataLake).
+На демо-стенде два ЦОД:
+- ЦОД 1 (Москва, основной): два кластера HDFS — `demo-cluster` (Prod DataLake) и `analytics-cluster` (Secondary DataLake).
+- ЦОД 2 (Санкт-Петербург, резервный): один кластер HDFS — `backup-cluster` (DR Mirror DataLake).
 
 ```yaml
 topology:
@@ -770,12 +779,12 @@ topology:
 
 ### 7.3 Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)
 
-Для защиты корпоративных каналов WAN от перегрузки используется иерархический Token Bucket шейпер:
-1. **Глобальный лимит (Global WAN Cap)**: верхняя граница совокупной скорости передачи по всей платформе.
-2. **Лимиты между ЦОД (DC-DC WAN Limits)**: емкость магистрального физического канала связи между площадками.
-3. **Лимиты между парами HDFS-кластеров (HDFS-HDFS Limits)**: логическая квота полосы под конкретное направление синхронизации.
+Чтобы репликация не забивала каналы WAN, оркестратор ограничивает полосу иерархическим Token Bucket с тремя уровнями:
+1. Глобальный лимит (`global_limit_mb_per_sec`) — верхняя граница суммарной скорости передачи по всей платформе.
+2. Лимиты между ЦОД (`dc_limits`) — емкость магистрального канала между площадками.
+3. Лимиты между парами HDFS-кластеров (`hdfs_limits`) — квота полосы под конкретное направление репликации.
 
-Значение `0.0` означает работу без ограничений («Без лимита / Unlimited»).
+Значение `0.0` снимает ограничение (в UI — «Без лимита»).
 
 ```yaml
 topology:
@@ -807,29 +816,27 @@ topology:
   global_limit_mb_per_sec: 120.0
 ```
 
-Администраторы платформы (`ADMIN`) могут изменять любой из лимитов в рантайме через Web UI или эндпоинты API (`POST /api/v1/limits/global`, `POST /api/v1/limits/dc-dc`, `POST /api/v1/limits/hdfs-hdfs`). Изменения применяются для всех воркеров в течение 1 секунды без перезапуска сервисов.
+Пользователь с ролью `ADMIN` меняет любой лимит без перезапуска через Web UI или API (`POST /api/v1/limits/global`, `POST /api/v1/limits/dc-dc`, `POST /api/v1/limits/hdfs-hdfs`). Новое значение действует для всех воркеров в течение 1 секунды.
 
 ---
 
 ### 7.4 Безопасность, RBAC и системная техучетка Kerberos
 
-- **Ролевая модель (RBAC)**:
-  - `ADMIN` (`admin_user`): сквозной просмотр и управление задачами всех пользователей, изменение лимитов полосы пропускания, отмена любых задач.
-  - `WRITER` / `READER` (`de_user`, `analyst_user`): видят только собственные созданные задачи и общие системные задачи техучетки. Попытка редактирования лимитов возвращает `HTTP 403 Forbidden`.
-- **Системная техучетка**:
-  - Флаг `run_as_service_account: true` указывает запускать задачу от привилегированного системного принципала (`hdfs-replicator@REALM.LOCAL`). Это необходимо для периодических фоновых репликаций по расписанию.
-- **Изоляция Kerberos (KRB5CCNAME)**:
-  - Воркер выполняет каждую операцию с динамической генерацией пути к credential cache:
-    `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}`.
-  - По завершении передачи временный кэш билетов безопасно удаляется, исключая утечку билетов между задачами.
+Роли:
+- `ADMIN` (`admin_user`): видит и изменяет задачи всех пользователей, меняет лимиты полосы, отменяет любые задачи.
+- `WRITER` / `READER` (`de_user`, `analyst_user`): видят только свои задачи и системные задачи техучетки. Запрос на изменение лимитов возвращает `HTTP 403 Forbidden`.
+
+Системная техучетка. Задача с флагом `run_as_service_account: true` выполняется от системного принципала (`hdfs-replicator@REALM.LOCAL`). Флаг нужен для периодических репликаций по расписанию, которые запускаются без участия пользователя.
+
+Изоляция Kerberos-кэша. Для каждой операции воркер создает отдельный credential cache `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}` и удаляет его после завершения передачи, так что билеты одной задачи не попадают в другую.
 
 ---
 
 ### 7.5 Настройка Replicator Agent (Full-Duplex) и буфера Staging
 
-Универсальный агент репликации `backend.replicator.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи данных (`Sender`), обеспечивая полноценную двунаправленную репликацию (`DC1 ⇄ DC2`).
+Агент репликации `backend.replicator.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи (`Sender`), поэтому один агент реплицирует в обе стороны (`DC1 ⇄ DC2`).
 
-Агент поддерживает **автоматическую динамическую регистрацию** на Оркестраторе с отправкой периодических Keepalive-сигналов (heartbeat). При старте агент объявляет свой gRPC-адрес (`advertised_grpc_address`) и привязывается к обслуживаемому кластеру. Это устраняет необходимость жестко прописывать сетевые адреса всех агентов в статическом `config.yaml`.
+При старте агент регистрируется на оркестраторе: объявляет свой gRPC-адрес (`advertised_grpc_address`) и кластер, который обслуживает, а затем периодически шлет heartbeat. Адреса агентов в статическом `config.yaml` прописывать не нужно.
 
 Агент настраивается следующими переменными окружения:
 
@@ -871,71 +878,80 @@ REPLICATOR_GRPC_INSECURE_SKIP_VERIFY=false # true для тестовых сре
 ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 ```
 
-**Жизненный цикл динамической регистрации и Keepalive**:
-1. **Регистрация при старте (`POST /api/v1/agents/register`)**: Агент отправляет свой `agent_id`, `cluster_id`, вычисленный `advertised_grpc_address` и версию. Оркестратор фиксирует статус агента `ONLINE` и связывает его с кластером.
-2. **Фоновый Keepalive (`POST /api/v1/agents/heartbeat`)**: Каждые 5 секунд агент отправляет сигнал жизнеспособности с количеством текущих активных задач (`active_transfers`).
-3. **Обнаружение сбоев**: Если сигнал heartbeat не поступает более 15 секунд, статус агента автоматически переводится в `STALE`, и трафик перестает на него направляться.
-4. **Graceful Shutdown (`POST /api/v1/agents/unregister`)**: При плановом завершении процесса агент уведомляет Оркестратор, переводя статус в `OFFLINE`.
-5. **Балансировка нагрузки**: Если в одном кластере зарегистрировано несколько агентов, Оркестратор динамически распределяет входящие потоки репликации на наименее загруженный агент (`min(active_transfers)`).
+#### Регистрация и heartbeat агента
 
-**Безопасность динамической регистрации (Zero-Trust Security)**:
-- **Аутентификация агентов (PSK / Token)**: Задается переменная `REPLICATOR_AGENT_SECRET` (мин. 32 симв.). Агент передает заголовок `X-Agent-Secret`. Неавторизованные запросы блокируются (`401 Unauthorized`). В production-режиме секрет обязателен.
-- **Белый список кластеров (Cluster Whitelist)**: При `REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (по умолчанию в prod) разрешена регистрация только для кластеров из `config.yaml`. Попытка объявить чужой кластер блокируется (`403 Forbidden`).
-- **Защита от SSRF**: Оркестратор санитизирует `advertised_grpc_address`, блокируя диапазоны link-local (`169.254.0.0/16`, `fe80::/10`) и облачные метаданные (`169.254.169.254`, `metadata.google.internal`).
+Вызовы идут через gRPC Control Plane оркестратора (`orchestrator_control_plane.proto`); REST-эндпоинт `POST /api/v1/agents/register` удален (см. раздел 7.1.1).
+1. Регистрация при старте (`RegisterAgent`). Агент передает `agent_id`, `cluster_id`, `advertised_grpc_address` и версию. Оркестратор переводит агента в статус `ONLINE` и связывает его с кластером.
+2. Heartbeat (`Heartbeat`). Каждые 5 секунд (`AGENT_HEARTBEAT_INTERVAL_SEC`) агент сообщает число текущих передач (`active_transfers`).
+3. Обнаружение сбоя. Если heartbeat нет 15 секунд (`hadoop.replicator.agent-heartbeat-timeout-seconds`), агент переходит в `STALE` и новые передачи на него не направляются; через 45 секунд (`agent-offline-timeout-seconds`) — в `OFFLINE`.
+4. Плановая остановка (`UnregisterAgent`). Агент сообщает оркестратору о завершении, статус меняется на `OFFLINE`.
+5. Балансировка. Если в кластере зарегистрировано несколько агентов, оркестратор направляет новую передачу агенту с наименьшим `active_transfers`.
 
-**Принцип атомарности коммита (Atomic Commit & Zero-Staging)**:
-1. Передающий агент нарезает файлы на потоковые чанки размером `CHUNK_SIZE_BYTES` (по умолчанию 64 КБ) или объединяет мелкие файлы в виртуальный TAR-поток.
-2. Принимающий агент сохраняет входящие чанки во временный файл непосредственно в целевом каталоге HDFS (`targetPath + "._staging_" + jobId` или `taskId`), исключая промежуточный локальный диск.
-3. После завершения стриминга вычисляется и сверяется совокупная контрольная сумма SHA-256 файла.
-4. При совпадении хеша файл атомарно переименовывается (`HadoopFsManager.renameFile` / `FileSystem.rename`) в целевой путь HDFS/FS внутри того же каталога.
-5. При ошибке сети или расхождении хеша временный staging-файл автоматически удаляется с целевой HDFS (реактивная очистка `cleanup()` и фоновый TTL Reaper).
+#### Защита регистрации
+
+- Общий секрет агентов. Задается в `REPLICATOR_AGENT_SECRET` (не короче 16 символов, проверка в `AgentRegistry`). Агент передает его в заголовке `x-agent-secret`; вызов без секрета или с неверным секретом отклоняется со статусом `UNAUTHENTICATED`. В профиле `prod` секрет обязателен.
+- Белый список кластеров. При `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (значение по умолчанию) агент регистрируется только в кластере из топологии. Регистрация в чужом кластере завершается статусом gRPC `INTERNAL` с сообщением о политике `enforce-cluster-whitelist`.
+- Защита от SSRF. Оркестратор отклоняет `advertised_grpc_address` из диапазонов link-local (`169.254.0.0/16`, `fe80::/10`) и адреса облачных метаданных (`169.254.169.254`, `metadata.google.internal`).
+
+#### Атомарная фиксация файла
+
+1. Передающий агент режет файл на чанки размером `CHUNK_SIZE_BYTES` (по умолчанию 64 КБ) или объединяет мелкие файлы в виртуальный TAR-поток.
+2. Принимающий агент пишет чанки во временный файл прямо в целевом каталоге HDFS (`targetPath + "._staging_" + jobId` или `taskId`), без промежуточного локального диска.
+3. После окончания потока агент сверяет контрольную сумму SHA-256 всего файла.
+4. При совпадении временный файл переименовывается в целевой путь в том же каталоге (`HadoopFsManager.renameFile` / `FileSystem.rename`); переименование в HDFS атомарно.
+5. При сетевой ошибке или расхождении хеша временный файл удаляется с целевой HDFS: сразу в `cleanup()` или позже фоновой очисткой по TTL (Reaper).
 
 ---
 
 ### 7.6 Разрешение целевых адресов (Service Discovery, AGENT_TARGET_* и Fallback)
 
-При отправке данных в удаленный дата-центр агент определяет сетевой gRPC-адрес целевого узла в соответствии со следующим приоритетом:
+Агент-отправитель выбирает gRPC-адрес агента-приемника в удаленном ЦОД в таком порядке:
 
-1. **Динамический реестр активных агентов Оркестратора (`AgentRegistry`) — рекомендуемый штатный режим**:
-   - Оркестратор отслеживает зарегистрированные агенты в реальном времени.
-   - Метод `get_grpc_address_for_cluster(cluster_id)` возвращает адрес активного онлайн-агента с наименьшим числом текущих передач (`active_transfers`).
-   - Если кластер не был предварительно описан в `config.yaml`, он регистрируется динамически по данным первого подключившегося агента.
-2. **Централизованный статический реестр топологии (`GET /api/v1/clusters`)**:
-   - В `backend/replicator/config/config.yaml` у кластера может быть статически задан параметр `grpc_address` (например, `backup-cluster: agent-dc2:50051`).
-   - Используется как надежный fallback, если динамическая регистрация отключена (`AGENT_ENABLE_REGISTRATION=false`) или агент временно не на связи.
-3. **Локальный оверрайд `AGENT_TARGET_<CLUSTER_ID>`**:
-   - Применяется в нестандартных сетевых окружениях (NAT, ingress/mesh-маршрутизация, различные порты в DMZ).
-   - Например: `AGENT_TARGET_BACKUP_CLUSTER=agent-dc2:50051` переопределит адрес только для кластера `backup-cluster`.
-4. **Резервный адрес `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS`**:
-   - Используется как крайний fallback (по умолчанию `localhost:50051`), если целевой кластер не указан в задаче или отсутствует во всех реестрах Оркестратора.
+1. Реестр активных агентов оркестратора (`AgentRegistry`) — штатный режим.
+   - Оркестратор хранит список зарегистрированных агентов и их статусы.
+   - Метод `get_grpc_address_for_cluster(cluster_id)` [проверить: имя метода в Java-коде] возвращает адрес агента в статусе `ONLINE` с наименьшим числом текущих передач (`active_transfers`).
+   - Кластер, которого нет в `config.yaml`, регистрируется по данным первого подключившегося агента.
+2. Статическая топология (`GET /api/v1/clusters`).
+   - В `backend/replicator/config/config.yaml` у кластера можно задать `grpc_address` (например, `backup-cluster: agent-dc2:50051`).
+   - Используется, если регистрация отключена (`AGENT_ENABLE_REGISTRATION=false`) или агент-приемник не на связи.
+3. Переменная `AGENT_TARGET_<CLUSTER_ID>` на агенте-отправителе.
+   - Нужна при NAT, маршрутизации через ingress/mesh или других портах в DMZ.
+   - Пример: `AGENT_TARGET_BACKUP_CLUSTER=agent-dc2:50051` меняет адрес только для кластера `backup-cluster`.
+4. Резервный адрес `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` (по умолчанию `localhost:50051`).
+   - Используется, если целевой кластер не указан в задаче или не найден ни в одном реестре оркестратора.
 
 ---
 
 ### 7.7 Планировщик периодических задач (Cron Scheduler)
 
-Оркестратор оснащен встроенным планировщиком задач `CronScheduler`:
-- Поддерживает стандартный синтаксис cron (`*/5 * * * *`), а также пресеты (`@every_5m`, `@hourly`, `@daily`, `@weekly`).
-- Фоновый процесс проверяет БД каждые 5 секунд.
-- При наступлении времени `now >= next_run_at`:
-  1. Создается или переводится в очередь задача репликации (`status = QUEUED`).
-  2. Фиксируется `last_run_at = now`.
-  3. Рассчитывается новое значение `next_run_at` на следующий интервал.
-  4. Задача автоматически исполняется под системной техучеткой.
+Планировщик `CronScheduler` [проверить: класса с таким именем в Java-коде нет] встроен в оркестратор:
+- принимает стандартный синтаксис cron (`*/5 * * * *`) и пресеты `@every_5m`, `@hourly`, `@daily`, `@weekly`;
+- проверяет БД каждые 5 секунд;
+- когда `now >= next_run_at`:
+  1. создает задачу репликации или ставит существующую в очередь (`status = QUEUED`);
+  2. записывает `last_run_at = now`;
+  3. вычисляет следующий `next_run_at`;
+  4. задача выполняется от системной техучетки.
 
 ---
 
 ### 7.8 Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`) и модель согласования WAN
 
-При установке Replicator Agent непосредственно на узлы Hadoop (DataNode Co-location) или общие Edge Nodes для защиты от деградации сетевых карт и дисковых массивов настраивается локальный шейпинг:
-- **Переменная `AGENT_MAX_BANDWIDTH_MB_S` / аргумент `--max-bandwidth-mb-s` (`-b`)**: задает предел полосы пропускания конкретного процесса агента в МБ/с (по умолчанию `0` — без ограничений).
-- **Согласование емкости пула агентов и WAN HTB**: агент передает свой настроенный лимит в тело регистрации и периодические Heartbeat (`configuredBandwidthMbS`). Оркестратор не моделирует физическую сетевую топологию хостов (4x25G, бонды, специфические L3-маршруты), а рассчитывает эффективную доступную полосу репликации как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
-- **Изоляция локального ISR-трафика брокеров**: межброкерная репликация Kafka (ISR) работает внутри каждого дата-центра локально по выделенным L2/L3-интерфейсам кластера (например, 2x25G) и полностью исключена из расчетов межЦОДного WAN HTB шейпинга.
-- **Динамический параллелизм и микробатчи (100G/200G/400G+)**: для потоковой репликации Kafka оркестратор рассчитывает пул потоков вычитки по адаптивной формуле $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$ с защитным потолком $\le 32$ потоков на отдельную JVM агента (защита от исчерпания сокетов и конкуренции CPU). Размер микробатчей масштабируется от 10 000 до 50 000 сообщений (с `batch.max.bytes` до 16 МБ).
-- **Алгоритм**: асинхронный Token Bucket (`LocalBandwidthLimiter`) с поддержкой burst-буфера 0.5 с.
-- **Двусторонний троттлинг**:
-  1. *Sender*: задержка при вызове `request_network_tokens()` перед отправкой каждого блока в сокет gRPC;
-  2. *Receiver*: пауза при чтении чанков в `TransferFile()`, активирующая штатное TCP Window Backpressure по HTTP/2 и притормаживающая удаленного отправителя.
-- **Видимость в UI**: отображается честный «Суммарный лимит подключенных агентов» и «Лимит процесса агента», снят искусственный потолок в 5000 МБ/с.
+Если Replicator Agent стоит на узлах Hadoop (рядом с DataNode) или на общих edge-узлах, ограничьте его полосу локально, чтобы репликация не отнимала сеть и диски у DataNode:
+
+| Параметр | По умолчанию | Что делает |
+|---|---|---|
+| `AGENT_MAX_BANDWIDTH_MB_S` / `--max-bandwidth-mb-s` (`-b`) | `0` (без ограничения) | Предел полосы одного процесса агента, МБ/с |
+
+Как лимит агента сочетается с лимитами WAN:
+- Агент передает свой лимит при регистрации и в каждом heartbeat (`configuredBandwidthMbS`). Физическую сеть хостов (4x25G, бонды, L3-маршруты) оркестратор не моделирует; доступная полоса репликации считается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
+- Межброкерная репликация Kafka (ISR) идет внутри ЦОД по выделенным интерфейсам кластера (например, 2x25G) и в расчет межЦОДного шейпинга не входит.
+- Для потоковой репликации Kafka оркестратор рассчитывает число потоков вычитки как $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$, но не больше 32 потоков на одну JVM агента: больше потоков упираются в число сокетов и конкуренцию за CPU. Размер микробатча — от 10 000 до 50 000 сообщений (`batch.max.bytes` до 16 МБ).
+- Алгоритм — асинхронный Token Bucket (`LocalBandwidthLimiter`) с burst-буфером 0,5 с.
+- Ограничение работает с двух сторон:
+  1. Sender ждет токены в `request_network_tokens()` [проверить: имя метода в Java-коде] перед отправкой каждого блока в gRPC;
+  2. Receiver делает паузу при чтении чанков в `TransferFile()`; окно TCP и flow control HTTP/2 при этом замедляют удаленного отправителя.
+- В UI показываются «Суммарный лимит подключенных агентов» и «Лимит процесса агента»; прежнего потолка отображения в 5000 МБ/с нет.
 
 ---
 
@@ -1013,29 +1029,29 @@ topology:
 
 ## 8. Переменные окружения
 
-Все ключевые параметры могут быть заданы через переменные среды операционной системы или контейнера:
+Переменные окружения сервисов (задаются в окружении процесса или контейнера):
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
 | `SPRING_CONFIG_ADDITIONAL_LOCATION` | Дополнительный путь к конфигурационному файлу Spring Boot (`application.yml`) | — |
 | `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `104857600` (100 МБ/с) |
 | `SPRING_DATASOURCE_URL` | Строка подключения JDBC к БД Оркестратора (H2/PostgreSQL) | `jdbc:h2:mem:replicator` |
-| `HADOOP_REPLICATOR_AGENT_SECRET` / `REPLICATOR_AGENT_SECRET` | Общий секретный токен аутентификации агентов репликации (`X-Agent-Secret` и gRPC context) | В dev опционален, в prod обязателен |
-| `HADOOP_REPLICATOR_ENFORCE_AGENT_SECRET` | Принудительный Fail-Closed режим проверки секрета агентов | `false` (в prod рекомендуется `true`) |
+| `HADOOP_REPLICATOR_AGENT_SECRET` / `REPLICATOR_AGENT_SECRET` | Общий секрет аутентификации агентов (`x-agent-secret` в метаданных gRPC), не короче 16 символов | Не задан; без него оркестратор не стартует при `enforce-agent-secret: true` |
+| `HADOOP_REPLICATOR_ENFORCE_AGENT_SECRET` | Запрет запуска оркестратора без секрета агентов (fail-closed) | `true` (`ReplicatorProperties`) |
 | `HADOOP_REPLICATOR_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 | `true` |
 | `HADOOP_REPLICATOR_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `false` |
 | `HADOOP_REPLICATOR_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` |
 | `HADOOP_REPLICATOR_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` |
 | `REPLICATOR_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` |
 | `REPLICATOR_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry | `false` |
-| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Блокировка регистрации неизвестных кластеров (Cluster Whitelist) | `false` |
+| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Запрет регистрации агентов в кластерах, которых нет в топологии | `true` (`application.yml`) |
 | `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-<uuid>` |
 | `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `null` |
 | `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`, `streamer`) | `all` |
 | `AGENT_ENABLE_REGISTRATION` | Включение динамической авторегистрации агента на Оркестраторе | `true` |
 | `AGENT_ADVERTISED_ADDRESS` | Сетевой gRPC адрес, анонсируемый агентом удаленным узлам | `$HOSTNAME:$RECEIVER_PORT` |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе и отправки heartbeat (секунды) | `3.0` |
-| `AGENT_MAX_BANDWIDTH_MB_S` | Локальный Token Bucket лимит скорости агента (МБ/с) для защиты DataNode/сети | `0.0` (без ограничений) |
+| `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит скорости агента (Token Bucket), МБ/с | `0.0` (без ограничений) |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
 | `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |
@@ -1146,16 +1162,16 @@ replicator:
 ```
 
 ### 9.1 Рекомендации по High-Availability в продакшне
-1. **База данных**: При `replicaCount > 1` настройте внешний PostgreSQL (`SPRING_DATASOURCE_URL: jdbc:postgresql://...`). Встроенная БД H2 предназначена для локальной разработки и демо-стендов. Пошаговое руководство см. в [docs/production-database.md](production-database.md).
-2. **PodDisruptionBudget (PDB)**: Шаблоны чартов автоматически активируют `PodDisruptionBudget` при запуске более 1 реплики (`replicaCount > 1`), предотвращая одновременный drain всех реплик узлами k8s.
-3. **NetworkPolicy**: Включена по умолчанию (`networkPolicy.enabled: true`) для изоляции сетевого взаимодействия и разрешения ingress-трафика только от Ingress-контроллера.
-4. **Мониторинг Prometheus**: Настройте сбор метрик по эндпоинту `/metrics` (порт 8000 / 8005) для мониторинга HTTP Golden Signals, состояний `CircuitBreaker`, повторов и ошибок.
+1. База данных. При `replicaCount > 1` подключите внешний PostgreSQL (`SPRING_DATASOURCE_URL: jdbc:postgresql://...`). Встроенная H2 — только для локальной разработки и демо-стендов. Порядок перехода — в [docs/production-database.md](production-database.md).
+2. PodDisruptionBudget. При `replicaCount > 1` шаблоны чартов создают `PodDisruptionBudget`, и drain узлов Kubernetes не выводит из работы все реплики сразу.
+3. NetworkPolicy. Включена по умолчанию (`networkPolicy.enabled: true`): входящий трафик к подам разрешен только от Ingress-контроллера.
+4. Мониторинг. Настройте сбор метрик с `/metrics` (порт 8000 / 8005): HTTP golden signals, состояние `CircuitBreaker`, повторы и ошибки.
 
 ---
 
 ## 10. Мониторинг Prometheus и дашборды Grafana
 
-Все сервисы платформы предоставляют единый интерфейс метрик в формате OpenMetrics / Prometheus.
+Все сервисы платформы отдают метрики в формате OpenMetrics / Prometheus.
 
 ### 10.1 Экспортируемые метрики
 
@@ -1225,36 +1241,36 @@ spec:
 
 ### 10.3 Готовые дашборды Grafana
 
-В директории [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) доступны 5 специализированных дашбордов для промышленного мониторинга:
+В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) лежат 5 дашбордов:
 
-1. **Сводный обзор платформы**: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — Golden Signals (RPS, Latency p95/p99, 5xx rate), Circuit Breaker, Retries, безопасность (Auth, Rate Limiting) и общая активность репликации.
-2. **Межкластерная репликация**: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC-воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
-3. **Файловые операции HDFS**: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, скорость загрузки/скачивания (Upload vs Download), отказы операций.
-4. **Очереди YARN**: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, запросы на изменение квот, состояние HA ResourceManager.
-5. **Аналитика Spark & SQL**: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.
+1. Сводный обзор платформы: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — Golden Signals (RPS, Latency p95/p99, 5xx rate), Circuit Breaker, Retries, безопасность (Auth, Rate Limiting) и общая активность репликации.
+2. Межкластерная репликация: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC-воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
+3. Файловые операции HDFS: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, скорость загрузки/скачивания (Upload vs Download), отказы операций.
+4. Очереди YARN: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, запросы на изменение квот, состояние HA ResourceManager.
+5. Аналитика Spark и SQL: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.
 
 #### Импорт дашбордов в Grafana
 1. В веб-интерфейсе Grafana перейдите в **Dashboards** → **New** → **Import**.
-2. Загрузите желаемый JSON-файл из каталога `monitoring/grafana/dashboards/`.
-3. Выберите ваш источник данных Prometheus и нажмите **Import**.
+2. Загрузите нужный JSON-файл из каталога `monitoring/grafana/dashboards/`.
+3. Выберите источник данных Prometheus и нажмите **Import**.
 
-Для автоматического развертывания через Grafana Provisioning скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
+Чтобы Grafana загружала дашборды при старте (provisioning), скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
 
 ### 10.4 Примеры полезных PromQL запросов
 
-- **Текущий RPS всей платформы**:
+- Текущий RPS всей платформы:
   ```promql
   sum(rate(http_requests_total[1m]))
   ```
-- **Процент ошибок 5xx**:
+- Процент ошибок 5xx:
   ```promql
   (sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m]))) * 100
   ```
-- **Задержка p95 по сервисам**:
+- Задержка p95 по сервисам:
   ```promql
   histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le, app))
   ```
-- **Алерт на срабатывание Circuit Breaker (кластер недоступен)**:
+- Алерт на срабатывание Circuit Breaker (кластер недоступен):
   ```promql
   hadoop_circuit_breaker_state == 2
   ```
@@ -1263,12 +1279,12 @@ spec:
 
 ## 11. Руководства администратора по развертыванию (DevOps Hub)
 
-Пошаговые runbook/руководства по развертыванию каждого компонента платформы в режимах **Standalone (systemd)**, **Docker / Docker Compose** и **Kubernetes (Helm)**:
+Руководства по развертыванию каждого компонента в режимах Standalone (systemd), Docker / Docker Compose и Kubernetes (Helm):
 
-- 🚀 [Единый DevOps Hub платформы (admin-guide.md)](admin-guide.md)
-- ⚙️ [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
-- 📁 [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
-- 🔍 [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
-- ⚡ [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
-- 🔄 [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
+- [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
+- [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
+- [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
+- [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
+- [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
+- [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
 

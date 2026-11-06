@@ -1,40 +1,40 @@
-# 🚀 Демонстрационные стенды Hadoop Explorer
+# Демонстрационные стенды Hadoop Explorer
 
-В данном каталоге представлены конфигурации локальных стендов в Docker Compose для демонстрации и интеграционного тестирования всех компонентов платформы:
-- **`demo/infra`** — Единый инфраструктурный стек безопасности (MIT Kerberos KDC и OpenLDAP) с преднастроенными пользователями, группами и генерацией keytab-файлов.
-- **`demo/yarn`** — Стенд YARN Explorer (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
-- **`demo/hdfs`** — Стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
-- **`demo/sql`** — Стенд SQL Web Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
-- **`demo/spark`** — Стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
-- **`demo/replicator`** — Стенд Hadoop gRPC Replicator (:8005) с межкластерной репликацией HDFS и Hive Metastore (2x HMS + 2x HDFS + 2x Агента + KDC).
-- **`demo/monitoring`** — Стек наблюдаемости (Prometheus :9090 + Grafana :3000) с преднастроенным дашбордом.
-- **`demo/all`** — Объединенный запуск всех 5 компонентов + KDC + LDAP + Prometheus + Grafana без дублирования сервисов.
+Каталог содержит локальные стенды на Docker Compose для демонстрации и интеграционного тестирования сервисов платформы:
+- `demo/infra` — общая инфраструктура безопасности: MIT Kerberos KDC и OpenLDAP с заранее созданными пользователями и группами, генерация keytab-файлов.
+- `demo/yarn` — стенд YARN Explorer (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
+- `demo/hdfs` — стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
+- `demo/sql` — стенд SQL Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
+- `demo/spark` — стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
+- `demo/replicator` — стенд Hadoop gRPC Replicator (:8005) с межкластерной репликацией HDFS и Hive Metastore (2 HMS, 2 HDFS, 2 агента, KDC).
+- `demo/monitoring` — Prometheus (:9090) и Grafana (:3000) с подключенным дашбордом.
+- `demo/all` — все 5 сервисов, KDC, LDAP, Prometheus и Grafana в одном Compose-проекте; общие контейнеры запускаются один раз.
 
 ---
 
-## ⚡ Быстрый старт
+## Запуск стендов
 
-### 1. Единый запуск всех сервисов платформы
+### Все сервисы платформы
 ```bash
 make demo-all
 # Либо cd demo/all && ./start-all-demo.sh
 ```
 
 Сервисы доступны по адресам:
-- 🎛️ **YARN Explorer**: [http://localhost:8001](http://localhost:8001)
-- 📁 **HDFS Explorer**: [http://localhost:8002](http://localhost:8002)
-- 📊 **SQL Web Explorer**: [http://localhost:8003](http://localhost:8003)
-- ⚡ **Spark Explorer**: [http://localhost:8004](http://localhost:8004)
-- 🔄 **Hadoop gRPC Replicator**: [http://localhost:8005](http://localhost:8005)
-- 📈 **Grafana Dashboard**: [http://localhost:3000](http://localhost:3000) (anonymous admin)
-- 🎯 **Prometheus UI**: [http://localhost:9090](http://localhost:9090)
+- YARN Explorer: [http://localhost:8001](http://localhost:8001)
+- HDFS Explorer: [http://localhost:8002](http://localhost:8002)
+- SQL Explorer: [http://localhost:8003](http://localhost:8003)
+- Spark Explorer: [http://localhost:8004](http://localhost:8004)
+- Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
+- Grafana: [http://localhost:3000](http://localhost:3000) (анонимный вход с ролью admin)
+- Prometheus: [http://localhost:9090](http://localhost:9090)
 
 Остановка всех сервисов:
 ```bash
 make demo-all-stop
 ```
 
-### 2. Запуск раздельных стендов
+### Отдельные стенды
 - YARN Explorer: `make demo-yarn` (остановка: `make demo-yarn-stop`)
 - HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
 - SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
@@ -44,20 +44,20 @@ make demo-all-stop
 
 ---
 
-## 🔑 Учетные записи для тестирования (LDAP / Kerberos)
+## Тестовые учетные записи (LDAP, Kerberos)
 
-Все пароли для пользователей: **`password123`**
+Пароль всех пользователей: `password123`.
 
-| Пользователь | Отображаемое имя | Роль (UI-бейдж) | Группы LDAP | Права и возможности |
+| Пользователь | Отображаемое имя | Роль (бейдж в UI) | Группы LDAP | Права |
 |---|---|---|---|---|
-| **`admin`** / **`admin_user`** | Главный Администратор | `ADMIN` (`ADM`) | `admins`, `engineers`, `analytics`, `hadoop-admins` | Полный доступ (R/W во всех HDFS кластерах, утверждение Change Requests в YARN, управление сессиями Spark, админ SQL) |
-| **`engineer`** / **`engineer_user`** / **`de_user`** | Инженер данных | `WRITER` (`RW`) | `engineers`, `data-engineers` | Чтение и запись в рабочие директории HDFS, создание заявок Change Requests в YARN, запуск расчетов в Livy Spark |
-| **`analyst`** / **`analyst_user`** / **`reader_user`** | Аналитик данных | `READER` (`RO`) | `analytics`, `analysts`, `bi-analysts` | Доступ только для чтения к данным HDFS, выполнение SELECT-запросов в SQL Explorer, мониторинг очередей YARN и статусов сессий Spark |
+| `admin` / `admin_user` | Главный Администратор | `ADMIN` (`ADM`) | `admins`, `engineers`, `analytics`, `hadoop-admins` | Полный доступ (R/W во всех HDFS кластерах, утверждение Change Requests в YARN, управление сессиями Spark, админ SQL) |
+| `engineer` / `engineer_user` / `de_user` | Инженер данных | `WRITER` (`RW`) | `engineers`, `data-engineers` | Чтение и запись в рабочие директории HDFS, создание заявок Change Requests в YARN, запуск расчетов в Livy Spark |
+| `analyst` / `analyst_user` / `reader_user` | Аналитик данных | `READER` (`RO`) | `analytics`, `analysts`, `bi-analysts` | Доступ только для чтения к данным HDFS, выполнение SELECT-запросов в SQL Explorer, мониторинг очередей YARN и статусов сессий Spark |
 
 ---
 
-## 🏛️ Инфраструктура безопасности (demo/infra)
+## Инфраструктура безопасности (`demo/infra`)
 
-- **OpenLDAP**: Порт `389` (база `dc=company,dc=local`, файл инициализации `demo/infra/ldap/bootstrap.ldif`).
-- **MIT Kerberos KDC**: Порт `88` (realm `COMPANY.LOCAL`).
-- Сервисные учетные записи и keytabs монтируются в `/etc/security/keytabs` каждого контейнера для SPNEGO аутентификации.
+- OpenLDAP: порт `389` (база `dc=company,dc=local`, файл инициализации `demo/infra/ldap/bootstrap.ldif`).
+- MIT Kerberos KDC: порт `88` (realm `COMPANY.LOCAL`).
+- Сервисные учетные записи и keytab-файлы монтируются в `/etc/security/keytabs` каждого контейнера для SPNEGO-аутентификации.

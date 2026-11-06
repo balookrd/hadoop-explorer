@@ -1,12 +1,12 @@
-# Руководство: Доставка и применение конфигурации YARN через Ansible AWX
+# Доставка и применение конфигурации YARN через Ansible AWX
 
-Этот документ описывает архитектуру, настройку и эксплуатацию модуля автоматизированной доставки и горячего применения конфигурации очередей (`capacity-scheduler.xml`) на кластеры Apache Hadoop YARN с использованием платформы **Ansible AWX / Red Hat Ansible Automation Platform**.
+Документ описывает, как YARN Explorer доставляет изменения `capacity-scheduler.xml` на кластеры Apache Hadoop YARN через Ansible AWX / Red Hat Ansible Automation Platform и применяет их командой `yarn rmadmin -refreshQueues` без перезапуска ResourceManager. Здесь же — настройка AWX, узлов ResourceManager и YARN Explorer.
 
 ---
 
-## 1. Архитектура решения
+## 1. Последовательность развертывания
 
-Схема потоков данных и компонентов при согласовании и развертывании изменений:
+Взаимодействие компонентов при развертывании согласованной заявки:
 
 ```mermaid
 sequenceDiagram
@@ -75,35 +75,38 @@ ansible/
 └── roles/
     └── yarn_capacity_scheduler/      # Роль доставки и применения
         ├── defaults/main.yml         # Переменные по умолчанию
+        ├── files/
+        │   └── apply_capacity_patch.py # Применение JSON-правок к XML
         ├── meta/main.yml             # Метаданные роли
         ├── tasks/
         │   ├── main.yml              # Главный оркестратор с блоком rescue
+        │   ├── patch.yml             # Чтение развернутого файла и применение правок
         │   ├── backup.yml            # Создание резервных копий
         │   ├── deploy.yml            # Запись файла конфигурации
         │   └── refresh.yml           # kinit и rmadmin -refreshQueues
         └── README.md
 ```
 
-### Ключевые особенности роли `yarn_capacity_scheduler`:
-1. **Правки вместо полного файла**: YARN Explorer передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
+### Поведение роли `yarn_capacity_scheduler`
+1. Правки вместо полного файла. YARN Explorer передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
    Полная замена файла по-прежнему доступна через `capacity_scheduler_xml_b64`.
-2. **Pre-flight-проверка**: Валидация структуры XML выполняется на стороне Runner перед любым изменением файлов на кластере.
-3. **Автоматический Rollback**: В случае ошибки команды `yarn rmadmin -refreshQueues` блок `rescue` автоматически возвращает файлы из резервной копии на всех серверах RM и повторно вызывает `refreshQueues`.
+2. Pre-flight-проверка. Синтаксис итогового XML проверяется на Runner до изменения файлов на кластере.
+3. Откат (rollback). Если `yarn rmadmin -refreshQueues` завершился ошибкой, блок `rescue` возвращает файл из резервной копии на всех узлах RM, повторно вызывает `refreshQueues` и завершает задачу со статусом failed.
 
 ---
 
 ## 3. Настройка в интерфейсе AWX
 
 ### Шаг 1: Создание Machine Credentials (SSH)
-1. В боковом меню перейдите в **Administration → Credentials → Add**.
-2. **Name**: `YARN RM Deployer Key`
-3. **Credential Type**: `Machine`
+1. В боковом меню откройте **Administration → Credentials → Add**.
+2. **Name**: `YARN RM Deployer Key`.
+3. **Credential Type**: `Machine`.
 4. **Username**: `deployer` (пользователь с доступом по SSH на узлы RM).
-5. **SSH Private Key**: Закрытый ключ пользователя `deployer`.
+5. **SSH Private Key**: закрытый ключ пользователя `deployer`.
 
-### Шаг 2: Создание Inventory (Инвентарь)
-1. Перейдите в **Automation Content → Inventories → Add → Add inventory**.
-2. **Name**: `Hadoop Clusters Inventory`
+### Шаг 2: Создание Inventory
+1. Откройте **Automation Content → Inventories → Add → Add inventory**.
+2. **Name**: `Hadoop Clusters Inventory`.
 3. Во вкладке **Hosts** добавьте все узлы ResourceManager кластера:
    * Хост 1: `rm1.hadoop.company.local`
      * В поле **Variables (YAML)** укажите:
@@ -115,7 +118,7 @@ ansible/
        ```yaml
        rm_id: rm2
        ```
-4. Во вкладке **Groups** создайте группу `yarn_rm` и включите в неё оба хоста.
+4. Во вкладке **Groups** создайте группу `yarn_rm` и включите в нее оба хоста.
 5. Задайте переменные группы `yarn_rm`:
    ```yaml
    hadoop_conf_dir: "/etc/hadoop/conf"
@@ -127,40 +130,40 @@ ansible/
    ```
 
 ### Шаг 3: Подключение Git-проекта (Project)
-1. Перейдите в **Automation Content → Projects → Add**.
-2. **Name**: `Hadoop Explorer Automation`
-3. **Execution Environment**: Выберите стандартный или кастомный EE (с Python 3).
-4. **Source Control Type**: `Git`
+1. Откройте **Automation Content → Projects → Add**.
+2. **Name**: `Hadoop Explorer Automation`.
+3. **Execution Environment**: стандартный или собственный EE с Python 3.9+ (нужен для `apply_capacity_patch.py`).
+4. **Source Control Type**: `Git`.
 5. **Source Control URL**: URL вашего Git-репозитория.
-6. **Branch**: `main` (или ветка релиза).
+6. **Branch**: `main` или ветка релиза.
 
 ### Шаг 4: Создание Job Template
-1. Перейдите в **Automation Execution → Templates → Add → Add job template**.
-2. **Name**: `YARN - Deploy Capacity Scheduler`
-3. **Job Type**: `Run`
-4. **Inventory**: `Hadoop Clusters Inventory`
-5. **Project**: `Hadoop Explorer Automation`
-6. **Playbook**: `ansible/playbooks/deploy_capacity_scheduler.yml`
-7. **Credentials**: `YARN RM Deployer Key`
-8. **Privilege Escalation**: Отметьте `Enable Privilege Escalation` (become: true).
-9. **Variables (Extra Variables)**:
-   > [!IMPORTANT]
-   > Обязательно отметьте чекбокс **Prompt on launch** напротив поля **Variables**. Это позволит бэкенду YARN Explorer передавать Base64-код и контекст вызова при запуске через API.
-10. Нажмите **Save**. Обратите внимание на ID созданного шаблона в адресной строке браузера (например, `/templates/job_template/101`).
+1. Откройте **Automation Execution → Templates → Add → Add job template**.
+2. **Name**: `YARN - Deploy Capacity Scheduler`.
+3. **Job Type**: `Run`.
+4. **Inventory**: `Hadoop Clusters Inventory`.
+5. **Project**: `Hadoop Explorer Automation`.
+6. **Playbook**: `ansible/playbooks/deploy_capacity_scheduler.yml`.
+7. **Credentials**: `YARN RM Deployer Key`.
+8. **Privilege Escalation**: отметьте `Enable Privilege Escalation` (become: true).
+9. **Variables (Extra Variables)**: отметьте чекбокс **Prompt on launch** напротив поля **Variables**.
+
+   **Внимание**: без **Prompt on launch** AWX отбрасывает `extra_vars`, которые передает YARN Explorer, и задача падает с ошибкой `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'` (см. раздел 7).
+10. Нажмите **Save**. Запишите ID шаблона из адресной строки браузера (например, `/templates/job_template/101`): он нужен для `default-job-template-id`.
 
 ### Шаг 5: Выпуск Application Token
-1. В профиле пользователя AWX перейдите во вкладку **Tokens → Add**.
-2. **Application**: Оставьте пустым (Personal Access Token) или выберите приложение.
-3. **Description**: `Hadoop Explorer Token`
-4. **Scope**: `Write`
-5. Скопируйте полученный токен (он показывается только один раз).
+1. В профиле пользователя AWX откройте вкладку **Tokens → Add**.
+2. **Application**: оставьте пустым (Personal Access Token) или выберите приложение.
+3. **Description**: `Hadoop Explorer Token`.
+4. **Scope**: `Write`.
+5. Скопируйте токен: AWX показывает его один раз.
 
 ---
 
 ## 4. Настройка серверов YARN ResourceManager
 
 ### 4.1 Доступ пользователя в ОС (`sudoers`)
-Пользователь `deployer` должен иметь право переключаться на пользователя `yarn` без ввода пароля:
+Разрешите пользователю `deployer` переключаться на пользователя `yarn` без пароля:
 ```bash
 # /etc/sudoers.d/deployer
 deployer ALL=(yarn) NOPASSWD: ALL
@@ -176,13 +179,13 @@ deployer ALL=(yarn) NOPASSWD: ALL
 ```
 
 ### 4.3 Kerberos Keytab
-Сервисный keytab `yarn.service.keytab` должен находиться по указанному в переменных пути (например, `/etc/security/keytabs/yarn.service.keytab`) с правами `0400` и владельцем `yarn:hadoop`.
+Положите сервисный keytab по пути из переменной `yarn_keytab` (например, `/etc/security/keytabs/yarn.service.keytab`), права `0400`, владелец `yarn:hadoop`.
 
 ---
 
-## 5. Конфигурация в Hadoop Explorer (`application.yml`)
+## 5. Конфигурация YARN Explorer (`application.yml`)
 
-В файле конфигурации бэкенда YARN Explorer (`backend/yarn/src/main/resources/application.yml`):
+Параметры AWX в конфигурации бэкенда YARN Explorer (`backend/yarn/src/main/resources/application.yml`):
 
 ```yaml
 yarn:
@@ -224,7 +227,9 @@ yarn:
 
 Статус `SUCCESS` ставится только когда AWX сообщил `successful`. Если AWX отключен (`enabled: false`) или не задан `base-url`, деплой завершается со статусом `FAILED`: изменения не применены. Раньше в этом случае возвращался имитированный успех.
 
-### Переменные окружения для производственного запуска:
+### Переменные окружения
+
+В `application.yml` параметры AWX читаются из переменных окружения:
 - `YARN_AWX_BASE_URL=https://awx.prod.company.local`
 - `YARN_AWX_TOKEN=xxxxxx`
 - `YARN_AWX_JOB_TEMPLATE_ID=101`
@@ -246,7 +251,7 @@ yarn:
 
 ### Вариант 1: Деплой согласованной заявки (Change Request)
 
-1. **Создание заявки** (роль `WRITER` или `ADMIN`):
+1. Создайте заявку (роль `WRITER` или `ADMIN`):
    ```http
    POST /api/v1/change-requests
    Content-Type: application/json
@@ -257,7 +262,7 @@ yarn:
      "changes": [ ... ]
    }
    ```
-2. **Одобрение заявки** (только роль `ADMIN`, с соблюдением принципа Four-Eyes):
+2. Согласуйте заявку (роль `ADMIN`; автор заявки согласовать ее не может — принцип четырех глаз):
    ```http
    POST /api/v1/change-requests/{cr_id}/approve
    Content-Type: application/json
@@ -266,14 +271,14 @@ yarn:
      "comment": "Одобрено на совете инфраструктуры"
    }
    ```
-   *Статус заявки переходит в `APPROVED`, генерируется финальный XML.*
+   Заявка переходит в статус `APPROVED`. Правки пересчитываются против текущего состояния кластера и сохраняются в заявке; если все изменения уже есть на кластере, сервис отвечает `409`.
 
-3. **Запуск деплоя на кластер через AWX** (только роль `ADMIN`):
+3. Запустите деплой через AWX (роль `ADMIN`):
    ```http
    POST /api/v1/change-requests/{cr_id}/deploy?wait=true
    Authorization: Bearer <ADMIN_JWT_TOKEN>
    ```
-   **Ответ (200 OK):**
+   Ответ `200 OK`:
    ```json
    {
      "cr_id": 42,
@@ -286,12 +291,10 @@ yarn:
    }
    ```
 
-4. **Проверка статуса деплоя**:
+4. Проверьте статус деплоя:
    ```http
    GET /api/v1/change-requests/{cr_id}/deploy-status
    ```
-
----
 
 ### Вариант 2: Прямой деплой XML администратором (Direct Deploy)
 
@@ -312,25 +315,25 @@ Content-Type: application/json
 
 ## 7. Устранение неполадок и диагностика
 
-1. **Ошибка `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'`**:
+1. Ошибка `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'`:
    * Проверьте, что в настройках Job Template в AWX включена опция **Prompt on launch** для поля **Variables**.
-2. **Ошибка `capacity-scheduler.xml differs between ResourceManagers`**:
+2. Ошибка `capacity-scheduler.xml differs between ResourceManagers`:
    * Файлы на RM разошлись (например, после ручной правки на одном узле). Выровняйте их вручную и повторите деплой: после статуса `FAILED` повторный запуск разрешен.
-3. **Ошибка `Cannot refresh queues: sum of child capacity != 100%`**:
-   * YARN ResourceManager отклонил конфигурацию из-за математического дисбаланса весов.
-   * Сработал встроенный в роль механизм **Rollback**: предыдущая версия файла была автоматически восстановлена из `capacity-scheduler-<timestamp>.xml`, а исходное состояние очередей не повреждено.
-4. **Ошибка `User yarn cannot run rmadmin -refreshQueues`**:
+3. Ошибка `Cannot refresh queues: sum of child capacity != 100%`:
+   * ResourceManager отклонил конфигурацию: сумма capacity дочерних очередей не равна 100%.
+   * Роль выполнила откат: предыдущая версия файла восстановлена из `capacity-scheduler-<timestamp>.xml` в `backup_dir` и применена повторным `refreshQueues`, очереди остались в прежнем состоянии.
+4. Ошибка `User yarn cannot run rmadmin -refreshQueues`:
    * Проверьте список администраторов в `yarn-site.xml` (`yarn.admin.acl`).
-5. **Таймаут ожидания в API (`HTTP 504`)**:
-   * Если кластер насчитывает сотни узлов или сеть перегружена, увеличьте параметр `timeout-seconds` в `application.yml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
+5. Таймаут ожидания в API (`HTTP 504`):
+   * Увеличьте параметр `timeout-seconds` в `application.yml` или вызывайте деплой с параметром `?wait=false` с последующим опросом через `GET /deploy-status`.
 
 ---
 
 ## 8. Связанная документация
 
-- 📖 [Руководство пользователя: YARN Queue Explorer](yarn-user-guide.md) — пользовательский интерфейс, процесс согласования Change Requests и работа с окном экспорта XML.
-- 🏛️ [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — общая системная архитектура, подсистемы безопасности и отказоустойчивости.
-- ⚙️ [Руководство по конфигурации платформы](CONFIGURATION.md) — параметры настройки секции `awx:`, переменные окружения и RBAC.
-- 🛠️ [README бэкенд-сервиса YARN Explorer](../backend/yarn/README.md) — спецификация REST API-эндпоинтов для деплоя и запуска тестов.
-- 📦 [README модуля Ansible Automation](../ansible/README.md) — структура каталога плейбуков и Ansible-ролей.
-- 🏠 [Главная страница репозитория](../README.md) — общий обзор монорепозитория Hadoop Explorer Platform.
+- [Руководство пользователя YARN Queue Explorer](yarn-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
+- [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — архитектура, подсистемы безопасности и отказоустойчивости.
+- [Руководство по конфигурации платформы](CONFIGURATION.md) — секция `awx:`, переменные окружения, RBAC.
+- [README бэкенда YARN Explorer](../backend/yarn/README.md) — REST API деплоя, запуск тестов.
+- [README каталога Ansible](../ansible/README.md) — структура плейбуков и ролей.
+- [Главная страница репозитория](../README.md) — обзор монорепозитория Hadoop Explorer Platform.

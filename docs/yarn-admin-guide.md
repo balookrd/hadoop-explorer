@@ -1,22 +1,22 @@
-# 🛠️ Руководство администратора: YARN Explorer
+# Руководство администратора YARN Explorer
 
-Это руководство для инженеров **DevOps / SRE / системных администраторов** по установке, настройке, промышленному развертыванию и эксплуатации сервиса **YARN Explorer** в трех режимах:
-1. **Standalone** (Bare-Metal / Виртуальные машины под управлением systemd)
-2. **Docker & Docker Compose** (Контейнеризированный запуск)
-3. **Kubernetes** (Промышленное развертывание через Helm-чарт и сырые манифесты)
+Руководство описывает установку, настройку и эксплуатацию YARN Explorer. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны три способа развертывания:
+1. Standalone: сервер или виртуальная машина, процесс под управлением systemd.
+2. Docker и Docker Compose.
+3. Kubernetes через Helm-чарт.
 
 ---
 
-## 1. Архитектура и требования
+## 1. Функции и требования
 
-### 1.1 Назначение сервиса
-**YARN Explorer** — компонент платформы Hadoop Explorer, обеспечивающий:
-- интерактивное визуальное управление очередями **Capacity Scheduler** (балансировка долей гарантированных и максимальных ресурсов, дочерние очереди);
-- визуальный мониторинг утилизации ресурсов кластера (vCores, RAM) и очередей в режиме реального времени;
-- автоматическое переключение при сбое (Failover в режиме RM HA) между активным и резервным узлами ResourceManager;
-- согласование изменений по процессу **Change Requests** (принцип Four-Eyes) с аудитом;
-- автоматизированную доставку и применение `capacity-scheduler.xml` на кластер через **Ansible AWX / Tower API**;
-- корпоративную аутентификацию по протоколам **LDAP / Active Directory** и **Kerberos SPNEGO SSO**.
+### 1.1 Функции сервиса
+YARN Explorer — компонент платформы Hadoop Explorer. Функции:
+- управление очередями Capacity Scheduler через веб-интерфейс: доли гарантированных и максимальных ресурсов, дочерние очереди;
+- просмотр загрузки ресурсов кластера (vCores, RAM) и очередей;
+- переключение между активным и резервным ResourceManager при отказе (RM HA);
+- согласование изменений через заявки (Change Requests) по принципу четырех глаз (Four-Eyes), с аудитом;
+- доставка и применение изменений `capacity-scheduler.xml` на кластер через Ansible AWX / Tower API;
+- аутентификация через LDAP / Active Directory и Kerberos SPNEGO SSO.
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
@@ -27,40 +27,38 @@
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Сервер каталогов корпоративной аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
-- **Диагностика доступности (Healthcheck)**: `GET /healthz` (возвращает статус базы данных и компонентов).
-- **Метрики Prometheus**: `GET /metrics` (экспорт золотых сигналов HTTP, Circuit Breaker и счетчиков).
+- Проверка доступности: `GET /healthz` (а также `GET /health`) возвращает `{"status":"ok"}`.
+- Метрики Prometheus: `GET /metrics` (HTTP-запросы, Circuit Breaker, счетчики заявок). [проверить: в `backend/yarn` и `common-security-starter` нет обработчика `/metrics` и зависимости `micrometer-registry-prometheus`]
 
 ### 1.3 Системные требования
 
-#### Для промышленной эксплуатации (Runtime — запуск готового JAR / Docker):
-- **ОС**: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12, macOS).
-- **Среда выполнения**: **Java 21 LTS JRE** (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
-- **Системные библиотеки**: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
-- **Ресурсы на реплику**: CPU: `1 ядро` (рек. `2 ядра`), RAM: `1 ГБ` (рек. `2 ГБ`), Диск: `5–10 ГБ`.
-- > [!IMPORTANT]
-  > При установке из готовых релизов утилиты Git, Apache Maven, Node.js и npm на целевых серверах **не требуются**.
+#### Запуск готового JAR или Docker-образа
+- ОС: Linux (RHEL 8/9, Rocky Linux 8/9, Ubuntu 22.04/24.04 LTS, Debian 12) или macOS.
+- Среда выполнения: Java 21 LTS JRE (Eclipse Temurin 21 JRE / `openjdk-21-jre-headless`).
+- Системные пакеты: `krb5-user` (`krb5-workstation`), `curl`, `ca-certificates`.
+- Ресурсы на реплику: CPU — 1 ядро (рекомендуется 2), RAM — 1 ГБ (рекомендуется 2 ГБ), диск — 5–10 ГБ.
 
-#### Только для сборки из исходников (Build Environment):
+Git, Apache Maven, Node.js и npm для запуска готового релиза не нужны.
+
+#### Сборка из исходников
 - JDK: `21 LTS`
 - Maven: `3.9+`
 - Node.js: `20+` / `22 LTS` и npm `10+`
 
-### 1.4 Официальные дистрибутивы (GitHub Releases & GHCR)
-- **GitHub Releases (`v${VERSION}`)**:
-  - `yarn-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR со встроенным веб-интерфейсом Svelte 5 SPA, REST API, интеграцией с AWX и драйверами БД;
-  - `SHA256SUMS.txt` — контрольные суммы SHA-256 для верификации целостности файлов.
-- **GitHub Container Registry (GHCR)**:
+### 1.4 Дистрибутивы
+- GitHub Releases (`v${VERSION}`):
+  - `yarn-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR: веб-интерфейс (Svelte 5 SPA), REST API, интеграция с AWX, драйверы БД;
+  - `SHA256SUMS.txt` — контрольные суммы SHA-256 файлов релиза.
+- GitHub Container Registry (GHCR):
   - `ghcr.io/company/hadoop-explorer/yarn:${VERSION}`
 
 ---
 
-## 2. Режим 1: Standalone (Bare-Metal / VM / systemd)
-
-Развертывание на выделенном сервере или ВМ под управлением `systemd`.
+## 2. Standalone: сервер или ВМ под systemd
 
 ### Шаг 1: Установка системных зависимостей
 
-#### Вариант для Production (Запуск из готового релиза — только JRE):
+#### Запуск из готового релиза (только JRE)
 ```bash
 # Ubuntu 22.04 / 24.04 LTS, Debian 12:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -71,7 +69,7 @@ sudo dnf install -y --setopt=install_weak_deps=False \
     java-21-openjdk-headless krb5-workstation openldap-clients curl ca-certificates
 ```
 
-#### Альтернативный вариант (Только если требуется сборка из исходников на сервере):
+#### Сборка из исходников на сервере
 ```bash
 # Ubuntu / Debian:
 sudo apt-get install -y openjdk-21-jdk maven nodejs npm git
@@ -96,11 +94,11 @@ sudo mkdir -p /etc/security/keytabs
 sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/yarn
 ```
 
-### Шаг 3: Получение артефакта (Два варианта)
+### Шаг 3: Получение JAR
 
-#### Способ А (Рекомендуемый для Production): Загрузка из GitHub Releases (No-Build)
+#### Способ А: загрузка из GitHub Releases
 
-В готовый бинарный JAR уже вшиты скомпилированный веб-интерфейс Svelte 5 SPA и все зависимости:
+Релизный JAR уже содержит собранный веб-интерфейс и все зависимости, сборка на сервере не нужна.
 
 ```bash
 sudo -u appuser -i
@@ -123,7 +121,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${VERSION}.jar" "${BIN_DIR}/yarn-explorer.jar"
 ```
 
-#### Способ Б: Сборка из исходных кодов (для разработчиков)
+#### Способ Б: сборка из исходников
 ```bash
 sudo -u appuser -i
 cd /tmp
@@ -254,7 +252,7 @@ Explorer не генерирует `capacity-scheduler.xml` целиком. Пр
 
 Заявка проверяется при создании и повторно при согласовании, уже против текущего состояния кластера. Проверяются: сумма емкостей дочерних очередей (100% для каждого раздела), существование родителя, удаление только остановленных (`STOPPED`) очередей, допустимость `ordering-policy` для листовых и родительских очередей.
 
-Установите строгие права доступа к файлу:
+Закройте файл от других пользователей: в нем могут быть пароли и токены.
 ```bash
 sudo chmod 600 /etc/hadoop-explorer/yarn/application.yml
 sudo chown appuser:appuser /etc/hadoop-explorer/yarn/application.yml
@@ -309,9 +307,9 @@ curl -I http://127.0.0.1:8000/healthz
 journalctl -u yarn-explorer -f
 ```
 
-### Шаг 7: Бесшовное обновление версий (Rolling Upgrade)
+### Шаг 7: Обновление версии
 
-При выходе новой версии на GitHub Releases:
+Скачайте новый релиз, проверьте контрольную сумму, переключите символическую ссылку и перезапустите сервис. На время перезапуска единственный экземпляр сервиса недоступен.
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
@@ -331,10 +329,10 @@ sudo systemctl restart yarn-explorer
 
 ---
 
-## 3. Режим 2: Docker & Docker Compose
+## 3. Docker и Docker Compose
 
-### 3.1 Запуск из предсобранного образа GHCR (Рекомендуется)
-Готовые образы публикуются в GitHub Container Registry (`ghcr.io`):
+### 3.1 Загрузка образа из GHCR
+Образы публикуются в GitHub Container Registry (`ghcr.io`):
 ```bash
 # Авторизация (при необходимости):
 echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-stdin
@@ -344,12 +342,12 @@ VERSION="1.0.0"
 docker pull ghcr.io/company/hadoop-explorer/yarn:${VERSION}
 ```
 
-### 3.2 Альтернатива: Локальная сборка Docker-образа (для разработки)
+### 3.2 Локальная сборка образа
 ```bash
 docker build -t ghcr.io/company/hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
 ```
 
-### 3.3 Автономный запуск одного контейнера (`docker run`)
+### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
   --name yarn-explorer \
@@ -364,8 +362,10 @@ docker run -d \
   ghcr.io/company/hadoop-explorer/yarn:1.0.0
 ```
 
-### 3.4 Промышленный запуск через `docker-compose.yml`
-Создайте директорию `/opt/yarn-docker/` со следующим `docker-compose.yml`:
+### 3.4 Запуск через Docker Compose
+Создайте каталог `/opt/yarn-docker/` и в нем файл `docker-compose.yml`:
+
+[проверить: переменные `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` не читаются сервисом — в `backend/yarn/src/main/resources/application.yml` используются `LDAP_MANAGER_PASSWORD`, `JWT_SECRET_KEY`, `YARN_AWX_TOKEN`]
 ```yaml
 version: "3.8"
 
@@ -414,14 +414,14 @@ networks:
     driver: bridge
 ```
 
-Файл окружения `.env`:
+Создайте рядом файл `.env`:
 ```bash
 JWT_SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
 LDAP_BIND_PASSWORD=SuperSecretLdapPass
 AWX_TOKEN=VeryLongSecretAwxOAuthToken
 ```
 
-Запуск и мониторинг:
+Запустите сервис и проверьте состояние:
 ```bash
 docker compose up -d
 docker compose ps
@@ -430,10 +430,10 @@ docker compose logs -f yarn-explorer
 
 ---
 
-## 4. Режим 3: Kubernetes (Helm & Raw Manifests)
+## 4. Kubernetes (Helm)
 
-### 4.1 Развертывание через официальный Helm-чарт
-В репозитории подготовлен чарт [`helm/charts/yarn-explorer`](../helm/charts/yarn-explorer).
+### 4.1 Развертывание Helm-чартом
+Чарт лежит в [`helm/charts/yarn-explorer`](../helm/charts/yarn-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
 ```bash
@@ -465,6 +465,9 @@ kubectl create configmap krb5-config \
 ```
 
 #### Шаг 2: Файл параметров `custom-values.yaml`
+
+[проверить: шаблоны чарта не используют `extraVolumes` и `extraVolumeMounts`; keytab и `krb5.conf` чарт монтирует через параметры `kerberos.*` (см. [README чарта](../helm/charts/yarn-explorer/README.md))]
+
 ```yaml
 # Количество реплик. При внешней БД PostgreSQL можно масштабировать до 2–5 реплик.
 replicaCount: 2
@@ -578,17 +581,17 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ---
 
-## 5. Мониторинг, Аудит и Troubleshooting
+## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus
-Эндпоинт `/metrics` экспортирует следующие метрики:
+Эндпоинт `/metrics` экспортирует метрики [проверить: имена метрик не найдены в коде `backend/yarn` и `common-security-starter`]:
 - `http_requests_total{app="yarn", method="GET", status="200"}`
 - `http_request_duration_seconds{app="yarn", ...}`
 - `hadoop_circuit_breaker_state{name="yarn_rm"}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
 - `hadoop_circuit_breaker_calls_total{name="yarn_rm", status="success|failed"}`
 - `yarn_change_requests_total{status="pending|approved|rejected|applied"}`
 
-**Пример Prometheus Scrape Config**:
+Пример scrape-конфигурации Prometheus:
 ```yaml
 - job_name: 'yarn-explorer'
   metrics_path: '/metrics'
@@ -596,22 +599,22 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
     - targets: ['yarn.company.local:8000']
 ```
 
-### 5.2 Решение типичных инцидентов (FAQ)
+### 5.2 Типичные ошибки
 
-| Симптом / Ошибка | Возможная причина | Решение |
+| Симптом или ошибка | Причина | Что сделать |
 |---|---|---|
 | `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверьте состояние RM HA: сервис автоматически переключится на standby-узел. Проверьте список `resource-manager-urls` в конфигурационном файле `application.yml`. |
 | `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверьте права доступа к keytab (`chmod 400`), корректность `principal` и наличие файла keytab, а также проверьте получение тикета командой `kinit -kt /path/to.keytab principal@REALM`. |
 | `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверьте пароль сервисной учетной записи (параметр `bind-password`) через `ldapsearch -H ldaps://... -D "..." -W`. |
-| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | При масштабировании на 2+ реплики обязательно переключите `spring.datasource.url` на промышленный **PostgreSQL**. |
+| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | При 2 и более репликах переключите `spring.datasource.url` на PostgreSQL. |
 | `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
 
 ---
 
-## 6. Резервное копирование и восстановление (Disaster Recovery)
+## 6. Резервное копирование и восстановление
 
-- **Конфигурация**: Рекомендуется хранить все `values.yaml` и `application.yml` в Git-репозитории инфраструктуры (GitOps / ArgoCD / Flux).
-- **База данных PostgreSQL**:
+- Конфигурация: храните `values.yaml` и `application.yml` в Git-репозитории инфраструктуры (GitOps: ArgoCD, Flux).
+- База данных PostgreSQL:
   ```bash
   # Создание резервной копии
   pg_dump -h pg-host -U yarn_user yarn_explorer > yarn_explorer_backup_$(date +%F).sql
@@ -619,7 +622,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
   # Восстановление
   psql -h pg-host -U yarn_user yarn_explorer < yarn_explorer_backup_2026-10-08.sql
   ```
-- **Локальная embedded H2 (Standalone)**:
+- Встроенная H2 (Standalone):
   ```bash
   # Создание копии файла базы данных
   cp /var/lib/hadoop-explorer/yarn/data/yarn_explorer.mv.db /backup/yarn_explorer_$(date +%F).mv.db
@@ -627,16 +630,16 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ---
 
-## 7. Развертывание и эксплуатация бэкенда на Java 21 / Spring Boot 3
+## 7. Сборка и запуск бэкенда из исходников
 
-Бэкенд **YARN Explorer полностью функционирует на высокопроизводительном нативном стеке Java 21 LTS и Spring Boot 3.3.4** (`backend/yarn`), используя официальные библиотеки Apache Hadoop YARN Client (`org.apache.hadoop:hadoop-yarn-client`).
+Бэкенд (`backend/yarn`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует клиентские библиотеки Apache Hadoop YARN (`org.apache.hadoop:hadoop-yarn-client`).
 
-### 7.1 Преимущества реализации на Java 21
-1. **Нативный YARN Client и RM HA Failover**: прямое подключение к REST API активного ResourceManager с автоматическим обнаружением и переключением на standby-узел при сбоях (`haState == "ACTIVE"`).
-2. **Capacity Scheduler Engine**: встроенная валидация веток и правило 100%-й емкости, глубокий расчет diff для долей ресурсов и node labels, генерация и XXE-защищенная санитизация XML (`capacity-scheduler.xml`).
-3. **Change Requests & Four-Eyes Principle**: встроенный жизненный цикл согласования изменений с запретом самосогласования заявок автором (HTTP 403 Forbidden).
-4. **Интеграция с Ansible AWX**: автоматический триггер Job Template через REST API для Zero-Downtime обновления очередей (`yarn rmadmin -refreshQueues`).
-5. **Общее ядро безопасности `common-security-starter`**: единая модель аутентификации (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter и AOP-аудит `@Audited`.
+### 7.1 Состав бэкенда
+1. Клиент ResourceManager и RM HA failover: запросы идут в REST API активного ResourceManager; активный узел определяется по `haState == "ACTIVE"`, при его отказе сервис переключается на standby-узел.
+2. Capacity Scheduler Engine: валидация веток (правило 100% емкости), расчет diff по долям ресурсов и node labels, формирование правок `capacity-scheduler.xml`; XML разбирается с запретом DOCTYPE (защита от XXE).
+3. Change Requests и принцип четырех глаз: жизненный цикл согласования; попытка автора согласовать свою заявку получает HTTP 403 Forbidden.
+4. Интеграция с Ansible AWX: запуск Job Template через REST API AWX; очереди обновляются командой `yarn rmadmin -refreshQueues` без перезапуска RM.
+5. Общий модуль безопасности `common-security-starter`: аутентификация (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter, AOP-аудит `@Audited`.
 
 ### 7.2 Сборка и тестирование
 
@@ -654,7 +657,7 @@ make build-yarn
 make test-java
 ```
 
-### 7.3 Промышленный запуск
+### 7.3 Запуск с параметрами в командной строке
 
 ```bash
 java -jar -Dspring.profiles.active=prod \

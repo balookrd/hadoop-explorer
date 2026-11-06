@@ -1,10 +1,8 @@
 # YARN Queue Explorer API (Java 21 / Spring Boot 3)
 
-Высокопроизводительный сервис **YARN Queue Explorer API**, реализованный на **Java 21 LTS** и **Spring Boot 3.3.4**, предназначенный для управления очередями Capacity Scheduler, мониторинга метрик YARN ResourceManager, поддержки высокой доступности (RM HA failover) и безопасного согласования и развертывания конфигураций очередей через Ansible AWX.
+Бэкенд YARN Queue Explorer на Java 21 LTS и Spring Boot 3.3.4. Сервис читает очереди Capacity Scheduler и метрики с YARN ResourceManager (с учетом RM HA), проводит изменения очередей через заявки с согласованием и развертывает их на RM через Ansible AWX.
 
----
-
-## 🏛 Архитектура компонентов
+## Структура модуля
 
 ```
 backend/yarn/
@@ -17,36 +15,32 @@ backend/yarn/
 └── README.md                 # Документация модуля
 ```
 
----
+## Функции сервиса
 
-## 🌟 Ключевые возможности
-
-1. **Capacity Scheduler Engine**:
-   - Валидация правил Capacity Scheduler: гарантированное соблюдение правила 100% для суммы мощностей дочерних очередей на каждом уровне иерархии (с поддержкой разделов/партиций и Node Labels).
+1. Capacity Scheduler Engine:
+   - Валидация правил Capacity Scheduler: на каждом уровне иерархии сумма capacity дочерних очередей должна быть равна 100%, отдельно для каждого раздела (Node Labels).
    - Расчет детального diff между live-конфигурацией и черновиком изменений (`created`, `modified`, `deleted`, `unchanged`, дельты capacity, max-capacity, RAM и vCores).
-   - Генерация и форматирование XML (`capacity-scheduler.xml`) с сохранением всех неуправляемых настроек, комментариев и аудит-метаданных.
+   - Формирование перечня правок `capacity-scheduler.xml` в виде XML (`generate-xml`, `preview-xml`). ResourceManager не отдает развернутый файл по REST, поэтому сервис описывает только свойства, которые меняет черновик, а не файл целиком.
 
-2. **ResourceManager HA Failover & Клиенты**:
+2. Клиенты ResourceManager и HA failover:
    - Поддержка активного/резервного RM (`GET /ws/v1/cluster/info` с определением `haState == "ACTIVE"`).
-   - SPNEGO/Kerberos-аутентификация и безопасная имперсонация (`doAs`).
-   - Mock-режим (`MockYarnClient`) для автономного тестирования и локальной разработки без подключения к живому кластеру Hadoop.
+   - SPNEGO/Kerberos-аутентификация и имперсонация пользователя (`doAs`).
+   - Mock-режим (`MockYarnClient`) для тестов и локальной разработки без кластера Hadoop.
 
-3. **Жизненный цикл Change Requests & Four-Eyes Principle**:
+3. Жизненный цикл Change Requests и принцип четырех глаз:
    - Полный цикл управления заявками на изменение конфигурации очередей (`SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED`).
-   - Принцип разделения обязанностей (**Four-Eyes Principle**): создатель заявки не может самостоятельно согласовать свой запрос; требуется проверка (ревью) независимым администратором кластера.
-   - Предпросмотр сгенерированного XML перед развертыванием.
+   - Принцип разделения обязанностей (Four-Eyes Principle): автор заявки не может согласовать ее сам, заявку согласует другой администратор кластера.
+   - Предпросмотр перечня правок перед развертыванием.
 
-4. **Интеграция с Ansible AWX**:
-   - Запуск шаблонов Job Template в AWX для развертывания `capacity-scheduler.xml` на узлы ResourceManager и вызова `yarn rmadmin -refreshQueues`.
-   - Поддержка ожидания завершения задачи (polling) и логирование результатов выполнения в аудит.
+4. Интеграция с Ansible AWX:
+   - Запуск Job Template в AWX, который раскладывает `capacity-scheduler.xml` на узлы ResourceManager и вызывает `yarn rmadmin -refreshQueues`. Для согласованной заявки сервис передает роли список правок (`capacity_scheduler_patch_b64`), для `deploy-xml` — файл целиком (`capacity_scheduler_xml_b64`).
+   - Ожидание завершения задачи (polling) и запись результата в аудит.
 
-5. **Безопасность платформы**:
-   - Интеграция со стартером `common-security-starter`: JWT-токены, cookie-аутентификация, RBAC (READER, WRITER, ADMIN), ролевой маппинг пользователей и групп по кластерам, аудит-логирование ключевых операций (`@Audited`).
+5. Безопасность:
+   - Интеграция со стартером `common-security-starter`: JWT-токены, cookie-аутентификация, RBAC (READER, WRITER, ADMIN), ролевой маппинг пользователей и групп по кластерам, аудит-логирование операций, помеченных `@Audited`.
    - Защита от CSRF, Bucket4j Rate Limiting, защита вызовов RM через `SimpleCircuitBreaker`.
 
----
-
-## 🚀 Сборка и запуск
+## Сборка и запуск
 
 ### Требования
 - JDK 21 LTS (`JAVA_HOME=/opt/homebrew/opt/openjdk` или системный JDK 21)
@@ -73,11 +67,9 @@ JWT_SECRET_KEY=... java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar \
   --spring.config.additional-location=file:/etc/hadoop-explorer/yarn/application.yml
 ```
 
-Сервис запустится на порту `8000` (стандартный порт YARN Explorer API).
+Сервис слушает порт `8000` (`server.port` в `application.yml`).
 
----
-
-## 📡 REST API Контракты
+## REST API
 
 | Метод | URI | Описание | Доступ |
 |---|---|---|---|
@@ -91,13 +83,13 @@ JWT_SECRET_KEY=... java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar \
 | `GET` | `/api/v1/clusters/{id}/queues` | Дерево очередей Capacity Scheduler, метрики и баланс | Аутентифицирован |
 | `POST`| `/api/v1/clusters/{id}/validate` | Валидация черновика дерева очередей (правило 100%) | WRITER / ADMIN |
 | `POST`| `/api/v1/clusters/{id}/diff` | Расчет diff изменений между live и draft | WRITER / ADMIN |
-| `POST`| `/api/v1/clusters/{id}/generate-xml` | Генерация XML-конфигурации для ручного применения | ADMIN кластера |
-| `POST`| `/api/v1/clusters/{id}/deploy-xml` | Прямой деплой произвольного XML через AWX | ADMIN кластера |
+| `POST`| `/api/v1/clusters/{id}/generate-xml` | Перечень правок `capacity-scheduler.xml` для ручного применения | ADMIN кластера |
+| `POST`| `/api/v1/clusters/{id}/deploy-xml` | Полная замена `capacity-scheduler.xml` через AWX (аварийный путь, без согласования) | ADMIN кластера |
 | `GET` | `/api/v1/change-requests` | Список заявок на изменение (фильтр по cluster_id, status) | Аутентифицирован |
 | `GET` | `/api/v1/change-requests/pending-count` | Количество заявок на согласовании (pending) | Аутентифицирован |
 | `POST`| `/api/v1/change-requests` | Создание новой заявки на согласование очередей | WRITER / ADMIN |
 | `GET` | `/api/v1/change-requests/{id}` | Детали заявки с diff изменений | Аутентифицирован |
-| `GET` | `/api/v1/change-requests/{id}/preview-xml` (`/xml`) | Предпросмотр XML-конфигурации заявки | Аутентифицирован |
+| `GET` | `/api/v1/change-requests/{id}/preview-xml` (`/xml`) | Перечень правок заявки в виде XML | Аутентифицирован |
 | `POST`| `/api/v1/change-requests/{id}/approve` | Согласование заявки (Four-Eyes Principle) | ADMIN кластера |
 | `POST`| `/api/v1/change-requests/{id}/reject` | Отклонение заявки с указанием причины | ADMIN кластера |
 | `POST`| `/api/v1/change-requests/{id}/cancel` | Отзыв заявки автором или администратором | Автор / ADMIN |

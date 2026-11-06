@@ -1,25 +1,23 @@
 # Демонстрационный стенд SQL Web Explorer
 
-В данной папке находятся конфигурации и скрипты полностью автономного демонстрационного стенда в Docker Compose с поддержкой **MIT Kerberos KDC**, **OpenLDAP**, **Apache Hive 4.0.0 (HiveServer2 + Metastore)**, **Trino Coordinator** и веб-интерфейса **SQL Web Explorer**.
+Конфигурации и скрипты демонстрационного стенда в Docker Compose: MIT Kerberos KDC, OpenLDAP, Apache Hive 4.0.0 (HiveServer2 + Metastore), Trino Coordinator и веб-интерфейс SQL Web Explorer. Внешние сервисы стенду не нужны.
 
-## 🚀 Быстрый запуск и остановка
+## Запуск и остановка
 
 - Запуск стенда:
   ```bash
   ./start-demo.sh
   ```
-  *(или `docker compose up -d`)*
+  (или `docker compose up -d`)
 
 - Остановка стенда:
   ```bash
   ./stop-demo.sh
   ```
-  *(или `docker compose down -v`)*
+  (или `docker compose down -v`)
 
-После запуска веб-интерфейс доступен по адресу:
-👉 **http://localhost:8003**
+После запуска веб-интерфейс доступен по адресу http://localhost:8003.
 
 ---
 
-📖 **Полная документация со сценариями демонстрации, учетными записями и архитектурой**:
-👉 **[README.md](../README.md)**
+Сценарии демонстрации, учетные записи и архитектура стенда описаны в [README.md](../README.md).

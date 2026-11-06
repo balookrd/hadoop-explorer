@@ -1,35 +1,35 @@
-# 📈 Стек мониторинга и наблюдаемости платформы (demo/monitoring)
+# Стек мониторинга платформы (demo/monitoring)
 
-Конфигурация демонстрационного стека наблюдаемости (Observability) на базе **Prometheus 2.50** и **Grafana 10.4**, обеспечивающая мониторинг метрик Golden Signals, очередей YARN, файловых операций HDFS, выполнения SQL/Spark запросов и межкластерной репликации Hadoop gRPC Replicator (HDFS, HMS, Kafka).
+Демонстрационный стек Prometheus 2.50 и Grafana 10.4. Собирает HTTP golden signals, метрики очередей YARN, файловых операций HDFS, SQL- и Spark-запросов и межкластерной репликации Hadoop gRPC Replicator (HDFS, HMS, Kafka).
 
 ---
 
-## 🏛️ Компоненты стека
+## Сервисы стека
 
-| Сервис | Порт | Версия / Образ | Описание и назначение | URL интерфейса |
+| Сервис | Порт | Образ | Назначение | URL интерфейса |
 |---|---|---|---|---|
-| **`Prometheus`** | `9090` | `prom/prometheus:v2.50.0` | Сервер сбора временных рядов (TSDB), парсинг эндпоинтов `/metrics`, вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
-| **`Grafana`** | `3000` | `grafana/grafana:10.4.0` | Визуализация дашбордов с автопровижинингом (anonymous admin, folder `Hadoop Explorer`) | [http://localhost:3000](http://localhost:3000) |
+| Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов (TSDB) с эндпоинтов `/metrics`, вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
+| Grafana | `3000` | `grafana/grafana:10.4.0` | Дашборды с автопровижинингом (анонимный вход с ролью admin, папка `Hadoop Explorer`) | [http://localhost:3000](http://localhost:3000) |
 
 ---
 
-## ⚡ Быстрый старт
+## Запуск и проверка
 
-### Запуск стека мониторинга:
+### Запуск стека
 ```bash
 make demo-monitoring
 # Либо напрямую из каталога:
 cd demo/monitoring && ./start-monitoring.sh
 ```
 
-### Остановка стека:
+### Остановка стека
 ```bash
 make demo-monitoring-stop
 # Либо:
 cd demo/monitoring && ./stop-monitoring.sh
 ```
 
-### Сквозная Live Smoke проверка:
+### Smoke-проверка работающего стека
 ```bash
 make demo-monitoring-smoke
 # Либо:
@@ -37,55 +37,55 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 ```
 
 Скрипт проверяет:
-- Готовность Prometheus Server (`/-/healthy`, `/-/ready`).
-- Корректность конфигурации скрейпинга (`hadoop-explorer`, `hadoop-replicator`).
-- Загрузку правил алертов и исполнение тестовых PromQL-запросов.
-- Здоровье Grafana API (`/api/health`).
-- Сетевой пинг Grafana к датасорсу Prometheus (`/api/datasources/uid/prometheus/health`).
-- Загрузку и доступность всех 8 предустановленных дашбордов.
+- Готовность Prometheus (`/-/healthy`, `/-/ready`).
+- Конфигурацию скрейпинга (`hadoop-explorer`, `hadoop-replicator`).
+- Загрузку правил алертов и выполнение тестовых PromQL-запросов.
+- Доступность Grafana API (`/api/health`).
+- Доступность источника данных Prometheus из Grafana (`/api/datasources/uid/prometheus/health`).
+- Наличие всех 8 дашбордов.
 
 ---
 
-## 📊 Предустановленные дашборды Grafana
+## Дашборды Grafana
 
-Все дашборды автоматически монтируются из `monitoring/grafana/dashboards` в папку `Hadoop Explorer`:
+Дашборды монтируются из `monitoring/grafana/dashboards` в папку `Hadoop Explorer`:
 
-1. **`hadoop-explorer-overview`** — *Сводный обзор платформы & Golden Signals*:
-   - Общая доступность сервисов платформы (YARN, HDFS, SQL, Spark, Replicator).
+1. `hadoop-explorer-overview` — сводка по платформе и golden signals:
+   - Доступность сервисов платформы (YARN, HDFS, SQL, Spark, Replicator).
    - Скорость запросов (RPS), p95-задержки и процент 5xx ошибок.
-   - Статус автоматов защиты Circuit Breaker и Rate Limiter.
-2. **`hadoop-replicator-overview`** — *Межкластерная репликация и шейпинг полосы*:
+   - Состояние circuit breaker и rate limiter.
+2. `hadoop-replicator-overview` — межкластерная репликация и шейпинг полосы:
    - Скорость репликации данных (MB/s), задержки троттлинга Token Bucket.
    - Статусы пакетных и потоковых задач HDFS.
-3. **`hadoop-replicator-kafka`** — *Потоковая репликация Kafka*:
+3. `hadoop-replicator-kafka` — потоковая репликация Kafka:
    - Сквозной лаг передачи (Lag ms), скорость сообщений и байт.
    - Статусы задач (ACTIVE/PAUSED), выделенные лимиты WAN.
-4. **`hadoop-replicator-hms-dr`** — *Hive Metastore DR Синхронизация*:
+4. `hadoop-replicator-hms-dr` — DR-синхронизация Hive Metastore:
    - Прогресс Bootstrap-синхронизации таблиц и партиций.
-   - Статус изоляции кластеров (Fencing), аварийный рубильник (Kill-Switch).
-5. **`hadoop-replicator-agents`** — *gRPC Агенты и воркеры передачи данных*:
-   - Онлайн-статус флота воркеров (Primary DC1, DR DC2).
-   - Гистограмма задержек передачи gRPC чанков (SLA бакеты 1 мс - 5 с).
+   - Статус изоляции кластеров (fencing) и аварийной остановки (kill switch).
+5. `hadoop-replicator-agents` — gRPC-агенты и воркеры передачи данных:
+   - Онлайн-статус воркеров (основной DC1, резервный DC2).
+   - Гистограмма задержек передачи gRPC чанков (SLA-бакеты 1 мс – 5 с).
    - Объем staging-буферов и очистка временных файлов.
-6. **`hdfs-explorer-operations`** — *Файловые операции WebHDFS*:
+6. `hdfs-explorer-operations` — файловые операции WebHDFS:
    - Операции чтения, записи, удаления и листинга в разрезе кластеров.
-   - Ошибки I/O и латентность взаимодействия с NameNode/DataNode.
-7. **`yarn_explorer_queues`** — *Очереди YARN Capacity Scheduler*:
-   - Утилизация памяти (MB) и vCores по очередям и пулам.
+   - Ошибки ввода-вывода и задержки запросов к NameNode и DataNode.
+7. `yarn_explorer_queues` — очереди YARN Capacity Scheduler:
+   - Использование памяти (MB) и vCores по очередям и пулам.
    - Количество запущенных и ожидающих приложений (Pending/Running Apps).
-8. **`spark_sql_explorer_analytics`** — *Интерактивная аналитика Spark & SQL*:
+8. `spark_sql_explorer_analytics` — интерактивная аналитика Spark и SQL:
    - Активные Livy-сессии, потребление ресурсов исполнителями Spark.
    - Запросы к Hive Metastore, Trino и HiveServer2.
 
 ---
 
-## 🚨 Правила алертов Prometheus
+## Правила алертов Prometheus
 
-Правила определены в [alert.rules.yml](file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/demo/monitoring/prometheus/alert.rules.yml):
-- `HadoopCircuitBreakerOpen` — автомат защиты разомкнут более 30 секунд.
-- `HadoopCircuitBreakerHalfOpen` — автомат защиты в пробном режиме восстановления.
+Правила определены в [`prometheus/alert.rules.yml`](prometheus/alert.rules.yml):
+- `HadoopCircuitBreakerOpen` — circuit breaker в состоянии OPEN дольше 30 секунд.
+- `HadoopCircuitBreakerHalfOpen` — circuit breaker в состоянии HALF_OPEN (пробные вызовы).
 - `HadoopHigh5xxErrorRate` — более 5% запросов завершаются ошибками 5xx.
 - `HadoopHighApiLatency` — 95-й перцентиль задержки превышает 2 секунды.
 - `HadoopRateLimitSpike` — более 10 отказов в секунду по лимитам запросов.
 - `HdfsOperationsHighFailureRate` — более 10% операций с файлами HDFS завершаются ошибками.
-- `ReplicationHighThrottlingDelay` — высокая задержка из-за жестких лимитов Token Bucket.
+- `ReplicationHighThrottlingDelay` — суммарная задержка троттлинга Token Bucket растет быстрее 5 секунд в секунду (`rate(throttling_delay_seconds_total[2m]) > 5`) в течение 2 минут.
