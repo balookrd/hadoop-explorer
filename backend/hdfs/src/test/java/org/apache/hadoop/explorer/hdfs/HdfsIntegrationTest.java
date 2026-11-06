@@ -24,6 +24,16 @@ class HdfsIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    void probeEndpointsUsedByHelmChartAreServedWithoutAuth() throws Exception {
+        // helm/charts/*-explorer/values.yaml: livenessProbe -> /healthz, readinessProbe -> /actuator/health/readiness
+        mockMvc.perform(get("/healthz"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("UP")));
+    }
+
+    @Test
     void fullHdfsWorkflowTest() throws Exception {
         // 1. Проверка Health
         mockMvc.perform(get("/health"))

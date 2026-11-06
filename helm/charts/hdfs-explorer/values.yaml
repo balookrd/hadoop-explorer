@@ -74,9 +74,12 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 10
 
+# Spring Boot readiness group (management.endpoint.health.probes.enabled in the service's
+# application.yml): UP after ApplicationReadyEvent, OUT_OF_SERVICE (HTTP 503) once the
+# application context starts closing.
 readinessProbe:
   httpGet:
-    path: /readyz
+    path: /actuator/health/readiness
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 5

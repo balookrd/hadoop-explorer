@@ -120,3 +120,11 @@ yarn:
           reader:
             users: ["*"]
             groups: ["*"]
+
+# Same as src/main/resources/application.yml: this file replaces the packaged config in
+# tests, so the probe groups must be enabled here too for the Helm probe test.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true

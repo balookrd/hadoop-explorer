@@ -6,8 +6,13 @@ metadata:
     {{- include "spark-explorer.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
-  {{- $dbUrl := .Values.config.database.url | default "" -}}
-  {{- if and (or (hasPrefix "sqlite" $dbUrl) (eq $dbUrl "")) (gt (.Values.replicaCount | int) 1) }}
+  {{- /* A file-backed database (SQLite, embedded H2) cannot be shared by several pods.
+         The "jdbc:" prefix is stripped so that jdbc:sqlite:... and jdbc:h2:file:... URLs
+         (docs/CONFIGURATION.md, docs/production-database.md) are caught as well;
+         H2 in server mode (jdbc:h2:tcp://, jdbc:h2:ssl://) is shared and is not limited. */ -}}
+  {{- $dbUrl := .Values.config.database.url | default "" | lower | trimPrefix "jdbc:" -}}
+  {{- $h2Embedded := and (hasPrefix "h2:" $dbUrl) (not (hasPrefix "h2:tcp:" $dbUrl)) (not (hasPrefix "h2:ssl:" $dbUrl)) -}}
+  {{- if and (or (eq $dbUrl "") (hasPrefix "sqlite" $dbUrl) $h2Embedded) (gt (.Values.replicaCount | int) 1) }}
   replicas: 1
   {{- else }}
   replicas: {{ .Values.replicaCount }}
@@ -42,7 +47,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8000
+              containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
             - name: CONFIG_PATH

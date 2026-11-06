@@ -34,7 +34,10 @@ securityContext:
 service:
   type: ClusterIP
   port: 80
-  targetPort: 8000
+  # Port the application listens on: SERVER_PORT=8003 in docker/Dockerfile.sql-java and
+  # server.port in backend/sql/src/main/resources/application.yml. Also used as the
+  # containerPort and as the NetworkPolicy ingress port.
+  targetPort: 8003
 
 ingress:
   enabled: true
@@ -69,16 +72,19 @@ resources:
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8000
+    port: http
   initialDelaySeconds: 15
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 3
 
+# Spring Boot readiness group (management.endpoint.health.probes.enabled in the service's
+# application.yml): UP after ApplicationReadyEvent, OUT_OF_SERVICE (HTTP 503) once the
+# application context starts closing.
 readinessProbe:
   httpGet:
-    path: /readyz
-    port: 8000
+    path: /actuator/health/readiness
+    port: http
   initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
@@ -102,7 +108,7 @@ persistence:
 config:
   server:
     host: "0.0.0.0"
-    port: 8000
+    port: 8003
     debug: false
     cors_origins:
       - "https://sql-explorer.example.com"

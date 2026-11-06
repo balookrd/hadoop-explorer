@@ -59,6 +59,16 @@ class YarnIntegrationTest {
     }
 
     @Test
+    void probeEndpointsUsedByHelmChartAreServedWithoutAuth() throws Exception {
+        // helm/charts/*-explorer/values.yaml: livenessProbe -> /healthz, readinessProbe -> /actuator/health/readiness
+        mockMvc.perform(get("/healthz"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("UP")));
+    }
+
+    @Test
     @DisplayName("Получение списка кластеров и очередей")
     void testClustersAndQueues() throws Exception {
         String token = loginAndGetToken("reader_user", "password123");

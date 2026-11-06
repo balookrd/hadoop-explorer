@@ -101,3 +101,14 @@ spark:
           executor-memory: "4g"
           executor-cores: 2
           num-executors: 2
+
+# Kubernetes probes. Spring Boot enables the liveness/readiness health groups on its own
+# only when it detects Kubernetes (KUBERNETES_SERVICE_HOST); enabling them explicitly keeps
+# /actuator/health/readiness available everywhere, including local runs and tests. Readiness
+# is OUT_OF_SERVICE (HTTP 503) until ApplicationReadyEvent and again once the application
+# context starts closing.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
