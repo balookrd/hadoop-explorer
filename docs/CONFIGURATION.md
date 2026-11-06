@@ -13,7 +13,7 @@
 
 ## Содержание
 1. [Общие принципы и приоритеты конфигурации](#1-общие-принципы-и-приоритеты-конфигурации)
-2. [Общая конфигурация (backend/common)](#2-общая-конфигурация-backendcommon)
+2. [Общий стартер безопасности (common-security-starter)](#2-общий-стартер-безопасности-common-security-starter)
    - [Сервер и безопасность (CORS, CSRF, Cookies, JWT)](#21-сервер-и-безопасность-cors-csrf-cookies-jwt)
    - [Аутентификация: LDAPS / Active Directory](#22-аутентификация-ldaps--active-directory)
    - [Аутентификация: Kerberos SPNEGO SSO](#23-аутентификация-kerberos-spnego-sso)
@@ -57,10 +57,12 @@
 
 ## 1. Общие принципы и приоритеты конфигурации
 
-Каждый бэкенд-сервис загружает конфигурацию по следующей цепочке приоритетов:
-1. Переменные окружения (наивысший приоритет — переопределяют значения из YAML для секретов и путей).
-2. Файл конфигурации YAML, заданный через переменную `CONFIG_PATH` или `YARN_CONFIG_PATH` / `HDFS_CONFIG_PATH` / `SQL_CONFIG_PATH` / `SPARK_CONFIG_PATH`.
-3. Локальный файл по умолчанию: `config/config.yaml` внутри каталога соответствующего сервиса.
+Сервисы — приложения Spring Boot 3 и загружают конфигурацию в стандартном порядке Spring Boot (по убыванию приоритета):
+1. Переменные окружения. Ключ получается по правилам relaxed binding: `hadoop.security.jwt.secret-key` → `HADOOP_SECURITY_JWT_SECRET_KEY`. Часть ключей в упакованном `application.yml` дополнительно ссылается на короткие переменные (`JWT_SECRET_KEY`, `HADOOP_AUTH_MODE`, `LDAP_URL` и т. п.).
+2. Внешний файл `application.yml`, указанный в `SPRING_CONFIG_ADDITIONAL_LOCATION` (или `--spring.config.additional-location`).
+3. `application.yml` (и `application-<profile>.yml` для профилей из `SPRING_PROFILES_ACTIVE`), упакованные в JAR из `backend/<service>/src/main/resources/`.
+
+Переменные `CONFIG_PATH`, `HDFS_CONFIG_PATH`, `YARN_CONFIG_PATH`, `SQL_CONFIG_PATH`, `SPARK_CONFIG_PATH` и файлы `config/config.yaml` Java-сервисы не читают. Исключение — HDFS Explorer: список кластеров можно вынести в отдельный YAML и указать путь в `hadoop.hdfs.clusters-config-path`.
 
 > [!IMPORTANT]
 > Значения по умолчанию и проверки на старте (все Java-сервисы).
@@ -80,122 +82,149 @@
 
 ---
 
-## 2. Общая конфигурация (backend/common)
+## 2. Общий стартер безопасности (common-security-starter)
+
+Параметры раздела читает `CommonSecurityProperties` (`@ConfigurationProperties(prefix = "hadoop.security")`) из `backend/common-security-starter`. Стартер подключают сервисы `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator`, поэтому ключи одинаковы для всех.
 
 ### 2.1 Сервер и безопасность (CORS, CSRF, Cookies, JWT)
 
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8000
-  debug: false
-  # Список разрешенных Origins для браузерных CORS-запросов и строгой валидации CSRF
-  cors_origins:
-    - "https://hadoop.company.local"
-    - "https://hdfs.company.local"
-  secure_cookies: true          # Передавать cookie только по HTTPS
 
-security:                       # или auth.jwt
-  secret_key: "CHANGE_THIS_TO_RANDOM_SECRET_KEY_MIN_32_CHARS" # Обязателен в production
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "hadoop_explorer_session"
-  cookie_samesite: "lax"
+hadoop:
+  security:
+    debug: false
+    jwt:
+      secret-key: ${JWT_SECRET_KEY:}   # Обязателен: не короче 32 символов
+      algorithm: HS256
+      expiration-minutes: 480
+    cookie:
+      names: ["access_token", "hadoop_explorer_session", "session_token", "hdfs_explorer_session"]
+      domain:                          # Не задан: cookie привязана к хосту ответа
+      path: /
+      secure: true                     # Передавать cookie только по HTTPS (по умолчанию false)
+      same-site: Lax
+      http-only: true
+    cors:
+      allowed-origins:
+        - "https://hadoop.company.local"
+        - "https://hdfs.company.local"
 ```
+
+| Параметр | По умолчанию | Что делает |
+|---|---|---|
+| `jwt.secret-key` | встроенное значение из исходников | Ключ подписи JWT. Встроенное значение, пустое или короче 32 символов останавливает старт вне mock-режима (раздел 1) |
+| `jwt.expiration-minutes` | `480` | Срок жизни токена и `Max-Age` cookie |
+| `cookie.names` | 4 имени из примера | При входе токен записывается в cookie с каждым из этих имен |
+| `cookie.secure` | `false` | Атрибут `Secure` cookie; за HTTPS-прокси выставьте `true` |
+| `cors.allowed-origins` | `http://localhost:3000`, `:5173`, `:8000`, `:8001`, … | Разрешенные Origins для CORS; тот же список использует проверка CSRF |
+
+Проверка CSRF (`CsrfProtectionValidator`) применяется только к запросам с аутентификацией по cookie и методами, меняющими состояние. Запрос отклоняется при `Sec-Fetch-Site: cross-site`; принимается при `X-Requested-With: XMLHttpRequest` либо при `Origin`/`Referer` из `cors.allowed-origins` или совпадающем с адресом самого сервиса.
 
 #### HTTP-заголовки безопасности и CSP
 
-Бэкенд-сервисы добавляют в ответы HTTP-заголовки безопасности через middleware `apply_security_headers` [проверить: в Java-коде сервисов нет ни этого имени, ни `CSP_DEFAULT_DIRECTIVES`]:
-- `Content-Security-Policy`: директивы против XSS (`CSP_DEFAULT_DIRECTIVES` для HDFS/YARN и `CSP_CODE_EDITOR_DIRECTIVES` с разрешением Web Workers для Monaco Editor в Spark/SQL).
-- `X-Frame-Options: DENY`: запрет встраивания в iframe (clickjacking).
+Отдельной настройки заголовков в коде нет: `SecurityFilterChain` из `CommonSecurityAutoConfiguration` (и `replicatorSecurityFilterChain` в оркестраторе репликатора) не вызывает `http.headers(...)`, поэтому в ответы попадают заголовки Spring Security по умолчанию:
 - `X-Content-Type-Options: nosniff`: браузер не подменяет MIME-тип ответа.
-- `Referrer-Policy: strict-origin-when-cross-origin`: ограничивает содержимое заголовка `Referer`.
-- `Strict-Transport-Security` (HSTS): включается при `secure_cookies: true` или `debug: false`.
+- `X-Frame-Options: DENY`: запрет встраивания в iframe (clickjacking).
+- `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`, `Pragma: no-cache`, `Expires: 0`.
+- `X-XSS-Protection: 0`.
+- `Strict-Transport-Security: max-age=31536000 ; includeSubDomains`: только в ответах на запросы по HTTPS.
+
+`Content-Security-Policy` и `Referrer-Policy` сервисы не выставляют. Если они нужны, добавьте их на обратном прокси (ingress).
 
 ### 2.2 Аутентификация: LDAPS / Active Directory
 
-Модуль `CommonLdapAuthService` [проверить: класса с таким именем в Java-коде нет] подключается к каталогам OpenLDAP, FreeIPA и Microsoft Active Directory. Спецсимволы в имени пользователя экранируются перед подстановкой в фильтр (защита от LDAP injection).
+`LdapAuthService` из стартера безопасности проверяет пароль по каталогу LDAP (OpenLDAP, FreeIPA, Microsoft Active Directory) через JNDI:
+1. Подключается к `hadoop.security.ldap.url` от имени `manager-dn` (если `manager-dn` пуст — анонимно).
+2. Ищет пользователя в `user-search-base` (если не задан — в `base-dn`) по фильтру `user-search-filter`, подставляя имя вместо `{0}`. Перед подстановкой символы `\`, `*`, `(`, `)` и NUL экранируются (защита от LDAP injection).
+3. Выполняет bind от DN найденного пользователя с введенным паролем.
+4. Берет группы из атрибута `memberOf` (значение `CN` из DN группы) и по ним вычисляет роль (раздел 2.4).
+
+Ключи `group-search-base` и `group-search-filter` есть в `CommonSecurityProperties`, но `LdapAuthService` их не использует: группы берутся только из `memberOf`. Для `ldaps://` сертификат сервера проверяется по truststore JVM.
 
 ```yaml
-auth:
-  mode: "hybrid" # Доступные режимы: hybrid | ldaps_only | kerberos_only | mock
-
-ldap:
-  enabled: true
-  server_uri: "ldaps://ad.company.local:636"
-  use_ssl: true
-  verify_cert: true             # В production: true с указанием доверенного CA
-  ca_cert_file: "/etc/ssl/certs/company-ca.crt"
-  bind_dn: "cn=svc_hadoop_explorer,ou=Service Accounts,dc=company,dc=local"
-  bind_password: "SecretServicePassword"
-  
-  # Поиск пользователей
-  user_search_base: "ou=Users,dc=company,dc=local"
-  user_search_filter: "(&(objectClass=user)(sAMAccountName={username}))" # для OpenLDAP: (&(objectClass=inetOrgPerson)(uid={username}))
-  username_attribute: "sAMAccountName"
-  email_attribute: "mail"
-  display_name_attribute: "displayName"
-  
-  # Поиск групп
-  group_search_base: "ou=Groups,dc=company,dc=local"
-  group_search_filter: "(&(objectClass=group)(member={user_dn}))"
-  group_attribute: "cn"
-  use_user_memberof: true       # Использовать атрибут memberOf для оптимизации запросов
-  memberof_attribute: "memberOf"
+hadoop:
+  security:
+    auth:
+      mode: ldap                # mock | ldap | kerberos | hybrid
+    ldap:
+      enabled: true
+      url: "ldaps://ad.company.local:636"
+      base-dn: "dc=company,dc=local"
+      manager-dn: "cn=svc_hadoop_explorer,ou=Service Accounts,dc=company,dc=local"
+      manager-password: ${LDAP_MANAGER_PASSWORD:}
+      user-search-base: "ou=Users,dc=company,dc=local"
+      user-search-filter: "(&(objectClass=user)(sAMAccountName={0}))" # для OpenLDAP: (uid={0})
 ```
 
-Значения `ldaps_only` и `kerberos_only` из комментария к `auth.mode` не проходят проверку на старте: `SecurityConfigurationValidator` принимает только `mock`, `ldap`, `kerberos` и `hybrid` (см. раздел 1).
+Значения по умолчанию: `url: ldap://localhost:389`, `base-dn: dc=example,dc=com`, `user-search-base: ou=users`, `user-search-filter: (&(objectClass=person)(uid={0}))`. Упакованный `application.yml` сервисов задает `url`, `manager-dn`, `manager-password` и `user-search-base` через переменные `LDAP_URL`, `LDAP_MANAGER_DN`, `LDAP_MANAGER_PASSWORD`, `LDAP_USER_SEARCH_BASE`.
 
 ### 2.3 Аутентификация: Kerberos SPNEGO SSO
 
 Пользователь входит в веб-интерфейс по Kerberos-тикету из своей системной сессии, без ввода пароля: браузер передает заголовок `Authorization: Negotiate <ticket>`.
 
 ```yaml
-kerberos_sso:                   # или auth.kerberos
-  enabled: true
-  service_principal: "HTTP/hadoop-explorer.company.local@COMPANY.LOCAL"
-  keytab_path: "/etc/security/keytabs/spnego.keytab"
+hadoop:
+  security:
+    auth:
+      mode: kerberos      # или hybrid: LDAP-форма и SPNEGO одновременно
+    kerberos:
+      enabled: true
 ```
+
+`KerberosSpnegoService` проверяет тикет через Java GSS-API и создает контекст с учетными данными acceptor по умолчанию (`GSSManager.createContext((GSSCredential) null)`). Ключи `hadoop.security.kerberos.keytab`, `service-principal` и `krb5-config` объявлены в `CommonSecurityProperties`, но сервис их не читает: изменение этих ключей на проверку тикета не влияет. Principal `HTTP/<host>@<REALM>` и его keytab JVM берет из JAAS-конфигурации: задайте их в секции `com.sun.security.jgss.accept` файла, переданного через `-Djava.security.auth.login.config=<путь>`, вместе с `-Djavax.security.auth.useSubjectCredsOnly=false` и `-Djava.security.krb5.conf=<путь к krb5.conf>`. Без этого JVM не находит ключ acceptor, и проверка тикета завершается ошибкой GSS.
 
 ### 2.4 Конфигурация ролевой модели и прав доступа (RBAC)
 
-Все сервисы платформы вычисляют роль пользователя по одной модели (`resolve_system_role` [проверить: функции с таким именем в Java-коде нет]):
+Все сервисы платформы вычисляют роль пользователя одним классом `RoleResolver` (метод `resolve`) из стартера безопасности:
 
 ```yaml
-auth:
-  # Списки пользователей и групп для назначения ролей
-  admin_users: ["admin", "superadmin"]
-  admin_groups: ["hadoop-admins", "platform-admins", "domain admins"]
-  writer_groups: ["data-engineers", "yarn-operators", "etl-developers"]
+hadoop:
+  security:
+    auth:
+      admin-users: ["admin", "superadmin"]
+      admin-groups: ["hadoop-admins", "platform-admins", "domain admins"]
+      writer-users: []
+      writer-groups: ["data-engineers", "yarn-operators", "etl-developers"]
 ```
 
+Имена пользователей и групп сравниваются без учета регистра. Группы из конфигурации добавляются к встроенным спискам, а не заменяют их:
+- встроенные группы администраторов: `hadoop-admins`, `admins`, `data-platform-admins`, `platform-admins`, `superusers`;
+- встроенные группы writer: `data-engineers`, `engineers`, `spark-users`, `etl-developers`, `yarn-operators`, `operators`, `replicator-operators`, `dev-leads`.
+
 Роли:
-- Пользователи из `admin_users` или из любой группы `admin_groups` получают роль `ADMIN` (бейдж в UI — `ADM`).
-- Пользователи из групп `writer_groups` получают роль `WRITER` (бейдж `RW`).
+- Пользователи из `admin-users` или из любой группы администраторов получают роль `ADMIN` (бейдж в UI — `ADM`).
+- Пользователи из `writer-users` или из любой группы writer получают роль `WRITER` (бейдж `RW`).
 - Остальные аутентифицированные пользователи получают роль `READER` (бейдж `RO`).
 - Роль вычисляется на сервере, включается в полезную нагрузку токена и сессии, и возвращается через `/api/v1/auth/me`.
 
 ### 2.5 Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)
 
-Слой хранения (`SessionStore` и `BaseStorageService` [проверить: `BaseStorageService` и `L1RevokedTokenCache` в Java-коде не найдены]) хранит:
-- Сессии пользователей (`active_sessions`). При входе сессия записывается в базу с абсолютным Unix timestamp `expires_at` (полный срок жизни JWT, по умолчанию 480 минут). После перезапуска контейнеров или сервисов сессия читается из базы, и пользователю не нужно входить заново.
-- Срок жизни токена. `SessionStore` определяет, задан TTL абсолютным timestamp или числом секунд, и приводит его к одному виду.
-- Черный список отозванных токенов (`revoked_tokens`). Два уровня: L1 — LRU-кэш в памяти (`L1RevokedTokenCache`) с истечением записей, L2 — база данных или Redis. Проверка отозванного токена после logout идет по L1 без обращения к базе.
-- Счетчики rate limiting. Алгоритм скользящего окна (sliding window), счетчики в базе данных или Redis.
+Интерфейс `SessionStore` реализует `DefaultSessionStore`. Он хранит:
+- Сессии пользователей (таблица `active_sessions`): хэш токена, имя пользователя, сессия в JSON и `expires_at`. Если срок не передан, `expires_at` = текущее время + 480 минут. Просроченная сессия при чтении не возвращается.
+- Черный список отозванных токенов (таблица `revoked_tokens`). Два уровня: L1 — кэш Caffeine в памяти (`l1-capacity` записей, запись живет `l1-ttl-seconds`), L2 — JDBC. Проверка отозванного токена сначала идет по L1; при попадании в L2 токен добавляется в L1.
+- `cleanupExpired()` удаляет из обеих таблиц записи с истекшим `expires_at`.
 
-Поддерживаемые хранилища:
-- SQLite в режиме WAL (`sqlite:///./data/hadoop_explorer.db` или `/app/data/*.db`) — хранилище по умолчанию.
-- PostgreSQL (`postgresql://user:password@pg-host:5432/hadoop_explorer`) — для запуска нескольких реплик сервиса в Kubernetes.
-- Redis (`redis://redis-host:6379/0`) — необязательный L2-кэш и распределенные блокировки (`DistributedLock`).
+L2 включается, только если `session-store.type` не равен `memory` и в контексте есть `DataSource` (`spring.datasource` сервиса). Таблицы создаются при старте (`CREATE TABLE IF NOT EXISTS`). При `type: memory` (значение по умолчанию) сессии и отзывы хранятся в памяти процесса: после перезапуска сервиса пользователю нужно войти заново, а реплики сервиса не видят сессий друг друга. Реализации на Redis в коде нет, хотя комментарий к `type` упоминает `redis`.
 
 ```yaml
-database:
-  # SQLite (по умолчанию в контейнере):
-  url: "jdbc:sqlite:/app/data/service_sessions.db"
-  # Либо PostgreSQL (для HA в production):
-  # url: "jdbc:postgresql://user:password@pg-host:5432/hadoop_explorer"
-  redis_url: "redis://redis-host:6379/0" # Опционально
+hadoop:
+  security:
+    session-store:
+      type: jdbc            # memory (по умолчанию) | jdbc
+      fail-closed: false    # true: ошибка L2 при проверке отзыва считается отзывом, ошибка записи сессии — исключением
+      l1-capacity: 10000
+      l1-ttl-seconds: 3600
+    rate-limiter:
+      enabled: true
+      requests-per-minute: 600
+      burst-capacity: 100
 ```
+
+При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
+
+`RateLimiterService` реализует Token Bucket на Bucket4j: на каждый ключ — корзина емкостью `burst-capacity`, пополнение `requests-per-minute` токенов в минуту, корзины хранятся в памяти процесса. Бин создается автоконфигурацией, но в коде сервисов `tryAcquire` не вызывается, поэтому ограничение частоты запросов на HTTP-эндпоинтах сейчас не действует.
 
 ### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 
@@ -204,7 +233,7 @@ database:
 | Circuit Breaker | Считает сетевые ошибки вызовов к кластерам Hadoop/Spark/YARN. После 5 ошибок или таймаутов подряд узел переходит в `OPEN` на 30 секунд: вызовы к нему сразу завершаются ошибкой и не занимают потоки пула. Затем узел переходит в `HALF_OPEN`, и следующий запрос идет как пробный. Клиентские ошибки 4xx не учитываются. Метрики — через Actuator `/actuator/prometheus` (или `/metrics`). |
 | Retry с экспоненциальным backoff | Повторяет вызов при ошибках соединения и сокета (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`), к задержке добавляется случайный джиттер. |
 | Глобальный обработчик исключений (`@ControllerAdvice`) | Перехватывает необработанные исключения, возвращает 500 со стандартным телом и `incidentId`, stack trace наружу не отдает (CWE-209). |
-| Distributed Lock | Взаимное исключение для критических секций через Redis (`SET NX PX` + Lua); без Redis — блокировки в памяти процесса. |
+| Distributed Lock | Только в оркестраторе репликатора: `DistributedLockService` берет блокировку строкой в таблице БД (`ClusterLockRepository.tryAcquireOrRenew`) с истечением по времени. В стартере безопасности распределенных блокировок нет. |
 | Graceful shutdown | По SIGTERM/SIGINT останавливает `ThreadPoolTaskExecutor`, отменяет фоновые задачи и закрывает соединения с базами данных и сетевыми клиентами. |
 
 ### 2.7 Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов
@@ -312,22 +341,23 @@ yarn:
     poll-interval-seconds: 2               # Интервал опроса статуса задачи (сек)
     timeout-seconds: 180                   # Таймаут ожидания завершения задачи (сек)
 
-clusters:
-  - id: "prod-yarn"
-    name: "Production Hadoop Cluster"
-    # ...
-    awx:
-      enabled: true                      # Включение деплоя для конкретного кластера
-      job_template_id: 101               # Индивидуальный ID Job Template кластера
+  clusters:
+    - id: "prod-yarn"
+      name: "Production Hadoop Cluster"
+      # ...
+      awx:
+        enabled: true                    # Включение деплоя для конкретного кластера
+        job-template-id: 101             # Индивидуальный ID Job Template кластера
+        inventory-id: 5                  # ID Inventory в AWX (необязательно)
 ```
 
 #### Соответствующие переменные окружения:
 | Переменная (Spring Boot Relaxed Binding) | Пример значения | Описание |
 |---|---|---|
-| `YARN_AWX_ENABLED` (или `AWX_ENABLED`) | `true` | Активация модуля автоматизации AWX |
-| `YARN_AWX_BASE_URL` (или `AWX_BASE_URL`) | `https://awx.company.local` | Базовый URL сервера AWX |
-| `YARN_AWX_TOKEN` (или `AWX_TOKEN`) | `BearerSecretToken...` | Токен доступа к REST API AWX |
-| `YARN_AWX_VERIFY_SSL` (или `AWX_VERIFY_SSL`) | `true` | Проверка TLS сертификата сервера AWX |
+| `YARN_AWX_ENABLED` | `true` | Активация модуля автоматизации AWX |
+| `YARN_AWX_BASE_URL` | `https://awx.company.local` | Базовый URL сервера AWX |
+| `YARN_AWX_TOKEN` | `BearerSecretToken...` | Токен доступа к REST API AWX |
+| `YARN_AWX_VERIFY_SSL` | `true` | Проверка TLS сертификата сервера AWX |
 | `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
 | `YARN_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
 
@@ -387,206 +417,174 @@ hadoop:
 
 ## 5. Настройка SQL Explorer (Trino & Hive)
 
-Файл конфигурации: `backend/sql/config/config.yaml`.
+Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "sql")`). Базовые значения — в `backend/sql/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
+
+**Внимание.** `TrinoSqlEngine` и `HiveSqlEngine` в текущем коде не подключаются к кластерам: каталоги, схемы, таблицы и выполнение запросов делегируются `MockSqlEngine` при любом значении `mock-storage`. Параметры `host`, `port` и `impersonation` отображаются в UI и API, но на выполнение запросов не влияют.
 
 ### 5.1 Аналитические кластеры
 
 ```yaml
-clusters:
-  # 1. Trino Coordinator (Trino DB API)
-  - id: "trino-prod"
-    name: "Trino Production Cluster"
-    type: "trino"
-    host: "trino-coordinator.company.local"
-    port: 8443
-    use_ssl: true
-    catalog: "hive"
-    schema: "default"
-    auth:
-      type: "basic"             # basic | kerberos | none
-      user: "svc_sql_explorer"
-      password: "TrinoPassword"
-    impersonation:
-      enabled: true
-      method: "x-trino-user"    # Заголовок X-Trino-User для аудита и Ranger
-    allow_dml_ddl: false        # false = Read-Only режим (только SELECT / EXPLAIN)
-    acl:
-      allowed_groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+sql:
+  clusters:
+    - id: "trino-prod"
+      name: "Trino Production Cluster"
+      type: "trino"                 # trino | hive | mock
+      host: "trino-coordinator.company.local"
+      port: 8443                    # По умолчанию 8080
+      catalog: "hive"
+      schema: "default"
+      mock-storage: false
+      impersonation:
+        enabled: true
+        method: "header"            # header | doAs | session
+      allowed-groups: ["bi-analysts", "data-engineers", "data-platform-admins"]
+      allowed-users: []
 
-  # 2. Apache Hive / Cloudera HiveServer2
-  - id: "hive-prod"
-    name: "HiveServer2 Core"
-    type: "hive"
-    host: "hs2.company.local"
-    port: 10000
-    auth:
-      type: "kerberos"          # kerberos | ldap | plain | nosasl
-      kerberos_service_name: "hive"
-    impersonation:
-      enabled: true
-      method: "doAs"            # Проброс пользователя через hive.server2.proxy.user
-    allow_dml_ddl: true
-    acl:
-      allowed_groups: ["data-engineers", "data-platform-admins"]
+    - id: "hive-prod"
+      name: "HiveServer2 Core"
+      type: "hive"
+      host: "hs2.company.local"
+      port: 10000
+      catalog: "default"
+      schema: "default"
+      impersonation:
+        enabled: true
+        method: "doAs"
+      allowed-groups: ["data-engineers", "data-platform-admins"]
 ```
+
+Доступ к кластеру (`ClusterService`): если `allowed-users` и `allowed-groups` пусты, кластер виден всем аутентифицированным пользователям; иначе — пользователям из `allowed-users` и членам групп из `allowed-groups`. Ключей аутентификации к Trino/HiveServer2 (`auth`, `use_ssl`) и режима только для чтения (`allow_dml_ddl`) в `SqlProperties` нет.
 
 ### 5.2 Параметры выполнения запросов и сохранение воркспейса
 
 ```yaml
-query_defaults:
-  max_rows_in_ui: 10000         # Максимальное число строк, отображаемое в браузере
-  default_limit: 1000           # Автоматически добавляемый LIMIT при отсутствии
-  auto_add_limit: true          # Включить автодобавление LIMIT
-  query_timeout_seconds: 600    # Таймаут исполнения запроса (10 минут)
-  results_ttl_seconds: 604800   # Время жизни кэшированных результатов в секундах (7 дней)
+sql:
+  max-rows-per-query: 10000     # Предел строк результата, передается движку
+  default-page-size: 500        # Объявлен в SqlProperties, в коде не используется
+  results-ttl-hours: 24         # Срок хранения результатов в памяти
 ```
 
-#### Кэш результатов запросов и ротация по TTL (`data/results/`)
-SQL Explorer и Spark Explorer сохраняют результаты запросов в сжатом виде (`{id}.json.gz`) в общий каталог `data/results/`.
-
-| Параметр | По умолчанию | Что делает |
-|---|---|---|
-| `results_ttl_seconds` / `RESULTS_TTL_SECONDS` | `604800` (7 дней) | Срок хранения файла результата |
-| `RESULTS_CLEANUP_INTERVAL_SECONDS` | `3600` (1 час) | Интервал фоновой очистки каталога от файлов старше TTL. Очистка также запускается при старте сервиса |
+#### Кэш результатов запросов и ротация по TTL
+`QueryManagerService` хранит результаты запросов в памяти процесса (`resultCache`). Раз в час (`@Scheduled(fixedRate = 3600000)`) удаляются результаты старше `results-ttl-hours`. После перезапуска сервиса результаты теряются.
 
 #### Персистентность рабочих пространств (User Workspace)
-SQL Explorer сохраняет в БД открытые вкладки редактора, введенный SQL-код, выбранные кластеры и каталоги и последние результаты (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`). Рабочее пространство у каждого аутентифицированного пользователя свое: после смены пользователя в браузере загружается его контекст, чужая история не показывается.
+SQL Explorer сохраняет в БД (`spring.datasource`) открытые вкладки редактора, введенный SQL-код, выбранные кластеры и каталоги и последние результаты (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`). Рабочее пространство у каждого аутентифицированного пользователя свое: после смены пользователя в браузере загружается его контекст, чужая история не показывается. Упакованный `application.yml` использует H2 в памяти (`jdbc:h2:mem:sqlexplorer`): без внешней БД рабочие пространства теряются при перезапуске.
 
 ### 5.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
-ИИ-ассистент SQL Explorer генерирует, оптимизирует и исправляет SQL-запросы через OpenAI-совместимый API (Ollama, vLLM, LiteLLM):
-
 ```yaml
-ai:
-  enabled: true
-  provider: "openai_compatible" # openai_compatible | mock
-  base_url: "http://llm-server.company.local:11434/v1" # Endpoint Ollama, vLLM или LiteLLM
-  api_key: "ollama"
-  model: "qwen2.5-coder:7b"     # Рекомендуемые: qwen2.5-coder, deepseek-coder
-  timeout_seconds: 30
-  temperature: 0.1
-  max_tokens: 2048
+sql:
+  ai:
+    enabled: true
+    provider: "mock-builtin"
+    url: "http://llm-server.company.local:11434/v1"
+    model: "qwen2.5-coder-32b"
+    api-key: ""
 ```
+
+`AiService` не обращается к LLM: ответы ассистента формируются встроенными правилами (например, предупреждение о `SELECT *` без `LIMIT`, ошибка `JOIN` без `ON`/`USING`). Значения `provider`, `model` и `url` только возвращаются в ответе статуса ассистента; `api-key` не используется.
 
 ---
 
 ## 6. Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)
 
-Файл конфигурации: `backend/spark/config/config.yaml`.
+Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "spark")`). Базовые значения — в `backend/spark/src/main/resources/application.yml`.
+
+**Внимание.** `LivyClient` в текущем коде не обращается к Apache Livy: создание сессии и выполнение кода идут через встроенный `MockSparkEngine`. Значения `livy-url`, версий Spark, окружений Python, метастора и профилей ресурсов отображаются в UI и API, но в Livy не передаются.
 
 ### 6.1 Кластеры и интеграция с Apache Livy
 
-Spark Explorer запускает интерактивные сессии и пакетные задачи через Apache Livy:
-
 ```yaml
-clusters:
-  - id: "prod-hadoop"
-    name: "Production Hadoop (Spark & HMS)"
-    description: "Кластер CDP с поддержкой Spark 3.5, 3.2 и 2.4"
-    type: "spark"
-    livy_url: "http://livy-prod.company.local:8998"
-    use_ssl: false
-    auth:
-      type: "kerberos"          # kerberos | ldap | plain
-      service_name: "livy"
-    impersonation:
-      enabled: true
-      method: "proxyUser"       # Проброс пользователя в Livy
-    acl:
-      allowed_groups: ["*"]
-      allowed_users: []
+spark:
+  session-ttl-minutes: 120      # Сессии без активности дольше этого срока закрываются
+  results-ttl-hours: 24         # Объявлен в SparkProperties, в коде не используется
+  clusters:
+    - id: "prod-hadoop"
+      name: "Production Hadoop (Spark & HMS)"
+      description: "Кластер с Spark 3.5 и 2.4"
+      type: "livy"
+      livy-url: "http://livy-prod.company.local:8998"
+      yarn-cluster-id: "prod-yarn"
+      mock-storage: false
+      allowed-groups: ["*"]
+      allowed-users: []
+      default-repositories: []
 ```
+
+Ключей `use_ssl`, `auth` и `impersonation` в `SparkProperties` нет. `allowed-groups` и `allowed-users` объявлены, но код сервиса их не читает: доступ к кластеру по ним не ограничивается.
 
 ### 6.2 Версии Spark и среды Python (HDFS Archives)
 
-Пользователь выбирает версию Spark и окружение Python (Conda/venv, упакованное в архив на HDFS) из списка в конфигурации:
+Пользователь выбирает версию Spark и окружение Python из списка в конфигурации. У версии и окружения есть только идентификатор, имя и признак значения по умолчанию; пути к архивам Spark и интерпретаторам Python в `SparkProperties` не задаются.
 
 ```yaml
-    spark_versions:
-      - id: "spark-3.5"
-        name: "Apache Spark 3.5.1 (Scala 2.12)"
-        is_default: true
-        spark_archive: "hdfs:///apps/spark/spark-3.5.1-bin-hadoop3.tgz"
-        python_versions:
-          - id: "py310-default"
-            name: "Python 3.10 (Standard Runtime)"
-            python_path: "/opt/conda/envs/py310/bin/python"
-            is_default: true
-          - id: "py310-ml"
-            name: "Python 3.10 (ML / PyTorch / Pandas / Sklearn)"
-            archive_path: "hdfs:///apps/python/envs/py310_ml.tar.gz#environment"
-            python_path: "./environment/bin/python"
-            is_default: false
-      - id: "spark-2.4"
-        name: "Apache Spark 2.4.8 (Legacy Scala 2.11)"
-        is_default: false
-        livy_url: "http://livy-spark2.prod.company.local:8998"
-        spark_archive: "hdfs:///apps/spark/spark-2.4.8-bin-hadoop2.7.tgz"
-        python_versions:
-          - id: "py37-legacy"
-            name: "Python 3.7 (Legacy)"
-            python_path: "/opt/conda/envs/py37/bin/python"
-            is_default: true
+spark:
+  clusters:
+    - id: "prod-hadoop"
+      spark-versions:
+        - id: "spark-3.5.1"
+          name: "Apache Spark 3.5.1"
+          default-version: true
+          python-versions:
+            - id: "py310"
+              name: "Python 3.10 (DataScience Stack)"
+              default-env: true
+            - id: "py311"
+              name: "Python 3.11 (Minimal)"
+              default-env: false
 ```
 
 #### Пользовательские (Ad-hoc) виртуальные окружения Python
-Кроме окружений из `config.yaml`, пользователь может указать собственный архив virtualenv/conda в окне параметров сессии:
+В окне параметров сессии пользователь может указать собственный архив окружения:
 
-| Параметр | По умолчанию | Что делает |
-|---|---|---|
-| `custom_python_archive` | — | HDFS-путь к архиву окружения (`hdfs:///.../*.tar.gz#environment`). Если фрагмент `#алиас` не указан, добавляется `#environment` |
-| `custom_python_path` | `./environment/bin/python` | Относительный путь к интерпретатору внутри распакованного архива |
+| Параметр запроса | Что делает |
+|---|---|
+| `custom_python_archive` | HDFS-путь к архиву окружения (`hdfs:///.../*.tar.gz#environment`) |
+| `custom_python_path` | Путь к интерпретатору внутри распакованного архива |
 
-Архив передается в параметр `archives` сессии Apache Livy, путь к интерпретатору — в `spark.pyspark.python` и `spark.pyspark.driver.python`.
-
+Оба значения сохраняются в записи сессии (`SparkSessionRecord`) и возвращаются в API; в Livy они не передаются (см. предупреждение в начале раздела).
 
 ### 6.3 Интеграция с YARN и разграничение очередей
 
 ```yaml
-    yarn:
-      cluster_id: "prod-yarn"
-      resource_manager_urls:
-        - "http://rm1.prod.company.local:8088"
-        - "http://rm2.prod.company.local:8088"
-      default_queue: "root.analytics"
-      allowed_queues: ["root.analytics", "root.adhoc", "root.etl"]
-      queue_acl:
-        root.etl:
-          allowed_groups: ["data-engineers", "hadoop-admins"]
-        root.adhoc:
-          allowed_groups: ["*"]
+spark:
+  clusters:
+    - id: "prod-hadoop"
+      yarn-cluster-id: "prod-yarn"
+      yarn-queues: ["root.analytics", "root.adhoc", "root.etl"]
+      default-queue: "root.analytics"
 ```
+
+Список `yarn-queues` задает очереди, доступные для выбора в UI. ACL на уровне отдельных очередей (`queue_acl`) и адресов ResourceManager в `SparkProperties` нет.
 
 ### 6.4 Hive Metastore, Iceberg и профили ресурсов
 
 ```yaml
-    # Подключение каталогов данных (HMS / Iceberg)
-    metastores:
-      - id: "lakehouse-core"
-        name: "Lakehouse Core Metastore (HMS)"
-        is_default: true
-        uris: "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
-        spark_conf:
-          "spark.hadoop.hive.metastore.uris": "thrift://hms1.prod.company.local:9083,thrift://hms2.prod.company.local:9083"
-          "spark.sql.catalogImplementation": "hive"
-
-    # Предустановленные профили ресурсов для сессий
-    resource_profiles:
-      small:
-        name: "Small (Driver 2G/1c, 2 Exec 4G/2c)"
-        driver_memory: "2g"
-        driver_cores: 1
-        executor_memory: "4g"
-        executor_cores: 2
-        num_executors: 2
-      medium:
-        name: "Medium (Driver 4G/2c, 4 Exec 8G/2c)"
-        driver_memory: "4g"
-        driver_cores: 2
-        executor_memory: "8g"
-        executor_cores: 2
-        num_executors: 4
+spark:
+  clusters:
+    - id: "prod-hadoop"
+      metastores:
+        - id: "lakehouse-core"
+          name: "Lakehouse Core Metastore (HMS)"
+          default-metastore: true
+      resource-profiles:
+        - id: "small"
+          name: "Small (Driver 2G/1c, 2 Exec 4G/2c)"
+          driver-memory: "2g"
+          driver-cores: 1
+          executor-memory: "4g"
+          executor-cores: 2
+          num-executors: 2
+        - id: "medium"
+          name: "Medium (Driver 4G/2c, 4 Exec 8G/2c)"
+          driver-memory: "4g"
+          driver-cores: 2
+          executor-memory: "8g"
+          executor-cores: 2
+          num-executors: 4
 ```
+
+У метастора есть только `id`, `name` и `default-metastore`; URI Thrift и `spark_conf` в `SparkProperties` не задаются. `resource-profiles` — список, а не словарь.
 
 ### 6.5 Персистентность рабочих пространств пользователя
 
@@ -726,97 +724,60 @@ java -cp /app/replicator-agent.jar \
 
 ### 7.2 Топология дата-центров и кластеров
 
-Топология описывает ЦОД и привязку кластеров HDFS к ним (`dc_id`).
+Топология описывает ЦОД и привязку кластеров к ним (`dc-id`). Задается в `hadoop.replicator.datacenters` и `hadoop.replicator.clusters` (`ReplicatorProperties`).
 
-На демо-стенде два ЦОД:
-- ЦОД 1 (Москва, основной): два кластера HDFS — `demo-cluster` (Prod DataLake) и `analytics-cluster` (Secondary DataLake).
-- ЦОД 2 (Санкт-Петербург, резервный): один кластер HDFS — `backup-cluster` (DR Mirror DataLake).
+На демо-стенде два ЦОД (`dc1`, `dc2`) и по одному кластеру в каждом.
 
 ```yaml
-topology:
-  # 1. Дата-центры (Data Centers / DC)
-  datacenters:
-    - id: "dc1"
-      name: "ЦОД 1 (Москва / DataCenter Primary)"
-      location: "Moscow, Russia (DC-1)"
-      description: "Основной производственный дата-центр компании"
-
-    - id: "dc2"
-      name: "ЦОД 2 (Санкт-Петербург / Disaster Recovery)"
-      location: "Saint-Petersburg, Russia (DC-2)"
-      description: "Катастрофоустойчивая резервная площадка (DR Site)"
-
-  # 2. HDFS кластеры с явной привязкой к конкретному ЦОД
-  clusters:
-    # Кластеры в DC1:
-    - id: "demo-cluster"
-      name: "HDFS Primary (Prod DataLake)"
-      dc_id: "dc1"
-      webhdfs_url: "http://localhost:9870/webhdfs/v1"
-      default_path: "/data/production"
-      is_read_only: false
-      description: "Основной HDFS кластер оперативных данных в DC1"
-
-    - id: "analytics-cluster"
-      name: "HDFS Analytics (Secondary DataLake)"
-      dc_id: "dc1"
-      webhdfs_url: "http://localhost:9872/webhdfs/v1"
-      default_path: "/data/analytics"
-      is_read_only: false
-      description: "Аналитический HDFS кластер в DC1"
-
-    # Кластеры в DC2:
-    - id: "backup-cluster"
-      name: "HDFS DR (Backup DataLake)"
-      dc_id: "dc2"
-      webhdfs_url: "http://dr-namenode:9870/webhdfs/v1"
-      default_path: "/backup/mirror"
-      is_read_only: false
-      description: "Катастрофоустойчивое зеркало в DC2"
+hadoop:
+  replicator:
+    datacenters:
+      - id: "dc1"
+        name: "ЦОД 1 (Primary DC)"
+        network-zone: "zone-a"
+      - id: "dc2"
+        name: "ЦОД 2 (Disaster Recovery)"
+        network-zone: "zone-b"
+    clusters:
+      - id: "prod-cluster"
+        name: "HDFS Primary"
+        dc-id: "dc1"
+        hdfs-rpc-address: "hdfs://namenode-dc1:8020"
+        grpc-host: "agent-dc1"        # Адрес агента-приемника для этого кластера
+        grpc-port: 50051
+        kerberos-enabled: true
+        principal: "replicator@COMPANY.LOCAL"
+        keytab-path: "/etc/security/keytabs/replicator.keytab"
+      - id: "backup-cluster"
+        name: "HDFS DR"
+        dc-id: "dc2"
+        hdfs-rpc-address: "hdfs://namenode-dc2:8020"
+        grpc-host: "agent-dc2"
+        grpc-port: 50051
 ```
+
+Для Kafka-репликации у кластера задаются `kafka-bootstrap-servers`, `schema-registry-url`, `schema-registry-type` (`CONFLUENT` | `HORTONWORKS`) и при TLS — `kafka-security-protocol`, `kafka-service-name`, `kafka-truststore-location`, `kafka-truststore-password`, `kafka-truststore-type` (пример — в `backend/replicator/orchestrator/src/main/resources/application.yml`).
 
 ---
 
 ### 7.3 Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)
 
 Чтобы репликация не забивала каналы WAN, оркестратор ограничивает полосу иерархическим Token Bucket с тремя уровнями:
-1. Глобальный лимит (`global_limit_mb_per_sec`) — верхняя граница суммарной скорости передачи по всей платформе.
-2. Лимиты между ЦОД (`dc_limits`) — емкость магистрального канала между площадками.
-3. Лимиты между парами HDFS-кластеров (`hdfs_limits`) — квота полосы под конкретное направление репликации.
+1. Глобальный лимит — верхняя граница суммарной скорости передачи по всей платформе. Начальное значение — `hadoop.replicator.global-limit-bytes-per-sec` (по умолчанию `104857600`, 100 МБ/с).
+2. Лимиты между ЦОД — емкость магистрального канала между площадками. При старте для каждой пары ЦОД из `datacenters` ставится 100 МБ/с.
+3. Лимиты между парами кластеров — квота полосы под конкретное направление репликации. При старте для каждой пары кластеров из `clusters` ставится 60 МБ/с.
 
-Значение `0.0` снимает ограничение (в UI — «Без лимита»).
+Лимиты между ЦОД и между кластерами в `application.yml` не задаются (`TopologyRegistry.resetLimitsToDefaults`). Значение `0.0` снимает ограничение (в UI — «Без лимита»).
 
-```yaml
-topology:
-  # 3. Лимиты полосы между ЦОД в МБ/с
-  dc_limits:
-    - source_dc: "dc1"
-      target_dc: "dc2"
-      limit_mb_per_sec: 100.0   # Магистраль Москва <-> СПб: 100 МБ/с
-      description: "Магистральный канал между DC1 и DC2"
+Пользователь с ролью `ADMIN` меняет любой лимит без перезапуска через Web UI или API. Тело запроса принимает `limit_bytes_per_sec` или `limit_mb_per_sec`:
 
-  # 4. Лимиты полосы между конкретными парами HDFS-кластеров в МБ/с
-  hdfs_limits:
-    - source_cluster: "demo-cluster"
-      target_cluster: "backup-cluster"
-      limit_mb_per_sec: 60.0    # Репликация Prod (DC1) -> Backup (DC2)
-      description: "Квота между Prod Lake (DC1) и Backup Lake (DC2)"
-
-    - source_cluster: "analytics-cluster"
-      target_cluster: "backup-cluster"
-      limit_mb_per_sec: 40.0    # Репликация Analytics (DC1) -> Backup (DC2)
-      description: "Квота между аналитическим кластером (DC1) и Backup Lake (DC2)"
-
-    - source_cluster: "demo-cluster"
-      target_cluster: "analytics-cluster"
-      limit_mb_per_sec: 80.0    # Внутрицодовый обмен
-      description: "Локальный обмен между Prod и Analytics внутри DC1"
-
-  # 5. Глобальный лимит оркестратора (Global WAN Pool)
-  global_limit_mb_per_sec: 120.0
+```bash
+curl -X POST http://<orchestrator_host>:8005/api/v1/limits/dc-dc \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: XMLHttpRequest' -b cookies.txt \
+  -d '{"source_dc": "dc1", "target_dc": "dc2", "limit_mb_per_sec": 100}'
 ```
 
-Пользователь с ролью `ADMIN` меняет любой лимит без перезапуска через Web UI или API (`POST /api/v1/limits/global`, `POST /api/v1/limits/dc-dc`, `POST /api/v1/limits/hdfs-hdfs`). Новое значение действует для всех воркеров в течение 1 секунды.
+`<orchestrator_host>` — адрес оркестратора, `cookies.txt` — cookie сессии после входа. Аналогично: `POST /api/v1/limits/global` (`limit_mb_per_sec`) и `POST /api/v1/limits/hdfs-hdfs` (`source_cluster`, `target_cluster`, `limit_mb_per_sec`). Новое значение действует для всех воркеров в течение 1 секунды.
 
 ---
 
@@ -836,7 +797,7 @@ topology:
 
 Агент репликации `backend.replicator.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи (`Sender`), поэтому один агент реплицирует в обе стороны (`DC1 ⇄ DC2`).
 
-При старте агент регистрируется на оркестраторе: объявляет свой gRPC-адрес (`advertised_grpc_address`) и кластер, который обслуживает, а затем периодически шлет heartbeat. Адреса агентов в статическом `config.yaml` прописывать не нужно.
+При старте агент регистрируется на оркестраторе: объявляет свой gRPC-адрес (`advertised_grpc_address`) и кластер, который обслуживает, а затем периодически шлет heartbeat. Адреса агентов в `application.yml` прописывать не нужно.
 
 Агент настраивается следующими переменными окружения:
 
@@ -909,10 +870,10 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 1. Реестр активных агентов оркестратора (`AgentRegistry`) — штатный режим.
    - Оркестратор хранит список зарегистрированных агентов и их статусы.
-   - Метод `get_grpc_address_for_cluster(cluster_id)` [проверить: имя метода в Java-коде] возвращает адрес агента в статусе `ONLINE` с наименьшим числом текущих передач (`active_transfers`).
-   - Кластер, которого нет в `config.yaml`, регистрируется по данным первого подключившегося агента.
+   - Метод `AgentRegistry.getLeastLoadedAgentForCluster(clusterId)` выбирает среди живых агентов кластера в режиме `all` или `receiver` агента с наименьшим числом текущих передач (`activeTransfers`). Живым считается агент, чей последний heartbeat моложе `hadoop.replicator.agent-offline-timeout-seconds` (по умолчанию 45 с).
+   - Адрес кластера из топологии агент перезаписать не может, если в `hadoop.replicator.clusters` для него задан `grpc-host`, отличный от `localhost` (`TopologyRegistry.updateClusterGrpcAddress`).
 2. Статическая топология (`GET /api/v1/clusters`).
-   - В `backend/replicator/config/config.yaml` у кластера можно задать `grpc_address` (например, `backup-cluster: agent-dc2:50051`).
+   - В `hadoop.replicator.clusters` у кластера задаются `grpc-host` и `grpc-port` (например, `grpc-host: agent-dc2`, `grpc-port: 50051`).
    - Используется, если регистрация отключена (`AGENT_ENABLE_REGISTRATION=false`) или агент-приемник не на связи.
 3. Переменная `AGENT_TARGET_<CLUSTER_ID>` на агенте-отправителе.
    - Нужна при NAT, маршрутизации через ingress/mesh или других портах в DMZ.
@@ -924,14 +885,29 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.7 Планировщик периодических задач (Cron Scheduler)
 
-Планировщик `CronScheduler` [проверить: класса с таким именем в Java-коде нет] встроен в оркестратор:
-- принимает стандартный синтаксис cron (`*/5 * * * *`) и пресеты `@every_5m`, `@hourly`, `@daily`, `@weekly`;
-- проверяет БД каждые 5 секунд;
-- когда `now >= next_run_at`:
-  1. создает задачу репликации или ставит существующую в очередь (`status = QUEUED`);
+Планировщик `ReplicationScheduler` (пакет `org.apache.hadoop.explorer.replicator.orchestrator.scheduler`) встроен в оркестратор:
+- раз в 5 секунд (`@Scheduled(fixedDelay = 5000)`) выбирает задачи с `is_scheduled = true` и `next_run_at <= now`; при наличии `DistributedLockService` тик выполняется под блокировкой `cron_scheduler_lock`, поэтому в нескольких репликах оркестратора задачу запускает одна;
+- пропускает задачи в статусе `RUNNING`;
+- для остальных:
+  1. ставит задачу в очередь (`status = QUEUED`) и создает запись запуска `JobRun` с `trigger_type = SCHEDULED` и `triggered_by = scheduler`;
   2. записывает `last_run_at = now`;
-  3. вычисляет следующий `next_run_at`;
-  4. задача выполняется от системной техучетки.
+  3. вычисляет `next_run_at` в `computeNextRun`;
+  4. удаляет старые записи `JobRun` сверх `history_retention_runs` задачи.
+
+Полноценного разбора cron-выражений нет: `computeNextRun` прибавляет к текущему времени фиксированный интервал.
+
+| Выражение | Интервал |
+|---|---|
+| `@minutely`, `* * * * *` | 1 минута |
+| `@every_5m`, `*/5 * * * *` | 5 минут |
+| `@every_15m`, `*/15 * * * *` | 15 минут |
+| `*/N * * * *` | N минут (не меньше 1) |
+| `@hourly`, `0 * * * *` | 1 час |
+| `@daily`, `@midnight`, `0 0 * * *` | 1 сутки |
+| `every_Ns` | N секунд (не меньше 5) |
+| любое другое, включая `@weekly` | 1 час |
+
+Время запуска не привязано к календарю: `0 0 * * *` запускает задачу через сутки после предыдущего запуска, а не в полночь.
 
 ---
 
@@ -947,83 +923,17 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 - Агент передает свой лимит при регистрации и в каждом heartbeat (`configuredBandwidthMbS`). Физическую сеть хостов (4x25G, бонды, L3-маршруты) оркестратор не моделирует; доступная полоса репликации считается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
 - Межброкерная репликация Kafka (ISR) идет внутри ЦОД по выделенным интерфейсам кластера (например, 2x25G) и в расчет межЦОДного шейпинга не входит.
 - Для потоковой репликации Kafka оркестратор рассчитывает число потоков вычитки как $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$, но не больше 32 потоков на одну JVM агента: больше потоков упираются в число сокетов и конкуренцию за CPU. Размер микробатча — от 10 000 до 50 000 сообщений (`batch.max.bytes` до 16 МБ).
-- Алгоритм — асинхронный Token Bucket (`LocalBandwidthLimiter`) с burst-буфером 0,5 с.
+- Алгоритм — Token Bucket (`LocalBandwidthLimiter`, пакет `org.apache.hadoop.explorer.replicator.shaper`) с burst-буфером 0,5 с. Метод `throttle(bytes)` блокирует вызывающий поток (`Thread.sleep`) на время, нужное для накопления токенов; `reserve(bytes)` только списывает токены и возвращает время ожидания (используется потоком опроса Kafka).
 - Ограничение работает с двух сторон:
-  1. Sender ждет токены в `request_network_tokens()` [проверить: имя метода в Java-коде] перед отправкой каждого блока в gRPC;
-  2. Receiver делает паузу при чтении чанков в `TransferFile()`; окно TCP и flow control HTTP/2 при этом замедляют удаленного отправителя.
+  1. Sender (`ReplicationSender`, `TarStreamPipeline`) вызывает `bandwidthLimiter.throttle(wireBytes)` перед отправкой каждого чанка в gRPC;
+  2. Receiver (`DataTransferServiceImpl`) вызывает `throttle` при приеме чанков в `transferFile` и `transferTarStream`; окно TCP и flow control HTTP/2 при этом замедляют удаленного отправителя.
 - В UI показываются «Суммарный лимит подключенных агентов» и «Лимит процесса агента»; прежнего потолка отображения в 5000 МБ/с нет.
 
 ---
 
 ### 7.9 Эталонный фрагмент конфигурации топологии (application.yml)
 
-```yaml
-# backend/replicator/orchestrator/src/main/resources/application.yml (секция hadoop.replicator)
-
-topology:
-  datacenters:
-    - id: "dc1"
-      name: "ЦОД 1 (Москва / DataCenter Primary)"
-      location: "Moscow, Russia (DC-1)"
-      description: "Основной производственный дата-центр компании"
-
-    - id: "dc2"
-      name: "ЦОД 2 (Санкт-Петербург / Disaster Recovery)"
-      location: "Saint-Petersburg, Russia (DC-2)"
-      description: "Катастрофоустойчивая резервная площадка (DR Site)"
-
-  clusters:
-    - id: "demo-cluster"
-      name: "HDFS Primary (Prod DataLake)"
-      dc_id: "dc1"
-      webhdfs_url: "http://localhost:9870/webhdfs/v1"
-      default_path: "/data/production"
-      kafka_bootstrap: "kafka-dc1-broker1:9092,kafka-dc1-broker2:9092"
-      is_read_only: false
-      description: "Основной HDFS-кластер оперативных данных в DC1"
-
-    - id: "analytics-cluster"
-      name: "HDFS Analytics (Secondary DataLake)"
-      dc_id: "dc1"
-      webhdfs_url: "http://localhost:9872/webhdfs/v1"
-      default_path: "/data/analytics"
-      kafka_bootstrap: "kafka-dc1-broker3:9092"
-      is_read_only: false
-      description: "Аналитический HDFS-кластер в DC1"
-
-    - id: "backup-cluster"
-      name: "HDFS DR (Backup DataLake)"
-      dc_id: "dc2"
-      webhdfs_url: "http://dr-namenode:9870/webhdfs/v1"
-      default_path: "/backup/mirror"
-      kafka_bootstrap: "kafka-dc2-broker1:9092,kafka-dc2-broker2:9092"
-      is_read_only: false
-      description: "Катастрофоустойчивое зеркало в DC2"
-
-  dc_limits:
-    - source_dc: "dc1"
-      target_dc: "dc2"
-      limit_mb_per_sec: 100.0
-      description: "Магистральный канал между DC1 и DC2"
-
-  hdfs_limits:
-    - source_cluster: "demo-cluster"
-      target_cluster: "backup-cluster"
-      limit_mb_per_sec: 60.0
-      description: "Выделенная квота между Prod Lake (DC1) и Backup Lake (DC2)"
-
-    - source_cluster: "analytics-cluster"
-      target_cluster: "backup-cluster"
-      limit_mb_per_sec: 40.0
-      description: "Квота между аналитическим кластером (DC1) и Backup Lake (DC2)"
-
-    - source_cluster: "demo-cluster"
-      target_cluster: "analytics-cluster"
-      limit_mb_per_sec: 80.0
-      description: "Локальный обмен между Prod и Analytics внутри DC1"
-
-  global_limit_mb_per_sec: 120.0
-```
+Эталоном является секция `hadoop.replicator` в `backend/replicator/orchestrator/src/main/resources/application.yml`; ключи топологии описаны в разделе 7.2, лимиты — в разделе 7.3. Продуктивные переопределения (PostgreSQL, TLS gRPC) — в `application-prod.yml` того же каталога.
 
 ---
 
@@ -1066,25 +976,23 @@ topology:
 | `REPLICATOR_WIRE_COMPRESSION` | Кодек потокового сжатия в канале: `zstd` (Zstandard), `lz4` (LZ4), `none` | `zstd` |
 | `REPLICATOR_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
-| `SERVER_DEBUG` | Режим отладки (`true` / `false`) | `false` |
-| `JWT_SECRET_KEY` / `HDFS_SECRET_KEY` | Секретный ключ подписи JWT (мин. 32 симв., обязателен в prod) | — (в dev автогенерируется) |
-| `LDAP_SERVER_URI` / `HDFS_LDAP_URI` | URI LDAP сервера (`ldaps://...:636`) | — |
-| `LDAP_BIND_PASSWORD` / `HDFS_LDAP_PASSWORD` | Пароль сервисной учетной записи LDAP | — |
-| `DATABASE_URL` / `HDFS_DATABASE_URL` | Строка подключения к базе данных | `jdbc:sqlite:data/...` |
-| `STORAGE_URL` / `REDIS_URL` | URL подключения к Redis (кэш токенов, Rate Limiter, Distributed Lock) | — |
-| `LIVY_URL` | Адрес сервера Apache Livy для Spark Explorer | `http://localhost:8998` |
-| `HIVE_METASTORE_URI` | Thrift URI каталога Hive Metastore | `thrift://localhost:9083` |
-| `CORS_ORIGINS` | Доверенные адреса через запятую | `http://localhost:8000` |
-| `KRB5_CONFIG` | Путь к файлу конфигурации Kerberos | `/etc/krb5.conf` |
-| `KRB5_KTNAME` | Путь к Keytab-файлу сервиса | `/etc/security/keytabs/...` |
-| `RESULTS_TTL_SECONDS` | TTL хранения кэша результатов SQL и Spark (`data/results/`) | `604800` (7 дней) |
-| `RESULTS_CLEANUP_INTERVAL_SECONDS` | Интервал периодической фоновой очистки дискового кэша результатов | `3600` (1 час) |
+| `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для демо, `prod` для оркестратора репликатора) | — |
+| `HADOOP_AUTH_MODE` | `hadoop.security.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
+| `JWT_SECRET_KEY` | `hadoop.security.jwt.secret-key`: ключ подписи JWT, не короче 32 символов | — (без него сервис не стартует вне mock-режима) |
+| `LDAP_URL` | `hadoop.security.ldap.url` | `ldaps://ldap.company.local:636` |
+| `LDAP_MANAGER_DN` / `LDAP_MANAGER_PASSWORD` | Учетная запись для поиска пользователей в LDAP | — |
+| `LDAP_USER_SEARCH_BASE` | `hadoop.security.ldap.user-search-base` | `ou=users,dc=company,dc=local` |
+| `YARN_DB_URL` / `YARN_DB_DRIVER` / `YARN_DB_USER` / `YARN_DB_PASSWORD` | БД YARN Explorer (Change Requests, аудит) | `jdbc:h2:file:./data/yarn_explorer` / `org.h2.Driver` / `sa` / пусто |
+| `YARN_KERBEROS_PRINCIPAL` / `YARN_KERBEROS_KEYTAB` | Учетная запись YARN Explorer для SPNEGO-запросов к ResourceManager | — |
+| `YARN_AWX_BASE_URL` / `YARN_AWX_TOKEN` / `YARN_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
+
+Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `SQL_RESULTS_TTL_HOURS=48` или `HADOOP_SECURITY_COOKIE_SECURE=true`.
 
 ---
 
 ## 9. Конфигурация в Kubernetes (Helm)
 
-При развертывании через Umbrella Chart `helm/hadoop-explorer` конфигурация каждого компонента передается в секции `values.yaml`:
+Umbrella Chart `helm/hadoop-explorer` подключает чарты `helm/charts/hdfs-explorer`, `sql-explorer`, `yarn-explorer` и `spark-explorer`. Чарта для репликатора нет. Параметры дочернего чарта передаются в секции с его именем:
 
 ```yaml
 global:
@@ -1097,69 +1005,30 @@ yarn-explorer:
   podDisruptionBudget:
     enabled: true
     maxUnavailable: 1
-  config:
-    clusters:
-      - id: "prod-yarn"
-        resource_manager_urls:
-          - "http://rm1.prod.company.local:8088"
-          - "http://rm2.prod.company.local:8088"
+  extraEnv:
+    - name: HADOOP_SECURITY_COOKIE_SECURE
+      value: "true"
+  secrets:
+    jwtSecret: "<jwt_secret>"
+    ldapBindPassword: "<ldap_password>"
 
 hdfs-explorer:
   enabled: true
   replicaCount: 2
-  podDisruptionBudget:
-    enabled: true
-    maxUnavailable: 1
-  config:
-    server:
-      debug: false
-    auth:
-      mode: "hybrid"
-    ldap:
-      server_uri: "ldaps://ad.company.local:636"
-      bind_dn: "cn=svc_hdfs,ou=services,dc=company,dc=local"
   secrets:
-    jwtSecretKey: "super-secure-production-jwt-token-key-32-chars"
-    ldapBindPassword: "LdapPasswordHere"
+    jwtSecret: "<jwt_secret>"
+    ldapBindPassword: "<ldap_password>"
 
 sql-explorer:
   enabled: true
-  podDisruptionBudget:
-    enabled: true
-    maxUnavailable: 1
-  config:
-    ai:
-      enabled: true
-      base_url: "http://ollama-service.ai.svc:11434/v1"
-      model: "qwen2.5-coder:7b"
 
 spark-explorer:
   enabled: true
-  replicaCount: 2
-  podDisruptionBudget:
-    enabled: true
-    maxUnavailable: 1
-  config:
-    clusters:
-      - id: "prod-hadoop"
-        livy_url: "http://livy.hadoop.svc:8998"
-
-replicator:
-  enabled: true
-  orchestrator:
-    replicaCount: 1
-    port: 8005
-    config:
-      globalLimitBytesPerSec: 104857600  # 100 МБ/с
-      databaseUrl: "jdbc:postgresql://postgres.hadoop.svc:5432/replicator"
-  agent:
-    replicaCount: 2  # Горизонтальное масштабирование дуплексных агентов (Sender + Receiver)
-    port: 50051
-    clusterId: "demo-cluster"
-    mode: "all"
-    stagingDir: "/tmp/staging"
-    pollIntervalSec: 3.0
 ```
+
+`<jwt_secret>` — случайная строка не короче 32 символов, `<ldap_password>` — пароль сервисной учетной записи LDAP.
+
+**Внимание.** Секция `config` в `values.yaml` дочерних чартов осталась в формате прежних Python-сервисов (`server_uri`, `bind_dn`, `access_token_expire_minutes`, `sqlite:///...`). Чарты рендерят ее в ConfigMap `config.yaml` и передают путь в `CONFIG_PATH` / `HDFS_CONFIG_PATH`, но Java-сервисы этот файл не читают (раздел 1): значения из `config` на работу сервиса не влияют. Задавайте параметры переменными окружения по правилам relaxed binding (раздел 8): в `yarn-explorer` — через `extraEnv`/`envFrom`; в остальных чартах таких полей нет. `sql-explorer` и `spark-explorer` передают из `secrets.jwtSecret` переменную `JWT_SECRET_KEY`; `hdfs-explorer` передает `HDFS_SECRET_KEY`, `HDFS_LDAP_PASSWORD` и `HDFS_DATABASE_URL`, которые Java-сервис не читает, поэтому HDFS Explorer из этого чарта без `JWT_SECRET_KEY` не стартует.
 
 ### 9.1 Рекомендации по High-Availability в продакшне
 1. База данных. При `replicaCount > 1` подключите внешний PostgreSQL (`SPRING_DATASOURCE_URL: jdbc:postgresql://...`). Встроенная H2 — только для локальной разработки и демо-стендов. Порядок перехода — в [docs/production-database.md](production-database.md).
@@ -1217,8 +1086,8 @@ scrape_configs:
       - targets:
           - 'yarn-explorer:8000'
           - 'hdfs-explorer:8000'
-          - 'sql-explorer:8000'
-          - 'spark-explorer:8000'
+          - 'sql-explorer:8003'
+          - 'spark-explorer:8004'
           - 'replicator-orchestrator:8005'
 ```
 

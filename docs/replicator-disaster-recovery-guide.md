@@ -197,14 +197,24 @@ flowchart TD
 
 ## 5. Автоматизация через REST API (Ansible / AWX / CI-CD)
 
-Операции консоли DR доступны через REST API оркестратора. Примеры ниже приведены без учетных данных; управляющие вызовы `POST /api/v1/dr/*` выполняются от пользователя с ролью `ADMIN` [проверить: способ передачи учетных данных в curl — cookie сессии или заголовок].
+Операции консоли DR доступны через REST API оркестратора. Управляющие вызовы `POST /api/v1/dr/*` выполняются от пользователя с ролью `ADMIN`.
+
+Для скриптов передавайте токен в заголовке `Authorization: Bearer <token>`. Токен возвращает `POST /api/v1/auth/login` в поле `access_token`. При аутентификации заголовком проверка CSRF не выполняется; она нужна только для запросов с cookie сессии.
 
 ```bash
+# 0. Получение токена: <admin_user> — логин пользователя с ролью ADMIN,
+#    пароль подставляется из переменной окружения REPLICATOR_ADMIN_PASSWORD
+TOKEN=$(curl -s -X POST "http://orchestrator:8005/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\": \"<admin_user>\", \"password\": \"$REPLICATOR_ADMIN_PASSWORD\"}" | jq -r .access_token)
+
 # 1. Проверка текущего DR-статуса и лага непереданных данных
-curl -s -X GET "http://orchestrator:8005/api/v1/dr/status" | jq .
+curl -s -X GET "http://orchestrator:8005/api/v1/dr/status" \
+  -H "Authorization: Bearer $TOKEN" | jq .
 
 # 2. Экстренный останов аварийного кластера DC1 с сетевым ограждением (Fencing)
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "cluster_id": "dc1",
@@ -215,6 +225,7 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop" \
 # 3. Снятие сетевой изоляции после восстановления DC1 БЕЗ возобновления старых задач
 # ВНИМАНИЕ: resume_hdfs и resume_hms передаются как false во избежание перезаписи!
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop/rollback" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "cluster_id": "dc1",
@@ -225,6 +236,7 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/emergency-stop/rollback" \
 
 # 4. Запуск обратной синхронизации дельты из DC2 в DC1
 curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "from_cluster_id": "dc2",
@@ -235,7 +247,8 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/reverse" \
   }'
 
 # 5. Отзыв обратного зеркала после схождения лага и завершения Failback
-curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/{directJobId}/undo-reverse"
+curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/{directJobId}/undo-reverse" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 `{directJobId}` — ID прямой задачи, для которой создано зеркало.

@@ -28,7 +28,8 @@ YARN Explorer — компонент платформы Hadoop Explorer. Фун�
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
 - Проверка доступности: `GET /healthz` (а также `GET /health`) возвращает `{"status":"ok"}`.
-- Метрики Prometheus: `GET /metrics` (HTTP-запросы, Circuit Breaker, счетчики заявок). [проверить: в `backend/yarn` и `common-security-starter` нет обработчика `/metrics` и зависимости `micrometer-registry-prometheus`]
+- Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
+- Метрики Prometheus сервис не экспортирует, см. [5.1](#51-метрики-prometheus).
 
 ### 1.3 Системные требования
 
@@ -155,7 +156,8 @@ spring:
     # Для автономной работы используется embedded H2:
     url: jdbc:h2:file:/var/lib/hadoop-explorer/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
     driverClassName: org.h2.Driver
-    # Для промышленного кластера рекомендуется PostgreSQL:
+    # PostgreSQL заработает только после добавления org.postgresql:postgresql
+    # в backend/yarn/pom.xml: в JAR драйвер не входит.
     # url: jdbc:postgresql://pg-cluster.company.local:5432/yarn_explorer
     # username: yarn_user
     # password: StrongPass123
@@ -365,7 +367,7 @@ docker run -d \
 ### 3.4 Запуск через Docker Compose
 Создайте каталог `/opt/yarn-docker/` и в нем файл `docker-compose.yml`:
 
-[проверить: переменные `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` не читаются сервисом — в `backend/yarn/src/main/resources/application.yml` используются `LDAP_MANAGER_PASSWORD`, `JWT_SECRET_KEY`, `YARN_AWX_TOKEN`]
+Переменные `JWT_SECRET_KEY`, `LDAP_MANAGER_PASSWORD` и `YARN_AWX_TOKEN` подставляются в `application.yml` из шага 4 (`${JWT_SECRET_KEY}` и т. д.). Principal и keytab для запросов к ResourceManager задаются в том же файле: `yarn.kerberos.principal`, `yarn.kerberos.keytab`.
 ```yaml
 version: "3.8"
 
@@ -379,10 +381,8 @@ services:
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - YARN_AWX_TOKEN=${AWX_TOKEN}
-      - KRB5_KEYTAB=/etc/security/keytabs/yarn-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/yarn.company.local@COMPANY.LOCAL
+      - LDAP_MANAGER_PASSWORD=${LDAP_MANAGER_PASSWORD}
+      - YARN_AWX_TOKEN=${YARN_AWX_TOKEN}
     volumes:
       - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -417,8 +417,8 @@ networks:
 Создайте рядом файл `.env`:
 ```bash
 JWT_SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
-LDAP_BIND_PASSWORD=SuperSecretLdapPass
-AWX_TOKEN=VeryLongSecretAwxOAuthToken
+LDAP_MANAGER_PASSWORD=SuperSecretLdapPass
+YARN_AWX_TOKEN=VeryLongSecretAwxOAuthToken
 ```
 
 Запустите сервис и проверьте состояние:
@@ -436,14 +436,15 @@ docker compose logs -f yarn-explorer
 Чарт лежит в [`helm/charts/yarn-explorer`](../helm/charts/yarn-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
+Чарт сам создает Secret `<fullname>-secrets` из `secrets.*` (при имени релиза `yarn-explorer` — `yarn-explorer-secrets`), поэтому не создавайте Secret с таким именем вручную: `helm install` остановится с ошибкой о существующем ресурсе.
+
 ```bash
 kubectl create namespace hadoop-explorer
 
-# Создание секрета с паролями и токенами
-kubectl create secret generic yarn-explorer-secrets \
+# Пароль LDAP и токен AWX; сервис читает их из LDAP_MANAGER_PASSWORD и YARN_AWX_TOKEN
+kubectl create secret generic yarn-explorer-credentials \
   --namespace hadoop-explorer \
-  --from-literal=jwt-secret-key="Min32CharSecretKeyForJWTTokens12345" \
-  --from-literal=ldap-bind-password="SecretLdapPassword" \
+  --from-literal=ldap-manager-password="SecretLdapPassword" \
   --from-literal=awx-token="SecretAwxOAuthToken"
 
 # Создание секрета для скачивания образов из GHCR
@@ -453,24 +454,20 @@ kubectl create secret docker-registry ghcr-secret \
   --docker-username="<github-username>" \
   --docker-password="<github-token-with-read:packages>"
 
-# Создание секрета с Kerberos Keytab
+# Keytab; ключ в Secret совпадает с kerberos.keytab.fileName (yarn-explorer.keytab)
 kubectl create secret generic yarn-kerberos-keytab \
   --namespace hadoop-explorer \
   --from-file=yarn-explorer.keytab=/etc/security/keytabs/yarn-explorer.keytab
-
-# Создание ConfigMap с krb5.conf
-kubectl create configmap krb5-config \
-  --namespace hadoop-explorer \
-  --from-file=krb5.conf=/etc/krb5.conf
 ```
 
 #### Шаг 2: Файл параметров `custom-values.yaml`
 
-[проверить: шаблоны чарта не используют `extraVolumes` и `extraVolumeMounts`; keytab и `krb5.conf` чарт монтирует через параметры `kerberos.*` (см. [README чарта](../helm/charts/yarn-explorer/README.md))]
+Чарт монтирует секцию `config` как `/app/config/config.yaml`, но сам не сообщает сервису путь к этому файлу. Путь передается через `extraEnv` в `SPRING_CONFIG_ADDITIONAL_LOCATION`, и тогда секция `config` читается как Spring-конфигурация с теми же ключами, что `application.yml` на шаге 4 раздела 2. Ключи из `values.yaml` чарта по умолчанию (`config.auth`, `config.acl`, `config.clusters` и т. п.) попадают в тот же файл, но сервис их не читает.
 
 ```yaml
-# Количество реплик. При внешней БД PostgreSQL можно масштабировать до 2–5 реплик.
-replicaCount: 2
+# Один под: в JAR нет JDBC-драйвера PostgreSQL, а встроенную H2 на PVC
+# (/app/data/yarn_explorer.mv.db) несколько подов использовать не могут.
+replicaCount: 1
 
 image:
   repository: ghcr.io/company/hadoop-explorer/yarn
@@ -480,21 +477,23 @@ image:
 imagePullSecrets:
   - name: ghcr-secret
 
+# JWT_SECRET_KEY чарт передает сам из secrets.jwtSecret.
+# Случайная строка не короче 32 символов: значение по умолчанию из values.yaml публично.
+secrets:
+  jwtSecret: "<jwt_secret>"
+
 extraEnv:
-  - name: JWT_SECRET_KEY
+  - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+    value: "file:/app/config/config.yaml"
+  - name: LDAP_MANAGER_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: yarn-explorer-secrets
-        key: jwt-secret-key
-  - name: LDAP_BIND_PASSWORD
+        name: yarn-explorer-credentials
+        key: ldap-manager-password
+  - name: YARN_AWX_TOKEN
     valueFrom:
       secretKeyRef:
-        name: yarn-explorer-secrets
-        key: ldap-bind-password
-  - name: AWX_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: yarn-explorer-secrets
+        name: yarn-explorer-credentials
         key: awx-token
 
 service:
@@ -527,31 +526,40 @@ resources:
     cpu: "500m"
     memory: "512Mi"
 
-# Монтирование Kerberos Keytab и krb5.conf
-extraVolumes:
-  - name: keytab-vol
-    secret:
-      secretName: yarn-kerberos-keytab
-      defaultMode: 0400
-  - name: krb5-vol
-    configMap:
-      name: krb5-config
-
-extraVolumeMounts:
-  - name: keytab-vol
+# krb5.conf (kerberos.krb5Config) передается при установке через --set-file, см. шаг 3.
+# Keytab монтируется из Secret yarn-kerberos-keytab в /etc/security/keytabs/yarn-explorer.keytab.
+kerberos:
+  enabled: true
+  keytab:
+    existingSecret: yarn-kerberos-keytab
+    fileName: yarn-explorer.keytab
     mountPath: /etc/security/keytabs
-    readOnly: true
-  - name: krb5-vol
-    mountPath: /etc/krb5.conf
-    subPath: krb5.conf
-    readOnly: true
 
-# Внешняя БД PostgreSQL для сессий и заявок в режиме High Availability
+# Spring-конфигурация сервиса (ключи как в application.yml)
 config:
-  database:
-    url: "postgresql://yarn_user:DbPass123@postgres-ha.database.svc.cluster.local:5432/yarn_explorer"
-
+  hadoop:
+    security:
+      auth:
+        mode: ldap
+      jwt:
+        secret-key: "${JWT_SECRET_KEY}"
+      ldap:
+        enabled: true
+        url: "ldaps://ldap.company.local:636"
+        manager-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
+        manager-password: "${LDAP_MANAGER_PASSWORD}"
+        user-search-base: "ou=users,dc=company,dc=local"
+        user-search-filter: "(sAMAccountName={0})"
   yarn:
+    client-mode: native
+    kerberos:
+      principal: "yarn-explorer@COMPANY.LOCAL"
+      keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+      krb5-conf: "/etc/krb5.conf"
+    awx:
+      enabled: true
+      base-url: "https://awx.company.local"
+      token: "${YARN_AWX_TOKEN}"
     clusters:
       - id: "prod-yarn"
         name: "Hadoop Production"
@@ -560,17 +568,17 @@ config:
           - "http://rm02.hadoop.company.local:8088"
         kerberos-enabled: true
         kerberos-principal: "yarn/yarn.company.local@COMPANY.LOCAL"
-
-podDisruptionBudget:
-  minAvailable: 1
 ```
+
+Плейсхолдер `<jwt_secret>` — случайная строка, например вывод `openssl rand -hex 32`.
 
 #### Шаг 3: Установка и обновление через Helm
 ```bash
 # Установка чарта
 helm upgrade --install yarn-explorer ./helm/charts/yarn-explorer \
   --namespace hadoop-explorer \
-  -f custom-values.yaml
+  -f custom-values.yaml \
+  --set-file kerberos.krb5Config=/etc/krb5.conf
 
 # Проверка статуса подов
 kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer
@@ -584,20 +592,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 ## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus
-Эндпоинт `/metrics` экспортирует метрики [проверить: имена метрик не найдены в коде `backend/yarn` и `common-security-starter`]:
-- `http_requests_total{app="yarn", method="GET", status="200"}`
-- `http_request_duration_seconds{app="yarn", ...}`
-- `hadoop_circuit_breaker_state{name="yarn_rm"}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
-- `hadoop_circuit_breaker_calls_total{name="yarn_rm", status="success|failed"}`
-- `yarn_change_requests_total{status="pending|approved|rejected|applied"}`
-
-Пример scrape-конфигурации Prometheus:
-```yaml
-- job_name: 'yarn-explorer'
-  metrics_path: '/metrics'
-  static_configs:
-    - targets: ['yarn.company.local:8000']
-```
+Сервис не экспортирует метрики Prometheus: в `backend/yarn` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
 
 ### 5.2 Типичные ошибки
 
@@ -606,7 +601,7 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 | `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверьте состояние RM HA: сервис автоматически переключится на standby-узел. Проверьте список `resource-manager-urls` в конфигурационном файле `application.yml`. |
 | `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверьте права доступа к keytab (`chmod 400`), корректность `principal` и наличие файла keytab, а также проверьте получение тикета командой `kinit -kt /path/to.keytab principal@REALM`. |
 | `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверьте пароль сервисной учетной записи (параметр `bind-password`) через `ldapsearch -H ldaps://... -D "..." -W`. |
-| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | При 2 и более репликах переключите `spring.datasource.url` на PostgreSQL. |
+| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | Запускайте одну реплику. Для 2 и более реплик нужен PostgreSQL в `spring.datasource.url`, но JDBC-драйвер PostgreSQL в JAR не входит: в `common-security-starter` зависимость `org.postgresql:postgresql` объявлена как `optional` и в сервис не попадает, поэтому без добавления ее в `pom.xml` сервиса подключение к PostgreSQL падает с ошибкой загрузки драйвера. |
 | `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
 
 ---

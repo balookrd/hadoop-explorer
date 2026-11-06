@@ -8,8 +8,8 @@ Helm-чарт для развертывания HDFS Web Explorer (WebHDFS и Ht
 - NetworkPolicy: входящий трафик разрешен только на порт сервиса 8000, исходящий — только к DNS (53), Kerberos KDC (88, 749), LDAP/LDAPS (389, 636) и WebHDFS / DataNode (9870, 9864, 50070, 50075).
 - Kerberos / SPNEGO:
   - `krb5.conf` монтируется из ConfigMap.
-  - Keytab берется из Secret, который чарт создает из base64-строки, либо из существующего Secret (`existingSecret`). [проверить: `existingSecret` не используется в `values.yaml` и `templates/`]
-  - Kerberos-билет получается через `kinit` в `docker-entrypoint.sh`. [проверить: в `docker/Dockerfile.hdfs-java` нет `docker-entrypoint.sh`, ENTRYPOINT запускает `java -jar` напрямую]
+  - Keytab берется из Secret, который чарт создает из base64-строки `secrets.kerberosKeytabBase64` (ключ `hdfs-explorer.keytab`), и монтируется в `/etc/security/keytabs`. Если `secrets.kerberosKeytabBase64` пуст, keytab не монтируется.
+  - `kinit` в контейнере не запускается: образ стартует `java -jar` напрямую. Для кластера с `auth-type: kerberos` в `hadoop.hdfs.clusters` сервис сам получает билет через `UserGroupInformation.loginUserFromKeytabAndReturnUGI` с `service-principal` и `keytab-path` этого кластера (`NativeHdfsClient`).
 - Хранилище: внешний PostgreSQL (`config.database.url`) или SQLite на `PersistentVolumeClaim` (по умолчанию `sqlite:////app/data/hdfs_tokens.db`). Если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), Deployment создается с `replicas: 1` независимо от `replicaCount`: несколько подов не могут писать в один файл базы. При `autoscaling.enabled: true` поле `replicas` не выставляется и ограничение не действует.
 - Аутентификация через LDAP / Active Directory с сопоставлением групп и прав доступа.
 - Ingress и TLS: для потоковой передачи больших файлов отключена буферизация Nginx (`proxy-buffering: off`, `proxy-request-buffering: off`), таймауты `proxy-read-timeout` и `proxy-send-timeout` подняты до 600 с, `proxy-body-size` — 500m. Сертификат выпускает cert-manager (аннотация `cert-manager.io/cluster-issuer`).

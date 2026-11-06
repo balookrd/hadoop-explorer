@@ -136,13 +136,13 @@ hadoop:
 ### Сборка и тесты модуля
 ```bash
 # Тестирование модуля оркестратора
-mvn test -f backend/replicator/orchestrator/pom.xml
+mvn test -f backend/replicator/pom.xml -pl orchestrator -am
 
 # Сборка исполняемого Spring Boot JAR
-mvn clean package -DskipTests -f backend/replicator/orchestrator/pom.xml
+mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
 ```
 
-[проверить: по `AGENTS.md` отдельный модуль репликатора собирается только через реактор родителя (`mvn test -f backend/replicator/pom.xml -pl orchestrator -am`), иначе общие `proto` и `model` берутся из локального репозитория устаревшими; цель `make test-replicator-orchestrator` делает именно это]
+Запускайте Maven только через реактор `backend/replicator/pom.xml` с `-pl orchestrator -am`. При запуске с `-f backend/replicator/orchestrator/pom.xml` общие модули `proto` и `model` берутся из локального Maven-репозитория и могут быть устаревшими. Цели `make test-replicator-orchestrator` и `make build-replicator-orchestrator` вызывают Maven именно так.
 
 ### Цели Makefile
 ```bash
@@ -186,9 +186,11 @@ make test-java
 
 | Метод | Путь | Назначение | Доступ |
 |---|---|---|---|
-| `GET` | `/health`, `/api/v1/health` | Проверка жизнеспособности сервиса | Публичный |
-| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Публичный |
-| `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator | Публичный [проверить: по `backend/replicator/README.md` `/actuator/metrics/**` требует `hasRole("ADMIN")`] |
+| `GET` | `/health`, `/healthz` | Проверка жизнеспособности сервиса | Публичный |
+| `GET` | `/api/v1/health` | То же, что `/health` | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`) |
+| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`) |
+| `GET` | `/actuator/prometheus`, `/actuator/health`, `/actuator/info` | Эндпоинты Spring Boot Actuator | Публичный |
+| `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator. В профиле `prod` не публикуется (`management.endpoints.web.exposure.include: health,info,prometheus`) | Роль `ADMIN` |
 | `POST` | `/api/v1/auth/login` | Аутентификация пользователя (JWT Cookie) | Публичный |
 | `GET` | `/api/v1/agents` | Список активных агентов репликации | JWT (`USER` / `ADMIN`) |
 | `GET` | `/api/v1/jobs` | Список задач репликации | JWT (`USER` / `ADMIN`) |

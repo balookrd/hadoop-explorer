@@ -2,7 +2,7 @@
 
 Spring Boot стартер аутентификации, сессий, CSRF-защиты, RBAC, rate limiting, circuit breaker и аудита для сервисов Hadoop Explorer Platform. Java 21 LTS, Spring Boot 3.3+.
 
-Модуль заменяет на Java прежний `backend/common` [проверить: каталога `backend/common` в репозитории нет]. Закрывает уязвимости из OWASP Top-10 и CWE, перечисленные ниже.
+Стартер закрывает уязвимости из OWASP Top-10 и CWE, перечисленные ниже.
 
 ---
 

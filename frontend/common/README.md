@@ -47,7 +47,7 @@
 
 ### Типы (`types/`)
 - `types/auth.ts` — интерфейсы `UserSession`, `UserInfo`, `TokenResponse`, `ClusterPublicInfo`.
-- `types/generated/` — TypeScript-типы, сгенерированные `openapi-typescript` из OpenAPI-схем сервисов (`yarn.ts`, `hdfs.ts`, `sql.ts`, `spark.ts`) [проверить: схемы генерировались из FastAPI, бэкенды теперь на Spring Boot — актуален ли источник].
+- `types/generated/` — TypeScript-типы, сгенерированные `openapi-typescript` (`yarn.ts`, `hdfs.ts`, `sql.ts`, `spark.ts`). Приложения их не импортируют. Типы не перегенерируются: цели `make generate-types`, на которую ссылается комментарий в `types/generated/index.ts`, в `Makefile` нет, а Java-бэкенды не отдают OpenAPI-схему (springdoc в `pom.xml` не подключен). Содержимое файлов может не совпадать с текущим API.
 
 ### Тесты (`tests/`)
 - `tests/components.test.ts` — юнит- и интеграционные тесты общих UI-компонентов:

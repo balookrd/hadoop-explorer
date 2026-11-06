@@ -13,7 +13,7 @@
 Spark Explorer — веб-среда для запуска вычислений Apache Spark через Apache Livy:
 - Жизненный цикл сессий через Apache Livy REST API: создание, отслеживание состояния, отмена statement, вывод результата.
 - Языки PySpark и Spark Scala.
-- Остановка простаивающих сессий (`idle_timeout`) и остановка сессий при выходе пользователя (`auto_stop_on_logout`).
+- Перевод сессий, простаивающих в статусе `idle` дольше `spark.session-ttl-minutes` (по умолчанию 120 минут), в статус `killed`.
 - Профили ресурсов для запуска в очередях YARN (`driver_memory`, `executor_memory`, `executor_cores`, `num_executors`).
 - Ссылки на Spark History Server для просмотра завершённых приложений.
 - Рабочее пространство пользователя (`SparkUserWorkspace`), хранимое на сервере: блокноты, сохранённые пайплайны и история выполнения.
@@ -30,7 +30,8 @@ Spark Explorer — веб-среда для запуска вычислений 
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
 - Проверка доступности (healthcheck): `GET /healthz`
-- Метрики Prometheus: `GET /metrics`
+- Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
+- Метрики Prometheus сервис не экспортирует, см. [5.1](#51-метрики-prometheus-get-metrics).
 
 ### 1.3 Системные требования
 
@@ -150,83 +151,98 @@ cp backend/spark/target/spark-explorer-java-*.jar /opt/hadoop-explorer/spark/bin
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/spark/config.yaml`:
-
-[проверить: формат и имя файла. Unit-файл на шаге 5 передаёт сервису `file:/etc/hadoop-explorer/spark/application.yml`, а ключи ниже (`security.secret_key`, `auth.ldap.server_uri` и т. п.) не совпадают с ключами `backend/spark/src/main/resources/application.yml` (`hadoop.security.jwt.secret-key`, `hadoop.security.ldap.url`).]
+Создайте файл `/etc/hadoop-explorer/spark/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/spark/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `CommonSecurityProperties` (префикс `hadoop.security`).
 
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8004
-  debug: false
-  secure_cookies: true
-  cors_origins:
-    - "https://spark.company.local"
 
-security:
-  secret_key: "CHANGE_TO_SUPER_SECURE_RANDOM_KEY_MIN_32_CHARS"
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "spark_explorer_session"
+spring:
+  datasource:
+    # Встроенная H2 в файле. JDBC-драйвера PostgreSQL в JAR нет.
+    url: jdbc:h2:file:/var/lib/hadoop-explorer/spark/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
-database:
-  url: "sqlite:////var/lib/hadoop-explorer/spark/data/spark_explorer.db"
-  # Для HA кластера:
-  # url: "postgresql://spark_user:DbPass123@pg.company.local:5432/spark_explorer"
+hadoop:
+  security:
+    auth:
+      mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
+      admin-groups: ["hadoop-admins"]
+      writer-groups: ["data-engineers"]
+    jwt:
+      # Случайная строка не короче 32 символов; без нее сервис не стартует
+      secret-key: "${JWT_SECRET_KEY}"
+      expiration-minutes: 480
+    cors:
+      allowed-origins:
+        - "https://spark.company.local"
+    cookie:
+      secure: true
+    ldap:
+      enabled: true
+      url: "ldaps://ldap.company.local:636"
+      manager-dn: "cn=svc_spark,ou=services,dc=company,dc=local"
+      manager-password: "${LDAP_MANAGER_PASSWORD}"
+      user-search-base: "ou=users,dc=company,dc=local"
+      user-search-filter: "(sAMAccountName={0})"
+      group-search-base: "ou=groups,dc=company,dc=local"
+      group-search-filter: "(member={0})"
+    kerberos:
+      # Входящий SPNEGO (SSO в браузере)
+      enabled: true
+      keytab: "/etc/security/keytabs/spark-explorer.keytab"
+      service-principal: "HTTP/spark.company.local@COMPANY.LOCAL"
 
-auth:
-  ldap:
-    enabled: true
-    server_uri: "ldaps://ldap.company.local:636"
-    bind_dn: "cn=svc_spark,ou=services,dc=company,dc=local"
-    bind_password: "ServiceLdapPassword"
-    user_search_base: "ou=users,dc=company,dc=local"
-    user_search_filter: "(sAMAccountName={username})"
-    group_search_base: "ou=groups,dc=company,dc=local"
-    group_search_filter: "(member={user_dn})"
-    admin_group: "cn=hadoop-admins,ou=groups,dc=company,dc=local"
-
-  kerberos:
-    enabled: true
-    keytab_path: "/etc/security/keytabs/spark-explorer.keytab"
-    service_principal: "HTTP/spark.company.local@COMPANY.LOCAL"
-
-# Настройка подключения к кластерам Apache Livy и Spark
 spark:
+  # Сессии в статусе idle, простаивающие дольше этого срока, переводятся в killed (проверка раз в минуту)
+  session-ttl-minutes: 120
+  results-ttl-hours: 24
   clusters:
     - id: "spark-prod"
       name: "Production Spark on YARN"
-      livy_url: "http://livy-server.company.local:8998"
-      history_server_url: "http://history-server.company.local:18080"
-      yarn_rm_url: "http://rm01.company.local:8088"
-      default_queue: "analytics"
-      timeout_seconds: 60
-      session_idle_timeout_minutes: 60
-      auto_stop_on_logout: true
-
+      type: "livy"
+      livy-url: "http://livy-server.company.local:8998"
+      yarn-cluster-id: "yarn-prod"
+      yarn-queues: ["root.default", "root.analytics"]
+      default-queue: "root.analytics"
+      allowed-groups: ["data-engineers", "bi-analysts"]
+      spark-versions:
+        - id: "spark-3.5.1"
+          name: "Apache Spark 3.5.1"
+          default-version: true
+          python-versions:
+            - id: "py310"
+              name: "Python 3.10"
+              default-env: true
+      metastores:
+        - id: "hive-prod"
+          name: "Production Hive Metastore"
+          default-metastore: true
       # Пресеты выделения ресурсов для пользователей
-      resource_profiles:
-        small:
-          driver_memory: "2g"
-          executor_memory: "4g"
-          executor_cores: 2
-          num_executors: 2
-        medium:
-          driver_memory: "4g"
-          executor_memory: "8g"
-          executor_cores: 4
-          num_executors: 5
-        large:
-          driver_memory: "8g"
-          executor_memory: "16g"
-          executor_cores: 4
-          num_executors: 10
+      resource-profiles:
+        - id: "small"
+          name: "Small (2 executors, 4G)"
+          driver-memory: "2g"
+          driver-cores: 1
+          executor-memory: "4g"
+          executor-cores: 2
+          num-executors: 2
+        - id: "large"
+          name: "Large (10 executors, 16G)"
+          driver-memory: "8g"
+          driver-cores: 2
+          executor-memory: "16g"
+          executor-cores: 4
+          num-executors: 10
 ```
+
+Ограничения текущей версии, которые видны в коде:
+- `LivyClient.createSession` не обращается к Livy: идентификатор сессии Livy и YARN application ID генерируются случайно, код выполняет `MockSparkEngine`. `livy-url` только записывается в лог.
+- Если у кластера пусты `allowed-users` и `allowed-groups`, он доступен всем пользователям.
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/spark/config.yaml
-sudo chown appuser:appuser /etc/hadoop-explorer/spark/config.yaml
+sudo chmod 600 /etc/hadoop-explorer/spark/application.yml
+sudo chown appuser:appuser /etc/hadoop-explorer/spark/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
@@ -311,15 +327,17 @@ docker build -t ghcr.io/company/hadoop-explorer/spark:latest -f docker/Dockerfil
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
+Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `hadoop.security.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
 ```bash
 docker run -d \
   --name spark-explorer \
   --restart unless-stopped \
   -p 8004:8004 \
-  -e CONFIG_PATH=/app/config/config.yaml \
+  -e SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml \
+  -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
   -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
-  -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/spark-explorer/config.yaml:/app/config/config.yaml:ro \
+  -e LDAP_MANAGER_PASSWORD="SecretLdapPassword" \
+  -v /opt/spark-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v spark-data:/app/data \
@@ -338,15 +356,12 @@ services:
     ports:
       - "8004:8004"
     environment:
-      - APP_NAME=spark
-      - WEB_CONCURRENCY=2
-      - CONFIG_PATH=/app/config/config.yaml
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:/app/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - KRB5_KEYTAB=/etc/security/keytabs/spark-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/spark.company.local@COMPANY.LOCAL
+      - LDAP_MANAGER_PASSWORD=${LDAP_MANAGER_PASSWORD}
     volumes:
-      - ./config.yaml:/app/config/config.yaml:ro
+      - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
       - /etc/security/keytabs/spark-explorer.keytab:/etc/security/keytabs/spark-explorer.keytab:ro
       - spark-storage:/app/data
@@ -384,13 +399,10 @@ networks:
 Чарт находится в [`helm/charts/spark-explorer`](../helm/charts/spark-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
+Чарт сам создает Secret `<fullname>-secrets` (при имени релиза `spark-explorer` — `spark-explorer-secrets`) из `secrets.*`: JWT-секрет, пароль LDAP и keytab. Не создавайте Secret с таким именем вручную: `helm install` остановится с ошибкой о существующем ресурсе.
+
 ```bash
 kubectl create namespace hadoop-explorer
-
-kubectl create secret generic spark-explorer-secrets \
-  --namespace hadoop-explorer \
-  --from-literal=jwt-secret-key="Min32CharSecretKeyForSparkExplorerJwt" \
-  --from-literal=ldap-bind-password="SecretLdapPassword"
 
 # Создание секрета для скачивания образов из GHCR
 kubectl create secret docker-registry ghcr-secret \
@@ -398,22 +410,15 @@ kubectl create secret docker-registry ghcr-secret \
   --docker-server=ghcr.io \
   --docker-username="<github-username>" \
   --docker-password="<github-token-with-read:packages>"
-
-kubectl create secret generic spark-kerberos-keytab \
-  --namespace hadoop-explorer \
-  --from-file=spark-explorer.keytab=/etc/security/keytabs/spark-explorer.keytab
-
-kubectl create configmap krb5-config \
-  --namespace hadoop-explorer \
-  --from-file=krb5.conf=/etc/krb5.conf
 ```
 
 #### Шаг 2: Параметры `custom-values.yaml`
 
-[проверить: ключи `extraEnv`, `extraVolumes` и `extraVolumeMounts` не используются в шаблонах `helm/charts/spark-explorer/templates`; секреты и `krb5.conf` чарт берёт из `secrets.*` и `kerberos.krb5Conf` в `values.yaml`.]
+**Внимание:** чарт `helm/charts/spark-explorer` не передает сервису Spring-конфигурацию. ConfigMap с `config.yaml` собран из `config.*` в формате прежней версии сервиса и смонтирован в `/etc/spark-explorer/config.yaml`, а переменную `CONFIG_PATH` сервис не читает; `extraEnv` в чарте нет. Из параметров чарта на сервис действует только `secrets.jwtSecret` (переменная `JWT_SECRET_KEY`), порт задает `SERVER_PORT=8004` из образа. LDAP, Kerberos SPNEGO и список кластеров берутся из `application.yml` внутри JAR: вход через LDAP будет обращаться к `ldaps://ldap.company.local:636`. Для рабочей установки в Kubernetes чарт нужно доработать (передать `SPRING_CONFIG_ADDITIONAL_LOCATION` и Spring-конфигурацию), либо запускайте сервис под systemd с `application.yml` из раздела 2.
 
 ```yaml
-replicaCount: 2
+# Один под: в JAR нет JDBC-драйвера PostgreSQL, база — встроенная H2 в памяти пода.
+replicaCount: 1
 
 image:
   repository: ghcr.io/company/hadoop-explorer/spark
@@ -422,18 +427,6 @@ image:
 
 imagePullSecrets:
   - name: ghcr-secret
-
-extraEnv:
-  - name: JWT_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: spark-explorer-secrets
-        key: jwt-secret-key
-  - name: LDAP_BIND_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: spark-explorer-secrets
-        key: ldap-bind-password
 
 service:
   type: ClusterIP
@@ -460,42 +453,32 @@ ingress:
 resources:
   limits:
     cpu: "2"
-    memory: "2Gi"
+    memory: "3Gi"
   requests:
     cpu: "500m"
-    memory: "512Mi"
+    memory: "1Gi"
 
-extraVolumes:
-  - name: keytab-vol
-    secret:
-      secretName: spark-kerberos-keytab
-      defaultMode: 0400
-  - name: krb5-vol
-    configMap:
-      name: krb5-config
+# Попадают в Secret <fullname>-secrets. jwtSecret — случайная строка не короче 32 символов,
+# значение по умолчанию из values.yaml публично. Keytab и krb5.conf передаются через
+# --set / --set-file на шаге 3 и монтируются в /etc/security/keytabs/spark-explorer.keytab
+# и /etc/krb5.conf.
+secrets:
+  jwtSecret: "<jwt_secret>"
+  ldapBindPassword: "<ldap_password>"
 
-extraVolumeMounts:
-  - name: keytab-vol
-    mountPath: /etc/security/keytabs
-    readOnly: true
-  - name: krb5-vol
-    mountPath: /etc/krb5.conf
-    subPath: krb5.conf
-    readOnly: true
-
-config:
-  database:
-    url: "postgresql://spark_user:DbPass123@postgres-ha.database.svc.cluster.local:5432/spark_explorer"
-
-podDisruptionBudget:
-  minAvailable: 1
+kerberos:
+  enabled: true
 ```
+
+Плейсхолдеры: `<jwt_secret>` — например, вывод `openssl rand -hex 32`; `<ldap_password>` — пароль сервисной учетной записи LDAP. Сервис этот пароль не читает (см. предупреждение выше), чарт кладет его в Secret и переменную `LDAP_BIND_PASSWORD`.
 
 #### Шаг 3: Установка через Helm
 ```bash
 helm upgrade --install spark-explorer ./helm/charts/spark-explorer \
   --namespace hadoop-explorer \
-  -f custom-values.yaml
+  -f custom-values.yaml \
+  --set-file kerberos.krb5Conf=/etc/krb5.conf \
+  --set secrets.kerberosKeytabBase64="$(base64 < /etc/security/keytabs/spark-explorer.keytab | tr -d '\n')"
 
 kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=spark-explorer
 ```
@@ -505,13 +488,7 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=spark-explorer
 ## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
-
-[проверить: имена метрик ниже не найдены в `backend/spark/src/main` и `backend/common-security-starter/src/main`.]
-
-- `http_requests_total{app="spark", ...}`
-- `spark_sessions_total{status="starting|idle|busy|dead|killed"}`
-- `spark_statements_total{status="waiting|running|available|error|cancelled"}`
-- `hadoop_circuit_breaker_state{name="livy_server"}`
+Сервис не экспортирует метрики Prometheus: в `backend/spark` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
 
 ### 5.2 Типовые ошибки
 

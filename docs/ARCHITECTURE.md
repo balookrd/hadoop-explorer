@@ -3,8 +3,8 @@
 Hadoop Explorer Platform — веб-платформа для работы с экосистемой Apache Hadoop, ее мониторинга и администрирования. Монорепозиторий содержит пять сервисов:
 1. YARN Explorer — администрирование очередей Capacity Scheduler.
 2. HDFS Explorer — файловый менеджер HDFS.
-3. SQL Explorer — редактор запросов к Trino и Hive с ИИ-ассистентом.
-4. Spark Explorer — интерактивные вычисления на PySpark, Scala Spark и Spark SQL.
+3. SQL Explorer — редактор запросов к Trino и Hive с ИИ-ассистентом (движки и ассистент пока работают на встроенных демонстрационных данных, см. 5.3).
+4. Spark Explorer — интерактивные вычисления на PySpark, Scala Spark и Spark SQL (вызовы Livy пока заменены встроенным эмулятором, см. 5.4).
 5. Hadoop gRPC Replicator — репликация данных HDFS, метаданных Hive Metastore (HMS CDC) и топиков Apache Kafka между изолированными ЦОД с общим ограничением полосы (Hierarchical Token Bucket), Fencing Tokens и Kerberos-изоляцией.
 
 Документ описывает устройство платформы для разработчиков и администраторов: общий стартер безопасности, сервисы, хранилище, развертывание и тесты.
@@ -14,10 +14,10 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 ## 1. Принципы архитектуры
 
 - Монорепозиторий с независимой поставкой: каждый сервис собирается в отдельный Docker-образ или ставится отдельным Helm-чартом и не зависит от остальных сервисов платформы.
-- Общий код безопасности и отказоустойчивости (`backend/common-security-starter`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF, аудит через AOP, ограничение частоты запросов (Bucket4j), Circuit Breaker и корректное завершение (graceful shutdown).
+- Общий код безопасности (`backend/common-security-starter`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF и аудит через AOP. Классы ограничения частоты запросов (Bucket4j) и Circuit Breaker в стартере есть, но сервисами не используются (разделы 3.4 и 4.2).
 - Токены только в cookie: токены авторизации передаются в cookie с флагами `HttpOnly`, `SameSite=Lax`, `Secure`. JWT и учетные данные не пишутся в `localStorage` браузера (защита от XSS, CWE-312).
 - Изоляция пользовательских данных (`User Workspace`): вкладки, код и результаты выполнения хранятся отдельно для каждого пользователя в БД (H2 / PostgreSQL).
-- Высокая доступность внешних служб: платформа работает с HA-конфигурациями Hadoop NameNode, YARN ResourceManager, Hive Metastore и Kerberos KDC; при недоступности узла Circuit Breaker сразу отклоняет вызовы (fast-fail), а клиент переключается на резервный узел (failover).
+- Высокая доступность внешних служб: YARN Explorer выбирает активный ResourceManager по `haState`, HDFS Explorer работает с HA NameNode через `ConfiguredFailoverProxyProvider` (раздел 4.2).
 
 ---
 
@@ -49,10 +49,8 @@ Hadoop Explorer Platform — веб-платформа для работы с э
                    │    Ядро платформы (common-security-starter)  │
                    │  - SessionStore & L1 Caffeine / L2 JDBC      │
                    │  - CommonAuthFilter & SecurityFilterChain    │
-                   │  - SimpleCircuitBreaker (Fast-Fail & HA)     │
-                   │  - Spring Boot 3 Graceful Shutdown           │
-                   │  - LdapAuthService / Kerberos SPNEGO GSS-API │
-                   │  - CSRF Guard & Rate Limiter (Bucket4j)      │
+                   │  - LdapAuthService / KerberosSpnegoService   │
+                   │  - CSRF Guard (CsrfProtectionValidator)      │
                    │  - AOP JSON Structured Audit Logging         │
                    └──────────────────────┬───────────────────────┘
                                           │
@@ -70,56 +68,60 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 ## 3. Подсистема безопасности (`backend/common-security-starter`)
 
 ### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и `AuthController`
-1. `AuthController` (`org.apache.hadoop.explorer.common.controller.AuthController`):
+1. `AuthController` (`org.apache.hadoop.explorer.common.api.AuthController`):
    - Регистрирует во всех сервисах одинаковые эндпоинты аутентификации: `POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`.
    - Продлевает сессию при активности пользователя (sliding session), выставляет cookie с `HttpOnly`, поддерживает mock-пользователей и вход через LDAP/Kerberos.
-2. `KerberosManager` (`backend.common.core.kerberos`) [проверить: класс в коде не найден, Kerberos SPNEGO реализует `KerberosSpnegoService`]:
-   - Потокобезопасное управление билетами Kerberos: получение через `kinit -kt`, проверка через `klist`, формирование заголовков `Authorization: Negotiate` для внутренних клиентов WebHDFS, YARN RM и Livy.
-   - Проверка SPNEGO-билетов браузера через GSSAPI и извлечение principal пользователя (`user@REALM`).
-3. LDAPS / Active Directory: проверка пароля через `CommonLdapAuthService` [проверить: в коде есть `LdapAuthService`] с экранированием фильтров (защита от LDAP Injection, CWE-90) и чтением групп из `memberOf`.
-4. Mock-режим (`auth.mode: "mock"`) — только для разработки и демо-стендов. При `debug: false` mock-провайдер не запускается.
-5. Общая проверка токена: фабрика `make_get_current_user` [проверить: в коде не найдена] во всех сервисах одинаково проверяет JWT, проверяет, не отозван ли токен на сервере (revocation check), и строит `CommonUserSession`.
+2. `KerberosSpnegoService` (`org.apache.hadoop.explorer.common.auth`):
+   - Проверяет SPNEGO-билет браузера из заголовка `Authorization: Negotiate ...` через Java GSS-API (`org.ietf.jgss`) и извлекает principal пользователя (`user@REALM`).
+   - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (YARN Explorer — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
+3. LDAPS / Active Directory: проверка пароля через `LdapAuthService` с экранированием фильтров (`escapeLdapFilter`, защита от LDAP Injection, CWE-90) и чтением групп из атрибута `memberOf`.
+4. Mock-режим (`hadoop.security.auth.mode: mock`) — только для разработки и демо-стендов. При `debug: false` mock-провайдер не запускается.
+5. Общая проверка токена: `CommonAuthFilter` во всех сервисах берет токен из `Authorization: Bearer` или cookie (`SecurityTokenExtractor`), отклоняет отозванные токены (`SessionStore.isTokenRevoked`), ищет сессию в `SessionStore`, а если ее нет — проверяет подпись JWT (`JwtTokenService`), повторно проверяет отзыв по `jti` и строит `UserSession`.
 
 ### 3.2 Хранилище сессий (`SessionStore`)
 - Отозванные токены не принимаются (CWE-613).
-- Методы хранилища сессий и rate limiter потокобезопасны и используют пулы потоков Java 21.
-- Активные сессии хранятся в таблице `active_sessions` реляционной БД.
-- Черный список отозванных токенов двухуровневый:
-  - L1: LRU-кэш Caffeine в памяти (`L1RevokedTokenCache` [проверить: класс в коде не найден]) с очисткой по TTL.
-  - L2: БД (PostgreSQL / H2 / SQLite) или Redis.
-- Fail-closed: если БД временно недоступна, токены, которые не удалось проверить, отклоняются.
-- Проверка доступности (`ping`): хранилище отвечает на проверку для Kubernetes readiness probe.
+- Реализация — `DefaultSessionStore`; режим задает `hadoop.security.session-store.type`: `memory` (по умолчанию, сессии и отзывы в `ConcurrentHashMap` процесса) или JDBC (любое другое значение при наличии `DataSource`). Отдельной реализации для Redis нет.
+- В JDBC-режиме активные сессии хранятся в таблице `active_sessions`, отозванные токены — в `revoked_tokens`; обе таблицы создаются через `CREATE TABLE IF NOT EXISTS` при старте.
+- Проверка отзыва двухуровневая:
+  - L1: кэш Caffeine в поле `l1RevokedCache` `DefaultSessionStore` (`session-store.l1-capacity`, по умолчанию 10000 записей; `session-store.l1-ttl-seconds`, по умолчанию 3600 с).
+  - L2: таблица `revoked_tokens` (JDBC: H2, PostgreSQL, SQLite); найденный там отзыв кладется в L1.
+- Fail-closed: при `hadoop.security.session-store.fail-closed: true` ошибка запроса к БД считается отзывом и токен отклоняется. По умолчанию параметр `false`: при недоступной БД проверка продолжается по памяти процесса.
+- Проверка доступности (`ping`): в JDBC-режиме выполняет `SELECT 1`. Readiness-проба Helm-чартов этот метод не вызывает (см. раздел 9).
 
 ### 3.3 Защита от CSRF и подмены заголовков
-- Межсайтовые запросы блокируются по заголовку `Sec-Fetch-Site: cross-site`.
-- Заголовки `Origin` и `Referer` сверяются со списком разрешенных доменов (`server.cors_origins`). Заголовку `Host` без проверки не доверяют (защита от Host Header Injection).
-- Асинхронные вызовы API обязаны передавать заголовок `X-Requested-With`.
+Проверку выполняет `CsrfProtectionValidator` из `CommonAuthFilter`. Она применяется только к запросам `POST`, `PUT`, `PATCH`, `DELETE`, у которых токен пришел из cookie; запросы с `Authorization: Bearer` не проверяются. Порядок проверки:
+1. `Sec-Fetch-Site: cross-site` — запрос отклоняется с HTTP 403.
+2. `X-Requested-With: XMLHttpRequest` — запрос пропускается.
+3. `Origin`, затем `Referer` — запрос пропускается, если origin входит в `hadoop.security.cors.allowed-origins` или совпадает с адресом самого сервера (схема, `getServerName()` и порт запроса).
+4. Иначе — HTTP 403.
 
 ### 3.4 Ограничение частоты запросов и аудит
-- Алгоритм скользящего окна / Token Bucket (`Bucket4j`) с потокобезопасной проверкой; счетчики можно хранить в распределенном хранилище.
-- Реальный IP клиента определяется по `X-Forwarded-For` только от доверенных прокси (`trusted_proxies` [проверить: параметр в коде не найден]); так подмена заголовка не меняет IP для лимитов.
-- События безопасности пишутся в журнал в формате JSON: `AUDIT_LOGIN_SUCCESS`, `AUDIT_LOGIN_FAILURE`, `AUDIT_TOKEN_REVOKED`, `AUDIT_CSRF_REJECT` [проверить: имена событий в коде не найдены].
+- Стартер регистрирует бин `RateLimiterService` (Token Bucket на `Bucket4j`, параметры `hadoop.security.rate-limiter.requests-per-minute`, по умолчанию 600, и `burst-capacity`, по умолчанию 100), но ни фильтр стартера, ни сервисы метод `tryAcquire` не вызывают: ограничение частоты запросов сейчас не действует.
+- Аудит: `AuditAspect` перехватывает методы с аннотацией `@Audited` и через `AuditLogger` пишет в логгер `AUDIT_LOGGER` строку `AUDIT_EVENT: {...}` с JSON-записью `AuditRecord` (`timestamp`, `service`, `username`, `client_ip`, `action`, `resource`, `status`, `duration_ms`, `details`). Имя события — значение `action` из аннотации, например `APPROVE_CHANGE_REQUEST` в YARN Explorer или `FILE_UPLOAD` в HDFS Explorer. Поле `client_ip` всегда равно `internal`. Вход, выход и отклонения CSRF через `@Audited` не проходят и в журнал аудита не попадают.
 
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
-Фильтр безопасности выставляет следующие заголовки:
-- Content-Security-Policy (CSP) [проверить: константы `CSP_DEFAULT_DIRECTIVES` и `CSP_CODE_EDITOR_DIRECTIVES` в коде не найдены, CSP задана в `<meta>` в `index.html` сервисов]:
-  - Строгая политика (`CSP_DEFAULT_DIRECTIVES`) для YARN и HDFS Explorer: `default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `font-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`.
-  - Политика для редакторов кода (`CSP_CODE_EDITOR_DIRECTIVES`) для SQL и Spark Explorer: Monaco Editor и Web Workers требуют `worker-src 'self' blob:`, `script-src 'self' 'unsafe-eval' blob:`, `connect-src 'self' ws: wss: http: https:`, `img-src 'self' data: blob:`.
-  - CSP продублирована в `index.html` через `<meta http-equiv="Content-Security-Policy">`, чтобы она действовала и при раздаче статики отдельным веб-сервером.
-- Остальные заголовки:
+- Content-Security-Policy бэкенд не выставляет. CSP задана тегом `<meta http-equiv="Content-Security-Policy">` в `frontend/apps/<app>/index.html`:
+  - YARN и HDFS Explorer: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`.
+  - SQL и Spark Explorer (Monaco Editor и Web Workers): дополнительно `script-src ... 'unsafe-eval' blob:`, `img-src ... blob:`, `connect-src 'self' ws: wss: http: https:`, `worker-src 'self' blob:`.
+  - В `frontend/apps/replicator/index.html` CSP нет.
+  - Директиву `frame-ancestors` браузеры в `<meta>` игнорируют; от встраивания во фрейм защищает только заголовок `X-Frame-Options`.
+- Остальные заголовки выставляет Spring Security со значениями по умолчанию: `SecurityFilterChain` стартера блок `headers()` не настраивает.
   - `X-Frame-Options: DENY` — страницу нельзя встроить во фрейм (защита от clickjacking).
   - `X-Content-Type-Options: nosniff` — браузер не угадывает MIME-тип ответа.
-  - `Referrer-Policy: strict-origin-when-cross-origin` — на сторонние ресурсы уходит только origin, без пути.
-  - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS) — браузер обращается к сайту только по HTTPS; выставляется при включенной опции `secure_cookies`.
+  - `Strict-Transport-Security: max-age=31536000 ; includeSubDomains` (HSTS) — только в ответах на HTTPS-запросы.
+  - `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`.
+  - `Referrer-Policy` не выставляется.
 
 ### 3.6 Состав стартера безопасности
 Все сервисы подключают стартер `org.apache.hadoop.explorer:common-security-starter`:
 - Spring Boot 3 AutoConfiguration: `SecurityFilterChain`, `CommonAuthFilter`, CORS, TLS Customizer и контроллеры регистрируются через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
 - Kerberos SPNEGO SSO на Java GSS-API (`org.ietf.jgss`) без сторонних библиотек.
 - LDAPS / Active Directory с экранированием фильтров (CWE-90).
-- SessionStore L1/L2: L1 Caffeine LRU + L2 JDBC H2/PostgreSQL, отзыв токенов, fail-closed при недоступности БД.
+- SessionStore L1/L2: L1 Caffeine + L2 JDBC (H2/PostgreSQL/SQLite), отзыв токенов, fail-closed по параметру `session-store.fail-closed`.
 - CSRF Guard: проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и списка разрешенных `Origin`/`Referer`.
-- Отказоустойчивость и аудит: Token Bucket Rate Limiter (`Bucket4j`), `SimpleCircuitBreaker` и JSON-аудит через AOP-аннотацию `@Audited`.
+- JSON-аудит через AOP-аннотацию `@Audited`.
+- Классы `RateLimiterService` (`Bucket4j`) и `SimpleCircuitBreaker`: в стартере есть, но сервисы их не вызывают (разделы 3.4 и 4.2).
+- JWT подписываются симметрично (`HS256`, `MACSigner` из `nimbus-jose-jwt`) ключом `hadoop.security.jwt.secret-key`.
 - TLS/HTTPS и mTLS: `TlsWebServerCustomizer` настраивает встроенный Tomcat, поддерживает хранилища PKCS12 / JKS и проверку клиентских сертификатов; фабрика `TlsContextFactory` строит TLS-контекст для исходящих клиентов.
 - Эндпоинты `AuthController`: `/api/v1/auth/login`, `/sso`, `/logout`, `/me`.
 
@@ -133,66 +135,37 @@ Hadoop Explorer Platform — веб-платформа для работы с э
    - Отправитель `ReplicationSender` открывает TLS-сессию через `NettyChannelBuilder.forTarget(...)` при схеме `grpcs://` или `REPLICATOR_GRPC_TLS_ENABLED=true`.
    - В dev- и демо-окружениях сертификаты генерируются через `SelfSignedCertificate` и `BouncyCastle`.
 
-### 3.8 Асимметричные JWT (RS256/ES256), ротация ключей и JWKS (RFC 7517)
-`JwtKeyManager` в `backend/common-security-starter` [проверить: класс, RS256/ES256 и эндпоинты JWKS в Java-коде не найдены, `jwks.json` есть только в `frontend/common/types/generated/`]:
-- Подписывает токены RSA (`RS256`) или ECDSA (`ES256`) и добавляет идентификатор ключа `kid` в заголовок JWT.
-- Ротация ключей: при выпуске нового ключа подписи старые публичные ключи сохраняются, поэтому ранее выданные токены продолжают проходить проверку.
-- Эндпоинты `GET /api/v1/auth/jwks.json` и `GET /.well-known/jwks.json` отдают открытые ключи в формате RFC 7517 для внешних API Gateway, Service Mesh и OAuth2/OIDC-сервисов.
-
 ---
 
 ## 4. Отказоустойчивость (Resilience Core)
 
-### 4.1 Метрики Prometheus и дашборды Grafana (`backend.common.core.metrics`)
-Каждый сервис отдает метрики в формате OpenMetrics / Prometheus через `PrometheusMetricsMiddleware` [проверить: модуль `backend.common.core.metrics` и `PrometheusMetricsMiddleware` в коде не найдены; перечисленные ниже метрики есть в дашбордах `monitoring/grafana/`, но не регистрируются в `backend/`]:
-- HTTP (golden signals):
-  - `http_requests_total{app="...", method="...", path="...", status="..."}`: счетчик запросов; путь нормализуется по шаблону маршрута, чтобы динамические ID не раздували кардинальность.
-  - `http_request_duration_seconds`: гистограмма задержек (p50, p90, p99), бакеты от `5ms` до `10s`.
-  - `http_requests_in_progress{app="..."}`: число запросов в обработке.
-- Отказоустойчивость и сетевые вызовы:
-  - `hadoop_circuit_breaker_state{name="..."}`: состояние автомата (0=CLOSED, 1=HALF_OPEN, 2=OPEN) для NameNode, ResourceManager, Livy.
-  - `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}`: успешные, неудачные и отклоненные fast-fail вызовы.
-  - `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}`: повторные попытки.
-- Безопасность и ошибки:
-  - `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}`: попытки входа.
-  - `hadoop_rate_limit_blocks_total{app="..."}`: срабатывания rate limiter (HTTP 429).
-  - `hadoop_exceptions_total{app="...", exception_type="..."}`: необработанные ошибки HTTP 500 (CWE-209).
-- Дашборд Grafana: JSON в [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) и конфигурация автоматической загрузки [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) для всех сервисов платформы.
+### 4.1 Метрики Prometheus
+- YARN, HDFS, SQL и Spark Explorer подключают `spring-boot-starter-actuator`, но без `micrometer-registry-prometheus` и без `management.endpoints.web.exposure`: эндпоинта с метриками Prometheus у них нет, наружу открыт только `/actuator/health`.
+- Метрики Prometheus отдает только оркестратор Replicator (`micrometer-registry-prometheus`): `/actuator/prometheus` и `/metrics` (`ReplicatorMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ReplicatorMetricsService`, см. 7.2).
+- Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml). Панели дашбордов YARN, HDFS, SQL и Spark и HTTP-панели `hadoop_explorer_overview.json` ссылаются на метрики (`http_requests_total`, `hadoop_circuit_breaker_state`, `hdfs_operations_total` и др.), которые эти сервисы не публикуют: такие панели пустые или показывают 0 (`or vector(0)`).
 
-### 4.2 Circuit Breaker (`backend.common.core.circuit_breaker`)
-Исходящие клиенты к кластерам Hadoop (NameNode, YARN RM, Livy) защищены автоматом состояний `CircuitBreaker`, чтобы недоступность кластера не вызывала каскадных сбоев:
-- Состояния: `CLOSED` (нормальная работа) → `OPEN` (кластер недоступен, вызовы сразу отклоняются с `CircuitBreakerOpenException` [проверить: класс в коде не найден] без ожидания сетевых таймаутов) → `HALF_OPEN` (пробный запрос проверяет, восстановился ли кластер).
-- Какие ошибки считаются сбоем: сетевые ошибки, ошибки подключения, таймауты и ответы 5xx. Ответы 4xx — штатные ответы и автомат не размыкают.
-- HA failover: при сбое Active-узла клиент переключается на Standby NameNode / Standby ResourceManager.
-- Readiness-проба Helm-чартов (`/actuator/health/readiness`) состояние Circuit Breaker не учитывает: под остается в Service, даже если все кластеры недоступны.
+### 4.2 Circuit Breaker
+- В стартере есть класс `SimpleCircuitBreaker` (`org.apache.hadoop.explorer.common.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
+- Ни один сервис `SimpleCircuitBreaker` не создает: вызовы NameNode, ResourceManager и Livy им не защищены, при недоступности кластера запрос ждет сетевого таймаута клиента.
+- HA failover реализован в клиентах сервисов:
+  - YARN Explorer (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.
+  - HDFS Explorer (`NativeHdfsClient`) настраивает `dfs.nameservices` и `ConfiguredFailoverProxyProvider`, переключение выполняет клиент Hadoop.
+- Readiness-проба Helm-чартов (`/actuator/health/readiness`) доступность кластеров не учитывает: под остается в Service, даже если все кластеры недоступны.
 
-### 4.3 Повторные попытки с экспоненциальной задержкой
-Для кратковременных сбоев сети и сокетов:
-- Интервал между попытками растет экспоненциально (`backoff_factor` [проверить: параметр в коде не найден; в `common-security-starter/pom.xml` подключен `resilience4j-retry`]) со случайной добавкой (`jitter`), чтобы клиенты не повторяли запросы одновременно (thundering herd).
-- Список повторяемых исключений настраивается (`java.net.http.HttpConnectTimeoutException`, `java.io.IOException`); ошибки бизнес-логики не повторяются.
+### 4.3 Обработчики исключений (`@ControllerAdvice`)
+Общего обработчика в стартере нет; ошибки 401 и 403 стартер отдает JSON-ом `{"detail", "status"}` через `CommonSecurityErrorHandlers`. Свои `@RestControllerAdvice` есть в двух сервисах:
+- YARN Explorer, `ApiExceptionHandler`: `ResponseStatusException` → статус и причина из исключения; `YarnRmException` → HTTP 502; ошибки валидации тела → HTTP 400 со списком полей. Остальные исключения обрабатывает стандартный `/error` Spring Boot.
+- HDFS Explorer, `GlobalHdfsExceptionHandler`: `HdfsLocalizedException` → статус из исключения; любое другое исключение пишется в лог со стеком, а `HdfsErrorTranslator` превращает его в `{"detail", "error_class", "status"}` (например, `StandbyException` → HTTP 503, остальное → HTTP 500 с текстом исключения).
+- В SQL и Spark Explorer собственных обработчиков нет.
 
-### 4.4 Обработчики исключений (`@ControllerAdvice`)
-- Ответ на ошибку 500 не раскрывает внутреннюю структуру бэкенда (CWE-209).
-- Глобальный обработчик `@ControllerAdvice` (`GlobalExceptionHandler` [проверить: в коде есть `GlobalHdfsExceptionHandler` в HDFS и `ApiExceptionHandler` в YARN]) перехватывает необработанные ошибки, присваивает им `incidentId`, пишет подробности в серверный лог и возвращает клиенту структурированный JSON без деталей.
-- `CircuitBreakerOpenException` превращается в HTTP 503 с заголовком `Retry-After`.
+### 4.4 Блокировки при согласовании заявок YARN
+Отдельного механизма распределенных блокировок в стартере нет. YARN Explorer защищает заявки (Change Requests) от двойной обработки атомарным `UPDATE` в БД: `ChangeRequestRepository.claimForDeployment` переводит одобренную заявку в `DEPLOYING` только при условии `status = APPROVED` и `deploymentStatus IS NULL OR 'FAILED'`; если обновлено 0 строк, повторный запуск развертывания отклоняется. Согласование (`approveChangeRequest`) выполняется в транзакции с проверкой статуса `SUBMITTED`.
 
-### 4.5 Distributed Lock (`backend.common.core.lock`)
-[проверить: модуль `backend.common.core.lock`, `REDIS_RELEASE_LUA` и таблица `distributed_locks` в коде не найдены]
+В Replicator есть собственная аренда с fencing-токенами (`DistributedLockService`, см. 5.5).
 
-Блокировки исключают гонки при параллельных операциях:
-- Три уровня реализации:
-  1. Redis: атомарный `SET key owner_id NX PX`, освобождение через Lua-скрипт (`REDIS_RELEASE_LUA`).
-  2. Блокировка на уровне строк в БД (PostgreSQL / SQLite): таблица `distributed_locks` в `SessionStore` с транзакционным `SELECT ... FOR UPDATE` (PostgreSQL) и атомарными `INSERT`/`UPDATE` с проверкой `expires_at` и `owner_id`. Синхронизирует процессы и поды без Redis.
-  3. In-memory: локальный потокобезопасный словарь с TTL для разработки.
-- YARN Explorer использует блокировку при согласовании и отклонении заявок на изменение очередей (Change Requests).
-
-### 4.6 Корректное завершение (graceful shutdown)
-Сервисы на Spring Boot 3 завершаются штатно (`server.shutdown=graceful` [проверить: параметр в конфигурациях сервисов не найден]):
-- Обрабатывают сигналы завершения пода Kubernetes (`SIGTERM`, `SIGINT`).
-- Дожидаются выполняющихся запросов (таймаут `spring.lifecycle.timeout-per-shutdown-phase`).
-- Останавливают фоновые пулы задач и потоков (`ExecutorService.shutdown()`).
-- Закрывают пулы соединений с БД (HikariCP) и освобождают сетевые ресурсы.
-- Сбрасывают буферы из памяти в БД отдельной транзакцией: остаточный прогресс задач репликатора (`TaskService`) записывается до закрытия пула соединений и не теряется при остановке узла.
+### 4.5 Остановка сервисов
+- Сервисы собраны на Spring Boot 3.3.4, где `server.shutdown` по умолчанию `immediate`; ни `application.yml` сервисов, ни Helm-чарты `server.shutdown: graceful` не задают. По SIGTERM контекст Spring закрывается без ожидания выполняющихся HTTP-запросов.
+- При закрытии контекста оркестратор Replicator сбрасывает в БД остаточный буфер прогресса задач (`TaskService.shutdown()`, `@PreDestroy`, в явной транзакции через `TransactionTemplate`), до закрытия пула соединений HikariCP.
 
 ---
 
@@ -207,9 +180,9 @@ Hadoop Explorer Platform — веб-платформа для работы с э
   - Жизненный цикл Change Requests по принципу четырех глаз (Spring Data JPA / H2).
   - Интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`) и стартером `common-security-starter`.
   - `MockYarnClient` для тестов без кластера.
-- Мониторинг очередей: дерево иерархии Capacity Scheduler, загрузка памяти и ядер в реальном времени, с учетом RM HA и Circuit Breaker.
+- Мониторинг очередей: дерево иерархии Capacity Scheduler, загрузка памяти и ядер в реальном времени, с учетом RM HA.
 - Проверка конфигурации: сумма емкостей очередей (100%), минимальные и максимальные лимиты пользователя.
-- Change Requests (принцип четырех глаз): инженер данных (`WRITER`) создает заявку, администратор (`ADMIN`) согласует ее; согласование защищено `DistributedLock`.
+- Change Requests (принцип четырех глаз): инженер данных (`WRITER`) создает заявку, администратор (`ADMIN`) согласует ее; повторный запуск развертывания отсекается атомарным `UPDATE` (см. 4.4).
 - Генерация XML: экспорт `capacity-scheduler.xml` в процентном и абсолютном форматах.
 - Доставка конфигурации через Ansible AWX без простоя ResourceManager:
   - Клиент `AwxClient` вызывает Ansible AWX / Red Hat AAP асинхронно.
@@ -233,25 +206,27 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 - Межкластерное копирование: файлы и каталоги передаются потоком между независимыми кластерами HDFS.
 
 ### 5.3 SQL Explorer
-- Два движка: Trino (Trino DB-API) и Apache Hive (HiveServer2 / TCLIService Thrift).
-- Кэш метаданных с TTL (`MetadataTTLCache` [проверить: класс в коде не найден]): каталоги, схемы, таблицы и колонки; сброс параметром `?refresh=true`.
-- Проверка запросов fail-closed: синтаксический анализ через `sqlglot` блокирует изменяющие команды (DML/DDL) и отклоняет запросы, которые не удалось разобрать.
-- Восстановление после сбоя: при старте сервис завершает SQL-запросы, оставшиеся от предыдущего процесса.
-- ИИ-ассистент на локальных LLM (через vLLM, Ollama или LiteLLM): генерация SQL по описанию на естественном языке, объяснение планов запросов, оптимизация и исправление синтаксических ошибок.
-- Вкладки и запросы пользователя хранятся в БД (`SqlUserWorkspace`).
+- Бэкенд на Java 21 / Spring Boot 3 (`backend/sql/`, порт 8003), кластеры задаются списком `sql.clusters` в `application.yml`.
+- Движки: `ClusterService.getEngine` выбирает `TrinoSqlEngine` (`type: trino`), `HiveSqlEngine` (`type: hive`) или `MockSqlEngine` (`mock-storage: true` или другой тип). Подключения к Trino и HiveServer2 не реализованы: JDBC-драйверов Trino и Hive в `backend/sql/pom.xml` нет, а `TrinoSqlEngine` и `HiveSqlEngine` передают все вызовы (каталоги, схемы, таблицы, колонки, выполнение запроса) во встроенный `MockSqlEngine` с демонстрационными данными. Настройки `host`, `port` и `impersonation` кластера в выполнении не используются.
+- Кэш метаданных: `CatalogService` хранит каталоги, схемы, таблицы и колонки в `ConcurrentHashMap` процесса с ключом `<cluster>:<user>:...`. TTL нет: запись живет до перезапуска или до запроса с `?refresh=true` (`GET /api/v1/catalog/{clusterId}/catalogs|schemas|tables|columns`).
+- Проверки текста запроса на изменяющие команды (DML/DDL) нет: `QueryController` проверяет только доступ пользователя к кластеру по ACL и передает текст движку.
+- Выполнение асинхронное: `POST /api/v1/queries/execute` сохраняет запись в `query_history` со статусом `QUEUED` и запускает задачу в `Executors.newCachedThreadPool()`; отмена — `POST /api/v1/queries/{queryId}/cancel` или `DELETE /api/v1/queries/queue/{queryId}`.
+- Восстановления после перезапуска нет: записи `query_history` в статусах `QUEUED`/`RUNNING`, оставшиеся от прошлого процесса, при старте не меняются.
+- ИИ-ассистент (`AiService`, `/api/v1/ai/status|check|explain|optimize|fix|format|generate`) обращений к LLM не делает: ответы строятся правилами и шаблонами внутри сервиса (например, `check` ищет `SELECT *` без `LIMIT` и `JOIN` без `ON`/`USING`, `generate` выбирает один из трех заготовленных запросов по ключевым словам). Параметры `sql.ai.url`, `sql.ai.model`, `sql.ai.provider` (по умолчанию `mock-builtin`) только возвращаются в ответе `/api/v1/ai/status`.
+- В БД (JPA) хранятся вкладки пользователя (`SqlUserWorkspace`, таблица `sql_user_workspaces`), история запросов (`query_history`) и сохраненные запросы (`saved_queries`).
 
 ### 5.4 Spark Explorer
-- Apache Livy: интерактивные сессии и пакетные задания на YARN через Livy REST API; при выходе пользователя (`POST /api/v1/auth/logout`) его сессии закрываются.
+- Бэкенд на Java 21 / Spring Boot 3 (`backend/spark/`, порт 8004), кластеры задаются списком `spark.clusters` (`livy-url`, очереди YARN, версии Spark и Python, профили ресурсов).
+- Apache Livy не вызывается: `LivyClient.createSession` HTTP-запросов не делает, а возвращает случайный номер Livy-сессии и вымышленный `application_...` ID; код всех языков выполняет встроенный `MockSparkEngine` с демонстрационными данными. Параметр `livy-url` только пишется в лог и отдается в `/api/v1/clusters`.
+- Сессии (`spark_sessions`) создаются через `POST /api/v1/sessions` и останавливаются через `DELETE /api/v1/sessions/{sessionId}`; выход пользователя (`POST /api/v1/auth/logout`) его сессии не закрывает. Раз в минуту `cleanupIdleSessions` переводит в `killed` сессии в статусе `idle`, неактивные дольше `spark.session-ttl-minutes` (по умолчанию 120).
+- Код выполняется асинхронно: `POST /api/v1/statements/execute`, статус по SSE — `GET /api/v1/statements/{executionId}/stream`, результат — `GET /api/v1/statements/{executionId}/result`, история — `spark_execution_history`.
 - Компоновка интерфейса совпадает с SQL Explorer:
   - `SparkSessionWidget` в шапке: выбор кластера, статус Livy-сессии, память и ядра драйвера и экзекуторов, перезапуск и остановка сессии.
   - Верхняя панель вкладок для скриптов и ноутбуков.
   - Панель вкладки (`SessionBar`): выбор языка (PySpark / Scala / SQL), запуск (`Run`, `Ctrl+Enter`), прерывание (`Cancel`), таймер выполнения и экспорт результатов.
-- Три языка:
-  - PySpark: интерактивный Python; окружения Conda/Venv, упакованные в HDFS, подключаются через `spark.archives`.
-  - Scala Spark: интерактивная REPL-сессия с подключением своих JAR и Maven-библиотек.
-  - Spark SQL: ANSI SQL-запросы к таблицам Hive Metastore / Apache Iceberg.
-- Кэш метаданных с TTL (`SparkMetadataTTLCache` [проверить: класс в коде не найден]): базы, таблицы и колонки кэшируются на 60 с (настраивается), `?refresh=true` сбрасывает кэш. Без кэша каждый запрос автодополнения ходил бы в Hive Metastore и Spark-сессию.
-- Восстановление после сбоя: при старте пода зависшие задачи (`RUNNING`, `QUEUED`) переводятся в `FAILED`.
+- Три языка в интерфейсе: PySpark, Scala Spark и Spark SQL. Параметры сессии (`packages`, `jars`, `py_files`, `spark_conf`, `custom_python_archive`) сохраняются в `spark_sessions`, но никуда не передаются, так как Livy-сессия не создается.
+- Кэш метаданных: `SparkCatalogService` хранит базы, таблицы и колонки в `ConcurrentHashMap` процесса без TTL; запись живет до перезапуска или до запроса с `?refresh=true` (`GET /api/v1/catalog/{clusterId}/databases|tables|columns`). Данные берутся из `MockSparkEngine`.
+- Восстановления после перезапуска нет: записи `spark_execution_history` в статусах `QUEUED`/`RUNNING` при старте не меняются.
 - Буферы результатов по языкам: каждая вкладка хранит отдельно буферы кода (`codeBuffers`) и результатов (`resultBuffers`), поэтому при переключении языка результаты не теряются и не смешиваются.
 - Вкладки и их состояние хранятся в БД (`SparkUserWorkspace`).
 
@@ -395,57 +370,48 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 
 ## 6. Производительность и потоковая передача данных
 
-### 6.1 Пул HTTP-соединений с HTTP/2
-HTTP-клиенты построены на `HttpClient` из Java 21 с пулами соединений:
-- HTTP/2 с мультиплексированием; если бэкенд HTTP/2 не поддерживает, клиент переходит на HTTP/1.1.
-- Настраиваемые таймауты подключения, чтения и keepalive.
-- Повторное использование соединений сокращает число TLS/TCP-рукопожатий при частых опросах API кластера (YARN RM, WebHDFS, Livy).
+### 6.1 HTTP-клиенты YARN Explorer
+`NativeYarnClient` (ResourceManager REST API) и `AwxClientService` (Ansible AWX) используют `java.net.http.HttpClient` из Java 21, созданный один раз на клиент:
+- Версия протокола не задается, поэтому действует значение `HttpClient` по умолчанию: HTTP/2 с переходом на HTTP/1.1, если сервер HTTP/2 не поддерживает.
+- Таймауты: подключение — 5 с в обоих клиентах (`CONNECT_TIMEOUT_MS` в `NativeYarnClient`); запрос — 10 с в `NativeYarnClient` (`READ_TIMEOUT_MS`) и 15 с в `AwxClientService`.
+- Соединения переиспользуются встроенным пулом `HttpClient`.
 
-### 6.2 Потоковая передача состояния сессий и запросов (SSE)
-SQL и Spark отправляют обновления по Server-Sent Events:
-- `GET /api/v1/sessions/{session_id}/stream` (Spark) и `GET /api/v1/queries/{query_id}/stream` (SQL).
-- Фронтенду не нужно опрашивать сервер частыми HTTP-запросами.
+HDFS Explorer обращается к NameNode через клиент Hadoop (`hadoop-hdfs-client`), Spark Explorer к Livy не обращается (см. 5.4).
 
-### 6.3 Частичное чтение и предпросмотр Parquet / ORC
-HDFS Explorer использует потоковый адаптер `_SeekableFooterStream` [проверить: класс в коде не найден; чтение реализовано в `FilePreviewService`]:
-- Схема и статистика читаются из хвостовой части файла (footer) одним запросом, без скачивания данных.
-- Для выборки строк читается только `Row Group 0` (Parquet) или `Stripe 0` (ORC), поэтому время ответа не зависит от размера файла, даже если файл занимает сотни гигабайт.
+### 6.2 Потоковая передача состояния запросов (SSE)
+SQL и Spark Explorer отправляют обновления по Server-Sent Events (`SseEmitter`):
+- SQL: `GET /api/v1/queries/{queryId}/stream` (события выполнения запроса, таймаут эмиттера 180 с) и `GET /api/v1/queries/notifications/stream` (уведомления пользователя `QUERY_FINISHED`, `QUERY_FAILED`, `QUERY_CANCELLED`, таймаут 300 с).
+- Spark: `GET /api/v1/statements/{executionId}/stream` (таймаут 180 с); если выполнение уже завершено, эмиттер сразу отправляет итоговое событие.
+- Фронтенд подписывается через `subscribeSse` в `frontend/apps/sql/src/api/client.ts` и `frontend/apps/spark/src/api/client.ts` и не опрашивает сервер для статуса выполнения.
+
+### 6.3 Предпросмотр Parquet / ORC
+Чтение реализовано в `FilePreviewService` (HDFS Explorer):
+- Для `NativeHdfsClient` файл открывается напрямую в HDFS от имени пользователя: схема Parquet читается из footer через `ParquetFileReader.readFooter`, ORC — через `OrcFile.createReader`; затем читаются первые 100 строк (`AvroParquetReader` для Parquet, `RecordReader` ORC). Остальные row group и stripe не читаются.
+- Для остальных клиентов (`MockHdfsClient`) файл целиком копируется во временный локальный файл и разбирается так же.
 
 ### 6.4 Пакетные операции HDFS Explorer
-- `POST /api/v1/clusters/{cluster_id}/files/batch-delete`: параллельное удаление файлов и каталогов; ответ перечисляет успешно удаленные пути и ошибки по остальным.
-- `POST /api/v1/clusters/{cluster_id}/files/batch-download`: выбранные файлы и каталоги упаковываются в один ZIP-архив на лету, без сохранения на диск сервера.
+- `POST /api/v1/clusters/{clusterId}/files/batch-delete`: удаляет пути по очереди в одном потоке; ответ перечисляет успешно удаленные пути и ошибки по остальным.
+- `POST /api/v1/clusters/{clusterId}/files/batch-download`: выбранные файлы и каталоги упаковываются в один ZIP-архив (`ZipOutputStream` поверх `StreamingResponseBody`) на лету, без сохранения на диск сервера.
 
-### 6.5 Условное кэширование по ETag (HTTP 304 Not Modified)
-Фильтр Spring Boot `ShallowEtagHeaderFilter` [проверить: фильтр в коде не найден]:
-- Рассчитывает слабый ETag (`W/"..."`) для ответов API на безопасные запросы GET/HEAD.
-- Если заголовок `If-None-Match` совпадает с текущим ETag, возвращает `HTTP 304 Not Modified` без тела (каталоги метаданных Hive, очереди YARN, списки кластеров).
+### 6.5 Конструктор Spark DAG-пайплайнов
+Бэкенд пайплайнов — `PipelineController` (`/api/v1/pipelines`) и `PipelineService` в `backend/spark`, модель — `PipelineDefinition`, `PipelineNode`, `PipelineEdge`, `PipelineRun`:
+- Типы узлов (`PipelineNode.type`): `pyspark` (по умолчанию), `spark_sql`, `spark_submit`, `wait`.
+- `PipelineDefinition.validateDag()` проверяет ребра (несуществующие узлы, петли) и наличие цикла топологической сортировкой (алгоритм Кана); при ошибке `PipelineController` отвечает HTTP 422.
+- Пайплайны и запуски хранятся только в памяти процесса (`ConcurrentHashMap`) и теряются при перезапуске.
+- Запуск (`POST /api/v1/pipelines/{pipelineId}/run`) узлы не выполняет: `runPipeline` сразу создает `PipelineRun` со статусом `success` для всех узлов.
+- Компонент `frontend/apps/spark/src/components/PipelineBuilder.svelte` есть, но в `App.svelte` не подключен, поэтому в интерфейсе Spark Explorer конструктора нет.
 
-### 6.6 Конструктор и планировщик Spark DAG-пайплайнов
-Spark Explorer включает визуальный конструктор пайплайнов (`backend.spark.app.models.pipeline`, `PipelineBuilder.svelte` [проверить: в коде есть `PipelineService` и DTO `PipelineDefinition` в `backend/spark`, а `PipelineBuilder.svelte` не найден]):
-- Узлы графа разных типов: скрипты PySpark, запросы Spark SQL, задачи Spark Submit.
-- Граф проверяется топологической сортировкой (алгоритм Кана); граф с циклом отклоняется с ошибкой `422 Unprocessable Content`.
-- Узлы выполняются асинхронно, статус каждого узла обновляется в интерфейсе по ходу выполнения.
-
-### 6.7 Дисковый кэш результатов и удаление по TTL (`data/results/`)
-[проверить: `cleanup_expired_results()` и `RESULTS_TTL_SECONDS` в коде не найдены; в Spark Explorer есть параметр `results-ttl-hours` со значением 24]
-
-Чтобы не нагружать Trino, Hive и Livy повторными запросами, результаты сохраняются сжатыми (gzip JSON: `{id}.json.gz`) в каталоге `data/results/`:
-- SQL Explorer кэширует выборки строк и схемы колонок для пагинации, переключения вкладок редактора и экспорта в CSV/JSON без повторного запроса.
-- Spark Explorer кэширует разобранные табличные результаты statements в сессиях Livy.
-- Удаление по TTL:
-  - Оба сервиса реализуют метод `cleanup_expired_results()`, который смотрит на время изменения файла (`mtime`).
-  - Файлы старше `RESULTS_TTL_SECONDS` (по умолчанию 7 дней / `604800` с) удаляются.
-  - Очистка выполняется при старте сервиса и периодически в фоновом воркере с интервалом `RESULTS_CLEANUP_INTERVAL_SECONDS` (по умолчанию 1 час / `3600` с).
+### 6.6 Кэш результатов запросов
+Результаты хранятся только в памяти процесса, на диск не пишутся и теряются при перезапуске:
+- SQL Explorer: `QueryManagerService.resultCache` хранит колонки и строки (не более `sql.max-rows-per-query`, по умолчанию 10000) для постраничной выдачи `GET /api/v1/queries/{queryId}/result?offset=&limit=` (`limit` по умолчанию 500). `cleanupExpiredResults` (`@Scheduled`, раз в час) удаляет результаты старше `sql.results-ttl-hours` (по умолчанию 24). После удаления или перезапуска эндпоинт возвращает только колонки из `query_history` без строк.
+- Spark Explorer: `SparkSessionManager.resultCache` хранит результаты выполнений без очистки; параметр `spark.results-ttl-hours` (24) объявлен в `SparkProperties`, но не используется.
 
 ---
 
 ## 7. Наблюдаемость и мониторинг (observability)
 
-### 7.1 Распределенная трассировка OpenTelemetry и W3C Trace Context
-Модуль `backend.common.core.tracing` [проверить: модуль и `OpenTelemetryMiddleware` в коде не найдены; для Replicator трассировка описана в 7.1.1]:
-- Поддерживается W3C Trace Context (`traceparent` в формате `00-<trace_id>-<span_id>-01`).
-- `OpenTelemetryMiddleware` связывает спаны с `X-Request-ID` и передает заголовки трассировки клиентам и вызываемым сервисам платформы.
-- Контекстный менеджер `tracer.span(...)` замеряет вызовы к кластерам Hadoop, YARN, Trino и Livy.
+### 7.1 Распределенная трассировка
+Трассировка есть только в Replicator (7.1.1). В YARN, HDFS, SQL и Spark Explorer и в `common-security-starter` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
 
 #### 7.1.1 Трассировка и health-пробы Replicator (оркестратор и агенты)
 - Сквозной trace через gRPC (`GrpcTracing` в `replicator-model`): клиентский перехватчик кладет в метаданные вызова W3C `traceparent`, серверный поднимает его и продолжает тот же trace, выставляя `trace_id`/`span_id` в MDC. Перехватчики стоят на всех вызовах: агент → оркестратор (`OrchestratorGrpcClient`), агент → агент для файлов (`ReplicationSender`), схем Hive (`HmsPipelineSender`) и батчей Kafka (`KafkaReplicationClient`), а на серверной стороне — в Control Plane, приемнике агента и приемнике Kafka-батчей. Серверный перехватчик добавляется последним, поэтому выполняется первым: в трассу попадают и вызовы, отклоненные аутентификацией.
@@ -453,12 +419,8 @@ Spark Explorer включает визуальный конструктор па
 - Стандартный health-протокол (`grpc.health.v1.Health`): статус выставляется по серверу в целом и по подсистемам отдельно, а при остановке переводится в терминальное состояние до закрытия порта. Проба освобождена от `x-agent-secret` (оркестратор контейнеров секрета агента не знает), остальные вызовы остаются закрытыми. HEALTHCHECK контейнера агента выполняется классом `GrpcHealthProbeMain` из того же jar-а и заменил прежнюю проверку открытого TCP-порта, которую проходил агент с остановленным приемником.
 
 ### 7.2 Метрики Prometheus по сервисам и дашборды Grafana
-Кроме общих HTTP-метрик, сервисы отдают собственные метрики через `MetricsRegistry` [проверить: класс в коде не найден]:
-- YARN: `yarn_queues_active_gauge`, `yarn_change_requests_total`.
-- Spark: `spark_sessions_active_gauge`, `spark_statements_total`, `spark_statement_duration_seconds`.
-- SQL: `sql_queries_total`, `sql_query_duration_seconds`.
-- HDFS: `hdfs_operations_total`, `hdfs_bytes_transferred_total`.
-- Replicator: `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
+YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикуют (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ReplicatorMetricsService.renderReplicatorPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
+- `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
   - `hadoop_explorer_overview.json` — состояние и HTTP golden signals всех 5 сервисов платформы.
   - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
@@ -467,22 +429,31 @@ Spark Explorer включает визуальный конструктор па
   - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и отказы.
   - `yarn_explorer_queues.json` — Capacity Scheduler, загрузка очередей и состояние Circuit Breaker.
   - `spark_sql_explorer_analytics.json` — интерактивная аналитика Livy Spark и запросы Trino/Hive.
+  - `hadoop_replicator_kafka.json` — репликация топиков Kafka.
+  - Дашборды `hadoop_explorer_overview.json` (HTTP-панели), `hdfs_explorer_operations.json`, `yarn_explorer_queues.json` и `spark_sql_explorer_analytics.json` построены на метриках, которые сервисы не публикуют (см. 4.1).
 
 ---
 
 ## 8. Хранение данных (Storage Layer)
 
-Платформа поддерживает три варианта хранилища:
-1. SQLite (JDBC): по умолчанию для автономного запуска и локальных демо-стендов (`jdbc:sqlite:data/<service>.db`).
-2. PostgreSQL (JDBC / HikariCP): для production (`jdbc:postgresql://...`). Нужен при нескольких подах сервиса: сессии, воркспейсы и заявки YARN хранятся в одной БД, а блокировки на уровне строк (`SELECT FOR UPDATE`) синхронизируют поды.
-3. H2 (in-memory): для модульных и интеграционных тестов (`jdbc:h2:mem:...`).
+БД по умолчанию в `application.yml` сервисов:
 
-### 8.1 Инициализация схемы БД (`schema.sql` / JPA)
-[проверить: `schema.sql` в `backend/` не найден; Replicator использует миграции Flyway, см. 5.5]
+| Сервис | `spring.datasource.url` по умолчанию | Драйверы JDBC в сборке | Схема |
+|---|---|---|---|
+| YARN Explorer | `${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}` | H2 | JPA, `ddl-auto: update` (таблица `change_requests`) |
+| HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite | JPA-сущностей нет; только таблицы `SessionStore` |
+| SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2 | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
+| Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2 | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
+| Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
-Схему создают Spring Boot и JPA:
-- При старте создаются таблицы сессий (`sessions`), воркспейсов (`workspaces`), сохраненных запросов (`saved_queries`), истории вычислений и аудита.
-- Одна и та же схема используется для H2, SQLite и PostgreSQL.
+- Драйвер PostgreSQL в `common-security-starter` объявлен как `optional` и транзитивно не подключается: YARN, HDFS, SQL и Spark Explorer с PostgreSQL без добавления драйвера в их `pom.xml` не запустятся.
+- In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске пода.
+- Параметр `config.database.url` в `helm/charts/*/values.yaml` на выбор БД не влияет: значения в нем заданы в формате SQLAlchemy (`sqlite:///...`, `sqlite+aiosqlite:///...`), чарт `hdfs-explorer` передает его в переменную `HDFS_DATABASE_URL`, `yarn-explorer` — в `DATABASE_URL`, а `application.yml` сервисов эти переменные не читают (YARN Explorer читает `YARN_DB_URL`).
+
+### 8.1 Инициализация схемы БД
+- `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Spark Explorer создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
+- Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `hadoop.security.session-store.type` не `memory`.
+- Схему Replicator Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
 
 ---
 
@@ -493,16 +464,16 @@ Spark Explorer включает визуальный конструктор па
    - В образ кладется собранный Spring Boot fat JAR (`backend/<service>/target/*.jar` или `backend/replicator/*/target/*.jar`) со статическими бандлами Svelte 5 SPA.
    - Процесс запускается под непривилегированным пользователем `appuser (UID 10001)`.
    - Параметры памяти JVM: `-Xms256m -Xmx1024m`.
-2. JSON-логирование в production:
-   - Logback с JSON/Logstash-энкодером пишет логи в JSON, который принимают ELK, Vector, FluentBit и Grafana Loki [проверить: Logstash-энкодер в зависимостях сервисов не найден].
-   - В каждую запись попадают `timestamp`, `level`, `logger`, `requestId`, `message` и поля MDC.
+2. Логирование:
+   - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в YARN, HDFS, SQL, Spark Explorer и оркестраторе нет. Агент Replicator использует `backend/replicator/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
+   - JSON в логах есть только у записей аудита (`AUDIT_EVENT: {...}`, см. 3.4).
 3. Kubernetes (Helm):
    - Umbrella-чарт (`helm/hadoop-explorer`): установка всех сервисов одной командой с маршрутизацией через Ingress.
    - Отдельные чарты (`helm/charts/*`): установка компонентов по одному, в том числе в разные неймспейсы.
    - PodDisruptionBudget (`pdb.yaml`): при drain и обслуживании узлов Kubernetes не удаляет все реплики сервиса одновременно.
    - Liveness-проба `/healthz` (`HealthController`, ответ 200 без проверки зависимостей) и readiness-проба `/actuator/health/readiness` (группа readiness Spring Boot Actuator: 503 до `ApplicationReadyEvent` и с начала остановки контекста). Доступность БД и хранилища сессий пробы не проверяют.
-   - Метрики Prometheus (`/metrics`): состояние и статистика вызовов Circuit Breaker.
-   - Корректное завершение: по SIGTERM сервис дожидается пользовательских операций и останавливает пулы задач.
+   - Метрики Prometheus (`/metrics`, `/actuator/prometheus`) отдает только оркестратор Replicator (см. 4.1).
+   - Graceful shutdown не настроен (см. 4.5): по SIGTERM выполняющиеся HTTP-запросы обрываются.
 4. Демо-стенды (`demo/`):
    - Отдельный стенд на каждый сервис и общий стенд `demo/all` с общими контейнерами OpenLDAP, MIT Kerberos KDC, Prometheus и Grafana.
 
@@ -553,7 +524,7 @@ Spark Explorer включает визуальный конструктор па
 
 ### 11.2 Тесты отказоустойчивости
 1. Circuit Breaker:
-   - Проверяются переходы состояний: `CLOSED` → серия сбоев → `OPEN` (вызовы сразу отклоняются, упавший кластер не получает нагрузки) → ожидание `recovery_timeout` → `HALF_OPEN` → успешные пробные вызовы → `CLOSED`.
+   - Проверяются переходы состояний: `CLOSED` → серия сбоев → `OPEN` (вызовы сразу отклоняются, упавший кластер не получает нагрузки) → ожидание `recoveryTimeoutMs` → `HALF_OPEN` → успешные пробные вызовы → `CLOSED`.
 2. HA failover:
    - Переключение на активный узел при `StandbyException` от NameNode или `haState: STANDBY` от ResourceManager.
    - Переключение на резервные URL при сетевых сбоях (таймауты, обрывы связи).

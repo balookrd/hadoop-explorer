@@ -9,7 +9,7 @@ Helm-чарт для развертывания YARN Queue Explorer (веб-ин
   - `krb5.conf` из `kerberos.krb5Config` монтируется через ConfigMap в `/etc/krb5.conf`.
   - Keytab берется из существующего Secret (`kerberos.keytab.existingSecret`) или чарт создает Secret из base64-строки (`kerberos.keytab.keytabBase64`).
 - Хранение заявок: внешний PostgreSQL (`config.database.url`) или SQLite на `PersistentVolumeClaim` (`/app/data/yarn_explorer.db`). Если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), Deployment создается с `replicas: 1` независимо от `replicaCount`: несколько подов не могут писать в один файл базы. При `autoscaling.enabled: true` поле `replicas` не выставляется и ограничение не действует.
-- Аутентификация через LDAP / Active Directory и сопоставление групп с ролями ADMIN, WRITER, READER (секция `config.acl`).
+- Аутентификация через LDAP / Active Directory и сопоставление групп с ролями ADMIN, WRITER, READER (`yarn.clusters[].acl.roles` в Spring-конфигурации, см. пример ниже).
 - Ingress с TLS через `ingress.tls` для ingress-контроллеров (`ingress-nginx`, Traefik и др.).
 - Пробы: liveness — `GET /healthz`, readiness — `GET /actuator/health/readiness` (группа readiness Spring Boot Actuator: 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения).
 - Аннотации `checksum/config` и `checksum/krb5` (вторая — только при `kerberos.enabled: true`) содержат sha256 ConfigMap, поэтому `helm upgrade` с измененной конфигурацией перезапускает поды.
@@ -113,7 +113,7 @@ helm uninstall yarn-explorer --namespace yarn-system
 
 ## Пример `custom-values.yaml` для production
 
-[проверить: пример расходится с `values.yaml`: ключ `kerberos.krb5Conf` в чарте называется `kerberos.krb5Config`, `persistence.storageClassName` — `persistence.storageClass`, `config.server.port` по умолчанию `8000`; блок `secrets:` вставлен внутрь секции `config.auth`, из-за чего YAML невалиден]
+Сервис читает Spring-конфигурацию. Чарт монтирует секцию `config` как `/app/config/config.yaml`, но путь к файлу сервису не передает: его задает `SPRING_CONFIG_ADDITIONAL_LOCATION` в `extraEnv`. Ключи внутри `config` те же, что в `application.yml` (см. [руководство администратора](../../../docs/yarn-admin-guide.md), раздел 2, шаг 4). Ключи по умолчанию из `values.yaml` (`config.server`, `config.auth`, `config.acl`, `config.clusters`) попадают в тот же файл, но сервис их не читает; `config.database.url` используется только для ограничения `replicas: 1`.
 
 ```yaml
 replicaCount: 1
@@ -141,14 +141,30 @@ ingress:
 
 persistence:
   enabled: true
-  storageClassName: "fast-rbd"
+  storageClass: "fast-rbd"
   size: 10Gi
+
+# Попадают в Secret <fullname>-secrets: jwtSecret -> JWT_SECRET_KEY,
+# ldapBindPassword -> ключ ldap-password (переменную LDAP_BIND_PASSWORD сервис не читает,
+# поэтому ниже она передается как LDAP_MANAGER_PASSWORD).
+secrets:
+  jwtSecret: "<jwt_secret>"
+  ldapBindPassword: "<ldap_password>"
+
+extraEnv:
+  - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+    value: "file:/app/config/config.yaml"
+  - name: LDAP_MANAGER_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: yarn-explorer-secrets
+        key: ldap-password
 
 kerberos:
   enabled: true
   keytab:
     keytabBase64: "BQIAAABUAAI..."
-  krb5Conf: |
+  krb5Config: |
     [libdefaults]
       default_realm = COMPANY.LOCAL
       dns_lookup_realm = false
@@ -164,48 +180,46 @@ kerberos:
       }
 
 config:
-  server:
-    host: "0.0.0.0"
-    port: 8080
-    debug: false
-    cors_origins:
-      - "https://yarn-explorer.company.local"
-  database:
-    url: "postgresql://yarn_user:yarn_pass@postgres.yarn-system.svc:5432/yarn_explorer"
-  auth:
-    mode: "hybrid"
-    jwt:
-      secret_key: "super-secure-production-jwt-token-key-2026"
-
-secrets:
-  databasePassword: "ComplexDatabasePassword123"
-      expire_minutes: 720
-    ldap:
-      enabled: true
-      server_uri: "ldaps://corp-ad.company.local:636"
-      use_ssl: true
-      bind_dn: "CN=svc-yarn-explorer,OU=ServiceAccounts,DC=company,DC=local"
-      bind_password: "ProdServicePasswordHere"
-      user_base_dn: "OU=Users,DC=company,DC=local"
-      user_filter: "(&(objectClass=user)(sAMAccountName={username}))"
-  acl:
-    ui_access:
-      allowed_users: ["*"]
-      allowed_groups: ["*"]
-    roles:
-      admin:
-        groups: ["Hadoop-Admins"]
-      writer:
-        groups: ["Hadoop-Operators"]
-      reader:
-        groups: ["*"]
-  clusters:
-    - id: "prod-yarn"
-      name: "Production Hadoop"
-      description: "Hadoop 3.3 Production YARN Cluster"
-      resource_manager_urls:
-        - "http://rm1.company.local:8088"
-        - "http://rm2.company.local:8088"
-      kerberos_enabled: true
-      default_partition: "DEFAULT"
+  hadoop:
+    security:
+      auth:
+        mode: ldap
+      jwt:
+        secret-key: "${JWT_SECRET_KEY}"
+        expiration-minutes: 720
+      cors:
+        allowed-origins:
+          - "https://yarn-explorer.company.local"
+      ldap:
+        enabled: true
+        url: "ldaps://corp-ad.company.local:636"
+        manager-dn: "CN=svc-yarn-explorer,OU=ServiceAccounts,DC=company,DC=local"
+        manager-password: "${LDAP_MANAGER_PASSWORD}"
+        user-search-base: "OU=Users,DC=company,DC=local"
+        user-search-filter: "(&(objectClass=user)(sAMAccountName={0}))"
+  yarn:
+    client-mode: native
+    kerberos:
+      principal: "yarn-explorer@COMPANY.LOCAL"
+      keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+      krb5-conf: "/etc/krb5.conf"
+    clusters:
+      - id: "prod-yarn"
+        name: "Production Hadoop"
+        description: "Hadoop 3.3 Production YARN Cluster"
+        resource-manager-urls:
+          - "http://rm1.company.local:8088"
+          - "http://rm2.company.local:8088"
+        kerberos-enabled: true
+        default-partition: "DEFAULT"
+        acl:
+          roles:
+            admin:
+              groups: ["Hadoop-Admins"]
+            writer:
+              groups: ["Hadoop-Operators"]
+            reader:
+              groups: ["*"]
 ```
+
+Плейсхолдеры: `<jwt_secret>` — случайная строка не короче 32 символов (например, `openssl rand -hex 32`), `<ldap_password>` — пароль учетной записи из `manager-dn`. Имя `yarn-explorer-secrets` в `secretKeyRef` соответствует релизу `yarn-explorer`; для другого имени релиза подставьте `<fullname>-secrets`.

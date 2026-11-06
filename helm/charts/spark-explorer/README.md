@@ -44,26 +44,26 @@ secrets:
   jwtSecret: "SuperSecretLongRandomKeyForProductionJWTToken12345"
   ldapBindPassword: "SecretServiceAccountPassword"
   databasePassword: "SecretPostgresPassword123"
-  # base64 -w 0 /path/to/sql-explorer.keytab
+  # base64 -w 0 /path/to/spark-explorer.keytab
   kerberosKeytabBase64: "BQIAAAA4AA..."
 
 config:
   server:
     cors_origins:
-      - "https://sql-explorer.company.local"
+      - "https://spark-explorer.company.local"
     secure_cookies: true
   database:
-    url: "postgresql+asyncpg://sql_user:sql_pass@postgres.analytics.svc:5432/sql_explorer"
+    url: "postgresql+asyncpg://spark_user:spark_pass@postgres.analytics.svc:5432/spark_explorer"
   auth:
     mode: "hybrid"
     ldap:
       server_uri: "ldaps://dc.company.local:636"
-      bind_dn: "cn=svc_sql_explorer,ou=services,dc=company,dc=local"
+      bind_dn: "cn=svc_spark_explorer,ou=services,dc=company,dc=local"
       user_base_dn: "ou=users,dc=company,dc=local"
       group_base_dn: "ou=groups,dc=company,dc=local"
       allow_insecure_ssl: false
     kerberos:
-      service_principal: "HTTP/sql-explorer.company.local@COMPANY.LOCAL"
+      service_principal: "HTTP/spark-explorer.company.local@COMPANY.LOCAL"
 
 kerberos:
   enabled: true
@@ -97,11 +97,9 @@ helm upgrade --install spark-explorer helm/charts/spark-explorer \
 
 ## Проверка статуса
 
-[проверить: в примерах `custom-values.yaml` и в командах ниже используются имена от SQL Explorer (`sql-explorer`, `sql_user`, `sql_explorer`); `app.kubernetes.io/name` этого чарта — `spark-explorer`.]
-
 ```bash
-kubectl get pods -n analytics -l app.kubernetes.io/name=sql-explorer
-kubectl logs -n analytics -l app.kubernetes.io/name=sql-explorer -c sql-explorer
+kubectl get pods -n analytics -l app.kubernetes.io/name=spark-explorer
+kubectl logs -n analytics -l app.kubernetes.io/name=spark-explorer -c spark-explorer
 ```
 
 ---
@@ -109,7 +107,7 @@ kubectl logs -n analytics -l app.kubernetes.io/name=sql-explorer -c sql-explorer
 ## Настройка безопасности для production
 
 ### 1. Ingress: ограничение частоты запросов и заголовки
-Чтобы ограничить подбор паролей Active Directory через `/api/auth/login` и число запросов от одного клиента, задайте аннотации Ingress Controller. [проверить: в `common-security-starter` эндпоинты входа и выхода — `/api/v1/auth/login` и `/api/v1/auth/logout`.]
+Чтобы ограничить подбор паролей Active Directory через `POST /api/v1/auth/login` и число запросов от одного клиента, задайте аннотации Ingress Controller.
 
 ```yaml
 ingress:
@@ -142,7 +140,7 @@ securityContext:
 ```
 
 ### 3. Несколько реплик и отзыв токенов
-При `replicaCount` 2 и больше подключите внешний PostgreSQL (`config.database.url`). Реестр отозванных JWT-токенов (`revoked_tokens`) хранится в общей базе данных с двумя уровнями кэша: L1 в памяти и L2 в PostgreSQL. После выхода пользователя (`POST /api/auth/logout`) токен отклоняется всеми репликами.
+При `replicaCount` 2 и больше нужен внешний PostgreSQL. JDBC-драйвер PostgreSQL в JAR не входит: в `common-security-starter` зависимость `org.postgresql:postgresql` объявлена как `optional` и в сервис не попадает, поэтому без добавления ее в `pom.xml` сервиса подключение к PostgreSQL падает с ошибкой загрузки драйвера (`backend/spark/pom.xml`). Кроме того, `config.database.url` чарта сервис не читает: он берет `spring.datasource.url` из Spring-конфигурации. Реестр отозванных JWT-токенов (`revoked_tokens`) хранится в общей базе данных с двумя уровнями кэша: L1 в памяти и L2 в PostgreSQL. После выхода пользователя (`POST /api/v1/auth/logout`) токен отклоняется всеми репликами.
 
 ### 4. Сбор событий аудита (SIEM/SOC)
 Приложение пишет события аудита через логгер `security.audit` в формате JSON в `stdout` пода:

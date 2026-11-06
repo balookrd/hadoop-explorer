@@ -45,11 +45,12 @@
 graph TD
     User(["Аналитик / Дата-инженер"]) -->|"HTTPS / SSO"| UI["SQL Web Explorer UI\nSvelte 5 + Monaco Editor"]
     UI -->|"REST + SSE Streams"| Gateway["SQL Explorer API\nJava 21 + Spring Boot 3"]
-    Gateway -->|"Impersonation X-Trino-User"| Trino["Trino Coordinator Cluster"]
-    Gateway -->|"Impersonation doAs / Kerberos"| Hive["Apache HiveServer2"]
-    Gateway -->|"Local LLM / OpenAI API"| AI["LLM AI Assistant\nOllama / vLLM / LiteLLM"]
-    Gateway -->|"Session & Query Storage"| DB[("SQLite WAL / PostgreSQL")]
+    Gateway -->|"TrinoSqlEngine / HiveSqlEngine"| Mock["MockSqlEngine\nдемо-каталоги и результаты"]
+    Gateway -->|"встроенные правила"| AI["AiService\nбез обращения к LLM"]
+    Gateway -->|"рабочее пространство и история"| DB[("H2")]
 ```
+
+В текущей версии `TrinoSqlEngine` и `HiveSqlEngine` делегируют все вызовы в `MockSqlEngine`: запросы в Trino и HiveServer2 не отправляются, каталоги, схемы и результаты берутся из встроенного демо-набора.
 
 - Trino и Apache Hive в одном окне: переключение между Trino и HiveServer2 без смены инструмента.
 - Редактор Monaco: подсветка синтаксиса, автодополнение ключевых слов и имен таблиц и колонок, форматирование SQL, несколько вкладок запросов.
@@ -57,7 +58,7 @@ graph TD
 - ИИ-ассистент: генерация SQL по текстовому описанию, AST-проверка запроса на запрещенные DML/DDL, статический анализ производительности (декартовы произведения, отсутствие фильтра по партициям, лишний shuffle) и пошаговое объяснение логики.
 - Сохранение рабочего пространства: открытые вкладки, текст запросов, расположение панелей и история хранятся в базе данных сервера, поэтому работу можно продолжить на другом компьютере.
 - Кэш результатов и экспорт: ранее выполненные выборки открываются без повторного запуска на кластере; фильтрация на клиенте; экспорт в CSV (с защитой от Formula Injection) и JSON.
-- Безопасность: вход через Kerberos SPNEGO SSO или LDAP, разграничение доступа к кластерам по ролям (RBAC), имперсонация (`X-Trino-User`, `doAs`).
+- Безопасность: вход через Kerberos SPNEGO SSO или LDAP, разграничение доступа к кластерам по ролям (RBAC). Метод имперсонации (`impersonation.method`: `header`, `doAs`, `session`) задается в конфигурации кластера и показывается в списке кластеров; к Trino и Hive он не применяется, потому что движки не обращаются к кластерам.
 
 ---
 
@@ -102,7 +103,7 @@ SQL Web Explorer проверяет пользователей через Active
 
 ### Ролевые группы и доступ к кластерам
 
-Доступ к кластерам Trino и Hive настраивается в файле `clusters.yaml` [проверить: файл с таким именем в `backend/sql` не найден]:
+Доступ к кластерам задает администратор в секции `sql.clusters` файла `application.yml` (см. [руководство администратора](sql-admin-guide.md), раздел 2, шаг 4): у каждого кластера есть списки `allowed-users` и `allowed-groups`. Кластер доступен пользователю, если его имя или одна из его групп есть в этих списках, если оба списка пусты или если пользователь входит в группу администраторов (`hadoop.security.auth.admin-groups`). Ограничения по типу операций (только SELECT, запрет DDL/DML) Explorer не проверяет: в таблице ниже это пример политик на стороне кластера.
 
 | Группа пользователей | Trino Analytics (Prod) | Hive HDP Cluster | Apache HiveServer2 | DDL/DML (DROP, ALTER) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -110,7 +111,7 @@ SQL Web Explorer проверяет пользователей через Active
 | Data Engineers (`data-engineers`) | полный доступ | полный доступ | полный доступ | только в staging/dev |
 | BI Analysts (`bi-analysts`, `reporting`) | только SELECT | нет (закрыто ACL) | только SELECT | нет (read-only) |
 
-Запросы к кластерам выполняются от имени вошедшего пользователя: в Trino передается заголовок `X-Trino-User: username`, в Hive — `hive.server2.proxy.user=username`. Политики Ranger / Apache Sentry кластер применяет к учетной записи аналитика, а не к сервисной.
+Заголовок `X-Trino-User` и параметр `hive.server2.proxy.user` сервис не передает: `TrinoSqlEngine` и `HiveSqlEngine` делегируют запросы в `MockSqlEngine` и к кластерам не подключаются, поэтому политики Ranger на кластере к ним не применяются.
 
 ---
 
@@ -228,7 +229,7 @@ SQL Web Explorer проверяет пользователей через Active
 
 ## 10. ИИ-ассистент (AI SQL Studio)
 
-ИИ-ассистент работает с локальными LLM (Ollama, vLLM, DeepSeek-Coder, Qwen-Coder) или, без LLM, в эвристическом режиме.
+ИИ-ассистент работает на встроенных правилах, без обращения к LLM (см. раздел 12).
 
 ### 10.1. Генерация SQL по описанию
 
@@ -299,14 +300,4 @@ Trino выполняет запросы в памяти на worker-узлах. 
 
 ### Как подключить локальную LLM к ИИ-ассистенту?
 
-Установите Ollama (`ollama run qwen2.5-coder:7b`) и добавьте в файл конфигурации `config.yaml` секцию [проверить: в `docs/sql-admin-guide.md` для `provider` указаны значения `ollama | openai | vllm`, а в `backend/sql/src/main/resources/application.yml` — `mock-builtin`]:
-
-```yaml
-ai:
-  enabled: true
-  provider: "openai_compatible"
-  base_url: "http://localhost:11434/v1"
-  model: "qwen2.5-coder:7b"
-```
-
-Сервис обнаружит инференс-сервер и переключит ассистента в режим генерации через LLM.
+В текущей версии подключить LLM нельзя. Ассистент (`AiService` в `backend/sql`) проверяет, форматирует и переписывает SQL встроенными правилами и не отправляет запросы к модели. Параметры `sql.ai.url`, `sql.ai.model` и `sql.ai.provider` (по умолчанию `mock-builtin`) в `application.yml` только отображаются в статусе ассистента.

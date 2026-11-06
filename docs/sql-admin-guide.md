@@ -15,22 +15,19 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
 - Подключение к Apache Hive через HiveServer2 и прямой опрос Hive Metastore.
 - Каталог баз данных, схем и таблиц с TTL-кэшированием метаданных.
 - Рабочее пространство аналитика (`SqlUserWorkspace`), хранимое на сервере: вкладки редактора, сохраненные запросы, история выполнений с метриками.
-- ИИ-ассистент для генерации и оптимизации SQL: локальные LLM через Ollama/vLLM или внешние API.
-- Проверка идентификаторов каталогов, схем и таблиц перед подстановкой в запрос (`validate_identifier`) — защита от SQL-инъекций.
+- ИИ-ассистент для проверки, форматирования и оптимизации SQL на встроенных правилах, без обращения к LLM.
+- Проверка идентификаторов каталогов, схем и таблиц перед подстановкой в запрос (`CatalogController.validateIdentifier`) — защита от SQL-инъекций.
 
 ### 1.2 Сетевые порты и эндпоинты
 | Порт | Протокол | Направление | Назначение |
 |---|---|---|---|
 | `8003` | HTTP/HTTPS | Inbound | Пользовательский веб-интерфейс SPA (Svelte 5 + Monaco Editor) и REST API |
-| `8080` / `8443` | HTTP/HTTPS | Outbound | Trino Coordinator REST API |
-| `9083` | TCP (Thrift) | Outbound | Apache Hive Metastore Thrift Service |
-| `10000` | TCP (Thrift) | Outbound | Apache HiveServer2 (PyHive / JDBC) |
-| `11434` / `8000` | HTTP | Outbound | Сервер локальной нейросети (Ollama / vLLM / OpenAI API) |
 | `389` / `636` | TCP (LDAP/LDAPS) | Outbound | Корпоративный сервер аутентификации |
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
 - Проверка доступности (healthcheck): `GET /healthz`.
-- Метрики Prometheus: `GET /metrics`.
+- Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
+- Метрики Prometheus сервис не экспортирует, см. [5.1](#51-метрики-prometheus-get-metrics).
 
 ### 1.3 Системные требования
 
@@ -150,83 +147,85 @@ cp backend/sql/target/sql-explorer-java-*.jar /opt/hadoop-explorer/sql/bin/sql-e
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/sql/config.yaml` [проверить: юнит systemd на шаге 5 подключает `/etc/hadoop-explorer/sql/application.yml` через `SPRING_CONFIG_ADDITIONAL_LOCATION`, а сервис читает Spring-конфигурацию `application.yml`; формат и имя этого файла с кодом не сверены]:
+Создайте файл `/etc/hadoop-explorer/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/sql/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `CommonSecurityProperties` (префикс `hadoop.security`).
 ```yaml
 server:
-  host: "0.0.0.0"
   port: 8003
-  debug: false
-  secure_cookies: true
-  cors_origins:
-    - "https://sql.company.local"
 
-security:
-  secret_key: "CHANGE_TO_SUPER_SECURE_RANDOM_KEY_MIN_32_CHARS"
-  algorithm: "HS256"
-  access_token_expire_minutes: 480
-  cookie_name: "sql_explorer_session"
+spring:
+  datasource:
+    # Встроенная H2 в файле. JDBC-драйвера PostgreSQL в JAR нет.
+    url: jdbc:h2:file:/var/lib/hadoop-explorer/sql/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
-database:
-  url: "sqlite:////var/lib/hadoop-explorer/sql/data/sql_explorer.db"
-  # Для HA кластера:
-  # url: "postgresql://sql_user:DbPass123@pg.company.local:5432/sql_explorer"
+hadoop:
+  security:
+    auth:
+      mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
+      admin-groups: ["hadoop-admins"]
+      writer-groups: ["data-engineers"]
+    jwt:
+      # Случайная строка не короче 32 символов; без нее сервис не стартует
+      secret-key: "${JWT_SECRET_KEY}"
+      expiration-minutes: 480
+    cors:
+      allowed-origins:
+        - "https://sql.company.local"
+    cookie:
+      secure: true
+    ldap:
+      enabled: true
+      url: "ldaps://ldap.company.local:636"
+      manager-dn: "cn=svc_sql,ou=services,dc=company,dc=local"
+      manager-password: "${LDAP_MANAGER_PASSWORD}"
+      user-search-base: "ou=users,dc=company,dc=local"
+      user-search-filter: "(sAMAccountName={0})"
+      group-search-base: "ou=groups,dc=company,dc=local"
+      group-search-filter: "(member={0})"
+    kerberos:
+      # Входящий SPNEGO (SSO в браузере)
+      enabled: true
+      keytab: "/etc/security/keytabs/sql-explorer.keytab"
+      service-principal: "HTTP/sql.company.local@COMPANY.LOCAL"
 
-auth:
-  ldap:
-    enabled: true
-    server_uri: "ldaps://ldap.company.local:636"
-    bind_dn: "cn=svc_sql,ou=services,dc=company,dc=local"
-    bind_password: "ServiceLdapPassword"
-    user_search_base: "ou=users,dc=company,dc=local"
-    user_search_filter: "(sAMAccountName={username})"
-    group_search_base: "ou=groups,dc=company,dc=local"
-    group_search_filter: "(member={user_dn})"
-    admin_group: "cn=hadoop-admins,ou=groups,dc=company,dc=local"
-
-  kerberos:
-    enabled: true
-    keytab_path: "/etc/security/keytabs/sql-explorer.keytab"
-    service_principal: "HTTP/sql.company.local@COMPANY.LOCAL"
-
-# Настройка аналитических движков выполнения запросов
 sql:
-  engines:
+  results-ttl-hours: 24
+  max-rows-per-query: 10000
+  default-page-size: 500
+  clusters:
     - id: "trino-prod"
       name: "Trino Production Cluster"
-      type: "trino"
+      type: "trino" # trino | hive | mock
       host: "trino-coordinator.company.local"
       port: 8080
-      http_scheme: "http"
       catalog: "hive"
       schema: "default"
-      user: "sql_explorer"
-      timeout_seconds: 300
-      max_rows: 10000
-
+      impersonation:
+        enabled: true
+        method: "header" # header | doAs | session
+      allowed-groups: ["data-engineers", "bi-analysts"]
     - id: "hive-prod"
       name: "Apache Hive Cluster"
       type: "hive"
       host: "hiveserver2.company.local"
       port: 10000
-      metastore_uri: "thrift://hive-metastore.company.local:9083"
-      auth_mechanism: "KERBEROS"
-      kerberos_service_name: "hive"
-      timeout_seconds: 600
-      max_rows: 5000
-
-# Интеграция с ИИ-ассистентом для генерации SQL
-ai:
-  enabled: true
-  provider: "ollama" # ollama | openai | vllm
-  base_url: "http://ollama.company.local:11434"
-  model: "qwen2.5-coder:7b"
-  timeout_seconds: 30
+      catalog: "default"
+      schema: "default"
+      impersonation:
+        enabled: true
+        method: "doAs"
+  ai:
+    enabled: true
 ```
+
+Ограничения текущей версии, которые видны в коде:
+- `TrinoSqlEngine` и `HiveSqlEngine` возвращают каталоги, схемы и результаты запросов из `MockSqlEngine`: запросы в Trino и HiveServer2 не отправляются, `host` и `port` для подключения не используются.
+- ИИ-ассистент (`AiService`) проверяет и переписывает SQL встроенными правилами и не обращается к внешней модели. `sql.ai.url`, `sql.ai.model` и `sql.ai.provider` (по умолчанию `mock-builtin`) только возвращаются в ответе о статусе ассистента.
+- Если у кластера пусты `allowed-users` и `allowed-groups`, он доступен всем пользователям.
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/sql/config.yaml
-sudo chown appuser:appuser /etc/hadoop-explorer/sql/config.yaml
+sudo chmod 600 /etc/hadoop-explorer/sql/application.yml
+sudo chown appuser:appuser /etc/hadoop-explorer/sql/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
@@ -311,15 +310,17 @@ docker build -t ghcr.io/company/hadoop-explorer/sql:latest -f docker/Dockerfile.
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
+Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `hadoop.security.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
 ```bash
 docker run -d \
   --name sql-explorer \
   --restart unless-stopped \
   -p 8003:8003 \
-  -e CONFIG_PATH=/app/config/config.yaml \
+  -e SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml \
+  -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
   -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
-  -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/sql-explorer/config.yaml:/app/config/config.yaml:ro \
+  -e LDAP_MANAGER_PASSWORD="SecretLdapPassword" \
+  -v /opt/sql-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v sql-data:/app/data \
@@ -338,15 +339,12 @@ services:
     ports:
       - "8003:8003"
     environment:
-      - APP_NAME=sql
-      - WEB_CONCURRENCY=2
-      - CONFIG_PATH=/app/config/config.yaml
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:/app/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - KRB5_KEYTAB=/etc/security/keytabs/sql-explorer.keytab
-      - KRB5_PRINCIPAL=HTTP/sql.company.local@COMPANY.LOCAL
+      - LDAP_MANAGER_PASSWORD=${LDAP_MANAGER_PASSWORD}
     volumes:
-      - ./config.yaml:/app/config/config.yaml:ro
+      - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
       - /etc/security/keytabs/sql-explorer.keytab:/etc/security/keytabs/sql-explorer.keytab:ro
       - sql-storage:/app/data
@@ -384,13 +382,10 @@ networks:
 Чарт находится в репозитории: [`helm/charts/sql-explorer`](../helm/charts/sql-explorer).
 
 #### Шаг 1: Подготовка секретов Kubernetes
+Чарт сам создает Secret `<fullname>-secrets` (при имени релиза `sql-explorer` — `sql-explorer-secrets`) из `secrets.*`: JWT-секрет, пароль LDAP и keytab. Не создавайте Secret с таким именем вручную: `helm install` остановится с ошибкой о существующем ресурсе.
+
 ```bash
 kubectl create namespace hadoop-explorer
-
-kubectl create secret generic sql-explorer-secrets \
-  --namespace hadoop-explorer \
-  --from-literal=jwt-secret-key="Min32CharSecretKeyForSqlExplorerJwt" \
-  --from-literal=ldap-bind-password="SecretLdapPassword"
 
 # Создание секрета для скачивания образов из GHCR
 kubectl create secret docker-registry ghcr-secret \
@@ -398,21 +393,15 @@ kubectl create secret docker-registry ghcr-secret \
   --docker-server=ghcr.io \
   --docker-username="<github-username>" \
   --docker-password="<github-token-with-read:packages>"
-
-kubectl create secret generic sql-kerberos-keytab \
-  --namespace hadoop-explorer \
-  --from-file=sql-explorer.keytab=/etc/security/keytabs/sql-explorer.keytab
-
-kubectl create configmap krb5-config \
-  --namespace hadoop-explorer \
-  --from-file=krb5.conf=/etc/krb5.conf
 ```
 
 #### Шаг 2: Параметры `custom-values.yaml`
 
-[проверить: ключей `extraEnv`, `extraVolumes`, `extraVolumeMounts` нет в `helm/charts/sql-explorer/values.yaml`; секреты и keytab чарт берет из `secrets.*` и `kerberos.*`, см. `helm/charts/sql-explorer/README.md`.]
+**Внимание:** чарт `helm/charts/sql-explorer` не передает сервису Spring-конфигурацию. ConfigMap с `config.yaml` собран из `config.*` в формате прежней версии сервиса и смонтирован в `/etc/sql-explorer/config.yaml`, а переменную `CONFIG_PATH` сервис не читает; `extraEnv` в чарте нет. Из параметров чарта на сервис действует только `secrets.jwtSecret` (переменная `JWT_SECRET_KEY`), порт задает `SERVER_PORT=8003` из образа. LDAP, Kerberos SPNEGO и список кластеров берутся из `application.yml` внутри JAR: вход через LDAP будет обращаться к `ldaps://ldap.company.local:636`. Для рабочей установки в Kubernetes чарт нужно доработать (передать `SPRING_CONFIG_ADDITIONAL_LOCATION` и Spring-конфигурацию), либо запускайте сервис под systemd с `application.yml` из раздела 2.
+
 ```yaml
-replicaCount: 2
+# Один под: в JAR нет JDBC-драйвера PostgreSQL, база — встроенная H2 в памяти пода.
+replicaCount: 1
 
 image:
   repository: ghcr.io/company/hadoop-explorer/sql
@@ -421,18 +410,6 @@ image:
 
 imagePullSecrets:
   - name: ghcr-secret
-
-extraEnv:
-  - name: JWT_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: sql-explorer-secrets
-        key: jwt-secret-key
-  - name: LDAP_BIND_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: sql-explorer-secrets
-        key: ldap-bind-password
 
 service:
   type: ClusterIP
@@ -444,7 +421,7 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-corp"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "600" # Длительные запросы Trino
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
   hosts:
     - host: sql.company.local
@@ -464,37 +441,27 @@ resources:
     cpu: "500m"
     memory: "1Gi"
 
-extraVolumes:
-  - name: keytab-vol
-    secret:
-      secretName: sql-kerberos-keytab
-      defaultMode: 0400
-  - name: krb5-vol
-    configMap:
-      name: krb5-config
+# Попадают в Secret <fullname>-secrets. jwtSecret — случайная строка не короче 32 символов,
+# значение по умолчанию из values.yaml публично. Keytab и krb5.conf передаются через
+# --set / --set-file на шаге 3 и монтируются в /etc/security/keytabs/sql-explorer.keytab
+# и /etc/krb5.conf.
+secrets:
+  jwtSecret: "<jwt_secret>"
+  ldapBindPassword: "<ldap_password>"
 
-extraVolumeMounts:
-  - name: keytab-vol
-    mountPath: /etc/security/keytabs
-    readOnly: true
-  - name: krb5-vol
-    mountPath: /etc/krb5.conf
-    subPath: krb5.conf
-    readOnly: true
-
-config:
-  database:
-    url: "postgresql://sql_user:DbPass123@postgres-ha.database.svc.cluster.local:5432/sql_explorer"
-
-podDisruptionBudget:
-  minAvailable: 1
+kerberos:
+  enabled: true
 ```
+
+Плейсхолдеры: `<jwt_secret>` — например, вывод `openssl rand -hex 32`; `<ldap_password>` — пароль сервисной учетной записи LDAP. Сервис этот пароль не читает (см. предупреждение выше), чарт кладет его в Secret и переменную `LDAP_BIND_PASSWORD`.
 
 #### Шаг 3: Установка через Helm
 ```bash
 helm upgrade --install sql-explorer ./helm/charts/sql-explorer \
   --namespace hadoop-explorer \
-  -f custom-values.yaml
+  -f custom-values.yaml \
+  --set-file kerberos.krb5Conf=/etc/krb5.conf \
+  --set secrets.kerberosKeytabBase64="$(base64 < /etc/security/keytabs/sql-explorer.keytab | tr -d '\n')"
 
 kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=sql-explorer
 ```
@@ -504,18 +471,9 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=sql-explorer
 ## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
-
-[проверить: имена метрик ниже в коде `backend/sql` не найдены.]
-
-- `http_requests_total{app="sql", ...}`
-- `sql_queries_total{engine="trino|hive", status="success|failed|cancelled"}`
-- `sql_query_duration_seconds{engine="trino|hive", ...}`
-- `hadoop_circuit_breaker_state{name="trino_coordinator"}`
+Сервис не экспортирует метрики Prometheus: в `backend/sql` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
 
 ### 5.2 Типовые ошибки
 
 | Ошибка | Причина | Решение |
 |---|---|---|
-| `TrinoQueryError: Query exceeded maximum execution time` | Запрос не уложился в таймаут | Увеличьте `timeout_seconds` в `config.yaml` или используйте партиционирование в предложении `WHERE`. |
-| `Cannot connect to Hive Metastore thrift://...:9083` | Служба Hive Metastore недоступна или заблокирован сетевой порт | Проверьте статус службы `systemctl status hive-metastore` и сетевой доступ `nc -zv hive-metastore 9083`. |
-| `AI Service Unavailable` | Локальный сервер Ollama/vLLM не отвечает | Проверьте доступность контейнера Ollama: `curl http://ollama:11434/api/tags`. |

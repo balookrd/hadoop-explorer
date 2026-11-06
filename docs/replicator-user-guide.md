@@ -230,12 +230,11 @@ topology:
 
 При создании задачи доступна опция **«Запускать от сервисной учетной записи»** (`run_as_service_account=True`):
 1. Принципал по умолчанию — `hdfs-replicator@REALM.LOCAL`, задается переменной `REPLICATOR_SERVICE_PRINCIPAL`.
-2. Изоляция билетов (Kerberos Context Isolation) [проверить: в коде агента нет `KerberosContextManager` и `krb5cc_repl`; `KerberosUgiProvider` использует `UserGroupInformation.loginUserFromKeytab` и `createProxyUser`]:
-   - воркер выполняет операцию внутри контекстного менеджера `KerberosContextManager`;
-   - для каждой операции создается отдельный файл кэша билетов `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}`;
-   - выполняется `kinit -kt keytab_path principal`;
-   - по завершении передачи билет уничтожается командой `kdestroy`;
-   - параллельные задачи под разными учетными записями не перезаписывают билеты друг друга, потому что у каждой свой файл кэша.
+2. Вход по keytab и имперсонация (`KerberosUgiProvider` агента):
+   - при старте агент один раз выполняет `UserGroupInformation.loginUserFromKeytab(<principal>, <keytab>)`; путь к keytab берется из `REPLICATOR_KEYTAB_PATH`, если она не задана — из `KRB5_KEYTAB`;
+   - с `run_as_service_account=True` операции HDFS выполняются в `doAs` от UGI сервисной учетной записи;
+   - без этой опции агент создает proxy-UGI пользователя-автора задачи (`UserGroupInformation.createProxyUser`) поверх UGI сервисной учетной записи. Proxy-UGI кэшируется по имени пользователя и сбрасывается при перелогине сервисной учетной записи. Для имперсонации на NameNode должны быть настроены `hadoop.proxyuser.<service_user>.hosts` и `hadoop.proxyuser.<service_user>.groups`, где `<service_user>` — короткое имя сервисного принципала;
+   - билет пользователя агент не использует, поэтому параллельные задачи разных пользователей работают в общем Kerberos-контексте агента и не зависят от билетов друг друга.
 
 ---
 
@@ -452,9 +451,8 @@ topology:
    - Принимающий агент читает байты из сетевого потока через `TarArchiveInputStream` и записывает файлы в целевой HDFS пулом из 8 потоков (`bundleCommitConcurrency`), сохраняя права доступа и Kerberos UGI `doAs`.
    - Для крупных одиночных файлов (`FILE`) локальный staging тоже не используется: временный файл создается прямо в целевом HDFS (`targetPath + "._staging_" + jobId`) и затем атомарно переименовывается (`fs.rename()`).
 
-3. Ожидаемый эффект [проверить: источник замеров]:
-   - репликация каталогов с миллионами мелких файлов быстрее в 5–10 раз по сравнению с пофайловым режимом;
-   - нагрузка на RPC NameNode исходного и целевого кластеров ниже более чем на 80%;
+3. Эффект:
+   - вместо отдельной задачи и отдельного gRPC-вызова на каждый файл передается один поток `TransferTarStream` на пакет до 500 файлов;
    - локальный диск хостов агентов в передаче не участвует.
 
 ### 7.6 Очистка временных staging-файлов на HDFS
@@ -866,7 +864,7 @@ topology:
 ### Задача зависла в статусе QUEUED
 
 - Причина: не запущен воркер репликации (`worker daemon`) или заняты все слоты передачи.
-- Решение: проверьте логи контейнера воркера: `docker logs replicator-worker` [проверить: в `demo/replicator/docker-compose.yml` контейнеры агентов называются `replicator-agent-dc1` и `replicator-agent-dc2`].
+- Решение: проверьте логи контейнеров агентов. На демо-стенде `demo/replicator/docker-compose.yml`: `docker logs replicator-agent-dc1` и `docker logs replicator-agent-dc2`.
 
 ### Скорость репликации ниже ожидаемой
 
@@ -876,4 +874,4 @@ topology:
 ### Ошибка аутентификации Kerberos (GSSException)
 
 - Причина: истек или не найден keytab системного принципала.
-- Решение: убедитесь, что файл keytab смонтирован в контейнер воркера и доступен по пути из переменной `KRB5_KEYTAB_PATH` [проверить: `KerberosUgiProvider` читает путь из `REPLICATOR_KEYTAB_PATH`, затем из `KRB5_KEYTAB`].
+- Решение: убедитесь, что файл keytab смонтирован в контейнер воркера и доступен по пути из переменной `REPLICATOR_KEYTAB_PATH` (если она не задана, агент читает `KRB5_KEYTAB`).

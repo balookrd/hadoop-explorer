@@ -49,11 +49,11 @@
 # Из корня репозитория:
 make build-replicator-agent
 
-# Либо напрямую через Maven:
-mvn clean package -DskipTests -f backend/replicator/agent/pom.xml
+# Либо напрямую через Maven, через реактор родителя:
+mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
 ```
 
-[проверить: по `AGENTS.md` модуль `agent` собирается только через реактор родителя (`mvn ... -f backend/replicator/pom.xml -pl agent -am`), иначе общие `proto` и `model` берутся из локального репозитория устаревшими]
+Собирайте модуль только через реактор `backend/replicator/pom.xml` с `-pl agent -am`. При запуске с `-f backend/replicator/agent/pom.xml` общие модули `proto` и `model` берутся из локального Maven-репозитория и могут быть устаревшими.
 
 Результат сборки — исполняемый fat JAR:
 `target/replicator-agent-1.0.0-all.jar` (~72 МБ, включает все зависимости Netty, gRPC, Hadoop Client, YARN Client, Jackson).
@@ -175,7 +175,7 @@ hadoop jar target/replicator-agent-1.0.0-all.jar \
 1. `ReplicatorYarnClient` загружает JAR в HDFS staging директорию `.replicator-staging/<appId>`.
 2. YARN ResourceManager выделяет контейнер для `ReplicatorApplicationMaster`.
 3. ApplicationMaster регистрируется в RM и запрашивает указанное количество контейнеров (`num_containers`).
-4. На выделенных узлах запускаются контейнеры с `ReplicatorAgentMain`, которые регистрируются в оркестраторе (`POST /api/v1/agents/register`) [проверить: Control Plane агентов переведен на gRPC `RegisterAgent`, см. `backend/replicator/README.md`] и начинают обрабатывать задачи репликации из очереди.
+4. На выделенных узлах запускаются контейнеры с `ReplicatorAgentMain`, которые регистрируются в оркестраторе вызовом gRPC `RegisterAgent` сервиса Control Plane (`orchestrator_control_plane.proto`) и начинают обрабатывать задачи репликации из очереди.
 5. При остановке приложения в YARN (`yarn application -kill <appId>`) агенты снимаются с регистрации (статус OFFLINE) и освобождают ресурсы.
 
 ---

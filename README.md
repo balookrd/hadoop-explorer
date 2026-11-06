@@ -174,7 +174,7 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 | HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
 | SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
 | Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
-| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator:latest` [проверить: `scripts/build-containers.sh` собирает `replicator-orchestrator` и `replicator-agent`] | `helm/charts/replicator` [проверить: каталога нет в `helm/charts/`] |
+| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator-orchestrator:latest`, `hadoop-explorer/replicator-agent:latest` | нет |
 
 ---
 
@@ -301,19 +301,21 @@ Workflow GitHub Actions:
 2. Копирует собранный Spring Boot fat JAR и статику фронтенда.
 3. Запускает сервис от непривилегированного пользователя `appuser` (UID 10001).
 
-[проверить: цели `make build-yarn`, `make build-hdfs`, `make build-sql`, `make build-spark`, `make build-replicator` в `Makefile` собирают фронтенд и JAR через `mvn clean package`, а не Docker-образ; образ одного сервиса собирает `./scripts/build-containers.sh <yarn|hdfs|sql|spark|replicator>`]
+Образ берет UI из `backend/*/src/main/resources/static`, поэтому перед сборкой образов соберите фронтенд и JAR: `make build-java`. Без собранного UI `scripts/build-containers.sh` останавливается с сообщением `Нет собранного UI в <каталог>: выполните make frontend-build`.
 
 ```bash
 # Сборка всех контейнеров платформы
 make build
 
 # Либо по отдельности:
-make build-yarn     # hadoop-explorer/yarn:latest
-make build-hdfs     # hadoop-explorer/hdfs:latest
-make build-sql      # hadoop-explorer/sql:latest
-make build-spark    # hadoop-explorer/spark:latest
-make build-replicator # hadoop-explorer/replicator-orchestrator:latest
+./scripts/build-containers.sh yarn        # hadoop-explorer/yarn:latest
+./scripts/build-containers.sh hdfs        # hadoop-explorer/hdfs:latest
+./scripts/build-containers.sh sql         # hadoop-explorer/sql:latest
+./scripts/build-containers.sh spark       # hadoop-explorer/spark:latest
+./scripts/build-containers.sh replicator  # hadoop-explorer/replicator-orchestrator:latest и hadoop-explorer/replicator-agent:latest
 ```
+
+Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `hadoop-explorer`). Цели `make build-yarn`, `make build-hdfs`, `make build-sql`, `make build-spark`, `make build-replicator` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
 
 Прямой запуск через Docker CLI:
 ```bash
@@ -322,6 +324,7 @@ docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
 docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql-java .
 docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
 docker build -t hadoop-explorer/replicator-orchestrator:latest -f docker/Dockerfile.replicator-orchestrator .
+docker build -t hadoop-explorer/replicator-agent:latest -f docker/Dockerfile.replicator-agent .
 ```
 
 ---
@@ -384,22 +387,23 @@ make helm-lint
 
 ## Запуск тестов
 
-Всего 350 тестов: 255 бэкенд и 95 Vitest [проверить: число тестов могло устареть]:
-- Frontend: 95 тестов Vitest и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
-- YARN Explorer: 28 тестов (13 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
-- HDFS Explorer: 44 теста (16 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
-- SQL Explorer: 42 теста (Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
-- Spark Explorer: 24 теста (Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, Pydantic-валидаторы, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
-- Hadoop gRPC Replicator: 146 тестов Java (Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
+Число тестов на 2026-11-06: 943 тестовых метода Java (аннотации `@Test` и `@ParameterizedTest`; параметризованные методы при прогоне дают больше запусков) и 115 тестов Vitest:
+- Frontend: 115 тестов Vitest (из них 28 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
+- YARN Explorer: 49 тестов (34 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
+- HDFS Explorer: 45 тестов (17 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
+- SQL Explorer: 19 тестов (7 Java 21 + 12 Frontend UI: Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- Spark Explorer: 15 тестов (6 Java 21 + 9 Frontend UI: Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
+- Hadoop gRPC Replicator: 871 тест (848 Java 21 + 23 Frontend UI: Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
+- Common Security Starter: 31 тест Java 21.
 
 ```bash
-# Запуск всех 350 тестов платформы (Backend + Frontend UI)
+# Запуск всех тестов платформы (Backend + Frontend UI)
 make test
 
 # Тестирование интерфейса фронтенда:
-make test-ui        # svelte-check по 5 SPA + 95 тестов Vitest
+make test-ui        # svelte-check по 5 SPA + 115 тестов Vitest
 make frontend-check # проверка типов svelte-check
-make frontend-test  # юнит и компонентные тесты Vitest (95 тестов)
+make frontend-test  # юнит и компонентные тесты Vitest (115 тестов)
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Тестирование бэкенда (Java 21 / Spring Boot 3):

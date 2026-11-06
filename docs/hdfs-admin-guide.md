@@ -520,10 +520,7 @@ kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
 ## 5. Мониторинг и диагностика
 
 ### 5.1 Метрики Prometheus (`GET /metrics`)
-- `http_requests_total{app="hdfs", ...}`
-- `hadoop_circuit_breaker_state{name="hdfs_namenode"}`
-- `hadoop_circuit_breaker_calls_total{name="hdfs_namenode", status="success|failed"}`
-- `hdfs_operations_total{op="list|read|write|delete|quota"}` [проверить: метрика есть в дашбордах `monitoring/grafana/`, но в коде `backend/` не регистрируется]
+Сервис не экспортирует метрики Prometheus: в `backend/hdfs` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404. Задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) и дашборд `monitoring/grafana/dashboards/hdfs_explorer_operations.json` данных от сервиса не получат.
 
 ### 5.2 Известные проблемы
 
