@@ -228,6 +228,7 @@ public class TokenBucketThrottler {
 
     public enum TrafficClass {
         HDFS,
+        /** Not used by the gRPC path ({@code TokenRequest} has no traffic class); throttler API and tests only. */
         KAFKA
     }
 
@@ -287,15 +288,21 @@ public class TokenBucketThrottler {
      * Hierarchical token request (HTB without borrowing):
      * <ol>
      *   <li>Global bucket: limit across all DC links.</li>
-     *   <li>DC link bucket ({@code dc:srcDc->dstDc}): shared by HDFS and Kafka, keeps the WAN link
-     *       within its limit. Without an explicit limit {@link TopologyRegistry#getDcLimit} returns
-     *       100 MB/s.</li>
-     *   <li>Traffic class bucket, a hard cap inside the link: KAFKA up to 40% of the link
-     *       ({@code dcKafkaBuckets}), HDFS up to 60% ({@code dcHdfsBuckets}). An idle class does not
-     *       lend its share: with no Kafka traffic HDFS still gets at most 60% of the link.</li>
+     *   <li>DC link bucket ({@code dc:srcDc->dstDc}): keeps the WAN link within its limit. Without
+     *       an explicit limit {@link TopologyRegistry#getDcLimit} returns 100 MB/s.</li>
+     *   <li>Traffic class bucket, a hard cap inside the link: HDFS up to 60% of the link
+     *       ({@code dcHdfsBuckets}), KAFKA up to 40% ({@code dcKafkaBuckets}). The share is not
+     *       lent: HDFS gets at most 60% of the link even when Kafka is idle.</li>
      *   <li>HDFS cluster-pair bucket ({@code hdfs:src->dst}) when a pair limit is configured.</li>
      * </ol>
      * Every bucket on the path is charged; the returned wait is the maximum over them, in seconds.
+     *
+     * <p>Only HDFS reaches this method in production: the gRPC {@code RequestTokens} call
+     * ({@code OrchestratorControlPlaneServiceImpl}) uses the three-argument overload, and
+     * {@code TokenRequest} in {@code orchestrator_control_plane.proto} carries no traffic class.
+     * The KAFKA branch is reachable only through this API directly (tests). Kafka jobs are limited
+     * by their {@code bandwidth_limit_mb}, which {@code KafkaReplicationOrchestratorService} derives
+     * from 40% of an explicitly configured link limit when the request leaves it empty.
      */
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster, TrafficClass trafficClass) {
         if (requestedBytes <= 0) {
@@ -332,7 +339,7 @@ public class TokenBucketThrottler {
             long limit = topology.getDcLimit(srcDc, dstDc).get();
             SingleBucket dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0, activeNodeCount));
             dcBucket.updateLimit(limit);
-            // Единый корневой бакет DC-DC списывает токены для ВСЕХ типов трафика (HDFS и Kafka вместе не могут превысить лимит канала)
+            // Link bucket charged for every traffic class passed in; over gRPC that is HDFS only
             waitDc = dcBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
 
             // Traffic class caps; unused share is not lent to the other class

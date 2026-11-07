@@ -1,9 +1,15 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.scheduler;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
@@ -86,5 +92,26 @@ class ScheduleReconcilerTest {
         when(repo.findScheduledJobs()).thenThrow(new IllegalStateException("db down"));
 
         assertDoesNotThrow(() -> new ScheduleReconciler(repo, null, null, null).reconcileOnStartup());
+    }
+
+    @Test
+    @DisplayName("Если блокировку держит другой узел, сверка пропускается с INFO-записью в журнале")
+    void logsSkipWhenLockHeldByAnotherNode() {
+        JobRepository repo = mock(JobRepository.class);
+        // A mock never runs the action, exactly as runWithLock does when another node holds the lock
+        DistributedLockService lockService = mock(DistributedLockService.class);
+        Logger logger = (Logger) LoggerFactory.getLogger(ScheduleReconciler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new ScheduleReconciler(repo, lockService, null, null).reconcileOnStartup();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        verify(repo, never()).findScheduledJobs();
+        assertTrue(appender.list.stream().anyMatch(event -> event.getLevel() == Level.INFO
+            && event.getFormattedMessage().contains("skipped")));
     }
 }

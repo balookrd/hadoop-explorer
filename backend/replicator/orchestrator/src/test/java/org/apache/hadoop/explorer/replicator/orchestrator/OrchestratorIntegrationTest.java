@@ -22,7 +22,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(classes = ReplicatorOrchestratorApplication.class)
+// Logs in several times from one address; the login limiter is covered by RateLimitFilterIntegrationTest in the starter
+@SpringBootTest(classes = ReplicatorOrchestratorApplication.class,
+    properties = "hadoop.security.rate-limiter.enabled=false")
 @AutoConfigureMockMvc
 class OrchestratorIntegrationTest {
 

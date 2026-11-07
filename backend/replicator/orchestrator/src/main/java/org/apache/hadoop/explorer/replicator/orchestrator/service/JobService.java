@@ -578,6 +578,10 @@ public class JobService {
             boolean cronChanged = req.cronExpression() != null && !req.cronExpression().equals(job.getCronExpression());
             if (req.isScheduled() != null) job.setScheduled(req.isScheduled());
             if (req.cronExpression() != null) job.setCronExpression(req.cronExpression());
+            if (job.isScheduled() && !wasScheduled && isStoppedByScheduler(job)) {
+                job.setStatus("SCHEDULED");
+                job.setMessage(null);
+            }
             if (job.isScheduled() && (!wasScheduled || cronChanged || job.getNextRunAt() == null)) {
                 CronSchedule schedule = requestedSchedule != null ? requestedSchedule : CronSchedule.parse(job.getCronExpression());
                 job.setNextRunAt(schedule.next(Instant.now(), properties.getScheduler().getZoneId()));
@@ -586,6 +590,13 @@ public class JobService {
             jobRepository.save(job);
             return JobResponse.fromEntity(job, jobRunRepository.countByJobId(job.getId()));
         });
+    }
+
+    /** True when the scheduler, not an operator, stopped the job because its schedule could not be evaluated. */
+    private static boolean isStoppedByScheduler(JobEntity job) {
+        return "STOPPED".equalsIgnoreCase(job.getStatus())
+            && job.getMessage() != null
+            && job.getMessage().startsWith(ReplicationScheduler.SCHEDULE_DISABLED_PREFIX);
     }
 
     @Transactional

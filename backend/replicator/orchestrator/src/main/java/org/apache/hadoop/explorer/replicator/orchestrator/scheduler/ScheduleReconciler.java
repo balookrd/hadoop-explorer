@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Brings stored schedules in line with {@link CronSchedule} on startup.
@@ -53,7 +54,16 @@ public class ScheduleReconciler {
         // Best effort: a failure here must not abort startup, the tick still disables invalid schedules
         try {
             if (lockService != null) {
-                lockService.runWithLock(ReplicationScheduler.LOCK_NAME, LOCK_LEASE, () -> runInTransaction(Instant.now()));
+                // runWithLock silently skips the action when another node holds the lock
+                AtomicBoolean ran = new AtomicBoolean(false);
+                lockService.runWithLock(ReplicationScheduler.LOCK_NAME, LOCK_LEASE, () -> {
+                    ran.set(true);
+                    runInTransaction(Instant.now());
+                });
+                if (!ran.get()) {
+                    log.info("Schedule reconciliation skipped: lock '{}' is held by another node",
+                        ReplicationScheduler.LOCK_NAME);
+                }
             } else {
                 runInTransaction(Instant.now());
             }

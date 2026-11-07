@@ -131,13 +131,16 @@ public class ReplicationScheduler {
         }
     }
 
+    /** Prefix of the job message written when the scheduler turns off a schedule it cannot evaluate. */
+    public static final String SCHEDULE_DISABLED_PREFIX = "Расписание отключено: ";
+
     /** Turns off a schedule that cannot be evaluated; the job stays visible with the reason. */
     static void disableInvalidSchedule(JobEntity job, InvalidCronExpressionException e) {
         job.setScheduled(false);
         if ("SCHEDULED".equalsIgnoreCase(job.getStatus())) {
             job.setStatus("STOPPED");
         }
-        job.setMessage("Расписание отключено: " + e.getMessage());
+        job.setMessage(SCHEDULE_DISABLED_PREFIX + e.getMessage());
         log.warn("Schedule disabled for job '{}': {}", job.getId(), e.getMessage());
     }
 

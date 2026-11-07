@@ -97,4 +97,39 @@ class JobServiceCronTest {
 
         assertEquals(LocalTime.MIDNIGHT, load(id).getNextRunAt().atZone(ZoneOffset.UTC).toLocalTime());
     }
+
+    @Test
+    @DisplayName("Повторное включение расписания, снятого планировщиком, возвращает статус SCHEDULED")
+    void reEnablingScheduleDisabledBySchedulerRestoresScheduledStatus() {
+        String id = jobService.createJob(scheduled("@hourly"), "de_user").id();
+        JobEntity job = load(id);
+        job.setScheduled(false);
+        job.setStatus("STOPPED");
+        job.setMessage("Расписание отключено: неизвестный часовой пояс");
+        jobRepository.save(job);
+
+        jobService.updateJob(id, scheduled("@hourly"));
+
+        JobEntity updated = load(id);
+        assertTrue(updated.isScheduled());
+        assertEquals("SCHEDULED", updated.getStatus());
+        assertNull(updated.getMessage());
+    }
+
+    @Test
+    @DisplayName("Включение расписания у задачи, остановленной оператором, статус не меняет")
+    void reEnablingScheduleKeepsOperatorStop() {
+        String id = jobService.createJob(scheduled("@hourly"), "de_user").id();
+        JobEntity job = load(id);
+        job.setScheduled(false);
+        job.setStatus("STOPPED");
+        job.setMessage("Остановлено оператором");
+        jobRepository.save(job);
+
+        jobService.updateJob(id, scheduled("@hourly"));
+
+        JobEntity updated = load(id);
+        assertEquals("STOPPED", updated.getStatus());
+        assertEquals("Остановлено оператором", updated.getMessage());
+    }
 }
