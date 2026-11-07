@@ -32,10 +32,12 @@ public final class CronSchedule {
 
     private final Duration interval;
     private final CronExpression cron;
+    private final String source;
 
-    private CronSchedule(Duration interval, CronExpression cron) {
+    private CronSchedule(Duration interval, CronExpression cron, String source) {
         this.interval = interval;
         this.cron = cron;
+        this.source = source;
     }
 
     public static CronSchedule parse(String expression) {
@@ -80,7 +82,7 @@ public final class CronSchedule {
             case 'm' -> Duration.ofMinutes(amount);
             default -> Duration.ofHours(amount);
         };
-        return new CronSchedule(duration.compareTo(MIN_INTERVAL) < 0 ? MIN_INTERVAL : duration, null);
+        return new CronSchedule(duration.compareTo(MIN_INTERVAL) < 0 ? MIN_INTERVAL : duration, null, expression);
     }
 
     private static CronSchedule calendar(String expression, String springExpression) {
@@ -93,7 +95,7 @@ public final class CronSchedule {
         if (parsed.next(ZonedDateTime.now(ZoneOffset.UTC)) == null) {
             throw new InvalidCronExpressionException(expression, "выражение никогда не срабатывает");
         }
-        return new CronSchedule(null, parsed);
+        return new CronSchedule(null, parsed, expression);
     }
 
     public boolean isCalendar() {
@@ -106,7 +108,7 @@ public final class CronSchedule {
         }
         ZonedDateTime next = cron.next(after.atZone(zone));
         if (next == null) {
-            throw new InvalidCronExpressionException(cron.toString(), "выражение больше не срабатывает");
+            throw new InvalidCronExpressionException(source, "выражение больше не срабатывает");
         }
         return next.toInstant();
     }

@@ -90,13 +90,22 @@ public class ReplicationScheduler {
                 continue;
             }
 
+            Instant nextRunAt;
+            try {
+                nextRunAt = schedule.next(now, zone);
+            } catch (InvalidCronExpressionException e) {
+                disableInvalidSchedule(job, e);
+                jobRepository.save(job);
+                continue;
+            }
+
             int nextRunNum = jobRunRepository.findMaxRunNumberByJobId(job.getId()) + 1;
 
             String runId = UUID.randomUUID().toString();
             job.setStatus("QUEUED");
             job.setActiveRunId(runId);
             job.setLastRunAt(now);
-            job.setNextRunAt(schedule.next(now, zone));
+            job.setNextRunAt(nextRunAt);
             job.setStartedAt(now);
             job.setCopiedBytes(0);
             jobRepository.saveAndFlush(job);

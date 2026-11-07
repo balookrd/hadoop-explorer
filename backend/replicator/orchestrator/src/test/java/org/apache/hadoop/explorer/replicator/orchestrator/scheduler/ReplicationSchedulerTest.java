@@ -108,4 +108,36 @@ class ReplicationSchedulerTest {
                 org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class),
                 null, null, props));
     }
+
+    @Test
+    @DisplayName("Расписание, которое больше не срабатывает, отключается без отката тика")
+    void shouldDisableJobWhoseScheduleIsExhausted() {
+        var jobRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class);
+        var runRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class);
+        var scheduler = new ReplicationScheduler(jobRepo, runRepo, null, null);
+
+        var job = new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("cron-exhausted");
+        job.setStatus("SCHEDULED");
+        job.setScheduled(true);
+        job.setCronExpression("0 0 29 2 1");
+        job.setNextRunAt(Instant.now().minusSeconds(10));
+
+        org.mockito.Mockito.when(jobRepo.findByIsScheduledTrueAndNextRunAtLessThanEqual(org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(java.util.List.of(job));
+
+        var schedule = org.mockito.Mockito.mock(CronSchedule.class);
+        org.mockito.Mockito.when(schedule.next(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new InvalidCronExpressionException("0 0 29 2 1", "выражение больше не срабатывает"));
+        try (var parse = org.mockito.Mockito.mockStatic(CronSchedule.class)) {
+            parse.when(() -> CronSchedule.parse("0 0 29 2 1")).thenReturn(schedule);
+            assertDoesNotThrow(scheduler::executeScheduledRuns);
+        }
+
+        assertFalse(job.isScheduled());
+        assertEquals("STOPPED", job.getStatus());
+        assertTrue(job.getMessage().contains("0 0 29 2 1"), job.getMessage());
+        org.mockito.Mockito.verify(runRepo, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(jobRepo).save(job);
+    }
 }
