@@ -10,7 +10,7 @@
 
 ### Шейпинг трафика (`TokenBucketThrottler`)
 
-- Алгоритм Hierarchical Token Bucket (HTB) ограничивает трафик репликации, чтобы он не перегружал каналы.
+- Алгоритм Hierarchical Token Bucket (HTB) ограничивает трафик HDFS-репликации по каналам между ЦОД (агенты запрашивают токены через `RequestTokens`); Kafka-задачи ограничиваются собственным лимитом полосы.
 - Три уровня лимитов:
   - Global WAN Pool — общий лимит на весь трафик репликации;
   - DC-to-DC Pool — лимит канала между парой дата-центров (например, `dc1 → dc2`);
@@ -48,7 +48,7 @@
 - Ролевая модель RBAC: `ADMIN` управляет всеми задачами организации, `USER` / `WRITER` видят только свои задачи.
 - Защита от BOLA/IDOR при чтении задачи (`GET /api/v1/jobs/{jobId}`): доступ есть у создателя задачи, администратора и агента кластера (`checkJobReadAccess`).
 - Защита от CSRF для изменяющих запросов API.
-- Аудит операций через `@Audited` и rate limiter (Token Bucket на IP).
+- Аудит операций через `@Audited`. Ограничение частоты запросов (`RateLimitFilter` стартера, Token Bucket): вход (`/api/v1/auth/login`, `/api/v1/auth/sso`) считается по IP клиента, остальные запросы к API — по пользователю, анонимные — по IP. Сверх лимита — HTTP 429 с заголовком `Retry-After`; параметры — `docs/CONFIGURATION.md`, раздел 2.5.
 
 ### Метрики Prometheus и Micrometer (`ReplicatorMetricsService`)
 
