@@ -13,6 +13,7 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.Map;
@@ -28,6 +29,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     static final String LOGIN_PATH = "/api/v1/auth/login";
     static final String SSO_PATH = "/api/v1/auth/sso";
+
+    private static final UrlPathHelper PATH_HELPER = new UrlPathHelper();
 
     private final RateLimiterService rateLimiter;
     private final ClientIpResolver clientIpResolver;
@@ -70,10 +73,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private static String pathWithinApplication(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        return contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)
-            ? uri.substring(contextPath.length())
-            : uri;
+        // Decoded, so that /api/v1/auth/l%6Fgin (served by the login handler) is rate limited as login.
+        return PATH_HELPER.getPathWithinApplication(request);
     }
 }

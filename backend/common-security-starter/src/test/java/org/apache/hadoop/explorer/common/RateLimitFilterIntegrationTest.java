@@ -102,4 +102,28 @@ class RateLimitFilterIntegrationTest {
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isTooManyRequests());
     }
+
+    @Test
+    @DisplayName("Путь входа с процентным кодированием попадает в уровень входа")
+    void encodedLoginPathUsesLoginTier() throws Exception {
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post(java.net.URI.create("/api/v1/auth/l%6Fgin")).with(from("192.0.2.60"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(new LoginRequest("admin", "any-password"))))
+                .andExpect(status().isOk());
+        }
+        mockMvc.perform(post(java.net.URI.create("/api/v1/auth/l%6Fgin")).with(from("192.0.2.60"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new LoginRequest("admin", "any-password"))))
+            .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    @DisplayName("Анонимный запрос к защищенному API отклоняется цепочкой безопасности и токены не тратит")
+    void anonymousRequestsRejectedBySecurityDoNotConsumeTokens() throws Exception {
+        for (int i = 0; i < 6; i++) {
+            mockMvc.perform(get("/api/v1/test/protected").with(from("192.0.2.70")))
+                .andExpect(status().isUnauthorized());
+        }
+    }
 }

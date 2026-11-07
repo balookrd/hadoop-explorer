@@ -236,12 +236,14 @@ hadoop:
 | `enabled` | `true` | `false` пропускает все запросы | Тестовые стенды и нагрузочные прогоны |
 | `requests-per-minute` | `600` | Пополнение корзины API на ключ (пользователь; анонимный запрос — IP) | UI или скрипты получают 429 при штатной работе |
 | `burst-capacity` | `100` | Емкость корзины API: столько запросов проходит подряд | То же |
-| `login.requests-per-minute` | `30` | Пополнение корзины `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` на IP клиента | Много пользователей за одним NAT без `trusted-proxies` |
+| `login.requests-per-minute` | `30` | Пополнение корзины `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` на IP клиента | Много пользователей за одним NAT без `trusted-proxies`; вход через SPNEGO тратит 2 токена (ответ 401 Negotiate и повторный запрос с билетом) |
 | `login.burst-capacity` | `10` | Емкость корзины входа | То же |
 | `trusted-proxies` | `[]` | Адреса (IP или CIDR) прокси, от которых учитывается `X-Forwarded-For`: клиентом считается крайний справа адрес не из списка. Имя хоста вместо IP останавливает старт сервиса (`IllegalArgumentException: ... Is it a host name?`) | Сервис стоит за ingress или балансировщиком: иначе все клиенты получают IP прокси и одну корзину входа |
 | `max-tracked-keys` | `100000` | Предел числа корзин в памяти на уровень; корзина без запросов 10 минут удаляется | Очень много пользователей или IP |
 
-Под Kubernetes Spring Boot может сам включать обработку заголовков прокси во встроенном Tomcat, и тогда `getRemoteAddr()` уже содержит адрес из `X-Forwarded-For` [проверить: значение `server.forward-headers-strategy` по умолчанию в Spring Boot 3.3 при `CloudPlatform.KUBERNETES`]. Фильтр применяет `trusted-proxies` к уже обработанному адресу.
+Под Kubernetes (`CloudPlatform.KUBERNETES`) Spring Boot по умолчанию ставит `server.forward-headers-strategy=NATIVE`: `RemoteIpValve` встроенного Tomcat подставляет в `getRemoteAddr()` адрес из `X-Forwarded-For`, если прокси входит в его `internal-proxies` (по умолчанию частные диапазоны 10/8, 172.16/12, 192.168/16, 127/8 и т.п.). Фильтр применяет `trusted-proxies` уже к этому адресу: прокси из `internal-proxies` Tomcat снимает сам, а `trusted-proxies` нужен для прокси вне этих диапазонов. Чтобы Tomcat не трогал `getRemoteAddr()` и разбор шёл только по `trusted-proxies`, задайте `server.forward-headers-strategy=none`.
+
+Фильтр стоит после `springSecurityFilterChain` (порядок -90): запросы, отклонённые цепочкой безопасности (401/403), токены не тратят.
 
 ### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 
