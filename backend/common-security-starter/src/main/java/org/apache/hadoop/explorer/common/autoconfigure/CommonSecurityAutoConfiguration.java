@@ -134,6 +134,12 @@ public class CommonSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public ClientIpResolver clientIpResolver(CommonSecurityProperties properties) {
+        return new ClientIpResolver(properties.getRateLimiter().getTrustedProxies());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public AuditLogger auditLogger() {
         return new AuditLogger();
     }

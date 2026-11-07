@@ -503,6 +503,16 @@ public class CommonSecurityProperties {
         private boolean enabled = true;
         private int requestsPerMinute = 600;
         private int burstCapacity = 100;
+        /** IPs or CIDRs of reverse proxies whose X-Forwarded-For header is trusted. */
+        private List<String> trustedProxies = new ArrayList<>();
+
+        public List<String> getTrustedProxies() {
+            return trustedProxies;
+        }
+
+        public void setTrustedProxies(List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies;
+        }
 
         public boolean isEnabled() {
             return enabled;
