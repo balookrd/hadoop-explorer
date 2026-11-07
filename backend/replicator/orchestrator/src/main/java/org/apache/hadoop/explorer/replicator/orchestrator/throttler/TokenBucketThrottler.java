@@ -284,12 +284,18 @@ public class TokenBucketThrottler {
     }
 
     /**
-     * Иерархический запрос токенов HTB:
-     * 1) Global bucket (общий лимит всех DC).
-     * 2) Parent DC link bucket (dc:srcDc->dstDc) - общий для HDFS и Kafka, не дает забить WAN-канал.
-     * 3) Subclass bucket:
-     *    - Для KAFKA: гарантированный Floor (40% полосы DC) с правом эластичного заимствования (borrowing) до 100%.
-     *    - Для HDFS: гарантированный Floor (60% полосы DC) с правом заимствования до 100% и проверкой HDFS cluster pair.
+     * Hierarchical token request (HTB without borrowing):
+     * <ol>
+     *   <li>Global bucket: limit across all DC links.</li>
+     *   <li>DC link bucket ({@code dc:srcDc->dstDc}): shared by HDFS and Kafka, keeps the WAN link
+     *       within its limit. Without an explicit limit {@link TopologyRegistry#getDcLimit} returns
+     *       100 MB/s.</li>
+     *   <li>Traffic class bucket, a hard cap inside the link: KAFKA up to 40% of the link
+     *       ({@code dcKafkaBuckets}), HDFS up to 60% ({@code dcHdfsBuckets}). An idle class does not
+     *       lend its share: with no Kafka traffic HDFS still gets at most 60% of the link.</li>
+     *   <li>HDFS cluster-pair bucket ({@code hdfs:src->dst}) when a pair limit is configured.</li>
+     * </ol>
+     * Every bucket on the path is charged; the returned wait is the maximum over them, in seconds.
      */
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster, TrafficClass trafficClass) {
         if (requestedBytes <= 0) {
@@ -329,14 +335,14 @@ public class TokenBucketThrottler {
             // Единый корневой бакет DC-DC списывает токены для ВСЕХ типов трафика (HDFS и Kafka вместе не могут превысить лимит канала)
             waitDc = dcBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
 
-            // HTB Subclass: гарантированные доли и изоляция классов обслуживания
+            // Traffic class caps; unused share is not lent to the other class
             if (effectiveClass == TrafficClass.KAFKA) {
-                long kafkaFloorLimit = (long) (limit * 0.40); // 40% гарантированная полоса для Kafka
+                long kafkaFloorLimit = (long) (limit * 0.40); // hard cap: 40% of the link for Kafka
                 SingleBucket kafkaBucket = dcKafkaBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-kafka:" + k, kafkaFloorLimit, 1.0, activeNodeCount));
                 kafkaBucket.updateLimit(kafkaFloorLimit);
                 waitClass = kafkaBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
             } else {
-                long hdfsFloorLimit = (long) (limit * 0.60); // 60% гарантированная полоса для HDFS
+                long hdfsFloorLimit = (long) (limit * 0.60); // hard cap: 60% of the link for HDFS
                 SingleBucket hdfsBucket = dcHdfsBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-hdfs:" + k, hdfsFloorLimit, 1.0, activeNodeCount));
                 hdfsBucket.updateLimit(hdfsFloorLimit);
                 waitClass = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
