@@ -49,6 +49,9 @@ public interface JobRepository extends JpaRepository<JobEntity, String>,
           AND j.nextRunAt <= :now
     """)
     List<JobEntity> findByIsScheduledTrueAndNextRunAtLessThanEqual(@Param("now") Instant now);
+
+    @Query("SELECT j FROM JobEntity j WHERE j.isScheduled = true")
+    List<JobEntity> findScheduledJobs();
     long countByStatus(String status);
     long countByStatusAndParentJobIdIsNull(String status);
 
