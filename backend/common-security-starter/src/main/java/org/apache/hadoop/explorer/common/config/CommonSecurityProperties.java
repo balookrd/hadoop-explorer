@@ -505,6 +505,47 @@ public class CommonSecurityProperties {
         private int burstCapacity = 100;
         /** IPs or CIDRs of reverse proxies whose X-Forwarded-For header is trusted. */
         private List<String> trustedProxies = new ArrayList<>();
+        private LoginLimitProperties login = new LoginLimitProperties();
+        /** Upper bound of buckets kept in memory per tier; idle buckets expire after 10 minutes. */
+        private long maxTrackedKeys = 100_000;
+
+        public LoginLimitProperties getLogin() {
+            return login;
+        }
+
+        public void setLogin(LoginLimitProperties login) {
+            this.login = login;
+        }
+
+        public long getMaxTrackedKeys() {
+            return maxTrackedKeys;
+        }
+
+        public void setMaxTrackedKeys(long maxTrackedKeys) {
+            this.maxTrackedKeys = maxTrackedKeys;
+        }
+
+        /** Limits for /api/v1/auth/login and /api/v1/auth/sso, keyed by client IP. */
+        public static class LoginLimitProperties {
+            private int requestsPerMinute = 30;
+            private int burstCapacity = 10;
+
+            public int getRequestsPerMinute() {
+                return requestsPerMinute;
+            }
+
+            public void setRequestsPerMinute(int requestsPerMinute) {
+                this.requestsPerMinute = requestsPerMinute;
+            }
+
+            public int getBurstCapacity() {
+                return burstCapacity;
+            }
+
+            public void setBurstCapacity(int burstCapacity) {
+                this.burstCapacity = burstCapacity;
+            }
+        }
 
         public List<String> getTrustedProxies() {
             return trustedProxies;
