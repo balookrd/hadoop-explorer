@@ -50,10 +50,15 @@ public class ScheduleReconciler {
 
     @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup() {
-        if (lockService != null) {
-            lockService.runWithLock(ReplicationScheduler.LOCK_NAME, LOCK_LEASE, () -> runInTransaction(Instant.now()));
-        } else {
-            runInTransaction(Instant.now());
+        // Best effort: a failure here must not abort startup, the tick still disables invalid schedules
+        try {
+            if (lockService != null) {
+                lockService.runWithLock(ReplicationScheduler.LOCK_NAME, LOCK_LEASE, () -> runInTransaction(Instant.now()));
+            } else {
+                runInTransaction(Instant.now());
+            }
+        } catch (RuntimeException e) {
+            log.error("Schedule reconciliation failed, continuing startup", e);
         }
     }
 
@@ -69,31 +74,21 @@ public class ScheduleReconciler {
     int reconcile(Instant now) {
         int changed = 0;
         for (JobEntity job : jobRepository.findScheduledJobs()) {
-            CronSchedule schedule;
+            Instant planned = job.getNextRunAt();
             try {
-                schedule = CronSchedule.parse(job.getCronExpression());
+                CronSchedule schedule = CronSchedule.parse(job.getCronExpression());
+                if (planned == null || (schedule.isCalendar() && planned.isAfter(now))) {
+                    Instant next = schedule.next(now, zone);
+                    if (!next.equals(planned)) {
+                        job.setNextRunAt(next);
+                        jobRepository.save(job);
+                        changed++;
+                    }
+                }
             } catch (InvalidCronExpressionException e) {
                 ReplicationScheduler.disableInvalidSchedule(job, e);
                 jobRepository.save(job);
                 changed++;
-                continue;
-            }
-            Instant planned = job.getNextRunAt();
-            if (planned == null || (schedule.isCalendar() && planned.isAfter(now))) {
-                Instant next;
-                try {
-                    next = schedule.next(now, zone);
-                } catch (InvalidCronExpressionException e) {
-                    ReplicationScheduler.disableInvalidSchedule(job, e);
-                    jobRepository.save(job);
-                    changed++;
-                    continue;
-                }
-                if (!next.equals(planned)) {
-                    job.setNextRunAt(next);
-                    jobRepository.save(job);
-                    changed++;
-                }
             }
         }
         if (changed > 0) {

@@ -54,4 +54,37 @@ class ScheduleReconcilerTest {
         verify(repo, never()).save(interval);
         verify(repo, never()).save(overdue);
     }
+
+    @Test
+    @DisplayName("Исчерпанное расписание (next бросает исключение) снимается")
+    void disablesExhaustedSchedule() {
+        JobEntity exhausted = job("exhausted", "0 0 29 2 1", Instant.parse("2026-10-09T08:00:00Z"));
+        JobRepository repo = mock(JobRepository.class);
+        when(repo.findScheduledJobs()).thenReturn(List.of(exhausted));
+
+        CronSchedule schedule = mock(CronSchedule.class);
+        when(schedule.isCalendar()).thenReturn(true);
+        when(schedule.next(any(), any()))
+                .thenThrow(new InvalidCronExpressionException("0 0 29 2 1", "выражение больше не срабатывает"));
+        int changed;
+        try (var parse = mockStatic(CronSchedule.class)) {
+            parse.when(() -> CronSchedule.parse("0 0 29 2 1")).thenReturn(schedule);
+            changed = new ScheduleReconciler(repo, null, null, null).reconcile(NOW);
+        }
+
+        assertEquals(1, changed);
+        assertFalse(exhausted.isScheduled());
+        assertEquals("STOPPED", exhausted.getStatus());
+        assertTrue(exhausted.getMessage().contains("0 0 29 2 1"), exhausted.getMessage());
+        verify(repo).save(exhausted);
+    }
+
+    @Test
+    @DisplayName("Сбой сверки при старте не валит запуск приложения")
+    void startupFailureDoesNotPropagate() {
+        JobRepository repo = mock(JobRepository.class);
+        when(repo.findScheduledJobs()).thenThrow(new IllegalStateException("db down"));
+
+        assertDoesNotThrow(() -> new ScheduleReconciler(repo, null, null, null).reconcileOnStartup());
+    }
 }
