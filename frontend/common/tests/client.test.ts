@@ -134,4 +134,62 @@ describe('BaseApiClient - Auth & Session Expiration Flow', () => {
     await client.logout();
     expect(client.getToken()).toBeNull();
   });
+
+  describe('429 Too Many Requests', () => {
+    const tooMany = (retryAfter?: string) => ({
+      status: 429,
+      ok: false,
+      statusText: 'Too Many Requests',
+      headers: new Headers(retryAfter === undefined
+        ? { 'content-type': 'application/json' }
+        : { 'content-type': 'application/json', 'Retry-After': retryAfter }),
+      json: async () => ({ detail: 'Слишком много запросов', status: 429 }),
+    });
+    const ok = () => ({
+      status: 200,
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: 'ok' }),
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('8. Повторяет запрос один раз после паузы из Retry-After', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(tooMany('2') as any)
+        .mockResolvedValueOnce(ok() as any);
+
+      const pending = client.request('/jobs', { method: 'POST', body: '{}' });
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(pending).resolves.toEqual({ data: 'ok' });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('9. Не повторяет больше одного раза', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn().mockResolvedValue(tooMany('1') as any);
+
+      const pending = client.request('/jobs');
+      const assertion = expect(pending).rejects.toThrow('Слишком много запросов');
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('10. Без Retry-After или при паузе больше 5 с сразу возвращает ошибку', async () => {
+      global.fetch = vi.fn().mockResolvedValue(tooMany() as any);
+      await expect(client.request('/jobs')).rejects.toThrow('Слишком много запросов');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      global.fetch = vi.fn().mockResolvedValue(tooMany('6') as any);
+      await expect(client.request('/jobs')).rejects.toThrow('Слишком много запросов');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -2,6 +2,19 @@ import type { UserSession, AuthResponse } from '../types';
 
 type UnauthorizedHandler = (message: string) => void;
 
+/** Longest Retry-After pause the client waits before repeating a request rejected with 429. */
+const MAX_RETRY_AFTER_MS = 5000;
+
+/** Returns the pause from a Retry-After header in seconds, or null when it is absent, invalid or too long. */
+function retryAfterDelayMs(response: Response): number | null {
+  const header = response.headers?.get('Retry-After');
+  if (header === null || header === undefined || !/^\d+$/.test(header.trim())) {
+    return null;
+  }
+  const delayMs = Number(header.trim()) * 1000;
+  return delayMs <= MAX_RETRY_AFTER_MS ? delayMs : null;
+}
+
 export class BaseApiClient {
   // Токен хранится только в оперативной памяти JS для текущей сессии (Zero LocalStorage),
   // предотвращая постоянную компрометацию через XSS.
@@ -84,15 +97,27 @@ export class BaseApiClient {
       headers.set('Content-Type', 'application/json');
     }
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        ...options,
-        headers,
-        credentials: 'include', // Отправка HttpOnly cookies
-      });
-    } catch (netErr: any) {
-      throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
+    const send = async (): Promise<Response> => {
+      try {
+        return await fetch(url, {
+          ...options,
+          headers,
+          credentials: 'include', // Отправка HttpOnly cookies
+        });
+      } catch (netErr: any) {
+        throw new Error(`Сервер недоступен или перезагружается (${netErr.message || 'сетевая ошибка'})`);
+      }
+    };
+
+    let response = await send();
+
+    // 429 comes from RateLimitFilter before any handler runs, so a single retry is safe for every method.
+    if (response.status === 429) {
+      const delayMs = retryAfterDelayMs(response);
+      if (delayMs !== null) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        response = await send();
+      }
     }
 
     const isAuthEndpoint = path.includes('/auth/login') || path.includes('/auth/sso') || path.includes('/auth/logout') || path.includes('/auth/me');

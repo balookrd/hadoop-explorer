@@ -229,7 +229,7 @@ hadoop:
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
 
-Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `org.apache.hadoop.explorer.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится.
+Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `org.apache.hadoop.explorer.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится. Веб-интерфейс (`BaseApiClient.request` в `frontend/common/api/client.ts`) при ответе 429 повторяет запрос один раз после паузы из `Retry-After`, если она не больше 5 с; без заголовка или при большей паузе показывает ошибку. Повтор делается для любого метода: 429 выдаётся до обработчика, запрос не выполнялся.
 
 | Параметр `hadoop.security.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
 |---|---|---|---|
