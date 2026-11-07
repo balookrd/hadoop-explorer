@@ -229,7 +229,7 @@ hadoop:
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
 
-Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. В журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s`.
+Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `org.apache.hadoop.explorer.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится.
 
 | Параметр `hadoop.security.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
 |---|---|---|---|
@@ -238,7 +238,7 @@ hadoop:
 | `burst-capacity` | `100` | Емкость корзины API: столько запросов проходит подряд | То же |
 | `login.requests-per-minute` | `30` | Пополнение корзины `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` на IP клиента | Много пользователей за одним NAT без `trusted-proxies`; вход через SPNEGO тратит 2 токена (ответ 401 Negotiate и повторный запрос с билетом) |
 | `login.burst-capacity` | `10` | Емкость корзины входа | То же |
-| `trusted-proxies` | `[]` | Адреса (IP или CIDR) прокси, от которых учитывается `X-Forwarded-For`: клиентом считается крайний справа адрес не из списка. Имя хоста вместо IP останавливает старт сервиса (`IllegalArgumentException: ... Is it a host name?`) | Сервис стоит за ingress или балансировщиком: иначе все клиенты получают IP прокси и одну корзину входа |
+| `trusted-proxies` | `[]` | Адреса (IP или CIDR) прокси, от которых учитывается `X-Forwarded-For`: несколько строк заголовка склеиваются по порядку в одну цепочку (HAProxy с `option forwardfor` добавляет свою строку, а не дописывает в клиентскую), клиентом считается крайний справа адрес не из списка. Имя хоста вместо IP останавливает старт сервиса (`IllegalArgumentException: ... Is it a host name?`) | Сервис стоит за ingress или балансировщиком: иначе все клиенты получают IP прокси и одну корзину входа |
 | `max-tracked-keys` | `100000` | Предел числа корзин в памяти на уровень; корзина без запросов 10 минут удаляется | Очень много пользователей или IP |
 
 Под Kubernetes (`CloudPlatform.KUBERNETES`) Spring Boot по умолчанию ставит `server.forward-headers-strategy=NATIVE`: `RemoteIpValve` встроенного Tomcat подставляет в `getRemoteAddr()` адрес из `X-Forwarded-For`, если прокси входит в его `internal-proxies` (по умолчанию частные диапазоны 10/8, 172.16/12, 192.168/16, 127/8 и т.п.). Фильтр применяет `trusted-proxies` уже к этому адресу: прокси из `internal-proxies` Tomcat снимает сам, а `trusted-proxies` нужен для прокси вне этих диапазонов. Чтобы Tomcat не трогал `getRemoteAddr()` и разбор шёл только по `trusted-proxies`, задайте `server.forward-headers-strategy=none`.

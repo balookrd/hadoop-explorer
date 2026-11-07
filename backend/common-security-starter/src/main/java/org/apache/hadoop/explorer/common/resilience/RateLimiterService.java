@@ -62,7 +62,7 @@ public class RateLimiterService {
         }
         long retryAfter = Math.max(1,
             TimeUnit.NANOSECONDS.toSeconds(probe.getNanosToWaitForRefill() + 999_999_999L));
-        log.warn("Rate limit exceeded: tier={}, key={}, retry_after={}s", tier, key, retryAfter);
+        log.debug("Rate limit exceeded: tier={}, key={}, retry_after={}s", tier, key, retryAfter);
         return new Decision(false, retryAfter);
     }
 

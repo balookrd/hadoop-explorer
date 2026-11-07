@@ -3,6 +3,9 @@ package org.apache.hadoop.explorer.common.security;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.web.util.matcher.IpAddressMatcher;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -10,8 +13,8 @@ import java.util.regex.Pattern;
 /**
  * Resolves the client address used as a rate-limit key.
  *
- * <p>{@code X-Forwarded-For} is honoured only when the direct peer is a trusted proxy. The header
- * is walked right to left; the first hop that is not a trusted proxy is the client. A hop that is
+ * <p>{@code X-Forwarded-For} is honoured only when the direct peer is a trusted proxy. All header
+ * lines are joined in order into one chain, which is walked right to left; the first hop that is not a trusted proxy is the client. A hop that is
  * not an IP literal stops the walk. Any other peer is keyed by its socket address, so a client
  * cannot choose its own key by forging the header.
  */
@@ -37,11 +40,10 @@ public class ClientIpResolver {
         if (!isTrusted(peer)) {
             return peer;
         }
-        String header = request.getHeader(FORWARDED_FOR);
-        if (header == null || header.isBlank()) {
+        String[] hops = forwardedChain(request);
+        if (hops.length == 0) {
             return peer;
         }
-        String[] hops = header.split(",");
         String candidate = peer;
         for (int i = hops.length - 1; i >= 0; i--) {
             String hop = hops[i].trim();
@@ -54,6 +56,27 @@ public class ClientIpResolver {
             }
         }
         return candidate;
+    }
+
+    /**
+     * Joins every {@code X-Forwarded-For} header line in arrival order. A proxy such as HAProxy with
+     * {@code option forwardfor} appends its own line instead of extending the client's one, so reading
+     * only the first line would trust a value the client wrote.
+     */
+    private static String[] forwardedChain(HttpServletRequest request) {
+        Enumeration<String> lines = request.getHeaders(FORWARDED_FOR);
+        if (lines == null) {
+            return new String[0];
+        }
+        List<String> hops = new ArrayList<>();
+        while (lines.hasMoreElements()) {
+            String line = lines.nextElement();
+            if (line == null || line.isBlank()) {
+                continue;
+            }
+            hops.addAll(Arrays.asList(line.split(",")));
+        }
+        return hops.toArray(new String[0]);
     }
 
     private boolean isTrusted(String address) {

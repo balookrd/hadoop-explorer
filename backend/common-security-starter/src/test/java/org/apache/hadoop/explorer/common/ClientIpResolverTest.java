@@ -69,4 +69,13 @@ class ClientIpResolverTest {
     void rejectsHostNameInConfig() {
         assertThrows(IllegalArgumentException.class, () -> new ClientIpResolver(List.of("proxy.corp.local")));
     }
+
+    @Test
+    @DisplayName("Несколько строк X-Forwarded-For склеиваются по порядку: подделка в первой строке не берётся")
+    void joinsMultipleForwardedForHeaderLines() {
+        ClientIpResolver resolver = new ClientIpResolver(List.of("10.0.0.0/8"));
+        MockHttpServletRequest request = request("10.0.0.5", "1.2.3.4");
+        request.addHeader("X-Forwarded-For", "198.51.100.23");
+        assertEquals("198.51.100.23", resolver.resolve(request));
+    }
 }
