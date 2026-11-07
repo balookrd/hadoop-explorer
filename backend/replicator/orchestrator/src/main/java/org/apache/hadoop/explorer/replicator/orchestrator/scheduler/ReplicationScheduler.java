@@ -1,5 +1,6 @@
 package org.apache.hadoop.explorer.replicator.orchestrator.scheduler;
 
+import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
@@ -12,71 +13,51 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 public class ReplicationScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ReplicationScheduler.class);
-    private static final Pattern INTERVAL_PATTERN = Pattern.compile("^\\*/(\\d+)\\s+\\*\\s+\\*\\s+\\*\\s+\\*$");
+    static final String LOCK_NAME = "cron_scheduler_lock";
 
     private final JobRepository jobRepository;
     private final JobRunRepository jobRunRepository;
     private final org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService;
     private final org.springframework.transaction.support.TransactionTemplate txTemplate;
+    private final ZoneId zone;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository,
                                 org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
                                 @org.springframework.beans.factory.annotation.Autowired(required = false)
-                                org.springframework.transaction.PlatformTransactionManager transactionManager) {
+                                org.springframework.transaction.PlatformTransactionManager transactionManager,
+                                ReplicatorProperties properties) {
         this.jobRepository = jobRepository;
         this.jobRunRepository = jobRunRepository;
         this.lockService = lockService;
         this.txTemplate = transactionManager != null ? new org.springframework.transaction.support.TransactionTemplate(transactionManager) : null;
+        // Fail fast on a misspelled zone instead of on the first tick
+        this.zone = properties != null ? properties.getScheduler().getZoneId() : ZoneOffset.UTC;
+    }
+
+    public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository,
+                                org.apache.hadoop.explorer.replicator.orchestrator.service.DistributedLockService lockService,
+                                org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        this(jobRepository, jobRunRepository, lockService, transactionManager, null);
     }
 
     public ReplicationScheduler(JobRepository jobRepository, JobRunRepository jobRunRepository) {
-        this(jobRepository, jobRunRepository, null, null);
-    }
-
-    public static Instant computeNextRun(String cronExpr, Instant baseTime) {
-        Instant now = baseTime != null ? baseTime : Instant.now();
-        String expr = (cronExpr != null ? cronExpr.trim().toLowerCase() : "");
-
-        if (expr.equals("@minutely") || expr.equals("* * * * *")) {
-            return now.plus(Duration.ofMinutes(1));
-        } else if (expr.equals("@every_5m") || expr.equals("*/5 * * * *")) {
-            return now.plus(Duration.ofMinutes(5));
-        } else if (expr.equals("@every_15m") || expr.equals("*/15 * * * *")) {
-            return now.plus(Duration.ofMinutes(15));
-        } else if (expr.equals("@hourly") || expr.equals("0 * * * *")) {
-            return now.plus(Duration.ofHours(1));
-        } else if (expr.equals("@daily") || expr.equals("0 0 * * *") || expr.equals("@midnight")) {
-            return now.plus(Duration.ofDays(1));
-        } else if (expr.startsWith("every_") && expr.endsWith("s")) {
-            try {
-                int sec = Integer.parseInt(expr.replace("every_", "").replace("s", ""));
-                return now.plus(Duration.ofSeconds(Math.max(5, sec)));
-            } catch (NumberFormatException ignored) {}
-        }
-
-        Matcher matcher = INTERVAL_PATTERN.matcher(expr);
-        if (matcher.matches()) {
-            int mins = Integer.parseInt(matcher.group(1));
-            return now.plus(Duration.ofMinutes(Math.max(1, mins)));
-        }
-
-        return now.plus(Duration.ofHours(1));
+        this(jobRepository, jobRunRepository, null, null, null);
     }
 
     @Scheduled(fixedDelay = 5000)
     public void schedulerTick() {
         if (lockService != null) {
-            lockService.runWithLock("cron_scheduler_lock", Duration.ofSeconds(8), this::executeScheduledRuns);
+            lockService.runWithLock(LOCK_NAME, Duration.ofSeconds(8), this::executeScheduledRuns);
         } else {
             executeScheduledRuns();
         }
@@ -100,13 +81,22 @@ public class ReplicationScheduler {
                 continue;
             }
 
+            CronSchedule schedule;
+            try {
+                schedule = CronSchedule.parse(job.getCronExpression());
+            } catch (InvalidCronExpressionException e) {
+                disableInvalidSchedule(job, e);
+                jobRepository.save(job);
+                continue;
+            }
+
             int nextRunNum = jobRunRepository.findMaxRunNumberByJobId(job.getId()) + 1;
 
             String runId = UUID.randomUUID().toString();
             job.setStatus("QUEUED");
             job.setActiveRunId(runId);
             job.setLastRunAt(now);
-            job.setNextRunAt(computeNextRun(job.getCronExpression(), now));
+            job.setNextRunAt(schedule.next(now, zone));
             job.setStartedAt(now);
             job.setCopiedBytes(0);
             jobRepository.saveAndFlush(job);
@@ -130,6 +120,16 @@ public class ReplicationScheduler {
             log.info("Scheduler triggered run #{} for job '{}' (run_id={})", nextRunNum, job.getId(), runId);
             pruneJobRuns(job.getId(), job.getHistoryRetentionRuns());
         }
+    }
+
+    /** Turns off a schedule that cannot be evaluated; the job stays visible with the reason. */
+    static void disableInvalidSchedule(JobEntity job, InvalidCronExpressionException e) {
+        job.setScheduled(false);
+        if ("SCHEDULED".equalsIgnoreCase(job.getStatus())) {
+            job.setStatus("STOPPED");
+        }
+        job.setMessage("Расписание отключено: " + e.getMessage());
+        log.warn("Schedule disabled for job '{}': {}", job.getId(), e.getMessage());
     }
 
     public void pruneJobRuns(String jobId, int retentionLimit) {

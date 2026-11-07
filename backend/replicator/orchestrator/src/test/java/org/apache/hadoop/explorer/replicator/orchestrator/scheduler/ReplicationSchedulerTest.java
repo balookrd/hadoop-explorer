@@ -11,32 +11,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReplicationSchedulerTest {
 
     @Test
-    @DisplayName("Должен корректно вычислять время следующего запуска по пресетам")
-    void shouldComputeNextRunForPresets() {
-        Instant base = Instant.parse("2026-10-08T12:00:00Z");
-
-        // @minutely
-        Instant minutely = ReplicationScheduler.computeNextRun("@minutely", base);
-        assertEquals(base.plus(Duration.ofMinutes(1)), minutely);
-
-        // @every_5m
-        Instant every5m = ReplicationScheduler.computeNextRun("@every_5m", base);
-        assertEquals(base.plus(Duration.ofMinutes(5)), every5m);
-
-        // @hourly
-        Instant hourly = ReplicationScheduler.computeNextRun("@hourly", base);
-        assertEquals(base.plus(Duration.ofHours(1)), hourly);
-
-        // @daily
-        Instant daily = ReplicationScheduler.computeNextRun("@daily", base);
-        assertEquals(base.plus(Duration.ofDays(1)), daily);
-
-        // interval pattern */10 * * * *
-        Instant every10m = ReplicationScheduler.computeNextRun("*/10 * * * *", base);
-        assertEquals(base.plus(Duration.ofMinutes(10)), every10m);
-    }
-
-    @Test
     @DisplayName("Должен инициировать запуск запланированной задачи, переводить в QUEUED и вычислять следующий запуск")
     void shouldTriggerScheduledJobWhenDue() {
         var jobRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class);
@@ -70,5 +44,68 @@ class ReplicationSchedulerTest {
                         && run.getRunNumber() == 1
         ));
         org.mockito.Mockito.verify(jobRepo, org.mockito.Mockito.atLeastOnce()).save(job);
+    }
+
+    @Test
+    @DisplayName("@daily: следующий запуск в полночь UTC, а не через сутки после запуска")
+    void shouldPlanNextRunByCalendar() {
+        var jobRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class);
+        var runRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class);
+        var scheduler = new ReplicationScheduler(jobRepo, runRepo, null, null);
+
+        var job = new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("cron-daily");
+        job.setStatus("SCHEDULED");
+        job.setScheduled(true);
+        job.setCronExpression("@daily");
+        job.setNextRunAt(Instant.now().minusSeconds(10));
+
+        org.mockito.Mockito.when(jobRepo.findByIsScheduledTrueAndNextRunAtLessThanEqual(org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(java.util.List.of(job));
+        org.mockito.Mockito.when(runRepo.findMaxRunNumberByJobId("cron-daily")).thenReturn(0);
+
+        Instant before = Instant.now();
+        scheduler.executeScheduledRuns();
+
+        assertEquals(java.time.LocalTime.MIDNIGHT, job.getNextRunAt().atZone(java.time.ZoneOffset.UTC).toLocalTime());
+        assertTrue(job.getNextRunAt().isAfter(before));
+        assertTrue(Duration.between(before, job.getNextRunAt()).compareTo(Duration.ofDays(1)) <= 0);
+    }
+
+    @Test
+    @DisplayName("Невалидное выражение снимает расписание вместо запуска раз в час")
+    void shouldDisableJobWithInvalidCron() {
+        var jobRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class);
+        var runRepo = org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class);
+        var scheduler = new ReplicationScheduler(jobRepo, runRepo, null, null);
+
+        var job = new org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity();
+        job.setId("cron-bad");
+        job.setStatus("SCHEDULED");
+        job.setScheduled(true);
+        job.setCronExpression("every tuesday");
+        job.setNextRunAt(Instant.now().minusSeconds(10));
+
+        org.mockito.Mockito.when(jobRepo.findByIsScheduledTrueAndNextRunAtLessThanEqual(org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(java.util.List.of(job));
+
+        scheduler.executeScheduledRuns();
+
+        assertFalse(job.isScheduled());
+        assertEquals("STOPPED", job.getStatus());
+        assertTrue(job.getMessage().startsWith("Расписание отключено"), job.getMessage());
+        org.mockito.Mockito.verify(runRepo, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(jobRepo).save(job);
+    }
+
+    @Test
+    @DisplayName("Неизвестный часовой пояс останавливает создание планировщика")
+    void shouldRejectUnknownTimeZone() {
+        var props = new org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties();
+        props.getScheduler().setTimeZone("Mars/Olympus");
+        assertThrows(java.time.DateTimeException.class, () -> new ReplicationScheduler(
+                org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository.class),
+                org.mockito.Mockito.mock(org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository.class),
+                null, null, props));
     }
 }

@@ -2,6 +2,7 @@ package org.apache.hadoop.explorer.replicator.orchestrator.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -226,6 +227,22 @@ public class ReplicatorProperties {
 
     public StreamingConfig getStreaming() { return streaming; }
     public void setStreaming(StreamingConfig streaming) { this.streaming = streaming; }
+
+    private SchedulerConfig scheduler = new SchedulerConfig();
+
+    public SchedulerConfig getScheduler() { return scheduler; }
+    public void setScheduler(SchedulerConfig scheduler) { this.scheduler = scheduler; }
+
+    public static class SchedulerConfig {
+        /** Zone for calendar cron expressions: UTC, an offset or an IANA id such as Europe/Moscow. */
+        private String timeZone = "UTC";
+
+        public String getTimeZone() { return timeZone; }
+        public void setTimeZone(String timeZone) { this.timeZone = timeZone; }
+
+        /** Throws {@link java.time.DateTimeException} for an unknown zone. */
+        public ZoneId getZoneId() { return ZoneId.of(timeZone); }
+    }
 
     public static class StreamingConfig {
         private boolean enabled = false;

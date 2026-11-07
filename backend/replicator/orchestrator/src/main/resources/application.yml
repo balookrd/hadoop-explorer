@@ -131,6 +131,9 @@ hadoop:
     hms-poll-interval-ms: 5000
     hms-bootstrap-concurrency: 8
     hms-partition-batch-size: 1000
+    scheduler:
+      # Zone for calendar cron expressions (@daily, "0 2 * * *")
+      time-zone: ${HADOOP_REPLICATOR_SCHEDULER_TIME_ZONE:UTC}
     streaming:
       enabled: ${HADOOP_REPLICATOR_STREAMING_ENABLED:${HADOOP_STREAMING_ENABLED:true}}
       poll-interval-ms: ${HADOOP_REPLICATOR_STREAMING_POLL_INTERVAL_MS:${HADOOP_STREAMING_POLL_INTERVAL_MS:1000}}
