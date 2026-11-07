@@ -88,7 +88,7 @@ hadoop-explorer/
 │   └── inventory.example.ini
 │
 ├── frontend/                 # ─── Клиентские SPA приложения (Svelte 5) ───
-│   ├── common/               # Общие UI-компоненты, API-клиенты, типы (types/generated/)
+│   ├── common/               # Общие UI-компоненты, API-клиенты, типы авторизации (types/auth.ts)
 │   ├── apps/
 │   │   ├── yarn/             # Frontend YARN Explorer (Svelte 5 + Tailwind 4)
 │   │   ├── hdfs/             # Frontend HDFS Explorer (Svelte 5 + Tailwind 4 + виртуализация)

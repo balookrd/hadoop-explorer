@@ -30,7 +30,6 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/svelte": "^5.4.2",
     "jsdom": "^30.0.1",
-    "openapi-typescript": "^7.13.0",
     "vitest": "^5.0.0"
   }
 }

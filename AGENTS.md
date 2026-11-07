@@ -22,7 +22,7 @@ hadoop-explorer/
 │       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
 │       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
-│   ├── common/               # Общие типы (types/generated), API клиенты, UI компоненты
+│   ├── common/               # Общие типы (types/auth.ts), API клиенты, UI компоненты
 │   └── apps/                 # SPA приложения: yarn, hdfs, sql, spark, replicator
 ├── data/                     # ⚠️ ВНИМАНИЕ: Локальные SQLite / H2 БД (*.db, *.mv.db). Чтение запрещено!
 ├── scripts/                  # Утилиты автоматизации (build-containers.sh, run-tests.sh, java AST index)
