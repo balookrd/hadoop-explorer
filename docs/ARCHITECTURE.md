@@ -440,17 +440,18 @@ YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикую�
 
 | Сервис | `spring.datasource.url` по умолчанию | Драйверы JDBC в сборке | Схема |
 |---|---|---|---|
-| YARN Explorer | `${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}` | H2 | JPA, `ddl-auto: update` (таблица `change_requests`) |
-| HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite | JPA-сущностей нет; только таблицы `SessionStore` |
-| SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2 | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
-| Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2 | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
+| YARN Explorer | `${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}` | H2, PostgreSQL | JPA, `ddl-auto: update` (таблица `change_requests`) |
+| HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite, PostgreSQL | JPA-сущностей нет; только таблицы `SessionStore` |
+| SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
+| Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
 | Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
-- Драйвер PostgreSQL в `common-security-starter` объявлен как `optional` и транзитивно не подключается: YARN, HDFS, SQL и Spark Explorer с PostgreSQL без добавления драйвера в их `pom.xml` не запустятся.
+- Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `common-security-starter` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В YARN Explorer вместо `SPRING_DATASOURCE_*` можно задать `YARN_DB_URL`, `YARN_DB_USER` и `YARN_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `hadoop.security.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и HDFS Explorer: [production-database.md](production-database.md).
 - In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
 
 ### 8.1 Инициализация схемы БД
 - `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Spark Explorer создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
+- Длинные строковые поля сущностей SQL и Spark Explorer объявлены как `@Column(length = Length.LONG32)`, а не `@Lob`: Hibernate 6.5 создает для них `text` в PostgreSQL и `CHARACTER LARGE OBJECT` в H2 (тот же тип, что давал `@Lob`, поэтому существующие файлы H2 подходят без миграции). В YARN Explorer (`change_requests`) убран `@Lob`, а `columnDefinition = "TEXT"` оставлен: это `text` в PostgreSQL и неограниченный `CHARACTER VARYING` в H2, как и раньше. `@Lob` в PostgreSQL дает `oid`: чтение вне транзакции падает с `Unable to access lob stream`.
 - Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `hadoop.security.session-store.type` не `memory`.
 - Схему Replicator Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
 

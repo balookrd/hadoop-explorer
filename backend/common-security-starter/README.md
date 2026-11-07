@@ -91,7 +91,7 @@ hadoop:
         - "spark-users"
 
     jwt:
-      secret-key: "your-production-secret-key-at-least-32-chars-long"
+      secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
       algorithm: "HS256"
       expiration-minutes: 480
 

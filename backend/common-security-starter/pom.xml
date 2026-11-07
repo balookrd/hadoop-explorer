@@ -109,10 +109,12 @@
             <version>${sqlite-jdbc.version}</version>
             <optional>true</optional>
         </dependency>
+        <!-- Runtime, not optional: services on this starter must reach a shared PostgreSQL
+             (spring.datasource, SessionStore L2) without declaring the driver themselves -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <optional>true</optional>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Testing -->

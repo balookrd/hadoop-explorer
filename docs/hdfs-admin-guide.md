@@ -161,7 +161,6 @@ spring:
     name: hadoop-hdfs-explorer
   datasource:
     url: jdbc:h2:file:/var/lib/hadoop-explorer/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
-    driver-class-name: org.h2.Driver
     # Для PostgreSQL-кластера:
     # url: jdbc:postgresql://pg.company.local:5432/hdfs_explorer
     # username: hdfs_user
@@ -179,7 +178,7 @@ hadoop:
         - "data-engineers"
         - "developers"
     jwt:
-      secret-key: "CHANGE_TO_SUPER_SECURE_RANDOM_KEY_MIN_32_CHARS"
+      secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
       expiration-minutes: 480
     ldap:
       enabled: true
@@ -424,10 +423,11 @@ make test-java
 ### 5.3 Запуск JAR с параметрами в командной строке
 
 ```bash
+# <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех экземплярах сервиса
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8001 \
   -Dhadoop.security.auth.mode=kerberos \
-  -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
+  -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
   -Dhadoop.hdfs.clusters-config-path=/etc/hadoop-explorer/clusters.yaml \
   backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
 ```

@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.spark.model;
 
 import jakarta.persistence.*;
+import org.hibernate.Length;
 import java.time.Instant;
 
 @Entity
@@ -23,8 +24,9 @@ public class SparkExecutionHistory {
     @Column(name = "language", length = 32, nullable = false)
     private String language = "pyspark"; // pyspark, scalaspark, sql
 
-    @Lob
-    @Column(name = "code", nullable = false)
+    // Length.LONG32: text on PostgreSQL, CLOB on H2 (the type @Lob created there). @Lob maps to oid
+    // on PostgreSQL, which needs a transaction to read and leaves orphaned large objects behind.
+    @Column(name = "code", length = Length.LONG32, nullable = false)
     private String code;
 
     @Column(name = "status", length = 32, nullable = false)
@@ -36,16 +38,13 @@ public class SparkExecutionHistory {
     @Column(name = "execution_time_ms")
     private double executionTimeMs = 0.0;
 
-    @Lob
-    @Column(name = "error_message")
+    @Column(name = "error_message", length = Length.LONG32)
     private String errorMessage;
 
-    @Lob
-    @Column(name = "columns_json")
+    @Column(name = "columns_json", length = Length.LONG32)
     private String columnsJson;
 
-    @Lob
-    @Column(name = "logs")
+    @Column(name = "logs", length = Length.LONG32)
     private String logs;
 
     @Column(name = "has_cached_result")

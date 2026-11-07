@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.sql.model;
 
 import jakarta.persistence.*;
+import org.hibernate.Length;
 import java.time.Instant;
 
 @Entity
@@ -17,15 +18,13 @@ public class SavedQuery {
     @Column(name = "title", length = 255, nullable = false)
     private String title;
 
-    @Lob
-    @Column(name = "description")
+    @Column(name = "description", length = Length.LONG32)
     private String description;
 
     @Column(name = "cluster_id", length = 64)
     private String clusterId;
 
-    @Lob
-    @Column(name = "query_text", nullable = false)
+    @Column(name = "query_text", length = Length.LONG32, nullable = false)
     private String queryText;
 
     @Column(name = "is_shared")

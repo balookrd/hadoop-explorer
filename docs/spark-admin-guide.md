@@ -158,7 +158,7 @@ server:
 
 spring:
   datasource:
-    # Встроенная H2 в файле. JDBC-драйвера PostgreSQL в JAR нет.
+    # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
     url: jdbc:h2:file:/var/lib/hadoop-explorer/spark/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
 hadoop:
@@ -236,6 +236,7 @@ spark:
 
 Ограничения текущей версии, которые видны в коде:
 - `LivyClient.createSession` не обращается к Livy: идентификатор сессии Livy и YARN application ID генерируются случайно, код выполняет `MockSparkEngine`. `livy-url` только записывается в лог.
+- Строки результатов, отмена выполняющегося кода, SSE-подписки и пайплайны (`/api/v1/pipelines`) хранятся в памяти экземпляра. При двух и более экземплярах без привязки клиента к экземпляру на балансировщике пользователь получает пустой результат при `total > 0`, отмена с другого экземпляра не останавливает выполнение, а пайплайн, созданный на одном экземпляре, не виден на другом. Настройте привязку или запускайте один экземпляр: [production-database.md, раздел 3.3](production-database.md#33-привязка-клиента-к-экземпляру).
 - Если у кластера пусты `allowed-users` и `allowed-groups`, он доступен всем пользователям.
 
 Установите права доступа:
@@ -328,13 +329,14 @@ docker build -t ghcr.io/company/hadoop-explorer/spark:latest -f docker/Dockerfil
 ### 3.3 Запуск одного контейнера (`docker run`)
 Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `hadoop.security.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
 ```bash
+# <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех контейнерах сервиса
 docker run -d \
   --name spark-explorer \
   --restart unless-stopped \
   -p 8004:8004 \
   -e SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml \
   -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
-  -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
+  -e JWT_SECRET_KEY="<jwt_secret>" \
   -e LDAP_MANAGER_PASSWORD="SecretLdapPassword" \
   -v /opt/spark-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \

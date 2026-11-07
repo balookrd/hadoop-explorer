@@ -153,7 +153,7 @@ server:
 
 spring:
   datasource:
-    # Встроенная H2 в файле. JDBC-драйвера PostgreSQL в JAR нет.
+    # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
     url: jdbc:h2:file:/var/lib/hadoop-explorer/sql/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
 hadoop:
@@ -220,6 +220,7 @@ sql:
 - `TrinoSqlEngine` и `HiveSqlEngine` возвращают каталоги, схемы и результаты запросов из `MockSqlEngine`: запросы в Trino и HiveServer2 не отправляются, `host` и `port` для подключения не используются.
 - ИИ-ассистент (`AiService`) проверяет и переписывает SQL встроенными правилами и не обращается к внешней модели. `sql.ai.url`, `sql.ai.model` и `sql.ai.provider` (по умолчанию `mock-builtin`) только возвращаются в ответе о статусе ассистента.
 - Если у кластера пусты `allowed-users` и `allowed-groups`, он доступен всем пользователям.
+- Строки результатов, отмена выполняющихся запросов и SSE-подписки хранятся в памяти экземпляра, выполняющего запрос. При двух и более экземплярах без привязки клиента к экземпляру на балансировщике пользователь получает пустой результат при `total > 0`, а отмена с другого экземпляра не останавливает запрос. Настройте привязку или запускайте один экземпляр: [production-database.md, раздел 3.3](production-database.md#33-привязка-клиента-к-экземпляру).
 
 Установите права доступа:
 ```bash
@@ -311,13 +312,14 @@ docker build -t ghcr.io/company/hadoop-explorer/sql:latest -f docker/Dockerfile.
 ### 3.3 Запуск одного контейнера (`docker run`)
 Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `hadoop.security.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
 ```bash
+# <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех контейнерах сервиса
 docker run -d \
   --name sql-explorer \
   --restart unless-stopped \
   -p 8003:8003 \
   -e SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml \
   -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
-  -e JWT_SECRET_KEY="SecureJwtTokenSecretMin32CharsLength" \
+  -e JWT_SECRET_KEY="<jwt_secret>" \
   -e LDAP_MANAGER_PASSWORD="SecretLdapPassword" \
   -v /opt/sql-explorer/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \

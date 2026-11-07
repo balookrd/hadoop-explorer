@@ -154,9 +154,7 @@ spring:
   datasource:
     # Для автономной работы используется embedded H2:
     url: jdbc:h2:file:/var/lib/hadoop-explorer/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
-    driverClassName: org.h2.Driver
-    # PostgreSQL заработает только после добавления org.postgresql:postgresql
-    # в backend/yarn/pom.xml: в JAR драйвер не входит.
+    # Драйвер Spring Boot выбирает по URL; драйвер PostgreSQL входит в JAR.
     # url: jdbc:postgresql://pg-cluster.company.local:5432/yarn_explorer
     # username: yarn_user
     # password: StrongPass123
@@ -415,7 +413,8 @@ networks:
 
 Создайте рядом файл `.env`:
 ```bash
-JWT_SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b
+# <jwt_secret> - вывод `openssl rand -hex 32`
+JWT_SECRET_KEY=<jwt_secret>
 LDAP_MANAGER_PASSWORD=SuperSecretLdapPass
 YARN_AWX_TOKEN=VeryLongSecretAwxOAuthToken
 ```
@@ -441,7 +440,7 @@ docker compose logs -f yarn-explorer
 | `HTTP 502 Bad Gateway` при запросе к YARN RM | Упал активный ResourceManager | Проверьте состояние RM HA: сервис автоматически переключится на standby-узел. Проверьте список `resource-manager-urls` в конфигурационном файле `application.yml`. |
 | `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверьте права доступа к keytab (`chmod 400`), корректность `principal` и наличие файла keytab, а также проверьте получение тикета командой `kinit -kt /path/to.keytab principal@REALM`. |
 | `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверьте пароль сервисной учетной записи (параметр `bind-password`) через `ldapsearch -H ldaps://... -D "..." -W`. |
-| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | Запускайте одну реплику. Для 2 и более реплик нужен PostgreSQL в `spring.datasource.url`, но JDBC-драйвер PostgreSQL в JAR не входит: в `common-security-starter` зависимость `org.postgresql:postgresql` объявлена как `optional` и в сервис не попадает, поэтому без добавления ее в `pom.xml` сервиса подключение к PostgreSQL падает с ошибкой загрузки драйвера. |
+| Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | Запускайте одну реплику. Для 2 и более реплик нужен PostgreSQL в `spring.datasource.url`; драйвер PostgreSQL входит в JAR, порядок перехода — [docs/production-database.md](production-database.md). |
 | `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
 
 ---
@@ -495,10 +494,11 @@ make test-java
 ### 6.3 Запуск с параметрами в командной строке
 
 ```bash
+# <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех экземплярах сервиса
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8000 \
   -Dhadoop.security.auth.mode=kerberos \
-  -Dhadoop.security.jwt.secret-key="production-super-secret-key-min-32-chars!" \
+  -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
   -Dyarn.awx.base-url="https://awx.company.local" \
   -Dyarn.awx.token="secret-awx-token" \
   -Dyarn.awx.default-job-template-id=42 \

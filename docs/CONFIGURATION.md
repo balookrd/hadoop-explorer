@@ -73,6 +73,8 @@
 > - `auth.mode: ldap` задан при `ldap.enabled: false`;
 > - `auth.mode` не входит в `mock | ldap | kerberos | hybrid`.
 >
+> Вне debug (`hadoop.security.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer repository`.
+>
 > Локальная разработка и демо-стенды включают профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
 > файл `application-mock.yml` в ресурсах сервиса) либо задают `auth.mode`/`debug` в своем конфиге.
 > Ключи из старых руководств (`auth-mode`, `ldap.server-uri`, `bind-dn`, `bind-password`, `user-base-dn`,
@@ -1012,7 +1014,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `LDAP_URL` | `hadoop.security.ldap.url` | `ldaps://ldap.company.local:636` |
 | `LDAP_MANAGER_DN` / `LDAP_MANAGER_PASSWORD` | Учетная запись для поиска пользователей в LDAP | — |
 | `LDAP_USER_SEARCH_BASE` | `hadoop.security.ldap.user-search-base` | `ou=users,dc=company,dc=local` |
-| `YARN_DB_URL` / `YARN_DB_DRIVER` / `YARN_DB_USER` / `YARN_DB_PASSWORD` | БД YARN Explorer (Change Requests, аудит) | `jdbc:h2:file:./data/yarn_explorer` / `org.h2.Driver` / `sa` / пусто |
+| `YARN_DB_URL` / `YARN_DB_DRIVER` / `YARN_DB_USER` / `YARN_DB_PASSWORD` | БД YARN Explorer (Change Requests, аудит) | `jdbc:h2:file:./data/yarn_explorer` / пусто (драйвер по URL) / `sa` / пусто |
 | `YARN_KERBEROS_PRINCIPAL` / `YARN_KERBEROS_KEYTAB` | Учетная запись YARN Explorer для SPNEGO-запросов к ResourceManager | — |
 | `YARN_AWX_BASE_URL` / `YARN_AWX_TOKEN` / `YARN_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
 

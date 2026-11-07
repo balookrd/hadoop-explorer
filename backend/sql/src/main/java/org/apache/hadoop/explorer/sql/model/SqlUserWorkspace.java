@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.sql.model;
 
 import jakarta.persistence.*;
+import org.hibernate.Length;
 import java.time.Instant;
 
 @Entity
@@ -11,8 +12,7 @@ public class SqlUserWorkspace {
     @Column(name = "username", length = 128, nullable = false)
     private String username;
 
-    @Lob
-    @Column(name = "state_json", nullable = false)
+    @Column(name = "state_json", length = Length.LONG32, nullable = false)
     private String stateJson;
 
     @Column(name = "updated_at")

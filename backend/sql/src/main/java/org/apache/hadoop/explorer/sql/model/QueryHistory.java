@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.sql.model;
 
 import jakarta.persistence.*;
+import org.hibernate.Length;
 import java.time.Instant;
 
 @Entity
@@ -23,8 +24,9 @@ public class QueryHistory {
     @Column(name = "engine_type", length = 32, nullable = false)
     private String engineType;
 
-    @Lob
-    @Column(name = "query_text", nullable = false)
+    // Length.LONG32: text on PostgreSQL, CLOB on H2 (the type @Lob created there). @Lob maps to oid
+    // on PostgreSQL, which needs a transaction to read and leaves orphaned large objects behind.
+    @Column(name = "query_text", length = Length.LONG32, nullable = false)
     private String queryText;
 
     @Column(name = "status", length = 32, nullable = false)
@@ -42,12 +44,10 @@ public class QueryHistory {
     @Column(name = "progress_percent")
     private double progressPercent = 0.0;
 
-    @Lob
-    @Column(name = "error_message")
+    @Column(name = "error_message", length = Length.LONG32)
     private String errorMessage;
 
-    @Lob
-    @Column(name = "columns_json")
+    @Column(name = "columns_json", length = Length.LONG32)
     private String columnsJson;
 
     @Column(name = "is_in_queue")

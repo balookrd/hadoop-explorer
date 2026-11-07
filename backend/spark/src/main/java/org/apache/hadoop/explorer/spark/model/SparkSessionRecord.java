@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.spark.model;
 
 import jakarta.persistence.*;
+import org.hibernate.Length;
 import java.time.Instant;
 
 @Entity
@@ -50,20 +51,16 @@ public class SparkSessionRecord {
     @Column(name = "status", length = 32, nullable = false)
     private String status = "idle"; // not_started, starting, idle, busy, dead, killed
 
-    @Lob
-    @Column(name = "packages_json")
+    @Column(name = "packages_json", length = Length.LONG32)
     private String packagesJson;
 
-    @Lob
-    @Column(name = "jars_json")
+    @Column(name = "jars_json", length = Length.LONG32)
     private String jarsJson;
 
-    @Lob
-    @Column(name = "py_files_json")
+    @Column(name = "py_files_json", length = Length.LONG32)
     private String pyFilesJson;
 
-    @Lob
-    @Column(name = "spark_conf_json")
+    @Column(name = "spark_conf_json", length = Length.LONG32)
     private String sparkConfJson;
 
     @Column(name = "created_at")

@@ -53,15 +53,24 @@ Replicator Agent, кроме трех режимов выше, запускае�
 - В Kubernetes (манифесты Replicator) монтируйте keytab из `Secret` с `defaultMode: 0400`.
 
 ### 2. Секретный ключ JWT (`JWT_SECRET_KEY`)
-- В production-режиме (`debug: false`) сервис не запускается, если `JWT_SECRET_KEY` короче 32 символов или совпадает с плейсхолдером.
+- При `auth.mode`, отличном от `mock`, сервис не запускается, если `JWT_SECRET_KEY` пустой, короче 32 символов или совпадает со встроенным плейсхолдером.
+- При `debug: false` сервис также не запускается с ключом, опубликованным в репозитории: значения из `application-mock.yml`, тестов, демо-стендов, удаленных Helm-чартов и примеров документации (список `SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`). В логе: `hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer repository ...`.
+- При двух и более экземплярах сервиса задайте одинаковый `JWT_SECRET_KEY` на всех экземплярах.
 - Сгенерируйте ключ:
   ```bash
   openssl rand -hex 32
   ```
 
-### 3. База данных сессий: SQLite или PostgreSQL
-- SQLite (`sqlite:////app/data/service.db`) — по умолчанию, для тестовых и Standalone-установок с одной репликой.
-- PostgreSQL (`postgresql://user:pass@pg-host:5432/dbname`) — обязателен при двух и более экземплярах сервиса. Порядок перехода — в [docs/production-database.md](production-database.md).
+### 3. База данных и хранилище сессий: H2 или PostgreSQL
+- По умолчанию сервисы используют H2: YARN Explorer — файл `./data/yarn_explorer`, HDFS, SQL и Spark Explorer — in-memory H2, данные которой теряются при перезапуске (таблица по сервисам — в [ARCHITECTURE.md, раздел 8](ARCHITECTURE.md#8-хранение-данных-storage-layer)). Сессии и отозванные токены по умолчанию хранятся в памяти процесса (`hadoop.security.session-store.type: memory`). Такая конфигурация подходит для одного экземпляра сервиса.
+- При двух и более экземплярах сервиса подключите PostgreSQL и перенесите туда хранилище сессий:
+  ```bash
+  SPRING_DATASOURCE_URL=jdbc:postgresql://<pg_host>:5432/<database>
+  SPRING_DATASOURCE_USERNAME=<db_user>
+  SPRING_DATASOURCE_PASSWORD=<db_password>
+  HADOOP_SECURITY_SESSIONSTORE_TYPE=jdbc
+  ```
+  `<pg_host>` — адрес PostgreSQL, `<database>` — база сервиса, `<db_user>` и `<db_password>` — учетная запись с правами владельца базы. Порядок перехода, привязка клиента к экземпляру для SQL, Spark и HDFS Explorer и проверочный список — в [production-database.md](production-database.md).
 
 ---
 

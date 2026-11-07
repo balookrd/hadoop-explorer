@@ -28,15 +28,14 @@ public class ChangeRequestEntity {
     @Column(nullable = false, length = 100)
     private String author;
 
-    @Lob
+    // No @Lob: with it Hibernate maps the column to oid on PostgreSQL (unreadable outside a transaction,
+    // leaves orphaned large objects). columnDefinition TEXT is text on PostgreSQL and unbounded VARCHAR on H2.
     @Column(name = "changes_json", nullable = false, columnDefinition = "TEXT")
     private String changesJson;
 
-    @Lob
     @Column(name = "diffs_json", columnDefinition = "TEXT")
     private String diffsJson;
 
-    @Lob
     @Column(name = "xml_content", columnDefinition = "TEXT")
     private String xmlContent;
 
@@ -58,12 +57,10 @@ public class ChangeRequestEntity {
     @Column(name = "deployed_at")
     private Instant deployedAt;
 
-    @Lob
     @Column(name = "deployment_error", columnDefinition = "TEXT")
     private String deploymentError;
 
     /** Edits of capacity-scheduler.xml computed at approval; this is what gets deployed. */
-    @Lob
     @Column(name = "patch_json", columnDefinition = "TEXT")
     private String patchJson;
 

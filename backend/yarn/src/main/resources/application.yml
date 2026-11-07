@@ -15,7 +15,8 @@ spring:
     name: yarn-explorer-java
   datasource:
     url: ${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}
-    driverClassName: ${YARN_DB_DRIVER:org.h2.Driver}
+    # Empty: Spring Boot picks the driver from the URL (H2, PostgreSQL)
+    driverClassName: ${YARN_DB_DRIVER:}
     username: ${YARN_DB_USER:sa}
     password: ${YARN_DB_PASSWORD:}
   jpa:

@@ -685,7 +685,7 @@ spring:
 hadoop:
   security:
     jwt:
-      secret-key: "CHANGE_TO_SUPER_SECURE_KEY_AT_LEAST_32_CHARS"
+      secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
       expiration-minutes: 480
     cors:
       allowed-origins:
@@ -1603,7 +1603,7 @@ metadata:
   namespace: hadoop-replicator
 type: Opaque
 stringData:
-  jwt-secret-key: "Min32CharSecretKeyForReplicatorTokens"
+  jwt-secret-key: "<jwt_secret>"   # вывод `openssl rand -hex 32`
 ---
 apiVersion: v1
 kind: ConfigMap

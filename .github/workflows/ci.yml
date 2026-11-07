@@ -17,6 +17,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # PostgreSQL for PostgresTextColumnsTest (backend/sql, backend/spark, backend/yarn); the tests are skipped
+    # without TEST_POSTGRES_URL
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: explorer
+          POSTGRES_PASSWORD: explorer
+          POSTGRES_DB: explorer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U explorer"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out sources
@@ -32,6 +48,10 @@ jobs:
           cache: maven
 
       - name: Run unit tests
+        env:
+          TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/explorer
+          TEST_POSTGRES_USER: explorer
+          TEST_POSTGRES_PASSWORD: explorer
         run: mvn -B test
 
       - name: Set up Node.js
