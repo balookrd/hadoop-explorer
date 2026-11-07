@@ -220,11 +220,28 @@ hadoop:
       enabled: true
       requests-per-minute: 600
       burst-capacity: 100
+      login:
+        requests-per-minute: 30
+        burst-capacity: 10
+      trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
+      max-tracked-keys: 100000
 ```
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
 
-`RateLimiterService` реализует Token Bucket на Bucket4j: на каждый ключ — корзина емкостью `burst-capacity`, пополнение `requests-per-minute` токенов в минуту, корзины хранятся в памяти процесса. Бин создается автоконфигурацией, но в коде сервисов `tryAcquire` не вызывается, поэтому ограничение частоты запросов на HTTP-эндпоинтах сейчас не действует.
+Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. В журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s`.
+
+| Параметр `hadoop.security.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
+|---|---|---|---|
+| `enabled` | `true` | `false` пропускает все запросы | Тестовые стенды и нагрузочные прогоны |
+| `requests-per-minute` | `600` | Пополнение корзины API на ключ (пользователь; анонимный запрос — IP) | UI или скрипты получают 429 при штатной работе |
+| `burst-capacity` | `100` | Емкость корзины API: столько запросов проходит подряд | То же |
+| `login.requests-per-minute` | `30` | Пополнение корзины `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` на IP клиента | Много пользователей за одним NAT без `trusted-proxies` |
+| `login.burst-capacity` | `10` | Емкость корзины входа | То же |
+| `trusted-proxies` | `[]` | Адреса (IP или CIDR) прокси, от которых учитывается `X-Forwarded-For`: клиентом считается крайний справа адрес не из списка. Имя хоста вместо IP останавливает старт сервиса (`IllegalArgumentException: ... Is it a host name?`) | Сервис стоит за ingress или балансировщиком: иначе все клиенты получают IP прокси и одну корзину входа |
+| `max-tracked-keys` | `100000` | Предел числа корзин в памяти на уровень; корзина без запросов 10 минут удаляется | Очень много пользователей или IP |
+
+Под Kubernetes Spring Boot может сам включать обработку заголовков прокси во встроенном Tomcat, и тогда `getRemoteAddr()` уже содержит адрес из `X-Forwarded-For` [проверить: значение `server.forward-headers-strategy` по умолчанию в Spring Boot 3.3 при `CloudPlatform.KUBERNETES`]. Фильтр применяет `trusted-proxies` к уже обработанному адресу.
 
 ### 2.6 Отказоустойчивость: Circuit Breaker, Retry, Global Exception Handlers, Distributed Lock и Graceful Shutdown
 

@@ -15,7 +15,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -136,6 +138,22 @@ public class CommonSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public ClientIpResolver clientIpResolver(CommonSecurityProperties properties) {
         return new ClientIpResolver(properties.getRateLimiter().getTrustedProxies());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "rateLimitFilterRegistration")
+    public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(
+        RateLimiterService rateLimiterService,
+        ClientIpResolver clientIpResolver
+    ) {
+        FilterRegistrationBean<RateLimitFilter> registration =
+            new FilterRegistrationBean<>(new RateLimitFilter(rateLimiterService, clientIpResolver));
+        registration.setName("rateLimitFilter");
+        registration.addUrlPatterns("/api/*");
+        // Right after springSecurityFilterChain (order -100): the authenticated user is known
+        // and the filter applies even when a service declares its own SecurityFilterChain.
+        registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER + 10);
+        return registration;
     }
 
     @Bean

@@ -36,7 +36,7 @@ Spring Boot стартер аутентификации, сессий, CSRF-за
 
 ### Отказоустойчивость и аудит
 
-- Rate limiter на алгоритме Token Bucket (Bucket4j).
+- Ограничение частоты запросов к `/api/*`: фильтр `RateLimitFilter` на Token Bucket (Bucket4j), отдельные корзины для входа (по IP) и API (по пользователю), HTTP 429 с `Retry-After`.
 - Circuit breaker (`SimpleCircuitBreaker`) с состояниями `CLOSED`, `OPEN`, `HALF_OPEN`: после `failureThreshold` сбоев подряд вызовы к NameNode или RM отклоняются, пока не истечет `recoveryTimeoutMs`; затем пропускается пробный вызов (`HALF_OPEN`).
 - JSON-аудит (`AuditLogger` и AOP-аннотация `@Audited`).
 
@@ -134,6 +134,11 @@ hadoop:
       enabled: true
       requests-per-minute: 600
       burst-capacity: 100
+      login:
+        requests-per-minute: 30
+        burst-capacity: 10
+      trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
+      max-tracked-keys: 100000
 
     tls:
       enabled: true

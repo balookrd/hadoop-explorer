@@ -96,7 +96,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 4. Иначе — HTTP 403.
 
 ### 3.4 Ограничение частоты запросов и аудит
-- Стартер регистрирует бин `RateLimiterService` (Token Bucket на `Bucket4j`, параметры `hadoop.security.rate-limiter.requests-per-minute`, по умолчанию 600, и `burst-capacity`, по умолчанию 100), но ни фильтр стартера, ни сервисы метод `tryAcquire` не вызывают: ограничение частоты запросов сейчас не действует.
+- Фильтр `RateLimitFilter` стартера ограничивает частоту запросов к `/api/*` (`RateLimiterService`, Token Bucket на `Bucket4j`). `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` считаются по IP клиента (по умолчанию 10 подряд, 30 в минуту), остальные запросы к API — по имени пользователя, анонимные — по IP (100 подряд, 600 в минуту). Сверх лимита — HTTP 429 с `Retry-After`. `X-Forwarded-For` учитывается только от адресов из `hadoop.security.rate-limiter.trusted-proxies`. Фильтр зарегистрирован после `springSecurityFilterChain` и действует и в собственной цепочке оркестратора. Параметры — `docs/CONFIGURATION.md`, раздел 2.5.
 - Аудит: `AuditAspect` перехватывает методы с аннотацией `@Audited` и через `AuditLogger` пишет в логгер `AUDIT_LOGGER` строку `AUDIT_EVENT: {...}` с JSON-записью `AuditRecord` (`timestamp`, `service`, `username`, `client_ip`, `action`, `resource`, `status`, `duration_ms`, `details`). Имя события — значение `action` из аннотации, например `APPROVE_CHANGE_REQUEST` в YARN Explorer или `FILE_UPLOAD` в HDFS Explorer. Поле `client_ip` всегда равно `internal`. Вход, выход и отклонения CSRF через `@Audited` не проходят и в журнал аудита не попадают.
 
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
@@ -120,7 +120,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 - SessionStore L1/L2: L1 Caffeine + L2 JDBC (H2/PostgreSQL/SQLite), отзыв токенов, fail-closed по параметру `session-store.fail-closed`.
 - CSRF Guard: проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и списка разрешенных `Origin`/`Referer`.
 - JSON-аудит через AOP-аннотацию `@Audited`.
-- Классы `RateLimiterService` (`Bucket4j`) и `SimpleCircuitBreaker`: в стартере есть, но сервисы их не вызывают (разделы 3.4 и 4.2).
+- `RateLimitFilter` и `RateLimiterService` (`Bucket4j`) ограничивают частоту запросов к API (раздел 3.4); `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
 - JWT подписываются симметрично (`HS256`, `MACSigner` из `nimbus-jose-jwt`) ключом `hadoop.security.jwt.secret-key`.
 - TLS/HTTPS и mTLS: `TlsWebServerCustomizer` настраивает встроенный Tomcat, поддерживает хранилища PKCS12 / JKS и проверку клиентских сертификатов; фабрика `TlsContextFactory` строит TLS-контекст для исходящих клиентов.
 - Эндпоинты `AuthController`: `/api/v1/auth/login`, `/sso`, `/logout`, `/me`.
