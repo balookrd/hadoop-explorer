@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -348,5 +349,28 @@ class OrchestratorIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.names").isArray());
     }
-}
 
+    @Test
+    @DisplayName("Создание задачи с некорректным cron-выражением отклоняется с HTTP 400")
+    void createJobWithInvalidCronIsRejected() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new LoginRequest("admin", "secret"))))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie authCookie = loginResult.getResponse().getCookie("access_token");
+        assertNotNull(authCookie);
+
+        CreateJobRequest invalid = new CreateJobRequest("/data/cron/src", "/backup/cron/dst", "dc1", "dc2",
+            1024L, "hdfs@EXAMPLE.COM", true, true, "every tuesday");
+
+        mockMvc.perform(post("/api/v1/jobs")
+                .cookie(authCookie)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalid)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.status").value(400))
+            .andExpect(jsonPath("$.detail").value(containsString("every tuesday")));
+    }
+}

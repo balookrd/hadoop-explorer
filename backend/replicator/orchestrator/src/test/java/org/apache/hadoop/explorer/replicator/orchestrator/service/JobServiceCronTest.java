@@ -1,0 +1,100 @@
+package org.apache.hadoop.explorer.replicator.orchestrator.service;
+
+import org.apache.hadoop.explorer.replicator.orchestrator.config.ReplicatorProperties;
+import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateJobRequest;
+import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.InvalidCronExpressionException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Transactional
+class JobServiceCronTest {
+
+    @Autowired
+    private JobRepository jobRepository;
+
+    @Autowired
+    private JobRunRepository jobRunRepository;
+
+    @Autowired
+    private TaskRepository taskRepository;
+
+    private JobService jobService;
+
+    @BeforeEach
+    void setUp() {
+        jobService = new JobService(jobRepository, jobRunRepository, taskRepository, new ReplicatorProperties());
+    }
+
+    private static CreateJobRequest scheduled(String cron) {
+        return new CreateJobRequest("/data/cron/src", "/backup/cron/dst", "dc1", "dc2",
+            1024L, "hdfs@REALM.LOCAL", true, true, cron);
+    }
+
+    private JobEntity load(String id) {
+        return jobRepository.findById(id).orElseThrow();
+    }
+
+    @Test
+    @DisplayName("Создание задачи с невалидным cron отклоняется")
+    void createScheduledJobRejectsInvalidCron() {
+        assertThrows(InvalidCronExpressionException.class,
+            () -> jobService.createJob(scheduled("every tuesday"), "de_user"));
+    }
+
+    @Test
+    @DisplayName("Задача по расписанию без cron отклоняется")
+    void createScheduledJobRejectsMissingCron() {
+        assertThrows(InvalidCronExpressionException.class,
+            () -> jobService.createJob(scheduled(null), "de_user"));
+    }
+
+    @Test
+    @DisplayName("Первый запуск — ближайшее срабатывание выражения, а не момент создания")
+    void createScheduledJobPlansFirstRunAtNextCronMatch() {
+        Instant before = Instant.now();
+        String id = jobService.createJob(scheduled("0 0 * * *"), "de_user").id();
+
+        Instant nextRun = load(id).getNextRunAt();
+        assertEquals(LocalTime.MIDNIGHT, nextRun.atZone(ZoneOffset.UTC).toLocalTime());
+        assertTrue(nextRun.isAfter(before));
+        assertTrue(Duration.between(before, nextRun).compareTo(Duration.ofDays(1)) <= 0);
+    }
+
+    @Test
+    @DisplayName("Правка с невалидным cron отклоняется и не меняет сохраненное выражение")
+    void updateRejectsInvalidCronAndKeepsOldExpression() {
+        String id = jobService.createJob(scheduled("@hourly"), "de_user").id();
+
+        assertThrows(InvalidCronExpressionException.class,
+            () -> jobService.updateJob(id, scheduled("61 * * * *")));
+        assertEquals("@hourly", load(id).getCronExpression());
+    }
+
+    @Test
+    @DisplayName("Смена выражения пересчитывает следующий запуск")
+    void updateChangingCronRecomputesNextRun() {
+        String id = jobService.createJob(scheduled("@every_5m"), "de_user").id();
+
+        jobService.updateJob(id, scheduled("0 0 * * *"));
+
+        assertEquals(LocalTime.MIDNIGHT, load(id).getNextRunAt().atZone(ZoneOffset.UTC).toLocalTime());
+    }
+}

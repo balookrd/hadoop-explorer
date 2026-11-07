@@ -8,6 +8,7 @@ import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.JobRunRepository;
 import org.apache.hadoop.explorer.replicator.orchestrator.repository.TaskRepository;
+import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.CronSchedule;
 import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.ReplicationScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,6 +165,7 @@ public class JobService {
             }
             jobRepository.save(entity);
         } else if (req.isScheduled()) {
+            CronSchedule schedule = CronSchedule.parse(req.cronExpression());
             entity.setSyncMode("SCHEDULED");
             entity.setScheduled(true);
             entity.setCronExpression(req.cronExpression());
@@ -173,9 +175,8 @@ public class JobService {
                 entity.setHistoryRetentionRuns(req.historyRetentionRuns());
             }
             entity.setStatus("SCHEDULED");
-            // Немедленный первый запуск: планировщик (тик каждые 5 сек) сразу выполнит первый запуск,
-            // а затем рассчитает время следующего запуска на основе cronExpression
-            entity.setNextRunAt(Instant.now());
+            // First run follows the expression; "Start" (POST /jobs/{id}/start) runs it immediately
+            entity.setNextRunAt(schedule.next(Instant.now(), properties.getScheduler().getZoneId()));
             jobRepository.save(entity);
         } else {
             entity.setSyncMode("MANUAL");
@@ -564,6 +565,8 @@ public class JobService {
     @Transactional
     public Optional<JobResponse> updateJob(String id, CreateJobRequest req) {
         return jobRepository.findById(id).map(job -> {
+            // Validate before mutating the managed entity
+            CronSchedule requestedSchedule = req.cronExpression() != null ? CronSchedule.parse(req.cronExpression()) : null;
             if (req.sourcePath() != null) job.setSourcePath(req.sourcePath());
             if (req.targetPath() != null) job.setTargetPath(req.targetPath());
             if (req.sourceClusterId() != null) job.setSourceClusterId(req.sourceClusterId());
@@ -571,14 +574,14 @@ public class JobService {
             if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
                 job.setExecutionPrincipal(req.executionPrincipal());
             }
-            if (req.isScheduled() != null) {
-                boolean wasScheduled = job.isScheduled();
-                job.setScheduled(req.isScheduled());
-                if (req.isScheduled() && (!wasScheduled || job.getNextRunAt() == null)) {
-                    job.setNextRunAt(Instant.now());
-                }
-            }
+            boolean wasScheduled = job.isScheduled();
+            boolean cronChanged = req.cronExpression() != null && !req.cronExpression().equals(job.getCronExpression());
+            if (req.isScheduled() != null) job.setScheduled(req.isScheduled());
             if (req.cronExpression() != null) job.setCronExpression(req.cronExpression());
+            if (job.isScheduled() && (!wasScheduled || cronChanged || job.getNextRunAt() == null)) {
+                CronSchedule schedule = requestedSchedule != null ? requestedSchedule : CronSchedule.parse(job.getCronExpression());
+                job.setNextRunAt(schedule.next(Instant.now(), properties.getScheduler().getZoneId()));
+            }
             if (req.historyRetentionRuns() != null) job.setHistoryRetentionRuns(req.historyRetentionRuns());
             jobRepository.save(job);
             return JobResponse.fromEntity(job, jobRunRepository.countByJobId(job.getId()));

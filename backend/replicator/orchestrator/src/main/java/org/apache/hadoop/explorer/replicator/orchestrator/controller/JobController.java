@@ -7,6 +7,7 @@ import org.apache.hadoop.explorer.replicator.model.UpdateJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.CreateJobRequest;
 import org.apache.hadoop.explorer.replicator.orchestrator.dto.JobResponse;
 import org.apache.hadoop.explorer.replicator.orchestrator.entity.JobRunEntity;
+import org.apache.hadoop.explorer.replicator.orchestrator.scheduler.InvalidCronExpressionException;
 import org.apache.hadoop.explorer.replicator.orchestrator.service.JobService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -312,5 +313,10 @@ public class JobController {
     ) {
         checkJobReadAccess(jobId, auth, agentSecret);
         return ResponseEntity.ok(jobService.getJobRuns(jobId));
+    }
+
+    @ExceptionHandler(InvalidCronExpressionException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidCron(InvalidCronExpressionException e) {
+        return ResponseEntity.badRequest().body(Map.of("status", 400, "detail", e.getMessage()));
     }
 }
