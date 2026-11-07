@@ -35,6 +35,7 @@ public class ChangeRequestService {
     private final AwxClientService awxClientService;
     private final RoleResolver roleResolver;
     private final ObjectMapper objectMapper;
+    private final ChangeRequestMetrics changeRequestMetrics;
 
     public ChangeRequestService(
             ChangeRequestRepository repository,
@@ -44,7 +45,8 @@ public class ChangeRequestService {
             CapacitySchedulerPatchService patchService,
             AwxClientService awxClientService,
             RoleResolver roleResolver,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ChangeRequestMetrics changeRequestMetrics
     ) {
         this.repository = repository;
         this.yarnProperties = yarnProperties;
@@ -54,6 +56,7 @@ public class ChangeRequestService {
         this.awxClientService = awxClientService;
         this.roleResolver = roleResolver;
         this.objectMapper = objectMapper;
+        this.changeRequestMetrics = changeRequestMetrics;
     }
 
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -111,6 +114,7 @@ public class ChangeRequestService {
                 .build();
 
         ChangeRequestEntity saved = repository.save(entity);
+        changeRequestMetrics.recordTransition(saved.getClusterId(), ChangeRequestStatus.SUBMITTED);
         log.info("Создана заявка на изменение #{} для кластера '{}' пользователем '{}'", saved.getId(), cluster.getId(), user.username());
         return mapToResponse(saved);
     }
@@ -235,6 +239,7 @@ public class ChangeRequestService {
                 plan.operations()));
 
         ChangeRequestEntity saved = repository.save(entity);
+        changeRequestMetrics.recordTransition(saved.getClusterId(), ChangeRequestStatus.APPROVED);
         log.info("Заявка #{} одобрена администратором '{}'", saved.getId(), user.username());
         return mapToResponse(saved);
     }
@@ -258,6 +263,7 @@ public class ChangeRequestService {
         entity.setReviewedAt(Instant.now());
 
         ChangeRequestEntity saved = repository.save(entity);
+        changeRequestMetrics.recordTransition(saved.getClusterId(), ChangeRequestStatus.REJECTED);
         log.info("Заявка #{} отклонена администратором '{}'", saved.getId(), user.username());
         return mapToResponse(saved);
     }
@@ -284,6 +290,7 @@ public class ChangeRequestService {
 
         entity.setStatus(ChangeRequestStatus.CANCELLED);
         ChangeRequestEntity saved = repository.save(entity);
+        changeRequestMetrics.recordTransition(saved.getClusterId(), ChangeRequestStatus.CANCELLED);
         log.info("Заявка #{} отозвана пользователем '{}'", saved.getId(), user.username());
         return mapToResponse(saved);
     }

@@ -798,7 +798,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_hms_jobs_total{status=~\"RUNNING|STREAMING|BOOTSTRAPPING\"})",
+          "expr": "sum(replicator_hms_jobs_total{status=~\"BOOTSTRAPPING|ACTIVE\"})",
           "legendFormat": "HMS активны",
           "range": true,
           "refId": "A"
@@ -1453,7 +1453,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total)",
+          "expr": "sum by (status) (replicator_jobs_total{mode=\"\"})",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1557,7 +1557,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (mode) (replicator_jobs_total)",
+          "expr": "sum by (mode) (replicator_jobs_total{mode!=\"\"})",
           "legendFormat": "{{mode}}",
           "range": true,
           "refId": "A"
@@ -2024,8 +2024,8 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "process_resident_memory_bytes{job=~\"hadoop-replicator|replicator\"}",
-          "legendFormat": "Memory RSS",
+          "expr": "sum by (instance) (jvm_memory_used_bytes{job=~\"hadoop-replicator|replicator\"})",
+          "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
         },
@@ -2035,7 +2035,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(process_cpu_seconds_total{job=~\"hadoop-replicator|replicator\"}[$__rate_interval]) * 100",
+          "expr": "process_cpu_usage{job=~\"hadoop-replicator|replicator\"} * 100",
           "legendFormat": "CPU Usage",
           "range": true,
           "refId": "B"

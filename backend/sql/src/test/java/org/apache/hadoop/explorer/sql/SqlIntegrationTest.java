@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -35,6 +36,44 @@ class SqlIntegrationTest {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("UP")));
+        // Prometheus scrapes without credentials
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "analyst", roles = {"USER"})
+    void prometheusEndpointExposesHttpAndQueryMetrics() throws Exception {
+        ExecuteQueryRequest req = new ExecuteQueryRequest("trino-prod", "SELECT * FROM tpch.sf1.customer LIMIT 10");
+        mockMvc.perform(post("/api/v1/queries/execute")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk());
+
+        // The query runs on an executor thread; wait until its terminal status is recorded
+        String body = scrapeUntilContains(
+                "sql_query_duration_seconds_count{app=\"sql\",cluster=\"trino-prod\",engine=\"trino\",status=\"FINISHED\"}");
+
+        assertTrue(body.contains("sql_query_duration_seconds_bucket{app=\"sql\",cluster=\"trino-prod\""),
+                "Query duration histogram buckets must be exported");
+        assertTrue(body.contains("http_server_requests_seconds_count{app=\"sql\""),
+                "HTTP server metrics must carry app=sql");
+        assertTrue(body.contains("http_server_requests_active_seconds_count{app=\"sql\""),
+                "In-flight HTTP request metric must carry app=sql");
+    }
+
+    private String scrapeUntilContains(String series) throws Exception {
+        String body = "";
+        for (int attempt = 0; attempt < 50; attempt++) {
+            body = mockMvc.perform(get("/actuator/prometheus"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            if (body.contains(series)) {
+                return body;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Series not found in /actuator/prometheus after 5 s: " + series + "\n" + body);
     }
 
     @Test

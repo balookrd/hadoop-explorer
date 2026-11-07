@@ -88,10 +88,10 @@ printf "\n${BLUE}▶ Шаг 3: Валидация правил алертов и
 check_prometheus_rules() {
     local rules=$(curl -sf "${PROMETHEUS_URL}/api/v1/rules")
     echo "$rules" | grep -q '"status":"success"' && \
-    echo "$rules" | grep -q "HadoopCircuitBreakerOpen" && \
+    echo "$rules" | grep -q "HadoopHigh5xxErrorRate" && \
     echo "$rules" | grep -q "ReplicationHighThrottlingDelay"
 }
-run_check "Загрузка алерт-правил Circuit Breaker, SLA и Throttling" check_prometheus_rules
+run_check "Загрузка алерт-правил SLA (5xx, p95) и Throttling" check_prometheus_rules
 
 check_prometheus_query() {
     local res=$(curl -sf "${PROMETHEUS_URL}/api/v1/query?query=up")

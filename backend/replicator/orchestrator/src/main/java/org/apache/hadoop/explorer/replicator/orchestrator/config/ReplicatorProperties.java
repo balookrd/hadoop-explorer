@@ -20,6 +20,12 @@ public class ReplicatorProperties {
     private long globalLimitBytesPerSec = 100L * 1024 * 1024; // 100 MB/s
     /** Секрета по умолчанию нет: он задается конфигурацией или REPLICATOR_AGENT_SECRET. */
     private String agentSecret;
+
+    /**
+     * Password of the HTTP Basic user "prometheus" accepted on GET /metrics only.
+     * Empty (default) disables Basic access to metrics.
+     */
+    private String metricsScrapeToken;
     private boolean enforceAgentSecret = true;
     private boolean enforceClusterWhitelist = true;
     private boolean allowLoopbackAgents = true;
@@ -62,6 +68,9 @@ public class ReplicatorProperties {
         return agentSecret;
     }
     public void setAgentSecret(String agentSecret) { this.agentSecret = agentSecret; }
+
+    public String getMetricsScrapeToken() { return metricsScrapeToken; }
+    public void setMetricsScrapeToken(String metricsScrapeToken) { this.metricsScrapeToken = metricsScrapeToken; }
     public boolean isEnforceAgentSecret() { return enforceAgentSecret; }
     public void setEnforceAgentSecret(boolean enforceAgentSecret) { this.enforceAgentSecret = enforceAgentSecret; }
     public boolean isEnforceClusterWhitelist() { return enforceClusterWhitelist; }

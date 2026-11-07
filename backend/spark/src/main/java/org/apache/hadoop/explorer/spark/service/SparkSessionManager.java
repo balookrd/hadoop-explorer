@@ -33,6 +33,7 @@ public class SparkSessionManager {
     private final LivyClient livyClient;
     private final SparkProperties sparkProperties;
     private final ObjectMapper objectMapper;
+    private final SparkMetrics sparkMetrics;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -60,13 +61,15 @@ public class SparkSessionManager {
             SparkExecutionHistoryRepository historyRepository,
             LivyClient livyClient,
             SparkProperties sparkProperties,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            SparkMetrics sparkMetrics
     ) {
         this.sessionRepository = sessionRepository;
         this.historyRepository = historyRepository;
         this.livyClient = livyClient;
         this.sparkProperties = sparkProperties;
         this.objectMapper = objectMapper;
+        this.sparkMetrics = sparkMetrics;
     }
 
     public List<SessionResponse> getActiveSessions(String username) {
@@ -136,13 +139,15 @@ public class SparkSessionManager {
         String executionId = UUID.randomUUID().toString();
         AtomicBoolean cancelSignal = new AtomicBoolean(false);
         activeExecutions.put(executionId, cancelSignal);
+        String clusterId = session.getClusterId();
+        String resolvedLanguage = language != null ? language : session.getKind();
 
         SparkExecutionHistory history = new SparkExecutionHistory();
         history.setId(executionId);
         history.setSessionId(sessionId);
         history.setUsername(username);
         history.setClusterId(session.getClusterId());
-        history.setLanguage(language != null ? language : session.getKind());
+        history.setLanguage(resolvedLanguage);
         history.setCode(code);
         history.setStatus("QUEUED");
         history.setCreatedAt(Instant.now());
@@ -152,18 +157,22 @@ public class SparkSessionManager {
         session.setStatus("busy");
         sessionRepository.save(session);
 
-        executor.submit(() -> runExecutionTask(executionId, sessionId, code, language, username, cancelSignal));
+        executor.submit(() -> runExecutionTask(executionId, sessionId, clusterId, resolvedLanguage,
+                code, language, username, cancelSignal));
         return executionId;
     }
 
     private void runExecutionTask(
             String executionId,
             String sessionId,
+            String clusterId,
+            String metricLanguage,
             String code,
             String language,
             String username,
             AtomicBoolean cancelSignal
     ) {
+        long startNanos = System.nanoTime();
         try {
             historyRepository.findById(executionId).ifPresent(h -> {
                 h.setStatus("RUNNING");
@@ -210,8 +219,10 @@ public class SparkSessionManager {
                 s.setLastActivityAt(Instant.now());
                 sessionRepository.save(s);
             });
+            sparkMetrics.recordStatement(clusterId, metricLanguage, result.status(), System.nanoTime() - startNanos);
         } catch (Exception e) {
             log.error("Ошибка исполнения кода {}: {}", executionId, e.getMessage(), e);
+            sparkMetrics.recordStatement(clusterId, metricLanguage, "FAILED", System.nanoTime() - startNanos);
             activeExecutions.remove(executionId);
             historyRepository.findById(executionId).ifPresent(h -> {
                 h.setStatus("FAILED");
@@ -325,7 +336,7 @@ public class SparkSessionManager {
                             "execution_time_ms", h.getExecutionTimeMs(),
                             "logs", h.getLogs() != null ? h.getLogs() : ""
                     ))));
-                } catch (IOException ignored) {}
+                } catch (IOException | IllegalStateException ignored) {}
             }
         });
 
@@ -347,9 +358,20 @@ public class SparkSessionManager {
         for (SseEmitter emitter : list) {
             try {
                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(event)));
-            } catch (IOException e) {
-                emitter.complete();
+            } catch (IOException | IllegalStateException e) {
+                // IllegalStateException: the emitter has already completed; a delivery failure must not fail the statement
+                log.debug("SSE delivery failed, dropping emitter: {}", e.getMessage());
+                dropEmitter(list, emitter);
             }
+        }
+    }
+
+    private void dropEmitter(List<SseEmitter> list, SseEmitter emitter) {
+        list.remove(emitter);
+        try {
+            emitter.complete();
+        } catch (RuntimeException ignored) {
+            // already completed
         }
     }
 

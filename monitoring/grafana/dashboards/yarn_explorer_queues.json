@@ -11,45 +11,86 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
-      "title": "YARN Queues & Allocation Overview",
+      "title": "YARN Explorer: Change Requests и API",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "fillOpacity": 15, "lineWidth": 2 },
-          "unit": "short"
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "unit": "s"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
-      "id": 1,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "expr": "sum(yarn_queues_active_gauge) by (cluster, state)",
-          "legendFormat": "{{cluster}} - {{state}}",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{app=\"yarn\", uri!~\"/actuator/.*\"}[5m])) by (le, uri))",
+          "legendFormat": "{{uri}}",
           "refId": "A"
         }
       ],
-      "title": "Active YARN Queues by Cluster & State",
+      "title": "YARN Explorer API: задержка p95 по URI",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "fillOpacity": 20, "lineWidth": 2 },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
           "unit": "reqps"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "id": 2,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
           "expr": "sum(rate(yarn_change_requests_total[5m])) by (cluster, status)",
@@ -57,46 +98,25 @@
           "refId": "A"
         }
       ],
-      "title": "Capacity Change Requests Rate",
+      "title": "Переходы заявок Change Request по статусам",
       "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
-      "id": 101,
-      "title": "Circuit Breaker & ResourceManager HA Status",
-      "type": "row"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "options": { "0": { "color": "green", "text": "CLOSED (Normal)" }, "1": { "color": "orange", "text": "HALF-OPEN" }, "2": { "color": "red", "text": "OPEN (Tripped)" } }, "type": "value" }
-          ],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 2 }] }
-        }
-      },
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 10 },
-      "id": 3,
-      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [
-        {
-          "expr": "hadoop_circuit_breaker_state",
-          "legendFormat": "{{name}}",
-          "refId": "A"
-        }
-      ],
-      "title": "YARN ResourceManagers Circuit Breakers State",
-      "type": "stat"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": ["hadoop", "yarn", "capacity-scheduler"],
-  "templating": { "list": [] },
-  "time": { "from": "now-30m", "to": "now" },
-  "title": "YARN Explorer - Queues & Scheduler Health",
+  "tags": [
+    "hadoop",
+    "yarn",
+    "capacity-scheduler"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "title": "YARN Explorer - Change Requests & API",
   "uid": "yarn_explorer_queues",
-  "version": 1
+  "version": 2
 }

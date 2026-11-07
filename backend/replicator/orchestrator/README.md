@@ -188,7 +188,7 @@ make test-java
 |---|---|---|---|
 | `GET` | `/health`, `/healthz` | Проверка жизнеспособности сервиса | Публичный |
 | `GET` | `/api/v1/health` | То же, что `/health` | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`) |
-| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`) |
+| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`); либо HTTP Basic `prometheus:<token>`, если задан `hadoop.replicator.metrics-scrape-token` (`REPLICATOR_METRICS_SCRAPE_TOKEN`; пусто — Basic выключен) |
 | `GET` | `/actuator/prometheus`, `/actuator/health`, `/actuator/info` | Эндпоинты Spring Boot Actuator | Публичный |
 | `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator. В профиле `prod` не публикуется (`management.endpoints.web.exposure.include: health,info,prometheus`) | Роль `ADMIN` |
 | `POST` | `/api/v1/auth/login` | Аутентификация пользователя (JWT Cookie) | Публичный |

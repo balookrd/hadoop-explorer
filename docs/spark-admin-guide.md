@@ -30,7 +30,7 @@ Spark Explorer — веб-среда для запуска вычислений 
 
 - Проверка доступности (healthcheck): `GET /healthz`
 - Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
-- Метрики Prometheus сервис не экспортирует, см. [4.1](#41-метрики-prometheus-get-metrics).
+- Метрики Prometheus: `GET /actuator/prometheus`, см. [4.1](#41-метрики-prometheus-get-actuatorprometheus).
 
 ### 1.3 Системные требования
 
@@ -396,8 +396,30 @@ networks:
 
 ## 4. Мониторинг и диагностика
 
-### 4.1 Метрики Prometheus (`GET /metrics`)
-Сервис не экспортирует метрики Prometheus: в `backend/spark` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
+### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения `8004`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+
+| Метрика | Тип | Лейблы | Что считает |
+|---|---|---|---|
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="spark"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="spark"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время выполнения инструкции от старта задачи до конечного статуса (без времени ожидания в очереди до старта задачи). `cluster` — `id` кластера сессии; `language` — язык инструкции, а если он не указан, вид сессии (`pyspark`, `spark`, `sql`). `status`: `FINISHED`, `CANCELLED`, `FAILED`. Бакеты 0,1 с – 5 мин |
+| `spark_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии в статусе, отличном от `dead` и `killed`, по записям в БД сервиса. Значение обновляется раз в 30 с одним запросом `GROUP BY`, поэтому отстает от интерфейса до 30 с; ряды кластеров и видов без сессий исчезают из вывода. Значение общее для всех экземпляров на одной БД: при N экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
+| `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
+
+Внимание: инструкции выполняет `LivyClient.getMockEngine()` (`SparkSessionManager.runExecutionTask`), поэтому `spark_statement_duration_seconds` показывает время mock-движка, а не Livy.
+
+Код инструкции, имена пользователей и идентификаторы сессий в лейблы не попадают. Значения `language` и `kind` приводятся к нижнему регистру и ограничены списком `pyspark`, `spark`, `scalaspark`, `scala`, `sparkr`, `sql`: пустое значение превращается в `unknown`, любое другое — в `other` (для `spark_sessions_active` серии `other` суммируются). Кроме перечисленных публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
+
+Проверка на демо-стенде:
+
+```bash
+curl -s http://localhost:8004/actuator/prometheus | grep -E '^spark_(sessions_active|statement_duration_seconds_count)'
+```
+
+После выполнения инструкции в выводе есть строка вида `spark_statement_duration_seconds_count{app="spark",cluster="<cluster_id>",language="pyspark",status="FINISHED"} 1.0`. Через 30 с после создания сессии появляется `spark_sessions_active{app="spark",cluster="<cluster_id>",kind="pyspark"} 1.0`; `<cluster_id>` — идентификатор кластера из конфигурации Spark Explorer.
+
+Сбор метрик Prometheus и дашборд `spark_sql_explorer_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Типовые ошибки
 

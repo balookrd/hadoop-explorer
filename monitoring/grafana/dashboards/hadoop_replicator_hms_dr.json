@@ -260,7 +260,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_hms_jobs_total{status=\"STREAMING\"}",
+          "expr": "replicator_hms_jobs_total{status=\"ACTIVE\"}",
           "legendFormat": "CDC Streaming",
           "range": true,
           "refId": "A"

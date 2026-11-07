@@ -125,6 +125,9 @@ hadoop:
     # Секрет агента задается только окружением: зашитое значение было бы единым
     # публично известным ключом для всех установок.
     agent-secret: "${REPLICATOR_AGENT_SECRET:}"
+    # Prometheus scrape credential for GET /metrics (HTTP Basic prometheus:<token>).
+    # Environment only, like the agent secret; empty disables Basic access to metrics.
+    metrics-scrape-token: "${REPLICATOR_METRICS_SCRAPE_TOKEN:}"
     enforce-cluster-whitelist: ${HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST:true}
     agent-heartbeat-timeout-seconds: 15
     agent-offline-timeout-seconds: 45

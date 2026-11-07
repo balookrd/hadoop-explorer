@@ -140,9 +140,10 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 ## 4. Отказоустойчивость (Resilience Core)
 
 ### 4.1 Метрики Prometheus
-- YARN, HDFS, SQL и Spark Explorer подключают `spring-boot-starter-actuator`, но без `micrometer-registry-prometheus` и без `management.endpoints.web.exposure`: эндпоинта с метриками Prometheus у них нет, наружу открыт только `/actuator/health`.
-- Метрики Prometheus отдает только оркестратор Replicator (`micrometer-registry-prometheus`): `/actuator/prometheus` и `/metrics` (`ReplicatorMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ReplicatorMetricsService`, см. 7.2).
-- Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml). Панели дашбордов YARN, HDFS, SQL и Spark и HTTP-панели `hadoop_explorer_overview.json` ссылаются на метрики (`http_requests_total`, `hadoop_circuit_breaker_state`, `hdfs_operations_total` и др.), которые эти сервисы не публикуют: такие панели пустые или показывают 0 (`or vector(0)`).
+- YARN, HDFS, SQL и Spark Explorer подключают `micrometer-registry-prometheus` и публикуют `/actuator/prometheus` (`management.endpoints.web.exposure.include: health,prometheus`); у всех метрик есть лейбл `app` (`management.metrics.tags.app`). Бизнес-метрики: `MeteredHdfsClient` (HDFS), `ChangeRequestMetrics` (YARN), `SqlQueryMetrics` (SQL), `SparkMetrics` (Spark). Стартер считает ответы 429 `RateLimitFilter` в `hadoop_rate_limit_blocks_total{tier}` (`login`, `api`).
+- `common-security-starter` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Replicator.
+- Оркестратор Replicator отдает `/actuator/prometheus` и `/metrics` (`ReplicatorMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ReplicatorMetricsService`, см. 7.2). `/metrics` требует аутентификации.
+- Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml), описание метрик — в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Circuit Breaker
 - В стартере есть класс `SimpleCircuitBreaker` (`org.apache.hadoop.explorer.common.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
@@ -419,18 +420,17 @@ SQL и Spark Explorer отправляют обновления по Server-Sent
 - Стандартный health-протокол (`grpc.health.v1.Health`): статус выставляется по серверу в целом и по подсистемам отдельно, а при остановке переводится в терминальное состояние до закрытия порта. Проба освобождена от `x-agent-secret` (оркестратор контейнеров секрета агента не знает), остальные вызовы остаются закрытыми. HEALTHCHECK контейнера агента выполняется классом `GrpcHealthProbeMain` из того же jar-а и заменил прежнюю проверку открытого TCP-порта, которую проходил агент с остановленным приемником.
 
 ### 7.2 Метрики Prometheus по сервисам и дашборды Grafana
-YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикуют (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ReplicatorMetricsService.renderReplicatorPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
+YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ReplicatorMetricsService.renderReplicatorPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
 - `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
-  - `hadoop_explorer_overview.json` — состояние и HTTP golden signals всех 5 сервисов платформы.
+  - `hadoop_explorer_overview.json` — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
   - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
   - `hadoop_replicator_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
   - `hadoop_replicator_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
   - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и отказы.
-  - `yarn_explorer_queues.json` — Capacity Scheduler, загрузка очередей и состояние Circuit Breaker.
+  - `yarn_explorer_queues.json` — переходы заявок Change Request и задержка API YARN Explorer.
   - `spark_sql_explorer_analytics.json` — интерактивная аналитика Livy Spark и запросы Trino/Hive.
   - `hadoop_replicator_kafka.json` — репликация топиков Kafka.
-  - Дашборды `hadoop_explorer_overview.json` (HTTP-панели), `hdfs_explorer_operations.json`, `yarn_explorer_queues.json` и `spark_sql_explorer_analytics.json` построены на метриках, которые сервисы не публикуют (см. 4.1).
 
 ---
 
@@ -469,7 +469,7 @@ YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикую�
    - JSON в логах есть только у записей аудита (`AUDIT_EVENT: {...}`, см. 3.4).
 3. Пробы, метрики и остановка:
    - Liveness-проба `/healthz` (`HealthController`, ответ 200 без проверки зависимостей) и readiness-проба `/actuator/health/readiness` (группа readiness Spring Boot Actuator: 503 до `ApplicationReadyEvent` и с начала остановки контекста). Доступность БД и хранилища сессий пробы не проверяют.
-   - Метрики Prometheus (`/metrics`, `/actuator/prometheus`) отдает только оркестратор Replicator (см. 4.1).
+   - Метрики Prometheus: `/actuator/prometheus` у YARN, HDFS, SQL и Spark Explorer, `/metrics` и `/actuator/prometheus` у оркестратора Replicator (см. 4.1).
    - Graceful shutdown не настроен (см. 4.5): по SIGTERM выполняющиеся HTTP-запросы обрываются.
 4. Демо-стенды (`demo/`):
    - Отдельный стенд на каждый сервис и общий стенд `demo/all` с общими контейнерами OpenLDAP, MIT Kerberos KDC, Prometheus и Grafana.

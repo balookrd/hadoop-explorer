@@ -31,6 +31,7 @@ public class ReplicatorOrchestratorApplication {
         HttpSecurity http,
         CommonAuthFilter authFilter,
         org.apache.hadoop.explorer.replicator.orchestrator.security.AgentSecretAuthenticationFilter agentSecretFilter,
+        org.apache.hadoop.explorer.replicator.orchestrator.security.MetricsScrapeAuthenticationFilter metricsScrapeFilter,
         CommonSecurityErrorHandlers errorHandlers,
         CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
@@ -74,6 +75,7 @@ public class ReplicatorOrchestratorApplication {
                 .anyRequest().authenticated()
             )
             .addFilterBefore(agentSecretFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(metricsScrapeFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

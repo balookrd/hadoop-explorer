@@ -2,6 +2,7 @@ package org.apache.hadoop.explorer.spark;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.explorer.spark.dto.*;
+import org.apache.hadoop.explorer.spark.service.SparkMetrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -28,6 +30,9 @@ class SparkIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private SparkMetrics sparkMetrics;
+
     @Test
     void probeEndpointsAreServedWithoutAuth() throws Exception {
         // Liveness probe -> /healthz, readiness probe -> /actuator/health/readiness
@@ -36,6 +41,9 @@ class SparkIntegrationTest {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("UP")));
+        // Prometheus scrapes without credentials
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -173,5 +181,51 @@ class SparkIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username", is("data_engineer")))
                 .andExpect(jsonPath("$.state.notebookContent", is("# Hello Spark")));
+    }
+
+    @Test
+    @WithMockUser(username = "data_engineer", roles = {"USER"})
+    void prometheusEndpointExposesSessionAndStatementMetrics() throws Exception {
+        CreateSessionRequest createReq = new CreateSessionRequest(
+                "prod-analytics", "spark-3.5.1", "hive-prod", "root.analytics", "small", "pyspark", "py310",
+                null, null, List.of(), List.of(), List.of(), Map.of()
+        );
+        MvcResult sessResult = mockMvc.perform(post("/api/v1/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createReq)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String sessionId = objectMapper.readValue(sessResult.getResponse().getContentAsString(), SessionResponse.class).id();
+
+        ExecuteCodeRequest codeReq = new ExecuteCodeRequest(sessionId, "df = spark.table('customers')\ndf.show()", "pyspark");
+        mockMvc.perform(post("/api/v1/statements/execute")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(codeReq)))
+                .andExpect(status().isOk());
+
+        // The statement runs on an executor thread; wait until its terminal status is recorded
+        scrapeUntilContains(
+                "spark_statement_duration_seconds_count{app=\"spark\",cluster=\"prod-analytics\",language=\"pyspark\",status=\"FINISHED\"}");
+
+        // The gauge is refreshed every 30 s by the scheduler; refresh now instead of waiting
+        sparkMetrics.refreshActiveSessions();
+        String body = scrapeUntilContains("spark_sessions_active{app=\"spark\",cluster=\"prod-analytics\",kind=\"pyspark\"}");
+
+        assertTrue(body.contains("http_server_requests_seconds_count{app=\"spark\""),
+                "HTTP server metrics must carry app=spark");
+    }
+
+    private String scrapeUntilContains(String series) throws Exception {
+        String body = "";
+        for (int attempt = 0; attempt < 50; attempt++) {
+            body = mockMvc.perform(get("/actuator/prometheus"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            if (body.contains(series)) {
+                return body;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Series not found in /actuator/prometheus after 5 s: " + series + "\n" + body);
     }
 }

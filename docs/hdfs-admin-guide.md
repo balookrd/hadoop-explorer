@@ -30,7 +30,7 @@ HDFS Explorer — веб-менеджер файлов Apache Hadoop HDFS:
 | `88` | TCP/UDP | Outbound | Kerberos Key Distribution Center (KDC) |
 
 - Проверка доступности (healthcheck): `GET /health` или `GET /healthz`.
-- Метрики Spring Boot: `GET /actuator/prometheus` (при включенном Actuator).
+- Метрики Prometheus: `GET /actuator/prometheus`, см. [4.1](#41-метрики-prometheus-get-actuatorprometheus).
 
 ### 1.3 Системные требования
 
@@ -383,8 +383,30 @@ docker compose logs -f hdfs-explorer
 
 ## 4. Мониторинг и диагностика
 
-### 4.1 Метрики Prometheus (`GET /metrics`)
-Сервис не экспортирует метрики Prometheus: в `backend/hdfs` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404. Задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) и дашборд `monitoring/grafana/dashboards/hdfs_explorer_operations.json` данных от сервиса не получат.
+### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения, в контейнере `8000`, в демо-стенде `http://localhost:8002`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+
+| Метрика | Тип | Лейблы | Что считает |
+|---|---|---|---|
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="hdfs"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="hdfs"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `hdfs_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS. `operation`: `list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`. `status`: `success` или `failed` (вызов завершился исключением) |
+| `hdfs_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | `download` — байты, прочитанные из HDFS (скачивание, предпросмотр, источник межкластерного копирования); `upload` — байты, записанные в HDFS (загрузка, распаковка архива, приемник копирования) |
+| `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
+
+Кроме них публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
+
+Ограничение: предпросмотр ORC и Parquet на кластере с `NativeHdfsClient` читает файл через `FileSystem` напрямую (`FilePreviewService.preview`) и в `hdfs_operations_total` и `hdfs_bytes_transferred_total` не попадает.
+
+Проверка на демо-стенде:
+
+```bash
+curl -s http://localhost:8002/actuator/prometheus | grep '^hdfs_operations_total'
+```
+
+После открытия каталога в интерфейсе в выводе есть строка вида `hdfs_operations_total{app="hdfs",cluster="<cluster_id>",operation="list_status",status="success"} 1.0`, где `<cluster_id>` — идентификатор кластера из `hadoop.hdfs.clusters`.
+
+Сбор метрик Prometheus и дашборд `hdfs_explorer_operations.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Известные проблемы
 

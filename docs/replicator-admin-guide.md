@@ -1758,9 +1758,26 @@ spec:
 
 > [!IMPORTANT]
 > Эндпоинт требует аутентификации: анонимный доступ к `/metrics` закрыт, потому что состав
-> метрик раскрывает топологию ЦОД, имена кластеров и объемы передач. Сборщик Prometheus
-> настраивается с теми же учетными данными, что и остальной REST API (см. 1.4.1), либо
-> запрашивает `/actuator/prometheus` через сервисную учетную запись.
+> метрик раскрывает топологию ЦОД, имена кластеров и объемы передач, а каждый опрос читает БД.
+> Для Prometheus задайте оркестратору `REPLICATOR_METRICS_SCRAPE_TOKEN`
+> (`hadoop.replicator.metrics-scrape-token`) и настройте в задании скрейпа HTTP Basic с
+> пользователем `prometheus` и этим токеном. Учетка принимается только на `GET /metrics` и не
+> дает доступа к REST API. Пока токен не задан, Basic-доступ выключен. `/actuator/prometheus`
+> открыт без аутентификации, но содержит только метрики Micrometer, без `replicator_*` и `kafka_*`.
+
+Токен сгенерируйте командой `openssl rand -hex 32` и запишите в файл, который читает Prometheus:
+
+```yaml
+  - job_name: 'hadoop-replicator'
+    metrics_path: '/metrics'
+    basic_auth:
+      username: 'prometheus'
+      password_file: '/etc/prometheus/secrets/replicator-metrics-scrape-token'
+    static_configs:
+      - targets: ['orchestrator:8005']
+```
+
+Проверка: `curl -s -u "prometheus:$REPLICATOR_METRICS_SCRAPE_TOKEN" http://orchestrator:8005/metrics | grep -c '^replicator_'` выводит число больше нуля; с неверным токеном `curl -s -o /dev/null -w '%{http_code}' -u prometheus:wrong http://orchestrator:8005/metrics` выводит `401`.
 
 Оркестратор экспортирует метрики передачи данных, пула задач, очередей, token bucket, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
@@ -1768,7 +1785,7 @@ spec:
 - `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байтов данных.
 - `replicator_active_workers` — количество зарегистрированных активных воркеров в пуле.
 - `replicator_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации.
-- `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска.
+- `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами `QUEUED`–`FAILED`: распределение по статусам считайте по `replicator_jobs_total{mode=""}`, по режимам запуска — по `replicator_jobs_total{mode!=""}`. Метрика — gauge, `rate()` к ней не применяется.
 - `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых подзадач распределенного пула передачи.
 - `replicator_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
 - `replicator_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket.
@@ -1784,7 +1801,7 @@ spec:
 - `replicator_dr_reverse_jobs_total{status="RUNNING|COMPLETED"}` — количество задач обратной репликации при аварийном переключении Failover.
 
 #### Метрики флота gRPC-агентов (Fleet Telemetry)
-- `replicator_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline"}` — статус доступности агента (`1` при совпадении статуса, `0` в противном случае).
+- `replicator_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline|stale"}` — статус доступности агента: `1` для `online`, `0` для `offline` и `stale`. Недоступные агенты считает `count(replicator_agent_status == 0)`.
 - `replicator_agent_active_transfers{agent_id="...", cluster_id="...", mode="..."}` — текущее количество активных рабочих передач у агента.
 - `replicator_agent_transferred_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии).
 - `replicator_agent_errors_total{agent_id="...", cluster_id="..."}` — суммарное число ошибок передачи файлов на стороне агента.
@@ -1818,7 +1835,7 @@ spec:
 - Сетевой поток и пропускная способность: динамика сетевой скорости WAN (MB/s) и кумулятивный объем переданных данных во времени.
 - Иерархический шейпинг token bucket: задержки воркеров из-за исчерпания квот полосы на уровнях WAN, ЦОД и HDFS.
 - Жизненный цикл задач и планировщик: круговые диаграммы статусов заданий (Job Statuses), режимов запуска (Manual vs Scheduled Cron), распределения пофайловых задач (File Tasks) и статусов HMS-репликации.
-- Размеры файлов и системные ресурсы: распределение размеров файлов, потребление CPU и памяти (RSS) оркестратором.
+- Размеры файлов и системные ресурсы: распределение размеров файлов, загрузка CPU процессом оркестратора (`process_cpu_usage`) и занятая память JVM (`jvm_memory_used_bytes`, сумма по пулам; это не RSS процесса).
 
 #### 2. Флот агентов и воркеры передачи данных (`hadoop_replicator_agents.json`)
 Файл: [`monitoring/grafana/dashboards/hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):

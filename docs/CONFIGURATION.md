@@ -980,6 +980,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `SPRING_DATASOURCE_URL` | Строка подключения JDBC к БД Оркестратора (H2/PostgreSQL) | `jdbc:h2:mem:replicator` |
 | `HADOOP_REPLICATOR_AGENT_SECRET` / `REPLICATOR_AGENT_SECRET` | Общий секрет аутентификации агентов (`x-agent-secret` в метаданных gRPC), не короче 16 символов | Не задан; без него оркестратор не стартует при `enforce-agent-secret: true` |
 | `HADOOP_REPLICATOR_ENFORCE_AGENT_SECRET` | Запрет запуска оркестратора без секрета агентов (fail-closed) | `true` (`ReplicatorProperties`) |
+| `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) | Пароль HTTP Basic для сборщика метрик: `prometheus:<token>` на `GET /metrics`; на остальные пути не действует | Пусто: Basic-доступ выключен, `/metrics` доступен только аутентифицированному пользователю |
 | `HADOOP_REPLICATOR_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 | `true` |
 | `HADOOP_REPLICATOR_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `false` |
 | `HADOOP_REPLICATOR_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` |
@@ -1024,23 +1025,70 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ## 9. Мониторинг Prometheus и дашборды Grafana
 
-Все сервисы платформы отдают метрики в формате OpenMetrics / Prometheus.
+### 9.1 Эндпоинты метрик и доступ
 
-### 9.1 Экспортируемые метрики
+| Сервис | Эндпоинт | Порт в контейнере | Доступ | Содержимое |
+|---|---|---|---|---|
+| YARN Explorer | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `yarn_change_requests_total` |
+| HDFS Explorer | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
+| SQL Explorer | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `sql_query_duration_seconds` |
+| Spark Explorer | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
+| Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
+| Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `replicator_*`, `kafka_*` |
+
+`<scrape_token>` — значение `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
+
+Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Spark Explorer возвращает 404.
+
+Доступ к Actuator в YARN, HDFS, SQL и Spark Explorer задает `CommonSecurityAutoConfiguration.securityFilterChain` (`common-security-starter`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
+
+Внимание: `/actuator/prometheus` отдается без аутентификации. Метрики не содержат имен пользователей, путей HDFS и текстов запросов, но раскрывают идентификаторы кластеров, шаблоны URI API и объем трафика. Если сервис опубликован наружу через обратный прокси или балансировщик, закройте на нем этот путь или разрешите его только адресу Prometheus. Пример для nginx:
+
+```nginx
+location = /actuator/prometheus {
+    allow <prometheus_ip>;
+    deny all;
+    proxy_pass http://<upstream>;
+}
+```
+
+`<prometheus_ip>` — адрес, с которого Prometheus опрашивает сервис; без строки `allow` путь закрыт для всех. `<upstream>` — имя `upstream`-блока или адрес сервиса, на который проксируются остальные `location`; без `proxy_pass` разрешенный адрес получит ответ nginx, а не метрики. Проверка: `curl -s -o /dev/null -w '%{http_code}' https://<public_host>/actuator/prometheus` с внешнего адреса возвращает `403`, где `<public_host>` — внешнее имя сервиса.
+
+Настройки в `src/main/resources/application.yml` каждого сервиса:
+
+| Параметр | Значение | Что делает | Когда менять |
+|---|---|---|---|
+| `management.endpoints.web.exposure.include` | `health,prometheus` | Публикует по HTTP только health и Prometheus | Не расширять без необходимости: остальные эндпоинты открываются только ADMIN, но `env` и `configprops` показывают конфигурацию |
+| `management.prometheus.metrics.export.enabled` | `true` | Создает `PrometheusMeterRegistry`. Задан явно: `@SpringBootTest` по умолчанию отключает экспорт метрик | Не менять |
+| `management.metrics.tags.app` | `yarn`, `hdfs`, `sql`, `spark` | Лейбл `app` у всех метрик сервиса; по нему фильтрует переменная `$app` дашборда `hadoop-explorer-overview` и группируют алерты | Не менять; для нескольких инсталляций в одном Prometheus добавьте лейбл через `relabel_configs` |
+| `management.metrics.distribution.slo.http.server.requests` | `50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s` | Границы бакетов `http_server_requests_seconds_bucket` | Если p95 API выходит за 30 с или нужна точность лучше 50 мс. Каждая граница добавляет серию на каждую комбинацию `uri`/`method`/`status` |
+
+### 9.2 Экспортируемые метрики
+
+YARN, HDFS, SQL и Spark Explorer:
+
+| Метрика | Тип | Лейблы | Что считает |
+|---|---|---|---|
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC, для неизвестных путей `UNKNOWN` |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`) и смысла не несут | Запросы в обработке на момент опроса: `_count` — их число, включая сам запрос к `/actuator/prometheus`; `_sum` и `_max` — сколько секунд они уже выполняются |
+| `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы `/api/*`, отклоненные `RateLimitFilter` ответом 429. `tier`: `login` (пути `/api/v1/auth/login` и `/api/v1/auth/sso`) или `api` (остальные пути `/api/*`). Серия появляется после первого отказа на уровне. Алерты: `HadoopLoginRateLimitSpike` (`login`, больше 0,2 отказа/с за 5 мин) и `HadoopApiRateLimitSpike` (`api`, больше 1 отказа/с) |
+| `hdfs_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS (`list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`), `status`: `success`, `failed` |
+| `hdfs_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
+| `yarn_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
+| `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
+| `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
+| `spark_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
+
+Плюс стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.). Подробности по каждому сервису — в разделе 4.1 руководств администратора: [YARN](yarn-admin-guide.md), [HDFS](hdfs-admin-guide.md), [SQL](sql-admin-guide.md), [Spark](spark-admin-guide.md).
+
+Метрик `hadoop_circuit_breaker_*`, `hadoop_retry_attempts_total`, `hadoop_auth_attempts_total` и `hadoop_exceptions_total` нет: `SimpleCircuitBreaker` из `common-security-starter` сервисы не вызывают, повторы, попытки входа и исключения отдельными счетчиками не считаются. Входы и ответы 5xx считаются по `http_server_requests_seconds_count` (см. 9.6).
+
+Оркестратор Replicator (`GET /metrics`):
 
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
-| `http_requests_total` | Counter | `app`, `method`, `path`, `status` | Количество входящих HTTP-запросов (с нормализацией путей) |
-| `http_request_duration_seconds` | Histogram | `app`, `method`, `path`, `le` | Задержка обработки запросов (бакеты от 5ms до 10s) |
-| `http_requests_in_progress` | Gauge | `app` | Число одновременных запросов в обработке (concurrency) |
-| `hadoop_circuit_breaker_state` | Gauge | `name` | Текущий статус Circuit Breaker: `0=CLOSED`, `1=HALF_OPEN`, `2=OPEN` |
-| `hadoop_circuit_breaker_calls_total` | Counter | `name`, `status` | Вызовы Circuit Breaker со статусами `success`, `failed`, `rejected` |
-| `hadoop_retry_attempts_total` | Counter | `app`, `operation`, `status` | Срабатывания механизма повторов (`retry`, `exhausted`, `success`) |
-| `hadoop_auth_attempts_total` | Counter | `app`, `provider`, `status` | Попытки аутентификации (`ldap`, `kerberos`, `mock`) и результат |
-| `hadoop_rate_limit_blocks_total` | Counter | `app` | Блокировки по Rate Limiter (HTTP 429) |
-| `hadoop_exceptions_total` | Counter | `app`, `exception_type` | Непредвиденные исключения 500 с `incident_id` (CWE-209) |
 | `replicator_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
-| `replicator_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска |
+| `replicator_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами: по статусам суммируйте `{mode=""}`, по режимам — `{mode!=""}` |
 | `replicator_tasks_total` | Gauge | `status` | Количество пофайловых задач в распределенном пуле |
 | `replicator_active_workers` | Gauge | — | Число активных онлайн-воркеров репликации |
 | `replicator_active_agents` | Gauge | `status` | Число доступных агентов репликации (`online`, `total`) |
@@ -1052,55 +1100,65 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `replicator_hms_speed_bytes_per_second` | Gauge | — | Скорость первичной синхронизации HMS |
 | `replicator_dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active) |
 | `replicator_dr_reverse_jobs_total` | Gauge | `status` | Количество задач обратной репликации Failover |
-| `replicator_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
+| `replicator_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность агента: `1` для `status="online"`, `0` для `offline` и `stale` |
 | `replicator_agent_active_transfers` | Gauge | `agent_id`, `cluster_id`, `mode` | Текущее количество параллельных передач на агенте |
 | `replicator_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байтов, переданных агентом |
 | `replicator_agent_errors_total` | Counter | `agent_id`, `cluster_id` | Количество ошибок передачи данных агента |
 | `replicator_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента |
 | `replicator_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с |
 
-### 9.2 Настройка сбора метрик в Prometheus (Scrape Config)
+### 9.3 Настройка сбора метрик в Prometheus
 
 ```yaml
 scrape_configs:
   - job_name: 'hadoop-explorer'
+    metrics_path: '/actuator/prometheus'
     scrape_interval: 15s
-    metrics_path: '/metrics'
     static_configs:
       - targets:
           - 'yarn-explorer:8000'
           - 'hdfs-explorer:8000'
           - 'sql-explorer:8003'
           - 'spark-explorer:8004'
-          - 'replicator-orchestrator:8005'
 ```
 
-Пример Kubernetes `ServiceMonitor` (Prometheus Operator):
+Готовые конфигурации: [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml) и [`demo/monitoring/prometheus/prometheus.yml`](../demo/monitoring/prometheus/prometheus.yml), правила алертов — в `alert.rules.yml` рядом.
+
+Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="hadoop-explorer"}` возвращает `1` для каждой цели.
+
+Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `REPLICATOR_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/replicator/docker-compose.yml` и `demo/replicator/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/replicator-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
+
+### 9.4 Сбор метрик в Kubernetes
+
+Пример `ServiceMonitor` (Prometheus Operator) для одного сервиса:
+
 ```yaml
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: hadoop-explorer-monitor
+  name: hdfs-explorer
   namespace: hadoop-explorer
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/part-of: hadoop-explorer
+      app.kubernetes.io/name: hdfs-explorer
   endpoints:
     - port: http
-      path: /metrics
-      interval: 15s
+      path: /actuator/prometheus
+      interval: 30s
 ```
 
-### 9.3 Готовые дашборды Grafana
+`selector.matchLabels` должен совпадать с лейблами вашего Service, а `port` — с именем его порта, который ведет на порт приложения (`8000` для HDFS Explorer). Если в неймспейсе действует NetworkPolicy, разрешите входящие соединения на этот порт из неймспейса Prometheus, иначе цель будет в статусе `DOWN` с ошибкой `context deadline exceeded`.
 
-В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) лежат 5 дашбордов:
+### 9.5 Готовые дашборды Grafana
 
-1. Сводный обзор платформы: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — Golden Signals (RPS, Latency p95/p99, 5xx rate), Circuit Breaker, Retries, безопасность (Auth, Rate Limiting) и общая активность репликации.
-2. Межкластерная репликация: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, задержки иерархического шейпера Token Bucket Throttler, активные gRPC-воркеры, статусы задач (RUNNING, SCHEDULED, QUEUED, COMPLETED) и гистограмма размеров файлов.
-3. Файловые операции HDFS: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, скорость загрузки/скачивания (Upload vs Download), отказы операций.
-4. Очереди YARN: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, запросы на изменение квот, состояние HA ResourceManager.
-5. Аналитика Spark и SQL: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Apache Livy, интерактивные инструкции Spark, запросы Trino и Hive Metastore.
+В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/):
+
+1. [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
+2. [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
+3. [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — переходы заявок Change Request по статусам, p95 API YARN Explorer по URI.
+4. [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
+5. Дашборды Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json), [`hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json), [`hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json), [`hadoop_replicator_kafka.json`](../monitoring/grafana/dashboards/hadoop_replicator_kafka.json).
 
 #### Импорт дашбордов в Grafana
 1. В веб-интерфейсе Grafana перейдите в **Dashboards** → **New** → **Import**.
@@ -1109,23 +1167,37 @@ spec:
 
 Чтобы Grafana загружала дашборды при старте (provisioning), скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
 
-### 9.4 Примеры полезных PromQL запросов
+### 9.6 Примеры PromQL-запросов
 
-- Текущий RPS всей платформы:
+Опрос Prometheus сам попадает в `http_server_requests_seconds` с `uri="/actuator/prometheus"` (раз в `scrape_interval` на каждую цель) и на малом трафике занижает долю 5xx и p95 и завышает RPS, поэтому запросы ниже, панели дашбордов и алерты `HadoopHigh5xxErrorRate` и `HadoopHighApiLatency` исключают его фильтром `uri!~"/actuator/.*"`.
+
+- RPS по сервисам:
   ```promql
-  sum(rate(http_requests_total[1m]))
+  sum(rate(http_server_requests_seconds_count{uri!~"/actuator/.*"}[1m])) by (app)
   ```
-- Процент ошибок 5xx:
+- Доля ответов 5xx, %:
   ```promql
-  (sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m]))) * 100
+  sum(rate(http_server_requests_seconds_count{status=~"5..", uri!~"/actuator/.*"}[5m])) by (app) / sum(rate(http_server_requests_seconds_count{uri!~"/actuator/.*"}[5m])) by (app) * 100
   ```
-- Задержка p95 по сервисам:
+- p95 задержки API:
   ```promql
-  histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le, app))
+  histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~"/actuator/.*"}[5m])) by (le, app))
   ```
-- Алерт на срабатывание Circuit Breaker (кластер недоступен):
+- Неуспешные входы:
   ```promql
-  hadoop_circuit_breaker_state == 2
+  sum(rate(http_server_requests_seconds_count{uri="/api/v1/auth/login", status="401"}[5m])) by (app)
+  ```
+- Ответы 429 ограничителя частоты по уровням:
+  ```promql
+  sum by (app, tier) (rate(hadoop_rate_limit_blocks_total[5m]))
+  ```
+- Активные сессии Spark по кластерам:
+  ```promql
+  max by (cluster) (sum by (instance, cluster) (spark_sessions_active))
+  ```
+- Доля ошибок операций HDFS по кластерам:
+  ```promql
+  sum(rate(hdfs_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(hdfs_operations_total[5m])) by (cluster)
   ```
 
 ---

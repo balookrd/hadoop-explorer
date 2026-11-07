@@ -164,34 +164,28 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 
 | Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ |
 |---|---|---|---|---|
-| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` |
-| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` |
-| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` |
-| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` |
+| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/yarn:latest` |
+| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/hdfs:latest` |
+| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/sql:latest` |
+| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/spark:latest` |
 | Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator-orchestrator:latest`, `hadoop-explorer/replicator-agent:latest` |
 
 ---
 
 ## Метрики Prometheus и дашборды Grafana
 
-Каждый сервис отдает метрики в формате OpenMetrics/Prometheus на `GET /metrics` и `GET /api/v1/metrics`.
+YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuator/prometheus` без аутентификации, оркестратор Replicator — на `GET /metrics` (с аутентификацией).
 
 ### Экспортируемые метрики
 
-HTTP (golden signals):
-- `http_requests_total{app="...", method="...", path="...", status="..."}` — счетчик запросов с нормализацией URI.
-- `http_request_duration_seconds` — гистограмма задержек (p50, p90, p99), бакеты от `5ms` до `10s`.
-- `http_requests_in_progress{app="..."}` — число запросов в обработке.
+- HTTP (все четыре сервиса): `http_server_requests_seconds_count|_bucket{app, method, uri, status, outcome, exception}`, `http_server_requests_active_seconds_count{app}` (запросы в обработке).
+- Ограничитель частоты (все четыре сервиса): `hadoop_rate_limit_blocks_total{app, tier}` — ответы 429, `tier`: `login` или `api`.
+- HDFS: `hdfs_operations_total{cluster, operation, status}`, `hdfs_bytes_transferred_total{cluster, direction}`.
+- YARN: `yarn_change_requests_total{cluster, status}`.
+- SQL: `sql_query_duration_seconds_count|_bucket{cluster, engine, status}`.
+- Spark: `spark_statement_duration_seconds_count|_bucket{cluster, language, status}`, `spark_sessions_active{cluster, kind}`.
 
-Внешние зависимости:
-- `hadoop_circuit_breaker_state{name="..."}` (0=CLOSED, 1=HALF_OPEN, 2=OPEN) — состояние circuit breaker для NameNode, YARN RM, Livy, Trino.
-- `hadoop_circuit_breaker_calls_total{name="...", status="success|failed|rejected"}` — счетчик вызовов через circuit breaker.
-- `hadoop_retry_attempts_total{app="...", operation="...", status="retry|exhausted|success"}` — счетчик повторов с backoff.
-
-Безопасность и ошибки:
-- `hadoop_auth_attempts_total{app="...", provider="ldap|kerberos|mock", status="success|failure"}` — попытки аутентификации.
-- `hadoop_rate_limit_blocks_total{app="..."}` — запросы, отклоненные лимитом частоты (HTTP 429).
-- `hadoop_exceptions_total{app="...", exception_type="..."}` — необработанные ошибки, ответ HTTP 500 без деталей исключения (CWE-209).
+Лейблы, бакеты и доступ описаны в [docs/CONFIGURATION.md, раздел 9](docs/CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### Дашборд Grafana
 

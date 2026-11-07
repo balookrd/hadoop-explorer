@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг платформы Hadoop Explorer: HTTP Golden Signals, Circuit Breaker, Retries, Аутентификация и Ошибки",
+  "description": "Мониторинг платформы Hadoop Explorer: HTTP golden signals сервисов YARN, HDFS, SQL и Spark (Micrometer http_server_requests), входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Hadoop gRPC Replicator",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -169,7 +169,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{app=~\"$app\"}[$interval])) or vector(0)",
+          "expr": "sum(rate(http_server_requests_seconds_count{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) or vector(0)",
           "legendFormat": "RPS",
           "range": true,
           "refId": "A"
@@ -238,7 +238,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "((sum(rate(http_requests_total{app=~\"$app\", status=~\"5..\"}[$interval])) or vector(0)) / (sum(rate(http_requests_total{app=~\"$app\"}[$interval])) or vector(1))) * 100",
+          "expr": "((sum(rate(http_server_requests_seconds_count{app=~\"$app\", status=~\"5..\", uri!~\"/actuator/.*\"}[$interval])) or vector(0)) / (sum(rate(http_server_requests_seconds_count{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) or vector(1))) * 100",
           "legendFormat": "5xx Error %",
           "range": true,
           "refId": "A"
@@ -307,7 +307,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app=~\"$app\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (le))",
           "legendFormat": "p95 Latency",
           "range": true,
           "refId": "A"
@@ -342,7 +342,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 9,
         "x": 15,
         "y": 1
       },
@@ -368,79 +368,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(http_requests_in_progress{app=~\"$app\"}) or vector(0)",
-          "legendFormat": "In Flight",
+          "expr": "sum by (app) (http_server_requests_active_seconds_count{app=~\"$app\"})",
+          "legendFormat": "{{app}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Активные запросы (In-Flight)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 19,
-        "y": 1
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "count(hadoop_circuit_breaker_state == 2) or vector(0)",
-          "legendFormat": "Open CBs",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Открытые Circuit Breakers",
-      "type": "stat"
+      "title": "Запросы в обработке по сервисам",
+      "type": "stat",
+      "description": "http_server_requests_active_seconds_count: запросы, которые выполняются в момент опроса, включая сам запрос Prometheus к /actuator/prometheus (поэтому минимум 1 на экземпляр)"
     },
     {
       "collapsed": false,
@@ -498,7 +434,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{app=~\"$app\"}[$interval])) by (app)",
+          "expr": "sum(rate(http_server_requests_seconds_count{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (app)",
           "legendFormat": "{{app}}",
           "range": true,
           "refId": "A"
@@ -598,7 +534,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{app=~\"$app\"}[$interval])) by (status)",
+          "expr": "sum(rate(http_server_requests_seconds_count{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (status)",
           "legendFormat": "HTTP {{status}}",
           "range": true,
           "refId": "A"
@@ -647,7 +583,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{app=~\"$app\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (le))",
           "legendFormat": "p50 (Медиана)",
           "range": true,
           "refId": "A"
@@ -658,7 +594,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{app=~\"$app\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(http_server_requests_seconds_bucket{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (le))",
           "legendFormat": "p90",
           "range": true,
           "refId": "B"
@@ -669,7 +605,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{app=~\"$app\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (le))",
           "legendFormat": "p99",
           "range": true,
           "refId": "C"
@@ -716,8 +652,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "topk(5, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app=~\"$app\"}[$interval])) by (le, path)))",
-          "legendFormat": "{{path}}",
+          "expr": "topk(5, histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{app=~\"$app\", uri!~\"/actuator/.*\"}[$interval])) by (le, uri)))",
+          "legendFormat": "{{uri}}",
           "range": true,
           "refId": "A"
         }
@@ -732,201 +668,6 @@
         "w": 24,
         "x": 0,
         "y": 20
-      },
-      "id": 102,
-      "title": "🛡️ Отказоустойчивость (Circuit Breakers & Retries)",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "CLOSED (OK)"
-                },
-                "1": {
-                  "color": "yellow",
-                  "index": 1,
-                  "text": "HALF_OPEN"
-                },
-                "2": {
-                  "color": "red",
-                  "index": 2,
-                  "text": "OPEN (TRIPPED)"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 2
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 0,
-        "y": 21
-      },
-      "id": 10,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "hadoop_circuit_breaker_state",
-          "legendFormat": "{{name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Текущие статусы Circuit Breakers",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 8,
-        "y": 21
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(hadoop_circuit_breaker_calls_total[$interval])) by (name, status)",
-          "legendFormat": "{{name}} [{{status}}]",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Вызовы Circuit Breakers (Success / Rejected / Failed)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 16,
-        "y": 21
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(hadoop_retry_attempts_total{app=~\"$app\"}[$interval])) by (operation, status)",
-          "legendFormat": "{{operation}} [{{status}}]",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Повторные попытки Retry с Backoff",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 26
       },
       "id": 103,
       "title": "🔑 Безопасность и Ошибки (Security, Auth & Exceptions)",
@@ -951,7 +692,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 27
+        "y": 21
       },
       "id": 13,
       "options": {
@@ -970,14 +711,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(hadoop_auth_attempts_total{app=~\"$app\"}[$interval])) by (provider, status)",
-          "legendFormat": "{{provider}} [{{status}}]",
+          "expr": "sum(rate(http_server_requests_seconds_count{app=~\"$app\", uri=\"/api/v1/auth/login\"}[$interval])) by (app, status)",
+          "legendFormat": "{{app}} [HTTP {{status}}]",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Попытки авторизации (Auth Attempts)",
-      "type": "timeseries"
+      "title": "Входы через /api/v1/auth/login по кодам ответа",
+      "type": "timeseries",
+      "description": "Ответы обработчика входа по кодам. Отказы ограничителя частоты (429) RateLimitFilter отдает до DispatcherServlet, без шаблона маршрута (uri=\"UNKNOWN\"), поэтому на этой панели их нет: смотрите панель «Ответы 429 ограничителя частоты», tier=\"login\""
     },
     {
       "datasource": {
@@ -1014,7 +756,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 27
+        "y": 21
       },
       "id": 14,
       "options": {
@@ -1033,14 +775,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(hadoop_rate_limit_blocks_total{app=~\"$app\"}[$interval])) by (app)",
-          "legendFormat": "429 Block [{{app}}]",
+          "expr": "sum by (app, tier) (rate(hadoop_rate_limit_blocks_total{app=~\"$app\"}[$interval]))",
+          "legendFormat": "{{app}} [{{tier}}]",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Блокировки Rate Limiter (HTTP 429)",
-      "type": "timeseries"
+      "title": "Ответы 429 ограничителя частоты по уровню (login, api)",
+      "type": "timeseries",
+      "description": "hadoop_rate_limit_blocks_total: запросы /api/*, отклоненные RateLimitFilter ответом 429. tier=login — пути /api/v1/auth/login и /api/v1/auth/sso, tier=api — остальные пути /api/*"
     },
     {
       "datasource": {
@@ -1077,7 +820,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 27
+        "y": 21
       },
       "id": 15,
       "options": {
@@ -1096,13 +839,13 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(hadoop_exceptions_total{app=~\"$app\"}[$interval])) by (app, exception_type)",
-          "legendFormat": "{{app}}: {{exception_type}}",
+          "expr": "sum(rate(http_server_requests_seconds_count{app=~\"$app\", status=~\"5..\", uri!~\"/actuator/.*\"}[$interval])) by (app, exception)",
+          "legendFormat": "{{app}}: {{exception}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Непредвиденные исключения 500 (Incident ID Logs)",
+      "title": "Ответы 5xx по классу исключения",
       "type": "timeseries"
     },
     {
@@ -1513,7 +1256,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total)",
+          "expr": "sum by (status) (replicator_jobs_total{mode=\"\"})",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1529,7 +1272,7 @@
   "tags": [
     "hadoop-explorer",
     "prometheus",
-    "fastapi",
+    "micrometer",
     "kubernetes"
   ],
   "templating": {
@@ -1562,7 +1305,7 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(http_requests_total, app)",
+        "definition": "label_values(http_server_requests_seconds_count, app)",
         "hide": 0,
         "includeAll": true,
         "label": "Сервис (App)",
@@ -1570,7 +1313,7 @@
         "name": "app",
         "options": [],
         "query": {
-          "query": "label_values(http_requests_total, app)",
+          "query": "label_values(http_server_requests_seconds_count, app)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -1640,6 +1383,6 @@
   "timezone": "browser",
   "title": "Hadoop Explorer — Platform Overview & Golden Signals",
   "uid": "hadoop-explorer-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

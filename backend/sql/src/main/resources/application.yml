@@ -97,3 +97,20 @@ management:
     health:
       probes:
         enabled: true
+  endpoints:
+    web:
+      exposure:
+        # /actuator/prometheus is public (common-security-starter); nothing else beyond health
+        include: health,prometheus
+  prometheus:
+    metrics:
+      export:
+        # Explicit: @SpringBootTest switches metric exporters off unless they are enabled by name
+        enabled: true
+  metrics:
+    tags:
+      # Label used by monitoring/grafana/dashboards/hadoop_explorer_overview.json ($app)
+      app: sql
+    distribution:
+      slo:
+        http.server.requests: 50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s

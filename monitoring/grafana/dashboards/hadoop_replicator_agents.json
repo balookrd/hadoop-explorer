@@ -264,7 +264,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\", status=~\"offline|stale\"} == 1)",
+          "expr": "count(replicator_agent_status{cluster_id=~\"$cluster\", agent_id=~\"$agent\"} == 0)",
           "legendFormat": "Оффлайн",
           "range": true,
           "refId": "A"

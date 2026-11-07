@@ -20,6 +20,8 @@ services:
       # Единый секрет демо-стенда: control plane и приемники работают в режиме
       # Fail-Closed, поэтому пустое значение отключило бы репликацию целиком.
       HADOOP_REPLICATOR_AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
+      # Prometheus scrape credential for GET /metrics, see demo/monitoring/prometheus/prometheus.yml
+      REPLICATOR_METRICS_SCRAPE_TOKEN: "${DEMO_METRICS_SCRAPE_TOKEN:-demo-replicator-metrics-token-0123456789}"
       SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
       SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.H2Dialect"
       SPRING_JPA_HIBERNATE_DDL_AUTO: "update"

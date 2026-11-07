@@ -8,7 +8,7 @@
 
 | Сервис | Порт | Образ | Назначение | URL интерфейса |
 |---|---|---|---|---|
-| Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов (TSDB) с эндпоинтов `/metrics`, вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
+| Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов с `/actuator/prometheus` (YARN, HDFS, SQL, Spark) и `/metrics` (оркестратор Replicator), вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
 | Grafana | `3000` | `grafana/grafana:10.4.0` | Дашборды с автопровижинингом (анонимный вход с ролью admin, папка `Hadoop Explorer`) | [http://localhost:3000](http://localhost:3000) |
 
 ---
@@ -51,9 +51,9 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 Дашборды монтируются из `monitoring/grafana/dashboards` в папку `Hadoop Explorer`:
 
 1. `hadoop-explorer-overview` — сводка по платформе и golden signals:
-   - Доступность сервисов платформы (YARN, HDFS, SQL, Spark, Replicator).
-   - Скорость запросов (RPS), p95-задержки и процент 5xx ошибок.
-   - Состояние circuit breaker и rate limiter.
+   - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам YARN, HDFS, SQL, Spark.
+   - Входы через `/api/v1/auth/login` по кодам ответа, ответы 429 ограничителя частоты по уровням `login` и `api` (`hadoop_rate_limit_blocks_total`), ответы 5xx по классу исключения.
+   - Сводка Hadoop gRPC Replicator.
 2. `hadoop-replicator-overview` — межкластерная репликация и шейпинг полосы:
    - Скорость репликации данных (MB/s), задержки троттлинга Token Bucket.
    - Статусы пакетных и потоковых задач HDFS.
@@ -67,25 +67,30 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
    - Онлайн-статус воркеров (основной DC1, резервный DC2).
    - Гистограмма задержек передачи gRPC чанков (SLA-бакеты 1 мс – 5 с).
    - Объем staging-буферов и очистка временных файлов.
-6. `hdfs-explorer-operations` — файловые операции WebHDFS:
-   - Операции чтения, записи, удаления и листинга в разрезе кластеров.
-   - Ошибки ввода-вывода и задержки запросов к NameNode и DataNode.
-7. `yarn_explorer_queues` — очереди YARN Capacity Scheduler:
-   - Использование памяти (MB) и vCores по очередям и пулам.
-   - Количество запущенных и ожидающих приложений (Pending/Running Apps).
-8. `spark_sql_explorer_analytics` — интерактивная аналитика Spark и SQL:
-   - Активные Livy-сессии, потребление ресурсов исполнителями Spark.
-   - Запросы к Hive Metastore, Trino и HiveServer2.
+6. `hdfs-explorer-operations` — файловые операции HDFS Explorer:
+   - Темп операций клиента HDFS по методам и кластерам, доля неуспешных операций (`hdfs_operations_total`).
+   - Трафик upload/download по кластерам (`hdfs_bytes_transferred_total`).
+7. `yarn_explorer_queues` — YARN Explorer:
+   - Переходы заявок Change Request по статусам (`yarn_change_requests_total`).
+   - Задержка p95 API YARN Explorer по URI.
+8. `spark_sql_explorer_analytics` — Spark и SQL Explorer:
+   - Активные Livy-сессии и p95 длительности Spark-инструкций.
+   - Темп и p95 длительности SQL-запросов по движкам Trino и Hive.
 
 ---
 
 ## Правила алертов Prometheus
 
 Правила определены в [`prometheus/alert.rules.yml`](prometheus/alert.rules.yml):
-- `HadoopCircuitBreakerOpen` — circuit breaker в состоянии OPEN дольше 30 секунд.
-- `HadoopCircuitBreakerHalfOpen` — circuit breaker в состоянии HALF_OPEN (пробные вызовы).
 - `HadoopHigh5xxErrorRate` — более 5% запросов завершаются ошибками 5xx.
 - `HadoopHighApiLatency` — 95-й перцентиль задержки превышает 2 секунды.
-- `HadoopRateLimitSpike` — более 10 отказов в секунду по лимитам запросов.
+- `HadoopLoginRateLimitSpike` — ограничитель частоты отвечает 429 на `/api/v1/auth/login` и `/api/v1/auth/sso` чаще 0,2 раза в секунду (около 60 отказов за 5 минут) в течение 2 минут.
+- `HadoopApiRateLimitSpike` — ограничитель частоты отвечает 429 на остальные запросы к `/api/*` чаще 1 раза в секунду (среднее за 5 минут) в течение 2 минут.
 - `HdfsOperationsHighFailureRate` — более 10% операций с файлами HDFS завершаются ошибками.
-- `ReplicationHighThrottlingDelay` — суммарная задержка троттлинга Token Bucket растет быстрее 5 секунд в секунду (`rate(throttling_delay_seconds_total[2m]) > 5`) в течение 2 минут.
+- `ReplicationHighThrottlingDelay` — суммарная задержка троттлинга Token Bucket растет быстрее 5 секунд в секунду (`rate(replicator_throttling_delay_seconds_total[2m]) > 5`) в течение 2 минут.
+- `ReplicationJobsHighFailureRate` — более 10% задач репликации HDFS находятся в статусе `FAILED` (отношение значений gauge `replicator_jobs_total`) в течение 2 минут.
+- `ReplicationWorkerStarvation` — `replicator_active_workers` равен 0, а задачи в статусах `RUNNING` или `QUEUED` есть, в течение 2 минут.
+- `KafkaReplicationHighLag` и `KafkaReplicationCriticalLag` — `kafka_current_lag_ms` больше 1000 мс в течение 1 минуты и больше 5000 мс в течение 2 минут.
+- `KafkaReplicationJobPaused` — задача репликации Kafka в статусе `PAUSED` дольше 5 минут.
+
+Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic `prometheus:<токен>`; токен в `prometheus/prometheus.yml` совпадает с `REPLICATOR_METRICS_SCRAPE_TOKEN` в `demo/replicator/docker-compose.yml` и `docker-compose.kafka.yml`. При расхождении цель `hadoop-replicator` в статусе `DOWN` с `server returned HTTP status 401`.

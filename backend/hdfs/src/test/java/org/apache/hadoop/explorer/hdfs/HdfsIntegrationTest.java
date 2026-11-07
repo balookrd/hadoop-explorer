@@ -34,6 +34,32 @@ class HdfsIntegrationTest {
     }
 
     @Test
+    void prometheusEndpointIsPublicAndExposesHttpAndHdfsMetrics() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .content("{\"username\":\"admin\",\"password\":\"secret\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie authCookie = loginResult.getResponse().getCookie("access_token");
+        org.junit.jupiter.api.Assertions.assertNotNull(authCookie, "Auth cookie must not be null");
+
+        mockMvc.perform(get("/api/v1/clusters/dev-cluster/files")
+                .param("path", "/")
+                .cookie(authCookie))
+            .andExpect(status().isOk());
+
+        // Anonymous scrape, as Prometheus does it
+        mockMvc.perform(get("/actuator/prometheus"))
+            .andExpect(status().isOk())
+            .andExpect(content().string(containsString("http_server_requests_seconds_count{app=\"hdfs\"")))
+            .andExpect(content().string(containsString("http_server_requests_seconds_bucket{app=\"hdfs\"")))
+            .andExpect(content().string(containsString("http_server_requests_active_seconds_count{app=\"hdfs\"")))
+            .andExpect(content().string(containsString(
+                "hdfs_operations_total{app=\"hdfs\",cluster=\"dev-cluster\",operation=\"list_status\",status=\"success\"}")));
+    }
+
+    @Test
     void fullHdfsWorkflowTest() throws Exception {
         // 1. Проверка Health
         mockMvc.perform(get("/health"))

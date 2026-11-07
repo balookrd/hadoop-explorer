@@ -6,6 +6,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.exec.vector.*;
 import org.apache.hadoop.explorer.hdfs.client.HdfsFileSystemClient;
+import org.apache.hadoop.explorer.hdfs.client.MeteredHdfsClient;
 import org.apache.hadoop.explorer.hdfs.client.NativeHdfsClient;
 import org.apache.hadoop.explorer.hdfs.dto.file.FilePreviewResponse;
 import org.apache.orc.OrcFile;
@@ -51,7 +52,9 @@ public class FilePreviewService {
         boolean isParquet = ext.equals("parquet") || ext.equals("parq");
 
         if (isOrc || isParquet) {
-            if (client instanceof NativeHdfsClient nativeClient) {
+            // ClusterRegistry wraps every client in MeteredHdfsClient; the columnar fast path needs the native one
+            HdfsFileSystemClient target = client instanceof MeteredHdfsClient metered ? metered.delegate() : client;
+            if (target instanceof NativeHdfsClient nativeClient) {
                 return nativeClient.executeWithFileSystem(username, (fs, conf) -> {
                     Path hdfsPath = new Path(path);
                     if (isOrc) {

@@ -35,10 +35,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final RateLimiterService rateLimiter;
     private final ClientIpResolver clientIpResolver;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    /** Null when nobody listens for blocked requests. */
+    private final RateLimitBlockListener blockListener;
 
     public RateLimitFilter(RateLimiterService rateLimiter, ClientIpResolver clientIpResolver) {
+        this(rateLimiter, clientIpResolver, null);
+    }
+
+    public RateLimitFilter(RateLimiterService rateLimiter, ClientIpResolver clientIpResolver,
+                           RateLimitBlockListener blockListener) {
         this.rateLimiter = rateLimiter;
         this.clientIpResolver = clientIpResolver;
+        this.blockListener = blockListener;
     }
 
     @Override
@@ -46,13 +54,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
         throws ServletException, IOException {
         String path = pathWithinApplication(request);
         String clientIp = clientIpResolver.resolve(request);
-        RateLimiterService.Decision decision = (LOGIN_PATH.equals(path) || SSO_PATH.equals(path))
-            ? rateLimiter.tryConsume(RateLimiterService.Tier.LOGIN, "ip:" + clientIp)
-            : rateLimiter.tryConsume(RateLimiterService.Tier.API, apiKey(clientIp));
+        RateLimiterService.Tier tier = (LOGIN_PATH.equals(path) || SSO_PATH.equals(path))
+            ? RateLimiterService.Tier.LOGIN
+            : RateLimiterService.Tier.API;
+        RateLimiterService.Decision decision = rateLimiter.tryConsume(
+            tier, tier == RateLimiterService.Tier.LOGIN ? "ip:" + clientIp : apiKey(clientIp));
 
         if (decision.allowed()) {
             filterChain.doFilter(request, response);
             return;
+        }
+        if (blockListener != null) {
+            blockListener.onBlock(tier);
         }
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(decision.retryAfterSeconds()));

@@ -112,6 +112,7 @@ make test-java
 | Метод | Путь | Описание | Доступ |
 |---|---|---|---|
 | `GET` | `/health` / `/healthz` / `/actuator/health` | Проверка работоспособности сервиса | Публичный |
+| `GET` | `/actuator/prometheus` | Метрики Prometheus (HTTP, операции и трафик HDFS) | Публичный |
 | `POST` | `/api/v1/auth/login` | Вход пользователя (получение JWT-cookie) | Публичный |
 | `GET` | `/api/v1/auth/sso` | Вход через Kerberos SPNEGO SSO | Публичный |
 | `GET` | `/api/v1/auth/me` | Профиль текущего пользователя и его роли | Аутентифицирован |

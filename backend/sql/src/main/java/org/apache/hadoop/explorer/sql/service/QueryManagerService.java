@@ -31,6 +31,7 @@ public class QueryManagerService {
     private final ClusterService clusterService;
     private final SqlProperties sqlProperties;
     private final ObjectMapper objectMapper;
+    private final SqlQueryMetrics queryMetrics;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -57,12 +58,14 @@ public class QueryManagerService {
             QueryHistoryRepository historyRepository,
             ClusterService clusterService,
             SqlProperties sqlProperties,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            SqlQueryMetrics queryMetrics
     ) {
         this.historyRepository = historyRepository;
         this.clusterService = clusterService;
         this.sqlProperties = sqlProperties;
         this.objectMapper = objectMapper;
+        this.queryMetrics = queryMetrics;
     }
 
     public String submitQuery(SqlProperties.ClusterConfig cluster, String username, String queryText) {
@@ -93,6 +96,7 @@ public class QueryManagerService {
             String queryText,
             AtomicBoolean cancelSignal
     ) {
+        long startNanos = System.nanoTime();
         try {
             updateStatus(queryId, "RUNNING", Instant.now(), null, 0.0, 0, 0.0);
             SqlEngine engine = clusterService.getEngine(cluster);
@@ -110,6 +114,7 @@ public class QueryManagerService {
 
             if ("CANCELLED".equals(result.status())) {
                 updateStatus(queryId, "CANCELLED", null, Instant.now(), result.executionTimeMs(), result.totalRows(), 0.0);
+                queryMetrics.recordQuery(cluster, "CANCELLED", System.nanoTime() - startNanos);
                 notifyUser(username, Map.of("type", "QUERY_CANCELLED", "query_id", queryId));
                 return;
             }
@@ -137,6 +142,7 @@ public class QueryManagerService {
                 historyRepository.save(qh);
             }
 
+            queryMetrics.recordQuery(cluster, "FINISHED", System.nanoTime() - startNanos);
             notifyUser(username, Map.of(
                     "type", "QUERY_FINISHED",
                     "query_id", queryId,
@@ -145,6 +151,7 @@ public class QueryManagerService {
             ));
         } catch (Exception e) {
             log.error("Ошибка при выполнении запроса {}: {}", queryId, e.getMessage(), e);
+            queryMetrics.recordQuery(cluster, "FAILED", System.nanoTime() - startNanos);
             activeQueries.remove(queryId);
             Optional<QueryHistory> opt = historyRepository.findById(queryId);
             if (opt.isPresent()) {
@@ -275,8 +282,10 @@ public class QueryManagerService {
         for (SseEmitter emitter : list) {
             try {
                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(event)));
-            } catch (IOException e) {
-                emitter.complete();
+            } catch (IOException | IllegalStateException e) {
+                // IllegalStateException: the emitter has already completed; a delivery failure must not fail the query
+                log.debug("SSE delivery failed, dropping emitter: {}", e.getMessage());
+                dropEmitter(list, emitter);
             }
         }
     }
@@ -304,6 +313,15 @@ public class QueryManagerService {
         }
     }
 
+    private void dropEmitter(List<SseEmitter> list, SseEmitter emitter) {
+        list.remove(emitter);
+        try {
+            emitter.complete();
+        } catch (RuntimeException ignored) {
+            // already completed
+        }
+    }
+
     private void notifyUser(String username, Map<String, Object> event) {
         List<SseEmitter> list = userEmitters.get(username);
         if (list == null || list.isEmpty()) return;
@@ -311,8 +329,10 @@ public class QueryManagerService {
         for (SseEmitter emitter : list) {
             try {
                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(event)));
-            } catch (IOException e) {
-                emitter.complete();
+            } catch (IOException | IllegalStateException e) {
+                // IllegalStateException: the emitter has already completed; a delivery failure must not fail the query
+                log.debug("SSE delivery failed, dropping emitter: {}", e.getMessage());
+                dropEmitter(list, emitter);
             }
         }
     }

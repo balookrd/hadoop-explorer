@@ -30,7 +30,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "sum(spark_sessions_active_gauge) by (cluster, kind)",
+          "expr": "max(spark_sessions_active) by (cluster, kind)",
           "legendFormat": "{{cluster}} - {{kind}}",
           "refId": "A"
         }
@@ -81,7 +81,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "sum(rate(sql_queries_total[5m])) by (engine, status)",
+          "expr": "sum(rate(sql_query_duration_seconds_count[5m])) by (engine, status)",
           "legendFormat": "{{engine}} - {{status}}",
           "refId": "A"
         }

@@ -15,6 +15,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -61,6 +64,56 @@ public class ReplicatorMetricsTest {
     @DisplayName("Эндпоинт метрик недоступен без аутентификации")
     void testMetricsEndpointRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/metrics"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private static final String SCRAPE_TOKEN = "test-metrics-scrape-token-0123456789";
+
+    private static String basic(String username, String password) {
+        return "Basic " + Base64.getEncoder()
+                .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    @DisplayName("Prometheus читает /metrics по Basic-учетке prometheus:<scrape-token>")
+    void testMetricsEndpointAcceptsScrapeToken() throws Exception {
+        mockMvc.perform(get("/metrics").header("Authorization", basic("prometheus", SCRAPE_TOKEN)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("# TYPE replicator_jobs_total gauge")))
+                // Micrometer meters used by the "Orchestrator process" panel of hadoop_replicator_overview.json
+                .andExpect(content().string(containsString("process_cpu_usage")))
+                .andExpect(content().string(containsString("jvm_memory_used_bytes")));
+    }
+
+    @Test
+    @DisplayName("Неверный scrape-токен или имя пользователя не дают доступа к /metrics")
+    void testMetricsEndpointRejectsWrongScrapeCredentials() throws Exception {
+        mockMvc.perform(get("/metrics").header("Authorization", basic("prometheus", "wrong-token")))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/metrics").header("Authorization", basic("admin", SCRAPE_TOKEN)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/metrics").header("Authorization", "Basic not-base64!"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Scrape-токен действует только на /metrics, а не на REST API")
+    void testScrapeTokenDoesNotOpenApi() throws Exception {
+        mockMvc.perform(get("/api/v1/agents").header("Authorization", basic("prometheus", SCRAPE_TOKEN)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Scrape-токен не открывает ADMIN-эндпоинты Actuator")
+    void testScrapeTokenDoesNotOpenAdminActuator() throws Exception {
+        mockMvc.perform(get("/actuator/env").header("Authorization", basic("prometheus", SCRAPE_TOKEN)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Scrape-токен принимается только на GET /metrics, POST отклоняется")
+    void testScrapeTokenAcceptedOnGetOnly() throws Exception {
+        mockMvc.perform(post("/metrics").header("Authorization", basic("prometheus", SCRAPE_TOKEN)))
                 .andExpect(status().isUnauthorized());
     }
 

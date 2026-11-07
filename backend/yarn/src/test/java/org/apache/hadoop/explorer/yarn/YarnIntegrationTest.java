@@ -69,6 +69,20 @@ class YarnIntegrationTest {
     }
 
     @Test
+    @DisplayName("Эндпоинт /actuator/prometheus публичен и размечен app=yarn")
+    void prometheusEndpointIsPublicAndTaggedWithApp() throws Exception {
+        mockMvc.perform(get("/healthz"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("http_server_requests_seconds_count{app=\"yarn\"")))
+                .andExpect(content().string(containsString("uri=\"/healthz\"")))
+                .andExpect(content().string(containsString("http_server_requests_seconds_bucket{app=\"yarn\"")))
+                .andExpect(content().string(containsString("http_server_requests_active_seconds_count{app=\"yarn\"")));
+    }
+
+    @Test
     @DisplayName("Получение списка кластеров и очередей")
     void testClustersAndQueues() throws Exception {
         String token = loginAndGetToken("reader_user", "password123");
@@ -204,6 +218,14 @@ class YarnIntegrationTest {
                 .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andExpect(jsonPath("$.reviewer").value("admin_user"))
                 .andExpect(jsonPath("$.xml_content").exists());
+
+        // 4a. Переходы заявки видны в Prometheus (счетчик растет после коммита транзакции)
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString(
+                        "yarn_change_requests_total{app=\"yarn\",cluster=\"prod-yarn\",status=\"SUBMITTED\"}")))
+                .andExpect(content().string(containsString(
+                        "yarn_change_requests_total{app=\"yarn\",cluster=\"prod-yarn\",status=\"APPROVED\"}")));
 
         // 5. Предпросмотр XML (проверка обоих путей: /xml и /preview-xml)
         mockMvc.perform(get("/api/v1/change-requests/" + crId + "/xml")

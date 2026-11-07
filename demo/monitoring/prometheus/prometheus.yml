@@ -7,22 +7,29 @@ rule_files:
 
 scrape_configs:
   - job_name: 'hadoop-explorer'
-    metrics_path: '/metrics'
+    # Spring Boot Actuator scrape endpoint, public on the application port
+    # (docs/CONFIGURATION.md, section 9). Ports: SERVER_PORT in docker/Dockerfile.*-java
+    metrics_path: '/actuator/prometheus'
     scrape_interval: 5s
     honor_labels: true
     static_configs:
       - targets:
           - 'yarn-explorer:8000'
           - 'hdfs-explorer:8000'
-          - 'sql-explorer:8000'
-          - 'spark-explorer:8000'
+          - 'sql-explorer:8003'
+          - 'spark-explorer:8004'
         labels:
           env: 'demo'
 
   - job_name: 'hadoop-replicator'
+    # GET /metrics needs authentication: HTTP Basic prometheus:<REPLICATOR_METRICS_SCRAPE_TOKEN>
+    # (demo value from demo/replicator/docker-compose.yml)
     metrics_path: '/metrics'
     scrape_interval: 5s
     honor_labels: true
+    basic_auth:
+      username: 'prometheus'
+      password: 'demo-replicator-metrics-token-0123456789'
     static_configs:
       - targets:
           - 'replicator-orchestrator:8005'

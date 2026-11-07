@@ -11,14 +11,18 @@ import org.apache.hadoop.explorer.common.resilience.RateLimiterService;
 import org.apache.hadoop.explorer.common.security.*;
 import org.apache.hadoop.explorer.common.session.DefaultSessionStore;
 import org.apache.hadoop.explorer.common.session.SessionStore;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -32,6 +36,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import javax.sql.DataSource;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Автоконфигурация Spring Boot 3 для ядра безопасности платформы Hadoop Explorer.
@@ -144,10 +149,11 @@ public class CommonSecurityAutoConfiguration {
     @ConditionalOnMissingBean(name = "rateLimitFilterRegistration")
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(
         RateLimiterService rateLimiterService,
-        ClientIpResolver clientIpResolver
+        ClientIpResolver clientIpResolver,
+        ObjectProvider<RateLimitBlockListener> blockListener
     ) {
-        FilterRegistrationBean<RateLimitFilter> registration =
-            new FilterRegistrationBean<>(new RateLimitFilter(rateLimiterService, clientIpResolver));
+        FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>(
+            new RateLimitFilter(rateLimiterService, clientIpResolver, blockListener.getIfAvailable()));
         registration.setName("rateLimitFilter");
         registration.addUrlPatterns("/api/*");
         // Right after springSecurityFilterChain (order -100): the authenticated user is known
@@ -245,7 +251,10 @@ public class CommonSecurityAutoConfiguration {
                     "/api/v1/auth/login",
                     "/api/v1/auth/sso",
                     "/api/v1/auth/logout",
-                    "/actuator/**",
+                    "/actuator/health",
+                    "/actuator/health/**",
+                    "/actuator/info",
+                    "/actuator/prometheus",
                     "/health",
                     "/healthz",
                     "/metrics",
@@ -254,11 +263,36 @@ public class CommonSecurityAutoConfiguration {
                     "/swagger-ui/**",
                     "/swagger-ui.html"
                 ).permitAll()
+                // Same split as the replicator orchestrator: probes and the Prometheus scrape
+                // endpoint are public, every other Actuator endpoint is for administrators only
+                .requestMatchers("/actuator/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )
             .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    /**
+     * Counts blocked requests in Micrometer. Nested so that the outer class never links
+     * Micrometer types: without micrometer-core on the classpath this class is skipped.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(MeterRegistry.class)
+    static class RateLimitMetricsConfiguration {
+
+        static final String BLOCKS_METRIC = "hadoop.rate.limit.blocks";
+
+        @Bean
+        @ConditionalOnMissingBean(RateLimitBlockListener.class)
+        RateLimitBlockListener rateLimitBlockListener(ObjectProvider<MeterRegistry> meterRegistry) {
+            MeterRegistry registry = meterRegistry.getIfUnique();
+            if (registry == null) {
+                return null;
+            }
+            // Only the tier is a tag: user, IP and path would give unbounded cardinality
+            return tier -> registry.counter(BLOCKS_METRIC, "tier", tier.name().toLowerCase(Locale.ROOT)).increment();
+        }
     }
 }

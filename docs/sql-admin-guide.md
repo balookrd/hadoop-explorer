@@ -26,7 +26,7 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
 
 - Проверка доступности (healthcheck): `GET /healthz`.
 - Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
-- Метрики Prometheus сервис не экспортирует, см. [4.1](#41-метрики-prometheus-get-metrics).
+- Метрики Prometheus: `GET /actuator/prometheus`, см. [4.1](#41-метрики-prometheus-get-actuatorprometheus).
 
 ### 1.3 Системные требования
 
@@ -379,8 +379,27 @@ networks:
 
 ## 4. Мониторинг и диагностика
 
-### 4.1 Метрики Prometheus (`GET /metrics`)
-Сервис не экспортирует метрики Prometheus: в `backend/sql` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
+### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения `8003`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+
+| Метрика | Тип | Лейблы | Что считает |
+|---|---|---|---|
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="sql"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="sql"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время выполнения SQL-запроса от старта задачи до конечного статуса (без времени ожидания в очереди до старта задачи). `cluster` — `id` кластера; `engine` — `type` кластера (`trino`, `hive`) в нижнем регистре, в том числе для кластера с `mock-storage: true`. `status`: `FINISHED`, `CANCELLED`, `FAILED`. Бакеты 0,1 с – 5 мин |
+| `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
+
+Тексты запросов и имена пользователей в лейблы не попадают. Кроме перечисленных публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
+
+Проверка на демо-стенде:
+
+```bash
+curl -s http://localhost:8003/actuator/prometheus | grep '^sql_query_duration_seconds_count'
+```
+
+После выполнения запроса в выводе есть строка вида `sql_query_duration_seconds_count{app="sql",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `sql.clusters`.
+
+Сбор метрик Prometheus и дашборд `spark_sql_explorer_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Типовые ошибки
 

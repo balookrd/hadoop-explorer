@@ -1,26 +1,8 @@
 groups:
   - name: hadoop_explorer_alerts
     rules:
-      - alert: HadoopCircuitBreakerOpen
-        expr: hadoop_circuit_breaker_state == 2
-        for: 30s
-        labels:
-          severity: critical
-        annotations:
-          summary: "Circuit Breaker {{ $labels.name }} размыкается (состояние OPEN)"
-          description: "Автомат защиты {{ $labels.name }} разомкнут более 30 секунд. Запросы к узлу переводятся в Fast-Fail."
-
-      - alert: HadoopCircuitBreakerHalfOpen
-        expr: hadoop_circuit_breaker_state == 1
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Circuit Breaker {{ $labels.name }} в режиме восстановления (HALF_OPEN)"
-          description: "Автомат защиты {{ $labels.name }} выполняет пробные запросы к целевому узлу."
-
       - alert: HadoopHigh5xxErrorRate
-        expr: (sum(rate(http_requests_total{status=~"5.."}[1m])) by (app) / sum(rate(http_requests_total[1m])) by (app)) > 0.05
+        expr: (sum(rate(http_server_requests_seconds_count{status=~"5..", uri!~"/actuator/.*"}[1m])) by (app) / sum(rate(http_server_requests_seconds_count{uri!~"/actuator/.*"}[1m])) by (app)) > 0.05
         for: 1m
         labels:
           severity: critical
@@ -29,7 +11,7 @@ groups:
           description: "Более 5% запросов к {{ $labels.app }} завершаются кодами 5xx в течение 1 минуты."
 
       - alert: HadoopHighApiLatency
-        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, app)) > 2.0
+        expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~"/actuator/.*"}[5m])) by (le, app)) > 2.0
         for: 2m
         labels:
           severity: warning
@@ -37,14 +19,27 @@ groups:
           summary: "Высокая задержка API p95 в сервисе {{ $labels.app }}"
           description: "95-й перцентиль задержки ответов {{ $labels.app }} превышает 2 секунды."
 
-      - alert: HadoopRateLimitSpike
-        expr: sum(rate(rate_limit_exceeded_total[5m])) by (app) > 10
-        for: 1m
+      - alert: HadoopLoginRateLimitSpike
+        # Login limit is 30/min per client IP: a slow password guess at ~1.5 rps from one IP
+        # gives ~1 rejection/s, so 0.2/s (about 60 rejections in 5 minutes) is already abnormal
+        expr: sum by (app) (rate(hadoop_rate_limit_blocks_total{tier="login"}[5m])) > 0.2
+        for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Всплеск блокировок Rate Limiter в {{ $labels.app }}"
-          description: "Более 10 запросов в секунду отклоняются Rate Limiter в сервисе {{ $labels.app }}."
+          summary: "Ограничитель частоты отклоняет входы в {{ $labels.app }}"
+          description: "Ответов 429 на /api/v1/auth/login и /api/v1/auth/sso в {{ $labels.app }} больше 0,2 в секунду (среднее за 5 минут) в течение 2 минут: возможен перебор паролей или много пользователей за одним IP."
+
+      - alert: HadoopApiRateLimitSpike
+        # Normal UI traffic stays far below the API limit (600/min, burst 100 per user),
+        # so a sustained 1 rejection/s means a script or clients stuck behind one IP
+        expr: sum by (app) (rate(hadoop_rate_limit_blocks_total{tier="api"}[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ограничитель частоты отклоняет запросы к API в {{ $labels.app }}"
+          description: "Ответов 429 на запросы к API в {{ $labels.app }} больше 1 в секунду (среднее за 5 минут) в течение 2 минут."
 
       - alert: HdfsOperationsHighFailureRate
         expr: (sum(rate(hdfs_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(hdfs_operations_total[5m])) by (cluster)) > 0.10
@@ -56,7 +51,7 @@ groups:
           description: "Более 10% операций с файлами HDFS на кластере {{ $labels.cluster }} завершаются ошибками."
 
       - alert: ReplicationHighThrottlingDelay
-        expr: rate(throttling_delay_seconds_total[2m]) > 5
+        expr: rate(replicator_throttling_delay_seconds_total[2m]) > 5
         for: 2m
         labels:
           severity: warning
@@ -65,16 +60,17 @@ groups:
           description: "Воркеры ожидают квоты более 5 секунд в секунду из-за достижения лимита полосы WAN или ЦОД."
 
       - alert: ReplicationJobsHighFailureRate
-        expr: (sum(rate(replication_jobs_total{status="FAILED"}[5m])) / sum(rate(replication_jobs_total[5m]))) > 0.10
+        # replicator_jobs_total is a gauge of jobs per status, so this is the share of FAILED jobs, not a rate
+        expr: sum(replicator_jobs_total{status="FAILED"}) / sum(replicator_jobs_total{status=~"QUEUED|RUNNING|COMPLETED|FAILED"}) > 0.10
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: "Высокая доля сбоев задач репликации"
-          description: "Более 10% задач репликации завершаются со статусом FAILED."
+          description: "Более 10% задач репликации HDFS находятся в статусе FAILED."
 
       - alert: ReplicationWorkerStarvation
-        expr: replicator_active_workers == 0 and sum(replicator_jobs_total{status=~"RUNNING|QUEUED"}) > 0
+        expr: replicator_active_workers == 0 and on() sum(replicator_jobs_total{status=~"RUNNING|QUEUED"}) > 0
         for: 2m
         labels:
           severity: warning

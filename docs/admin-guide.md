@@ -80,8 +80,8 @@ Replicator Agent, кроме трех режимов выше, запускае�
 |---|---|---|---|
 | YARN Explorer | `8000` | `8001` | `https://yarn.company.local` |
 | HDFS Explorer | `8000` | `8002` | `https://hdfs.company.local` |
-| SQL Explorer | `8000` | `8003` | `https://sql.company.local` |
-| Spark Explorer | `8000` | `8004` | `https://spark.company.local` |
+| SQL Explorer | `8003` | `8003` | `https://sql.company.local` |
+| Spark Explorer | `8004` | `8004` | `https://spark.company.local` |
 | Replicator Orchestrator | `8005` | `8005` | `https://replicator.company.local` |
 | Replicator Agent (gRPC) | `50051` | `50051` | `grpc://replicator-dc2.company.local:50051` |
 
@@ -89,44 +89,28 @@ Replicator Agent, кроме трех режимов выше, запускае�
 
 ## Мониторинг Prometheus и дашборды Grafana
 
-Каждый сервис отдает метрики в формате OpenMetrics на эндпоинте `/metrics` (или `/api/v1/metrics`).
+YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuator/prometheus` без аутентификации; оркестратор Replicator — на `GET /metrics` (требует аутентификации) и `GET /actuator/prometheus` (только Micrometer). Состав метрик и доступ описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### Конфигурация сбора метрик в Prometheus
 ```yaml
 scrape_configs:
-  - job_name: 'hadoop-explorer-yarn'
-    metrics_path: '/metrics'
+  - job_name: 'hadoop-explorer'
+    metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['yarn.company.local:8000']
-
-  - job_name: 'hadoop-explorer-hdfs'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['hdfs.company.local:8000']
-
-  - job_name: 'hadoop-explorer-sql'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['sql.company.local:8000']
-
-  - job_name: 'hadoop-explorer-spark'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['spark.company.local:8000']
-
-  - job_name: 'hadoop-explorer-replicator'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['replicator.company.local:8005']
+      - targets:
+          - 'yarn.company.local:8000'
+          - 'hdfs.company.local:8000'
+          - 'sql.company.local:8003'
+          - 'spark.company.local:8004'
 ```
 
 ### Дашборды Grafana
 Дашборды лежат в каталоге `monitoring/grafana/dashboards/`:
-- Platform Overview: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — состояние и golden signals всех 5 сервисов платформы.
+- Platform Overview: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
 - gRPC Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
-- HDFS Operations: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — файловые операции WebHDFS, Upload/Download Throughput, отказы.
-- YARN Queues: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — утилизация очередей Capacity Scheduler, Change Requests.
-- Spark & SQL Analytics: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — Livy-сессии, интерактивный Spark, Trino- и Hive-запросы.
+- HDFS Operations: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
+- YARN Explorer: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — переходы заявок Change Request, задержка API.
+- Spark & SQL Analytics: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, длительность инструкций, темп и длительность SQL-запросов.
 
 ---
 

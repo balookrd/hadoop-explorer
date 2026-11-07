@@ -2,8 +2,10 @@ package org.apache.hadoop.explorer.hdfs.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.apache.hadoop.explorer.hdfs.client.HdfsFileSystemClient;
+import org.apache.hadoop.explorer.hdfs.client.MeteredHdfsClient;
 import org.apache.hadoop.explorer.hdfs.client.MockHdfsClient;
 import org.apache.hadoop.explorer.hdfs.client.NativeHdfsClient;
 import org.apache.hadoop.explorer.hdfs.config.HdfsProperties;
@@ -25,11 +27,13 @@ public class ClusterRegistry {
     private static final Logger log = LoggerFactory.getLogger(ClusterRegistry.class);
 
     private final HdfsProperties properties;
+    private final MeterRegistry meterRegistry;
     private final ConcurrentMap<String, ClusterConfig> clusterConfigs = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, HdfsFileSystemClient> clients = new ConcurrentHashMap<>();
 
-    public ClusterRegistry(HdfsProperties properties) {
+    public ClusterRegistry(HdfsProperties properties, MeterRegistry meterRegistry) {
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
     @PostConstruct
@@ -82,13 +86,15 @@ public class ClusterRegistry {
     public HdfsFileSystemClient getClient(String clusterId) {
         ClusterConfig config = getClusterOrThrow(clusterId);
         return clients.computeIfAbsent(clusterId, id -> {
+            HdfsFileSystemClient client;
             if (config.isMockStorage()) {
                 log.info("Creating MockHdfsClient for cluster {}", id);
-                return new MockHdfsClient();
+                client = new MockHdfsClient();
             } else {
                 log.info("Creating NativeHdfsClient for cluster {}", id);
-                return new NativeHdfsClient(config);
+                client = new NativeHdfsClient(config);
             }
+            return new MeteredHdfsClient(client, meterRegistry, id);
         });
     }
 

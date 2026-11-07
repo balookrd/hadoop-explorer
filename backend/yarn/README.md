@@ -74,7 +74,7 @@ JWT_SECRET_KEY=... java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar \
 | Метод | URI | Описание | Доступ |
 |---|---|---|---|
 | `GET` | `/health` / `/healthz` | Liveness / Readiness health-check | Публичный |
-| `GET` | `/metrics` / `/actuator/prometheus` | Экспорт Prometheus метрик и Circuit Breaker | Публичный |
+| `GET` | `/actuator/prometheus` | Метрики Prometheus (HTTP, переходы Change Request) | Публичный |
 | `POST`| `/api/v1/auth/login` | Вход пользователя (генерация JWT Cookie) | Публичный |
 | `POST`| `/api/v1/auth/sso` | Kerberos SPNEGO SSO-аутентификация | Публичный |
 | `GET` | `/api/v1/auth/me` | Данные текущего пользователя и роли по кластерам | Аутентифицирован |
