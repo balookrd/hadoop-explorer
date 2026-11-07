@@ -13,7 +13,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 
 ## 1. Принципы архитектуры
 
-- Монорепозиторий с независимой поставкой: каждый сервис собирается в отдельный Docker-образ или ставится отдельным Helm-чартом и не зависит от остальных сервисов платформы.
+- Монорепозиторий с независимой поставкой: каждый сервис собирается в отдельный Docker-образ и не зависит от остальных сервисов платформы.
 - Общий код безопасности (`backend/common-security-starter`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF и аудит через AOP. Фильтр `RateLimitFilter` (Bucket4j) ограничивает частоту запросов к `/api/*` во всех сервисах, подключающих стартер (раздел 3.4). Класс `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
 - Токены только в cookie: токены авторизации передаются в cookie с флагами `HttpOnly`, `SameSite=Lax`, `Secure`. JWT и учетные данные не пишутся в `localStorage` браузера (защита от XSS, CWE-312).
 - Изоляция пользовательских данных (`User Workspace`): вкладки, код и результаты выполнения хранятся отдельно для каждого пользователя в БД (H2 / PostgreSQL).
@@ -86,7 +86,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
   - L1: кэш Caffeine в поле `l1RevokedCache` `DefaultSessionStore` (`session-store.l1-capacity`, по умолчанию 10000 записей; `session-store.l1-ttl-seconds`, по умолчанию 3600 с).
   - L2: таблица `revoked_tokens` (JDBC: H2, PostgreSQL, SQLite); найденный там отзыв кладется в L1.
 - Fail-closed: при `hadoop.security.session-store.fail-closed: true` ошибка запроса к БД считается отзывом и токен отклоняется. По умолчанию параметр `false`: при недоступной БД проверка продолжается по памяти процесса.
-- Проверка доступности (`ping`): в JDBC-режиме выполняет `SELECT 1`. Readiness-проба Helm-чартов этот метод не вызывает (см. раздел 9).
+- Проверка доступности (`ping`): в JDBC-режиме выполняет `SELECT 1`. Readiness-проба `/actuator/health/readiness` этот метод не вызывает (см. раздел 9).
 
 ### 3.3 Защита от CSRF и подмены заголовков
 Проверку выполняет `CsrfProtectionValidator` из `CommonAuthFilter`. Она применяется только к запросам `POST`, `PUT`, `PATCH`, `DELETE`, у которых токен пришел из cookie; запросы с `Authorization: Bearer` не проверяются. Порядок проверки:
@@ -150,7 +150,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 - HA failover реализован в клиентах сервисов:
   - YARN Explorer (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.
   - HDFS Explorer (`NativeHdfsClient`) настраивает `dfs.nameservices` и `ConfiguredFailoverProxyProvider`, переключение выполняет клиент Hadoop.
-- Readiness-проба Helm-чартов (`/actuator/health/readiness`) доступность кластеров не учитывает: под остается в Service, даже если все кластеры недоступны.
+- Readiness-проба `/actuator/health/readiness` доступность кластеров не учитывает: она отвечает 200, даже если все кластеры недоступны.
 
 ### 4.3 Обработчики исключений (`@ControllerAdvice`)
 Общего обработчика в стартере нет; ошибки 401 и 403 стартер отдает JSON-ом `{"detail", "status"}` через `CommonSecurityErrorHandlers`. Свои `@RestControllerAdvice` есть в двух сервисах:
@@ -164,7 +164,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 В Replicator есть собственная аренда с fencing-токенами (`DistributedLockService`, см. 5.5).
 
 ### 4.5 Остановка сервисов
-- Сервисы собраны на Spring Boot 3.3.4, где `server.shutdown` по умолчанию `immediate`; ни `application.yml` сервисов, ни Helm-чарты `server.shutdown: graceful` не задают. По SIGTERM контекст Spring закрывается без ожидания выполняющихся HTTP-запросов.
+- Сервисы собраны на Spring Boot 3.3.4, где `server.shutdown` по умолчанию `immediate`; `application.yml` сервисов `server.shutdown: graceful` не задают. По SIGTERM контекст Spring закрывается без ожидания выполняющихся HTTP-запросов.
 - При закрытии контекста оркестратор Replicator сбрасывает в БД остаточный буфер прогресса задач (`TaskService.shutdown()`, `@PreDestroy`, в явной транзакции через `TransactionTemplate`), до закрытия пула соединений HikariCP.
 
 ---
@@ -447,8 +447,7 @@ YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикую�
 | Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
 - Драйвер PostgreSQL в `common-security-starter` объявлен как `optional` и транзитивно не подключается: YARN, HDFS, SQL и Spark Explorer с PostgreSQL без добавления драйвера в их `pom.xml` не запустятся.
-- In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске пода.
-- Параметр `config.database.url` в `helm/charts/*/values.yaml` на выбор БД не влияет: значения в нем заданы в формате SQLAlchemy (`sqlite:///...`, `sqlite+aiosqlite:///...`), чарт `hdfs-explorer` передает его в переменную `HDFS_DATABASE_URL`, `yarn-explorer` — в `DATABASE_URL`, а `application.yml` сервисов эти переменные не читают (YARN Explorer читает `YARN_DB_URL`).
+- In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
 
 ### 8.1 Инициализация схемы БД
 - `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Spark Explorer создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
@@ -467,10 +466,7 @@ YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикую�
 2. Логирование:
    - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в YARN, HDFS, SQL, Spark Explorer и оркестраторе нет. Агент Replicator использует `backend/replicator/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
    - JSON в логах есть только у записей аудита (`AUDIT_EVENT: {...}`, см. 3.4).
-3. Kubernetes (Helm):
-   - Umbrella-чарт (`helm/hadoop-explorer`): установка всех сервисов одной командой с маршрутизацией через Ingress.
-   - Отдельные чарты (`helm/charts/*`): установка компонентов по одному, в том числе в разные неймспейсы.
-   - PodDisruptionBudget (`pdb.yaml`): при drain и обслуживании узлов Kubernetes не удаляет все реплики сервиса одновременно.
+3. Пробы, метрики и остановка:
    - Liveness-проба `/healthz` (`HealthController`, ответ 200 без проверки зависимостей) и readiness-проба `/actuator/health/readiness` (группа readiness Spring Boot Actuator: 503 до `ApplicationReadyEvent` и с начала остановки контекста). Доступность БД и хранилища сессий пробы не проверяют.
    - Метрики Prometheus (`/metrics`, `/actuator/prometheus`) отдает только оркестратор Replicator (см. 4.1).
    - Graceful shutdown не настроен (см. 4.5): по SIGTERM выполняющиеся HTTP-запросы обрываются.
@@ -548,7 +544,7 @@ YARN, HDFS, SQL и Spark Explorer метрик Prometheus не публикую�
 
 ## 12. Руководства по развертыванию (DevOps runbooks)
 
-Для каждого сервиса есть руководство администратора по установке в режимах Standalone (systemd), Docker и Docker Compose, Kubernetes (Helm):
+Для каждого сервиса есть руководство администратора по установке в режимах Standalone (systemd), Docker и Docker Compose:
 
 - [Общее руководство администратора платформы (admin-guide.md)](admin-guide.md)
 - [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)

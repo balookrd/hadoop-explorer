@@ -7,7 +7,6 @@
 - SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
 - Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
-- Развертывание в Kubernetes (Helm).
 
 ---
 
@@ -49,9 +48,8 @@
    - [Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)](#78-локальное-ограничение-пропускной-способности-агента-agent_max_bandwidth_mb_s-и-модель-согласования-wan)
    - [Эталонный фрагмент конфигурации топологии (application.yml)](#79-эталонный-фрагмент-конфигурации-топологии-applicationyml)
 8. [Переменные окружения](#8-переменные-окружения)
-9. [Конфигурация в Kubernetes (Helm)](#9-конфигурация-в-kubernetes-helm)
-10. [Мониторинг Prometheus и дашборды Grafana](#10-мониторинг-prometheus-и-дашборды-grafana)
-11. [Руководства администратора по развертыванию (DevOps Hub)](#11-руководства-администратора-по-развертыванию-devops-hub)
+9. [Мониторинг Prometheus и дашборды Grafana](#9-мониторинг-prometheus-и-дашборды-grafana)
+10. [Руководства администратора по развертыванию (DevOps Hub)](#10-руководства-администратора-по-развертыванию-devops-hub)
 
 ---
 
@@ -1022,59 +1020,11 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ---
 
-## 9. Конфигурация в Kubernetes (Helm)
-
-Umbrella Chart `helm/hadoop-explorer` подключает чарты `helm/charts/hdfs-explorer`, `sql-explorer`, `yarn-explorer` и `spark-explorer`. Чарта для репликатора нет. Параметры дочернего чарта передаются в секции с его именем:
-
-```yaml
-global:
-  environment: "production"
-  ingressDomain: "hadoop.company.local"
-
-yarn-explorer:
-  enabled: true
-  replicaCount: 2
-  podDisruptionBudget:
-    enabled: true
-    maxUnavailable: 1
-  extraEnv:
-    - name: HADOOP_SECURITY_COOKIE_SECURE
-      value: "true"
-  secrets:
-    jwtSecret: "<jwt_secret>"
-    ldapBindPassword: "<ldap_password>"
-
-hdfs-explorer:
-  enabled: true
-  replicaCount: 2
-  secrets:
-    jwtSecret: "<jwt_secret>"
-    ldapBindPassword: "<ldap_password>"
-
-sql-explorer:
-  enabled: true
-
-spark-explorer:
-  enabled: true
-```
-
-`<jwt_secret>` — случайная строка не короче 32 символов, `<ldap_password>` — пароль сервисной учетной записи LDAP.
-
-**Внимание.** Секция `config` в `values.yaml` дочерних чартов осталась в формате прежних Python-сервисов (`server_uri`, `bind_dn`, `access_token_expire_minutes`, `sqlite:///...`). Чарты рендерят ее в ConfigMap `config.yaml` и передают путь в `CONFIG_PATH` / `HDFS_CONFIG_PATH`, но Java-сервисы этот файл не читают (раздел 1): значения из `config` на работу сервиса не влияют. Задавайте параметры переменными окружения по правилам relaxed binding (раздел 8): в `yarn-explorer` — через `extraEnv`/`envFrom`; в остальных чартах таких полей нет. `sql-explorer` и `spark-explorer` передают из `secrets.jwtSecret` переменную `JWT_SECRET_KEY`; `hdfs-explorer` передает `HDFS_SECRET_KEY`, `HDFS_LDAP_PASSWORD` и `HDFS_DATABASE_URL`, которые Java-сервис не читает, поэтому HDFS Explorer из этого чарта без `JWT_SECRET_KEY` не стартует.
-
-### 9.1 Рекомендации по High-Availability в продакшне
-1. База данных. При `replicaCount > 1` подключите внешний PostgreSQL (`SPRING_DATASOURCE_URL: jdbc:postgresql://...`). Встроенная H2 — только для локальной разработки и демо-стендов. Порядок перехода — в [docs/production-database.md](production-database.md).
-2. PodDisruptionBudget. При `replicaCount > 1` шаблоны чартов создают `PodDisruptionBudget`, и drain узлов Kubernetes не выводит из работы все реплики сразу.
-3. NetworkPolicy. Включена по умолчанию (`networkPolicy.enabled: true`): входящий трафик к подам разрешен только от Ingress-контроллера.
-4. Мониторинг. Настройте сбор метрик с `/metrics` (порт 8000 / 8005): HTTP golden signals, состояние `CircuitBreaker`, повторы и ошибки.
-
----
-
-## 10. Мониторинг Prometheus и дашборды Grafana
+## 9. Мониторинг Prometheus и дашборды Grafana
 
 Все сервисы платформы отдают метрики в формате OpenMetrics / Prometheus.
 
-### 10.1 Экспортируемые метрики
+### 9.1 Экспортируемые метрики
 
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
@@ -1107,7 +1057,7 @@ spark-explorer:
 | `replicator_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента |
 | `replicator_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с |
 
-### 10.2 Настройка сбора метрик в Prometheus (Scrape Config)
+### 9.2 Настройка сбора метрик в Prometheus (Scrape Config)
 
 ```yaml
 scrape_configs:
@@ -1140,7 +1090,7 @@ spec:
       interval: 15s
 ```
 
-### 10.3 Готовые дашборды Grafana
+### 9.3 Готовые дашборды Grafana
 
 В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) лежат 5 дашбордов:
 
@@ -1157,7 +1107,7 @@ spec:
 
 Чтобы Grafana загружала дашборды при старте (provisioning), скопируйте файл [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml) в `/etc/grafana/provisioning/dashboards/`.
 
-### 10.4 Примеры полезных PromQL запросов
+### 9.4 Примеры полезных PromQL запросов
 
 - Текущий RPS всей платформы:
   ```promql
@@ -1178,9 +1128,9 @@ spec:
 
 ---
 
-## 11. Руководства администратора по развертыванию (DevOps Hub)
+## 10. Руководства администратора по развертыванию (DevOps Hub)
 
-Руководства по развертыванию каждого компонента в режимах Standalone (systemd), Docker / Docker Compose и Kubernetes (Helm):
+Руководства по развертыванию каждого компонента в режимах Standalone (systemd) и Docker / Docker Compose:
 
 - [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
 - [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)

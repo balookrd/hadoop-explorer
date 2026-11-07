@@ -3,8 +3,8 @@
 Документ описывает перевод сервисов Hadoop Explorer (`hdfs-explorer`, `sql-explorer`, `spark-explorer`, `yarn-explorer`) с локальной SQLite на PostgreSQL. По умолчанию сервисы хранят в SQLite сессии, отозванные токены, счетчики rate limiting и историю запросов.
 
 > [!WARNING]
-> С SQLite сервис запускается только в одной реплике (`replicaCount: 1`).
-> Для двух и более реплик и автомасштабирования (HPA) подключите внешний PostgreSQL.
+> С SQLite сервис запускается только в одном экземпляре.
+> Для двух и более экземпляров за балансировщиком подключите внешний PostgreSQL.
 
 ---
 
@@ -23,46 +23,9 @@ CREATE DATABASE yarn_explorer OWNER hadoop_explorer;
 
 ---
 
-## 2. Конфигурация через Helm (Kubernetes)
+## 2. Настройка через переменные окружения (Standalone / Docker)
 
-Параметры подключения передаются через `values.yaml` или флаги `--set`.
-
-### 2.1 Настройка `values.yaml` для подчарта
-
-Пример для `sql-explorer`:
-
-```yaml
-replicaCount: 2
-
-config:
-  database:
-    # URL для JDBC драйвера (PostgreSQL HikariCP)
-    url: "jdbc:postgresql://postgres-cluster.database.svc.cluster.local:5432/sql_explorer?user=hadoop_explorer"
-
-secrets:
-  # Пароль базы данных, автоматически внедряемый в Deployment
-  databasePassword: "your_strong_password"
-
-# Включение PodDisruptionBudget (включается автоматически при replicaCount > 1)
-podDisruptionBudget:
-  enabled: true
-  maxUnavailable: 1
-
-# Автомасштабирование (HPA)
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 80
-```
-
-Шаблоны Deployment всех четырех чартов (`helm/charts/*/templates/deployment.yaml`) при `autoscaling.enabled: false` ставят `replicas: 1`, если `config.database.url` пуст, начинается с `sqlite` или `jdbc:sqlite` либо указывает на встроенную H2 (`jdbc:h2:file:`, `jdbc:h2:mem:`), и молча игнорируют больший `replicaCount`. С URL `jdbc:postgresql://...` используется значение `replicaCount`.
-
----
-
-## 3. Настройка через переменные окружения (Standalone / Docker)
-
-Вне Kubernetes задайте подключение переменными окружения:
+Задайте подключение переменными окружения:
 
 | Переменная | Пример значения | Описание |
 |---|---|---|
@@ -83,11 +46,8 @@ docker run -d \
 
 ---
 
-## 4. Проверка перед запуском в production
+## 3. Проверка перед запуском в production
 
-- [ ] В `values.yaml` задан URL базы данных `jdbc:postgresql://...`.
-- [ ] Пароль базы данных вынесен в Kubernetes Secret (`secrets.databasePassword` или SealedSecrets / HashiCorp Vault).
-- [ ] Параметр `replicaCount >= 2`.
-- [ ] Включен `PodDisruptionBudget` (`maxUnavailable: 1`).
-- [ ] Включена `NetworkPolicy` (`networkPolicy.enabled: true`).
-- [ ] Readiness-проба чарта смотрит на `/actuator/health/readiness`. По умолчанию группа readiness проверяет только состояние приложения, не PostgreSQL. Чтобы под выходил из Service при недоступной базе, добавьте в конфигурацию сервиса `management.endpoint.health.group.readiness.include: readinessState,db`; при сбое PostgreSQL из Service тогда выйдут все поды сразу.
+- [ ] `SPRING_DATASOURCE_URL` указывает на `jdbc:postgresql://...`.
+- [ ] Пароль базы данных не хранится в открытом виде в `application.yml` или `docker-compose.yml`, а передается через переменную окружения из хранилища секретов (например, HashiCorp Vault).
+- [ ] Проверка доступности на балансировщике смотрит на `/actuator/health/readiness`. По умолчанию группа readiness проверяет только состояние приложения, не PostgreSQL. Чтобы экземпляр выводился из балансировки при недоступной базе, добавьте в конфигурацию сервиса `management.endpoint.health.group.readiness.include: readinessState,db`; при сбое PostgreSQL из балансировки тогда выйдут все экземпляры сразу.

@@ -1,9 +1,8 @@
 # Руководство администратора: HDFS Explorer
 
-Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация HDFS Explorer в трех режимах:
+Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация HDFS Explorer в двух режимах:
 1. Standalone: bare-metal или виртуальная машина под управлением systemd.
 2. Docker и Docker Compose.
-3. Kubernetes через Helm-чарт.
 
 ---
 
@@ -383,164 +382,30 @@ docker compose logs -f hdfs-explorer
 
 ---
 
-## 4. Режим 3: Kubernetes (Helm)
+## 4. Мониторинг и диагностика
 
-### 4.1 Установка Helm-чарта
-Чарт лежит в [`helm/charts/hdfs-explorer`](../helm/charts/hdfs-explorer).
-
-#### Шаг 1: секреты Kubernetes
-```bash
-kubectl create namespace hadoop-explorer
-
-kubectl create secret generic hdfs-explorer-secrets \
-  --namespace hadoop-explorer \
-  --from-literal=jwt-secret-key="Min32CharSecretKeyForHdfsExplorerJwt" \
-  --from-literal=ldap-bind-password="SecretLdapPassword"
-
-# Создание секрета для скачивания образов из GHCR
-kubectl create secret docker-registry ghcr-secret \
-  --namespace hadoop-explorer \
-  --docker-server=ghcr.io \
-  --docker-username="<github-username>" \
-  --docker-password="<github-token-with-read:packages>"
-
-kubectl create secret generic hdfs-kerberos-keytab \
-  --namespace hadoop-explorer \
-  --from-file=hdfs-explorer.keytab=/etc/security/keytabs/hdfs-explorer.keytab
-
-kubectl create configmap krb5-config \
-  --namespace hadoop-explorer \
-  --from-file=krb5.conf=/etc/krb5.conf
-```
-
-#### Шаг 2: параметры `custom-values.yaml`
-```yaml
-replicaCount: 2
-
-image:
-  repository: ghcr.io/company/hadoop-explorer/hdfs
-  tag: "1.0.0"
-  pullPolicy: IfNotPresent
-
-imagePullSecrets:
-  - name: ghcr-secret
-
-extraEnv:
-  - name: JWT_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: hdfs-explorer-secrets
-        key: jwt-secret-key
-  - name: LDAP_BIND_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: hdfs-explorer-secrets
-        key: ldap-bind-password
-
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 8000
-
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-corp"
-    nginx.ingress.kubernetes.io/proxy-body-size: "1024m" # Для загрузки больших файлов
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-  hosts:
-    - host: hdfs.company.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: hdfs-tls-cert
-      hosts:
-        - hdfs.company.local
-
-resources:
-  limits:
-    cpu: "2"
-    memory: "2Gi"
-  requests:
-    cpu: "500m"
-    memory: "512Mi"
-
-extraVolumes:
-  - name: keytab-vol
-    secret:
-      secretName: hdfs-kerberos-keytab
-      defaultMode: 0400
-  - name: krb5-vol
-    configMap:
-      name: krb5-config
-
-extraVolumeMounts:
-  - name: keytab-vol
-    mountPath: /etc/security/keytabs
-    readOnly: true
-  - name: krb5-vol
-    mountPath: /etc/krb5.conf
-    subPath: krb5.conf
-    readOnly: true
-
-config:
-  database:
-    url: "jdbc:postgresql://postgres-ha.database.svc.cluster.local:5432/hdfs_explorer"
-
-  hdfs:
-    clusters:
-      - id: "prod-hdfs"
-        name: "Production Cluster"
-        hdfs-rpc-urls:
-          - "hdfs://nn01.hadoop.company.local:8020"
-          - "hdfs://nn02.hadoop.company.local:8020"
-        webhdfs-urls:
-          - "http://nn01.hadoop.company.local:9870/webhdfs/v1"
-        auth-type: "kerberos"
-        service-principal: "hdfs/hdfs.company.local@COMPANY.LOCAL"
-
-podDisruptionBudget:
-  minAvailable: 1
-```
-
-#### Шаг 3: установка через Helm
-```bash
-helm upgrade --install hdfs-explorer ./helm/charts/hdfs-explorer \
-  --namespace hadoop-explorer \
-  -f custom-values.yaml
-
-kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=hdfs-explorer
-```
-
----
-
-## 5. Мониторинг и диагностика
-
-### 5.1 Метрики Prometheus (`GET /metrics`)
+### 4.1 Метрики Prometheus (`GET /metrics`)
 Сервис не экспортирует метрики Prometheus: в `backend/hdfs` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404. Задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) и дашборд `monitoring/grafana/dashboards/hdfs_explorer_operations.json` данных от сервиса не получат.
 
-### 5.2 Известные проблемы
+### 4.2 Известные проблемы
 
 | Ошибка / Симптом | Причина | Решение |
 |---|---|---|
-| `Payload Too Large (HTTP 413)` | Ограничение Ingress на размер загрузки | Увеличьте значение аннотации `nginx.ingress.kubernetes.io/proxy-body-size: "1024m"`. |
+| `Payload Too Large (HTTP 413)` | Ограничение обратного прокси на размер тела запроса | Увеличьте лимит на прокси перед сервисом, например `client_max_body_size 1024m;` в nginx. |
 
 ---
 
-## 6. Бэкенд на Java 21 / Spring Boot 3
+## 5. Бэкенд на Java 21 / Spring Boot 3
 
 Бэкенд (`backend/hdfs`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует библиотеку Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
-### 6.1 Компоненты бэкенда
+### 5.1 Компоненты бэкенда
 1. Клиент Hadoop FileSystem: обращается к NameNode напрямую по RPC (`hdfs://`) или HTTP (`webhdfs://`), без промежуточных шлюзов.
 2. HA NameNode: переключение между Active и Standby NameNode через `ConfiguredFailoverProxyProvider`.
 3. Kerberos GSS-API и doAs: операции выполняются от имени пользователя (`UserGroupInformation.createProxyUser`), поэтому политики Apache Ranger применяются к нему, а не к сервисной учетной записи.
 4. Стартер `common-security-starter`: сессии (L1 Caffeine + L2 JDBC), CSRF Guard, ограничение частоты запросов Bucket4j и аудит через AOP `@Audited`.
 
-### 6.2 Сборка и тестирование
+### 5.2 Сборка и тестирование
 
 ```bash
 # Модульное и интеграционное тестирование
@@ -556,7 +421,7 @@ make build-hdfs
 make test-java
 ```
 
-### 6.3 Запуск JAR с параметрами в командной строке
+### 5.3 Запуск JAR с параметрами в командной строке
 
 ```bash
 java -jar -Dspring.profiles.active=prod \

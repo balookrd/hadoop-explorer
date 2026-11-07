@@ -2,7 +2,7 @@
         test-security-starter test-replicator-agent test-replicator-orchestrator test-java test-ui \
         build build-java build-security-starter build-yarn build-hdfs build-sql build-spark build-replicator \
         frontend-build frontend-install demo-yarn demo-hdfs demo-sql demo-spark demo-all \
-        demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop helm-lint helm-package \
+        demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
@@ -82,10 +82,6 @@ help:
 	@echo "    make demo-monitoring-stop - Остановка стека мониторинга"
 	@echo "    make demo-all         - Запуск объединенного демо-стенда (все сервисы + мониторинг)"
 	@echo "    make demo-all-stop    - Остановка объединенного демо-стенда"
-	@echo ""
-	@echo "  Kubernetes / Helm:"
-	@echo "    make helm-lint        - Проверка синтаксиса всех Helm-чартов"
-	@echo "    make helm-package     - Упаковка чартов для деплоя"
 	@echo ""
 	@echo "  AST-скелетизация, индексация и контекст для LLM:"
 	@echo "    make java-index       - Генерация AST-индекса Java (target/java-ast-index/)"
@@ -254,20 +250,6 @@ demo-all:
 
 demo-all-stop:
 	cd demo/all && ./stop-all-demo.sh
-
-helm-lint:
-	helm lint helm/charts/hdfs-explorer
-	helm lint helm/charts/spark-explorer
-	helm lint helm/charts/sql-explorer
-	helm lint helm/charts/yarn-explorer
-	helm lint helm/hadoop-explorer
-
-helm-package: helm-lint
-	helm package helm/charts/hdfs-explorer -d dist/helm
-	helm package helm/charts/spark-explorer -d dist/helm
-	helm package helm/charts/sql-explorer -d dist/helm
-	helm package helm/charts/yarn-explorer -d dist/helm
-	helm package helm/hadoop-explorer -d dist/helm
 
 skeleton:
 	mkdir -p .context

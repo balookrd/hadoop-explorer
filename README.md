@@ -10,7 +10,6 @@
 [![Maven](https://img.shields.io/badge/Maven-3.9-red.svg)](https://maven.apache.org/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20Charts-326CE5.svg)](helm/)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboards%20Ready-F46800.svg)](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
 
 </div>
@@ -23,7 +22,7 @@
 - [Структура монорепозитория](#структура-монорепозитория)
 - [Детальная системная архитектура (docs/ARCHITECTURE.md)](docs/ARCHITECTURE.md)
 - [Руководство по конфигурации компонентов (docs/CONFIGURATION.md)](docs/CONFIGURATION.md)
-- Руководства администратора и DevOps (standalone, Docker, Kubernetes):
+- Руководства администратора и DevOps (standalone, Docker):
   - [Общее руководство администратора платформы (docs/admin-guide.md)](docs/admin-guide.md)
   - [Администрирование YARN Explorer (docs/yarn-admin-guide.md)](docs/yarn-admin-guide.md)
   - [Администрирование HDFS Explorer (docs/hdfs-admin-guide.md)](docs/hdfs-admin-guide.md)
@@ -47,7 +46,6 @@
 - [Запуск демо-стендов](#запуск-демо-стендов)
 - [Сборка JAR-пакетов и CI/CD](#сборка-jar-пакетов-и-cicd)
 - [Сборка Docker-образов](#сборка-docker-образов)
-- [Развертывание в Kubernetes (Helm)](#развертывание-в-kubernetes-helm)
 - [Запуск тестов](#запуск-тестов)
 - [Цели Makefile](#цели-makefile)
 - [Лицензия](#лицензия)
@@ -64,7 +62,7 @@ Hadoop Explorer Platform — монорепозиторий из пяти сер
 4. Spark Explorer — веб-среда для Apache Spark (PySpark, Scala Spark, Spark SQL) через Apache Livy на кластерах YARN и Kubernetes, вызовы Livy защищены circuit breaker. Поддерживает интерактивные сессии, выбор версий Spark и Python, подключение каталогов Hive Metastore и Iceberg, визуальный конструктор DAG/ETL с проверкой графа на циклы.
 5. Hadoop gRPC Replicator — межкластерная репликация HDFS (DC1 → DC2): глобальное ограничение полосы пропускания (Hierarchical Token Bucket Throttler), бинарный gRPC-стриминг, атомарная запись через staging и rename, инкрементальная репликация по Snapshot Diff, Kerberos-изоляция (включая выполнение от системной технической учетной записи) и метрики Prometheus.
 
-Каждый сервис написан на Java 21 LTS и Spring Boot 3.3.4, собирается в отдельный Docker-образ, разворачивается самостоятельно или в составе umbrella Helm chart и имеет собственный демо-стенд.
+Каждый сервис написан на Java 21 LTS и Spring Boot 3.3.4, собирается в отдельный Docker-образ и имеет собственный демо-стенд.
 
 ---
 
@@ -109,10 +107,6 @@ hadoop-explorer/
 │   ├── Dockerfile.spark-java
 │   ├── Dockerfile.replicator-orchestrator
 │   └── Dockerfile.replicator-agent
-│
-├── helm/                     # Helm Charts для оркестрации в Kubernetes
-│   ├── hadoop-explorer/      # Umbrella Chart
-│   └── charts/               # yarn-explorer, hdfs-explorer, sql-explorer, spark-explorer
 │
 ├── demo/                     # ─── Изолированные демонстрационные стенды ───
 │   ├── infra/                # MIT Kerberos KDC + OpenLDAP
@@ -168,13 +162,13 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 
 ## Адреса, health-check и образы сервисов
 
-| Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ | Helm chart |
-|---|---|---|---|---|---|
-| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` | `helm/charts/yarn-explorer` |
-| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` | `helm/charts/hdfs-explorer` |
-| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` | `helm/charts/sql-explorer` |
-| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` | `helm/charts/spark-explorer` |
-| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator-orchestrator:latest`, `hadoop-explorer/replicator-agent:latest` | нет |
+| Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ |
+|---|---|---|---|---|
+| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/yarn:latest` |
+| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/hdfs:latest` |
+| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/sql:latest` |
+| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /metrics` | `hadoop-explorer/spark:latest` |
+| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator-orchestrator:latest`, `hadoop-explorer/replicator-agent:latest` |
 
 ---
 
@@ -329,62 +323,6 @@ docker build -t hadoop-explorer/replicator-agent:latest -f docker/Dockerfile.rep
 
 ---
 
-## Развертывание в Kubernetes (Helm)
-
-### Вариант 1: вся платформа (umbrella chart)
-
-Установка всех сервисов одной командой:
-```bash
-helm dependency update helm/hadoop-explorer
-helm install hadoop-explorer helm/hadoop-explorer -n hadoop --create-namespace
-```
-
-Выбор устанавливаемых сервисов в `values.yaml`:
-```yaml
-yarn-explorer:
-  enabled: true
-
-hdfs-explorer:
-  enabled: true
-
-sql-explorer:
-  enabled: true
-
-spark-explorer:
-  enabled: true
-```
-
-То же через параметры командной строки:
-```bash
-helm install hadoop-explorer helm/hadoop-explorer \
-  --set yarn-explorer.enabled=true \
-  --set hdfs-explorer.enabled=true \
-  --set sql-explorer.enabled=true \
-  --set spark-explorer.enabled=true
-```
-
-### Вариант 2: отдельные чарты
-
-Каждый сервис устанавливается своим чартом:
-```bash
-helm install yarn-explorer helm/charts/yarn-explorer -n hadoop
-helm install hdfs-explorer helm/charts/hdfs-explorer -n hadoop
-helm install sql-explorer helm/charts/sql-explorer -n hadoop
-helm install spark-explorer helm/charts/spark-explorer -n hadoop
-```
-
-Что включено в чартах:
-- NetworkPolicy включена по умолчанию во всех чартах; входящий трафик разрешен только от Ingress-контроллера.
-- PodDisruptionBudget создается при `replicaCount > 1`.
-- Для двух и более реплик нужен внешний PostgreSQL вместо локального SQLite, см. [docs/production-database.md](docs/production-database.md).
-
-Проверка синтаксиса чартов:
-```bash
-make helm-lint
-```
-
----
-
 ## Запуск тестов
 
 Число тестов на 2026-11-06: 943 тестовых метода Java (аннотации `@Test` и `@ParameterizedTest`; параметризованные методы при прогоне дают больше запусков) и 115 тестов Vitest:
@@ -454,8 +392,6 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make demo-spark-stop` | Остановка демо-стенда Spark Explorer |
 | `make demo-all` | Запуск объединенного демо-стенда платформы |
 | `make demo-all-stop` | Остановка объединенного демо-стенда |
-| `make helm-lint` | Валидация синтаксиса всех Helm-чартов |
-| `make helm-package` | Упаковка чартов платформы в `.tgz` архивы |
 | `make java-index` | Построение автономного AST-индекса Java для поиска символов |
 | `make java-query Q="..."` | Структурный поиск по Java AST-индексу (класс, метод, вызовы, тесты) |
 

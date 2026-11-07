@@ -1,9 +1,8 @@
 # Руководство администратора YARN Explorer
 
-Руководство описывает установку, настройку и эксплуатацию YARN Explorer. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны три способа развертывания:
+Руководство описывает установку, настройку и эксплуатацию YARN Explorer. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны два способа развертывания:
 1. Standalone: сервер или виртуальная машина, процесс под управлением systemd.
 2. Docker и Docker Compose.
-3. Kubernetes через Helm-чарт.
 
 ---
 
@@ -29,7 +28,7 @@ YARN Explorer — компонент платформы Hadoop Explorer. Фун�
 
 - Проверка доступности: `GET /healthz` (а также `GET /health`) возвращает `{"status":"ok"}`.
 - Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
-- Метрики Prometheus сервис не экспортирует, см. [5.1](#51-метрики-prometheus).
+- Метрики Prometheus сервис не экспортирует, см. [4.1](#41-метрики-prometheus).
 
 ### 1.3 Системные требования
 
@@ -430,171 +429,12 @@ docker compose logs -f yarn-explorer
 
 ---
 
-## 4. Kubernetes (Helm)
+## 4. Мониторинг и диагностика
 
-### 4.1 Развертывание Helm-чартом
-Чарт лежит в [`helm/charts/yarn-explorer`](../helm/charts/yarn-explorer).
-
-#### Шаг 1: Подготовка секретов Kubernetes
-Чарт сам создает Secret `<fullname>-secrets` из `secrets.*` (при имени релиза `yarn-explorer` — `yarn-explorer-secrets`), поэтому не создавайте Secret с таким именем вручную: `helm install` остановится с ошибкой о существующем ресурсе.
-
-```bash
-kubectl create namespace hadoop-explorer
-
-# Пароль LDAP и токен AWX; сервис читает их из LDAP_MANAGER_PASSWORD и YARN_AWX_TOKEN
-kubectl create secret generic yarn-explorer-credentials \
-  --namespace hadoop-explorer \
-  --from-literal=ldap-manager-password="SecretLdapPassword" \
-  --from-literal=awx-token="SecretAwxOAuthToken"
-
-# Создание секрета для скачивания образов из GHCR
-kubectl create secret docker-registry ghcr-secret \
-  --namespace hadoop-explorer \
-  --docker-server=ghcr.io \
-  --docker-username="<github-username>" \
-  --docker-password="<github-token-with-read:packages>"
-
-# Keytab; ключ в Secret совпадает с kerberos.keytab.fileName (yarn-explorer.keytab)
-kubectl create secret generic yarn-kerberos-keytab \
-  --namespace hadoop-explorer \
-  --from-file=yarn-explorer.keytab=/etc/security/keytabs/yarn-explorer.keytab
-```
-
-#### Шаг 2: Файл параметров `custom-values.yaml`
-
-Чарт монтирует секцию `config` как `/app/config/config.yaml`, но сам не сообщает сервису путь к этому файлу. Путь передается через `extraEnv` в `SPRING_CONFIG_ADDITIONAL_LOCATION`, и тогда секция `config` читается как Spring-конфигурация с теми же ключами, что `application.yml` на шаге 4 раздела 2. Ключи из `values.yaml` чарта по умолчанию (`config.auth`, `config.acl`, `config.clusters` и т. п.) попадают в тот же файл, но сервис их не читает.
-
-```yaml
-# Один под: в JAR нет JDBC-драйвера PostgreSQL, а встроенную H2 на PVC
-# (/app/data/yarn_explorer.mv.db) несколько подов использовать не могут.
-replicaCount: 1
-
-image:
-  repository: ghcr.io/company/hadoop-explorer/yarn
-  tag: "1.0.0"
-  pullPolicy: IfNotPresent
-
-imagePullSecrets:
-  - name: ghcr-secret
-
-# JWT_SECRET_KEY чарт передает сам из secrets.jwtSecret.
-# Случайная строка не короче 32 символов: значение по умолчанию из values.yaml публично.
-secrets:
-  jwtSecret: "<jwt_secret>"
-
-extraEnv:
-  - name: SPRING_CONFIG_ADDITIONAL_LOCATION
-    value: "file:/app/config/config.yaml"
-  - name: LDAP_MANAGER_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: yarn-explorer-credentials
-        key: ldap-manager-password
-  - name: YARN_AWX_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: yarn-explorer-credentials
-        key: awx-token
-
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 8000
-
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-corp"
-    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
-  hosts:
-    - host: yarn.company.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: yarn-tls-cert
-      hosts:
-        - yarn.company.local
-
-resources:
-  limits:
-    cpu: "2"
-    memory: "2Gi"
-  requests:
-    cpu: "500m"
-    memory: "512Mi"
-
-# krb5.conf (kerberos.krb5Config) передается при установке через --set-file, см. шаг 3.
-# Keytab монтируется из Secret yarn-kerberos-keytab в /etc/security/keytabs/yarn-explorer.keytab.
-kerberos:
-  enabled: true
-  keytab:
-    existingSecret: yarn-kerberos-keytab
-    fileName: yarn-explorer.keytab
-    mountPath: /etc/security/keytabs
-
-# Spring-конфигурация сервиса (ключи как в application.yml)
-config:
-  hadoop:
-    security:
-      auth:
-        mode: ldap
-      jwt:
-        secret-key: "${JWT_SECRET_KEY}"
-      ldap:
-        enabled: true
-        url: "ldaps://ldap.company.local:636"
-        manager-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
-        manager-password: "${LDAP_MANAGER_PASSWORD}"
-        user-search-base: "ou=users,dc=company,dc=local"
-        user-search-filter: "(sAMAccountName={0})"
-  yarn:
-    client-mode: native
-    kerberos:
-      principal: "yarn-explorer@COMPANY.LOCAL"
-      keytab: "/etc/security/keytabs/yarn-explorer.keytab"
-      krb5-conf: "/etc/krb5.conf"
-    awx:
-      enabled: true
-      base-url: "https://awx.company.local"
-      token: "${YARN_AWX_TOKEN}"
-    clusters:
-      - id: "prod-yarn"
-        name: "Hadoop Production"
-        resource-manager-urls:
-          - "http://rm01.hadoop.company.local:8088"
-          - "http://rm02.hadoop.company.local:8088"
-        kerberos-enabled: true
-        kerberos-principal: "yarn/yarn.company.local@COMPANY.LOCAL"
-```
-
-Плейсхолдер `<jwt_secret>` — случайная строка, например вывод `openssl rand -hex 32`.
-
-#### Шаг 3: Установка и обновление через Helm
-```bash
-# Установка чарта
-helm upgrade --install yarn-explorer ./helm/charts/yarn-explorer \
-  --namespace hadoop-explorer \
-  -f custom-values.yaml \
-  --set-file kerberos.krb5Config=/etc/krb5.conf
-
-# Проверка статуса подов
-kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer
-
-# Просмотр логов
-kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
-```
-
----
-
-## 5. Мониторинг и диагностика
-
-### 5.1 Метрики Prometheus
+### 4.1 Метрики Prometheus
 Сервис не экспортирует метрики Prometheus: в `backend/yarn` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
 
-### 5.2 Типичные ошибки
+### 4.2 Типичные ошибки
 
 | Симптом или ошибка | Причина | Что сделать |
 |---|---|---|
@@ -606,9 +446,9 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ---
 
-## 6. Резервное копирование и восстановление
+## 5. Резервное копирование и восстановление
 
-- Конфигурация: храните `values.yaml` и `application.yml` в Git-репозитории инфраструктуры (GitOps: ArgoCD, Flux).
+- Конфигурация: храните `application.yml` в Git-репозитории инфраструктуры.
 - База данных PostgreSQL:
   ```bash
   # Создание резервной копии
@@ -625,18 +465,18 @@ kubectl logs -n hadoop-explorer -l app.kubernetes.io/name=yarn-explorer -f
 
 ---
 
-## 7. Сборка и запуск бэкенда из исходников
+## 6. Сборка и запуск бэкенда из исходников
 
 Бэкенд (`backend/yarn`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует клиентские библиотеки Apache Hadoop YARN (`org.apache.hadoop:hadoop-yarn-client`).
 
-### 7.1 Состав бэкенда
+### 6.1 Состав бэкенда
 1. Клиент ResourceManager и RM HA failover: запросы идут в REST API активного ResourceManager; активный узел определяется по `haState == "ACTIVE"`, при его отказе сервис переключается на standby-узел.
 2. Capacity Scheduler Engine: валидация веток (правило 100% емкости), расчет diff по долям ресурсов и node labels, формирование правок `capacity-scheduler.xml`; XML разбирается с запретом DOCTYPE (защита от XXE).
 3. Change Requests и принцип четырех глаз: жизненный цикл согласования; попытка автора согласовать свою заявку получает HTTP 403 Forbidden.
 4. Интеграция с Ansible AWX: запуск Job Template через REST API AWX; очереди обновляются командой `yarn rmadmin -refreshQueues` без перезапуска RM.
 5. Общий модуль безопасности `common-security-starter`: аутентификация (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter, AOP-аудит `@Audited`.
 
-### 7.2 Сборка и тестирование
+### 6.2 Сборка и тестирование
 
 ```bash
 # Модульное и интеграционное тестирование
@@ -652,7 +492,7 @@ make build-yarn
 make test-java
 ```
 
-### 7.3 Запуск с параметрами в командной строке
+### 6.3 Запуск с параметрами в командной строке
 
 ```bash
 java -jar -Dspring.profiles.active=prod \

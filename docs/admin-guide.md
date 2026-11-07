@@ -28,13 +28,13 @@
          ┌───────────────────────────────────────────┼───────────────────────────────────────────┐
          ▼                                           ▼                                           ▼
 ┌─────────────────────────────────┐ ┌─────────────────────────────────┐ ┌─────────────────────────────────┐
-│     1. STANDALONE (systemd)     │ │   2. DOCKER & DOCKER COMPOSE    │ │      3. KUBERNETES & HELM       │
+│     1. STANDALONE (systemd)     │ │   2. DOCKER & DOCKER COMPOSE    │ │   3. KUBERNETES (Replicator)    │
 │                                 │ │                                 │ │                                 │
-│ - Bare-Metal / Виртуальные маш. │ │ - Контейнеры Java 21 (Temurin)   │ │ - Зонтичный чарт (Umbrella)     │
-│ - Готовые Fat JAR (No-Build)    │ │ - Готовые образы GHCR (ghcr.io) │ │ - Автономные чарты под каждый   │
-│ - Релизы GitHub Releases / sha  │ │ - Оркестрация в docker-compose  │ │ - HPA, Ingress, Cert-Manager    │
-│ - Управление через systemctl    │ │ - Автоматический kinit в entry  │ │ - Secrets & ConfigMap для krb5  │
-│ - Локальный kinit / k5start     │ │ - Multi-stage сборка (по желан.)│ │ - ImagePullSecrets для GHCR     │
+│ - Bare-Metal / Виртуальные маш. │ │ - Контейнеры Java 21 (Temurin)   │ │ - Манифесты Deployment/Service  │
+│ - Готовые Fat JAR (No-Build)    │ │ - Готовые образы GHCR (ghcr.io) │ │ - Secret и ConfigMap            │
+│ - Релизы GitHub Releases / sha  │ │ - Оркестрация в docker-compose  │ │ - ImagePullSecrets для GHCR     │
+│ - Управление через systemctl    │ │ - Автоматический kinit в entry  │ │ - YARN/HDFS/SQL/Spark: нет      │
+│ - Локальный kinit / k5start     │ │ - Multi-stage сборка (по желан.)│ │ - См. replicator-admin-guide §4 │
 └─────────────────────────────────┘ └─────────────────────────────────┘ └─────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 - Все сервисы могут работать в кластерах с Kerberos.
 - Монтируйте keytab только на чтение, с правами `chmod 400` и владельцем `appuser` (UID `10001`).
 - В контейнере стартер безопасности (`common-security-starter`) сам выполняет вход в Kerberos через Java GSS-API / UGI и обновляет TGT по расписанию.
-- В Kubernetes монтируйте keytab из `Secret` с `defaultMode: 0400`.
+- В Kubernetes (манифесты Replicator) монтируйте keytab из `Secret` с `defaultMode: 0400`.
 
 ### 2. Секретный ключ JWT (`JWT_SECRET_KEY`)
 - В production-режиме (`debug: false`) сервис не запускается, если `JWT_SECRET_KEY` короче 32 символов или совпадает с плейсхолдером.
@@ -61,7 +61,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 
 ### 3. База данных сессий: SQLite или PostgreSQL
 - SQLite (`sqlite:////app/data/service.db`) — по умолчанию, для тестовых и Standalone-установок с одной репликой.
-- PostgreSQL (`postgresql://user:pass@pg-host:5432/dbname`) — обязателен при двух и более репликах (Kubernetes, Docker Swarm). Порядок перехода — в [docs/production-database.md](production-database.md).
+- PostgreSQL (`postgresql://user:pass@pg-host:5432/dbname`) — обязателен при двух и более экземплярах сервиса. Порядок перехода — в [docs/production-database.md](production-database.md).
 
 ---
 

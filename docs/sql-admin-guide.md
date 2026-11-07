@@ -1,9 +1,8 @@
 # Руководство администратора SQL Explorer
 
-Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса SQL Explorer в трех режимах:
+Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса SQL Explorer в двух режимах:
 1. Standalone — сервер или ВМ под управлением systemd.
 2. Docker и Docker Compose.
-3. Kubernetes — Helm-чарт.
 
 ---
 
@@ -27,7 +26,7 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
 
 - Проверка доступности (healthcheck): `GET /healthz`.
 - Readiness: `GET /actuator/health/readiness` — 200 `UP` после `ApplicationReadyEvent`, 503 `OUT_OF_SERVICE` с начала остановки контекста приложения.
-- Метрики Prometheus сервис не экспортирует, см. [5.1](#51-метрики-prometheus-get-metrics).
+- Метрики Prometheus сервис не экспортирует, см. [4.1](#41-метрики-prometheus-get-metrics).
 
 ### 1.3 Системные требования
 
@@ -376,104 +375,12 @@ networks:
 
 ---
 
-## 4. Развертывание в Kubernetes
+## 4. Мониторинг и диагностика
 
-### 4.1 Установка Helm-чарта
-Чарт находится в репозитории: [`helm/charts/sql-explorer`](../helm/charts/sql-explorer).
-
-#### Шаг 1: Подготовка секретов Kubernetes
-Чарт сам создает Secret `<fullname>-secrets` (при имени релиза `sql-explorer` — `sql-explorer-secrets`) из `secrets.*`: JWT-секрет, пароль LDAP и keytab. Не создавайте Secret с таким именем вручную: `helm install` остановится с ошибкой о существующем ресурсе.
-
-```bash
-kubectl create namespace hadoop-explorer
-
-# Создание секрета для скачивания образов из GHCR
-kubectl create secret docker-registry ghcr-secret \
-  --namespace hadoop-explorer \
-  --docker-server=ghcr.io \
-  --docker-username="<github-username>" \
-  --docker-password="<github-token-with-read:packages>"
-```
-
-#### Шаг 2: Параметры `custom-values.yaml`
-
-**Внимание:** чарт `helm/charts/sql-explorer` не передает сервису Spring-конфигурацию. ConfigMap с `config.yaml` собран из `config.*` в формате прежней версии сервиса и смонтирован в `/etc/sql-explorer/config.yaml`, а переменную `CONFIG_PATH` сервис не читает; `extraEnv` в чарте нет. Из параметров чарта на сервис действует только `secrets.jwtSecret` (переменная `JWT_SECRET_KEY`), порт задает `SERVER_PORT=8003` из образа. LDAP, Kerberos SPNEGO и список кластеров берутся из `application.yml` внутри JAR: вход через LDAP будет обращаться к `ldaps://ldap.company.local:636`. Для рабочей установки в Kubernetes чарт нужно доработать (передать `SPRING_CONFIG_ADDITIONAL_LOCATION` и Spring-конфигурацию), либо запускайте сервис под systemd с `application.yml` из раздела 2.
-
-```yaml
-# Один под: в JAR нет JDBC-драйвера PostgreSQL, база — встроенная H2 в памяти пода.
-replicaCount: 1
-
-image:
-  repository: ghcr.io/company/hadoop-explorer/sql
-  tag: "1.0.0"
-  pullPolicy: IfNotPresent
-
-imagePullSecrets:
-  - name: ghcr-secret
-
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 8003
-
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-corp"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
-  hosts:
-    - host: sql.company.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: sql-tls-cert
-      hosts:
-        - sql.company.local
-
-resources:
-  limits:
-    cpu: "2"
-    memory: "3Gi"
-  requests:
-    cpu: "500m"
-    memory: "1Gi"
-
-# Попадают в Secret <fullname>-secrets. jwtSecret — случайная строка не короче 32 символов,
-# значение по умолчанию из values.yaml публично. Keytab и krb5.conf передаются через
-# --set / --set-file на шаге 3 и монтируются в /etc/security/keytabs/sql-explorer.keytab
-# и /etc/krb5.conf.
-secrets:
-  jwtSecret: "<jwt_secret>"
-  ldapBindPassword: "<ldap_password>"
-
-kerberos:
-  enabled: true
-```
-
-Плейсхолдеры: `<jwt_secret>` — например, вывод `openssl rand -hex 32`; `<ldap_password>` — пароль сервисной учетной записи LDAP. Сервис этот пароль не читает (см. предупреждение выше), чарт кладет его в Secret и переменную `LDAP_BIND_PASSWORD`.
-
-#### Шаг 3: Установка через Helm
-```bash
-helm upgrade --install sql-explorer ./helm/charts/sql-explorer \
-  --namespace hadoop-explorer \
-  -f custom-values.yaml \
-  --set-file kerberos.krb5Conf=/etc/krb5.conf \
-  --set secrets.kerberosKeytabBase64="$(base64 < /etc/security/keytabs/sql-explorer.keytab | tr -d '\n')"
-
-kubectl get pods -n hadoop-explorer -l app.kubernetes.io/name=sql-explorer
-```
-
----
-
-## 5. Мониторинг и диагностика
-
-### 5.1 Метрики Prometheus (`GET /metrics`)
+### 4.1 Метрики Prometheus (`GET /metrics`)
 Сервис не экспортирует метрики Prometheus: в `backend/sql` и `common-security-starter` нет зависимости `micrometer-registry-prometheus`, а Spring Boot Actuator открывает по HTTP только `/actuator/health` (с группами `liveness` и `readiness`). `GET /metrics` возвращает 404, поэтому задание `hadoop-explorer` из `monitoring/prometheus/prometheus.yml` (`metrics_path: '/metrics'`) данных от сервиса не получит.
 
-### 5.2 Типовые ошибки
+### 4.2 Типовые ошибки
 
 | Ошибка | Причина | Решение |
 |---|---|---|

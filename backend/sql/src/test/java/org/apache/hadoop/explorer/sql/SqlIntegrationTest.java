@@ -28,8 +28,8 @@ class SqlIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Test
-    void probeEndpointsUsedByHelmChartAreServedWithoutAuth() throws Exception {
-        // helm/charts/*-explorer/values.yaml: livenessProbe -> /healthz, readinessProbe -> /actuator/health/readiness
+    void probeEndpointsAreServedWithoutAuth() throws Exception {
+        // Liveness probe -> /healthz, readiness probe -> /actuator/health/readiness
         mockMvc.perform(get("/healthz"))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/actuator/health/readiness"))
