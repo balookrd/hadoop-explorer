@@ -75,8 +75,10 @@
 >
 > Вне debug (`hadoop.security.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer repository`.
 >
-> Локальная разработка и демо-стенды включают профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
-> файл `application-mock.yml` в ресурсах сервиса) либо задают `auth.mode`/`debug` в своем конфиге.
+> Локальная разработка без каталога включает профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
+> файл `application-mock.yml` в ресурсах сервиса). Демо-стенды `demo/*` входят через OpenLDAP стенда:
+> Explorer-сервисы задают `auth.mode: ldap`/`hybrid` и `debug: true` в `application-demo.yml`, оркестратор
+> Replicator — профилем `demo` (`SPRING_PROFILES_ACTIVE=demo`, `application-demo.yml`).
 > Ключи из старых руководств (`auth-mode`, `ldap.server-uri`, `bind-dn`, `bind-password`, `user-base-dn`,
 > `user-filter`, `kerberos.keytab-path`, `kerberos.principal`) принимаются как синонимы.
 
@@ -778,8 +780,9 @@ Spark Explorer сохраняет в базу данных состояние с
 
 Конфигурация оркестратора по умолчанию (`application.yml`) — H2 в памяти и боевая аутентификация
 (`auth.mode: ldap`, JWT-секрет из `JWT_SECRET_KEY`): без них оркестратор не стартует.
-Тестовые пользователи и `auth.mode: mock` вынесены в профиль `mock` (`SPRING_PROFILES_ACTIVE=mock`),
-который включают демо-стенды `demo/replicator`. Схема базы во всех профилях
+Тестовые пользователи и `auth.mode: mock` вынесены в профиль `mock` (`SPRING_PROFILES_ACTIVE=mock`)
+для локальной разработки. Демо-стенды `demo/replicator` включают профиль `demo`: вход через OpenLDAP стенда
+(`ldap://ldap:389`), группы — поиском `groupOfNames` по `member`. Схема базы во всех профилях
 создается миграциями Flyway, а `ddl-auto` стоит в `validate`. Для продуктива
 предусмотрен отдельный профиль `application-prod.yml`, активируемый через
 `SPRING_PROFILES_ACTIVE=prod`: PostgreSQL, `auth.mode: kerberos`,
@@ -1150,7 +1153,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `REPLICATOR_WIRE_COMPRESSION` | Кодек потокового сжатия в канале: `zstd` (Zstandard), `lz4` (LZ4), `none` | `zstd` |
 | `REPLICATOR_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
-| `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для демо, `prod` для оркестратора репликатора) | — |
+| `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для локальной разработки, `demo` для демо-стендов и `prod` для оркестратора репликатора) | — |
 | `HADOOP_AUTH_MODE` | `hadoop.security.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
 | `JWT_SECRET_KEY` | `hadoop.security.jwt.secret-key`: ключ подписи JWT, не короче 32 символов | — (без него сервис не стартует вне mock-режима) |
 | `LDAP_URL` | `hadoop.security.ldap.url` | `ldaps://ldap.company.local:636` |

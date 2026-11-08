@@ -131,32 +131,13 @@ public class ReplicatorAgent {
                 config.getTokenBatchMaxBytes()
         );
 
-        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
-            if ("demo-http".equalsIgnoreCase(config.getHmsMode())) {
-                logger.info("Агент '{}' инициализирован с Demo HttpRemoteHmsClient (тестовый симулятор стенда)", config.getAgentId());
-                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
-                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
-                );
-            } else if ("mock".equalsIgnoreCase(config.getHmsMode())) {
-                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
-            } else if ((config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank()) || "thrift".equalsIgnoreCase(config.getHmsMode())) {
-                logger.info("Боевой режим: прямое подключение агента к Hive Metastore по Thrift: {}", config.getHmsThriftUris());
-                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.ThriftHmsClient(
-                        config.getClusterId(),
-                        config.getHmsThriftUris(),
-                        config.getHmsKerberosPrincipal(),
-                        config.getKeytabPath()
-                );
-            } else if ("auto".equalsIgnoreCase(config.getHmsMode()) && config.getOrchestratorUrl() != null && !config.getOrchestratorUrl().isBlank()) {
-                this.hmsClient = new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
-                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(), config.isOrchestratorInsecureSkipVerify()
-                );
-            } else {
-                this.hmsClient = new MockHmsClient(config.getClusterId(), config.getHiveVersion());
-            }
+        // The sender reads the source metastore, the receiver writes the target one
+        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode())
+                || "receiver".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
+            this.hmsClient = createHmsClient(config);
         }
 
-        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
+        if (hmsClient != null && ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()))) {
             var mappings = org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter.parseMappings(config.getFederationMappings());
             var pathRewriter = new org.apache.hadoop.explorer.replicator.hms.rewriter.HmsPathRewriter(mappings, config.getTargetDefaultFsUri());
             this.hmsTaskExecutor = new org.apache.hadoop.explorer.replicator.hms.service.HmsTaskExecutor(
@@ -175,6 +156,55 @@ public class ReplicatorAgent {
                     3
             );
         }
+    }
+
+    /**
+     * HMS client by REPLICATOR_HMS_MODE. Without Thrift URIs in the default "auto" mode the agent
+     * does not replicate metadata (no client, no HMS loop) instead of silently serving a built-in
+     * metastore emulator. "mock" and "demo-http" are explicit development-only modes.
+     */
+    static HmsClient createHmsClient(ReplicatorAgentConfig config) {
+        String mode = config.getHmsMode() == null ? "auto" : config.getHmsMode().trim().toLowerCase();
+        boolean hasThriftUris = config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank();
+        switch (mode) {
+            case "thrift" -> {
+                if (!hasThriftUris) {
+                    throw new IllegalStateException("REPLICATOR_HMS_MODE=thrift requires HMS_THRIFT_URIS "
+                            + "(thrift://<metastore_host>:9083) for agent '" + config.getAgentId() + "'");
+                }
+                return thriftClient(config);
+            }
+            case "auto" -> {
+                if (hasThriftUris) {
+                    return thriftClient(config);
+                }
+                logger.info("Агент '{}': HMS_THRIFT_URIS не задан, репликация метаданных Hive на агенте отключена",
+                        config.getAgentId());
+                return null;
+            }
+            case "demo-http" -> {
+                logger.warn("Агент '{}': REPLICATOR_HMS_MODE=demo-http, HMS берется из тестового API оркестратора "
+                        + "(replicator.hms.mock-cluster-api.enabled)", config.getAgentId());
+                return new org.apache.hadoop.explorer.replicator.hms.client.HttpRemoteHmsClient(
+                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(),
+                        config.isOrchestratorInsecureSkipVerify());
+            }
+            case "mock" -> {
+                logger.warn("Агент '{}': REPLICATOR_HMS_MODE=mock, встроенный эмулятор Hive Metastore", config.getAgentId());
+                return new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            }
+            default -> throw new IllegalStateException("REPLICATOR_HMS_MODE='" + config.getHmsMode()
+                    + "' is not supported; expected auto, thrift, demo-http or mock");
+        }
+    }
+
+    private static HmsClient thriftClient(ReplicatorAgentConfig config) {
+        logger.info("Агент '{}': подключение к Hive Metastore по Thrift: {}", config.getAgentId(), config.getHmsThriftUris());
+        return new org.apache.hadoop.explorer.replicator.hms.client.ThriftHmsClient(
+                config.getClusterId(),
+                config.getHmsThriftUris(),
+                config.getHmsKerberosPrincipal(),
+                config.getKeytabPath());
     }
 
     public HmsClient getHmsClient() { return hmsClient; }

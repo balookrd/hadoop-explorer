@@ -123,6 +123,10 @@ public class LdapAuthService {
                     groups.add(groupName);
                 }
             }
+            if (groups.isEmpty()) {
+                // Directories without the memberOf overlay (plain OpenLDAP): look the user up as a group member
+                groups.addAll(searchGroups(ctx, userDn));
+            }
 
             var resolved = roleResolver.resolve(username, groups);
 
@@ -146,6 +150,39 @@ public class LdapAuthService {
                 } catch (Exception ignored) {}
             }
         }
+    }
+
+    /**
+     * Groups whose member attribute holds the user DN, by group-search-base / group-search-filter
+     * ({0} is the escaped user DN). A failed group search leaves the user without groups instead of
+     * failing a login whose password has already been verified.
+     */
+    private List<String> searchGroups(DirContext ctx, String userDn) {
+        var ldap = properties.getLdap();
+        String base = ldap.getGroupSearchBase();
+        String filterTemplate = ldap.getGroupSearchFilter();
+        if (base == null || base.isBlank() || filterTemplate == null || filterTemplate.isBlank()) {
+            return List.of();
+        }
+        List<String> groups = new ArrayList<>();
+        try {
+            SearchControls controls = new SearchControls();
+            controls.setSearchScope(SearchControls.SUBTREE_SCOPE);
+            controls.setReturningAttributes(new String[]{"cn"});
+            String filter = filterTemplate.replace("{0}", escapeLdapFilter(userDn));
+            NamingEnumeration<SearchResult> results = ctx.search(base, filter, controls);
+            while (results.hasMore()) {
+                SearchResult group = results.next();
+                String name = getAttributeValue(group.getAttributes(), "cn")
+                    .orElse(extractCn(group.getNameInNamespace()));
+                if (!name.isBlank() && !groups.contains(name)) {
+                    groups.add(name);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LDAP group search failed for {} in '{}': {}", userDn, base, e.getMessage());
+        }
+        return groups;
     }
 
     private Optional<String> getAttributeValue(Attributes attrs, String attrId) {

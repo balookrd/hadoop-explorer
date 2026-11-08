@@ -170,8 +170,8 @@ services:
       REPLICATOR_GRPC_PORT: "50050"
       REPLICATOR_GRPC_ENABLED: "true"
       REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600"
-      # Демо-учетки и debug: упакованные значения по умолчанию оркестратора — боевые
-      SPRING_PROFILES_ACTIVE: "mock"
+      # Вход через OpenLDAP из demo/infra (сеть demo-platform-net) и debug (application-demo.yml)
+      SPRING_PROFILES_ACTIVE: "demo"
       # Единый секрет демо-стенда: control plane и приемники работают в режиме
       # Fail-Closed, поэтому пустое значение отключило бы репликацию целиком.
       HADOOP_REPLICATOR_AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
@@ -182,7 +182,6 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
       KRB5_CONFIG: "/shared/conf/krb5.conf"
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf"
-      REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "true"
       HADOOP_STREAMING_ENABLED: "false"
       HADOOP_REPLICATOR_STREAMING_ENABLED: "false"
     volumes:

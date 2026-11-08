@@ -30,22 +30,6 @@ hadoop:
     jwt:
       secret-key: "spark-explorer-demo-secret-jwt-key-32chars-min-safe!"
       expiration-minutes: 480
-    mock-users:
-      - username: "admin_user"
-        password: "password123"
-        displayName: "Александр Админов"
-        email: "admin@company.local"
-        groups: ["hadoop-admins", "platform-admins"]
-      - username: "de_user"
-        password: "password123"
-        displayName: "Иван Датаинженеров"
-        email: "de@company.local"
-        groups: ["data-engineers", "bi-analysts"]
-      - username: "analyst_user"
-        password: "password123"
-        displayName: "Анна Аналитикова"
-        email: "analyst@company.local"
-        groups: ["bi-analysts"]
     ldap:
       enabled: true
       server-uri: "ldap://ldap:389"

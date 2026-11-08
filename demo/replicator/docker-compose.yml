@@ -15,8 +15,8 @@ services:
     restart: unless-stopped
     environment:
       REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600" # 100 MB/s
-      # Демо-учетки и debug: упакованные значения по умолчанию оркестратора — боевые
-      SPRING_PROFILES_ACTIVE: "mock"
+      # Вход через OpenLDAP стенда и debug (application-demo.yml): упакованные значения по умолчанию — боевые
+      SPRING_PROFILES_ACTIVE: "demo"
       # Единый секрет демо-стенда: control plane и приемники работают в режиме
       # Fail-Closed, поэтому пустое значение отключило бы репликацию целиком.
       HADOOP_REPLICATOR_AGENT_SECRET: "${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
@@ -37,7 +37,6 @@ services:
       HADOOP_STREAMING_POLL_INTERVAL_MS: "1000"
       HADOOP_REPLICATOR_STREAMING_ENABLED: "true"
       HADOOP_REPLICATOR_STREAMING_POLL_INTERVAL_MS: "1000"
-      REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED: "false"
       REPLICATOR_GRPC_PORT: "50050"
       REPLICATOR_GRPC_ENABLED: "true"
     volumes:
@@ -50,6 +49,8 @@ services:
       - "50050:50050"
     depends_on:
       kdc:
+        condition: service_healthy
+      ldap:
         condition: service_healthy
       hdfs-cluster-1:
         condition: service_started

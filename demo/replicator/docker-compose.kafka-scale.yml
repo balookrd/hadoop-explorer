@@ -63,9 +63,6 @@ services:
   orchestrator:
     environment:
       JAVA_TOOL_OPTIONS: "-Djava.security.krb5.conf=/shared/conf/krb5.conf -Xmx768m"
-      # Без адреса spring-ldap ходит на localhost:389, и /actuator/health отдает 503 даже при
-      # mock-аутентификации: стенду нужен LDAP из demo/infra
-      SPRING_LDAP_URLS: "ldap://ldap:389"
       # Без лимита DC троттлер по умолчанию режет поток до 100 МБ/с на весь стенд
       REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "${GLOBAL_LIMIT_BYTES:-1073741824}"
       # Топология керберизованных кластеров стенда: discovery и провижининг топиков ходят к

@@ -48,11 +48,24 @@ make demo-all-stop
 
 Пароль всех пользователей: `password123`.
 
-| Пользователь | Отображаемое имя | Роль (бейдж в UI) | Группы LDAP | Права |
-|---|---|---|---|---|
-| `admin` / `admin_user` | Главный Администратор | `ADMIN` (`ADM`) | `admins`, `engineers`, `analytics`, `hadoop-admins` | Полный доступ (R/W во всех HDFS кластерах, утверждение Change Requests в YARN, управление сессиями Spark, админ SQL) |
-| `engineer` / `engineer_user` / `de_user` | Инженер данных | `WRITER` (`RW`) | `engineers`, `data-engineers` | Чтение и запись в рабочие директории HDFS, создание заявок Change Requests в YARN, запуск расчетов в Livy Spark |
-| `analyst` / `analyst_user` / `reader_user` | Аналитик данных | `READER` (`RO`) | `analytics`, `analysts`, `bi-analysts` | Доступ только для чтения к данным HDFS, выполнение SELECT-запросов в SQL Explorer, мониторинг очередей YARN и статусов сессий Spark |
+Вход на всех стендах — через OpenLDAP (`auth_method: ldap`); группы берутся поиском `groupOfNames` по
+`member` (`ldap.group-search-filter`). Роль определяют `admin-groups`/`writer-groups` сервиса и роли кластеров
+в `application-demo.yml`; в таблице — роль при настройках стендов.
+
+| Пользователь | Отображаемое имя | Группы LDAP | Роль |
+|---|---|---|---|
+| `admin` | Главный Администратор | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `data-engineers`, `yarn-operators`, `bi-analysts`, `analytics` | `ADMIN` |
+| `admin_user` | Александр Админов | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `platform-team` | `ADMIN` |
+| `hdfs` | Hadoop Superuser | `hadoop-admins` | `ADMIN` |
+| `writer_user` | Владимир Инженеров | `data-engineers`, `yarn-operators`, `dev-leads`, `etl-developers` | `WRITER` |
+| `de_user` | Иван Датаинженеров | `data-engineers`, `yarn-operators`, `bi-analysts`, `spark-users` | `WRITER` |
+| `engineer` | Data Engineer | `data-engineers`, `yarn-operators`, `bi-analysts`, `developers` | `WRITER` |
+| `analyst_user` | Анна Аналитикова | `bi-analysts`, `analytics` | `READER` |
+| `analyst` | BI Data Analyst | `bi-analysts`, `analytics` | `READER` |
+| `reader_user` | Екатерина Наблюдателева | `bi-analysts`, `analytics`, `junior-devs` | `READER` |
+
+Каталог создается из `demo/infra/ldap/bootstrap.ldif` при сборке образа `ldap` и первом старте контейнера.
+После правки файла пересоздайте контейнер: `docker compose -f demo/infra/docker-compose.infra.yml up -d --build --force-recreate ldap`.
 
 ---
 

@@ -87,14 +87,15 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 
 ## Учетные записи и роли
 
-Учетные записи заведены в общем OpenLDAP и Kerberos KDC.
+Учетные записи заведены в общем OpenLDAP и Kerberos KDC; все сервисы проверяют пароль и группы в OpenLDAP.
+Полный список групп — в [README.md](../README.md).
 Пароль всех пользователей: `password123`.
 
 | Логин | Роль (бейдж в UI) | Группы LDAP | Права в YARN | Права в HDFS | Права в SQL | Права в Spark |
 |---|---|---|---|---|---|---|
-| `admin` / `admin_user` | `ADMIN` (`ADM`) | `admins`, `hadoop-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
-| `engineer` / `engineer_user` | `WRITER` (`RW`) | `engineers`, `data-engineers` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
-| `analyst` / `analyst_user` | `READER` (`RO`) | `analytics`, `analysts` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
+| `admin` / `admin_user` | `ADMIN` (`ADM`) | `hadoop-admins`, `data-platform-admins`, `platform-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
+| `engineer` / `writer_user` / `de_user` | `WRITER` (`RW`) | `data-engineers`, `yarn-operators` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
+| `analyst` / `analyst_user` / `reader_user` | `READER` (`RO`) | `bi-analysts`, `analytics` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
 
 ---
 

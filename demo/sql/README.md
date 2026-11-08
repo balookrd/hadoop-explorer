@@ -50,10 +50,14 @@ docker exec -e HOME=/tmp -e HADOOP_CLIENT_OPTS="-Djava.security.auth.login.confi
 
 ## Известные проблемы
 
-Кластеры стенда в `application-demo.yml` работают на встроенном эмуляторе (`mock-storage: true`): без доработок ниже реальные Trino и HiveServer2 стенда из SQL Explorer не работают. Реальные движки проверяют тесты `TrinoSqlEngineContainerTest` и `HiveSqlEngineContainerTest` (`mvn -B test -pl backend/sql -am`, нужен Docker). Чтобы направить запросы в контейнеры стенда, поставьте у нужного кластера `mock-storage: false` и примените обходы из списка.
+Все четыре кластера стенда выполняют запросы в контейнерах `trino-coordinator`, `hive-server-1` и
+`hive-server-2` (`mock-storage: false`). `sql-explorer` использует `/etc/security/keytabs/krb5-nocanon.conf`
+(`dns_canonicalize_hostname = false`), который генерирует `demo/infra/kdc/entrypoint.sh`: с обычным
+`krb5.conf` JDK канонизирует `trino-coordinator` и `hive-server-2` через обратный DNS Docker в
+`<имя>.demo-platform-net`, и билеты запрашиваются для принципалов, которых нет в KDC (`LOOKING_UP_SERVER`,
+`GSS initiate failed`). После обновления `demo/infra` пересоздайте `kdc`, чтобы файл появился в общем томе
+keytab'ов.
 
-- `GET /api/v1/auth/me` возвращает пользователям стенда `"groups": []`: группы берутся из атрибута `memberOf`, а OpenLDAP стенда его не заполняет. Кластеры с `allowed-groups` пользователю не видны, `POST /api/v1/queries/execute` отвечает `403`. Обход: добавьте пользователя в `allowed-users` кластера в `application-demo.yml`.
-- Запрос к `trino-kerberized` падает с `Server not found in Kerberos database (7) - LOOKING_UP_SERVER`: JDK канонизирует `trino-coordinator` через обратный DNS Docker в `trino-coordinator.demo-platform-net`, а в KDC зарегистрирован только `trino/trino-coordinator@COMPANY.LOCAL`. Тот же механизм ломает `hive-archive-analytics`: `hive-server-2` канонизируется в `hive-server-2.demo-platform-net`, билет выдается для `hive/hive-server-2.demo-platform-net@COMPANY.LOCAL`, а HiveServer2 принимает только `hive/hive-server-2@COMPANY.LOCAL` — запрос падает с `GSS initiate failed`, в `/tmp/hive/hive.log` контейнера `hive-server-2` — `Checksum failed`. `hive-server` не канонизируется (обратный DNS дает `hive-server-1.demo-platform-net`, JDK принимает только имя, начинающееся с `hive-server.`). Обход для обоих кластеров (проверен): смонтируйте в `sql-explorer` копию `/etc/security/keytabs/krb5.conf` с `dns_canonicalize_hostname = false` в `[libdefaults]` и укажите ее путь в `JAVA_TOOL_OPTIONS` (`-Djava.security.krb5.conf=...`) и в `kerberos.krb5-conf` кластера `trino-kerberized` (у Hive-кластеров `kerberos.krb5-conf` не задан; если задать, путь должен совпадать с JVM).
 - Пока `hive/init-demo-data.sh` не завершился успешно, баз `demo_db` и `archive_db` нет, и запросы к `hive-demo-analytics` и `hive-archive-analytics` падают с `Failed to open new session: Database demo_db does not exist`.
 - `INSERT` на стенде падает с `return code 2 from org.apache.hadoop.hive.ql.exec.mr.MapRedTask`. Поэтому `hive/init-demo-data.sh` заполняет таблицы через `LOAD DATA LOCAL INPATH`.
 

@@ -53,8 +53,8 @@ services:
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
       - FRONTEND_DIST=/app/frontend/dist
-      - KRB5_CONFIG=/etc/security/keytabs/krb5.conf
-      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf
+      - KRB5_CONFIG=/etc/security/keytabs/krb5-nocanon.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/security/keytabs/krb5-nocanon.conf
     volumes:
       - ./application-demo.yml:/app/config/application.yml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro

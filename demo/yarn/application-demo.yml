@@ -19,7 +19,7 @@ hadoop:
   security:
     debug: true
     auth:
-      mode: mock
+      mode: ldap
       writer-groups:
         - "yarn-operators"
         - "data-engineers"
@@ -28,32 +28,6 @@ hadoop:
     jwt:
       secret-key: "yarn-explorer-demo-stand-super-secret-key-2026"
       expiration-minutes: 480
-    mock-users:
-      - username: "admin_user"
-        password: "password123"
-        displayName: "Александр Админов"
-        email: "admin@company.local"
-        groups: ["hadoop-admins", "platform-team"]
-      - username: "writer_user"
-        password: "password123"
-        displayName: "Владимир Инженеров"
-        email: "writer@company.local"
-        groups: ["yarn-operators", "dev-leads"]
-      - username: "de_user"
-        password: "password123"
-        displayName: "Иван Датаинженеров"
-        email: "de@company.local"
-        groups: ["data-engineers", "yarn-operators"]
-      - username: "reader_user"
-        password: "password123"
-        displayName: "Екатерина Наблюдателева"
-        email: "reader@company.local"
-        groups: ["bi-analysts", "junior-devs"]
-      - username: "analyst_user"
-        password: "password123"
-        displayName: "Анна Аналитикова"
-        email: "analyst@company.local"
-        groups: ["bi-analysts", "analytics"]
     ldap:
       enabled: true
       url: "ldap://ldap:389"

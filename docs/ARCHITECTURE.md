@@ -75,7 +75,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
    - Проверяет SPNEGO-билет браузера из заголовка `Authorization: Negotiate ...` через Java GSS-API (`org.ietf.jgss`) и извлекает principal пользователя (`user@REALM`).
    - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (YARN Explorer — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
 3. LDAPS / Active Directory: проверка пароля через `LdapAuthService` с экранированием фильтров (`escapeLdapFilter`, защита от LDAP Injection, CWE-90) и чтением групп из атрибута `memberOf`.
-4. Mock-режим (`hadoop.security.auth.mode: mock`) — только для разработки и демо-стендов. При `debug: false` mock-провайдер не запускается.
+4. Mock-режим (`hadoop.security.auth.mode: mock`) — только для локальной разработки; демо-стенды входят через OpenLDAP. При `debug: false` mock-провайдер не запускается.
 5. Общая проверка токена: `CommonAuthFilter` во всех сервисах берет токен из `Authorization: Bearer` или cookie (`SecurityTokenExtractor`), отклоняет отозванные токены (`SessionStore.isTokenRevoked`), ищет сессию в `SessionStore`, а если ее нет — проверяет подпись JWT (`JwtTokenService`), повторно проверяет отзыв по `jti` и строит `UserSession`.
 
 ### 3.2 Хранилище сессий (`SessionStore`)

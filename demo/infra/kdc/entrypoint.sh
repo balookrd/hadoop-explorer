@@ -66,7 +66,11 @@ EOF
 # Копируем krb5.conf в shared директории
 cp /etc/krb5.conf "$CONF_DIR/krb5.conf"
 cp /etc/krb5.conf "$KEYTAB_DIR/krb5.conf"
-chmod 644 "$CONF_DIR/krb5.conf" "$KEYTAB_DIR/krb5.conf"
+# Variant without host name canonicalization for JDK clients that reach services by short names
+# (sql-explorer -> trino-coordinator, hive-server-2): Docker reverse DNS turns them into
+# <name>.demo-platform-net, and the KDC has only trino/trino-coordinator, hive/hive-server-2
+sed 's/^\[libdefaults\]$/[libdefaults]\n    dns_canonicalize_hostname = false/' /etc/krb5.conf > "$KEYTAB_DIR/krb5-nocanon.conf"
+chmod 644 "$CONF_DIR/krb5.conf" "$KEYTAB_DIR/krb5.conf" "$KEYTAB_DIR/krb5-nocanon.conf"
 
 # Конфигурация KDC демона
 cat <<EOF > /var/lib/krb5kdc/kdc.conf

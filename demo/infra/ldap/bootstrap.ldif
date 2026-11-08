@@ -212,6 +212,7 @@ description: Операторы управления очередями YARN
 member: uid=admin,ou=users,dc=company,dc=local
 member: uid=engineer,ou=users,dc=company,dc=local
 member: uid=writer_user,ou=users,dc=company,dc=local
+member: uid=de_user,ou=users,dc=company,dc=local
 
 dn: cn=bi-analysts,ou=groups,dc=company,dc=local
 objectClass: top
@@ -233,4 +234,62 @@ description: Read-only доступ аналитиков
 member: uid=admin,ou=users,dc=company,dc=local
 member: uid=analyst,ou=users,dc=company,dc=local
 member: uid=analyst_user,ou=users,dc=company,dc=local
+member: uid=reader_user,ou=users,dc=company,dc=local
+
+dn: cn=platform-admins,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: platform-admins
+description: Администраторы платформы (Spark, Replicator)
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=admin_user,ou=users,dc=company,dc=local
+
+dn: cn=superusers,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: superusers
+description: Суперпользователи платформы
+member: uid=admin,ou=users,dc=company,dc=local
+member: uid=admin_user,ou=users,dc=company,dc=local
+
+dn: cn=platform-team,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: platform-team
+description: Команда платформы данных
+member: uid=admin_user,ou=users,dc=company,dc=local
+
+dn: cn=dev-leads,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: dev-leads
+description: Тимлиды разработки (утверждение заявок YARN)
+member: uid=writer_user,ou=users,dc=company,dc=local
+
+dn: cn=developers,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: developers
+description: Разработчики (запись в Spark Explorer)
+member: uid=engineer,ou=users,dc=company,dc=local
+
+dn: cn=etl-developers,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: etl-developers
+description: Разработчики ETL (задачи репликации)
+member: uid=writer_user,ou=users,dc=company,dc=local
+
+dn: cn=spark-users,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: spark-users
+description: Пользователи Spark (сессии Livy)
+member: uid=de_user,ou=users,dc=company,dc=local
+
+dn: cn=junior-devs,ou=groups,dc=company,dc=local
+objectClass: top
+objectClass: groupOfNames
+cn: junior-devs
+description: Младшие разработчики (только чтение)
 member: uid=reader_user,ou=users,dc=company,dc=local

@@ -216,7 +216,7 @@ flowchart TD
 | `HADOOP_REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Число партиций в одном пакете Thrift RPC | `1000` | Опционально |
 | `HADOOP_REPLICATOR_HMS_LEASE_TIMEOUT_SECONDS` | Длительность эксклюзивной аренды (Distributed Lease) HMS задачи агентом источника (сек) | `30` | Опционально |
 | `HADOOP_REPLICATOR_HMS_MAX_BOOTSTRAPS_PER_AGENT` | Верхний предел bootstrap HMS-задач на одного агента кластера. Свободную задачу (bootstrap или CDC) берет только агент, у которого задач не больше, чем у самого свободного агента кластера плюс одна: задачи расходятся по агентам, а не заполняют первых опросивших до предела. CDC-задачи (ACTIVE) в предел не входят | `4` | Опционально |
-| `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового mock-слоя эмуляции кластеров и метасторов (`/api/v1/hms/clusters/**`) для демо-стендов и тестов | `false` (в боевом режиме полностью отключено) | Опционально |
+| `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового слоя эмуляции метасторов (`/api/v1/hms/clusters/**`) для разработки и тестов; демо-стенды его не используют | `false` (в боевом режиме полностью отключено) | Опционально |
 | — (флаг задания `sync_deletes`) | — | Репликация удалений потокового задания: включается в интерфейсе на задание, не переменной окружения. По умолчанию выключена |
 | `HADOOP_REPLICATOR_TASK_RETENTION_DAYS` | Возраст, после которого завершенная подзадача удаляется; `0` выключает очистку | `7` | Опционально |
 | `HADOOP_REPLICATOR_TASK_RETENTION_BATCH_SIZE` | Размер пакета удаления при очистке истории задач | `500` | Опционально |
@@ -265,7 +265,7 @@ flowchart TD
 | `REPLICATOR_GRPC_CLIENT_AUTH` | Режим взаимной проверки сертификатов mTLS (`NONE`, `OPTIONAL`, `REQUIRE`) | `NONE` | Опционально |
 | `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | Отключение строгой проверки TLS сертификатов для gRPC (только dev) | `false` | Опционально |
 | `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | Отключение проверки HTTPS сертификатов при запросах к Оркестратору | `false` | Опционально |
-| `REPLICATOR_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (боевое прямое подключение Thrift RPC к Hive Metastore), `demo-http` (REST симулятор стенда), `mock` (unit-тесты) | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
+| `REPLICATOR_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (Thrift RPC к Hive Metastore; без `HMS_THRIFT_URIS` агент не стартует), `auto` (Thrift, если задан `HMS_THRIFT_URIS`, иначе репликация метаданных на агенте отключена), `demo-http` (тестовый API оркестратора, нужен `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED`), `mock` (встроенный эмулятор, только для тестов). Другое значение останавливает старт агента | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
 | `HMS_THRIFT_POOL_MAX_SIZE` | Максимальный размер пула Thrift-соединений к Hive Metastore (Commons-Pool2) | `16` (minIdle: 1, maxIdle: 8) | Опционально |
 | `REPLICATOR_HMS_DATA_BARRIER_ENABLED` | Барьер «данные раньше DDL»: партиции и таблицы появляются на приемнике только после успешного копирования их данных. Сбой связи с оркестратором барьер не открывает | `true` | Рекомендуется |
 | `REPLICATOR_HMS_DATA_BARRIER_TIMEOUT_SEC` | Сколько ждать копирования данных одной порции партиций, прежде чем отменить DDL (секунды). Копия таблицы на терабайты идет часами | `21600` (6 ч) | Опционально |
