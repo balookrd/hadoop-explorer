@@ -84,7 +84,10 @@ public class QueryController {
             @RequestParam(name = "limit", defaultValue = "500") int limit,
             Authentication authentication
     ) {
-        return queryManager.getCachedResult(queryId, offset, limit)
+        // A query of another user is reported as not found (404), not forbidden: the id must not be confirmed
+        String username = SecurityUtils.getUsername(authentication);
+        boolean isAdmin = SecurityUtils.isAdmin(authentication);
+        return queryManager.getCachedResult(queryId, username, isAdmin, offset, limit)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Результат запроса не сохранен или был очищен"));
     }
 
@@ -93,7 +96,10 @@ public class QueryController {
             @PathVariable("queryId") String queryId,
             Authentication authentication
     ) {
-        return queryManager.registerQueryStream(queryId);
+        String username = SecurityUtils.getUsername(authentication);
+        boolean isAdmin = SecurityUtils.isAdmin(authentication);
+        return queryManager.registerQueryStream(queryId, username, isAdmin)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Запрос не найден"));
     }
 
     @PostMapping("/{queryId}/cancel")

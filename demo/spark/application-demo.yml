@@ -66,6 +66,7 @@ hadoop:
 spark:
   session-ttl-minutes: 120
   results-ttl-hours: 24
+  close-sessions-on-logout: true
   clusters:
     - id: "spark-cluster-1"
       name: "Primary Spark & Livy Cluster (Production)"
@@ -74,6 +75,10 @@ spark:
       livy-url: "http://spark-livy:8998"
       yarn-cluster-id: "yarn-cluster-1"
       mock-storage: false
+      livy:
+        auth: "none"          # SPNEGO needs HTTP/spark-livy principals in demo/infra/kdc (not provisioned)
+        proxy-user: true
+        session-start-timeout-seconds: 180
       yarn-queues:
         - "root.default"
         - "root.analytics"
@@ -109,6 +114,10 @@ spark:
       livy-url: "http://spark-livy-2:8999"
       yarn-cluster-id: "yarn-cluster-2"
       mock-storage: false
+      livy:
+        auth: "none"          # SPNEGO needs HTTP/spark-livy principals in demo/infra/kdc (not provisioned)
+        proxy-user: true
+        session-start-timeout-seconds: 180
       yarn-queues:
         - "root.default"
         - "root.archive"

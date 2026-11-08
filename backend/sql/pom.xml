@@ -25,6 +25,10 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <trino-jdbc.version>484</trino-jdbc.version>
+        <!-- Spring Boot 3.3.4 manages 1.19.8, which cannot talk to Docker Engine 29+ -->
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <kyuubi-jdbc.version>1.12.0</kyuubi-jdbc.version>
     </properties>
 
     <dependencies>
@@ -74,6 +78,26 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- Trino JDBC: fully shaded (io.trino.jdbc.$internal), Kerberos built in, no Hadoop -->
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-jdbc</artifactId>
+            <version>${trino-jdbc.version}</version>
+        </dependency>
+
+        <!-- Must precede kyuubi-hive-jdbc-shaded: the driver jar carries SLF4J 1.7 API classes (LoggingBindingTest) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- HiveServer2 JDBC: Kyuubi fork of hive-jdbc, shaded, Kerberos keytab login without Hadoop -->
+        <dependency>
+            <groupId>org.apache.kyuubi</groupId>
+            <artifactId>kyuubi-hive-jdbc-shaded</artifactId>
+            <version>${kyuubi-jdbc.version}</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -83,6 +107,22 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-trino</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

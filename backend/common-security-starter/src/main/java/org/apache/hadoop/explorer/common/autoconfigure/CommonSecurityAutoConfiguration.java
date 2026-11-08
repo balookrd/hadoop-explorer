@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -129,8 +130,9 @@ public class CommonSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AuthController authController(AuthService authService) {
-        return new AuthController(authService);
+    public AuthController authController(AuthService authService,
+                                         ApplicationEventPublisher eventPublisher) {
+        return new AuthController(authService, eventPublisher);
     }
 
     @Bean

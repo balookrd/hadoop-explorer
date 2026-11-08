@@ -1,56 +1,37 @@
 package org.apache.hadoop.explorer.sql.service.engine;
 
 import org.apache.hadoop.explorer.sql.config.SqlProperties;
-import org.apache.hadoop.explorer.sql.dto.ColumnMetadata;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.hadoop.explorer.sql.service.engine.hive.HiveConnectionFactory;
+import org.apache.hadoop.explorer.sql.service.engine.jdbc.JdbcQueryRunner;
+import org.apache.hadoop.explorer.sql.service.engine.jdbc.JdbcSqlEngine;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
-public class HiveSqlEngine implements SqlEngine {
+/** HiveServer2 over the Kyuubi JDBC driver; used when the cluster has type: hive and mock-storage: false. */
+public class HiveSqlEngine extends JdbcSqlEngine {
 
-    private static final Logger log = LoggerFactory.getLogger(HiveSqlEngine.class);
-
-    private final SqlProperties.ClusterConfig cluster;
-    private final MockSqlEngine fallbackMock;
+    private final HiveConnectionFactory connections;
 
     public HiveSqlEngine(SqlProperties.ClusterConfig cluster) {
-        this.cluster = cluster;
-        this.fallbackMock = new MockSqlEngine(cluster);
+        super(cluster, JdbcQueryRunner.StatementCustomizer.NONE);
+        this.connections = new HiveConnectionFactory(cluster);
     }
 
+    @Override
+    protected Connection openConnection(String username) throws SQLException {
+        return connections.open(username);
+    }
+
+    /** HiveServer2 has no catalogs; the UI tree needs one root entry. */
     @Override
     public List<String> getCatalogs(String username) {
         return List.of("default");
     }
 
     @Override
-    public List<String> getSchemas(String username, String catalog) {
-        return fallbackMock.getSchemas(username, catalog);
-    }
-
-    @Override
-    public List<String> getTables(String username, String catalog, String schema) {
-        return fallbackMock.getTables(username, catalog, schema);
-    }
-
-    @Override
-    public List<ColumnMetadata> getColumns(String username, String catalog, String schema, String table) {
-        return fallbackMock.getColumns(username, catalog, schema, table);
-    }
-
-    @Override
-    public ExecutionResult execute(
-            String queryId,
-            String query,
-            String username,
-            int maxRows,
-            Consumer<Map<String, Object>> eventConsumer,
-            AtomicBoolean cancelled
-    ) {
-        return fallbackMock.execute(queryId, query, username, maxRows, eventConsumer, cancelled);
+    protected String metadataCatalog(String catalog) {
+        return null;
     }
 }

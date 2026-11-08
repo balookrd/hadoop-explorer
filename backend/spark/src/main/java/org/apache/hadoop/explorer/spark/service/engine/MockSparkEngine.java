@@ -1,6 +1,7 @@
 package org.apache.hadoop.explorer.spark.service.engine;
 
 import org.apache.hadoop.explorer.spark.dto.ColumnMetadata;
+import org.apache.hadoop.explorer.spark.dto.CreateSessionRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-public class MockSparkEngine {
+public class MockSparkEngine implements SparkEngine {
 
     private static final Logger log = LoggerFactory.getLogger(MockSparkEngine.class);
 
@@ -53,17 +54,33 @@ public class MockSparkEngine {
         ));
     }
 
-    public record ExecutionResult(
-            List<ColumnMetadata> columns,
-            List<List<Object>> rows,
-            long totalRows,
-            String logs,
-            double executionTimeMs,
-            String status,
-            String errorMessage
-    ) {}
+    private final Random random = new Random();
 
-    public ExecutionResult executeCode(
+    @Override
+    public SessionHandle createSession(String username, CreateSessionRequest request) {
+        int livyId = random.nextInt(9000) + 1000;
+        String appId = "application_1694000000_" + (random.nextInt(8999) + 1000);
+        return new SessionHandle(livyId, appId, "idle");
+    }
+
+    @Override
+    public SessionHandle refreshSession(int livySessionId) {
+        return new SessionHandle(livySessionId, null, "idle");
+    }
+
+    @Override
+    public void deleteSession(int livySessionId) {
+        // nothing to release: the emulator keeps no per-session state
+    }
+
+    @Override
+    public boolean remote() {
+        return false;
+    }
+
+    @Override
+    public ExecutionResult execute(
+            int livySessionId,
             String executionId,
             String code,
             String language,

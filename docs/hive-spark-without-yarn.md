@@ -138,8 +138,12 @@ livy.server.host = 0.0.0.0
 livy.spark.master = local[*]
 livy.spark.deploy-mode = client
 livy.repl.enable-hive-context = true
-livy.impersonation.enabled = false
+livy.impersonation.enabled = true
 ```
+
+С `livy.impersonation.enabled = true` сессия работает от имени `proxyUser`. В режиме `local[*]` при Hive Metastore с Kerberos такая сессия не подключается к метастору (`GSS initiate failed`): Spark не получает для `proxyUser` делегационный токен метастора. Подробности и проверка — `demo/spark/README.md`, раздел «Известные проблемы».
+
+**Внимание.** В этом режиме `livy.impersonation.enabled = true` не изолирует пользователей. При `livy.spark.master = local[*]` и `livy.spark.deploy-mode = client` драйвер и код каждого пользователя выполняются на хосте Livy под ОС-учеткой `livy`, а `proxyUser` меняет только имя, от которого идут обращения к HDFS и Hive. Код пользователя может прочитать keytab Livy; эта учетка входит в `livy.superusers` и `hadoop.proxyuser.livy.*`, поэтому с ее keytab можно имперсонировать любого пользователя. Признак режима — `"appId": null` у сессий в ответе `curl -s http://<livy_host>:8998/sessions`. Конфигурация из этого раздела подходит для однопользовательского стенда или стенда, где все пользователи доверенные; для разграничения прав нужен Livy с `livy.spark.master = yarn` и `livy.spark.deploy-mode = cluster`.
 
 Файл `spark-defaults.conf`:
 ```properties

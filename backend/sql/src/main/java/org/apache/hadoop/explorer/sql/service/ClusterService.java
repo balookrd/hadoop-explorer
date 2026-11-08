@@ -2,6 +2,7 @@ package org.apache.hadoop.explorer.sql.service;
 
 import org.apache.hadoop.explorer.sql.config.SqlProperties;
 import org.apache.hadoop.explorer.sql.dto.ClusterSummary;
+import org.apache.hadoop.explorer.sql.service.engine.EngineConfigValidator;
 import org.apache.hadoop.explorer.sql.service.engine.HiveSqlEngine;
 import org.apache.hadoop.explorer.sql.service.engine.MockSqlEngine;
 import org.apache.hadoop.explorer.sql.service.engine.SqlEngine;
@@ -18,6 +19,8 @@ public class ClusterService {
     private final Map<String, SqlEngine> engineCache = new ConcurrentHashMap<>();
 
     public ClusterService(SqlProperties sqlProperties) {
+        // Fail at startup, not on the first query: a bad Kerberos setup breaks every connection to the cluster
+        EngineConfigValidator.validateAll(sqlProperties.getClusters());
         this.sqlProperties = sqlProperties;
     }
 

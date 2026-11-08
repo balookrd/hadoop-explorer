@@ -6,11 +6,13 @@ import org.apache.hadoop.explorer.spark.service.ClusterService;
 import org.apache.hadoop.explorer.spark.service.SparkCatalogService;
 import org.apache.hadoop.explorer.spark.util.SecurityUtils;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/catalog")
@@ -22,6 +24,16 @@ public class CatalogController {
     public CatalogController(ClusterService clusterService, SparkCatalogService catalogService) {
         this.clusterService = clusterService;
         this.catalogService = catalogService;
+    }
+
+    /**
+     * The reason goes to the client as "detail": the catalog tree shows it, e.g. the 409 "start a session"
+     * on a Livy cluster. Without this handler the error page carries no message (server.error.include-message).
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> statusError(ResponseStatusException e) {
+        String detail = e.getReason() != null ? e.getReason() : e.getStatusCode().toString();
+        return ResponseEntity.status(e.getStatusCode()).body(Map.of("detail", detail, "status", e.getStatusCode().value()));
     }
 
     private SparkProperties.SparkClusterConfig getClusterOrThrow(String clusterId, Authentication auth) {
@@ -56,7 +68,7 @@ public class CatalogController {
             Authentication authentication
     ) {
         var cluster = getClusterOrThrow(clusterId, authentication);
-        return catalogService.getDatabases(cluster, metastoreId, refresh);
+        return catalogService.getDatabases(cluster, SecurityUtils.getUsername(authentication), metastoreId, refresh);
     }
 
     @GetMapping("/{clusterId}/tables")
@@ -68,7 +80,7 @@ public class CatalogController {
             Authentication authentication
     ) {
         var cluster = getClusterOrThrow(clusterId, authentication);
-        return catalogService.getTables(cluster, database, metastoreId, refresh);
+        return catalogService.getTables(cluster, SecurityUtils.getUsername(authentication), database, metastoreId, refresh);
     }
 
     @GetMapping("/{clusterId}/columns")
@@ -81,6 +93,6 @@ public class CatalogController {
             Authentication authentication
     ) {
         var cluster = getClusterOrThrow(clusterId, authentication);
-        return catalogService.getColumns(cluster, database, table, metastoreId, refresh);
+        return catalogService.getColumns(cluster, SecurityUtils.getUsername(authentication), database, table, metastoreId, refresh);
     }
 }

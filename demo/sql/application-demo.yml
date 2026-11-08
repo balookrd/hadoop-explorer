@@ -74,6 +74,8 @@ sql:
     url: "http://host.docker.internal:11434/v1"
     model: "qwen2.5-coder:7b"
     provider: "openai_compatible"
+    # A 7B model on CPU answers in tens of seconds
+    timeout-seconds: 60
   clusters:
     - id: "trino-kerberized"
       name: "Trino Cluster (Kerberos + X-Trino-User)"
@@ -82,10 +84,22 @@ sql:
       port: 8443
       catalog: "tpch"
       schema: "sf1"
-      mock-storage: false
+      mock-storage: true
       impersonation:
         enabled: true
         method: "x-trino-user"
+      jdbc:
+        ssl: true
+        # Self-signed demo certificate: chain is checked against the keystore, host name is not
+        ssl-verification: "CA"
+        ssl-truststore-path: "/etc/sql-explorer/trino-truststore.jks"
+        ssl-truststore-password: "password"   # http-server.https.keystore.key in trino/etc/config.properties
+      kerberos:
+        enabled: true
+        principal: "svc_sql_explorer@COMPANY.LOCAL"
+        keytab: "/etc/security/keytabs/sql-explorer.keytab"
+        krb5-conf: "/etc/security/keytabs/krb5.conf"
+        service-name: "trino"
       allowed-groups:
         - "bi-analysts"
         - "data-engineers"
@@ -97,10 +111,16 @@ sql:
       port: 10000
       catalog: "default"
       schema: "default"
-      mock-storage: false
+      mock-storage: true
       impersonation:
         enabled: true
         method: "doAs"
+      kerberos:
+        enabled: true
+        principal: "svc_sql_explorer@COMPANY.LOCAL"
+        keytab: "/etc/security/keytabs/sql-explorer.keytab"
+        # _HOST -> host: hive/hive-server@..., hive/hive-server-2@... (principals of demo/infra/kdc)
+        server-principal: "hive/_HOST@COMPANY.LOCAL"
       allowed-groups:
         - "data-engineers"
         - "data-platform-admins"
@@ -111,10 +131,16 @@ sql:
       port: 10000
       catalog: "default"
       schema: "demo_db"
-      mock-storage: false
+      mock-storage: true
       impersonation:
         enabled: true
         method: "doAs"
+      kerberos:
+        enabled: true
+        principal: "svc_sql_explorer@COMPANY.LOCAL"
+        keytab: "/etc/security/keytabs/sql-explorer.keytab"
+        # _HOST -> host: hive/hive-server@..., hive/hive-server-2@... (principals of demo/infra/kdc)
+        server-principal: "hive/_HOST@COMPANY.LOCAL"
       allowed-groups:
         - "bi-analysts"
         - "data-engineers"
@@ -126,10 +152,16 @@ sql:
       port: 10001
       catalog: "default"
       schema: "archive_db"
-      mock-storage: false
+      mock-storage: true
       impersonation:
         enabled: true
         method: "doAs"
+      kerberos:
+        enabled: true
+        principal: "svc_sql_explorer@COMPANY.LOCAL"
+        keytab: "/etc/security/keytabs/sql-explorer.keytab"
+        # _HOST -> host: hive/hive-server@..., hive/hive-server-2@... (principals of demo/infra/kdc)
+        server-principal: "hive/_HOST@COMPANY.LOCAL"
       allowed-groups:
         - "bi-analysts"
         - "data-engineers"

@@ -131,7 +131,6 @@ public class MockSqlEngine implements SqlEngine {
 
         sleepQuietly(100);
         if (cancelled.get()) {
-            eventConsumer.accept(Map.of("type", "status", "status", "CANCELLED", "message", "Запрос отменен пользователем"));
             return new ExecutionResult(List.of(), List.of(), 0, System.currentTimeMillis() - startTime, "CANCELLED", "Запрос отменен");
         }
 
@@ -166,7 +165,6 @@ public class MockSqlEngine implements SqlEngine {
 
         while (generated < targetRows) {
             if (cancelled.get()) {
-                eventConsumer.accept(Map.of("type", "status", "status", "CANCELLED", "message", "Запрос отменен во время выборки данных"));
                 return new ExecutionResult(columns, allRows, generated, System.currentTimeMillis() - startTime, "CANCELLED", "Запрос отменен пользователем");
             }
             sleepQuietly(60);

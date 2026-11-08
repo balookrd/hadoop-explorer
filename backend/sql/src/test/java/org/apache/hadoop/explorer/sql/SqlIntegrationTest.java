@@ -15,6 +15,7 @@ import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -146,6 +147,49 @@ class SqlIntegrationTest {
                 .andExpect(jsonPath("$[*].id", hasItem(queryId)));
     }
 
+    private String executeAs(String username) throws Exception {
+        ExecuteQueryRequest req = new ExecuteQueryRequest("trino-prod", "SELECT * FROM tpch.sf1.customer LIMIT 10");
+        MvcResult res = mockMvc.perform(post("/api/v1/queries/execute").with(user(username).roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String queryId = objectMapper.readValue(res.getResponse().getContentAsString(), ExecuteQueryResponse.class).queryId();
+        for (int i = 0; i < 50; i++) {
+            if (mockMvc.perform(get("/api/v1/queries/" + queryId + "/result").with(user(username).roles("USER")))
+                    .andReturn().getResponse().getStatus() == 200) {
+                return queryId;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("query " + queryId + " has no result");
+    }
+
+    @Test
+    void resultAndStreamOfAnotherUsersQueryAreNotFound() throws Exception {
+        String queryId = executeAs("analyst");
+
+        // 404, not 403: the response must not confirm that the query id exists
+        mockMvc.perform(get("/api/v1/queries/" + queryId + "/result").with(user("intruder").roles("USER")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/queries/" + queryId + "/stream").with(user("intruder").roles("USER")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void ownerAndAdminGetResultAndStream() throws Exception {
+        String queryId = executeAs("analyst");
+
+        mockMvc.perform(get("/api/v1/queries/" + queryId + "/result").with(user("analyst").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.query_id", is(queryId)));
+        mockMvc.perform(get("/api/v1/queries/" + queryId + "/stream").with(user("analyst").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
+        mockMvc.perform(get("/api/v1/queries/" + queryId + "/result").with(user("root").roles("ADMIN")))
+                .andExpect(status().isOk());
+    }
+
     @Test
     @WithMockUser(username = "analyst", roles = {"USER"})
     void testWorkspacePersistence() throws Exception {
@@ -168,9 +212,11 @@ class SqlIntegrationTest {
     @Test
     @WithMockUser(username = "analyst", roles = {"USER"})
     void testAiOperations() throws Exception {
+        // Packaged config uses provider mock-builtin: no LLM, answers come from the built-in rules
         mockMvc.perform(get("/api/v1/ai/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.available", is(true)));
+                .andExpect(jsonPath("$.available", is(false)))
+                .andExpect(jsonPath("$.provider", is("mock-builtin")));
 
         CheckSqlRequest checkReq = new CheckSqlRequest("SELECT * FROM orders", "trino", "trino-prod", Map.of());
         mockMvc.perform(post("/api/v1/ai/check")

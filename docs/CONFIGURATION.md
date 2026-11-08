@@ -438,7 +438,7 @@ hadoop:
 
 Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "sql")`). Базовые значения — в `backend/sql/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
 
-**Внимание.** `TrinoSqlEngine` и `HiveSqlEngine` в текущем коде не подключаются к кластерам: каталоги, схемы, таблицы и выполнение запросов делегируются `MockSqlEngine` при любом значении `mock-storage`. Параметры `host`, `port` и `impersonation` отображаются в UI и API, но на выполнение запросов не влияют.
+**Внимание.** При `mock-storage: false` кластер обслуживает реальный движок: `type: trino` — `TrinoSqlEngine` (`io.trino:trino-jdbc` 484), `type: hive` — `HiveSqlEngine` (`org.apache.kyuubi:kyuubi-hive-jdbc-shaded` 1.12.0, протокол HiveServer2). При `mock-storage: true` или другом `type` кластер обслуживает `MockSqlEngine` с демо-каталогами `tpch` и `analytics`.
 
 ### 5.1 Аналитические кластеры
 
@@ -472,7 +472,50 @@ sql:
       allowed-groups: ["data-engineers", "data-platform-admins"]
 ```
 
-Доступ к кластеру (`ClusterService`): если `allowed-users` и `allowed-groups` пусты, кластер виден всем аутентифицированным пользователям; иначе — пользователям из `allowed-users` и членам групп из `allowed-groups`. Ключей аутентификации к Trino/HiveServer2 (`auth`, `use_ssl`) и режима только для чтения (`allow_dml_ddl`) в `SqlProperties` нет.
+Доступ к кластеру (`ClusterService`): если `allowed-users` и `allowed-groups` пусты, кластер виден всем аутентифицированным пользователям; иначе — пользователям из `allowed-users` и членам групп из `allowed-groups`. Режима только для чтения (`allow_dml_ddl`) нет: изменяющие команды ограничиваются правами пользователя на кластере.
+
+Подключение к Trino (`mock-storage: false`). URL — `jdbc:trino://<host>:<port>/<catalog>/<schema>`. Сервис входит в Trino как служебный пользователь (свойство `user`), вошедший пользователь передается в свойстве `sessionUser` (заголовок `X-Trino-User`). Trino проверяет правило имперсонации «служебный пользователь → пользователь платформы» в своем контроле доступа (`access-control.properties`, правило `impersonation` в файле правил); без него запрос завершается ошибкой `Access Denied: User <служебный пользователь> cannot impersonate user <пользователь>`.
+
+| Параметр | По умолчанию | Что делает | Когда менять |
+|---|---|---|---|
+| `mock-storage` | `false` | `true` — кластер обслуживает `MockSqlEngine`, подключения к кластеру нет | Стенды без Trino |
+| `impersonation.enabled` | `true` | Передает вошедшего пользователя в `sessionUser` | `false` — все запросы выполняются от служебного пользователя |
+| `impersonation.method` | `header` | Только отображается в UI и `/api/v1/clusters`; механизм имперсонации определяется `type` | — |
+| `jdbc.ssl` | `false` | TLS к координатору (`SSL=true`) | Координатор слушает HTTPS; обязателен при `kerberos.enabled: true` |
+| `jdbc.ssl-verification` | `FULL` | `FULL` — проверка цепочки и имени хоста, `CA` — только цепочки, `NONE` — без проверки | `CA`, если сертификат выпущен не на имя из `host` |
+| `jdbc.ssl-truststore-path`, `jdbc.ssl-truststore-password` | — | Хранилище доверенных сертификатов (JKS или PKCS12) | Самоподписанный или корпоративный CA |
+| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `hadoop-explorer` | Служебный пользователь (`user`) | Имя служебной учетки в Trino отличается от principal |
+| `jdbc.connect-timeout-seconds` | `30` | Свойство драйвера `timeout`: таймаут установления соединения, чтения и записи каждого HTTP-запроса к координатору | Медленная сеть до координатора |
+| `jdbc.query-timeout-seconds` | `1800` | По истечении сервис вызывает `Statement.cancel()`, запрос получает статус `FAILED` с текстом «Превышен лимит времени выполнения запроса» | Длинные отчеты |
+| `jdbc.fetch-size` | `1000` | Размер пакета строк из драйвера и SSE-события `rows` | — |
+| `kerberos.enabled` | `false` | Вход служебного пользователя по keytab. Требует `jdbc.ssl: true`, `kerberos.principal`, `kerberos.keytab` и непустой `kerberos.service-name`, иначе сервис не стартует | Trino с `http-server.authentication.type=KERBEROS` |
+| `kerberos.principal`, `kerberos.keytab` | — | Principal и keytab сервиса; оба обязательны, вход по кэшу билетов процесса не поддерживается | — |
+| `kerberos.krb5-conf` | не задан | `KerberosConfigPath` драйвера. Параметр глобальный для процесса: драйвер записывает его в системное свойство `java.security.krb5.conf`. Не задан — действует настройка JVM (`-Djava.security.krb5.conf`, иначе путь JDK по умолчанию) | Задавайте только абсолютным путем, равным `-Djava.security.krb5.conf`, или (только Trino, без Kerberos-кластеров Hive) при незаданном свойстве JVM; у всех кластеров Trino и Hive с Kerberos путь должен быть один. Относительный путь или расхождение — ошибка при старте сервиса |
+| `kerberos.service-name` | `trino` | `KerberosRemoteServiceName`: SPN координатора `<service-name>/<host>@<REALM>`. Пустое значение запрещено: без него драйвер не включает SPNEGO | Координатор зарегистрирован под другим SPN |
+
+При `kerberos.enabled: true` задавайте `-Djava.security.krb5.conf=<абсолютный путь>` в параметрах JVM явно: JDK читает `krb5.conf` один раз при первой инициализации Kerberos в процессе и затем использует кэшированную конфигурацию, поэтому путь, который драйвер установит позже, может не подействовать.
+
+Драйвер не обращается к координатору при открытии соединения: первый HTTP-запрос уходит при выполнении запроса, когда отмена и `jdbc.query-timeout-seconds` уже действуют. Запросы каталога (`/api/v1/catalog/...`) выполняются синхронно, без `jdbc.query-timeout-seconds`; их ограничивает только `jdbc.connect-timeout-seconds`.
+
+Подключение к HiveServer2 (`type: hive`, `mock-storage: false`). URL — `jdbc:hive2://<host>:<port>/<schema>`; транспорт `binary`, TLS и режим `http` к HiveServer2 не поддерживаются. Вошедший пользователь передается в `hive.server2.proxy.user`; HiveServer2 разрешает это, если в `core-site.xml` кластера заданы `hadoop.proxyuser.<служебный пользователь>.hosts` и `.groups`. Каталогов в HiveServer2 нет: дерево показывает один корень `default`.
+
+| Параметр | По умолчанию | Что делает | Когда менять |
+|---|---|---|---|
+| `kerberos.enabled`, `kerberos.principal`, `kerberos.keytab` | `false`, —, — | Вход служебного пользователя по keytab (`kyuubiClientPrincipal`, `kyuubiClientKeytab`). При `kerberos.enabled: true` principal и keytab обязательны: без keytab драйвер вошел бы по кэшу билетов процесса | HiveServer2 с `hive.server2.authentication=KERBEROS` |
+| `kerberos.server-principal` | — | Principal HiveServer2 (`principal=`), `_HOST` заменяется на `host` | Обязателен при `kerberos.enabled: true` |
+| `kerberos.krb5-conf` | не задан | Драйвер Kyuubi этот путь не принимает и читает конфигурацию Kerberos JVM | Если задан, должен быть абсолютным и равным `-Djava.security.krb5.conf`. Если есть Kerberos-кластер Hive и `kerberos.krb5-conf` задан у любого Kerberos-кластера (в том числе Trino), `-Djava.security.krb5.conf` обязан быть равен этому пути. Иначе сервис не стартует |
+| `jdbc.ssl` | `false` | Для `type: hive` не поддерживается | `true` — ошибка при старте сервиса |
+| `jdbc.connect-timeout-seconds` | `30` | `connectTimeout` драйвера: таймаут TCP-подключения к HiveServer2 | Медленная сеть до HiveServer2 |
+| `jdbc.socket-timeout-seconds` | `300` | `socketTimeout` драйвера: предел ожидания каждого ответа HiveServer2 по Thrift (SASL-рукопожатие, `OpenSession`, опрос статуса, `FetchResults`, запросы каталога). `0` — без ограничения | Медленные `FetchResults` или метаданные на большом Metastore дольше предела |
+| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `hadoop-explorer` | Пользователь подключения при аутентификации `NONE` | — |
+| `jdbc.query-timeout-seconds`, `jdbc.fetch-size` | `1800`, `1000` | Как для Trino | — |
+| `impersonation.enabled` | `true` | Передает `hive.server2.proxy.user` | `false` — все запросы от служебного пользователя |
+
+Путь к `krb5.conf` драйвер Kyuubi берет из JVM-параметра `-Djava.security.krb5.conf`, а не из `kerberos.krb5-conf`. Вход по keytab драйвер кэширует на процесс (один TGT на пару principal и keytab) и повторяет, когда TGT близок к истечению; при каждом входе JDK перечитывает `krb5.conf` (`refreshKrb5Config=true`). Имя пользователя подставляется в URL, поэтому имена с символами вне `[A-Za-z0-9._@-]` отклоняются ошибкой до подключения.
+
+Подключение к HiveServer2 (SASL-рукопожатие, Kerberos, `OpenSession`) выполняется до запуска запроса, поэтому отмена и `jdbc.query-timeout-seconds` на этом этапе не действуют. `jdbc.connect-timeout-seconds` ограничивает TCP-подключение, `jdbc.socket-timeout-seconds` — каждое ожидание ответа: HiveServer2, который принял соединение и не отвечает, дает ошибку `java.net.SocketTimeoutException: Read timed out` через `jdbc.socket-timeout-seconds`. Длинные запросы этот предел не обрывают: драйвер запускает запрос асинхронно и опрашивает статус, а HiveServer2 отвечает на опрос не позже `hive.server2.long.polling.timeout` (по умолчанию 5 с). Предел срабатывает на одном долгом ответе, например на `FetchResults`, если HiveServer2 вычисляет строки при выборке.
+
+Отмена (`POST /api/v1/queries/{queryId}/cancel`) вызывает `Statement.cancel()`; драйвер Trino отменяет запрос на координаторе. Предел строк `sql.max-rows-per-query` передается в `Statement.setMaxRows`; при превышении результат усекается, сообщение запроса содержит «Результат усечен до N строк».
 
 ### 5.2 Параметры выполнения запросов и сохранение воркспейса
 
@@ -495,13 +538,52 @@ SQL Explorer сохраняет в БД (`spring.datasource`) открытые �
 sql:
   ai:
     enabled: true
-    provider: "mock-builtin"
+    provider: "openai_compatible"   # mock-builtin | openai_compatible
     url: "http://llm-server.company.local:11434/v1"
     model: "qwen2.5-coder-32b"
-    api-key: ""
+    api-key: "${SQL_AI_API_KEY:}"   # ключ берется из переменной окружения
+    timeout-seconds: 30
+    status-timeout-seconds: 5
+    max-concurrent-requests: 8
 ```
 
-`AiService` не обращается к LLM: ответы ассистента формируются встроенными правилами (например, предупреждение о `SELECT *` без `LIMIT`, ошибка `JOIN` без `ON`/`USING`). Значения `provider`, `model` и `url` только возвращаются в ответе статуса ассистента; `api-key` не используется.
+| Параметр | По умолчанию | Что делает |
+|---|---|---|
+| `provider` | `mock-builtin` | `mock-builtin` — ответы строятся встроенными правилами, LLM не вызывается; `openai_compatible` — запросы `check`, `explain`, `optimize`, `fix`, `generate` идут в `POST {url}/chat/completions` (vLLM, Ollama `/v1`, LM Studio, OpenAI). Любое другое значение работает как `mock-builtin` |
+| `url` | `http://localhost:8000/v1` | Базовый URL API, к нему дописываются `/chat/completions` и `/models`. Только `http`/`https`, без учетных данных, query (`?...`) и fragment (`#...`) |
+| `model` | `qwen2.5-coder-32b` | Поле `model` запроса |
+| `api-key` | пусто | Если задан — заголовок `Authorization: Bearer <api-key>`. Пробелы и переводы строк по краям отбрасываются; управляющие и не-ASCII символы внутри ключа останавливают запуск |
+| `timeout-seconds` | `30` | Предельное время всего ответа модели (заголовки и тело) для `check`, `explain`, `optimize`, `fix`, `generate`; подключение — не дольше 10 с. Больше 0 |
+| `status-timeout-seconds` | `5` | Предельное время `GET {url}/models` для `/api/v1/ai/status` (не больше `timeout-seconds`). Больше 0 |
+| `max-concurrent-requests` | `8` | Сколько вызовов модели на экземпляр сервиса могут ждать ответа одновременно; вызов сверх лимита сразу отвечает правилами (`LLM ... уже выполняется N вызовов` в логе). Больше 0. Увеличивайте, если в логе часто видно это сообщение, а сервер LLM справляется |
+| `enabled` | `true` | `false` — LLM не вызывается при любом `provider` |
+
+Упакованный `application.yml` задает `provider: "mock-builtin"`: без явной настройки сервис к LLM не обращается.
+
+При `provider: openai_compatible` сервис проверяет параметры при старте и останавливает запуск с `IllegalArgumentException` (`sql.ai.url ...`, `sql.ai.api-key ...`, `sql.ai.<параметр> должен быть больше 0`), если: URL без хоста, со схемой не `http`/`https`, с учетными данными (`http://user:password@host/...`), query или fragment; в `api-key` есть управляющий или не-ASCII символ; `timeout-seconds`, `status-timeout-seconds` или `max-concurrent-requests` ≤ 0. Пароль из URL, query и значение ключа в сообщение не попадают.
+
+Если модель не ответила за `timeout-seconds`, вернула HTTP-ошибку, ответ больше 1 МиБ или ответ без JSON-объекта с обязательным полем, все `max-concurrent-requests` вызовов заняты, сервис отвечает встроенными правилами: в ответе `provider: mock-builtin`, `model: builtin-rules`, у `check` и `generate` — `fallback_used: true`; в лог пишется `LLM недоступна для <операция>, ответ построен встроенными правилами: <причина>`. По истечении `timeout-seconds` HTTP-обмен с моделью отменяется, поток обработки запроса освобождается. `format` всегда выполняется правилами.
+
+`GET /api/v1/ai/status` проверяет `GET {url}/models` (веб-интерфейс вызывает его при каждом открытии окна ассистента): `available: true` и имя модели — только если LLM отвечает. При `mock-builtin` и при недоступной LLM — `available: false`, `provider: mock-builtin`, `model: builtin-rules`. В `message` — только краткая причина (`HTTP 401`, `таймаут 5 с`, тип исключения вроде `ConnectException`); подробности с текстом ответа сервера — в логе (`Проверка LLM для /api/v1/ai/status не прошла: ...`).
+
+Ключ `api-key`:
+- задавайте через переменную окружения (`SQL_AI_API_KEY` в примере выше) или в `application.yml` с правами `600`, не в образе и не в репозитории;
+- в журнал и ответы API ключ не попадает: в строках лога `LLM недоступна ...` и `Проверка LLM ...` вхождения ключа и токены `Bearer`/`Basic` заменяются на `***`, текст ответа сервера обрезается до 200 символов; `message` статуса текста сервера не содержит.
+
+Что уходит в LLM. При `openai_compatible` содержимое запросов пользователя передается на сервер из `url`; если это внешний сервис (например, OpenAI), это передача данных за пределы кластера. Каждый запрос содержит системный промпт с JSON-схемой ответа, диалект (`trino`/`hive`) и:
+
+| Операция | Данные пользователя в запросе к модели |
+|---|---|
+| `check`, `optimize` | Текст SQL; `catalog_context` из тела запроса, если клиент его передал |
+| `explain` | Текст SQL |
+| `fix` | Текст SQL и текст ошибки движка (может содержать имена таблиц, колонок, пользователей, пути HDFS) |
+| `generate` | Описание на естественном языке; `catalog_context`, если клиент его передал |
+
+Веб-интерфейс `catalog_context` не передает; клиент API может передать в нем произвольный JSON, и он уйдет в модель целиком. Имя пользователя, строки таблиц и результаты запросов в модель не отправляются; литералы внутри SQL (значения в `WHERE`, `VALUES`) уходят как часть текста.
+
+Ответ модели показывается в окне ассистента как текст (без интерпретации HTML) и подставляется в редактор только по кнопке пользователя; сервис его не выполняет. Позиции замечаний `check` приводятся к диапазону 1..1 000 000, `severity` — к `error`/`warning`/`info` (иначе `warning`), `category` — к `syntax`/`performance`/`security`/`style` (иначе `style`), `complexity_score` — к 1..10.
+
+Вызовы ассистента идут через `/api/v1/ai/*` и подпадают под общий ограничитель частоты `hadoop.security.rate-limiter.requests-per-minute` (раздел 2.5); отдельного лимита частоты на обращения к LLM нет, одновременность ограничивает `max-concurrent-requests`. Каждый вызов `check`, `explain`, `optimize`, `fix`, `generate` держит поток обработки до ответа модели, но не дольше `timeout-seconds`.
 
 ---
 
@@ -509,14 +591,21 @@ sql:
 
 Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "spark")`). Базовые значения — в `backend/spark/src/main/resources/application.yml`.
 
-**Внимание.** `LivyClient` в текущем коде не обращается к Apache Livy: создание сессии и выполнение кода идут через встроенный `MockSparkEngine`. Значения `livy-url`, версий Spark, окружений Python, метастора и профилей ресурсов отображаются в UI и API, но в Livy не передаются.
+**Внимание.** При `mock-storage: true` (или `type`, отличном от `livy`) сессии и код обслуживает встроенный `MockSparkEngine`. При `mock-storage: false` Spark Explorer создает интерактивные сессии Apache Livy с `proxyUser` — Livy должен работать с `livy.impersonation.enabled = true`, а его principal должен быть разрешен как `hadoop.proxyuser.<livy>.*` в `core-site.xml` кластера. Значение `mock-storage` по умолчанию — `false`: кластер без этого ключа идет в Livy.
+
+**Внимание.** При `livy.impersonation.enabled = false` Livy не отклоняет запрос с `proxyUser`, а молча его игнорирует: сессия, ее приложение YARN и доступ к HDFS и Hive работают от учетки Livy, права вошедшего пользователя не проверяются. Как увидеть: в ответе Livy `GET /sessions/<livy_session_id>` поле `proxyUser` равно `null`, в ResourceManager владелец приложения (`User`) — учетка Livy, а не пользователь платформы. На демо-стенде `demo/spark` имперсонация включена; ограничения стенда описаны в `demo/spark/README.md`. Откат: остановить сессии, включить `livy.impersonation.enabled = true` в `livy.conf` и перезапустить Livy.
+
+**Внимание.** `proxyUser` изолирует пользователей друг от друга только при `livy.spark.master = yarn` и `livy.spark.deploy-mode = cluster` в `livy.conf`: тогда драйвер каждой сессии запускается в контейнере YARN от имени пользователя. При `livy.spark.master = local[*]` или `livy.spark.deploy-mode = client` драйвер и код пользователя выполняются на хосте Livy под ОС-учеткой `livy`. Код любого пользователя может прочитать keytab Livy, а эта учетка входит в `livy.superusers` и `hadoop.proxyuser.livy.*`, то есть с ее keytab можно имперсонировать любого пользователя в HDFS, Hive и YARN. Как увидеть такой режим: в ответе `curl -s http://<livy_host>:8998/sessions` у сессий `"appId": null` после перехода в `idle`. Для многопользовательского стенда переведите Livy на `yarn` + `cluster`; `spark.master` и `spark.submit.deployMode` в `spark_conf` пользователь переопределить не может (см. таблицу всегда запрещенных префиксов ниже).
 
 ### 6.1 Кластеры и интеграция с Apache Livy
 
 ```yaml
 spark:
-  session-ttl-minutes: 120      # Сессии без активности дольше этого срока закрываются
+  session-ttl-minutes: 120      # Сессии idle без активности дольше этого срока удаляются в Livy и получают статус killed
   results-ttl-hours: 24         # Объявлен в SparkProperties, в коде не используется
+  close-sessions-on-logout: true # Выход пользователя закрывает его сессии в Livy
+  session-sync-interval-ms: 5000 # Пауза между проходами фоновой синхронизации статусов сессий из Livy (GET /sessions на кластер)
+  session-sync-pause-seconds: 30 # Сколько не опрашивать кластер после ошибки Livy при синхронизации
   clusters:
     - id: "prod-hadoop"
       name: "Production Hadoop (Spark & HMS)"
@@ -530,11 +619,63 @@ spark:
       default-repositories: []
 ```
 
-Ключей `use_ssl`, `auth` и `impersonation` в `SparkProperties` нет. `allowed-groups` и `allowed-users` объявлены, но код сервиса их не читает: доступ к кластеру по ним не ограничивается.
+| Параметр | По умолчанию | Что делает | Когда менять |
+|---|---|---|---|
+| `livy.auth` | `none` | `none` — без заголовка `Authorization`; `spnego` — `Authorization: Negotiate <токен>` на каждый запрос, SPN `HTTP/<хост из livy-url>`. С другим значением сервис не стартует | Livy с `livy.server.auth.type = kerberos` |
+| `livy.principal`, `livy.keytab` | — | Principal и keytab сервиса для `spnego`; `livy.keytab` — абсолютный путь. Путь к `krb5.conf` берется из JVM-параметра `-Djava.security.krb5.conf` | Обязательны при `livy.auth: spnego` |
+| `livy.relogin-interval-minutes` | `60` | Через сколько минут сервис заново входит по keytab. Если TGT живет меньше, вход повторяется раньше — на 80 % срока жизни TGT | Политика realm требует более частого входа |
+| `livy.proxy-user` | `true` | Передает вошедшего пользователя в `proxyUser` сессии | `false` — сессии от имени учетки Livy |
+| `livy.connect-timeout-seconds`, `livy.read-timeout-seconds` | `10`, `60` | Таймауты HTTP к Livy: установка соединения и получение всего ответа на один запрос (заголовки и тело целиком). По истечении обмен отменяется, запрос получает ошибку (HTTP 504 в API, `FAILED` у выполнения). Ответ больше 4 МиБ отбрасывается (HTTP 502) | Медленная сеть |
+| `livy.session-start-timeout-seconds` | `300` | Сколько statement ждет перехода сессии из `starting` в `idle` | YARN долго выделяет контейнер драйвера |
+| `livy.statement-timeout-seconds` | `3600` | По истечении сервис отменяет statement (`POST .../cancel`) и отмечает выполнение `FAILED` | Длинные задания |
+| `livy.poll-interval-ms` | `500` | Период опроса состояния сессии и statement | — |
+| `spark.denied-spark-conf-prefixes` | `spark.master`, `spark.submit.deployMode`, `spark.yarn.queue`, `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.`, `spark.jars.packages` | Префиксы ключей `spark_conf`, которые пользователь не может задать (сравнение без учета регистра); запрос сессии с ними получает HTTP 400 | Расширить список под политику кластера; убрать `spark.jars.packages`, если пользователям разрешено подключать пакеты через `spark_conf` (последствия — как у поля `packages`, см. ниже) |
+| `spark.allowed-remote-schemes` | `hdfs`, `viewfs`, `s3a`, `abfs`, `abfss` | Схемы, допустимые в путях `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и в полях запроса `jars`, `py_files`, `custom_python_archive` (сравнение без учета регистра) | Добавить `http`/`https` только с учетом предупреждения ниже |
+
+При `livy.auth: spnego` сервис входит в KDC по keytab при первом запросе к Livy и использует полученный TGT до следующего входа (см. `livy.relogin-interval-minutes`). Пока один запрос выполняет повторный вход, остальные продолжают работать с прежним TGT, если его срок не истек. Если повторный вход не удался (KDC недоступен, keytab не читается), а прежний TGT еще действует, сервис пишет в лог `WARN Повторный Kerberos-вход <principal> не выполнен, используется прежний TGT ...` и повторяет попытку через 1 минуту (или раньше, если TGT истекает раньше). Ошибку (HTTP 502) запрос получает, только если действующего TGT нет: первый вход или TGT уже истек. Для каждого запроса к Livy строится новый SPNEGO-токен из билета `HTTP/<хост из livy-url>`; сам билет JDK получает у KDC один раз и хранит до следующего входа. Хост берется из `livy-url` в нижнем регистре; JDK 21 заменяет его по DNS только на более длинную форму того же имени (`livy01` → `livy01.company.local`), алиас (CNAME) в имя целевого хоста не превращается. Если в `livy-url` алиас, а principal Livy выписан на имя хоста, KDC не найдет principal. IP-адрес (IPv4 или IPv6) в `livy-url` при `livy.auth: spnego` не принимается при старте. Служебный principal должен входить в `livy.superusers` Livy: иначе Livy отклонит `proxyUser`, отличный от аутентифицированного пользователя [проверить на стенде: текст ответа Livy].
+
+Независимо от `denied-spark-conf-prefixes` в `spark_conf` пользователя всегда запрещены (без учета регистра):
+
+| Префикс | Почему |
+|---|---|
+| `livy.` | Livy копирует `conf` сессии в настройки своего launcher: `livy.rsc.proxy-user` превратился бы в `--proxy-user` для `spark-submit` |
+| `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.` | Учетные данные учетки Livy |
+| `spark.master`, `spark.submit.deployMode` | Режим `local` или `client` запускает код пользователя на хосте Livy от учетки Livy |
+| `spark.yarn.queue` | Очередь задает сервис из поля `queue` после проверки по `yarn-queues`; ключ в `spark_conf` обошел бы эту проверку, даже если администратор убрал его из `spark.denied-spark-conf-prefixes` |
+| `spark.yarn.dist.`, `spark.yarn.jars`, `spark.yarn.archive` | `spark-submit` работает на хосте Livy от учетки Livy и загружает эти локальные файлы в контейнер пользователя: `"spark.yarn.dist.files": "file:///etc/security/keytabs/livy.service.keytab"` отдал бы keytab Livy |
+| `spark.jars.ivy`, `spark.jars.ivySettings`, `spark.jars.repositories` | Ivy работает на хосте Livy от учетки Livy: ключи задали бы локальный файл настроек, каталог кэша или произвольный репозиторий |
+
+Ключи `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и поля запроса `jars`, `py_files`, `custom_python_archive` принимаются только с путями в схемах из `spark.allowed-remote-schemes`; путь `file:`, `local:`, без схемы или со схемой не из списка получает HTTP 400 (локальный путь указывает на хост Livy). Список разделяется только запятыми: значение через пробел — один некорректный путь, тоже HTTP 400.
+
+**Внимание.** `http` и `https` в `spark.allowed-remote-schemes` по умолчанию не входят. Если их добавить, файл по URL читает `spark-submit` на хосте Livy, а не контейнер YARN: при схеме из `spark.yarn.dist.forceDownloadSchemes` или без класса `FileSystem` для этой схемы в Hadoop файл скачивается при отправке (`SparkSubmit`), а иначе YARN-клиент Spark копирует файл с файловой системы, отличной от staging-каталога, в staging через `HttpFileSystem` Hadoop. В обоих случаях запрос уходит с хоста Livy. Тогда пользователь может отправлять с хоста Livy запросы во внутреннюю сеть (SSRF), доступную этому хосту. Как заметить: обращения от адреса хоста Livy в журналах внутренних HTTP-сервисов. Откат: убрать `http`/`https` из списка и перезапустить сервис.
+
+Поле запроса `packages` (Maven-координаты) передается в `spark.jars.packages`. Пакеты разрешает Ivy внутри `spark-submit` на хосте Livy от учетки Livy, из репозиториев, настроенных на этом хосте: загрузка идет через сеть хоста Livy, кэш (`~/.ivy2` учетки Livy) занимает его диск, а при подмене зеркала репозитория в сессию попадет подмененный jar. Ключ с пробелами или управляющими символами и пустой ключ тоже получают HTTP 400. `spark-conf` версий, окружений и метастора задает администратор, эти значения не проверяются; перекрыть их пользователь может только ключами, не попадающими под запреты. `proxyUser` берется только из имени вошедшего пользователя.
+
+Настройки Livy каждого кластера с `mock-storage: false` и `type: livy` проверяются при старте. Сервис не стартует (`IllegalStateException` в логе), если `livy-url` не задан, не является URL `http(s)://<livy_host>:<port>` или содержит учетные данные (`user:password@`), если `livy.auth` имеет неизвестное значение или таймаут не больше нуля, а при `livy.auth: spnego` — если не задан `livy.principal` или `livy.keytab`, `livy.keytab` не является абсолютным путем, `livy.relogin-interval-minutes` не больше нуля или хост в `livy-url` задан IP-адресом. Сам keytab при старте не читается: ошибка чтения проявится на первом запросе к Livy (HTTP 502). Пример сообщения:
+
+```text
+spark.clusters[prod-hadoop].livy-url не задан: кластер с mock-storage: false работает через Apache Livy. Укажите URL Livy (http://<livy_host>:8998) или mock-storage: true
+```
+
+`spark-versions[].spark-conf`, `spark-versions[].python-versions[].spark-conf` и `metastores[].spark-conf` задают параметры Spark, которые добавляются в `conf` сессии при выборе соответствующего элемента. Ключи с точками в YAML пишутся в квадратных скобках, иначе Spring Boot разберет их как вложенные:
+
+```yaml
+      spark-versions:
+        - id: "spark-3.5.1"
+          spark-conf:
+            "[spark.yarn.archive]": "hdfs:///apps/spark/spark-3.5.1-jars.zip"
+          python-versions:
+            - id: "py310"
+              spark-conf:
+                "[spark.yarn.dist.archives]": "hdfs:///apps/python/py310.tar.gz#py310"
+                "[spark.pyspark.python]": "./py310/bin/python"
+```
+
+Ключей `use_ssl` и `impersonation` в `SparkProperties` нет. `allowed-groups` и `allowed-users` объявлены, но код сервиса их не читает: доступ к кластеру по ним не ограничивается.
 
 ### 6.2 Версии Spark и среды Python (HDFS Archives)
 
-Пользователь выбирает версию Spark и окружение Python из списка в конфигурации. У версии и окружения есть только идентификатор, имя и признак значения по умолчанию; пути к архивам Spark и интерпретаторам Python в `SparkProperties` не задаются.
+Пользователь выбирает версию Spark и окружение Python из списка в конфигурации. Пути к архивам Spark и интерпретаторам Python задаются через `spark-conf` версии и окружения (раздел 6.1).
 
 ```yaml
 spark:
@@ -561,7 +702,7 @@ spark:
 | `custom_python_archive` | HDFS-путь к архиву окружения (`hdfs:///.../*.tar.gz#environment`) |
 | `custom_python_path` | Путь к интерпретатору внутри распакованного архива |
 
-Оба значения сохраняются в записи сессии (`SparkSessionRecord`) и возвращаются в API; в Livy они не передаются (см. предупреждение в начале раздела).
+Оба значения сохраняются в записи сессии (`SparkSessionRecord`) и возвращаются в API; при `mock-storage: false` архив передается в `archives` сессии Livy, путь — в `spark.pyspark.python`.
 
 ### 6.3 Интеграция с YARN и разграничение очередей
 
@@ -574,7 +715,7 @@ spark:
       default-queue: "root.analytics"
 ```
 
-Список `yarn-queues` задает очереди, доступные для выбора в UI. ACL на уровне отдельных очередей (`queue_acl`) и адресов ResourceManager в `SparkProperties` нет.
+Список `yarn-queues` задает очереди, доступные для выбора в UI. Для кластера Livy (`mock-storage: false`) очередь из запроса (`yarn_queue`) должна входить в `yarn-queues`, иначе создание сессии получает HTTP 400 `Очередь YARN <queue> не входит в список очередей кластера <id>: ...`; пустой `yarn-queues` разрешает любую очередь. Если очередь в запросе пустая, в Livy передается `default-queue`. Права на очередь дополнительно проверяет YARN для пользователя из `proxyUser`. ACL на уровне отдельных очередей (`queue_acl`) и адресов ResourceManager в `SparkProperties` нет.
 
 ### 6.4 Hive Metastore, Iceberg и профили ресурсов
 
@@ -603,7 +744,7 @@ spark:
           num-executors: 4
 ```
 
-У метастора есть только `id`, `name` и `default-metastore`; URI Thrift и `spark_conf` в `SparkProperties` не задаются. `resource-profiles` — список, а не словарь.
+У метастора есть `id`, `name`, `default-metastore` и `spark-conf` (например, `"[spark.hadoop.hive.metastore.uris]": "thrift://<hms_host>:9083"`), отдельного ключа для URI Thrift нет. `resource-profiles` — список, а не словарь.
 
 ### 6.5 Персистентность рабочих пространств пользователя
 

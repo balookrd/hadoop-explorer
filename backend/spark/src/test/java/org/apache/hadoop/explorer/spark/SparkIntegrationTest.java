@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -124,6 +125,51 @@ class SparkIntegrationTest {
         mockMvc.perform(get("/api/v1/history"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id", hasItem(executionId)));
+    }
+
+    private String executeAs(String username) throws Exception {
+        CreateSessionRequest createReq = new CreateSessionRequest("prod-analytics", "spark-3.5.1", "hive-prod",
+                "root.analytics", "small", "pyspark", "py310", null, null, List.of(), List.of(), List.of(), Map.of());
+        MvcResult sessResult = mockMvc.perform(post("/api/v1/sessions").with(user(username).roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createReq)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String sessionId = objectMapper.readValue(sessResult.getResponse().getContentAsString(), SessionResponse.class).id();
+        ExecuteCodeRequest codeReq = new ExecuteCodeRequest(sessionId, "df = spark.table('customers')\ndf.show()", "pyspark");
+        MvcResult codeResult = mockMvc.perform(post("/api/v1/statements/execute").with(user(username).roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(codeReq)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readValue(codeResult.getResponse().getContentAsString(), ExecuteCodeResponse.class).executionId();
+    }
+
+    @Test
+    void resultAndStreamOfAnotherUsersStatementAreNotFound() throws Exception {
+        String executionId = executeAs("data_engineer");
+        Thread.sleep(400);
+
+        // 404, not 403: the response must not confirm that the execution id exists
+        mockMvc.perform(get("/api/v1/statements/" + executionId + "/result").with(user("intruder").roles("USER")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statements/" + executionId + "/stream").with(user("intruder").roles("USER")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void ownerAndAdminGetResultAndStream() throws Exception {
+        String executionId = executeAs("data_engineer");
+        Thread.sleep(400);
+
+        mockMvc.perform(get("/api/v1/statements/" + executionId + "/result").with(user("data_engineer").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.execution_id", is(executionId)));
+        mockMvc.perform(get("/api/v1/statements/" + executionId + "/stream").with(user("data_engineer").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
+        mockMvc.perform(get("/api/v1/statements/" + executionId + "/result").with(user("root").roles("ADMIN")))
+                .andExpect(status().isOk());
     }
 
     @Test

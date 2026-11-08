@@ -11,14 +11,15 @@ backend/spark/
 ├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:spark-explorer-java:1.0.0)
 ├── src/
 │   ├── main/
-│   │   ├── java/             # Контроллеры, Сервисы, LivyClient, DAG Engine, DTO
+│   │   ├── java/             # Контроллеры, Сервисы, SparkEngine и SparkEngineRegistry, DAG Engine, DTO
 │   │   └── resources/        # application.yml, schema.sql, статика SPA
 │   └── test/                 # Интеграционные тесты MockMvc, MockSparkEngine
 └── README.md                 # Документация модуля
 ```
 
 - Безопасность: стартер `common-security-starter` (Java 21) — LDAPS, Kerberos SPNEGO, JWT в cookie, защита от CSRF и проверка прав доступа к очередям YARN.
-- Движки исполнения: клиент REST API Apache Livy и `MockSparkEngine`, который эмулирует запуск YARN-приложений и сессии на всех трёх языках.
+- Движки исполнения: интерфейс `SparkEngine`, движок кластера выбирает `SparkEngineRegistry`. Кластер с `mock-storage: true` обслуживает `MockSparkEngine` (эмуляция сессий и кода на всех трёх языках), кластер `type: livy` с `mock-storage: false` — `LivySparkEngine` (пакет `service.engine.livy`: REST-клиент Apache Livy, сессии с `proxyUser`, statements, отмена, таймауты). Тесты клиента выполняются против WireMock.
+- Жизненный цикл сессий Livy (`SparkSessionManager`): статус и YARN application ID обновляет фоновая синхронизация (`syncSessions`, один `GET /sessions` на кластер раз в `spark.session-sync-interval-ms`), API сессий читает только БД; остановка, простой дольше `spark.session-ttl-minutes` и выход пользователя (`UserLoggedOutEvent` стартера, `spark.close-sessions-on-logout`) удаляют сессию в Livy. Каталог (`SparkCatalogService`) на кластере Livy выполняет `SHOW DATABASES`, `SHOW TABLES IN` и `DESCRIBE` в активной сессии пользователя, без нее отвечает 409. Тесты — `LivyLifecycleIntegrationTest` (WireMock).
 - Движок DAG-пайплайнов: бэкенд визуального конструктора ETL. Проверяет граф на циклы (алгоритм Кана), выполняет узлы по шагам и пишет лог каждого узла.
 - Рабочее пространство и история: состояние сессий, блокноты и результаты вычислений хранятся в H2 через JPA.
 - Встроенный фронтенд: production-бандл собирается из `frontend/apps/spark` в `src/main/resources/static` (в git не хранится, см. `make build-spark`) и отдаётся через Spring Boot.

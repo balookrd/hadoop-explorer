@@ -1,65 +1,53 @@
 package org.apache.hadoop.explorer.sql.service.engine;
 
+import io.trino.jdbc.TrinoStatement;
 import org.apache.hadoop.explorer.sql.config.SqlProperties;
-import org.apache.hadoop.explorer.sql.dto.ColumnMetadata;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.hadoop.explorer.sql.service.engine.jdbc.JdbcSqlEngine;
+import org.apache.hadoop.explorer.sql.service.engine.trino.TrinoConnectionFactory;
 
-import java.util.List;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
-public class TrinoSqlEngine implements SqlEngine {
+/** Trino over trino-jdbc; used when the cluster has type: trino and mock-storage: false. */
+public class TrinoSqlEngine extends JdbcSqlEngine {
 
-    private static final Logger log = LoggerFactory.getLogger(TrinoSqlEngine.class);
+    private static final long PROGRESS_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(1);
 
-    private final SqlProperties.ClusterConfig cluster;
-    private final MockSqlEngine fallbackMock;
+    private final TrinoConnectionFactory connections;
 
     public TrinoSqlEngine(SqlProperties.ClusterConfig cluster) {
-        this.cluster = cluster;
-        this.fallbackMock = new MockSqlEngine(cluster);
+        super(cluster, TrinoSqlEngine::attachProgressMonitor);
+        this.connections = new TrinoConnectionFactory(cluster);
     }
 
     @Override
-    public List<String> getCatalogs(String username) {
-        try {
-            // Если включен mockStorage или оффлайн
-            if (cluster.isMockStorage()) {
-                return fallbackMock.getCatalogs(username);
-            }
-            return fallbackMock.getCatalogs(username);
-        } catch (Exception e) {
-            log.warn("Не удалось подключиться к Trino на {}:{}, fallback to mock", cluster.getHost(), cluster.getPort());
-            return fallbackMock.getCatalogs(username);
+    protected Connection openConnection(String username) throws SQLException {
+        return connections.open(username);
+    }
+
+    private static void attachProgressMonitor(Statement statement, Consumer<Map<String, Object>> events) throws SQLException {
+        if (!statement.isWrapperFor(TrinoStatement.class)) {
+            return;
         }
-    }
-
-    @Override
-    public List<String> getSchemas(String username, String catalog) {
-        return fallbackMock.getSchemas(username, catalog);
-    }
-
-    @Override
-    public List<String> getTables(String username, String catalog, String schema) {
-        return fallbackMock.getTables(username, catalog, schema);
-    }
-
-    @Override
-    public List<ColumnMetadata> getColumns(String username, String catalog, String schema, String table) {
-        return fallbackMock.getColumns(username, catalog, schema, table);
-    }
-
-    @Override
-    public ExecutionResult execute(
-            String queryId,
-            String query,
-            String username,
-            int maxRows,
-            Consumer<Map<String, Object>> eventConsumer,
-            AtomicBoolean cancelled
-    ) {
-        return fallbackMock.execute(queryId, query, username, maxRows, eventConsumer, cancelled);
+        AtomicLong lastEmitNanos = new AtomicLong();
+        statement.unwrap(TrinoStatement.class).setProgressMonitor(stats -> {
+            long now = System.nanoTime();
+            long last = lastEmitNanos.get();
+            if (last != 0 && now - last < PROGRESS_INTERVAL_NANOS || !lastEmitNanos.compareAndSet(last, now)) {
+                return;
+            }
+            // Always RUNNING: Trino's own FINISHED/FAILED would make the UI close the stream before rows arrive
+            events.accept(Map.of(
+                    "type", "status",
+                    "status", "RUNNING",
+                    "progress", stats.getProgressPercentage().orElse(0.0),
+                    "message", "Trino " + stats.getQueryId() + ": " + stats.getState()
+                            + ", splits " + stats.getCompletedSplits() + "/" + stats.getTotalSplits()));
+        });
     }
 }

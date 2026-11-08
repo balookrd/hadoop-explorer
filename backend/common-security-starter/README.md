@@ -46,7 +46,7 @@ Spring Boot стартер аутентификации, сессий, CSRF-за
 |---|---|---|
 | `POST` | `/api/v1/auth/login` | Вход по логину и паролю |
 | `GET` | `/api/v1/auth/sso` | Вход через Kerberos SPNEGO |
-| `POST` | `/api/v1/auth/logout` | Отзыв токена и удаление cookie |
+| `POST` | `/api/v1/auth/logout` | Отзыв токена, удаление cookie, публикация `UserLoggedOutEvent(username)` (локально на экземпляре, принявшем запрос) |
 | `GET` | `/api/v1/auth/me` | Профиль текущей сессии |
 
 ### TLS/HTTPS и mTLS

@@ -14,7 +14,7 @@ services:
   # 2. Trino Coordinator (Kerberized + TPCH + Hive)
   # ==========================================
   sql-trino-coordinator:
-    image: trinodb/trino:latest
+    image: trinodb/trino:484
     container_name: trino-coordinator
     hostname: trino-coordinator
     restart: unless-stopped
@@ -56,6 +56,8 @@ services:
     volumes:
       - ./application-demo.yml:/app/config/application.yml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
+      # TLS certificate of the coordinator, used as truststore by trino-jdbc (SSLVerification=CA)
+      - ./trino/etc/keystore.jks:/etc/sql-explorer/trino-truststore.jks:ro
       - sql-explorer-data:/app/data
     depends_on:
       kdc:

@@ -14,7 +14,7 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
 - Подключение к Apache Hive через HiveServer2 и прямой опрос Hive Metastore.
 - Каталог баз данных, схем и таблиц с TTL-кэшированием метаданных.
 - Рабочее пространство аналитика (`SqlUserWorkspace`), хранимое на сервере: вкладки редактора, сохраненные запросы, история выполнений с метриками.
-- ИИ-ассистент для проверки, форматирования и оптимизации SQL на встроенных правилах, без обращения к LLM.
+- ИИ-ассистент для проверки, объяснения, оптимизации, исправления и генерации SQL: OpenAI-совместимая LLM (`sql.ai.provider: openai_compatible`) с откатом на встроенные правила либо только правила (`mock-builtin`, по умолчанию). Что при этом уходит в модель — [CONFIGURATION.md, раздел 5.3](CONFIGURATION.md#53-ии-ассистент-on-premise-llm--ollama--vllm).
 - Проверка идентификаторов каталогов, схем и таблиц перед подстановкой в запрос (`CatalogController.validateIdentifier`) — защита от SQL-инъекций.
 
 ### 1.2 Сетевые порты и эндпоинты
@@ -217,8 +217,8 @@ sql:
 ```
 
 Ограничения текущей версии, которые видны в коде:
-- `TrinoSqlEngine` и `HiveSqlEngine` возвращают каталоги, схемы и результаты запросов из `MockSqlEngine`: запросы в Trino и HiveServer2 не отправляются, `host` и `port` для подключения не используются.
-- ИИ-ассистент (`AiService`) проверяет и переписывает SQL встроенными правилами и не обращается к внешней модели. `sql.ai.url`, `sql.ai.model` и `sql.ai.provider` (по умолчанию `mock-builtin`) только возвращаются в ответе о статусе ассистента.
+- При `mock-storage: false` `TrinoSqlEngine` и `HiveSqlEngine` подключаются к кластерам через JDBC; параметры (`jdbc.*`, `kerberos.*`) описаны в [CONFIGURATION.md, раздел 5.1](CONFIGURATION.md#51-аналитические-кластеры). Hadoop-клиент сервису не нужен: Kerberos выполняют JDBC-драйверы по keytab.
+- При `hive.server2.enable.doAs=false` и аутентификаторе HiveServer2 по умолчанию `current_user()` возвращает служебного пользователя HiveServer2 (на демо-стенде `hive`), хотя сессия открыта от имени `hive.server2.proxy.user`. Пользователя сессии показывает журнал HiveServer2: `Login attempt is successful for user : <пользователь>` и `userName=<пользователь>` у `EXECUTE_STATEMENT`. Чтобы `current_user()` возвращал пользователя сессии, задайте в HiveServer2 `hive.security.authenticator.manager=org.apache.hadoop.hive.ql.security.SessionStateUserAuthenticator`.
 - Если у кластера пусты `allowed-users` и `allowed-groups`, он доступен всем пользователям.
 - Строки результатов, отмена выполняющихся запросов и SSE-подписки хранятся в памяти экземпляра, выполняющего запрос. При двух и более экземплярах без привязки клиента к экземпляру на балансировщике пользователь получает пустой результат при `total > 0`, а отмена с другого экземпляра не останавливает запрос. Настройте привязку или запускайте один экземпляр: [production-database.md, раздел 3.3](production-database.md#33-привязка-клиента-к-экземпляру).
 
@@ -405,3 +405,21 @@ curl -s http://localhost:8003/actuator/prometheus | grep '^sql_query_duration_se
 
 | Ошибка | Причина | Решение |
 |---|---|---|
+| `502` от `/api/v1/catalog/...`, `detail`: `<кластер>: ... Connection refused` | Trino недоступен по `host:port` | Проверьте с узла сервиса: `curl -sk https://<host>:<port>/v1/info` |
+| `TLS/SSL is required for Kerberos authentication` | `kerberos.enabled: true` без `jdbc.ssl: true` | Включите `jdbc.ssl` и укажите порт HTTPS координатора |
+| `Kerberos error for [trino@<host>]: ... Server not found in Kerberos database (7) - LOOKING_UP_SERVER` | JDK канонизирует `host` через обратный DNS (в Docker `trino-coordinator` превращается в `trino-coordinator.<сеть>`) и запрашивает билет для SPN `trino/<каноническое имя>@<REALM>`, которого нет в KDC | Добавьте `dns_canonicalize_hostname = false` в `[libdefaults]` файла `krb5.conf` процесса (`-Djava.security.krb5.conf`) или зарегистрируйте SPN на каноническое имя. `KerberosUseCanonicalHostname=false`, который сервис передает драйверу, на канонизацию в JDK не влияет |
+| `Access Denied: User <служебный пользователь> cannot impersonate user <пользователь>` | В правилах Trino нет имперсонации служебного пользователя | Добавьте правило `impersonation` для `jdbc.service-user` или отключите `impersonation.enabled` |
+| Статус `FAILED`, «Превышен лимит времени выполнения запроса» | Запрос дольше `jdbc.query-timeout-seconds` | Увеличьте лимит для кластера или оптимизируйте запрос |
+| Сервис не стартует: `kerberos.krb5-conf=<путь> не совпадает с -Djava.security.krb5.conf=<путь>` или `Кластеры с Kerberos задают разные kerberos.krb5-conf` | Конфигурация Kerberos JDK одна на процесс: trino-jdbc записывает `kerberos.krb5-conf` в `java.security.krb5.conf`, драйвер Kyuubi путь не принимает и читает свойство JVM. Путь расходится с JVM (для Hive — также при незаданном `-Djava.security.krb5.conf`) или между кластерами Trino и Hive | Укажите один путь, равный `-Djava.security.krb5.conf`, или уберите `kerberos.krb5-conf` |
+| `Refusing to set system property 'java.security.krb5.conf' to '<путь>', it is already set to '<путь>'` | Свойство JVM `java.security.krb5.conf` изменилось после старта (его установил другой компонент процесса) | Приведите `kerberos.krb5-conf` и `-Djava.security.krb5.conf` к одному пути и перезапустите сервис |
+| Сервис не стартует: `при kerberos.enabled: true параметр kerberos.<имя> обязателен` | Не задан `kerberos.principal` или `kerberos.keytab`; для Trino — `kerberos.service-name`, для Hive — `kerberos.server-principal` | Задайте параметр в конфигурации кластера |
+| Сервис не стартует: `при kerberos.enabled: true требуется jdbc.ssl: true` | Kerberos к Trino включен без TLS | Включите `jdbc.ssl` и укажите порт HTTPS координатора |
+| Сервис не стартует: `kerberos.krb5-conf должен быть абсолютным путем` | Задан относительный путь: драйвер сравнивает абсолютный путь с `java.security.krb5.conf` и после первого соединения отклонял бы все остальные | Укажите абсолютный путь |
+| Сервис не стартует: `kerberos.krb5-conf=<путь> задан при Kerberos-кластере Hive, а -Djava.security.krb5.conf=...` | `kerberos.krb5-conf` задан у Kerberos-кластера (обычно Trino), а свойство JVM не задано или другое. Драйвер Kyuubi читает только свойство JVM, и до первого соединения trino-jdbc Hive вошел бы с другим `krb5.conf` | Задайте `-Djava.security.krb5.conf=<тот же путь>` |
+| Сервис не стартует: `параметр <имя> не должен содержать символы ';', '?' и '#'` | В `host`, `schema` или `kerberos.*` кластера Hive есть разделители JDBC URL HiveServer2 | Исправьте значение |
+| Запрос к Hive: `java.net.SocketTimeoutException: Read timed out` | HiveServer2 не ответил за `jdbc.socket-timeout-seconds` (по умолчанию 300 с) на одно обращение: завис при подключении, `FetchResults` или чтении метаданных | Проверьте журнал HiveServer2; для медленных выборок увеличьте `jdbc.socket-timeout-seconds` (`0` — без ограничения) |
+| Сервис не стартует: `jdbc.ssl для type: hive не поддерживается` | У кластера Hive задан `jdbc.ssl: true`; сервис подключается к HiveServer2 только по binary-транспорту без TLS | Уберите `jdbc.ssl` у кластера Hive |
+| `Failed to validate proxy privilege of <svc> for <user>` | HiveServer2 не разрешает служебному пользователю имперсонацию | Добавьте `hadoop.proxyuser.<svc>.hosts` и `hadoop.proxyuser.<svc>.groups` в `core-site.xml` HiveServer2 и перезапустите его |
+| `имя пользователя '...' недопустимо для hive.server2.proxy.user` | В имени пользователя есть символы вне `[A-Za-z0-9._@-]` | Используйте учетную запись без таких символов или отключите `impersonation.enabled` для кластера |
+| `GSS initiate failed` при подключении к Hive | Неверный `kerberos.server-principal` или нет билета у keytab. Если в журнале HiveServer2 `Checksum failed`, JDK канонизировал `host` (`hive-server-2` → `hive-server-2.<сеть>`) и запросил билет для другого SPN, чем principal HiveServer2 | Сверьте principal HiveServer2 (`hive.server2.authentication.kerberos.principal`) и проверьте keytab: `klist -kt <keytab>`. При канонизации добавьте `dns_canonicalize_hostname = false` в `[libdefaults]` файла `krb5.conf` процесса |
+| `Failed to open new session: Database <schema> does not exist` | В HiveServer2 нет базы из `schema` кластера: сессия открывается сразу в ней | Создайте базу или укажите существующую в `schema` |

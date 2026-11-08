@@ -1,7 +1,12 @@
 package org.apache.hadoop.explorer.sql.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.explorer.sql.config.SqlProperties;
 import org.apache.hadoop.explorer.sql.dto.*;
+import org.apache.hadoop.explorer.sql.service.ai.LlmUnavailableException;
+import org.apache.hadoop.explorer.sql.service.ai.OpenAiCompatibleClient;
+import org.apache.hadoop.explorer.sql.service.ai.SqlAssistantPrompts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,28 +18,163 @@ import java.util.regex.Pattern;
 @Service
 public class AiService {
 
+    static final String RULES_PROVIDER = "mock-builtin";
+    static final String RULES_MODEL = "builtin-rules";
+    static final String LLM_PROVIDER = "openai_compatible";
+
+    private static final int MAX_POSITION = 1_000_000;
+    private static final Set<String> SEVERITIES = Set.of("error", "warning", "info");
+    private static final Set<String> CATEGORIES = Set.of("syntax", "performance", "security", "style");
+
     private static final Logger log = LoggerFactory.getLogger(AiService.class);
 
     private final SqlProperties sqlProperties;
+    private final ObjectMapper objectMapper;
+    private final OpenAiCompatibleClient llm; // null: rules only
 
-    public AiService(SqlProperties sqlProperties) {
+    public AiService(SqlProperties sqlProperties, ObjectMapper objectMapper) {
         this.sqlProperties = sqlProperties;
+        this.objectMapper = objectMapper;
+        SqlProperties.AiConfig ai = sqlProperties.getAi();
+        this.llm = ai.isEnabled() && LLM_PROVIDER.equalsIgnoreCase(ai.getProvider())
+                ? new OpenAiCompatibleClient(ai, objectMapper)
+                : null;
     }
 
     public AIStatusResponse getStatus() {
         var ai = sqlProperties.getAi();
-        return new AIStatusResponse(
-                ai.isEnabled(),
-                ai.getProvider(),
-                ai.getModel(),
-                ai.getUrl(),
-                true,
-                "Встроенный высокопроизводительный AI-ассистент SQL готов к работе",
-                12.5
-        );
+        String baseUrl = OpenAiCompatibleClient.displayUrl(ai.getUrl());
+        if (llm == null) {
+            return new AIStatusResponse(ai.isEnabled(), RULES_PROVIDER, RULES_MODEL, baseUrl, false,
+                    "LLM не подключена (sql.ai.provider: " + ai.getProvider() + (ai.isEnabled() ? "" : ", sql.ai.enabled: false")
+                            + "), ответы строятся встроенными правилами", null);
+        }
+        try {
+            double latencyMs = llm.ping();
+            return new AIStatusResponse(true, ai.getProvider(), ai.getModel(), baseUrl, true,
+                    "LLM " + ai.getModel() + " отвечает", latencyMs);
+        } catch (LlmUnavailableException e) {
+            log.warn("Проверка LLM для /api/v1/ai/status не прошла: {}", e.getMessage());
+            // Р8: while the model is down the answers come from the rules, the status says the same
+            return new AIStatusResponse(true, RULES_PROVIDER, RULES_MODEL, baseUrl, false,
+                    "LLM " + ai.getModel() + " недоступна (" + e.getSummary() + "), ответы строятся встроенными правилами", null);
+        }
     }
 
     public AICheckResponse checkQuery(String sql, String dialect, Map<String, Object> context) {
+        if (llm == null) {
+            return rulesCheck(sql, dialect, false);
+        }
+        long start = System.nanoTime();
+        try {
+            JsonNode r = llm.completeJson(SqlAssistantPrompts.CHECK, SqlAssistantPrompts.userMessage(objectMapper, dialect, sql, context, null));
+            List<AIIssue> issues = new ArrayList<>();
+            for (JsonNode n : r.path("issues")) {
+                issues.add(new AIIssue(
+                        position(n.path("line").asInt(1)),
+                        position(n.path("column").asInt(1)),
+                        n.hasNonNull("end_line") ? position(n.get("end_line").asInt()) : null,
+                        n.hasNonNull("end_column") ? position(n.get("end_column").asInt()) : null,
+                        oneOf(n.path("severity").asText(""), SEVERITIES, "warning"),
+                        oneOf(n.path("category").asText(""), CATEGORIES, "style"),
+                        n.path("message").asText(""),
+                        n.path("rule").asText("llm"),
+                        n.hasNonNull("suggestion") ? n.get("suggestion").asText() : null));
+            }
+            boolean valid = r.has("is_valid")
+                    ? r.get("is_valid").asBoolean()
+                    : issues.stream().noneMatch(i -> "error".equalsIgnoreCase(i.severity()));
+            int score = Math.max(1, Math.min(10, r.path("complexity_score").asInt(1)));
+            return new AICheckResponse(valid, issues, r.path("summary").asText(""), score, complexityLevel(score),
+                    texts(r.path("estimated_notes")), llmModel(), llmProvider(), elapsedMs(start), false);
+        } catch (LlmUnavailableException e) {
+            logFallback("check", e);
+            return rulesCheck(sql, dialect, true);
+        }
+    }
+
+    public AIExplainResponse explainQuery(String sql, String dialect) {
+        if (llm == null) {
+            return rulesExplain(sql, dialect);
+        }
+        long start = System.nanoTime();
+        try {
+            JsonNode r = llm.completeJson(SqlAssistantPrompts.EXPLAIN, SqlAssistantPrompts.userMessage(objectMapper, dialect, sql, null, null));
+            return new AIExplainResponse(requireText(r, "explanation"), r.path("summary").asText(""),
+                    texts(r.path("tables_used")), texts(r.path("operations")), llmModel(), llmProvider(), elapsedMs(start));
+        } catch (LlmUnavailableException e) {
+            logFallback("explain", e);
+            return rulesExplain(sql, dialect);
+        }
+    }
+
+    public AIOptimizeResponse optimizeQuery(String sql, String dialect, Map<String, Object> context) {
+        if (llm == null) {
+            return rulesOptimize(sql, dialect);
+        }
+        long start = System.nanoTime();
+        try {
+            JsonNode r = llm.completeJson(SqlAssistantPrompts.OPTIMIZE, SqlAssistantPrompts.userMessage(objectMapper, dialect, sql, context, null));
+            return new AIOptimizeResponse(sql, requireText(r, "optimized_sql"), texts(r.path("optimizations")),
+                    r.path("diff_summary").asText(""), llmModel(), llmProvider(), elapsedMs(start));
+        } catch (LlmUnavailableException e) {
+            logFallback("optimize", e);
+            return rulesOptimize(sql, dialect);
+        }
+    }
+
+    public AIFixResponse fixQuery(String sql, String dialect, String rawErrorMessage) {
+        String errorMessage = rawErrorMessage == null ? "" : rawErrorMessage;
+        if (llm == null) {
+            return rulesFix(sql, dialect, errorMessage);
+        }
+        long start = System.nanoTime();
+        try {
+            JsonNode r = llm.completeJson(SqlAssistantPrompts.FIX,
+                    SqlAssistantPrompts.userMessage(objectMapper, dialect, sql, null, errorMessage.isBlank() ? null : "Ошибка движка: " + errorMessage));
+            return new AIFixResponse(sql, requireText(r, "fixed_sql"), r.path("explanation").asText(""),
+                    llmModel(), llmProvider(), elapsedMs(start));
+        } catch (LlmUnavailableException e) {
+            logFallback("fix", e);
+            return rulesFix(sql, dialect, errorMessage);
+        }
+    }
+
+    public AIFormatResponse formatSql(String sql, String dialect) {
+        String formatted = sql
+                .replaceAll("(?i)\\bSELECT\\b", "\nSELECT\n  ")
+                .replaceAll("(?i)\\bFROM\\b", "\nFROM\n  ")
+                .replaceAll("(?i)\\bWHERE\\b", "\nWHERE\n  ")
+                .replaceAll("(?i)\\bAND\\b", "\n  AND ")
+                .replaceAll("(?i)\\bGROUP BY\\b", "\nGROUP BY\n  ")
+                .replaceAll("(?i)\\bORDER BY\\b", "\nORDER BY\n  ")
+                .replaceAll("(?i)\\bLIMIT\\b", "\nLIMIT ")
+                .replaceAll("(?i)\\bJOIN\\b", "\nJOIN\n  ")
+                .replaceAll("(?i)\\bLEFT JOIN\\b", "\nLEFT JOIN\n  ")
+                .trim();
+
+        return new AIFormatResponse(sql, formatted, dialect != null ? dialect : "trino");
+    }
+
+    public AIGenerateResponse generateQuery(String prompt, String dialect, Map<String, Object> context) {
+        if (llm == null) {
+            return rulesGenerate(prompt, dialect, false);
+        }
+        long start = System.nanoTime();
+        try {
+            JsonNode r = llm.completeJson(SqlAssistantPrompts.GENERATE,
+                    SqlAssistantPrompts.userMessage(objectMapper, dialect, null, context, "Описание: " + prompt));
+            return new AIGenerateResponse(prompt, requireText(r, "generated_sql"), r.path("explanation").asText(""),
+                    texts(r.path("tables_used")), llmModel(), llmProvider(), elapsedMs(start), false);
+        } catch (LlmUnavailableException e) {
+            logFallback("generate", e);
+            return rulesGenerate(prompt, dialect, true);
+        }
+    }
+
+    // ---- Built-in rules (used when no LLM is configured and as the fallback) ----
+
+    private AICheckResponse rulesCheck(String sql, String dialect, boolean fallbackUsed) {
         long start = System.currentTimeMillis();
         List<AIIssue> issues = new ArrayList<>();
         String upper = sql.toUpperCase();
@@ -63,7 +203,6 @@ public class AiService {
 
         boolean isValid = issues.stream().noneMatch(i -> "error".equalsIgnoreCase(i.severity()));
         int score = issues.isEmpty() ? 1 : Math.min(10, issues.size() * 2 + 1);
-        String level = score <= 2 ? "Низкая" : (score <= 5 ? "Средняя" : "Высокая");
 
         double execTime = System.currentTimeMillis() - start;
         return new AICheckResponse(
@@ -71,16 +210,16 @@ public class AiService {
                 issues,
                 isValid ? "Синтаксис корректен. Проблем безопасности не обнаружено." : "Обнаружены потенциальные ошибки в запросе.",
                 score,
-                level,
+                complexityLevel(score),
                 List.of("Синтаксис проверен для диалекта: " + dialect),
-                sqlProperties.getAi().getModel(),
-                sqlProperties.getAi().getProvider(),
+                RULES_MODEL,
+                RULES_PROVIDER,
                 execTime,
-                false
+                fallbackUsed
         );
     }
 
-    public AIExplainResponse explainQuery(String sql, String dialect) {
+    private AIExplainResponse rulesExplain(String sql, String dialect) {
         long start = System.currentTimeMillis();
         List<String> tables = extractTables(sql);
         List<String> ops = new ArrayList<>();
@@ -110,13 +249,13 @@ public class AiService {
                 "Запрос обращается к " + tables.size() + " таблицам с операциями: " + String.join(", ", ops),
                 tables,
                 ops,
-                sqlProperties.getAi().getModel(),
-                sqlProperties.getAi().getProvider(),
+                RULES_MODEL,
+                RULES_PROVIDER,
                 execTime
         );
     }
 
-    public AIOptimizeResponse optimizeQuery(String sql, String dialect, Map<String, Object> context) {
+    private AIOptimizeResponse rulesOptimize(String sql, String dialect) {
         long start = System.currentTimeMillis();
         String upper = sql.toUpperCase();
         List<String> opts = new ArrayList<>();
@@ -139,13 +278,13 @@ public class AiService {
                 optimized,
                 opts,
                 "Оптимизация завершена (" + opts.size() + " улучшений)",
-                sqlProperties.getAi().getModel(),
-                sqlProperties.getAi().getProvider(),
+                RULES_MODEL,
+                RULES_PROVIDER,
                 execTime
         );
     }
 
-    public AIFixResponse fixQuery(String sql, String dialect, String errorMessage) {
+    private AIFixResponse rulesFix(String sql, String dialect, String errorMessage) {
         long start = System.currentTimeMillis();
         String fixed = sql.trim();
         String explanation = "Автоматическое исправление на основе ошибки: " + errorMessage;
@@ -162,29 +301,13 @@ public class AiService {
                 sql,
                 fixed,
                 explanation,
-                sqlProperties.getAi().getModel(),
-                sqlProperties.getAi().getProvider(),
+                RULES_MODEL,
+                RULES_PROVIDER,
                 execTime
         );
     }
 
-    public AIFormatResponse formatSql(String sql, String dialect) {
-        String formatted = sql
-                .replaceAll("(?i)\\bSELECT\\b", "\nSELECT\n  ")
-                .replaceAll("(?i)\\bFROM\\b", "\nFROM\n  ")
-                .replaceAll("(?i)\\bWHERE\\b", "\nWHERE\n  ")
-                .replaceAll("(?i)\\bAND\\b", "\n  AND ")
-                .replaceAll("(?i)\\bGROUP BY\\b", "\nGROUP BY\n  ")
-                .replaceAll("(?i)\\bORDER BY\\b", "\nORDER BY\n  ")
-                .replaceAll("(?i)\\bLIMIT\\b", "\nLIMIT ")
-                .replaceAll("(?i)\\bJOIN\\b", "\nJOIN\n  ")
-                .replaceAll("(?i)\\bLEFT JOIN\\b", "\nLEFT JOIN\n  ")
-                .trim();
-
-        return new AIFormatResponse(sql, formatted, dialect != null ? dialect : "trino");
-    }
-
-    public AIGenerateResponse generateQuery(String prompt, String dialect, Map<String, Object> context) {
+    private AIGenerateResponse rulesGenerate(String prompt, String dialect, boolean fallbackUsed) {
         long start = System.currentTimeMillis();
         String lower = prompt.toLowerCase();
         String genSql;
@@ -207,11 +330,57 @@ public class AiService {
                 genSql,
                 "Запрос сгенерирован для диалекта " + dialect + " на основе ключевых понятий схемы.",
                 tables,
-                sqlProperties.getAi().getModel(),
-                sqlProperties.getAi().getProvider(),
+                RULES_MODEL,
+                RULES_PROVIDER,
                 execTime,
-                false
+                fallbackUsed
         );
+    }
+
+    // ---- helpers ----
+
+    private String llmModel() {
+        return sqlProperties.getAi().getModel();
+    }
+
+    private static String llmProvider() {
+        return LLM_PROVIDER;
+    }
+
+    /** Model positions are 1-based; nonsense values are clamped so the editor markers stay in range. */
+    private static int position(int value) {
+        return Math.max(1, Math.min(MAX_POSITION, value));
+    }
+
+    private static String oneOf(String value, Set<String> allowed, String fallback) {
+        String normalized = value.strip().toLowerCase(Locale.ROOT);
+        return allowed.contains(normalized) ? normalized : fallback;
+    }
+
+    private static String complexityLevel(int score) {
+        return score <= 2 ? "Низкая" : (score <= 5 ? "Средняя" : "Высокая");
+    }
+
+    private static List<String> texts(JsonNode array) {
+        List<String> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.asText()));
+        return values;
+    }
+
+    private static String requireText(JsonNode node, String field) throws LlmUnavailableException {
+        String value = node.path(field).asText("");
+        if (value.isBlank()) {
+            throw new LlmUnavailableException("в ответе модели нет поля " + field);
+        }
+        return value;
+    }
+
+    private static double elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000.0;
+    }
+
+    private void logFallback(String operation, LlmUnavailableException e) {
+        log.warn("LLM недоступна для {}, ответ построен встроенными правилами: {}", operation, e.getMessage());
     }
 
     private List<String> extractTables(String sql) {

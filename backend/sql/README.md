@@ -20,7 +20,7 @@ backend/sql/
 ## Компоненты
 
 - Безопасность: стартер `common-security-starter` (Java 21) — LDAPS, Kerberos SPNEGO, JWT в HttpOnly cookie, защита от CSRF, rate limiting, разграничение доступа по ACL/RBAC.
-- Движки исполнения: REST-клиент Trino, движок Hive и `MockSqlEngine` с тестовыми каталогами `tpch` и `analytics`.
+- Движки исполнения: `TrinoSqlEngine` (`io.trino:trino-jdbc`), `HiveSqlEngine` (`org.apache.kyuubi:kyuubi-hive-jdbc-shaded`) и `MockSqlEngine` с тестовыми каталогами `tpch` и `analytics` для кластеров с `mock-storage: true`. Тесты `*ContainerTest` требуют Docker и без него пропускаются.
 - API метаданных каталогов: кэш каталогов, схем, таблиц и колонок с принудительным обновлением.
 - Асинхронное исполнение и SSE: поток событий о состоянии запроса, стриминг строк, отмена, сохранение истории.
 - ИИ-ассистент: форматирование, пошаговое объяснение планов выполнения, оптимизация запросов, исправление ошибок, генерация SQL по тексту (Text-to-SQL).

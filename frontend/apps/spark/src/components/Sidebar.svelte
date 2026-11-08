@@ -30,6 +30,8 @@
   let expandedTables = $state<Record<string, boolean>>({});
   let columnsByTable = $state<Record<string, ColumnMeta[]>>({});
   let loadingSchema = $state(false);
+  // Shown instead of the tree, e.g. 409 on a Livy cluster: the catalog is read through the user's session
+  let catalogError = $state<string | null>(null);
 
   // Состояние истории
   let historyItems = $state<HistoryItem[]>([]);
@@ -47,6 +49,7 @@
   async function loadDatabases() {
     if (!clusterDetails) return;
     loadingSchema = true;
+    catalogError = null;
     try {
       databases = await api.getDatabases(clusterDetails.id, selectedMetastoreId);
       expandedDbs = {};
@@ -55,6 +58,8 @@
       }
     } catch (err) {
       console.error('Ошибка загрузки баз данных', err);
+      databases = [];
+      catalogError = err instanceof Error ? err.message : String(err);
     } finally {
       loadingSchema = false;
     }
@@ -188,6 +193,17 @@
         <div class="flex items-center justify-center py-8 text-slate-400 gap-2">
           <RefreshCw class="w-4 h-4 animate-spin text-amber-500" />
           <span>Загрузка каталога...</span>
+        </div>
+      {:else if catalogError}
+        <div class="px-2 py-6 text-center text-slate-500 dark:text-slate-400 space-y-2">
+          <p>{catalogError}</p>
+          <button
+            onclick={() => loadDatabases()}
+            class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 cursor-pointer"
+          >
+            <RefreshCw class="w-3.5 h-3.5" />
+            <span>Обновить</span>
+          </button>
         </div>
       {:else}
         {#each databases as db}

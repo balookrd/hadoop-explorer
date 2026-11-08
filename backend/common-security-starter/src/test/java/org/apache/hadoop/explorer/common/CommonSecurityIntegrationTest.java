@@ -2,6 +2,7 @@ package org.apache.hadoop.explorer.common;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
+import org.apache.hadoop.explorer.common.auth.UserLoggedOutEvent;
 import org.apache.hadoop.explorer.common.model.LoginRequest;
 import org.apache.hadoop.explorer.common.model.TokenResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -10,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -21,6 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(classes = TestApplication.class)
 @AutoConfigureMockMvc
+@RecordApplicationEvents
 class CommonSecurityIntegrationTest {
 
     @Autowired
@@ -28,6 +32,9 @@ class CommonSecurityIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ApplicationEvents applicationEvents;
 
     @Test
     @DisplayName("Сквозной интеграционный сценарий: Login -> Cookie -> Protected API -> /me -> Logout -> Revoke")
@@ -96,5 +103,37 @@ class CommonSecurityIntegrationTest {
         mockMvc.perform(get("/api/v1/test/protected")
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Logout публикует UserLoggedOutEvent с именем вышедшего пользователя")
+    void logoutPublishesUserLoggedOutEvent() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("admin", "any-password");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(loginRequest)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie authCookie = loginResult.getResponse().getCookie("access_token");
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                .cookie(authCookie)
+                .header("X-Requested-With", "XMLHttpRequest"))
+            .andExpect(status().isOk());
+
+        assertEquals(java.util.List.of("admin"), applicationEvents
+            .stream(UserLoggedOutEvent.class)
+            .map(UserLoggedOutEvent::username)
+            .toList());
+    }
+
+    @Test
+    @DisplayName("Logout без аутентификации не публикует UserLoggedOutEvent")
+    void anonymousLogoutPublishesNoEvent() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/logout")
+                .header("X-Requested-With", "XMLHttpRequest"))
+            .andExpect(status().isOk());
+
+        assertEquals(0, applicationEvents.stream(UserLoggedOutEvent.class).count());
     }
 }

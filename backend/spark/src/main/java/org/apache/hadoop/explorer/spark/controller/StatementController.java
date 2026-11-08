@@ -59,7 +59,11 @@ public class StatementController {
             @PathVariable("executionId") String executionId,
             Authentication authentication
     ) {
-        return sessionManager.registerStream(executionId);
+        // A statement of another user is reported as not found (404), not forbidden: the id must not be confirmed
+        String username = SecurityUtils.getUsername(authentication);
+        boolean isAdmin = SecurityUtils.isAdmin(authentication);
+        return sessionManager.registerStream(executionId, username, isAdmin)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Выполнение не найдено: " + executionId));
     }
 
     @GetMapping("/{executionId}/result")
@@ -69,7 +73,9 @@ public class StatementController {
             @RequestParam(name = "limit", defaultValue = "500") int limit,
             Authentication authentication
     ) {
-        return sessionManager.getResult(executionId, offset, limit)
+        String username = SecurityUtils.getUsername(authentication);
+        boolean isAdmin = SecurityUtils.isAdmin(authentication);
+        return sessionManager.getResult(executionId, username, isAdmin, offset, limit)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Результат не найден: " + executionId));
     }
 }
