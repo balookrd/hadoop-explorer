@@ -43,15 +43,19 @@ if docker exec sql-explorer klist -s 2>/dev/null; then
 fi
 
 echo "[4/4] Инициализация демонстрационных таблиц в Hive..."
-# Запускаем в фоне, так как HiveServer2 может инициализироваться 30-45 секунд
-(
-    ./hive/init-demo-data.sh || true
-) &
+# HDFS and HiveServer2 need several minutes under amd64 emulation on arm64 hosts;
+# the script waits up to HIVE_INIT_TIMEOUT seconds per cluster (default 900).
+HIVE_INIT_STATUS="созданы"
+if ! ./hive/init-demo-data.sh; then
+    HIVE_INIT_STATUS="НЕ созданы, см. вывод [hive-init] выше; повторный запуск: $DIR/hive/init-demo-data.sh"
+fi
 
 echo ""
 echo "=========================================================="
 echo "    ДЕМО-СТЕНД УСПЕШНО ЗАПУЩЕН И ГОТОВ К РАБОТЕ!          "
 echo "=========================================================="
+echo ""
+echo "Демо-таблицы Hive: $HIVE_INIT_STATUS"
 echo ""
 echo "Веб-интерфейс доступен по адресу:"
 echo "👉 http://localhost:8003"

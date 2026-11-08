@@ -1,6 +1,8 @@
 name: sql-explorer-demo
 
 include:
+  # Hive Metastore and HiveServer2 keep their warehouse in hdfs-cluster-1/2
+  - path: ../platform/docker-compose.hdfs.yml
   - path: ../platform/docker-compose.hms.yml
 
 volumes:
