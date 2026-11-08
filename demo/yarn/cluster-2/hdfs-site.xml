@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- HDFS client settings of ResourceManager 2. The RM renews the HDFS delegation tokens of submitted
+     applications (Spark on YARN from demo/spark); without the NameNode principal the renewal fails with
+     "Failed to specify server's Kerberos principal name" and the RM rejects the application. -->
+<configuration>
+    <property>
+        <name>dfs.namenode.kerberos.principal</name>
+        <value>nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL</value>
+    </property>
+</configuration>

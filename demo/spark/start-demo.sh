@@ -12,18 +12,19 @@ echo "=========================================================="
 echo "[1/3] Сборка и запуск контейнеров в Docker Compose..."
 docker compose -f docker-compose.yaml up -d --build
 
-echo "[2/3] Ожидание готовности Apache Livy и HDFS..."
-MAX_WAIT=30
-WAIT_COUNT=0
-until curl -s "http://localhost:8998/version" >/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do
-    WAIT_COUNT=$((WAIT_COUNT + 1))
-    echo " -> Ожидание доступности Livy REST API ($WAIT_COUNT/$MAX_WAIT)..."
-    sleep 2
+echo "[2/3] Ожидание готовности Apache Livy (кластеры 1 и 2)..."
+for LIVY_PORT in 8998 8999; do
+    MAX_WAIT=60
+    WAIT_COUNT=0
+    until curl -s "http://localhost:${LIVY_PORT}/version" >/dev/null || [ $WAIT_COUNT -ge $MAX_WAIT ]; do
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        echo " -> Ожидание Livy REST API на порту ${LIVY_PORT} ($WAIT_COUNT/$MAX_WAIT)..."
+        sleep 2
+    done
+    if curl -s "http://localhost:${LIVY_PORT}/version" >/dev/null; then
+        echo " -> Apache Livy на порту ${LIVY_PORT} готов (сессии запускаются в YARN cluster mode)"
+    fi
 done
-
-if curl -s "http://localhost:8998/version" >/dev/null; then
-    echo " -> Apache Livy готов к приему сессий Spark!"
-fi
 
 echo "[3/3] Проверка готовности Spark Explorer..."
 MAX_WAIT=20
@@ -48,8 +49,8 @@ echo "Соседние сервисы платформы:"
 echo " • YARN Explorer:      http://localhost:8001"
 echo " • HDFS Explorer:      http://localhost:8002"
 echo " • SQL Explorer:       http://localhost:8003"
-echo " • Apache Livy API:    http://localhost:8998"
-echo " • YARN ResourceMgr:   http://localhost:8088"
+echo " • Apache Livy API:    http://localhost:8998 (кластер 1), http://localhost:8999 (кластер 2)"
+echo " • YARN ResourceMgr:   http://localhost:8088 (кластер 1), http://localhost:8089 (кластер 2)"
 echo " • HDFS NameNode UI:   http://localhost:9870"
 echo ""
 echo "Тестовые пользователи:"

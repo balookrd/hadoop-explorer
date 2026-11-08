@@ -18,7 +18,12 @@ services:
     hostname: spark-livy
     restart: unless-stopped
     environment:
-      SPARK_MASTER: "local[*]" # Для быстрого интерактивного отклика контейнеров demo
+      # Sessions run in YARN (RM yarn-rm-1, NodeManager spark-yarn-nm-1): the driver gets HDFS and
+      # Hive Metastore delegation tokens for proxyUser and runs outside the Livy host
+      SPARK_MASTER: "yarn"
+      SPARK_DEPLOY_MODE: "cluster"
+      YARN_RM_HOST: "yarn-rm-1.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
       HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL"
       HIVE_SERVER_PRINCIPAL: "hive/hive-server@COMPANY.LOCAL"
@@ -40,7 +45,38 @@ services:
         condition: service_started
       yarn-demo-rm-1:
         condition: service_started
+      spark-yarn-nm-1:
+        condition: service_started
       sql-hive-metastore:
+        condition: service_started
+
+  # ==========================================
+  # 1a. YARN NodeManager, cluster 1 (driver and executor containers of Livy sessions)
+  # ==========================================
+  spark-yarn-nm-1:
+    build:
+      context: ./yarn-nm
+    container_name: spark-yarn-nm-1
+    hostname: spark-yarn-nm-1
+    restart: unless-stopped
+    environment:
+      YARN_RM_HOST: "yarn-rm-1.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+      NM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+      NM_KEYTAB: "/root/shared-keytabs/yarn-cluster-1.keytab"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL"
+    volumes:
+      - ./yarn-nm/entrypoint.sh:/entrypoint.sh:ro
+      - demo-shared-krb5:/shared/conf:ro
+      # Under /root (700): YARN container processes running as users cannot read the keytabs
+      - demo-shared-keytabs:/root/shared-keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-yarn-nm-1
+    depends_on:
+      yarn-demo-rm-1:
         condition: service_started
 
   # ==========================================
@@ -53,7 +89,10 @@ services:
     hostname: spark-livy-2
     restart: unless-stopped
     environment:
-      SPARK_MASTER: "local[*]"
+      SPARK_MASTER: "yarn"
+      SPARK_DEPLOY_MODE: "cluster"
+      YARN_RM_HOST: "yarn-rm-2.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
       LIVY_PORT: "8999"
       HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
       HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL"
@@ -73,7 +112,39 @@ services:
     depends_on:
       hdfs-cluster-2:
         condition: service_started
+      yarn-demo-rm-2:
+        condition: service_started
+      spark-yarn-nm-2:
+        condition: service_started
       sql-hive-metastore-2:
+        condition: service_started
+
+  # ==========================================
+  # 1c. YARN NodeManager, cluster 2
+  # ==========================================
+  spark-yarn-nm-2:
+    build:
+      context: ./yarn-nm
+    container_name: spark-yarn-nm-2
+    hostname: spark-yarn-nm-2
+    restart: unless-stopped
+    environment:
+      YARN_RM_HOST: "yarn-rm-2.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+      NM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+      NM_KEYTAB: "/root/shared-keytabs/yarn-cluster-2.keytab"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL"
+    volumes:
+      - ./yarn-nm/entrypoint.sh:/entrypoint.sh:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/root/shared-keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-yarn-nm-2
+    depends_on:
+      yarn-demo-rm-2:
         condition: service_started
 
   # ==========================================

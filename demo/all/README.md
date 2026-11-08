@@ -21,6 +21,8 @@
 | `trino-coordinator` | Trino Coordinator с Hive/TPCH коннекторами | `8080` | `8080` |
 | `spark-livy-1` | Apache Livy Server 1 REST API для Spark (Cluster 1) | `8998` | `8998` |
 | `spark-livy-2` | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
+| `spark-yarn-nm-1` | YARN NodeManager для сессий Livy 1 (RM `yarn-rm-1`) | `45454`, `8042` | — |
+| `spark-yarn-nm-2` | YARN NodeManager для сессий Livy 2 (RM `yarn-rm-2`) | `45454`, `8042` | — |
 | `orchestrator` | Replicator Orchestrator и веб-интерфейс (Control Plane) | `8005`, `50050` | `8005`, `50050` |
 | `agent-dc1` | Replicator gRPC Data Worker (DC1 Sender/Receiver) | `50051` | `50051` |
 | `agent-dc2` | Replicator gRPC Data Worker (DC2 Sender/Receiver) | `50051` | `50052` |
@@ -32,6 +34,10 @@
 | `spark-explorer` | Spark Explorer (UI и бэкенд) | `8004` | `8004` |
 
 ---
+
+## Требования к памяти Docker
+
+На Docker Desktop с 11,67 ГБ памяти (6 CPU, arm64) стенд в простое занимает около 10,3 ГБ по `docker stats`, из них около 0,6 ГБ — NodeManager'ы `spark-yarn-nm-1` и `spark-yarn-nm-2`. Каждая сессия Spark профиля `small` добавляет JVM драйвера и executor'а в контейнере NodeManager (около 1,4 ГБ). При нехватке памяти OOM-killer ядра VM Docker убивает процессы контейнеров: `trino-coordinator` и `yarn-rm-1` перезапускаются (`RestartCount` в `docker inspect`), сессии Livy уходят в `dead`. Проверка: `docker run --rm --privileged alpine:3.20 dmesg | grep "Killed process"`. На 11,67 ГБ это происходило еще до запуска первой сессии Spark. Для `demo/all` выделите Docker не меньше 16 ГБ [проверить: минимальный объем, при котором стенд с сессией Spark работает без OOM]; для проверки одного сервиса используйте его стенд (`demo/spark`, `demo/sql` и т. д.).
 
 ## Запуск стенда
 
@@ -48,7 +54,7 @@ cd demo/all && ./start-all-demo.sh
 2. Поднимает инфраструктурные контейнеры (`kdc`, `ldap`).
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
-5. Инициализирует демо-таблицы в Hive Metastore (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`) через Livy.
+5. Инициализирует демо-таблицы в Hive Metastore: `demo/sql/hive/init-demo-data.sh` через HiveServer2 (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`), затем `demo/spark/init-demo-tables.sh` через Livy в YARN создает отсутствующие `customers`, `transactions` (кластер 1) и `quarterly_reports` (кластер 2).
 6. Запускает 5 веб-сервисов Hadoop Explorer Platform, включая Replicator Orchestrator и агенты.
 
 ### Веб-интерфейсы
@@ -117,10 +123,10 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 
 ### Spark Explorer (`:8004`)
 - Войдите как `engineer` (`password123`).
-- Создайте интерактивную сессию PySpark в очереди `root.etl`.
+- Создайте интерактивную сессию PySpark в очереди `root.prod.spark`. Сессия запускается в YARN cluster mode и переходит в `idle` через 30–90 секунд (подробности — `demo/spark/README.md`, раздел «Запуск сессий в YARN»).
 - Выполните код:
   ```python
   df = spark.table("customers")
-  df.groupBy("country").count().show()
+  df.groupBy("city").count().show()
   ```
 - Переключитесь на вкладку Spark SQL и выполните запрос. Результаты PySpark и Spark SQL хранятся в отдельных буферах: запуск одного движка не затирает вывод другого.

@@ -22,6 +22,10 @@ echo "=== Инициализация демонстрационных табли
 "$ROOT_DIR/demo/sql/hive/init-demo-data.sh" || true
 
 echo ""
+echo "=== Инициализация демо-таблиц Spark через Livy в YARN (создает только отсутствующие) ==="
+"$ROOT_DIR/demo/spark/init-demo-tables.sh" || true
+
+echo ""
 echo "=== Ожидание готовности Hadoop Replicator Orchestrator ==="
 REPL_WAIT=0
 until curl -sf http://localhost:8005/health >/dev/null || curl -sf http://localhost:8005/actuator/health >/dev/null || [ $REPL_WAIT -ge 15 ]; do

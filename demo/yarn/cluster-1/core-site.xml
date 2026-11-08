@@ -37,6 +37,16 @@
         <name>hadoop.proxyuser.yarn.groups</name>
         <value>*</value>
     </property>
+    <!-- Livy of demo/spark logs in as hive/hive-server and submits Spark applications to YARN
+         on behalf of the session user (livy.impersonation.enabled=true, spark-submit proxy-user) -->
+    <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+    </property>
     <property>
         <name>hadoop.proxyuser.HTTP.hosts</name>
         <value>*</value>

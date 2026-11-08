@@ -29,6 +29,7 @@ services:
       - ../yarn/cluster-1/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ../yarn/cluster-1/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
       - ../yarn/cluster-1/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
+      - ../yarn/cluster-1/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
       - ../yarn/hadoop-common/entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/entrypoint.sh"]
     depends_on:
@@ -57,6 +58,7 @@ services:
       - ../yarn/cluster-2/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ../yarn/cluster-2/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
       - ../yarn/cluster-2/capacity-scheduler.xml:/opt/hadoop/etc/hadoop/capacity-scheduler.xml:ro
+      - ../yarn/cluster-2/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
       - ../yarn/hadoop-common/entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/entrypoint.sh"]
     depends_on:

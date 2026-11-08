@@ -79,11 +79,13 @@ spark:
         auth: "none"          # SPNEGO needs HTTP/spark-livy principals in demo/infra/kdc (not provisioned)
         proxy-user: true
         session-start-timeout-seconds: 180
+      # Queues of demo/yarn/cluster-1/capacity-scheduler.xml. In root.prod.spark (user-limit-factor 2)
+      # a user gets enough resources for the driver and executor of the small profile
       yarn-queues:
+        - "root.prod.spark"
+        - "root.dev"
         - "root.default"
-        - "root.analytics"
-        - "root.engineering"
-      default-queue: "root.analytics"
+      default-queue: "root.prod.spark"
       spark-versions:
         - id: "spark-3.5.1"
           name: "Apache Spark 3.5.1"
@@ -118,10 +120,11 @@ spark:
         auth: "none"          # SPNEGO needs HTTP/spark-livy principals in demo/infra/kdc (not provisioned)
         proxy-user: true
         session-start-timeout-seconds: 180
+      # Queues of demo/yarn/cluster-2/capacity-scheduler.xml
       yarn-queues:
-        - "root.default"
-        - "root.archive"
-      default-queue: "root.default"
+        - "root.batch"
+        - "root.interactive"
+      default-queue: "root.batch"
       spark-versions:
         - id: "spark-3.5.1"
           name: "Apache Spark 3.5.1"
