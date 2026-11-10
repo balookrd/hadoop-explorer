@@ -63,6 +63,17 @@ public record CreateJobRequest(
         if (syncDeletes == null) syncDeletes = false;
     }
 
+    /**
+     * Copy with another execution identity; every other field, including {@code syncMode} and
+     * {@code syncDeletes}, is kept. The REST controller pins the identity this way: listing the
+     * fields by hand there dropped the ones added later.
+     */
+    public CreateJobRequest withExecution(String principal, boolean asServiceAccount) {
+        return new CreateJobRequest(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes,
+                principal, asServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType,
+                parentJobId, syncMode, syncDeletes);
+    }
+
     /** Совместимость с вызовами без флага репликации удалений. */
     public CreateJobRequest(
         String sourcePath, String targetPath, String sourceClusterId, String targetClusterId,

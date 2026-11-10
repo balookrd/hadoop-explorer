@@ -196,6 +196,20 @@ class DataTransferChrootSandboxSecurityTest {
     }
 
     @Test
+    @DisplayName("Удаление уже отсутствующего пути — успех: повтор задачи удаления не должен падать")
+    void testDeleteOfAbsentPathIsIdempotent() {
+        DeletePathResponse response = blockingStub.deletePath(DeletePathRequest.newBuilder()
+                .setJobId("job-del-twice")
+                .setPath(sandboxRoot + "/data/already_gone.parquet")
+                .setRecursive(true)
+                .setExecutionPrincipal("hdfs@CORP.LOCAL")
+                .setRunAsServiceAccount(true)
+                .build());
+
+        assertTrue(response.getSuccess(), "Пути нет — цель удаления достигнута: " + response.getMessage());
+    }
+
+    @Test
     @DisplayName("Chroot Sandbox: Удаление путей за пределами песочницы отклоняется")
     void testDeletePathOutsideSandboxBlocked() {
         DeletePathResponse response = blockingStub.deletePath(DeletePathRequest.newBuilder()

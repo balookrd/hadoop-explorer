@@ -460,4 +460,61 @@ class InotifyProcessingTest {
         assertEquals("DELETE", task.getTaskType());
         assertEquals("hdfs://hdfs-cluster-2:9000/warehouse/ino31.db/sales/dt=1", task.getTargetPath());
     }
+
+    @Test
+    @DisplayName("Rename внутри каталога задания: новый путь переносится, старый удаляется на приемнике")
+    void renameInsideJobDirectoryDeletesOldPath() throws IOException {
+        String oldFile = streamingJob.getSourcePath() + "/dt=2026-10-10/part-00000.parquet";
+        String newFile = streamingJob.getSourcePath() + "/dt=2026-10-11/part-00000.parquet";
+        Path newPath = new Path(newFile);
+        when(fileSystem.exists(newPath)).thenReturn(true);
+        FileStatus status = mock(FileStatus.class);
+        when(status.isDirectory()).thenReturn(false);
+        when(status.getLen()).thenReturn(4096L);
+        when(fileSystem.getFileStatus(newPath)).thenReturn(status);
+
+        int count = processor.processEvent(new Event.RenameEvent.Builder()
+                .srcPath(oldFile).dstPath(newFile).timestamp(400L).build(), 400L, 0L, List.of(streamingJob));
+        processor.flush();
+
+        assertEquals(2, count);
+        ArgumentCaptor<BatchCreateTasksRequest> captor = ArgumentCaptor.forClass(BatchCreateTasksRequest.class);
+        verify(orchestratorClient).batchCreateTasks(captor.capture());
+        var tasks = captor.getValue().getTasks();
+        assertTrue(tasks.stream().anyMatch(t -> newFile.equals(t.getSourcePath()) && !"DELETE".equals(t.getTaskType())),
+                "новый путь должен уйти на приемник");
+        assertTrue(tasks.stream().anyMatch(t -> oldFile.equals(t.getSourcePath()) && "DELETE".equals(t.getTaskType())),
+                "старый путь остался бы на приемнике дублем данных");
+    }
+
+    @Test
+    @DisplayName("Rename внутри каталога без syncDeletes старый путь не трогает")
+    void renameInsideJobDirectoryKeepsOldPathWithoutSyncDeletes() throws IOException {
+        streamingJob.setSyncDeletes(false);
+        String oldFile = streamingJob.getSourcePath() + "/dt=2026-10-10/part-00000.parquet";
+        String newFile = streamingJob.getSourcePath() + "/dt=2026-10-11/part-00000.parquet";
+        Path newPath = new Path(newFile);
+        when(fileSystem.exists(newPath)).thenReturn(true);
+        FileStatus status = mock(FileStatus.class);
+        when(status.isDirectory()).thenReturn(false);
+        when(fileSystem.getFileStatus(newPath)).thenReturn(status);
+
+        int count = processor.processEvent(new Event.RenameEvent.Builder()
+                .srcPath(oldFile).dstPath(newFile).timestamp(400L).build(), 400L, 0L, List.of(streamingJob));
+
+        assertEquals(1, count);
+    }
+
+    @Test
+    @DisplayName("Сбой NameNode при разборе rename не теряет событие: пачку нужно перечитать")
+    void nameNodeFailureOnRenameIsRetryable() throws IOException {
+        String stagingFile = streamingJob.getSourcePath() + "/_temporary/part-00000.parquet";
+        String permanentFile = streamingJob.getSourcePath() + "/dt=2026-10-10/part-00000.parquet";
+        when(fileSystem.exists(new Path(permanentFile))).thenThrow(new IOException("NameNode в safe mode"));
+
+        assertThrows(InotifyBatchProcessor.InotifyRetryableException.class,
+                () -> processor.processEvent(new Event.RenameEvent.Builder()
+                        .srcPath(stagingFile).dstPath(permanentFile).timestamp(500L).build(),
+                        500L, 0L, List.of(streamingJob)));
+    }
 }

@@ -998,6 +998,68 @@ public class ReplicationSender implements AutoCloseable {
         }
     }
 
+    private DeletePathResponse deleteOnTarget(ManagedChannel channel, TaskItemDto task, String targetPath,
+                                              boolean recursive) {
+        return DataTransferServiceGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(60, java.util.concurrent.TimeUnit.SECONDS)
+                .deletePath(DeletePathRequest.newBuilder()
+                        .setJobId(task.getJobId() != null ? task.getJobId() : "")
+                        .setPath(targetPath)
+                        .setRecursive(recursive)
+                        .setExecutionPrincipal(task.getExecutionPrincipal() != null
+                                ? task.getExecutionPrincipal() : "")
+                        .setRunAsServiceAccount(Boolean.TRUE.equals(task.getRunAsServiceAccount()))
+                        .build());
+    }
+
+    /**
+     * Удаление по каталогу, который на источнике уже пересоздан: с приемника убираются только
+     * файлы, отсутствующие на источнике.
+     *
+     * <p>Список приемника читается раньше списка источника. Файл, попавший на приемник после
+     * чтения его списка, в кандидаты на удаление не входит, а файл из списка приемника, которого
+     * на источнике уже нет, удален на источнике. При обратном порядке файл, созданный и
+     * доставленный между двумя чтениями, был бы удален как лишний.
+     */
+    private boolean reconcileRecreatedDirectory(TaskItemDto task, ManagedChannel channel) throws IOException {
+        String principal = task.getExecutionPrincipal();
+        boolean asService = Boolean.TRUE.equals(task.getRunAsServiceAccount());
+        DirectoryManifestResponse targetManifest = DataTransferServiceGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(60, java.util.concurrent.TimeUnit.SECONDS)
+                .getDirectoryManifest(DirectoryManifestRequest.newBuilder()
+                        .setPath(task.getTargetPath())
+                        .setExecutionPrincipal(principal != null ? principal : "")
+                        .setRunAsServiceAccount(asService)
+                        .build());
+
+        java.util.Set<String> sourceFiles = new java.util.HashSet<>();
+        for (HadoopFsManager.FileItem item : fsManager.listFilesRecursively(task.getSourcePath(), principal, asService)) {
+            sourceFiles.add(item.relativePath());
+        }
+
+        int deleted = 0;
+        for (FileManifestEntry entry : targetManifest.getFilesList()) {
+            if (sourceFiles.contains(entry.getRelativePath())) {
+                continue;
+            }
+            String staleTargetPath = DataTransferServiceImpl.combinePaths(task.getTargetPath(), entry.getRelativePath());
+            DeletePathResponse response = deleteOnTarget(channel, task, staleTargetPath, false);
+            if (response == null || !response.getSuccess()) {
+                String reason = response != null ? response.getMessage() : "пустой ответ приемника";
+                logger.error("[Worker {}] Приемник не удалил файл '{}' по задаче {}: {}",
+                        workerId, staleTargetPath, task.getId(), reason);
+                orchestratorClient.failTask(new FailTaskRequest(task.getId(), workerId,
+                        "Удаление не выполнено: " + reason));
+                return false;
+            }
+            deleted++;
+        }
+        logger.info("[Worker {}] Задача удаления {}: каталог '{}' снова есть на источнике, на приемнике удалено {} файлов, которых на источнике нет",
+                workerId, task.getId(), task.getSourcePath(), deleted);
+        orchestratorClient.completeTask(new CompleteTaskRequest(task.getId(), workerId, 0L, null));
+        return true;
+    }
+
     private TaskCreateItem createBundleTaskItem(String baseSourcePath, String baseTargetPath,
                                                 List<HadoopFsManager.FileItem> bundleFiles, long totalBytes) {
         return diffEngine.createBundleTaskItem(baseSourcePath, baseTargetPath, bundleFiles, totalBytes);
@@ -1014,6 +1076,19 @@ public class ReplicationSender implements AutoCloseable {
      *
      * <p>Отказ приемника (защита системных путей, песочница, занятый путь) считается неуспехом:
      * иначе задача закрылась бы успешно, а путь остался бы на месте.
+     *
+     * <p>Задачи одного задания исполняются параллельно и без порядка, поэтому удаление может
+     * прийти позже, чем путь пересоздали на источнике (INSERT OVERWRITE, вынос каталога в
+     * {@code .Trash} и новая запись). Задача поэтому приводит приемник к текущему состоянию
+     * источника, а не воспроизводит событие:
+     * <ul>
+     *   <li>пути на источнике нет — путь на приемнике удаляется рекурсивно;</li>
+     *   <li>на источнике снова файл — на приемнике ничего не удаляется, содержимое перенесет
+     *       задача передачи этого файла;</li>
+     *   <li>на источнике снова каталог — на приемнике удаляются только файлы, которых в каталоге
+     *       источника нет.</li>
+     * </ul>
+     * Если состояние источника узнать не удалось, задача завершается ошибкой без удаления.
      */
     public boolean executeDeleteTask(TaskItemDto task) {
         String targetAddress = task.getTargetAddress();
@@ -1023,18 +1098,19 @@ public class ReplicationSender implements AutoCloseable {
         }
         try {
             ManagedChannel channel = getOrCreateChannel(targetAddress);
-            DeletePathResponse response = DataTransferServiceGrpc.newBlockingStub(channel)
-                    .withDeadlineAfter(60, java.util.concurrent.TimeUnit.SECONDS)
-                    .deletePath(DeletePathRequest.newBuilder()
-                            .setJobId(task.getJobId() != null ? task.getJobId() : "")
-                            .setPath(task.getTargetPath())
-                            // Удаляется файл или каталог партиции: рекурсивно, иначе непустой
-                            // каталог останется на приемнике
-                            .setRecursive(true)
-                            .setExecutionPrincipal(task.getExecutionPrincipal() != null
-                                    ? task.getExecutionPrincipal() : "")
-                            .setRunAsServiceAccount(Boolean.TRUE.equals(task.getRunAsServiceAccount()))
-                            .build());
+            String sourcePath = task.getSourcePath();
+            String principal = task.getExecutionPrincipal();
+            boolean asService = Boolean.TRUE.equals(task.getRunAsServiceAccount());
+            if (sourcePath != null && !sourcePath.isBlank() && fsManager.exists(sourcePath, principal, asService)) {
+                if (fsManager.isDirectory(sourcePath, principal, asService)) {
+                    return reconcileRecreatedDirectory(task, channel);
+                }
+                logger.info("[Worker {}] Задача удаления {} пропущена: файл '{}' снова есть на источнике",
+                        workerId, task.getId(), sourcePath);
+                orchestratorClient.completeTask(new CompleteTaskRequest(task.getId(), workerId, 0L, null));
+                return true;
+            }
+            DeletePathResponse response = deleteOnTarget(channel, task, task.getTargetPath(), true);
 
             if (response != null && response.getSuccess()) {
                 logger.info("[Worker {}] Удален путь на приемнике по задаче {}: '{}'",

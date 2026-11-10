@@ -82,7 +82,7 @@ class InotifyPauseResumeTest {
     @Test
     @DisplayName("Остановленный компаньон не переносит события, возобновленный сверяет файлы с паузы")
     void stoppedCompanionIsSkippedAndResumedOneReconcilesFilesSincePause() throws Exception {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(companion("STOPPED")));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(companion("STOPPED")));
         assertTrue(listener.getStreamingJobs().isEmpty(), "события остановленного компаньона переносились");
 
         long pausedAt = System.currentTimeMillis();
@@ -91,7 +91,7 @@ class InotifyPauseResumeTest {
                 file("hdfs://nn1:9000/warehouse/db.db/t/dt=1/old.parquet", pausedAt - 3_600_000L),
                 file("hdfs://nn1:9000/warehouse/db.db/t/dt=1/written-on-pause.parquet", pausedAt + 1_000L));
         when(fs.listFiles(any(Path.class), eq(true))).thenReturn(listing);
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
         Thread.sleep(5_100L); // кэш списка заданий
 
         assertEquals(1, listener.getStreamingJobs().size());
@@ -102,7 +102,7 @@ class InotifyPauseResumeTest {
     @Test
     @DisplayName("Новый компаньон (после bootstrap) каталог не сверяет: данные уже скопированы")
     void newCompanionDoesNotReconcile() throws Exception {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
 
         assertEquals(1, listener.getStreamingJobs().size());
         verify(fs, never()).listFiles(any(Path.class), anyBoolean());
@@ -111,7 +111,7 @@ class InotifyPauseResumeTest {
     @Test
     @DisplayName("Удаления на паузе переносятся после возобновления, кроме снова созданных путей")
     void deletesWhilePausedAreReplayedOnResume() throws Exception {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(companion("STOPPED")));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(companion("STOPPED")));
         assertTrue(listener.getStreamingJobs().isEmpty());
 
         String gone = "/warehouse/db.db/t/dt=1/old.parquet";
@@ -127,7 +127,7 @@ class InotifyPauseResumeTest {
         when(fs.exists(any(Path.class))).thenReturn(true);
         when(fs.exists(new Path(gone))).thenReturn(false);
         when(fs.listFiles(any(Path.class), eq(true))).thenReturn(files());
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(companion("STREAMING")));
         Thread.sleep(5_100L); // кэш списка заданий
 
         assertEquals(1, listener.getStreamingJobs().size());

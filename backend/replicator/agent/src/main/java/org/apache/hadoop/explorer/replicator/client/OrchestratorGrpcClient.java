@@ -465,23 +465,35 @@ public class OrchestratorGrpcClient implements Closeable {
      */
     public List<JobDto> getJobs(String status, boolean oldestFirst) {
         try {
-            var builder = GetJobsRequest.newBuilder().setIncludeSubjobs(true).setOldestFirst(oldestFirst);
-            if (status != null) {
-                builder.setStatus(status);
-            }
-            var protoReq = builder.build();
-            var resp = executeWithFailover("getJobs", s -> s.getJobs(protoReq));
-            if (resp == null) return Collections.emptyList();
-
-            List<JobDto> result = new ArrayList<>(resp.getJobsCount());
-            for (JobItemProto job : resp.getJobsList()) {
-                result.add(toJobDto(job));
-            }
-            return result;
+            return fetchJobs(status, oldestFirst);
         } catch (Exception e) {
             log.warn("Ошибка gRPC получения списка задач из Оркестратора: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Same as {@link #getJobs(String, boolean)}, but a gRPC failure is thrown instead of being
+     * turned into an empty list. For callers that must tell "no jobs" from "orchestrator did not
+     * answer": the inotify streamer advances the NameNode journal position on the former only.
+     *
+     * @throws io.grpc.StatusRuntimeException when no orchestrator endpoint answered
+     */
+    public List<JobDto> fetchJobs(String status, boolean oldestFirst) {
+        var builder = GetJobsRequest.newBuilder().setIncludeSubjobs(true).setOldestFirst(oldestFirst);
+        if (status != null) {
+            builder.setStatus(status);
+        }
+        var protoReq = builder.build();
+        var resp = executeWithFailover("getJobs", s -> s.getJobs(protoReq));
+        // null only from channel-less test clients (see executeWithFailover)
+        if (resp == null) return Collections.emptyList();
+
+        List<JobDto> result = new ArrayList<>(resp.getJobsCount());
+        for (JobItemProto job : resp.getJobsList()) {
+            result.add(toJobDto(job));
+        }
+        return result;
     }
 
     private static JobDto toJobDto(JobItemProto job) {

@@ -139,7 +139,7 @@ public class HdfsInotifyListener {
         long now = System.currentTimeMillis();
         if (now - lastJobsFetchTimeMs > JOBS_CACHE_TTL_MS || cachedStreamingJobs.isEmpty()) {
             try {
-                List<JobDto> streaming = orchestratorClient.getJobs("STREAMING", false).stream()
+                List<JobDto> streaming = orchestratorClient.fetchJobs("STREAMING", false).stream()
                         .filter(j -> "STREAMING_INOTIFY".equalsIgnoreCase(j.getSyncMode()) && matchesCluster(j.getSourceClusterId(), config.getClusterId()))
                         .toList();
                 cachedStreamingJobs = activeAfterPauseCheck(streaming, now);
@@ -546,8 +546,8 @@ public class HdfsInotifyListener {
 
                 // Сброс стрима на актуальный txid
                 stream = null;
-            } catch (InotifyBatchProcessor.InotifyQueueOverflowException e) {
-                log.warn("[Inotify Backpressure Peak] Зафиксировано пиковое переполнение очереди буфера: {}. Приостановка чтения EditLog на 2с...", e.getMessage());
+            } catch (InotifyBatchProcessor.InotifyRetryableException e) {
+                log.warn("[Inotify Retry] Пачка событий не обработана и будет перечитана: {}. Приостановка чтения EditLog на 2с...", e.getMessage());
                 if (batchProcessor != null) {
                     batchProcessor.flush();
                 }

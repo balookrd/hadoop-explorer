@@ -62,7 +62,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Обработанная пачка двигает позицию вперед")
     void processedBatchShouldAdvanceTxid() {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
 
         assertTrue(listener.processBatch(batch(4200L), 0L));
 
@@ -73,7 +73,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Оркестратор недоступен — позиция остается на месте")
     void unknownJobListShouldNotAdvanceTxid() {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenThrow(new RuntimeException("оркестратор недоступен"));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenThrow(new RuntimeException("оркестратор недоступен"));
 
         assertFalse(listener.processBatch(batch(4200L), 0L),
                 "Пока список задач неизвестен, события обрабатывать не с чем");
@@ -86,7 +86,7 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Переполнение очереди не двигает позицию")
     void queueOverflowShouldNotAdvanceTxid() {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of(streamingJob()));
         doThrow(new InotifyBatchProcessor.InotifyQueueOverflowException("очередь переполнена"))
                 .when(processor).processEvent(any(), anyLong(), anyLong(), anyList());
 
@@ -99,11 +99,47 @@ class InotifyTxidAdvanceTest {
     @Test
     @DisplayName("Потоковых задач нет — позиция двигается, перечитывать нечего")
     void emptyJobListShouldStillAdvanceTxid() {
-        when(orchestratorClient.getJobs("STREAMING", false)).thenReturn(List.of());
+        when(orchestratorClient.fetchJobs("STREAMING", false)).thenReturn(List.of());
 
         assertTrue(listener.processBatch(batch(4200L), 0L));
 
         assertEquals(4200L, listener.getCurrentTxid(),
                 "Список получен и пуст — события никому не нужны, и позиция должна двигаться");
+    }
+
+    @Test
+    @DisplayName("Сбой gRPC к оркестратору — позиция остается на месте")
+    void orchestratorGrpcFailureShouldNotAdvanceTxid() throws Exception {
+        // Реальный клиент, а не мок: он превращал сбой getJobs в пустой список, и стример
+        // принимал его за «потоковых задач нет»
+        String name = io.grpc.inprocess.InProcessServerBuilder.generateName();
+        io.grpc.Server server = io.grpc.inprocess.InProcessServerBuilder.forName(name).directExecutor()
+                .addService(new org.apache.hadoop.explorer.replicator.generated.control
+                        .OrchestratorControlPlaneServiceGrpc.OrchestratorControlPlaneServiceImplBase() {
+                    @Override
+                    public void getJobs(
+                            org.apache.hadoop.explorer.replicator.generated.control.GetJobsRequest request,
+                            io.grpc.stub.StreamObserver<org.apache.hadoop.explorer.replicator.generated.control.GetJobsResponse> responseObserver) {
+                        responseObserver.onError(io.grpc.Status.UNAVAILABLE.asRuntimeException());
+                    }
+                })
+                .build().start();
+        io.grpc.ManagedChannel channel = io.grpc.inprocess.InProcessChannelBuilder.forName(name).directExecutor().build();
+        try {
+            ReplicatorAgentConfig config = new ReplicatorAgentConfig();
+            config.setClusterId("dc1");
+            config.setAgentId("streamer-dc1-1");
+            HdfsInotifyListener realClientListener = new HdfsInotifyListener(config,
+                    new OrchestratorGrpcClient(channel, "test-secret-0123456789"),
+                    mock(HadoopFsManager.class), processor);
+
+            assertFalse(realClientListener.processBatch(batch(4200L), 0L));
+
+            assertEquals(0L, realClientListener.getCurrentTxid(),
+                    "Позиция не должна уезжать вперед: события придется перечитать");
+        } finally {
+            channel.shutdownNow();
+            server.shutdownNow();
+        }
     }
 }

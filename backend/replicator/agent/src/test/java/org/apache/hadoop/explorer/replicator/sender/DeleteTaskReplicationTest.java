@@ -37,6 +37,15 @@ class DeleteTaskReplicationTest {
 
     private final List<DeletePathRequest> deleteRequests = new CopyOnWriteArrayList<>();
 
+    /** Источник, каким его видит отправитель; по умолчанию удаленного пути на нем нет. */
+    private final HadoopFsManager fsManager = mock(HadoopFsManager.class);
+
+    /** Файлы каталога на приемнике; {@code null} — приемник не может отдать манифест. */
+    private List<String> targetFiles = List.of();
+
+    private static final String SOURCE_DIR = "/warehouse/sales/dt=2026-10-10";
+    private static final String TARGET_DIR = "/backup/warehouse/sales/dt=2026-10-10";
+
     @AfterEach
     void tearDown() throws InterruptedException {
         if (server != null) {
@@ -50,6 +59,19 @@ class DeleteTaskReplicationTest {
         server = InProcessServerBuilder.forName(name)
                 .directExecutor()
                 .addService(new DataTransferServiceGrpc.DataTransferServiceImplBase() {
+                    @Override
+                    public void getDirectoryManifest(DirectoryManifestRequest request,
+                                                     StreamObserver<DirectoryManifestResponse> responseObserver) {
+                        if (targetFiles == null) {
+                            responseObserver.onError(io.grpc.Status.UNAVAILABLE.asRuntimeException());
+                            return;
+                        }
+                        DirectoryManifestResponse.Builder manifest = DirectoryManifestResponse.newBuilder().setExists(true);
+                        targetFiles.forEach(f -> manifest.addFiles(FileManifestEntry.newBuilder().setRelativePath(f)));
+                        responseObserver.onNext(manifest.build());
+                        responseObserver.onCompleted();
+                    }
+
                     @Override
                     public void deletePath(DeletePathRequest request,
                                            StreamObserver<DeletePathResponse> responseObserver) {
@@ -68,7 +90,6 @@ class DeleteTaskReplicationTest {
     }
 
     private ReplicationSender senderFor(OrchestratorGrpcClient orchestrator) {
-        HadoopFsManager fsManager = mock(HadoopFsManager.class);
         return new ReplicationSender(
                 "worker-delete-1",
                 orchestrator,
@@ -127,5 +148,87 @@ class DeleteTaskReplicationTest {
                         && !captor.getValue().getErrorMessage().isBlank(),
                 "Причина отказа обязана попасть в отчет: иначе оператор не узнает, что путь остался");
         verify(orchestrator, never()).completeTask(any(CompleteTaskRequest.class));
+    }
+
+    private static TaskItemDto deleteDirectoryTask(String targetAddress) {
+        TaskItemDto task = deleteTask(targetAddress);
+        task.setSourcePath(SOURCE_DIR);
+        task.setTargetPath(TARGET_DIR);
+        return task;
+    }
+
+    private static HadoopFsManager.FileItem sourceFile(String relativePath) {
+        return new HadoopFsManager.FileItem(relativePath, SOURCE_DIR + "/" + relativePath, 1024L, 0L);
+    }
+
+    @Test
+    @DisplayName("Файл, пересозданный на источнике, запоздавшее удаление не стирает")
+    void testLateDeleteKeepsRecreatedFile() throws Exception {
+        String target = startReceiver(true);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        TaskItemDto task = deleteTask("inprocess:" + target);
+        when(fsManager.exists(eq(task.getSourcePath()), any(), anyBoolean())).thenReturn(true);
+        when(fsManager.isDirectory(eq(task.getSourcePath()), any(), anyBoolean())).thenReturn(false);
+
+        boolean result = senderFor(orchestrator).transferTask(task);
+
+        assertTrue(result);
+        assertTrue(deleteRequests.isEmpty(),
+                "Путь снова есть на источнике: его содержимое переносит задача передачи файла, а удаление стерло бы свежие данные");
+        verify(orchestrator).completeTask(any(CompleteTaskRequest.class));
+    }
+
+    @Test
+    @DisplayName("Каталог, пересозданный на источнике: удаляются только файлы, которых на источнике нет")
+    void testLateDeleteReconcilesRecreatedDirectory() throws Exception {
+        String target = startReceiver(true);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        when(fsManager.exists(eq(SOURCE_DIR), any(), anyBoolean())).thenReturn(true);
+        when(fsManager.isDirectory(eq(SOURCE_DIR), any(), anyBoolean())).thenReturn(true);
+        when(fsManager.listFilesRecursively(eq(SOURCE_DIR), any(), anyBoolean()))
+                .thenReturn(List.of(sourceFile("000000_0"), sourceFile("000001_0")));
+        targetFiles = List.of("000000_0", "old/000007_0");
+
+        boolean result = senderFor(orchestrator).transferTask(deleteDirectoryTask("inprocess:" + target));
+
+        assertTrue(result);
+        assertEquals(List.of(TARGET_DIR + "/old/000007_0"),
+                deleteRequests.stream().map(DeletePathRequest::getPath).toList(),
+                "Свежий файл 000000_0 остается, вытесненный перезаписью old/000007_0 удаляется");
+        assertFalse(deleteRequests.get(0).getRecursive(), "Удаляется отдельный файл, а не каталог");
+        verify(orchestrator).completeTask(any(CompleteTaskRequest.class));
+    }
+
+    @Test
+    @DisplayName("Состояние источника неизвестно — на приемнике ничего не удаляется")
+    void testUnknownSourceStateDeletesNothing() throws Exception {
+        String target = startReceiver(true);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        TaskItemDto task = deleteTask("inprocess:" + target);
+        when(fsManager.exists(eq(task.getSourcePath()), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("NameNode недоступен"));
+
+        boolean result = senderFor(orchestrator).transferTask(task);
+
+        assertFalse(result);
+        assertTrue(deleteRequests.isEmpty(), "«Не знаю» не равно «пути нет»");
+        verify(orchestrator).failTask(any(FailTaskRequest.class));
+        verify(orchestrator, never()).completeTask(any(CompleteTaskRequest.class));
+    }
+
+    @Test
+    @DisplayName("Приемник не отдал список файлов пересозданного каталога — задача не закрывается успехом")
+    void testReconcileWithoutTargetManifestFails() throws Exception {
+        String target = startReceiver(true);
+        OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+        when(fsManager.exists(eq(SOURCE_DIR), any(), anyBoolean())).thenReturn(true);
+        when(fsManager.isDirectory(eq(SOURCE_DIR), any(), anyBoolean())).thenReturn(true);
+        targetFiles = null;
+
+        boolean result = senderFor(orchestrator).transferTask(deleteDirectoryTask("inprocess:" + target));
+
+        assertFalse(result);
+        assertTrue(deleteRequests.isEmpty());
+        verify(orchestrator).failTask(any(FailTaskRequest.class));
     }
 }

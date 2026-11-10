@@ -980,6 +980,17 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 throw new SecurityException("Запрещено удаление системного или корневого каталога: " + path);
             }
             fsManager.validateSandboxAccess(path);
+            // Удаление идемпотентно: задача удаления повторяется после сбоя и может прийти для
+            // пути, который на приемник не попадал. Сбой проверки существования — исключение, не «пути нет»
+            if (!fsManager.exists(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount())) {
+                responseObserver.onNext(DeletePathResponse.newBuilder()
+                        .setJobId(request.getJobId())
+                        .setSuccess(true)
+                        .setMessage("Путь уже отсутствует")
+                        .build());
+                responseObserver.onCompleted();
+                return;
+            }
             boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
             responseObserver.onNext(DeletePathResponse.newBuilder()
                     .setJobId(request.getJobId())

@@ -43,7 +43,21 @@ public class InotifyBatchProcessor implements AutoCloseable {
             long lag
     ) {}
 
-    public static class InotifyQueueOverflowException extends RuntimeException {
+    /**
+     * The event was not handled and must be read again: the journal position stays where it is
+     * and the stream is reopened from it.
+     */
+    public static class InotifyRetryableException extends RuntimeException {
+        public InotifyRetryableException(String message) {
+            super(message);
+        }
+
+        public InotifyRetryableException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    public static class InotifyQueueOverflowException extends InotifyRetryableException {
         public InotifyQueueOverflowException(String message) {
             super(message);
         }
@@ -153,6 +167,10 @@ public class InotifyBatchProcessor implements AutoCloseable {
                         log.info("[Inotify Rename] Переименование пути в постоянном каталоге: '{}' -> '{}' (txid {})", src, dst, txid);
                         int count = handleStagingCommit(job, dst, txid, lag);
                         totalQueued += count;
+                        // Старый путь внутри каталога задания остался бы на приемнике дублем данных
+                        if (InotifyPathFilter.matchesJobPrefix(src, srcPrefix)) {
+                            totalQueued += deleteIfAllowed(job, src, txid, lag);
+                        }
                     }
                 }
             } else if (event instanceof Event.UnlinkEvent unlinkEvent) {
@@ -260,9 +278,10 @@ public class InotifyBatchProcessor implements AutoCloseable {
                 return enqueueFile(job, dstPath, status.getLen(), txid, lag);
             }
         } catch (IOException e) {
-            log.error("[Inotify Commit Error] Ошибка проверки пути '{}': {}", dstPath, e.getMessage(), e);
+            // «Не знаю» не равно «пути нет»: без повтора файлы этого rename не попали бы на приемник
+            throw new InotifyRetryableException(
+                    "Не удалось прочитать путь '" + dstPath + "' после rename: " + e.getMessage(), e);
         }
-        return 0;
     }
 
     public int enqueueFile(JobDto job, String filePath, long fileSize, long txid, long lag) {

@@ -96,20 +96,7 @@ public class JobController {
         if (executionPrincipal != null && !executionPrincipal.contains("@")) {
             executionPrincipal = executionPrincipal + "@REALM.LOCAL";
         }
-        req = new CreateJobRequest(
-            req.sourcePath(),
-            req.targetPath(),
-            req.sourceClusterId(),
-            req.targetClusterId(),
-            req.totalBytes(),
-            executionPrincipal,
-            session.isAdmin() && req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false,
-            req.isScheduled(),
-            req.cronExpression(),
-            req.historyRetentionRuns(),
-            req.jobType(),
-            req.parentJobId()
-        );
+        req = req.withExecution(executionPrincipal, session.isAdmin() && req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false);
 
         JobResponse created = jobService.createJob(req, username);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -219,40 +206,14 @@ public class JobController {
             var existing = jobService.getJobEntity(jobId);
             String existingPrincipal = existing.map(org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity::getExecutionPrincipal).orElse(session.username() + "@REALM.LOCAL");
             boolean safeRunAsSa = existing.map(org.apache.hadoop.explorer.replicator.orchestrator.entity.JobEntity::isRunAsServiceAccount).orElse(false);
-            req = new CreateJobRequest(
-                req.sourcePath(),
-                req.targetPath(),
-                req.sourceClusterId(),
-                req.targetClusterId(),
-                req.totalBytes(),
-                existingPrincipal,
-                safeRunAsSa,
-                req.isScheduled(),
-                req.cronExpression(),
-                req.historyRetentionRuns(),
-                req.jobType(),
-                req.parentJobId()
-            );
+            req = req.withExecution(existingPrincipal, safeRunAsSa);
         } else if (req.executionPrincipal() != null && !req.executionPrincipal().isBlank()) {
             String ep = req.executionPrincipal().trim();
             if (!ep.contains("@")) {
                 ep = ep + "@REALM.LOCAL";
             }
             boolean runAsSa = session != null && session.isAdmin() && req.runAsServiceAccount() != null ? req.runAsServiceAccount() : false;
-            req = new CreateJobRequest(
-                req.sourcePath(),
-                req.targetPath(),
-                req.sourceClusterId(),
-                req.targetClusterId(),
-                req.totalBytes(),
-                ep,
-                runAsSa,
-                req.isScheduled(),
-                req.cronExpression(),
-                req.historyRetentionRuns(),
-                req.jobType(),
-                req.parentJobId()
-            );
+            req = req.withExecution(ep, runAsSa);
         }
         return jobService.updateJob(jobId, req)
             .map(ResponseEntity::ok)
