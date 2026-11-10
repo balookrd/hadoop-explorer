@@ -49,8 +49,8 @@ class WireCompressionDataTransferTest {
         }
 
         @Override
-        public double requestNetworkTokens(org.apache.hadoop.explorer.replicator.model.TokenRequest req) {
-            return 0.0;
+        public OrchestratorGrpcClient.TokenGrant requestTokenGrant(org.apache.hadoop.explorer.replicator.model.TokenRequest req) {
+            return OrchestratorGrpcClient.TokenGrant.immediate();
         }
     }
 

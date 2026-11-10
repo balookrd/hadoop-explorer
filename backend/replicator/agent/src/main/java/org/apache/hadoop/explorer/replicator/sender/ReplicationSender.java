@@ -82,6 +82,13 @@ public class ReplicationSender implements AutoCloseable {
     public static final long DEFAULT_MIN_TOKEN_BATCH_BYTES = 2 * 1024 * 1024L; // 2 MB на батч
     public static final long DEFAULT_MAX_TOKEN_BATCH_BYTES = 16 * 1024 * 1024L; // 16 MB на батч
     public static final long DEFAULT_TOKEN_BATCH_BYTES = DEFAULT_MIN_TOKEN_BATCH_BYTES; // Обратная совместимость
+    /** Backoff between token requests while no orchestrator endpoint answers. */
+    static final long TOKEN_RETRY_INITIAL_DELAY_MS = 200L;
+    static final long TOKEN_RETRY_MAX_DELAY_MS = 5_000L;
+    /** Upper bound of the pause before asking again about a closed link, seconds. */
+    static final double BLOCKED_RECHECK_MAX_SECONDS = 5.0;
+    /** One warning per this many consecutive refused attempts. */
+    private static final int TOKEN_RETRY_LOG_EVERY = 20;
 
     private static final ConcurrentHashMap<String, DynamicRouteInfo> SHARED_ROUTE_INFOS = new ConcurrentHashMap<>();
 
@@ -783,6 +790,8 @@ public class ReplicationSender implements AutoCloseable {
         long safeMax = maxBatchBytes >= safeMin ? maxBatchBytes : Math.max(safeMin, DEFAULT_MAX_TOKEN_BATCH_BYTES);
         DynamicRouteInfo routeInfo = routeInfos.computeIfAbsent(routeKey, k -> new DynamicRouteInfo(safeMin));
 
+        long retryDelayMs = TOKEN_RETRY_INITIAL_DELAY_MS;
+        int failedAttempts = 0;
         while (true) {
             long current = lease.get();
             if (current >= wireBytes) {
@@ -792,9 +801,34 @@ public class ReplicationSender implements AutoCloseable {
             } else {
                 long currentBatch = routeInfo.getCurrentBatchSize();
                 long requestBytes = Math.max(wireBytes, currentBatch);
-                double waitSec = orchestratorClient.requestNetworkTokens(
-                        new TokenRequest(workerId, requestBytes, sourceClusterId, targetClusterId)
-                );
+                OrchestratorGrpcClient.TokenGrant grant;
+                try {
+                    grant = orchestratorClient.requestTokenGrant(
+                            new TokenRequest(workerId, requestBytes, sourceClusterId, targetClusterId));
+                } catch (RuntimeException e) {
+                    // Fail closed: no answer from the orchestrator is not permission to send
+                    routeInfo.throttleReset(safeMin);
+                    if (failedAttempts++ % TOKEN_RETRY_LOG_EVERY == 0) {
+                        logger.warn("Оркестратор не выдал токены полосы для маршрута '{}' ({}): передача приостановлена, повтор через {} мс",
+                                routeKey, e.getMessage(), retryDelayMs);
+                    }
+                    sleepHoldingTransfer(retryDelayMs, routeKey);
+                    retryDelayMs = Math.min(retryDelayMs * 2, TOKEN_RETRY_MAX_DELAY_MS);
+                    continue;
+                }
+                if (grant.blocked()) {
+                    // Link closed (limit 0, Kill-Switch fencing): tokens leased earlier are void too
+                    lease.set(0);
+                    routeInfo.throttleReset(safeMin);
+                    long recheckMs = (long) (Math.max(0.05, Math.min(grant.waitSeconds(), BLOCKED_RECHECK_MAX_SECONDS)) * 1000);
+                    if (failedAttempts++ % TOKEN_RETRY_LOG_EVERY == 0) {
+                        logger.warn("Канал '{}' перекрыт оркестратором: передача приостановлена, повторный запрос через {} мс",
+                                routeKey, recheckMs);
+                    }
+                    sleepHoldingTransfer(recheckMs, routeKey);
+                    continue;
+                }
+                double waitSec = grant.waitSeconds();
                 if (waitSec > 0.05) {
                     // Троттлинг со стороны оркестратора: канал перегружен.
                     // Немедленно сбрасываем размер лизинга к минимуму (AIMD backoff)
@@ -818,6 +852,20 @@ public class ReplicationSender implements AutoCloseable {
                 }
                 return;
             }
+        }
+    }
+
+    /**
+     * Waits without releasing the transfer. An interrupt aborts the transfer with an exception:
+     * returning would let the caller send the chunk it holds without tokens.
+     */
+    private static void sleepHoldingTransfer(long millis, String routeKey) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while waiting for bandwidth tokens for route '" + routeKey + "'", e);
         }
     }
 

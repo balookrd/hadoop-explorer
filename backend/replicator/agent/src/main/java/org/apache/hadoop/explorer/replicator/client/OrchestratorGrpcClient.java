@@ -420,21 +420,34 @@ public class OrchestratorGrpcClient implements Closeable {
     }
 
     /**
-     * Запрос квоты сетевой полосы (Hierarchical Token Bucket).
+     * Bandwidth token request (Hierarchical Token Bucket).
+     *
+     * <p>A gRPC failure is thrown to the caller, not turned into a grant: with the orchestrator
+     * down a zero wait would let the agent send over the WAN without the central limit.
+     *
+     * @throws io.grpc.StatusRuntimeException when no orchestrator endpoint answered
      */
-    public double requestNetworkTokens(org.apache.hadoop.explorer.replicator.model.TokenRequest request) {
-        try {
-            var protoReq = org.apache.hadoop.explorer.replicator.generated.control.TokenRequest.newBuilder()
-                    .setRequestedBytes(request.getRequestedBytes())
-                    .setSourceClusterId(request.getSourceClusterId() != null ? request.getSourceClusterId() : "")
-                    .setTargetClusterId(request.getTargetClusterId() != null ? request.getTargetClusterId() : "")
-                    .build();
+    public TokenGrant requestTokenGrant(org.apache.hadoop.explorer.replicator.model.TokenRequest request) {
+        var protoReq = org.apache.hadoop.explorer.replicator.generated.control.TokenRequest.newBuilder()
+                .setRequestedBytes(request.getRequestedBytes())
+                .setSourceClusterId(request.getSourceClusterId() != null ? request.getSourceClusterId() : "")
+                .setTargetClusterId(request.getTargetClusterId() != null ? request.getTargetClusterId() : "")
+                .build();
 
-            var resp = executeWithFailover("requestTokens", s -> s.requestTokens(protoReq));
-            return resp != null ? resp.getWaitSeconds() : 0.0;
-        } catch (Exception e) {
-            log.debug("Исключение при gRPC запросе квоты у Оркестратора: {}", e.getMessage());
-            return 0.0;
+        var resp = executeWithFailover("requestTokens", s -> s.requestTokens(protoReq));
+        // null only from channel-less test clients (see executeWithFailover)
+        return resp != null ? new TokenGrant(resp.getWaitSeconds(), resp.getBlocked()) : TokenGrant.immediate();
+    }
+
+    /**
+     * Orchestrator answer to a bandwidth token request.
+     *
+     * @param waitSeconds how long to wait before sending (or before asking again when blocked)
+     * @param blocked     the link is closed: nothing may be sent, ask again after the wait
+     */
+    public record TokenGrant(double waitSeconds, boolean blocked) {
+        public static TokenGrant immediate() {
+            return new TokenGrant(0.0, false);
         }
     }
 

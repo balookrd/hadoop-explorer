@@ -56,7 +56,7 @@ class ReplicationSenderOptimizationTest {
     @DisplayName("P1: acquireNetworkTokens пакетирует запросы порциями (Hierarchical Token Bucket batching)")
     void testTokenBatchLeaseAcquisition() {
         OrchestratorGrpcClient orchestratorClient = mock(OrchestratorGrpcClient.class);
-        when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.0);
+        when(orchestratorClient.requestTokenGrant(any(TokenRequest.class))).thenReturn(OrchestratorGrpcClient.TokenGrant.immediate());
 
         ConcurrentHashMap<String, AtomicLong> leaseMap = new ConcurrentHashMap<>();
 
@@ -70,7 +70,7 @@ class ReplicationSenderOptimizationTest {
                 "dc2"
         );
 
-        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(1)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 2 * 1024 * 1024L
                         && "worker-1".equals(req.getWorkerId())
                         && "dc1".equals(req.getSourceClusterId())
@@ -89,7 +89,7 @@ class ReplicationSenderOptimizationTest {
         }
 
         // Число вызовов оркестратора должно остаться равным 1
-        verify(orchestratorClient, times(1)).requestNetworkTokens(any(TokenRequest.class));
+        verify(orchestratorClient, times(1)).requestTokenGrant(any(TokenRequest.class));
 
         // В пуле остатка должно остаться: 2MB - 11 * 64KB
         String routeKey = "dc1->dc2";
@@ -101,7 +101,7 @@ class ReplicationSenderOptimizationTest {
     @DisplayName("PERF-05: Адаптивный динамический лизинг токенов (AIMD эскалация до maxBatchBytes и сброс при троттлинге)")
     void testDynamicTokenLeaseEscalationAndThrottlingReset() {
         OrchestratorGrpcClient orchestratorClient = mock(OrchestratorGrpcClient.class);
-        when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.0);
+        when(orchestratorClient.requestTokenGrant(any(TokenRequest.class))).thenReturn(OrchestratorGrpcClient.TokenGrant.immediate());
 
         ConcurrentHashMap<String, AtomicLong> leaseMap = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, ReplicationSender.DynamicRouteInfo> routeInfos = new ConcurrentHashMap<>();
@@ -114,7 +114,7 @@ class ReplicationSenderOptimizationTest {
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", minBatch, "clusterA", "clusterB", minBatch, maxBatch
         );
-        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(1)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 2 * 1024 * 1024L
         ));
         assertEquals(2 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
@@ -123,7 +123,7 @@ class ReplicationSenderOptimizationTest {
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", minBatch, "clusterA", "clusterB", minBatch, maxBatch
         );
-        verify(orchestratorClient, times(2)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(2)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 2 * 1024 * 1024L
         ));
         assertEquals(4 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
@@ -132,7 +132,7 @@ class ReplicationSenderOptimizationTest {
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", 4 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
         );
-        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(1)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 4 * 1024 * 1024L
         ));
         assertEquals(8 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
@@ -141,7 +141,7 @@ class ReplicationSenderOptimizationTest {
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", 8 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
         );
-        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(1)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 8 * 1024 * 1024L
         ));
         assertEquals(16 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
@@ -150,13 +150,13 @@ class ReplicationSenderOptimizationTest {
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", 16 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
         );
-        verify(orchestratorClient, times(1)).requestNetworkTokens(argThat(req ->
+        verify(orchestratorClient, times(1)).requestTokenGrant(argThat(req ->
                 req.getRequestedBytes() == 16 * 1024 * 1024L
         ));
         assertEquals(16 * 1024 * 1024L, routeInfos.get(routeKey).getCurrentBatchSize());
 
         // 6. Шестой запрос: оркестратор сигнализирует о троттлинге (waitSec > 0.05)
-        when(orchestratorClient.requestNetworkTokens(any(TokenRequest.class))).thenReturn(0.06);
+        when(orchestratorClient.requestTokenGrant(any(TokenRequest.class))).thenReturn(new OrchestratorGrpcClient.TokenGrant(0.06, false));
         ReplicationSender.acquireNetworkTokens(
                 leaseMap, routeInfos, orchestratorClient, "w1", 16 * 1024 * 1024L, "clusterA", "clusterB", minBatch, maxBatch
         );

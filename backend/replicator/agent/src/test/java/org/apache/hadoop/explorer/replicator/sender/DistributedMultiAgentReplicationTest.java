@@ -315,8 +315,8 @@ class DistributedMultiAgentReplicationTest {
         }
 
         @Override
-        public double requestNetworkTokens(TokenRequest request) {
-            return 0.0;
+        public OrchestratorGrpcClient.TokenGrant requestTokenGrant(TokenRequest request) {
+            return OrchestratorGrpcClient.TokenGrant.immediate();
         }
 
         @Override

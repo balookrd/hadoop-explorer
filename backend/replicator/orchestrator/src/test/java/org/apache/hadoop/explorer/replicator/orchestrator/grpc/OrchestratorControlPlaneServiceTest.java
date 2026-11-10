@@ -170,7 +170,7 @@ public class OrchestratorControlPlaneServiceTest {
     @Test
     @DisplayName("gRPC: Запрос токенов полосы пропускания (Hierarchical Token Bucket)")
     void testRequestTokens() {
-        when(throttler.requestTokens(1048576L, "dc1", "dc2")).thenReturn(0.0);
+        when(throttler.acquireTokens(1048576L, "dc1", "dc2")).thenReturn(new TokenBucketThrottler.TokenDecision(0.0, false));
 
         TokenRequest req = TokenRequest.newBuilder()
                 .setRequestedBytes(1048576L)

@@ -260,15 +260,16 @@ public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlan
     @Override
     public void requestTokens(TokenRequest request, StreamObserver<TokenResponse> responseObserver) {
         try {
-            double waitSec = throttler.requestTokens(
+            TokenBucketThrottler.TokenDecision decision = throttler.acquireTokens(
                     request.getRequestedBytes(),
                     request.getSourceClusterId(),
                     request.getTargetClusterId()
             );
 
             TokenResponse resp = TokenResponse.newBuilder()
-                    .setWaitSeconds(waitSec)
-                    .setGranted(waitSec <= 0.0)
+                    .setWaitSeconds(decision.waitSeconds())
+                    .setGranted(!decision.blocked() && decision.waitSeconds() <= 0.0)
+                    .setBlocked(decision.blocked())
                     .build();
 
             responseObserver.onNext(resp);

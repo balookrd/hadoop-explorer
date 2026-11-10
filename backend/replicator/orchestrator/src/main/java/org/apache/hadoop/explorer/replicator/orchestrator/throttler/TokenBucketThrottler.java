@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -280,6 +282,18 @@ public class TokenBucketThrottler {
         return globalBucket.getConfiguredLimitBytesPerSec();
     }
 
+    /**
+     * Throttler answer to a token request.
+     *
+     * @param waitSeconds how long the caller waits before sending (or before asking again when blocked)
+     * @param blocked     a bucket on the path has limit 0: nothing was charged and nothing may be sent
+     */
+    public record TokenDecision(double waitSeconds, boolean blocked) {}
+
+    public TokenDecision acquireTokens(long requestedBytes, String srcCluster, String dstCluster) {
+        return acquireTokens(requestedBytes, srcCluster, dstCluster, TrafficClass.HDFS);
+    }
+
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster) {
         return requestTokens(requestedBytes, srcCluster, dstCluster, TrafficClass.HDFS);
     }
@@ -296,6 +310,9 @@ public class TokenBucketThrottler {
      *   <li>HDFS cluster-pair bucket ({@code hdfs:src->dst}) when a pair limit is configured.</li>
      * </ol>
      * Every bucket on the path is charged; the returned wait is the maximum over them, in seconds.
+     * If any bucket on the path has limit 0 the link is closed: nothing is charged and the answer
+     * is {@code blocked} with {@link #BLOCKED_WAIT_SECONDS}. Agents ask again while the link is
+     * closed, so charging the other buckets would leave a debt to pay off after the fence is lifted.
      *
      * <p>Only HDFS reaches this method in production: the gRPC {@code RequestTokens} call
      * ({@code OrchestratorControlPlaneServiceImpl}) uses the three-argument overload, and
@@ -305,13 +322,18 @@ public class TokenBucketThrottler {
      * from 40% of an explicitly configured link limit when the request leaves it empty.
      */
     public double requestTokens(long requestedBytes, String srcCluster, String dstCluster, TrafficClass trafficClass) {
+        return acquireTokens(requestedBytes, srcCluster, dstCluster, trafficClass).waitSeconds();
+    }
+
+    public TokenDecision acquireTokens(long requestedBytes, String srcCluster, String dstCluster, TrafficClass trafficClass) {
         if (requestedBytes <= 0) {
-            return 0.0;
+            return new TokenDecision(0.0, false);
         }
 
         TrafficClass effectiveClass = trafficClass != null ? trafficClass : TrafficClass.HDFS;
         long nowNanos = System.nanoTime();
-        double waitGlobal = globalBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+        List<SingleBucket> path = new ArrayList<>(4);
+        path.add(globalBucket);
 
         String dcKey = null;
         String srcDc = null;
@@ -333,49 +355,57 @@ public class TokenBucketThrottler {
             dcKey = srcDc + "->" + dstDc;
         }
 
-        double waitDc = 0.0;
-        double waitClass = 0.0;
         if (dcKey != null && srcDc != null && dstDc != null && topology.getDcLimit(srcDc, dstDc).isPresent()) {
             long limit = topology.getDcLimit(srcDc, dstDc).get();
             SingleBucket dcBucket = dcBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc:" + k, limit, 1.0, activeNodeCount));
             dcBucket.updateLimit(limit);
             // Link bucket charged for every traffic class passed in; over gRPC that is HDFS only
-            waitDc = dcBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+            path.add(dcBucket);
 
             // Traffic class caps; unused share is not lent to the other class
             if (effectiveClass == TrafficClass.KAFKA) {
                 long kafkaFloorLimit = (long) (limit * 0.40); // hard cap: 40% of the link for Kafka
                 SingleBucket kafkaBucket = dcKafkaBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-kafka:" + k, kafkaFloorLimit, 1.0, activeNodeCount));
                 kafkaBucket.updateLimit(kafkaFloorLimit);
-                waitClass = kafkaBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+                path.add(kafkaBucket);
             } else {
                 long hdfsFloorLimit = (long) (limit * 0.60); // hard cap: 60% of the link for HDFS
                 SingleBucket hdfsBucket = dcHdfsBuckets.computeIfAbsent(dcKey, k -> new SingleBucket("dc-hdfs:" + k, hdfsFloorLimit, 1.0, activeNodeCount));
                 hdfsBucket.updateLimit(hdfsFloorLimit);
-                waitClass = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+                path.add(hdfsBucket);
             }
         }
 
-        double waitHdfsCluster = 0.0;
         if (effectiveClass == TrafficClass.HDFS) {
             String hdfsKey = (srcCluster != null && dstCluster != null) ? srcCluster + "->" + dstCluster : null;
             if (hdfsKey != null && topology.getHdfsLimit(srcCluster, dstCluster).isPresent()) {
                 long limit = topology.getHdfsLimit(srcCluster, dstCluster).get();
                 SingleBucket hdfsBucket = hdfsBuckets.computeIfAbsent(hdfsKey, k -> new SingleBucket("hdfs:" + k, limit, 1.0, activeNodeCount));
                 hdfsBucket.updateLimit(limit);
-                waitHdfsCluster = hdfsBucket.calculateWaitAndConsume(requestedBytes, nowNanos);
+                path.add(hdfsBucket);
             }
         }
 
-        // Общая задержка: максимум по иерархии (Global, DC общий, Class и Cluster)
-        double maxWait = Math.max(waitGlobal, Math.max(waitDc, Math.max(waitClass, waitHdfsCluster)));
+        for (SingleBucket bucket : path) {
+            if (bucket.getLimitBytesPerSec() == 0) {
+                log.debug("Throttler [{}] link closed by bucket '{}' (src={}, dst={})",
+                        effectiveClass, bucket.getName(), srcCluster, dstCluster);
+                return new TokenDecision(BLOCKED_WAIT_SECONDS, true);
+            }
+        }
+
+        // Total wait: maximum over the hierarchy (global, DC link, traffic class, cluster pair)
+        double maxWait = 0.0;
+        for (SingleBucket bucket : path) {
+            maxWait = Math.max(maxWait, bucket.calculateWaitAndConsume(requestedBytes, nowNanos));
+        }
 
         if (maxWait > 0.05) {
             log.debug("Throttler [{}] requested {} bytes (src={}, dst={}): wait {} s",
                 effectiveClass, requestedBytes, srcCluster, dstCluster, Math.round(maxWait * 1000.0) / 1000.0);
         }
 
-        return maxWait;
+        return new TokenDecision(maxWait, false);
     }
 
     public void setGlobalLimit(long bytesPerSec) {

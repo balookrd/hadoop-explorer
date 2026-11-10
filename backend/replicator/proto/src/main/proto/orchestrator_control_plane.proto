@@ -158,6 +158,9 @@ message TokenRequest {
 message TokenResponse {
   double wait_seconds = 1;
   bool granted = 2;
+  // The link is closed (limit 0, Kill-Switch fencing): no tokens were charged, the agent must
+  // not send after waiting and has to ask again.
+  bool blocked = 3;
 }
 
 // -------------------------------------------------------------

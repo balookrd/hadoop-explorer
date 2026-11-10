@@ -47,8 +47,8 @@ public class ReplicatorHighConcurrencyStressTest {
         final List<FailTaskRequest> failedTasks = new CopyOnWriteArrayList<>();
 
         @Override
-        public double requestNetworkTokens(TokenRequest req) {
-            return 0.0;
+        public OrchestratorGrpcClient.TokenGrant requestTokenGrant(TokenRequest req) {
+            return OrchestratorGrpcClient.TokenGrant.immediate();
         }
 
         @Override

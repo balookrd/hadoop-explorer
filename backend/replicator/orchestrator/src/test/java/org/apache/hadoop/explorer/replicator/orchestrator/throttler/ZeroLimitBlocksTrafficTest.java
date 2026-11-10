@@ -77,4 +77,47 @@ class ZeroLimitBlocksTrafficTest {
         assertTrue(throttler.requestTokens(64 * 1024, "dc1", "dc2") < BLOCKING_WAIT_SECONDS,
                 "После снятия ограждения канал должен снова пропускать трафик");
     }
+
+    @Test
+    @DisplayName("Перекрытый канал отвечает признаком blocked")
+    void testZeroLimitIsReportedAsBlocked() {
+        topologyRegistry.setDcLimit("dc1", "dc2", 0L);
+
+        assertTrue(throttler.acquireTokens(64 * 1024, "dc1", "dc2").blocked(),
+                "Агент отличает запрет от обычного ожидания только по этому признаку");
+    }
+
+    @Test
+    @DisplayName("Положительный лимит не отвечает признаком blocked")
+    void testPositiveLimitIsNotReportedAsBlocked() {
+        topologyRegistry.setDcLimit("dc1", "dc2", 10L * 1024 * 1024);
+
+        assertFalse(throttler.acquireTokens(64 * 1024, "dc1", "dc2").blocked());
+    }
+
+    @Test
+    @DisplayName("Нулевой глобальный лимит отвечает признаком blocked")
+    void testZeroGlobalLimitIsReportedAsBlocked() {
+        throttler.setGlobalLimit(0L);
+
+        assertTrue(throttler.acquireTokens(64 * 1024, "dc1", "dc2").blocked());
+    }
+
+    @Test
+    @DisplayName("Запросы в перекрытый канал не списывают токены с остальных уровней")
+    void testBlockedRequestsChargeNothing() {
+        topologyRegistry.setDcLimit("dc1", "dc2", 0L);
+        // Агенты переспрашивают, пока канал перекрыт: 10 запросов по половине глобальной корзины
+        for (int i = 0; i < 10; i++) {
+            throttler.acquireTokens(50L * 1024 * 1024, "dc1", "dc2");
+        }
+
+        topologyRegistry.setDcLimit("dc1", "dc2", 1024L * 1024 * 1024);
+
+        // Корзины канала после разблокировки пусты, поэтому ожидание не строго нулевое: 64 КБ при
+        // 600 МБ/с — доли миллисекунды. Долг в глобальной корзине дал бы секунды.
+        double wait = throttler.acquireTokens(64 * 1024, "dc1", "dc2").waitSeconds();
+        assertTrue(wait < 0.05,
+                "После снятия ограждения трафик не должен ждать погашения долга, набранного отказами: " + wait + " с");
+    }
 }

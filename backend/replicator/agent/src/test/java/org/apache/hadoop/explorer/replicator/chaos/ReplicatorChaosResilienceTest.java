@@ -52,9 +52,9 @@ public class ReplicatorChaosResilienceTest {
         }
 
         @Override
-        public double requestNetworkTokens(TokenRequest req) {
+        public OrchestratorGrpcClient.TokenGrant requestTokenGrant(TokenRequest req) {
             tokenRequestCount.incrementAndGet();
-            return 0.0;
+            return OrchestratorGrpcClient.TokenGrant.immediate();
         }
 
         @Override
