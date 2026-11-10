@@ -403,6 +403,200 @@ public class HadoopFsManager {
     public record FileItem(String relativePath, String fullPath, long size, long modificationTime) {
     }
 
+    /**
+     * File attributes carried from the source to the target.
+     *
+     * @param mode             POSIX permission bits, 0 = not known
+     * @param modificationTime mtime in ms since epoch, 0 = not known
+     * @param owner            owner name, null or empty = not known
+     * @param group            group name, null or empty = not known
+     * @param replication      HDFS replication factor, 0 = not known (local file, erasure-coded file)
+     * @param aclEntries       extended ACL entries in aclSpec form ("user:alice:r-x"), empty = none
+     * @param xattrs           extended attributes of the user.* namespace
+     */
+    public record FileAttributes(int mode, long modificationTime, String owner, String group,
+                                 int replication, List<String> aclEntries, java.util.Map<String, byte[]> xattrs) {
+        public FileAttributes {
+            aclEntries = aclEntries != null ? List.copyOf(aclEntries) : List.of();
+            xattrs = xattrs != null ? java.util.Map.copyOf(xattrs) : java.util.Map.of();
+        }
+
+        /** Attributes without replication factor, ACL and xattrs. */
+        public FileAttributes(int mode, long modificationTime, String owner, String group) {
+            this(mode, modificationTime, owner, group, 0, List.of(), java.util.Map.of());
+        }
+    }
+
+    /** Reads permissions, mtime, owner and group of a file. A failure is thrown, never read as "no attributes". */
+    public FileAttributes getAttributes(String pathStr, String executionPrincipal, boolean runAsServiceAccount) throws IOException {
+        validateSandboxAccess(pathStr);
+        if (isLocalPath(pathStr)) {
+            java.nio.file.Path file = localNioPath(pathStr);
+            java.nio.file.attribute.PosixFileAttributes attrs = java.nio.file.Files.readAttributes(
+                    file, java.nio.file.attribute.PosixFileAttributes.class);
+            int mode = 0;
+            for (java.nio.file.attribute.PosixFilePermission permission : attrs.permissions()) {
+                mode |= 1 << (8 - permission.ordinal());
+            }
+            return new FileAttributes(mode, attrs.lastModifiedTime().toMillis(),
+                    attrs.owner().getName(), attrs.group().getName());
+        }
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            return ugi.doAs((PrivilegedExceptionAction<FileAttributes>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                FileStatus status = fs.getFileStatus(path);
+                List<String> aclEntries = new ArrayList<>();
+                for (org.apache.hadoop.fs.permission.AclEntry entry
+                        : HadoopFsManager.<List<org.apache.hadoop.fs.permission.AclEntry>>optionalFeature(
+                                () -> fs.getAclStatus(path).getEntries(), List.of())) {
+                    aclEntries.add(entry.toStringStable());
+                }
+                java.util.Map<String, byte[]> xattrs = new java.util.HashMap<>();
+                HadoopFsManager.<java.util.Map<String, byte[]>>optionalFeature(
+                        () -> fs.getXAttrs(path), java.util.Map.of()).forEach((name, value) -> {
+                    if (name.startsWith(REPLICATED_XATTR_NAMESPACE)) {
+                        xattrs.put(name, value != null ? value : new byte[0]);
+                    }
+                });
+                // Erasure-coded files report replication 0: there is nothing to carry over
+                return new FileAttributes(status.getPermission().toShort(), status.getModificationTime(),
+                        status.getOwner(), status.getGroup(), status.getReplication(), aclEntries, xattrs);
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Прервано чтение атрибутов '" + pathStr + "'", e);
+        }
+    }
+
+    /**
+     * Applies source attributes to a file.
+     *
+     * <p>Permissions and mtime can be set by the owner of the file, so a failure there is an error.
+     * Changing the owner needs HDFS superuser rights, which the account that writes the file
+     * usually does not have: that failure is logged and the file keeps the writing account as owner.
+     *
+     * <p>Replication factor, ACL entries and user.* xattrs are applied on HDFS only and a failure
+     * is an error too: with ACLs or xattrs switched off on the target NameNode a file that has
+     * them on the source is not committed. A local file system ignores these three.
+     */
+    public void applyAttributes(String pathStr, FileAttributes attributes, String executionPrincipal,
+                                boolean runAsServiceAccount) throws IOException {
+        if (attributes == null) {
+            return;
+        }
+        validateSandboxAccess(pathStr);
+        if (isLocalPath(pathStr)) {
+            java.nio.file.Path file = localNioPath(pathStr);
+            if (attributes.mode() > 0) {
+                java.util.Set<java.nio.file.attribute.PosixFilePermission> permissions =
+                        java.util.EnumSet.noneOf(java.nio.file.attribute.PosixFilePermission.class);
+                for (java.nio.file.attribute.PosixFilePermission permission
+                        : java.nio.file.attribute.PosixFilePermission.values()) {
+                    if ((attributes.mode() & (1 << (8 - permission.ordinal()))) != 0) {
+                        permissions.add(permission);
+                    }
+                }
+                java.nio.file.Files.setPosixFilePermissions(file, permissions);
+            }
+            if (attributes.modificationTime() > 0) {
+                java.nio.file.Files.setLastModifiedTime(file,
+                        java.nio.file.attribute.FileTime.fromMillis(attributes.modificationTime()));
+            }
+            return;
+        }
+        try {
+            UserGroupInformation ugi = getEffectiveUgi(executionPrincipal, runAsServiceAccount);
+            ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+                Path path = new Path(pathStr);
+                FileSystem fs = path.getFileSystem(conf);
+                if (attributes.mode() > 0) {
+                    fs.setPermission(path, new org.apache.hadoop.fs.permission.FsPermission((short) attributes.mode()));
+                }
+                if (attributes.modificationTime() > 0) {
+                    fs.setTimes(path, attributes.modificationTime(), -1);
+                }
+                if (attributes.replication() > 0) {
+                    fs.setReplication(path, (short) attributes.replication());
+                }
+                if (!attributes.aclEntries().isEmpty()) {
+                    // setAcl takes the full logical ACL: the permission bits plus the extended entries
+                    org.apache.hadoop.fs.permission.FsPermission permission = attributes.mode() > 0
+                            ? new org.apache.hadoop.fs.permission.FsPermission((short) attributes.mode())
+                            : fs.getFileStatus(path).getPermission();
+                    fs.setAcl(path, org.apache.hadoop.fs.permission.AclUtil.getAclFromPermAndEntries(permission,
+                            org.apache.hadoop.fs.permission.AclEntry.parseAclSpec(
+                                    String.join(",", attributes.aclEntries()), true)));
+                }
+                for (java.util.Map.Entry<String, byte[]> xattr : attributes.xattrs().entrySet()) {
+                    fs.setXAttr(path, xattr.getKey(), xattr.getValue());
+                }
+                boolean hasOwner = attributes.owner() != null && !attributes.owner().isBlank();
+                boolean hasGroup = attributes.group() != null && !attributes.group().isBlank();
+                if (hasOwner || hasGroup) {
+                    FileStatus current = fs.getFileStatus(path);
+                    String owner = hasOwner && !attributes.owner().equals(current.getOwner()) ? attributes.owner() : null;
+                    String group = hasGroup && !attributes.group().equals(current.getGroup()) ? attributes.group() : null;
+                    if (owner != null || group != null) {
+                        try {
+                            fs.setOwner(path, owner, group);
+                        } catch (IOException e) {
+                            logger.warn("Владелец '{}:{}' не установлен для '{}', файл остается за '{}:{}': {}",
+                                    attributes.owner(), attributes.group(), pathStr,
+                                    current.getOwner(), current.getGroup(), e.getMessage());
+                        }
+                    }
+                }
+                return null;
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Прервано применение атрибутов к '" + pathStr + "'", e);
+        }
+    }
+
+    /**
+     * Path of {@code file} relative to the directory {@code base}; the bare file name if the file
+     * is not under it. Only the path components are compared: {@code listFiles} on HDFS returns
+     * fully qualified paths ({@code hdfs://nn:9000/...}), while the job directory usually has no scheme.
+     */
+    static String relativePath(Path base, Path file) {
+        String basePrefix = base.toUri().getPath().replaceAll("/+$", "") + "/";
+        String filePath = file.toUri().getPath();
+        return filePath.startsWith(basePrefix) ? filePath.substring(basePrefix.length()) : file.getName();
+    }
+
+    /** Only this xattr namespace is replicated: trusted, security, system and raw need superuser rights. */
+    public static final String REPLICATED_XATTR_NAMESPACE = "user.";
+
+    private interface FsCall<T> {
+        T call() throws IOException;
+    }
+
+    /**
+     * Reads an attribute kind that the file system or the cluster may not have (ACLs or xattrs
+     * switched off on the NameNode, a file system without them). "Not supported" gives the
+     * fallback; any other failure is thrown.
+     */
+    private static <T> T optionalFeature(FsCall<T> call, T fallback) throws IOException {
+        try {
+            return call.call();
+        } catch (UnsupportedOperationException e) {
+            return fallback;
+        } catch (IOException e) {
+            String message = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (message.contains("disabled") || message.contains("not supported") || message.contains("unsupported")) {
+                return fallback;
+            }
+            throw e;
+        }
+    }
+
+    private static java.nio.file.Path localNioPath(String pathStr) {
+        return pathStr.startsWith("file:") ? java.nio.file.Paths.get(java.net.URI.create(pathStr)) : java.nio.file.Paths.get(pathStr);
+    }
+
     public boolean isDirectory(String pathStr, String executionPrincipal, boolean runAsServiceAccount) {
         validateSandboxAccess(pathStr);
         if (isLocalPath(pathStr)) {
@@ -482,14 +676,11 @@ public class HadoopFsManager {
                     return items;
                 }
 
-                String basePrefix = basePath.toString().replaceAll("/+$", "") + "/";
                 RemoteIterator<LocatedFileStatus> iter = fs.listFiles(basePath, true);
                 while (iter.hasNext()) {
                     LocatedFileStatus st = iter.next();
                     String fullPath = st.getPath().toString();
-                    String relPath = fullPath.startsWith(basePrefix)
-                            ? fullPath.substring(basePrefix.length())
-                            : st.getPath().getName();
+                    String relPath = relativePath(basePath, st.getPath());
                     if (isIgnoredPath(relPath)) {
                         logger.debug("Пропуск временного файла при сканировании HDFS: {}", relPath);
                         continue;

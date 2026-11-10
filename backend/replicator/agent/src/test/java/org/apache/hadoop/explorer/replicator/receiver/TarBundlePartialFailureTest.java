@@ -235,10 +235,14 @@ public class TarBundlePartialFailureTest {
     }
 
     @Test
-    @DisplayName("Обрыв стрима не удаляет файлы бандла, уже закоммиченные на приемнике")
-    void testStreamErrorKeepsAlreadyCommittedFiles() throws Exception {
+    @DisplayName("Обрыв стрима: ни один файл бандла не коммитится, прежняя версия на приемнике цела")
+    void testStreamErrorCommitsNothingAndKeepsPreviousVersion() throws Exception {
         String baseTarget = new File(tempTargetDir, "warehouse").getAbsolutePath();
         String taskId = "task-partial-bundle-1";
+        // Прежняя версия файла уже лежит на приемнике: оборванный бандл не должен ее ни заменить, ни удалить
+        File previous = new File(baseTarget, "sales_part1.json");
+        Files.createDirectories(previous.getParentFile().toPath());
+        Files.writeString(previous.toPath(), "{\"id\":1,\"amount\":1}");
 
         StreamObserver<TarStreamRequest> requestObserver = service.transferTarStream(new StreamObserver<>() {
             @Override
@@ -274,21 +278,17 @@ public class TarBundlePartialFailureTest {
                         .build())
                 .build());
 
-        File committed1 = new File(baseTarget, "sales_part1.json");
-        File committed2 = new File(baseTarget, "sales_part2.json");
-        assertTrue(awaitFile(committed1, 5_000), "Первый файл бандла должен быть закоммичен приемником");
-        assertTrue(awaitFile(committed2, 5_000), "Второй файл бандла должен быть закоммичен приемником");
+        File staged2 = new File(baseTarget, "sales_part2.json._staging_job-partial-bundle");
+        assertTrue(awaitFile(staged2, 5_000), "Файл бандла должен быть записан в staging до конца потока");
 
         // Обрыв связи до прихода третьего файла
         requestObserver.onError(new IOException("gRPC transport error"));
         Thread.sleep(500);
 
-        assertTrue(committed1.isFile(),
-                "Закоммиченный файл sales_part1.json удален при откате — это потеря данных приемника");
-        assertTrue(committed2.isFile(),
-                "Закоммиченный файл sales_part2.json удален при откате — это потеря данных приемника");
-        assertEquals("{\"id\":1,\"amount\":100}", Files.readString(committed1.toPath()));
-        assertEquals("{\"id\":2,\"amount\":200}", Files.readString(committed2.toPath()));
+        assertEquals("{\"id\":1,\"amount\":1}", Files.readString(previous.toPath()),
+                "Прежняя версия файла заменена данными недоставленного бандла");
+        assertFalse(new File(baseTarget, "sales_part2.json").exists(),
+                "Файл оборванного бандла закоммичен: сверка с отправителем не выполнялась");
 
         File baseDir = new File(baseTarget);
         File[] leftovers = baseDir.listFiles((dir, name) -> name.contains("._staging_"));

@@ -538,14 +538,16 @@ public class HdfsInotifyListener {
                           "Запуск Reconciliation Scan для устранения расхождений...",
                         e.getExpectedTxid(), e.getActualTxid());
 
-                // Обновляем текущий txid до актуального NameNode txid, предотвращая зацикливание
-                this.currentTxid = Math.max(this.currentTxid, e.getActualTxid());
-
-                // Запуск Reconciliation Scan
-                runReconciliationScan();
-
-                // Сброс стрима на актуальный txid
+                boolean recovered = recoverFromJournalGap(e.getActualTxid());
                 stream = null;
+                if (!recovered) {
+                    try {
+                        Thread.sleep(GAP_RECOVERY_RETRY_DELAY_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
             } catch (InotifyBatchProcessor.InotifyRetryableException e) {
                 log.warn("[Inotify Retry] Пачка событий не обработана и будет перечитана: {}. Приостановка чтения EditLog на 2с...", e.getMessage());
                 if (batchProcessor != null) {
@@ -594,6 +596,52 @@ public class HdfsInotifyListener {
         return totalReconciled;
     }
 
+    static final long GAP_RECOVERY_RETRY_DELAY_MS = 5_000L;
+
+    /**
+     * Recovery after MissingEventsException: the NameNode dropped edits that were not read yet.
+     *
+     * <p>Every streaming job directory is re-scanned and its files are queued. With
+     * {@code syncDeletes} a DELETE task for the job root is queued as well: the root exists on the
+     * source, so the worker removes from the target only the files missing on the source, which
+     * covers deletions and renames lost in the gap.
+     *
+     * <p>The journal position moves to {@code actualTxid} only after every directory was scanned.
+     * On any failure it stays, the stream is reopened from the old position, the NameNode reports
+     * the gap again and the recovery is repeated.
+     *
+     * @return {@code true} if the position was advanced
+     */
+    boolean recoverFromJournalGap(long actualTxid) {
+        List<JobDto> jobs = getStreamingJobs();
+        if (streamingJobsUnknown) {
+            log.warn("[Inotify Gap Alert] Сверка после разрыва журнала отложена: список потоковых задач неизвестен");
+            return false;
+        }
+        long txid = Math.max(this.currentTxid, actualTxid);
+        try {
+            for (JobDto job : jobs) {
+                int queued = scanJobDirectory(job, Long.MIN_VALUE, txid);
+                boolean rootExists = fsManager.getFileSystem().exists(new Path(job.getSourcePath()));
+                if (rootExists && batchProcessor != null
+                        && InotifyBatchProcessor.deleteAllowed(job, job.getSourcePath())) {
+                    batchProcessor.enqueueDelete(job, job.getSourcePath(), txid, 0L);
+                }
+                log.info("[Inotify Reconciliation] Задача '{}': после разрыва журнала поставлено в очередь {} файлов",
+                        job.getId(), queued);
+            }
+            if (batchProcessor != null) {
+                batchProcessor.flush();
+            }
+        } catch (Exception e) {
+            log.error("[Inotify Gap Alert] Сверка после разрыва журнала не удалась, позиция (txid={}) не продвинута: {}",
+                    this.currentTxid, e.getMessage(), e);
+            return false;
+        }
+        this.currentTxid = txid;
+        return true;
+    }
+
     public int reconcileJobDirectory(JobDto job) {
         return reconcileJobDirectory(job, Long.MIN_VALUE);
     }
@@ -605,23 +653,7 @@ public class HdfsInotifyListener {
         }
         int count = 0;
         try {
-            FileSystem fs = fsManager.getFileSystem();
-            Path path = new Path(job.getSourcePath());
-            if (!fs.exists(path)) {
-                log.warn("[Inotify Reconciliation] Корневой каталог задачи '{}' не существует: {}", job.getId(), path);
-                return 0;
-            }
-
-            RemoteIterator<LocatedFileStatus> it = fs.listFiles(path, true);
-            while (it.hasNext()) {
-                LocatedFileStatus file = it.next();
-                String filePath = file.getPath().toUri().getPath();
-                if (file.getModificationTime() > modifiedAfterMs && !InotifyPathFilter.isStagedPath(filePath)) {
-                    if (batchProcessor != null) {
-                        count += batchProcessor.enqueueFile(job, filePath, file.getLen(), currentTxid, 0L);
-                    }
-                }
-            }
+            count = scanJobDirectory(job, modifiedAfterMs, currentTxid);
             if (batchProcessor != null && count > 0) {
                 batchProcessor.flush();
             }
@@ -630,6 +662,28 @@ public class HdfsInotifyListener {
         } catch (Exception e) {
             log.error("[Inotify Reconciliation] Ошибка обхода каталога '{}' для задачи '{}': {}",
                     job.getSourcePath(), job.getId(), e.getMessage(), e);
+        }
+        return count;
+    }
+
+    /** Queues the files of the job directory changed after {@code modifiedAfterMs}; errors are thrown. */
+    private int scanJobDirectory(JobDto job, long modifiedAfterMs, long txid) throws java.io.IOException {
+        FileSystem fs = fsManager.getFileSystem();
+        Path path = new Path(job.getSourcePath());
+        if (!fs.exists(path)) {
+            log.warn("[Inotify Reconciliation] Корневой каталог задачи '{}' не существует: {}", job.getId(), path);
+            return 0;
+        }
+        int count = 0;
+        RemoteIterator<LocatedFileStatus> it = fs.listFiles(path, true);
+        while (it.hasNext()) {
+            LocatedFileStatus file = it.next();
+            String filePath = file.getPath().toUri().getPath();
+            if (file.getModificationTime() > modifiedAfterMs && !InotifyPathFilter.isStagedPath(filePath)) {
+                if (batchProcessor != null) {
+                    count += batchProcessor.enqueueFile(job, filePath, file.getLen(), txid, 0L);
+                }
+            }
         }
         return count;
     }

@@ -61,6 +61,11 @@ public class TarStreamPipeline {
     private static final Logger logger = LoggerFactory.getLogger(TarStreamPipeline.class);
 
     private final ObjectMapper objectMapper;
+    private volatile boolean requireReceiverChecksum = false;
+
+    public void setRequireReceiverChecksum(boolean requireReceiverChecksum) {
+        this.requireReceiverChecksum = requireReceiverChecksum;
+    }
 
     public TarStreamPipeline(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
@@ -188,6 +193,8 @@ public class TarStreamPipeline {
                     readyCondition
             );
 
+            int filesSent = 0;
+            long entryBytesSent = 0;
             try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new BufferedOutputStream(chunkingOut, 32 * 1024))) {
                 tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
                 tarOut.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
@@ -205,7 +212,10 @@ public class TarStreamPipeline {
                     long declaredSize = entry.getSize();
                     TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getRelativePath());
                     tarEntry.setSize(declaredSize);
+                    addSourceAttributes(tarEntry, fsManager.getAttributes(entry.getSourcePath(), principal, asService));
                     tarOut.putArchiveEntry(tarEntry);
+                    filesSent++;
+                    entryBytesSent += declaredSize;
 
                     try (InputStream in = fsManager.openInputStream(entry.getSourcePath(), principal, asService)) {
                         long copied = copyExactly(in, tarOut, declaredSize);
@@ -224,9 +234,27 @@ public class TarStreamPipeline {
             }
 
             chunkingOut.flush();
+            String sentStreamChecksum = chunkingOut.streamChecksum();
+            // Trailer: the receiver renames the unpacked files out of staging only if its own
+            // digest of the stream and the number of entries match what was sent
+            requestObserver.onNext(TarStreamRequest.newBuilder().setChunk(TarStreamChunk.newBuilder()
+                    .setTaskId(taskId)
+                    .setOffset(chunkingOut.bytesSentToStream())
+                    .setIsLastChunk(true)
+                    .setStreamChecksum(sentStreamChecksum)
+                    .setFilesSent(filesSent)
+                    .setBytesSent(entryBytesSent)
+                    .build()).build());
             requestObserver.onCompleted();
 
             TarStreamResponse resp = responseFuture.get(120, TimeUnit.SECONDS);
+            String refusal = ReplicationSender.checksumRefusal(sentStreamChecksum, resp.getSuccess(),
+                    resp.getStreamChecksum(), requireReceiverChecksum);
+            if (refusal != null) {
+                logger.error("Воркер '{}': передача бандла '{}' не подтверждена: {}", workerId, taskId, refusal);
+                orchestratorClient.failTask(new FailTaskRequest(taskId, workerId, "Бандл не подтвержден: " + refusal));
+                return false;
+            }
             if (resp.getSuccess()) {
                 logger.info("Воркер '{}' успешно передал виртуальный TAR-стрим '{}': {} файлов ({} байт)",
                         workerId, taskId, resp.getFilesCommitted(), resp.getBytesWritten());
@@ -249,6 +277,44 @@ public class TarStreamPipeline {
         }
     }
 
+    /** PAX header names that carry the source file attributes inside the tar entry. */
+    public static final String PAX_MODE = "HDFS.mode";
+    public static final String PAX_MTIME_MS = "HDFS.mtime_ms";
+    public static final String PAX_OWNER = "HDFS.owner";
+    public static final String PAX_GROUP = "HDFS.group";
+    public static final String PAX_REPLICATION = "HDFS.replication";
+    /** Extended ACL entries joined with commas (aclSpec). */
+    public static final String PAX_ACL = "HDFS.acl";
+    /** Prefix of one header per xattr: the xattr name follows, the value is Base64. */
+    public static final String PAX_XATTR_PREFIX = "HDFS.xattr.";
+
+    /**
+     * Source attributes go into PAX headers, not the ustar fields: ustar keeps mtime in whole
+     * seconds, and a target file older than the source by the dropped milliseconds would be
+     * transferred again on every run.
+     */
+    private static void addSourceAttributes(TarArchiveEntry tarEntry, HadoopFsManager.FileAttributes attributes) {
+        if (attributes == null) {
+            return;
+        }
+        tarEntry.addPaxHeader(PAX_MODE, Integer.toString(attributes.mode()));
+        tarEntry.addPaxHeader(PAX_MTIME_MS, Long.toString(attributes.modificationTime()));
+        if (attributes.owner() != null && !attributes.owner().isBlank()) {
+            tarEntry.addPaxHeader(PAX_OWNER, attributes.owner());
+        }
+        if (attributes.group() != null && !attributes.group().isBlank()) {
+            tarEntry.addPaxHeader(PAX_GROUP, attributes.group());
+        }
+        if (attributes.replication() > 0) {
+            tarEntry.addPaxHeader(PAX_REPLICATION, Integer.toString(attributes.replication()));
+        }
+        if (!attributes.aclEntries().isEmpty()) {
+            tarEntry.addPaxHeader(PAX_ACL, String.join(",", attributes.aclEntries()));
+        }
+        attributes.xattrs().forEach((name, value) ->
+                tarEntry.addPaxHeader(PAX_XATTR_PREFIX + name, java.util.Base64.getEncoder().encodeToString(value)));
+    }
+
     /**
      * Потоковый адаптер OutputStream, упаковывающий байты архива в gRPC чанки по 64 КБ с шейпингом.
      */
@@ -267,6 +333,8 @@ public class TarStreamPipeline {
         private final byte[] buffer;
         private int count = 0;
         private long offset = 0;
+        /** SHA-256 of every uncompressed byte of the tar stream, in the order it is sent. */
+        private final java.security.MessageDigest streamDigest = newSha256();
         private final AtomicReference<ClientCallStreamObserver<TarStreamRequest>> clientObserverRef;
         private final CompletableFuture<?> responseFuture;
         private final ReentrantLock readyLock;
@@ -375,8 +443,26 @@ public class TarStreamPipeline {
             }
         }
 
+        /** Hex SHA-256 of the stream sent so far; call once, after the last {@link #flush()}. */
+        String streamChecksum() {
+            return java.util.HexFormat.of().formatHex(streamDigest.digest());
+        }
+
+        long bytesSentToStream() {
+            return offset;
+        }
+
+        private static java.security.MessageDigest newSha256() {
+            try {
+                return java.security.MessageDigest.getInstance("SHA-256");
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new IllegalStateException("SHA-256 is not available in this JVM", e);
+            }
+        }
+
         private void flushBuffer() throws IOException {
             if (count == 0) return;
+            streamDigest.update(buffer, 0, count);
 
             // Flow Control backpressure: ожидаем готовности сокета Netty без thread pinning на виртуальных потоках
             if (clientObserverRef != null && responseFuture != null && readyLock != null && readyCondition != null) {

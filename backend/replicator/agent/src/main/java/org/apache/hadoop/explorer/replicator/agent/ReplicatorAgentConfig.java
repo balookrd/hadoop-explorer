@@ -58,6 +58,11 @@ public class ReplicatorAgentConfig {
     private long stagingCleanupIntervalMinutes = 15;
     private long stagingTtlMinutes = 30;
     private boolean enforceTaskAttestation = true;
+    /**
+     * Refuse a transfer whose checksum the other side did not send or confirm. Switch off only
+     * while agents of a release without transfer checksums are still running.
+     */
+    private boolean requireChecksum = true;
     private org.apache.hadoop.explorer.replicator.generated.CompressionCodec wireCompressionCodec = org.apache.hadoop.explorer.replicator.generated.CompressionCodec.COMPRESSION_ZSTD;
     private int wireCompressionLevel = 3;
     private int inotifyQueueCapacity = 10000;
@@ -186,6 +191,7 @@ public class ReplicatorAgentConfig {
         config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
         config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
         config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("REPLICATOR_ENFORCE_TASK_ATTESTATION", "true"));
+        config.requireChecksum = Boolean.parseBoolean(getEnv("REPLICATOR_REQUIRE_CHECKSUM", "true"));
         config.localSandboxDir = getEnv("REPLICATOR_LOCAL_SANDBOX", getEnv("LOCAL_SANDBOX_DIR", null));
 
         String minBatch = getEnv("REPLICATOR_TOKEN_BATCH_MIN_BYTES", null);
@@ -376,6 +382,8 @@ public class ReplicatorAgentConfig {
     public void setTarPipeBufferBytes(int tarPipeBufferBytes) { this.tarPipeBufferBytes = tarPipeBufferBytes; }
 
     public boolean isEnforceTaskAttestation() { return enforceTaskAttestation; }
+    public boolean isRequireChecksum() { return requireChecksum; }
+    public void setRequireChecksum(boolean requireChecksum) { this.requireChecksum = requireChecksum; }
     public void setEnforceTaskAttestation(boolean enforceTaskAttestation) { this.enforceTaskAttestation = enforceTaskAttestation; }
 
     public String getLocalSandboxDir() { return localSandboxDir; }

@@ -464,6 +464,9 @@ public class TaskService {
         if ("COMPLETED".equalsIgnoreCase(task.getStatus())) {
             return true; // Идемпотентность
         }
+        if (!reportAccepted(task, req.getAgentId(), "завершение")) {
+            return false;
+        }
 
         task.setStatus("COMPLETED");
         task.setChecksum(req.getChecksum());
@@ -529,6 +532,9 @@ public class TaskService {
 
             if ("COMPLETED".equalsIgnoreCase(task.getStatus())) {
                 completedCount++; // Идемпотентность
+                continue;
+            }
+            if (!reportAccepted(task, req.getAgentId(), "завершение")) {
                 continue;
             }
 
@@ -615,9 +621,34 @@ public class TaskService {
         if ("FAILED".equalsIgnoreCase(task.getStatus()) || "COMPLETED".equalsIgnoreCase(task.getStatus())) {
             return true;
         }
+        if (!reportAccepted(task, req.getAgentId(), "сбой")) {
+            return false;
+        }
 
         String failedAgent = req.getAgentId() != null ? req.getAgentId() : task.getAssignedAgentId();
         return failoverTask(task, failedAgent, req.getErrorMessage());
+    }
+
+    /**
+     * Whether a completion or failure report may change the task.
+     *
+     * <p>Accepted only while the task is RUNNING and only from the agent it is assigned to. After
+     * a failover the previous agent can still report on its attempt: applying that would requeue
+     * or close a task another agent is transferring.
+     */
+    private boolean reportAccepted(TaskEntity task, String reportingAgentId, String report) {
+        if (!"RUNNING".equalsIgnoreCase(task.getStatus())) {
+            log.warn("Отчет «{}» по задаче '{}' от агента '{}' отклонен: задача в статусе {}, а не RUNNING",
+                    report, task.getId(), reportingAgentId, task.getStatus());
+            return false;
+        }
+        String assigned = task.getAssignedAgentId();
+        if (reportingAgentId != null && assigned != null && !assigned.equals(reportingAgentId)) {
+            log.warn("Отчет «{}» по задаче '{}' от агента '{}' отклонен: задача назначена агенту '{}'",
+                    report, task.getId(), reportingAgentId, assigned);
+            return false;
+        }
+        return true;
     }
 
     /**

@@ -147,6 +147,14 @@ public class OrchestratorChaosResilienceTest {
         assertEquals("COMPLETED", finalJob.getStatus(), "Задание должно перейти в статус COMPLETED");
     }
 
+    /** Сбой принимается только по задаче, которую агент исполняет: имитация взятия задачи в работу. */
+    private void markRunningOn(String taskId, String agentId) {
+        TaskEntity task = taskRepository.findById(taskId).orElseThrow();
+        task.setStatus("RUNNING");
+        task.setAssignedAgentId(agentId);
+        taskRepository.saveAndFlush(task);
+    }
+
     @Test
     @DisplayName("Chaos: Исчерпание лимита повторов (Circuit Breaker) корректно переводит задачу и задание в FAILED")
     void testMaxRetriesExceededTransitionsJobToFailed() {
@@ -180,6 +188,7 @@ public class OrchestratorChaosResilienceTest {
 
         // По умолчанию maxRetries = 3. Допустимо 3 повторных попытки (retryCount = 1, 2, 3)
         for (int i = 1; i <= 3; i++) {
+            markRunningOn("task-fatal-retry", worker);
             boolean failed = taskService.failTask(new FailTaskRequest("task-fatal-retry", worker, "Network timeout attempt " + i));
             assertTrue(failed);
             TaskEntity task = taskRepository.findById("task-fatal-retry").orElseThrow();
@@ -188,6 +197,7 @@ public class OrchestratorChaosResilienceTest {
         }
 
         // 4-я ошибка: лимит повторов (3) исчерпан -> перевод в FAILED
+        markRunningOn("task-fatal-retry", worker);
         boolean fatal = taskService.failTask(new FailTaskRequest("task-fatal-retry", worker, "Fatal permanent network partition"));
         assertTrue(fatal);
         TaskEntity task = taskRepository.findById("task-fatal-retry").orElseThrow();

@@ -1085,6 +1085,7 @@ sudo systemctl status replicator-agent
 | `-m, --mode` | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс: прием и передача), `sender` (только чтение и отправка), `receiver` (только прием и запись). |
 | `-p, --port` | `RECEIVER_PORT` | `50051` | Порт прослушивания входящих gRPC-соединений для приема данных. |
 | `-b, --bandwidth` | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` | Локальный Token Bucket лимит скорости репликации в МБ/с (`0.0` — без ограничений). |
+| — | `REPLICATOR_REQUIRE_CHECKSUM` | `true` | Отклонять передачу, если другая сторона не прислала или не подтвердила SHA-256: приемник не коммитит файл и бандл, отправитель завершает задачу ошибкой. `false` задают на время обновления, пока работают агенты выпуска без контрольных сумм. |
 | `-s, --staging-dir` | `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Локальная или HDFS директория временных файлов перед коммитом. |
 | — | `REPLICATOR_AGENT_SECRET` | `null` | Общий секретный токен для заголовка `X-Agent-Secret`. |
 | — | `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение TLS/mTLS для gRPC-соединений. |
@@ -1589,6 +1590,31 @@ kubectl create secret docker-registry ghcr-secret \
 
 ### 4.2 Манифесты Kubernetes (Raw Manifests)
 
+Манифесты поднимают оркестратор с профилем `prod` (PostgreSQL, TLS на gRPC) и агентов одного кластера Hadoop.
+До применения должны существовать: база PostgreSQL для оркестратора, сертификат сервера gRPC и keytab
+техучетки агента.
+
+Плейсхолдеры:
+
+| Плейсхолдер | Значение |
+|---|---|
+| `<jwt_secret>` | вывод `openssl rand -hex 32`; не короче 32 символов, одинаковый на всех экземплярах оркестратора |
+| `<agent_secret>` | вывод `openssl rand -hex 32`; не короче 16 символов, одинаковый у оркестратора и агентов |
+| `<metrics_scrape_token>` | вывод `openssl rand -hex 32`; этим токеном Prometheus читает `GET /metrics` |
+| `<postgres_host>`, `<postgres_user>`, `<postgres_password>` | адрес и учетная запись базы `replicator` |
+| `<ldap_url>`, `<ldap_manager_dn>`, `<ldap_manager_password>`, `<ldap_user_search_base>` | каталог LDAP для входа в веб-консоль |
+| `<cluster_id>` | идентификатор кластера из `hadoop.replicator.clusters` оркестратора |
+| `<hdfs_default_fs>` | `fs.defaultFS` кластера, например `hdfs://ns1` |
+| `<agent_principal>` | принципал Kerberos техучетки агента |
+
+Внимание: без `SPRING_PROFILES_ACTIVE=prod` оркестратор стартует на H2 в памяти и теряет все задания при
+рестарте пода. Активный профиль виден в логе старта: `The following 1 profile is active: "prod"`.
+
+Внимание: оркестратор принимает агентов только тех кластеров, которые объявлены в
+`hadoop.replicator.clusters`. В образе объявлены демонстрационные `dc1` и `dc2`. Свою топологию передайте
+файлом `application-prod.yml` через ConfigMap и `SPRING_CONFIG_ADDITIONAL_LOCATION`; агент кластера, которого
+нет в топологии, получает отказ при регистрации.
+
 #### 1. Namespace, Secret и ConfigMap
 ```yaml
 apiVersion: v1
@@ -1603,19 +1629,39 @@ metadata:
   namespace: hadoop-replicator
 type: Opaque
 stringData:
-  jwt-secret-key: "<jwt_secret>"   # вывод `openssl rand -hex 32`
+  jwt-secret-key: "<jwt_secret>"
+  agent-secret: "<agent_secret>"
+  metrics-scrape-token: "<metrics_scrape_token>"
+  postgres-user: "<postgres_user>"
+  postgres-password: "<postgres_password>"
+  ldap-manager-password: "<ldap_manager_password>"
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: replicator-config
+  name: replicator-agent-config
   namespace: hadoop-replicator
 data:
-  REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600"
-  ORCHESTRATOR_URL: "http://replicator-orchestrator:8005"
-  # Опциональный резервный адрес (fallback при отсутствии кластера в топологии):
-  FALLBACK_TARGET_ADDRESS: "replicator-agent:50051"
+  # Имя Service оркестратора и порт gRPC Control Plane
+  ORCHESTRATOR_GRPC_ADDRESS: "replicator-orchestrator:50050"
+  AGENT_CLUSTER_ID: "<cluster_id>"
+  HDFS_DEFAULT_FS: "<hdfs_default_fs>"
+  REPLICATOR_GRPC_TLS_ENABLED: "true"
+  REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH: "/etc/replicator/tls/ca.crt"
 ```
+
+Сертификат gRPC и keytab создайте из файлов:
+
+```bash
+kubectl -n hadoop-replicator create secret generic replicator-grpc-tls --from-file=tls.crt=server.crt --from-file=tls.key=server.key --from-file=ca.crt=ca.crt
+```
+
+```bash
+kubectl -n hadoop-replicator create secret generic replicator-agent-keytab --from-file=agent.keytab=agent.keytab
+```
+
+Сертификат сервера должен содержать в SAN имя `replicator-orchestrator`, иначе агент отклонит соединение
+при проверке имени узла.
 
 #### 2. Deployment и Service Оркестратора
 ```yaml
@@ -1625,7 +1671,7 @@ metadata:
   name: replicator-orchestrator
   namespace: hadoop-replicator
 spec:
-  replicas: 1 # При PostgreSQL можно масштабировать до 2+
+  replicas: 2
   selector:
     matchLabels:
       app: replicator-orchestrator
@@ -1640,36 +1686,78 @@ spec:
         - name: orchestrator
           image: ghcr.io/company/hadoop-explorer/replicator-orchestrator:1.0.0
           imagePullPolicy: IfNotPresent
-          envFrom:
-            - configMapRef:
-                name: replicator-config
           env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: POSTGRES_HOST
+              value: "<postgres_host>"
+            - name: POSTGRES_DB
+              value: "replicator"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: postgres-user}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: postgres-password}
             - name: JWT_SECRET_KEY
               valueFrom:
-                secretKeyRef:
-                  name: replicator-secrets
-                  key: jwt-secret-key
+                secretKeyRef: {name: replicator-secrets, key: jwt-secret-key}
+            - name: REPLICATOR_AGENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: agent-secret}
+            - name: REPLICATOR_METRICS_SCRAPE_TOKEN
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: metrics-scrape-token}
+            - name: HADOOP_AUTH_MODE
+              value: "ldap"
+            - name: LDAP_URL
+              value: "<ldap_url>"
+            - name: LDAP_MANAGER_DN
+              value: "<ldap_manager_dn>"
+            - name: LDAP_MANAGER_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: ldap-manager-password}
+            - name: LDAP_USER_SEARCH_BASE
+              value: "<ldap_user_search_base>"
+            - name: REPLICATOR_GRPC_CERT_CHAIN
+              value: "/etc/replicator/tls/tls.crt"
+            - name: REPLICATOR_GRPC_PRIVATE_KEY
+              value: "/etc/replicator/tls/tls.key"
+            # Агент не предъявляет клиентский сертификат: он аутентифицируется секретом
+            - name: REPLICATOR_GRPC_CLIENT_AUTH
+              value: "NONE"
           ports:
             - containerPort: 8005
+              name: http
+            - containerPort: 50050
+              name: grpc
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /etc/replicator/tls
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
               port: 8005
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /health
               port: 8005
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 10
           resources:
             requests:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "1536Mi"
             limits:
               cpu: "2"
               memory: "2Gi"
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: replicator-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -1683,17 +1771,36 @@ spec:
   ports:
     - port: 8005
       targetPort: 8005
+      name: http
+    - port: 50050
+      targetPort: 50050
+      name: grpc
 ```
 
-#### 3. Deployment и Service Replicator Agent (Full-Duplex)
+Образ запускает JVM с `-Xmx1024m` (`docker/Dockerfile.replicator-orchestrator`), поэтому запрос памяти ниже
+1,5 ГиБ приводит к OOMKilled под нагрузкой.
+
+Внимание: не останавливайте все экземпляры оркестратора одновременно дольше 45 с. После такого простоя
+оркестратор считает агентов недоступными и возвращает их задачи `RUNNING` в очередь с увеличением
+`retry_count`; после трех таких рестартов задачи переходят в `FAILED`. Обновляйте экземпляры по одному
+(`strategy.type: RollingUpdate`, значение по умолчанию). HDFS-передачи на время недоступности оркестратора
+приостанавливаются: агент не отправляет данные без токенов полосы.
+
+#### 3. StatefulSet и Service Replicator Agent (Full-Duplex)
+
+Агент развертывается как StatefulSet: имя пода (`replicator-agent-0`) не меняется при рестарте и служит
+`AGENT_ID`. С Deployment каждый рестарт пода регистрирует нового агента, строки прежних в таблице агентов
+оркестратора не удаляются.
+
 ```yaml
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: replicator-agent
   namespace: hadoop-replicator
 spec:
-  replicas: 2 # Горизонтальное масштабирование дуплексных агентов
+  serviceName: replicator-agent
+  replicas: 2
   selector:
     matchLabels:
       app: replicator-agent
@@ -1710,30 +1817,60 @@ spec:
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: replicator-config
+                name: replicator-agent-config
           env:
             - name: AGENT_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Адрес, по которому другие агенты открывают поток передачи на этот под
+            - name: AGENT_ADVERTISED_ADDRESS
+              value: "$(POD_IP):50051"
             - name: AGENT_MODE
               value: "all"
-            - name: RECEIVER_HOST
-              value: "0.0.0.0"
             - name: RECEIVER_PORT
               value: "50051"
-            - name: REPLICATOR_STAGING_DIR
-              value: "/tmp/staging"
+            - name: REPLICATOR_AGENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: replicator-secrets, key: agent-secret}
+            - name: KRB5_KEYTAB
+              value: "/etc/replicator/keytab/agent.keytab"
+            - name: KRB5_PRINCIPAL
+              value: "<agent_principal>"
+            # Локальный лимит полосы пода, МБ/с; 0 — без локального лимита
+            - name: AGENT_MAX_BANDWIDTH_MB_S
+              value: "40"
           ports:
             - containerPort: 50051
               name: grpc
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /etc/replicator/tls
+              readOnly: true
+            - name: keytab
+              mountPath: /etc/replicator/keytab
+              readOnly: true
           resources:
             requests:
               cpu: "1"
-              memory: "1Gi"
+              memory: "1536Mi"
             limits:
               cpu: "4"
               memory: "4Gi"
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: replicator-grpc-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: keytab
+          secret:
+            secretName: replicator-agent-keytab
 ---
 apiVersion: v1
 kind: Service
@@ -1741,7 +1878,7 @@ metadata:
   name: replicator-agent
   namespace: hadoop-replicator
 spec:
-  type: ClusterIP # Либо LoadBalancer при межкластерном K8s-to-K8s доступе
+  clusterIP: None
   selector:
     app: replicator-agent
   ports:
@@ -1749,6 +1886,33 @@ spec:
       targetPort: 50051
       name: grpc
 ```
+
+Манифест не содержит `krb5.conf` и клиентскую конфигурацию Hadoop (`core-site.xml`, `hdfs-site.xml` для
+HA-nameservice): смонтируйте их так же, как в образах остальных сервисов вашей площадки
+[проверить: каталог, из которого агент читает конфигурацию Hadoop в контейнере].
+
+Потоки передачи между агентами в этом манифесте идут без TLS: серверный сертификат агенту не выдан.
+Чтобы включить TLS на приеме, добавьте агенту `REPLICATOR_GRPC_CERT_CHAIN_PATH` и
+`REPLICATOR_GRPC_PRIVATE_KEY_PATH` и выпустите сертификат с IP пода или его DNS-именем в SAN.
+
+#### 4. Проверка
+
+1. Дождитесь готовности оркестратора:
+
+   ```bash
+   kubectl -n hadoop-replicator rollout status deployment/replicator-orchestrator
+   ```
+
+2. Убедитесь, что активен профиль `prod`. Команда должна вывести строку `The following 1 profile is active: "prod"`:
+
+   ```bash
+   kubectl -n hadoop-replicator logs deployment/replicator-orchestrator | grep 'profile is active'
+   ```
+
+3. Убедитесь, что агенты зарегистрировались: в веб-консоли на странице агентов оба пода
+   (`replicator-agent-0`, `replicator-agent-1`) в статусе `ONLINE`. Если агента нет, смотрите его лог:
+   отказ `UNAUTHENTICATED` означает несовпадение `REPLICATOR_AGENT_SECRET`, отказ регистрации кластера —
+   отсутствие `<cluster_id>` в топологии оркестратора.
 
 ---
 

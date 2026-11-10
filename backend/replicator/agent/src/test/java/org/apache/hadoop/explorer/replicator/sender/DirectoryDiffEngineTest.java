@@ -159,4 +159,58 @@ class DirectoryDiffEngineTest {
         assertFalse(captor.getValue().isAppend());
         assertFalse(captor.getValue().isMoreChunks());
     }
+
+    @Test
+    @DisplayName("Файл считается актуальным только при равном размере и не более старом mtime на приемнике")
+    void upToDateNeedsSameSizeAndNotOlderTarget() {
+        assertTrue(DirectoryDiffEngine.isUpToDate(100L, 2000L, true, 100L, 2000L), "копия с перенесенным mtime");
+        assertTrue(DirectoryDiffEngine.isUpToDate(100L, 2000L, true, 100L, 5000L), "копия, записанная позже источника");
+        assertFalse(DirectoryDiffEngine.isUpToDate(100L, 2000L, true, 100L, 1000L),
+                "файл перезаписан на источнике с тем же размером: раньше он не реплицировался никогда");
+        assertFalse(DirectoryDiffEngine.isUpToDate(100L, 2000L, true, 99L, 5000L));
+        assertFalse(DirectoryDiffEngine.isUpToDate(100L, 2000L, false, 0L, 0L));
+        assertFalse(DirectoryDiffEngine.isUpToDate(0L, 2000L, true, 0L, 5000L), "пустой файл передается всегда, как и прежде");
+        assertTrue(DirectoryDiffEngine.isUpToDate(100L, 0L, true, 100L, 0L), "mtime неизвестен — сравнение по размеру");
+    }
+
+    @Test
+    @DisplayName("Каталог: файл того же размера, но новее на источнике, уходит в передачу")
+    void sameSizeNewerSourceFileIsTransferred() throws Exception {
+        String name = io.grpc.inprocess.InProcessServerBuilder.generateName();
+        io.grpc.Server server = io.grpc.inprocess.InProcessServerBuilder.forName(name).directExecutor()
+                .addService(new org.apache.hadoop.explorer.replicator.generated.DataTransferServiceGrpc.DataTransferServiceImplBase() {
+                    @Override
+                    public void getDirectoryManifest(
+                            org.apache.hadoop.explorer.replicator.generated.DirectoryManifestRequest request,
+                            io.grpc.stub.StreamObserver<org.apache.hadoop.explorer.replicator.generated.DirectoryManifestResponse> out) {
+                        out.onNext(org.apache.hadoop.explorer.replicator.generated.DirectoryManifestResponse.newBuilder()
+                                .setExists(true)
+                                .addFiles(org.apache.hadoop.explorer.replicator.generated.FileManifestEntry.newBuilder()
+                                        .setRelativePath("part-0").setSize(100L).setModificationTime(1000L))
+                                .build());
+                        out.onCompleted();
+                    }
+                })
+                .build().start();
+        io.grpc.ManagedChannel channel = io.grpc.inprocess.InProcessChannelBuilder.forName(name).directExecutor().build();
+        try {
+            HadoopFsManager fs = mock(HadoopFsManager.class);
+            when(fs.exists(anyString(), any(), anyBoolean())).thenReturn(true);
+            when(fs.isDirectory(anyString(), any(), anyBoolean())).thenReturn(true);
+            when(fs.listFilesRecursively(anyString(), any(), anyBoolean())).thenReturn(List.of(
+                    new HadoopFsManager.FileItem("part-0", "/warehouse/t/part-0", 100L, 2000L)));
+            OrchestratorGrpcClient orchestrator = mock(OrchestratorGrpcClient.class);
+            when(orchestrator.batchCreateTasks(any(BatchCreateTasksRequest.class))).thenReturn(true);
+            DirectoryDiffEngine engine = new DirectoryDiffEngine(fs, orchestrator, objectMapper, 1024, 1024 * 1024, 10);
+            JobDto job = new JobDto("job-1", "dc1", "dc2", "/warehouse/t", "/backup/t", "RUNNING", "user@REALM", false);
+
+            assertTrue(engine.analyzeAndCreateTaskPool(job, channel));
+
+            verify(orchestrator).batchCreateTasks(argThat((BatchCreateTasksRequest r) ->
+                    r.getTasks().stream().anyMatch(t -> !t.isSkipped())));
+        } finally {
+            channel.shutdownNow();
+            server.shutdownNow();
+        }
+    }
 }

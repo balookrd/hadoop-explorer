@@ -420,17 +420,21 @@ public class ReplicationSender implements AutoCloseable {
             if (taskToken != null && !taskToken.isBlank()) {
                 metaBuilder.setTaskToken(taskToken);
             }
+            addSourceAttributes(metaBuilder, sourcePath, executionPrincipal, asService);
             FileMetadata metadata = metaBuilder.build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
             // Потоковая передача чанками со сжатием на лету и шейпингом
+            final String[] sentChecksum = new String[1];
             try (InputStream in = fsManager.openInputStream(sourcePath, executionPrincipal, asService)) {
                 byte[] buffer = new byte[chunkSize];
+                java.security.MessageDigest fileDigest = newSha256();
                 long offset = 0;
                 int bytesRead;
 
                 while ((bytesRead = in.read(buffer)) != -1) {
+                    fileDigest.update(buffer, 0, bytesRead);
                     boolean isLast = (offset + bytesRead) >= fileBytes;
 
                     // Сжатие чанка на лету
@@ -470,10 +474,18 @@ public class ReplicationSender implements AutoCloseable {
                     offset += bytesRead;
                 }
 
+                FileChunk trailer = checksumTrailer(jobId, offset, fileDigest);
+                sentChecksum[0] = trailer.getFileChecksum();
+                requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(trailer).build());
                 requestObserver.onCompleted();
             }
 
             TransferFileResponse response = responseFuture.get(60, TimeUnit.MINUTES);
+            String refusal = receiverChecksumRefusal(sentChecksum[0], response.getSuccess(), response.getChecksum());
+            if (refusal != null) {
+                logger.error("Передача задачи {} в '{}' не подтверждена: {}", taskId, targetPath, refusal);
+                return false;
+            }
             return response.getSuccess();
         } catch (Exception e) {
             logger.error("Ошибка при потоковой передаче задачи {}: {}", taskId, e.getMessage(), e);
@@ -507,7 +519,15 @@ public class ReplicationSender implements AutoCloseable {
 
         // 1. Инкрементальная проверка: если файл на целевом узле уже существует и размер совпадает
         CheckFileResponse check = checkRemoteFile(channel, targetPath, job);
-        if (check != null && check.getExists() && check.getSize() == totalBytes && totalBytes > 0) {
+        long sourceMtime = 0L;
+        try {
+            sourceMtime = diffEngine.sourceMtime(sourcePath, job.getExecutionPrincipal(),
+                    job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount());
+        } catch (Exception e) {
+            logger.warn("Не удалось определить mtime файла '{}': {}", sourcePath, e.getMessage());
+        }
+        if (check != null && DirectoryDiffEngine.isUpToDate(totalBytes, sourceMtime,
+                check.getExists(), check.getSize(), check.getModificationTime())) {
             logger.info("Инкрементальный пропуск: целевой файл '{}' уже идентичен исходному ({} байт)", targetPath, totalBytes);
             orchestratorClient.updateJobProgress(jobId, new UpdateJobRequest("COMPLETED", totalBytes, totalBytes,
                     "Файл уже актуален на целевом узле (инкрементальный пропуск)"));
@@ -575,13 +595,13 @@ public class ReplicationSender implements AutoCloseable {
 
         // 1. Пакетный запрос манифеста целевого каталога (Batch Manifest Diff за 1 сетевой вызов)
         DirectoryManifestResponse remoteManifest = fetchRemoteManifest(channel, targetDir, job);
-        Map<String, Long> remoteFileSizes = new HashMap<>();
+        Map<String, FileManifestEntry> remoteFiles = new HashMap<>();
         if (remoteManifest != null && remoteManifest.getExists()) {
             for (FileManifestEntry entry : remoteManifest.getFilesList()) {
-                remoteFileSizes.put(entry.getRelativePath(), entry.getSize());
+                remoteFiles.put(entry.getRelativePath(), entry);
             }
             logger.info("Получен пакетный манифест целевого каталога '{}': {} файлов уже на приемнике",
-                    targetDir, remoteFileSizes.size());
+                    targetDir, remoteFiles.size());
         } else {
             logger.info("Целевой каталог '{}' отсутствует или пуст на приемнике, полная передача", targetDir);
         }
@@ -592,8 +612,9 @@ public class ReplicationSender implements AutoCloseable {
         int skippedCount = 0;
 
         for (HadoopFsManager.FileItem item : items) {
-            Long remoteSize = remoteFileSizes.get(item.relativePath());
-            if (remoteSize != null && remoteSize == item.size() && item.size() > 0) {
+            FileManifestEntry remote = remoteFiles.get(item.relativePath());
+            if (remote != null && DirectoryDiffEngine.isUpToDate(item.size(), item.modificationTime(),
+                    true, remote.getSize(), remote.getModificationTime())) {
                 logger.info("Инкрементальный пропуск (in-memory diff): '{}' актуален на приемнике ({} байт)",
                         item.relativePath(), item.size());
                 copiedBytes += item.size();
@@ -661,26 +682,31 @@ public class ReplicationSender implements AutoCloseable {
 
             // Метаданные файла
             CompressionCodec effectiveCodec = WireCompressor.resolveCodecForPath(sourcePath, defaultCompressionCodec);
-            FileMetadata metadata = FileMetadata.newBuilder()
+            FileMetadata.Builder metaBuilder = FileMetadata.newBuilder()
                     .setJobId(jobId)
                     .setSourcePath(sourcePath)
                     .setTargetPath(targetPath)
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
                     .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL")
-                    .setCompressionCodec(effectiveCodec)
-                    .build();
+                    .setCompressionCodec(effectiveCodec);
+            addSourceAttributes(metaBuilder, sourcePath, job.getExecutionPrincipal(),
+                    job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount());
+            FileMetadata metadata = metaBuilder.build();
 
             requestObserver.onNext(TransferFileRequest.newBuilder().setMetadata(metadata).build());
 
             // Потоковая передача чанками со сжатием на лету
+            final String[] sentChecksum = new String[1];
             try (InputStream in = fsManager.openInputStream(sourcePath, job.getExecutionPrincipal(), job.getRunAsServiceAccount())) {
                 byte[] buffer = new byte[chunkSize];
+                java.security.MessageDigest fileDigest = newSha256();
                 long offset = 0;
                 long lastProgressUpdate = 0;
                 int bytesRead;
 
                 while ((bytesRead = in.read(buffer)) != -1) {
+                    fileDigest.update(buffer, 0, bytesRead);
                     boolean isLast = (offset + bytesRead) >= fileBytes;
 
                     // Сжатие чанка на лету
@@ -727,10 +753,18 @@ public class ReplicationSender implements AutoCloseable {
                     }
                 }
 
+                FileChunk trailer = checksumTrailer(jobId, offset, fileDigest);
+                sentChecksum[0] = trailer.getFileChecksum();
+                requestObserver.onNext(TransferFileRequest.newBuilder().setChunk(trailer).build());
                 requestObserver.onCompleted();
             }
 
             TransferFileResponse response = responseFuture.get(60, TimeUnit.MINUTES);
+            String refusal = receiverChecksumRefusal(sentChecksum[0], response.getSuccess(), response.getChecksum());
+            if (refusal != null) {
+                logger.error("Передача файла {} в '{}' не подтверждена: {}", sourcePath, targetPath, refusal);
+                return false;
+            }
             if (!response.getSuccess()) {
                 logger.error("Приемник вернул ошибку при передаче {}: {}", sourcePath, response.getMessage());
                 return false;
@@ -853,6 +887,76 @@ public class ReplicationSender implements AutoCloseable {
                 return;
             }
         }
+    }
+
+    /** Permissions, mtime, owner and group of the source file: the receiver applies them before the commit. */
+    private void addSourceAttributes(FileMetadata.Builder metadata, String sourcePath, String executionPrincipal,
+                                     boolean asService) throws IOException {
+        HadoopFsManager.FileAttributes attributes = fsManager.getAttributes(sourcePath, executionPrincipal, asService);
+        if (attributes == null) {
+            return;
+        }
+        metadata.setFileMode(attributes.mode()).setModificationTime(attributes.modificationTime());
+        if (attributes.owner() != null) {
+            metadata.setOwner(attributes.owner());
+        }
+        if (attributes.group() != null) {
+            metadata.setGroup(attributes.group());
+        }
+        metadata.setReplication(attributes.replication()).addAllAclEntries(attributes.aclEntries());
+        attributes.xattrs().forEach((name, value) -> metadata.putXattrs(name, ByteString.copyFrom(value)));
+    }
+
+    /** Fail the transfer when the receiver did not confirm the checksum (a receiver of an older release). */
+    private volatile boolean requireReceiverChecksum = false;
+
+    public void setRequireReceiverChecksum(boolean requireReceiverChecksum) {
+        this.requireReceiverChecksum = requireReceiverChecksum;
+        this.tarPipeline.setRequireReceiverChecksum(requireReceiverChecksum);
+    }
+
+    /**
+     * Why a transfer the receiver reported as successful is not accepted, or null.
+     *
+     * <p>The receiver answers with the SHA-256 of what it wrote. A different value means the
+     * committed bytes are not the ones read from the source. An empty value comes from a receiver
+     * that does not verify the trailer: accepted only when the checksum is not required.
+     */
+    static String checksumRefusal(String sent, boolean success, String confirmed, boolean required) {
+        if (!success || sent == null) {
+            return null;
+        }
+        if (confirmed == null || confirmed.isBlank()) {
+            return required ? "приемник не подтвердил контрольную сумму (REPLICATOR_REQUIRE_CHECKSUM=true)" : null;
+        }
+        return confirmed.equalsIgnoreCase(sent) ? null
+                : "контрольная сумма приемника " + confirmed + " не совпала с отправленной " + sent;
+    }
+
+    private String receiverChecksumRefusal(String sent, boolean success, String confirmed) {
+        return checksumRefusal(sent, success, confirmed, requireReceiverChecksum);
+    }
+
+    private static java.security.MessageDigest newSha256() {
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available in this JVM", e);
+        }
+    }
+
+    /**
+     * Trailing chunk with no data that carries the SHA-256 of the bytes read from the source.
+     * The receiver commits the file only if its own digest of the written bytes is the same.
+     * The checksum cannot go into {@code FileMetadata}: that message is sent before the file is read.
+     */
+    private static FileChunk checksumTrailer(String jobId, long offset, java.security.MessageDigest fileDigest) {
+        return FileChunk.newBuilder()
+                .setJobId(jobId)
+                .setOffset(offset)
+                .setIsLastChunk(true)
+                .setFileChecksum(java.util.HexFormat.of().formatHex(fileDigest.digest()))
+                .build();
     }
 
     /**

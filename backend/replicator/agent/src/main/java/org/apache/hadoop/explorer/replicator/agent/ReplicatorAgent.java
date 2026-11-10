@@ -130,6 +130,7 @@ public class ReplicatorAgent {
                 config.getTokenBatchMinBytes(),
                 config.getTokenBatchMaxBytes()
         );
+        this.sender.setRequireReceiverChecksum(config.isRequireChecksum());
 
         // The sender reads the source metastore, the receiver writes the target one
         if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode())
@@ -287,6 +288,7 @@ public class ReplicatorAgent {
                 config.getAgentSecret(),
                 config.isEnforceTaskAttestation()
         );
+        this.receiverService.setRequireSenderChecksum(config.isRequireChecksum());
 
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
                 .executor(Executors.newVirtualThreadPerTaskExecutor())

@@ -55,6 +55,13 @@ message FileMetadata {
   CompressionCodec compression_codec = 9;// Кодек сжатия чанков файла по умолчанию
   string task_id = 10;                   // Идентификатор пофайловой подзадачи
   string task_token = 11;                // Токен криптографической аттестации задачи (HMAC-SHA256)
+  // Source file attributes applied to the target file before the commit. Zero / empty = not sent.
+  int64 modification_time = 12;          // mtime of the source file, ms since epoch
+  string owner = 13;                     // Owner of the source file
+  string group = 14;                     // Group of the source file
+  int32 replication = 15;                // Replication factor of the source file, 0 = not sent
+  repeated string acl_entries = 16;      // Extended ACL entries, e.g. "user:alice:r-x", "group:etl:rw-"
+  map<string, bytes> xattrs = 17;        // Extended attributes of the user.* namespace
 }
 
 // Чанк бинарных данных
@@ -65,6 +72,9 @@ message FileChunk {
   bool is_last_chunk = 4;                // Флаг последнего чанка файла
   CompressionCodec compression_codec = 5;// Кодек сжатия данного чанка
   int32 uncompressed_size = 6;           // Исходный размер данных чанка до сжатия в байтах
+  // SHA-256 (hex) of the whole uncompressed file as read by the sender. Sent in a trailing chunk
+  // with empty data after the last data chunk; the receiver commits only if its own digest matches.
+  string file_checksum = 7;
 }
 
 // Ответ приемника (Receiver) по результатам передачи
@@ -141,6 +151,11 @@ message TarStreamChunk {
   bool is_last_chunk = 4;                // Флаг завершения передачи архива
   CompressionCodec compression_codec = 5;// Кодек сжатия порции архива
   int32 uncompressed_size = 6;           // Исходный размер порции данных архива до сжатия в байтах
+  // Trailer, sent in a last chunk with empty data. The receiver renames the unpacked files from
+  // staging to their target paths only if its own SHA-256 of the tar stream and the entry count match.
+  string stream_checksum = 7;            // SHA-256 (hex) of the whole uncompressed tar stream
+  int32 files_sent = 8;                  // Entries actually written to the stream (missing source files are skipped)
+  int64 bytes_sent = 9;                  // Sum of the entry sizes
 }
 
 // Результат коммита конкретного файла из архива
@@ -160,6 +175,7 @@ message TarStreamResponse {
   int64 bytes_written = 4;               // Суммарно записано байт
   string message = 5;                    // Диагностическое сообщение
   repeated TarFileCommitResult files = 6;// Детальные результаты по файлам
+  string stream_checksum = 7;            // SHA-256 (hex) of the tar stream as received; empty from a receiver that does not compute it
 }
 
 

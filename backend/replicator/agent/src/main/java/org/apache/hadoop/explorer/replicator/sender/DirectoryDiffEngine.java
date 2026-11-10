@@ -102,10 +102,10 @@ public class DirectoryDiffEngine {
 
                 // Запрос пакетного манифеста у целевого агента (1 сетевой round-trip)
                 DirectoryManifestResponse remoteManifest = fetchRemoteManifest(channel, targetPath, job);
-                Map<String, Long> remoteFileSizes = new HashMap<>();
+                Map<String, FileManifestEntry> remoteFiles = new HashMap<>();
                 if (remoteManifest != null && remoteManifest.getExists()) {
                     for (FileManifestEntry entry : remoteManifest.getFilesList()) {
-                        remoteFileSizes.put(entry.getRelativePath(), entry.getSize());
+                        remoteFiles.put(entry.getRelativePath(), entry);
                     }
                 }
 
@@ -114,8 +114,9 @@ public class DirectoryDiffEngine {
                 long currentBundleBytes = 0;
 
                 for (HadoopFsManager.FileItem item : items) {
-                    Long remoteSize = remoteFileSizes.get(item.relativePath());
-                    boolean skipped = (remoteSize != null && remoteSize == item.size() && item.size() > 0);
+                    FileManifestEntry remote = remoteFiles.get(item.relativePath());
+                    boolean skipped = remote != null && isUpToDate(item.size(), item.modificationTime(),
+                            true, remote.getSize(), remote.getModificationTime());
                     String subTargetPath = combinePaths(targetPath, item.relativePath());
 
                     if (skipped) {
@@ -172,7 +173,9 @@ public class DirectoryDiffEngine {
 
                 long fileBytes = fsManager.getFileSize(sourcePath, job.getExecutionPrincipal(), asService);
                 CheckFileResponse check = checkRemoteFile(channel, targetPath, job);
-                boolean skipped = (check != null && check.getExists() && check.getSize() == fileBytes && fileBytes > 0);
+                boolean skipped = check != null && isUpToDate(fileBytes,
+                        sourceMtime(sourcePath, job.getExecutionPrincipal(), asService),
+                        check.getExists(), check.getSize(), check.getModificationTime());
 
                 taskItems.add(new TaskCreateItem(
                         UUID.randomUUID().toString(),
@@ -215,6 +218,29 @@ public class DirectoryDiffEngine {
             }
         }
         return true;
+    }
+
+    /**
+     * Whether the target copy can be skipped: same size and not older than the source file.
+     *
+     * <p>Size alone missed a file rewritten on the source with the same length. A copy made by a
+     * file transfer carries the source mtime, a copy unpacked from a TAR bundle has the time of
+     * writing, so the target is "not older" in both cases until the source changes. Clocks of the
+     * two NameNodes are compared here: if the target clock is ahead by X, a rewrite within X after
+     * the copy goes unnoticed. With an unknown mtime (0) on either side only the size is compared.
+     * An empty source file is never skipped, as before.
+     */
+    static boolean isUpToDate(long sourceSize, long sourceMtime, boolean targetExists, long targetSize, long targetMtime) {
+        if (!targetExists || sourceSize <= 0 || targetSize != sourceSize) {
+            return false;
+        }
+        return sourceMtime <= 0 || targetMtime <= 0 || targetMtime >= sourceMtime;
+    }
+
+    /** Source mtime for the single-file checks; 0 when the file system gives no attributes. */
+    long sourceMtime(String sourcePath, String executionPrincipal, boolean asService) throws java.io.IOException {
+        HadoopFsManager.FileAttributes attributes = fsManager.getAttributes(sourcePath, executionPrincipal, asService);
+        return attributes != null ? attributes.modificationTime() : 0L;
     }
 
     public DirectoryManifestResponse fetchRemoteManifest(ManagedChannel channel, String targetDir, JobDto job) {

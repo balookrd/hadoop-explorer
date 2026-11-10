@@ -7,6 +7,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.hadoop.explorer.replicator.compression.WireCompressor;
 import org.apache.hadoop.explorer.replicator.fs.HadoopFsManager;
+import org.apache.hadoop.explorer.replicator.sender.TarStreamPipeline;
 import org.apache.hadoop.explorer.replicator.generated.*;
 import org.apache.hadoop.explorer.replicator.metrics.AgentMetrics;
 import org.apache.hadoop.explorer.replicator.shaper.LocalBandwidthLimiter;
@@ -345,6 +346,8 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private OutputStream outputStream = null;
             private long bytesWritten = 0;
             private MessageDigest sha256Digest = null;
+            /** SHA-256 of the file as read by the sender, from the trailing chunk; null if not sent. */
+            private String senderChecksum = null;
             private final java.util.concurrent.atomic.AtomicBoolean stagingTracked = new java.util.concurrent.atomic.AtomicBoolean(false);
             private final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
 
@@ -396,6 +399,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     .build());
                             responseObserver.onCompleted();
                             return;
+                        }
+
+                        if (!chunk.getFileChecksum().isEmpty()) {
+                            senderChecksum = chunk.getFileChecksum();
                         }
 
                         ByteString data = chunk.getData();
@@ -475,13 +482,24 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         throw new IOException("Принято " + bytesWritten + " байт вместо заявленных "
                                 + declaredBytes + " для '" + metadata.getTargetPath() + "': коммит отменен");
                     }
-                    String declaredChecksum = metadata.getChecksum();
+                    // The sender reports its SHA-256 in the trailing chunk; metadata.checksum is the
+                    // older way and is filled only by callers that knew the digest in advance
+                    String declaredChecksum = senderChecksum != null ? senderChecksum : metadata.getChecksum();
+                    if (requireSenderChecksum && (declaredChecksum == null || declaredChecksum.isBlank())) {
+                        throw new IOException("Отправитель не передал контрольную сумму файла '"
+                                + metadata.getTargetPath() + "': коммит отменен (REPLICATOR_REQUIRE_CHECKSUM=true)");
+                    }
                     if (declaredChecksum != null && !declaredChecksum.isBlank()
                             && !declaredChecksum.equalsIgnoreCase(checksum)) {
                         throw new IOException("Контрольная сумма принятого файла '" + metadata.getTargetPath()
                                 + "' не совпала с заявленной: получено " + checksum
                                 + ", ожидалось " + declaredChecksum);
                     }
+
+                    // Атрибуты источника ставятся на staging-файл до коммита: rename их сохраняет,
+                    // а сбой прав или mtime отменяет коммит, а не оставляет файл с чужими атрибутами
+                    fsManager.applyAttributes(stagingPath, attributesFromMetadata(metadata),
+                            metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
 
                     // Атомарный rename из staging в целевой файл в HDFS/ФС
                     boolean renamed = fsManager.renameFile(
@@ -569,6 +587,12 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
             private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
             private final AtomicBoolean cancelled = new AtomicBoolean(false);
             private final List<CompletableFuture<Void>> commitFutures = Collections.synchronizedList(new ArrayList<>());
+            /** SHA-256 of the uncompressed tar stream as received. */
+            private final MessageDigest tarDigest = newSha256();
+            /** Trailer chunk of the sender; null if the sender did not send one. */
+            private TarStreamChunk trailer = null;
+            /** Completed when the sender closed the stream: the unpacker commits only after that. */
+            private final CompletableFuture<TarStreamEnd> streamEnd = new CompletableFuture<>();
 
             private void releasePermit() {
                 if (permitAcquired.compareAndSet(true, false)) {
@@ -628,6 +652,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                         // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS в изолированном пуле
                         unpackFuture = CompletableFuture.supplyAsync(() -> {
                             List<TarFileCommitResult> results = new CopyOnWriteArrayList<>();
+                            List<StagedTarFile> staged = new CopyOnWriteArrayList<>();
                             AtomicInteger committedCount = new AtomicInteger(0);
                             AtomicLong totalBytesWritten = new AtomicLong(0);
 
@@ -672,6 +697,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     fsManager.validateSandboxAccess(targetPath);
                                     String stagingPath = targetPath + "._staging_" + meta.getJobId();
                                     activeStagingPaths.add(stagingPath);
+                                    final HadoopFsManager.FileAttributes sourceAttributes = attributesFromPax(entry);
 
                                     CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
                                         if (cancelled.get() || Thread.currentThread().isInterrupted()) {
@@ -695,24 +721,12 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                                 return;
                                             }
 
-                                            // 2. Атомарное перемещение staging-файла в финальный targetPath
-                                            fsManager.renameFile(
-                                                    stagingPath,
-                                                    targetPath,
-                                                    meta.getExecutionPrincipal(),
-                                                    meta.getRunAsServiceAccount()
-                                            );
-                                            activeStagingPaths.remove(stagingPath);
-                                            activeWrittenPaths.add(targetPath);
+                                            // 2. Атрибуты источника ставятся на staging-файл: rename их сохраняет
+                                            fsManager.applyAttributes(stagingPath, sourceAttributes,
+                                                    meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
 
-                                            committedCount.incrementAndGet();
-                                            totalBytesWritten.addAndGet(fileData.length);
-                                            results.add(TarFileCommitResult.newBuilder()
-                                                    .setRelativePath(relPath)
-                                                    .setTargetPath(targetPath)
-                                                    .setBytesWritten(fileData.length)
-                                                    .setSuccess(true)
-                                                    .build());
+                                            // Rename откладывается до конца потока и сверки с отправителем
+                                            staged.add(new StagedTarFile(relPath, stagingPath, targetPath, fileData.length));
                                         } catch (Exception e) {
                                             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                                                 try {
@@ -763,10 +777,51 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                             .build();
                                 }
 
+                                // Фаза 2: сверка с отправителем, затем rename всех файлов бандла из staging
+                                TarStreamEnd end = streamEnd.get(CHUNK_STREAM_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                                String mismatch = end.mismatch(staged.size() + results.size(), requireSenderChecksum);
+                                if (mismatch != null) {
+                                    throw new IOException(mismatch + ": ни один файл бандла не закоммичен");
+                                }
+                                List<CompletableFuture<Void>> renames = new ArrayList<>(staged.size());
+                                for (StagedTarFile file : staged) {
+                                    renames.add(CompletableFuture.runAsync(() -> {
+                                        try {
+                                            boolean renamed = fsManager.renameFile(file.stagingPath(), file.targetPath(),
+                                                    meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                            if (!renamed) {
+                                                throw new IOException("renameFile вернул false: " + file.stagingPath()
+                                                        + " -> " + file.targetPath());
+                                            }
+                                            activeStagingPaths.remove(file.stagingPath());
+                                            activeWrittenPaths.add(file.targetPath());
+                                            committedCount.incrementAndGet();
+                                            totalBytesWritten.addAndGet(file.bytes());
+                                            results.add(TarFileCommitResult.newBuilder()
+                                                    .setRelativePath(file.relativePath())
+                                                    .setTargetPath(file.targetPath())
+                                                    .setBytesWritten(file.bytes())
+                                                    .setSuccess(true)
+                                                    .build());
+                                        } catch (Exception e) {
+                                            logger.error("Ошибка коммита файла {} из staging: {}", file.targetPath(), e.getMessage(), e);
+                                            results.add(TarFileCommitResult.newBuilder()
+                                                    .setRelativePath(file.relativePath())
+                                                    .setTargetPath(file.targetPath())
+                                                    .setBytesWritten(0)
+                                                    .setSuccess(false)
+                                                    .setErrorMessage(e.getMessage() != null ? e.getMessage() : "Unknown I/O error")
+                                                    .build());
+                                        }
+                                    }, bundleCommitExecutor));
+                                }
+                                CompletableFuture.allOf(renames.toArray(new CompletableFuture[0])).join();
+
                                 boolean allOk = results.stream().allMatch(TarFileCommitResult::getSuccess);
                                 return TarStreamResponse.newBuilder()
                                         .setTaskId(meta.getTaskId())
                                         .setSuccess(allOk)
+                                        .setStreamChecksum(end.receiverChecksum())
                                         .setFilesCommitted(committedCount.get())
                                         .setBytesWritten(totalBytesWritten.get())
                                         .setMessage(allOk ? "Все файлы виртуального TAR-стрима успешно сохранены напрямую в HDFS" : "Часть файлов завершилась ошибкой")
@@ -803,6 +858,9 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                             responseObserver.onCompleted();
                             return;
                         }
+                        if (!chunk.getStreamChecksum().isEmpty()) {
+                            trailer = chunk;
+                        }
                         ByteString data = chunk.getData();
                         if (!data.isEmpty()) {
                             byte[] rawBytes = data.toByteArray();
@@ -814,6 +872,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                                     chunk.getCompressionCodec(),
                                     chunk.getUncompressedSize()
                             );
+                            tarDigest.update(bytes);
                             chunkBuffer.write(bytes);
                             bytesReceived += rawBytes.length;
                         }
@@ -858,6 +917,10 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                 }
 
                 try {
+                    streamEnd.complete(new TarStreamEnd(
+                            trailer != null ? trailer.getStreamChecksum() : null,
+                            bytesToHex(tarDigest.digest()),
+                            trailer != null ? trailer.getFilesSent() : -1));
                     chunkBuffer.complete();
                     TarStreamResponse response = unpackFuture.get(120, TimeUnit.SECONDS);
                     if (response.getSuccess()) {
@@ -890,6 +953,7 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
 
             void cleanup() {
                 cancelled.set(true);
+                streamEnd.cancel(false);
                 releasePermit();
                 if (chunkBuffer != null) {
                     chunkBuffer.close();
@@ -1006,6 +1070,89 @@ public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransfe
                     .setMessage("Ошибка удаления: " + e.getMessage())
                     .build());
             responseObserver.onCompleted();
+        }
+    }
+
+    /** Refuse to commit a file or a bundle whose sender sent no checksum (a sender of an older release). */
+    private volatile boolean requireSenderChecksum = false;
+
+    public void setRequireSenderChecksum(boolean requireSenderChecksum) {
+        this.requireSenderChecksum = requireSenderChecksum;
+    }
+
+    /** A bundle file written to staging and waiting for the commit phase. */
+    private record StagedTarFile(String relativePath, String stagingPath, String targetPath, long bytes) {
+    }
+
+    /**
+     * What is known when the sender closed the tar stream.
+     *
+     * @param senderChecksum   SHA-256 from the sender trailer, null if the sender sent none
+     * @param receiverChecksum SHA-256 of the stream as received
+     * @param filesSent        entries the sender wrote, -1 if unknown
+     */
+    private record TarStreamEnd(String senderChecksum, String receiverChecksum, int filesSent) {
+        /**
+         * Reason the bundle must not be committed, or null. A sender without the trailer is
+         * refused when the checksum is required and not checked otherwise.
+         */
+        String mismatch(int filesUnpacked, boolean requireSenderChecksum) {
+            if (senderChecksum == null) {
+                return requireSenderChecksum
+                        ? "Отправитель не передал контрольную сумму TAR-потока (REPLICATOR_REQUIRE_CHECKSUM=true)"
+                        : null;
+            }
+            if (!senderChecksum.equalsIgnoreCase(receiverChecksum)) {
+                return "Контрольная сумма TAR-потока не совпала с заявленной: получено " + receiverChecksum
+                        + ", ожидалось " + senderChecksum;
+            }
+            if (filesSent >= 0 && filesUnpacked != filesSent) {
+                return "Из TAR-потока распаковано " + filesUnpacked + " файлов вместо отправленных " + filesSent;
+            }
+            return null;
+        }
+    }
+
+    private static HadoopFsManager.FileAttributes attributesFromMetadata(FileMetadata metadata) {
+        Map<String, byte[]> xattrs = new java.util.HashMap<>();
+        metadata.getXattrsMap().forEach((name, value) -> xattrs.put(name, value.toByteArray()));
+        return new HadoopFsManager.FileAttributes(metadata.getFileMode(), metadata.getModificationTime(),
+                metadata.getOwner(), metadata.getGroup(), metadata.getReplication(),
+                metadata.getAclEntriesList(), xattrs);
+    }
+
+    /** Source attributes the sender put into PAX headers; null for a sender that sends none. */
+    private static HadoopFsManager.FileAttributes attributesFromPax(TarArchiveEntry entry) {
+        Map<String, String> pax = entry.getExtraPaxHeaders();
+        String mtime = pax.get(TarStreamPipeline.PAX_MTIME_MS);
+        if (mtime == null) {
+            return null;
+        }
+        String mode = pax.get(TarStreamPipeline.PAX_MODE);
+        String replication = pax.get(TarStreamPipeline.PAX_REPLICATION);
+        String acl = pax.get(TarStreamPipeline.PAX_ACL);
+        Map<String, byte[]> xattrs = new java.util.HashMap<>();
+        pax.forEach((name, value) -> {
+            if (name.startsWith(TarStreamPipeline.PAX_XATTR_PREFIX)) {
+                xattrs.put(name.substring(TarStreamPipeline.PAX_XATTR_PREFIX.length()),
+                        java.util.Base64.getDecoder().decode(value));
+            }
+        });
+        return new HadoopFsManager.FileAttributes(
+                mode != null ? Integer.parseInt(mode) : 0,
+                Long.parseLong(mtime),
+                pax.get(TarStreamPipeline.PAX_OWNER),
+                pax.get(TarStreamPipeline.PAX_GROUP),
+                replication != null ? Integer.parseInt(replication) : 0,
+                acl != null && !acl.isBlank() ? List.of(acl.split(",")) : List.of(),
+                xattrs);
+    }
+
+    private static MessageDigest newSha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available in this JVM", e);
         }
     }
 
