@@ -1,0 +1,872 @@
+package io.github.balookrd.pristan.replicator.orchestrator.grpc;
+
+import io.grpc.stub.StreamObserver;
+import io.github.balookrd.pristan.replicator.generated.control.AgentHeartbeatRequest;
+import io.github.balookrd.pristan.replicator.generated.control.AgentHeartbeatResponse;
+import io.github.balookrd.pristan.replicator.generated.control.AgentRegisterRequest;
+import io.github.balookrd.pristan.replicator.generated.control.AgentRegisterResponse;
+import io.github.balookrd.pristan.replicator.generated.control.AgentUnregisterRequest;
+import io.github.balookrd.pristan.replicator.generated.control.AgentUnregisterResponse;
+import io.github.balookrd.pristan.replicator.generated.control.BatchCreateTasksRequest;
+import io.github.balookrd.pristan.replicator.generated.control.BatchCreateTasksResponse;
+import io.github.balookrd.pristan.replicator.generated.control.ClaimTasksRequest;
+import io.github.balookrd.pristan.replicator.generated.control.ClaimTasksResponse;
+import io.github.balookrd.pristan.replicator.generated.control.ClusterItemProto;
+import io.github.balookrd.pristan.replicator.generated.control.CompleteTaskRequest;
+import io.github.balookrd.pristan.replicator.generated.control.CompleteTaskResponse;
+import io.github.balookrd.pristan.replicator.generated.control.CreateHdfsSubjobRequest;
+import io.github.balookrd.pristan.replicator.generated.control.CreateHdfsSubjobResponse;
+import io.github.balookrd.pristan.replicator.generated.control.FailTaskRequest;
+import io.github.balookrd.pristan.replicator.generated.control.FailTaskResponse;
+import io.github.balookrd.pristan.replicator.generated.control.GetClustersRequest;
+import io.github.balookrd.pristan.replicator.generated.control.GetClustersResponse;
+import io.github.balookrd.pristan.replicator.generated.control.GetJobsRequest;
+import io.github.balookrd.pristan.replicator.generated.control.GetJobsResponse;
+import io.github.balookrd.pristan.replicator.generated.control.GetPendingHmsJobsRequest;
+import io.github.balookrd.pristan.replicator.generated.control.GetPendingHmsJobsResponse;
+import io.github.balookrd.pristan.replicator.generated.control.HmsPendingJobItemProto;
+import io.github.balookrd.pristan.replicator.generated.control.JobItemProto;
+import io.github.balookrd.pristan.replicator.generated.control.OrchestratorControlPlaneServiceGrpc;
+import io.github.balookrd.pristan.replicator.generated.control.ReportHmsProgressRequest;
+import io.github.balookrd.pristan.replicator.generated.control.ReportHmsProgressResponse;
+import io.github.balookrd.pristan.replicator.generated.control.StreamingLeaseRenewRequest;
+import io.github.balookrd.pristan.replicator.generated.control.StreamingLeaseRenewResponse;
+import io.github.balookrd.pristan.replicator.generated.control.TaskCreateItemProto;
+import io.github.balookrd.pristan.replicator.generated.control.TaskItemProto;
+import io.github.balookrd.pristan.replicator.generated.control.TokenRequest;
+import io.github.balookrd.pristan.replicator.generated.control.TokenResponse;
+import io.github.balookrd.pristan.replicator.generated.control.UpdateJobProgressRequest;
+import io.github.balookrd.pristan.replicator.generated.control.UpdateJobProgressResponse;
+import io.github.balookrd.pristan.replicator.model.ClusterDto;
+import io.github.balookrd.pristan.replicator.model.HmsEventReportDto;
+import io.github.balookrd.pristan.replicator.model.HmsPendingJobDto;
+import io.github.balookrd.pristan.replicator.model.HmsProgressReportRequest;
+import io.github.balookrd.pristan.replicator.model.TaskCreateItem;
+import io.github.balookrd.pristan.replicator.model.TaskItemDto;
+import io.github.balookrd.pristan.replicator.model.UpdateJobRequest;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateJobRequest;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.JobResponse;
+import io.github.balookrd.pristan.replicator.orchestrator.hms.service.HmsCoordinatorService;
+import io.github.balookrd.pristan.replicator.orchestrator.registry.AgentRegistry;
+import io.github.balookrd.pristan.replicator.orchestrator.service.JobService;
+import io.github.balookrd.pristan.replicator.orchestrator.service.KafkaReplicationOrchestratorService;
+import io.github.balookrd.pristan.replicator.orchestrator.service.StreamingLeaseCoordinator;
+import io.github.balookrd.pristan.replicator.orchestrator.service.TaskService;
+import io.github.balookrd.pristan.replicator.orchestrator.throttler.TokenBucketThrottler;
+import io.github.balookrd.pristan.replicator.orchestrator.topology.TopologyRegistry;
+import io.github.balookrd.pristan.replicator.security.AgentGrpcAuthInterceptor;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateKafkaJobRequest;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.KafkaReplicationJobDto;
+import io.github.balookrd.pristan.replicator.generated.control.GetActiveKafkaJobsRequest;
+import io.github.balookrd.pristan.replicator.generated.control.GetActiveKafkaJobsResponse;
+import io.github.balookrd.pristan.replicator.generated.control.KafkaJobItemProto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Высокопроизводительная реализация gRPC Control Plane сервиса Оркестратора.
+ *
+ * <p>Обрабатывает все служебные вызовы агентов (регистрация, heartbeat, распределенный пул задач,
+ * сетевой шейпинг Token Bucket, лизинг Inotify и координация HMS) по бинарному протоколу Protobuf (HTTP/2).
+ */
+@Service
+public class OrchestratorControlPlaneServiceImpl extends OrchestratorControlPlaneServiceGrpc.OrchestratorControlPlaneServiceImplBase {
+
+    /**
+     * Предел заданий в одном ответе контрольного канала: агенту нужны задания своего кластера,
+     * а не вся таблица, и выборка без предела упиралась в heap при опросе каждые секунды.
+     */
+    private static final int AGENT_JOBS_LIMIT = 5000;
+
+    private static final Logger log = LoggerFactory.getLogger(OrchestratorControlPlaneServiceImpl.class);
+
+    private final AgentRegistry agentRegistry;
+    private final TaskService taskService;
+    private final TokenBucketThrottler throttler;
+    private final StreamingLeaseCoordinator streamingLeaseCoordinator;
+    private final JobService jobService;
+    private final TopologyRegistry topologyRegistry;
+    private final HmsCoordinatorService hmsCoordinatorService;
+    private final KafkaReplicationOrchestratorService kafkaOrchestratorService;
+
+    @Autowired
+    public OrchestratorControlPlaneServiceImpl(
+            AgentRegistry agentRegistry,
+            TaskService taskService,
+            TokenBucketThrottler throttler,
+            StreamingLeaseCoordinator streamingLeaseCoordinator,
+            JobService jobService,
+            TopologyRegistry topologyRegistry,
+            @Autowired(required = false) HmsCoordinatorService hmsCoordinatorService,
+            @Autowired(required = false) KafkaReplicationOrchestratorService kafkaOrchestratorService
+    ) {
+        this.agentRegistry = agentRegistry;
+        this.taskService = taskService;
+        this.throttler = throttler;
+        this.streamingLeaseCoordinator = streamingLeaseCoordinator;
+        this.jobService = jobService;
+        this.topologyRegistry = topologyRegistry;
+        this.hmsCoordinatorService = hmsCoordinatorService;
+        this.kafkaOrchestratorService = kafkaOrchestratorService;
+    }
+
+    @Override
+    public void registerAgent(AgentRegisterRequest request, StreamObserver<AgentRegisterResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.model.AgentRegisterRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.AgentRegisterRequest(
+                            request.getAgentId(),
+                            request.getClusterId(),
+                            request.getMode(),
+                            request.getAdvertisedGrpcAddress(),
+                            request.getSourceAddress(),
+                            request.getMaxBandwidthMbS() > 0 ? request.getMaxBandwidthMbS() : null
+                    );
+
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.register(domainReq, secret);
+            AgentRegisterResponse resp = AgentRegisterResponse.newBuilder()
+                    .setStatus(ok ? "registered" : "failed")
+                    .setAgentId(request.getAgentId())
+                    .setSuccess(ok)
+                    .setMessage(ok ? "Агент успешно зарегистрирован" : "Ошибка регистрации")
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC регистрации агента '{}': {}", request.getAgentId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void heartbeat(AgentHeartbeatRequest request, StreamObserver<AgentHeartbeatResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.model.AgentHeartbeatRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.AgentHeartbeatRequest(
+                            request.getAgentId(),
+                            request.getClusterId(),
+                            request.getAdvertisedGrpcAddress(),
+                            request.getActiveTransfers(),
+                            request.getMode()
+                    );
+            domainReq.setTransferredBytes(request.getTransferredBytes());
+            domainReq.setTransferErrors(request.getTransferErrors());
+            if (request.getBandwidthLimitMbS() > 0) {
+                domainReq.setBandwidthLimitMbS(request.getBandwidthLimitMbS());
+            }
+            domainReq.setCompressionRawBytes(request.getCompressionRawBytes());
+            domainReq.setCompressionCompressedBytes(request.getCompressionCompressedBytes());
+            domainReq.setCompressionRatio(request.getCompressionRatio());
+            domainReq.setChunkLatencyAvgMs(request.getChunkLatencyAvgMs());
+            domainReq.setChunkLatencyMaxMs(request.getChunkLatencyMaxMs());
+            domainReq.setChunkTransferCount(request.getChunkTransferCount());
+            domainReq.setStagingActiveFiles(request.getStagingActiveFiles());
+            domainReq.setStagingActiveBytes(request.getStagingActiveBytes());
+            domainReq.setStagingOrphansCleaned(request.getStagingOrphansCleaned());
+            domainReq.setKafkaMessagesReplicated(request.getKafkaMessagesReplicated());
+            domainReq.setKafkaBytesReplicated(request.getKafkaBytesReplicated());
+            domainReq.setKafkaCurrentLagMs(request.getKafkaCurrentLagMs());
+
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.heartbeat(domainReq, secret);
+
+            boolean isKafkaAgent = (request.getMode() != null &&
+                    (request.getMode().equalsIgnoreCase("consumer") ||
+                     request.getMode().equalsIgnoreCase("producer") ||
+                     request.getMode().equalsIgnoreCase("dual") ||
+                     request.getMode().toLowerCase().contains("kafka"))) ||
+                    request.getKafkaMessagesReplicated() > 0 ||
+                    request.getKafkaBytesReplicated() > 0;
+
+            if (ok && kafkaOrchestratorService != null
+                    && (request.getKafkaJobStatsSupported() || request.getKafkaJobStatsCount() > 0)) {
+                // Агент сообщает счетчики по задачам — они точнее суммы по агенту
+                try {
+                    kafkaOrchestratorService.updateJobMetricsFromHeartbeat(request.getAgentId(),
+                            request.getKafkaJobStatsList().stream()
+                                    .map(s -> new io.github.balookrd.pristan.replicator.model.AgentHeartbeatRequest.KafkaJobStats(
+                                            s.getJobId(), s.getMessagesReplicated(), s.getBytesReplicated(), s.getLagMs(),
+                                            s.getAssignedPartitionsList().stream().collect(java.util.stream.Collectors.toMap(
+                                                    tp -> tp.getTopic(), tp -> List.copyOf(tp.getPartitionsList()),
+                                                    (a, b) -> java.util.stream.Stream.concat(a.stream(), b.stream()).toList()))))
+                                    .toList());
+                } catch (Exception ex) {
+                    log.warn("Не удалось обновить метрики Kafka-задач из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());
+                }
+                kafkaOrchestratorService.updateJobErrorsFromHeartbeat(request.getAgentId(),
+                        request.getKafkaJobErrorsList().stream()
+                                .map(e -> new io.github.balookrd.pristan.replicator.model.AgentHeartbeatRequest.KafkaJobError(
+                                        e.getJobId(), e.getMessage()))
+                                .toList());
+            } else if (ok && kafkaOrchestratorService != null && isKafkaAgent) {
+                // Агент старой версии: только сумма по агенту, распределяемая по задачам ЦОД
+                try {
+                    kafkaOrchestratorService.updateMetricsFromHeartbeat(
+                            request.getClusterId(),
+                            request.getAgentId(),
+                            request.getKafkaMessagesReplicated(),
+                            request.getKafkaBytesReplicated(),
+                            request.getKafkaCurrentLagMs()
+                    );
+                } catch (Exception ex) {
+                    log.warn("Не удалось обновить метрики Kafka из heartbeat агента {}: {}", request.getAgentId(), ex.getMessage());
+                }
+            }
+            AgentHeartbeatResponse resp = AgentHeartbeatResponse.newBuilder()
+                    .setStatus(ok ? "acknowledged" : "unknown_agent")
+                    .setAcknowledged(ok)
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC heartbeat агента '{}': {}", request.getAgentId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void unregisterAgent(AgentUnregisterRequest request, StreamObserver<AgentUnregisterResponse> responseObserver) {
+        try {
+            String secret = AgentGrpcAuthInterceptor.getAuthenticatedSecret();
+            boolean ok = agentRegistry.unregister(request.getAgentId(), secret);
+            if (ok) {
+                taskService.failoverTasksForAgent(request.getAgentId(), "Агент дерегистрирован (Graceful stop via gRPC)");
+            }
+            AgentUnregisterResponse resp = AgentUnregisterResponse.newBuilder()
+                    .setStatus(ok ? "unregistered" : "not_found")
+                    .setSuccess(ok)
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC unregister агента '{}': {}", request.getAgentId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void requestTokens(TokenRequest request, StreamObserver<TokenResponse> responseObserver) {
+        try {
+            TokenBucketThrottler.TokenDecision decision = throttler.acquireTokens(
+                    request.getRequestedBytes(),
+                    request.getSourceClusterId(),
+                    request.getTargetClusterId()
+            );
+
+            TokenResponse resp = TokenResponse.newBuilder()
+                    .setWaitSeconds(decision.waitSeconds())
+                    .setGranted(!decision.blocked() && decision.waitSeconds() <= 0.0)
+                    .setBlocked(decision.blocked())
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC запроса токенов: {}", e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void batchCreateTasks(BatchCreateTasksRequest request, StreamObserver<BatchCreateTasksResponse> responseObserver) {
+        try {
+            List<TaskCreateItem> items = new ArrayList<>(request.getTasksCount());
+            for (TaskCreateItemProto protoItem : request.getTasksList()) {
+                items.add(new TaskCreateItem(
+                        java.util.UUID.randomUUID().toString(),
+                        protoItem.getSourcePath(),
+                        protoItem.getTargetPath(),
+                        protoItem.getFileSize(),
+                        // Без признака пропуска уже скопированные файлы ставились в очередь заново:
+                        // продолжение и повторный bootstrap перекачивали всю схему
+                        protoItem.getSkipped(),
+                        3,
+                        protoItem.getTaskType().isBlank() ? "FILE" : protoItem.getTaskType(),
+                        1,
+                        protoItem.getManifestJson()
+                ));
+            }
+
+            Long epoch = request.getEpoch() > 0 ? request.getEpoch() : null;
+            Long lastTxid = request.getLastProcessedTxid() > 0 ? request.getLastProcessedTxid() : null;
+            io.github.balookrd.pristan.replicator.model.BatchCreateTasksRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.BatchCreateTasksRequest(request.getJobId(), items, epoch, lastTxid);
+            domainReq.setAppend(request.getAppend());
+            domainReq.setMoreChunks(request.getMoreChunks());
+            boolean ok = taskService.batchCreateTasks(request.getJobId(), domainReq);
+
+            boolean fenced = false;
+            String errorMsg = "";
+            if (!ok) {
+                fenced = taskService.isEpochFenced(request.getJobId(), epoch);
+                errorMsg = fenced ? "Стример отгорожен (Epoch fencing: более свежая аренда)" : "Задание не найдено или отклонено";
+            }
+
+            long queuedCount = taskService.getQueuedTasksCount(request.getJobId());
+            boolean saturated = taskService.isQueueSaturated(request.getJobId(), null);
+
+            BatchCreateTasksResponse resp = BatchCreateTasksResponse.newBuilder()
+                    .setSuccess(ok)
+                    .setJobId(request.getJobId())
+                    .setTasksCount(items.size())
+                    .setQueuedCount(queuedCount)
+                    .setSaturated(saturated)
+                    .setFenced(fenced)
+                    .setError(errorMsg)
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC пакетного создания задач для job '{}': {}", request.getJobId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void claimTasks(ClaimTasksRequest request, StreamObserver<ClaimTasksResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.model.ClaimTasksRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.ClaimTasksRequest(
+                            request.getWorkerId(),
+                            request.getClusterId(),
+                            request.getBatchSize() > 0 ? request.getBatchSize() : 10
+                    );
+
+            List<TaskItemDto> claimed = taskService.claimTasks(domainReq);
+            ClaimTasksResponse.Builder builder = ClaimTasksResponse.newBuilder();
+
+            for (TaskItemDto item : claimed) {
+                builder.addTasks(TaskItemProto.newBuilder()
+                        .setTaskId(item.getId() != null ? item.getId() : "")
+                        .setJobId(item.getJobId() != null ? item.getJobId() : "")
+                        .setSourcePath(item.getSourcePath() != null ? item.getSourcePath() : "")
+                        .setTargetPath(item.getTargetPath() != null ? item.getTargetPath() : "")
+                        .setFileSize(item.getFileSize())
+                        .setStatus(item.getStatus() != null ? item.getStatus() : "")
+                        .setRetryCount(item.getRetryCount())
+                        .setSourceClusterId(item.getSourceClusterId() != null ? item.getSourceClusterId() : "")
+                        .setTargetClusterId(item.getTargetClusterId() != null ? item.getTargetClusterId() : "")
+                        .setTargetGrpcAddress(item.getTargetAddress() != null ? item.getTargetAddress() : "")
+                        .setTaskType(item.getTaskType() != null ? item.getTaskType() : "FILE")
+                        .setManifestJson(item.getBundleManifest() != null ? item.getBundleManifest() : "")
+                        .setRunAsServiceAccount(Boolean.TRUE.equals(item.getRunAsServiceAccount()))
+                        .setExecutionPrincipal(item.getExecutionPrincipal() != null ? item.getExecutionPrincipal() : "")
+                        .setTaskToken(item.getTaskToken() != null ? item.getTaskToken() : "")
+                        .build());
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC забора задач воркером '{}': {}", request.getWorkerId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void completeTask(CompleteTaskRequest request, StreamObserver<CompleteTaskResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.model.CompleteTaskRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.CompleteTaskRequest(
+                            request.getTaskId(),
+                            request.getWorkerId(),
+                            request.getBytesWritten(),
+                            request.getMessage(),
+                            request.getCommittedFiles()
+                    );
+
+            boolean ok = taskService.completeTask(domainReq);
+            CompleteTaskResponse resp = CompleteTaskResponse.newBuilder()
+                    .setSuccess(ok)
+                    .setMessage(ok ? "OK" : "Task not found or update error")
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC завершения задачи '{}': {}", request.getTaskId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void failTask(FailTaskRequest request, StreamObserver<FailTaskResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.model.FailTaskRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.model.FailTaskRequest(
+                            request.getTaskId(),
+                            request.getWorkerId(),
+                            request.getErrorMessage()
+                    );
+
+            boolean ok = taskService.failTask(domainReq);
+            FailTaskResponse resp = FailTaskResponse.newBuilder()
+                    .setSuccess(ok)
+                    .setMessage(ok ? "Failed recorded" : "Task not found")
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC сбоя задачи '{}': {}", request.getTaskId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void updateJobProgress(UpdateJobProgressRequest request, StreamObserver<UpdateJobProgressResponse> responseObserver) {
+        try {
+            UpdateJobRequest domainReq = new UpdateJobRequest(
+                    request.getStatus(),
+                    request.getCurrentBytes(),
+                    request.getTotalBytes(),
+                    request.getMessage()
+            );
+
+            var opt = jobService.updateJobProgress(request.getJobId(), domainReq);
+            boolean ok = opt.isPresent();
+
+            UpdateJobProgressResponse resp = UpdateJobProgressResponse.newBuilder()
+                    .setSuccess(ok)
+                    .setMessage(ok ? "Progress updated" : "Job not found")
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC обновления прогресса job '{}': {}", request.getJobId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void getJobs(GetJobsRequest request, StreamObserver<GetJobsResponse> responseObserver) {
+        try {
+            // Агент опрашивает контрольный канал каждые несколько секунд, поэтому выборка идет
+            // запросом по кластеру-источнику и с пределом: прежний проход читал таблицу заданий
+            // целиком (включая пофайловые подзадачи метастора) и фильтровал по кластеру в памяти.
+            List<JobResponse> jobs;
+            if (request.getJobIdsCount() > 0) {
+                jobs = jobService.getJobsByIds(request.getJobIdsList().stream().limit(AGENT_JOBS_LIMIT).toList());
+            } else {
+                var direction = request.getOldestFirst()
+                        ? org.springframework.data.domain.Sort.Direction.ASC
+                        : org.springframework.data.domain.Sort.Direction.DESC;
+                var page = jobService.listJobsForCluster(request.getClusterId(), request.getStatus(),
+                        request.getIncludeSubjobs(),
+                        org.springframework.data.domain.PageRequest.of(0, AGENT_JOBS_LIMIT,
+                                org.springframework.data.domain.Sort.by(direction, "createdAt")));
+                if (page.getTotalElements() > AGENT_JOBS_LIMIT) {
+                    log.warn("Агенту кластера '{}' отдано {} заданий из {}: предел выборки контрольного канала",
+                            request.getClusterId(), AGENT_JOBS_LIMIT, page.getTotalElements());
+                }
+                jobs = page.getContent();
+            }
+            GetJobsResponse.Builder builder = GetJobsResponse.newBuilder();
+            Map<String, HmsCoordinatorService.CompanionDeletes> deletesByParent = new HashMap<>();
+
+            for (JobResponse job : jobs) {
+                var deletes = companionDeletesOf(job, deletesByParent);
+                builder.addJobs(JobItemProto.newBuilder()
+                        .setId(job.id() != null ? job.id() : "")
+                        .setSourceClusterId(job.sourceClusterId() != null ? job.sourceClusterId() : "")
+                        .setTargetClusterId(job.targetClusterId() != null ? job.targetClusterId() : "")
+                        .setSourcePath(job.sourcePath() != null ? job.sourcePath() : "")
+                        .setTargetPath(job.targetPath() != null ? job.targetPath() : "")
+                        .setStatus(job.status() != null ? job.status() : "")
+                        .setTotalBytes(job.totalBytes())
+                        .setProcessedBytes(job.copiedBytes())
+                        .setMessage(job.message() != null ? job.message() : "")
+                        .setSyncMode(job.syncMode() != null ? job.syncMode() : "MANUAL")
+                        .setCronExpression(job.cronExpression() != null ? job.cronExpression() : "")
+                        .setExecutionPrincipal(job.executionPrincipal() != null ? job.executionPrincipal() : "")
+                        .setRunAsServiceAccount(job.runAsServiceAccount())
+                        .setJobType(job.jobType() != null ? job.jobType() : "HDFS")
+                        .setParentJobId(job.parentJobId() != null ? job.parentJobId() : "")
+                        .setSyncDeletes(job.syncDeletes())
+                        .setDeleteTableDirs(deletes.tableDirs())
+                        .setDeleteInsideTables(deletes.insideTables())
+                        .build());
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC getJobs: {}", e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    /** Флажки удалений для компаньона; родитель читается один раз на запрос. */
+    private HmsCoordinatorService.CompanionDeletes companionDeletesOf(
+            JobResponse job, Map<String, HmsCoordinatorService.CompanionDeletes> cache) {
+        if (hmsCoordinatorService == null || !"HMS_COMPANION_STREAMING".equalsIgnoreCase(job.jobType())
+                || job.parentJobId() == null) {
+            return HmsCoordinatorService.CompanionDeletes.NONE;
+        }
+        return cache.computeIfAbsent(job.parentJobId(), hmsCoordinatorService::companionDeletes);
+    }
+
+    @Override
+    public void getClusters(GetClustersRequest request, StreamObserver<GetClustersResponse> responseObserver) {
+        try {
+            List<ClusterDto> clusters = topologyRegistry.getClusters();
+            GetClustersResponse.Builder builder = GetClustersResponse.newBuilder();
+
+            for (ClusterDto cl : clusters) {
+                builder.addClusters(ClusterItemProto.newBuilder()
+                        .setId(cl.getId() != null ? cl.getId() : "")
+                        .setName(cl.getName() != null ? cl.getName() : "")
+                        .setDcId(cl.getDcId() != null ? cl.getDcId() : "")
+                        .setGrpcAddress(cl.getGrpcAddress() != null ? cl.getGrpcAddress() : "")
+                        .build());
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC getClusters: {}", e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void renewStreamingLease(StreamingLeaseRenewRequest request, StreamObserver<StreamingLeaseRenewResponse> responseObserver) {
+        try {
+            io.github.balookrd.pristan.replicator.orchestrator.dto.StreamingLeaseRenewRequest domainReq =
+                    new io.github.balookrd.pristan.replicator.orchestrator.dto.StreamingLeaseRenewRequest(
+                            request.getClusterId(),
+                            request.getStreamerId()
+                    );
+
+            io.github.balookrd.pristan.replicator.orchestrator.dto.StreamingLeaseRenewResponse domainResp =
+                    streamingLeaseCoordinator.renewLease(domainReq);
+
+            boolean granted = domainResp != null && "ACTIVE".equalsIgnoreCase(domainResp.status());
+            StreamingLeaseRenewResponse resp = StreamingLeaseRenewResponse.newBuilder()
+                    .setGranted(granted)
+                    .setLeaderId(domainResp != null && domainResp.activeAgentId() != null ? domainResp.activeAgentId() : "")
+                    .setLeaderAddress("")
+                    .setLeaseDurationMs(10000L)
+                    .setClusterId(request.getClusterId() != null ? request.getClusterId() : "")
+                    .setMaxActiveTxid(domainResp != null ? domainResp.lastCommittedTxid() : 0L)
+                    .setQueueSaturated(domainResp != null && domainResp.queueSaturated())
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC renewStreamingLease для cluster '{}': {}", request.getClusterId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void getPendingHmsJobs(GetPendingHmsJobsRequest request, StreamObserver<GetPendingHmsJobsResponse> responseObserver) {
+        try {
+            GetPendingHmsJobsResponse.Builder builder = GetPendingHmsJobsResponse.newBuilder();
+            if (hmsCoordinatorService != null) {
+                List<HmsPendingJobDto> pendingList = hmsCoordinatorService.getPendingJobsForCluster(request.getClusterId(), request.getAgentId());
+                for (HmsPendingJobDto job : pendingList) {
+                    builder.addJobs(HmsPendingJobItemProto.newBuilder()
+                            .setJobId(job.id() != null ? job.id() : "")
+                            .setSourceCluster(job.sourceClusterId() != null ? job.sourceClusterId() : "")
+                            .setTargetCluster(job.targetClusterId() != null ? job.targetClusterId() : "")
+                            .setTargetAgentGrpcAddress(job.targetAgentGrpcAddress() != null ? job.targetAgentGrpcAddress() : "")
+                            .setSourceDb(job.sourceDbName() != null ? job.sourceDbName() : "")
+                            .setTargetDb(job.targetDbName() != null ? job.targetDbName() : "")
+                            .setTablePattern(job.tableIncludePattern() != null ? job.tableIncludePattern() : "")
+                            .setStatus(job.status() != null ? job.status() : "")
+                            .setSyncData(true)
+                            .setExecutionPrincipal(job.executionPrincipal() != null ? job.executionPrincipal() : "")
+                            .setLastProcessedEventId(job.lastProcessedEventId() != null ? job.lastProcessedEventId() : 0L)
+                            .setDropExtraneousTables(job.dropExtraneousTables())
+                            .setDropExtraneousPartitions(job.dropExtraneousPartitions())
+                            .setAssignedAgentId(job.assignedAgentId() != null ? job.assignedAgentId() : "")
+                            .setEnableHdfsStreaming(job.enableHdfsStreaming())
+                            .setCompanionHdfsJobId(job.companionHdfsJobId() != null ? job.companionHdfsJobId() : "")
+                            .setDbWarehouseLocation(job.dbWarehouseLocation() != null ? job.dbWarehouseLocation() : "")
+                            .setBootstrapEventId(job.bootstrapEventId() != null ? job.bootstrapEventId() : 0L)
+                            .setBootstrapCheckpoint(job.bootstrapCheckpoint() != null ? job.bootstrapCheckpoint() : "")
+                            .build());
+                }
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC getPendingHmsJobs: {}", e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void reportHmsProgress(ReportHmsProgressRequest request, StreamObserver<ReportHmsProgressResponse> responseObserver) {
+        try {
+            boolean accepted = true;
+            if (hmsCoordinatorService != null) {
+                List<HmsEventReportDto> domainEvents = null;
+                if (request.getEventsCount() > 0) {
+                    domainEvents = new ArrayList<>(request.getEventsCount());
+                    for (var ev : request.getEventsList()) {
+                        domainEvents.add(new HmsEventReportDto(
+                                ev.getEventId(),
+                                ev.getEventType(),
+                                ev.getTableName(),
+                                ev.getPartitionName().isEmpty() ? null : ev.getPartitionName(),
+                                ev.getSourceUri().isEmpty() ? null : ev.getSourceUri(),
+                                ev.getTargetUri().isEmpty() ? null : ev.getTargetUri(),
+                                ev.getSubjobId().isEmpty() ? null : ev.getSubjobId(),
+                                ev.getStatus(),
+                                ev.getErrorMessage().isEmpty() ? null : ev.getErrorMessage()
+                        ));
+                    }
+                }
+
+                HmsProgressReportRequest domainReq = new HmsProgressReportRequest(
+                        request.getStatus(),
+                        request.getTotalTables(),
+                        request.getTablesSynced(),
+                        request.getTotalPartitions(),
+                        request.getPartitionsSynced(),
+                        // proto3 передает «позиция не задана» нулем; ноль как позиция затер бы
+                        // настоящую и выглядел бы откатом
+                        request.getLastEventId() != 0L ? request.getLastEventId() : null,
+                        request.getBootstrapEventId() != 0L ? request.getBootstrapEventId() : null,
+                        // Отчет без статуса — heartbeat агента, ждущего данные: отставания он не знает
+                        request.getStatus().isEmpty() ? null : request.getEventLag(),
+                        request.getMessage(),
+                        domainEvents,
+                        request.getAgentId().isEmpty() ? null : request.getAgentId(),
+                        request.getBootstrapCheckpoint().isEmpty() ? null : request.getBootstrapCheckpoint()
+                );
+                accepted = updateHmsProgressWithRetry(request.getJobId(), domainReq);
+            }
+
+            // Отказ должен дойти до агента: по нему он прекращает работу над отобранной задачей
+            responseObserver.onNext(ReportHmsProgressResponse.newBuilder().setSuccess(accepted).build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC reportHmsProgress для job '{}': {}", request.getJobId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    /** Попыток применить отчет HMS при конфликте версий задачи. */
+    private static final int HMS_PROGRESS_ATTEMPTS = 4;
+
+    /**
+     * Отчет о прогрессе с повтором при конфликте версий.
+     *
+     * <p>Агент продлевает аренду опросом раз в несколько секунд условным UPDATE с ростом версии, а
+     * отчет сохраняет задачу целиком. Пересечение давало optimistic lock, отчет откатывался вместе
+     * с позицией CDC, журналом событий и DLQ, а агент принимал ошибку за обрыв связи и считал отчет
+     * доставленным. Каждая попытка — новая транзакция со свежим чтением задачи, поэтому fencing
+     * (пауза, смена владельца) проверяется заново.
+     */
+    private boolean updateHmsProgressWithRetry(String jobId, HmsProgressReportRequest report) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return hmsCoordinatorService.updateJobProgress(jobId, report);
+            } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+                if (attempt >= HMS_PROGRESS_ATTEMPTS) {
+                    throw e;
+                }
+                log.debug("Конфликт версий отчета HMS-задачи '{}', попытка {}: {}", jobId, attempt, e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public void createHdfsSubjob(CreateHdfsSubjobRequest request, StreamObserver<CreateHdfsSubjobResponse> responseObserver) {
+        try {
+            String syncMode = (request.getSyncMode() != null && !request.getSyncMode().isBlank()) ? request.getSyncMode() : null;
+            String jobType = (request.getJobType() != null && !request.getJobType().isBlank()) ? request.getJobType() : "HMS_SUBJOB";
+
+            if (hmsCoordinatorService != null
+                    && !hmsCoordinatorService.acceptsSubjobFrom(request.getParentJobId(), request.getAgentId())) {
+                log.warn("Fencing: отклонена подзадача данных для HMS-задачи '{}' от агента '{}' ({})",
+                        request.getParentJobId(), request.getAgentId(), request.getSourcePath());
+                responseObserver.onNext(CreateHdfsSubjobResponse.newBuilder().setSuccess(false).setFenced(true).build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            // Данные пишутся от того же пользователя, что и метаданные HMS-задачи: метастор создает
+            // каталоги баз и таблиц от его имени (doAs), и служебная учетка агента без прав
+            // суперпользователя HDFS не могла писать в них (Permission denied на стенде), а
+            // файлы на приемнике получали чужого владельца. Без пользователя — служебная учетка.
+            boolean hasPrincipal = request.getExecutionPrincipal() != null && !request.getExecutionPrincipal().isBlank();
+            boolean companion = "HMS_COMPANION_STREAMING".equalsIgnoreCase(jobType);
+            // Компаньон удаляет на приемнике только то, что разрешают флажки сверки HMS-задачи;
+            // обычные подзадачи данных ничего не удаляют
+            boolean companionDeletes = companion && hmsCoordinatorService != null
+                    && hmsCoordinatorService.companionDeletes(request.getParentJobId()).any();
+            CreateJobRequest domainReq = new CreateJobRequest(
+                    request.getSourcePath(),
+                    request.getTargetPath(),
+                    request.getSourceCluster() != null && !request.getSourceCluster().isBlank() ? request.getSourceCluster() : "default",
+                    request.getTargetCluster() != null && !request.getTargetCluster().isBlank() ? request.getTargetCluster() : "default",
+                    0L,
+                    hasPrincipal ? request.getExecutionPrincipal() : "hdfs@EXAMPLE.COM",
+                    !hasPrincipal,
+                    false,
+                    null,
+                    7,
+                    jobType,
+                    request.getParentJobId(),
+                    syncMode,
+                    companionDeletes
+            );
+
+            // Дедупликация: повторно используем активную или недавно завершенную подзадачу при ретраях CDC
+            JobResponse subjob = request.getForceNew()
+                    ? jobService.createJob(domainReq, "system_agent")
+                    : jobService.findReusableSubjob(request.getParentJobId(), request.getSourcePath(), request.getTargetPath())
+                            .orElseGet(() -> jobService.createJob(domainReq, "system_agent"));
+
+            if (subjob != null && companion) {
+                if (subjob.syncDeletes() != companionDeletes) {
+                    jobService.setSyncDeletes(subjob.id(), companionDeletes);
+                }
+                if (hmsCoordinatorService != null) {
+                    hmsCoordinatorService.linkCompanionHdfsJob(request.getParentJobId(), subjob.id(), request.getSourcePath());
+                }
+            }
+
+            CreateHdfsSubjobResponse resp = CreateHdfsSubjobResponse.newBuilder()
+                    .setJobId(subjob != null ? subjob.id() : "")
+                    .setSuccess(subjob != null)
+                    .build();
+
+            responseObserver.onNext(resp);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC createHdfsSubjob для parent '{}': {}", request.getParentJobId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    @Override
+    public void getActiveKafkaJobs(GetActiveKafkaJobsRequest request, StreamObserver<GetActiveKafkaJobsResponse> responseObserver) {
+        try {
+            if (kafkaOrchestratorService == null) {
+                responseObserver.onNext(GetActiveKafkaJobsResponse.newBuilder().build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            List<KafkaReplicationJobDto> jobs = kafkaOrchestratorService.getActiveJobsForDc(request.getDcId());
+            GetActiveKafkaJobsResponse.Builder respBuilder = GetActiveKafkaJobsResponse.newBuilder();
+
+            for (KafkaReplicationJobDto job : jobs) {
+                List<String> topics = job.getTopics() != null
+                        ? job.getTopics().stream()
+                                .map(CreateKafkaJobRequest.TopicSetting::getTopic)
+                                .filter(Objects::nonNull)
+                                .toList()
+                        : Collections.emptyList();
+
+                boolean isReverse = "BIDIRECTIONAL".equalsIgnoreCase(job.getDirection())
+                        && request.getDcId() != null
+                        && request.getDcId().trim().equalsIgnoreCase(job.getTargetDc());
+
+                String peerDc = isReverse ? job.getSourceDc() : job.getTargetDc();
+                List<String> targetEndpoints = isReverse ? Collections.emptyList() : job.getTargetEndpoints();
+                if ((targetEndpoints == null || targetEndpoints.isEmpty()) && peerDc != null) {
+                    targetEndpoints = kafkaOrchestratorService.getLiveReceiverEndpoints(peerDc);
+                }
+
+                KafkaJobItemProto item = KafkaJobItemProto.newBuilder()
+                        .setJobId(job.getId() != null ? job.getId() : "")
+                        .setName(job.getName() != null ? job.getName() : "")
+                        .setSourceDc(isReverse ? (job.getTargetDc() != null ? job.getTargetDc() : "") : (job.getSourceDc() != null ? job.getSourceDc() : ""))
+                        .setTargetDc(isReverse ? (job.getSourceDc() != null ? job.getSourceDc() : "") : (job.getTargetDc() != null ? job.getTargetDc() : ""))
+                        .setDirection(job.getDirection() != null ? job.getDirection() : "")
+                        .addAllTopics(topics)
+                        .addAllConsumerGroups(job.getConsumerGroups() != null ? job.getConsumerGroups() : Collections.emptyList())
+                        .setSourceBootstrapServers(isReverse ? (job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : "") : (job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : ""))
+                        .setTargetBootstrapServers(isReverse ? (job.getSourceBootstrapServers() != null ? job.getSourceBootstrapServers() : "") : (job.getTargetBootstrapServers() != null ? job.getTargetBootstrapServers() : ""))
+                        .addAllTargetEndpoints(targetEndpoints != null ? targetEndpoints : Collections.emptyList())
+                        .setBatchSize(job.getBatchSize() != null ? job.getBatchSize() : 2000)
+                        .setConsumerThreads(job.getConsumerThreads() != null ? job.getConsumerThreads() : 8)
+                        // Лимит задачи суммарный: каждый агент получает свою долю
+                        .setBandwidthLimitMb(kafkaOrchestratorService.perAgentBandwidthMb(
+                                job.getBandwidthLimitMb(), isReverse ? job.getTargetDc() : job.getSourceDc()))
+                        .setStatus(job.getStatus() != null ? job.getStatus() : "")
+                        // Настройки задачи, которые раньше хранились и никуда не доезжали:
+                        // интерфейс задает их на задачу, применяет их агент
+                        .setOffsetSyncIntervalSec(job.getOffsetSyncIntervalSec() != null
+                                ? job.getOffsetSyncIntervalSec() : 0)
+                        .setSchemaTranscoding(job.isSchemaTranscodingEnabled())
+                        // Реестры схем берутся из топологии выбранных кластеров: это
+                        // инфраструктура, задаваемая администратором в конфигурации, а не поле
+                        // задачи. Выбор кластера в интерфейсе приносит его реестр сам.
+                        .setSourceSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getTargetDc() : job.getSourceDc()))
+                        .setSourceSchemaRegistryType(schemaRegistryType(isReverse ? job.getTargetDc() : job.getSourceDc()))
+                        .setTargetSchemaRegistryUrl(schemaRegistryUrl(isReverse ? job.getSourceDc() : job.getTargetDc()))
+                        .setTargetSchemaRegistryType(schemaRegistryType(isReverse ? job.getSourceDc() : job.getTargetDc()))
+                        .setStartPosition(job.getStartPosition() != null ? job.getStartPosition() : "EARLIEST")
+                        .setLiveSenders(kafkaOrchestratorService.getLiveSenderEndpoints(
+                                isReverse ? job.getTargetDc() : job.getSourceDc()).size())
+                        .build();
+
+                respBuilder.addJobs(item);
+            }
+
+            responseObserver.onNext(respBuilder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Ошибка gRPC getActiveKafkaJobs для DC '{}': {}", request.getDcId(), e.getMessage(), e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    /** Адрес реестра схем кластера указанного ЦОД из конфигурации топологии. */
+    private String schemaRegistryUrl(String dcOrClusterId) {
+        return clusterOf(dcOrClusterId)
+                .map(io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig::getSchemaRegistryUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .orElse("");
+    }
+
+    /** Тип реестра схем кластера указанного ЦОД (CONFLUENT или HORTONWORKS). */
+    private String schemaRegistryType(String dcOrClusterId) {
+        return clusterOf(dcOrClusterId)
+                .map(io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig::getSchemaRegistryType)
+                .filter(type -> type != null && !type.isBlank())
+                .orElse("");
+    }
+
+    private java.util.Optional<io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig>
+            clusterOf(String dcOrClusterId) {
+        if (dcOrClusterId == null || dcOrClusterId.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        // Идентификаторы кластера и ЦОД в типовой конфигурации совпадают; если нет —
+        // берется кластер, привязанный к этому ЦОД
+        java.util.Optional<io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties.ClusterConfig> direct =
+                topologyRegistry.getCluster(dcOrClusterId);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        return topologyRegistry.getClusters().stream()
+                .filter(dto -> dcOrClusterId.equalsIgnoreCase(dto.getDcId()))
+                .findFirst()
+                .flatMap(dto -> topologyRegistry.getCluster(dto.getId()));
+    }
+}

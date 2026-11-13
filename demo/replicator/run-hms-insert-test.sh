@@ -24,7 +24,7 @@ cd "$(dirname "$0")"
 
 DB="${INSERT_DB:-ins31}"
 ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:8005}"
-TOOL=(java -Xmx256m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx256m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 TABLE_DIR="hdfs://hdfs-cluster-1:9000/warehouse/${DB}.db/sales"
 SRC_DIR="${TABLE_DIR}/dt=2026-10-01"
 DST_DIR="hdfs://hdfs-cluster-2:9000/warehouse/${DB}.db/sales/dt=2026-10-01"

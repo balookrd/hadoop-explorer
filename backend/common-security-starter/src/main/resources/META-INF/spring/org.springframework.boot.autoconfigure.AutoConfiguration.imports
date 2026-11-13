@@ -1,1 +1,1 @@
-org.apache.hadoop.explorer.common.autoconfigure.CommonSecurityAutoConfiguration
+io.github.balookrd.pristan.common.autoconfigure.CommonSecurityAutoConfiguration

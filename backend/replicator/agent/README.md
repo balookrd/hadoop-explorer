@@ -80,7 +80,7 @@ mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
 # С использованием системного hadoop classpath:
 export HADOOP_CLASSPATH=$(hadoop classpath)
 java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH}" \
-    org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
+    io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-node-01 \
     --cluster-id demo-cluster \
     --orchestrator http://localhost:8005 \
@@ -161,7 +161,7 @@ java -Xms1g -Xmx4g -cp "target/replicator-agent-1.0.0-all.jar:${HADOOP_CLASSPATH
 
 ```bash
 hadoop jar target/replicator-agent-1.0.0-all.jar \
-    org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
+    io.github.balookrd.pristan.replicator.yarn.ReplicatorYarnClient \
     --jar target/replicator-agent-1.0.0-all.jar \
     --cluster_id demo-cluster \
     --orchestrator http://orchestrator-host:8005 \

@@ -6,7 +6,7 @@
 
 ```
 backend/yarn/
-├── pom.xml                   # Maven-проект (org.apache.hadoop.explorer:yarn-explorer-java:1.0.0)
+├── pom.xml                   # Maven-проект (io.github.balookrd.pristan:yarn-explorer-java:1.0.0)
 ├── src/
 │   ├── main/
 │   │   ├── java/             # Контроллеры, Сервисы, Клиенты, Сущности, Модели

@@ -34,7 +34,7 @@ PREFIX="${CDC_PREFIX:-cdcload}"
 TABLE="events"
 NODE="${ORCHESTRATOR_URL:-http://localhost:8005}"
 WAREHOUSE="hdfs://hdfs-cluster-1:9000/warehouse"
-TOOL=(java -Xmx512m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx512m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 FAILED=0
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }

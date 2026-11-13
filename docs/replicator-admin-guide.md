@@ -976,7 +976,7 @@ mvn clean package -pl backend/replicator/agent -am -DskipTests
 ```bash
 # 1. Запуск Shaded Fat JAR (установленного из GitHub Release в /opt/hadoop-explorer/replicator/bin):
 hadoop jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
-    org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
+    io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -993,7 +993,7 @@ export HADOOP_CLASSPATH=$(hadoop classpath)
 
 java -Xms1g -Xmx4g \
     -cp "/opt/hadoop-explorer/replicator/releases/v1.0.0/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
-    org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain \
+    io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1155,7 +1155,7 @@ sequenceDiagram
 ```bash
 # Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication (из установленного релиза):
 yarn jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
-    org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
+    io.github.balookrd.pristan.replicator.yarn.ReplicatorYarnClient \
     --jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1305,7 +1305,7 @@ yarn application -kill application_1728460000000_0042
    - Replicator Agent (data & metadata worker): исполняет задачи репликации в локальном сетевом периметре своего ЦОД. Source Agent вычитывает метаданные из локального Hive Metastore по LAN Thrift (порт 9083), Target Agent применяет DDL в целевой Hive Metastore по локальному LAN Thrift, а агенты обмениваются данными по WAN напрямую через gRPC-контракт `HmsTransferService` (порт 50051).
 
 2. Восстановление прерванного начального переноса схем (bootstrap recovery):
-   - Если Оркестратор перезапустился во время первичной синхронизации схемы (статус `BOOTSTRAPPING`), обработчик [`ApplicationReadyEvent`](../backend/replicator/orchestrator/src/main/java/org/apache/hadoop/explorer/replicator/orchestrator/hms/service/HmsCoordinatorService.java) при старте находит прерванные задачи.
+   - Если Оркестратор перезапустился во время первичной синхронизации схемы (статус `BOOTSTRAPPING`), обработчик [`ApplicationReadyEvent`](../backend/replicator/orchestrator/src/main/java/io/github/balookrd/pristan/replicator/orchestrator/hms/service/HmsCoordinatorService.java) при старте находит прерванные задачи.
    - Метод `recoverInterruptedJobsOnStartup()` переотдает агентам только задачи с истекшей арендой. В HA-кластере рестарт одного узла не прерывает идущий bootstrap: агент продолжает работу через соседний узел и продлевает аренду своими отчетами.
 
 3. CDC-опрос Hive Metastore агентом:
@@ -2048,7 +2048,7 @@ Health-пробы gRPC. Control Plane оркестратора, приемник
 
 ```bash
 java -cp /app/replicator-agent.jar \
-    org.apache.hadoop.explorer.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
+    io.github.balookrd.pristan.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
 # Код возврата 0 — SERVING, 1 — любое другое состояние или недоступность.
 # Второй аргумент — имя подсистемы, третий — таймаут в секундах.
 ```
@@ -2078,17 +2078,17 @@ Hadoop gRPC Replicator — мультимодульный проект Java 21 (
 
 ```
 backend/replicator/
-├── pom.xml                 # Родительский POM (org.apache.hadoop.explorer:replicator-parent)
+├── pom.xml                 # Родительский POM (io.github.balookrd.pristan:replicator-parent)
 ├── proto/                  # Общие wire-контракты
-│   ├── pom.xml             # org.apache.hadoop.explorer:replicator-proto:1.0.0
+│   ├── pom.xml             # io.github.balookrd.pristan:replicator-proto:1.0.0
 │   └── src/main/proto/     # replicator.proto, kafka_replicator.proto,
 │                           # orchestrator_control_plane.proto + кодогенерация gRPC
 ├── model/                  # Общие DTO, HMS-модель, аттестация задач, телеметрия gRPC
-│   └── pom.xml             # org.apache.hadoop.explorer:replicator-model:1.0.0
+│   └── pom.xml             # io.github.balookrd.pristan:replicator-model:1.0.0
 ├── agent/                  # Агент репликации (DataNode/Edge Node/YARN)
-│   └── pom.xml             # org.apache.hadoop.explorer:replicator-agent:1.0.0
+│   └── pom.xml             # io.github.balookrd.pristan:replicator-agent:1.0.0
 └── orchestrator/           # Высокопроизводительный оркестратор
-    ├── pom.xml             # org.apache.hadoop.explorer:replicator-orchestrator:1.0.0
+    ├── pom.xml             # io.github.balookrd.pristan:replicator-orchestrator:1.0.0
     └── src/
         ├── main/
         │   ├── java/       # Контроллеры, Сервисы, Реестры, Токен-бакет
@@ -2457,7 +2457,7 @@ flowchart LR
 ### 8.2 Параметры командной строки демона `kafka-replicator-agent`
 
 ```bash
-java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp replicator-agent.jar org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain \
+java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp replicator-agent.jar io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain \
   --port 50052 \
   --bootstrap-servers "kafka-broker1.corp:9092,kafka-broker2.corp:9092" \
   --dc-id "DC1" \
@@ -2699,7 +2699,7 @@ Environment="JAVA_OPTS=-Xms2g -Xmx4g \
 
 ExecStart=/usr/bin/java $JAVA_OPTS \
   -cp /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
-  org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain \
+  io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain \
   --port ${PORT} \
   --bootstrap-servers ${BOOTSTRAP_SERVERS} \
   --dc-id ${DC_ID} \

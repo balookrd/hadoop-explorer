@@ -48,7 +48,7 @@ for _ in $(seq 1 60); do curl -sf "${ORCHESTRATOR_URL}/health" > /dev/null && br
 
 log "Запускаю рой: ${SWARM_AGENTS} агентов на ${SWARM_SECONDS} с"
 docker exec replicator-agent-dc1 java -Xmx512m -cp /app/replicator-agent.jar \
-  org.apache.hadoop.explorer.replicator.tool.AgentSwarm orchestrator:50050 "$SECRET" "$SWARM_AGENTS" "$SWARM_SECONDS" \
+  io.github.balookrd.pristan.replicator.tool.AgentSwarm orchestrator:50050 "$SECRET" "$SWARM_AGENTS" "$SWARM_SECONDS" \
   > "$SWARM_LOG" 2>&1 &
 SWARM_PID=$!
 sleep 30

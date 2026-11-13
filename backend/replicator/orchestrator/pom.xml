@@ -12,7 +12,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>org.apache.hadoop.explorer</groupId>
+    <groupId>io.github.balookrd.pristan</groupId>
     <artifactId>replicator-orchestrator</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
@@ -31,21 +31,21 @@
     <dependencies>
         <!-- Common Security Starter (Auth, Kerberos, LDAP, JWT, SessionStore) -->
         <dependency>
-            <groupId>org.apache.hadoop.explorer</groupId>
+            <groupId>io.github.balookrd.pristan</groupId>
             <artifactId>common-security-starter</artifactId>
             <version>1.0.0</version>
         </dependency>
 
         <!-- Общие wire-контракты: control plane и data plane .proto -->
         <dependency>
-            <groupId>org.apache.hadoop.explorer</groupId>
+            <groupId>io.github.balookrd.pristan</groupId>
             <artifactId>replicator-proto</artifactId>
             <version>1.0.0</version>
         </dependency>
 
         <!-- Общие с агентом DTO, HMS-модель, аттестация задач -->
         <dependency>
-            <groupId>org.apache.hadoop.explorer</groupId>
+            <groupId>io.github.balookrd.pristan</groupId>
             <artifactId>replicator-model</artifactId>
             <version>1.0.0</version>
         </dependency>
@@ -201,7 +201,7 @@
                             <rules>
                                 <bannedDependencies>
                                     <excludes>
-                                        <exclude>org.apache.hadoop.explorer:replicator-agent</exclude>
+                                        <exclude>io.github.balookrd.pristan:replicator-agent</exclude>
                                     </excludes>
                                     <searchTransitive>true</searchTransitive>
                                     <message>replicator-orchestrator must not depend on replicator-agent: share code through replicator-proto / replicator-model</message>

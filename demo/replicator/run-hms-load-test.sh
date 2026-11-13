@@ -20,7 +20,7 @@ ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:8005}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-7200}"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.hms-load.yml)
 SERVICES=(kdc hdfs-cluster-1 hdfs-cluster-2 sql-hive-metastore sql-hive-metastore-2 orchestrator agent-dc1 agent-dc2)
-TOOL=(java -Xmx512m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx512m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 SRC_LOCATION="hdfs://hdfs-cluster-1:9000/warehouse/${DB}.db/${TABLE}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }

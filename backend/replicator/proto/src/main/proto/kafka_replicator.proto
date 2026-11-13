@@ -3,7 +3,7 @@ syntax = "proto3";
 package replicator.kafka;
 
 option java_multiple_files = true;
-option java_package = "org.apache.hadoop.explorer.replicator.kafka.generated";
+option java_package = "io.github.balookrd.pristan.replicator.kafka.generated";
 option java_outer_classname = "KafkaReplicatorProto";
 
 // Сервис передачи потоковых данных и синхронизации Kafka между дата-центрами

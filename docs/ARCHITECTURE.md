@@ -68,10 +68,10 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 ## 3. Подсистема безопасности (`backend/common-security-starter`)
 
 ### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и `AuthController`
-1. `AuthController` (`org.apache.hadoop.explorer.common.api.AuthController`):
+1. `AuthController` (`io.github.balookrd.pristan.common.api.AuthController`):
    - Регистрирует во всех сервисах одинаковые эндпоинты аутентификации: `POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`.
    - Продлевает сессию при активности пользователя (sliding session), выставляет cookie с `HttpOnly`, поддерживает mock-пользователей и вход через LDAP/Kerberos.
-2. `KerberosSpnegoService` (`org.apache.hadoop.explorer.common.auth`):
+2. `KerberosSpnegoService` (`io.github.balookrd.pristan.common.auth`):
    - Проверяет SPNEGO-билет браузера из заголовка `Authorization: Negotiate ...` через Java GSS-API (`org.ietf.jgss`) и извлекает principal пользователя (`user@REALM`).
    - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (YARN Explorer — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
 3. LDAPS / Active Directory: проверка пароля через `LdapAuthService` с экранированием фильтров (`escapeLdapFilter`, защита от LDAP Injection, CWE-90) и чтением групп из атрибута `memberOf`.
@@ -113,7 +113,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
   - `Referrer-Policy` не выставляется.
 
 ### 3.6 Состав стартера безопасности
-Все сервисы подключают стартер `org.apache.hadoop.explorer:common-security-starter`:
+Все сервисы подключают стартер `io.github.balookrd.pristan:common-security-starter`:
 - Spring Boot 3 AutoConfiguration: `SecurityFilterChain`, `CommonAuthFilter`, CORS, TLS Customizer и контроллеры регистрируются через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
 - Kerberos SPNEGO SSO на Java GSS-API (`org.ietf.jgss`) без сторонних библиотек.
 - LDAPS / Active Directory с экранированием фильтров (CWE-90).
@@ -146,7 +146,7 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 - Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml), описание метрик — в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Circuit Breaker
-- В стартере есть класс `SimpleCircuitBreaker` (`org.apache.hadoop.explorer.common.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
+- В стартере есть класс `SimpleCircuitBreaker` (`io.github.balookrd.pristan.common.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
 - Ни один сервис `SimpleCircuitBreaker` не создает: вызовы NameNode, ResourceManager и Livy им не защищены, при недоступности кластера запрос ждет сетевого таймаута клиента.
 - HA failover реализован в клиентах сервисов:
   - YARN Explorer (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.

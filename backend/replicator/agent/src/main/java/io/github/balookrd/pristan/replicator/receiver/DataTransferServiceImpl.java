@@ -1,0 +1,1217 @@
+package io.github.balookrd.pristan.replicator.receiver;
+
+import com.google.protobuf.ByteString;
+import io.grpc.stub.ServerCallStreamObserver;
+import io.grpc.stub.StreamObserver;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import io.github.balookrd.pristan.replicator.compression.WireCompressor;
+import io.github.balookrd.pristan.replicator.fs.HadoopFsManager;
+import io.github.balookrd.pristan.replicator.sender.TarStreamPipeline;
+import io.github.balookrd.pristan.replicator.generated.*;
+import io.github.balookrd.pristan.replicator.metrics.AgentMetrics;
+import io.github.balookrd.pristan.replicator.shaper.LocalBandwidthLimiter;
+import org.apache.hadoop.io.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * gRPC Servicer сервиса DataTransferService для приема файлов и атомарного коммита в HDFS/FS.
+ */
+public class DataTransferServiceImpl extends DataTransferServiceGrpc.DataTransferServiceImplBase implements AutoCloseable {
+
+    private static final Logger logger = LoggerFactory.getLogger(DataTransferServiceImpl.class);
+
+    private final String stagingDir;
+    private final HadoopFsManager fsManager;
+    private final LocalBandwidthLimiter bandwidthLimiter;
+    private final String keytabPath;
+    private final ExecutorService bundleCommitExecutor;
+    private final ExecutorService tarUnpackExecutor;
+    /** Предел числа запомненных каталогов для очистки осиротевших staging-файлов. */
+    static final int MAX_KNOWN_TARGET_DIRECTORIES = 2000;
+
+    /**
+     * Каталоги, в которые приемник писал, — для поиска осиротевших staging-файлов.
+     *
+     * <p>Набор ограничен и вытесняет давно не встречавшиеся каталоги: прежняя версия росла без
+     * предела, а планировщик рекурсивно обходил каждый накопленный каталог. На потоке мелких
+     * файлов это утечка памяти приемника и шторм RPC к NameNode каждые несколько минут по
+     * каталогам, в которых давно ничего не происходит. Обращение к каталогу обновляет его
+     * позицию, поэтому активные каталоги не вытесняются.
+     */
+    private final Set<String> knownTargetDirectories = Collections.synchronizedSet(
+            Collections.newSetFromMap(
+                    new LinkedHashMap<String, Boolean>(MAX_KNOWN_TARGET_DIRECTORIES, 0.75f, true) {
+                        @Override
+                        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                            return size() > MAX_KNOWN_TARGET_DIRECTORIES;
+                        }
+                    }
+            )
+    );
+    private final int bundleCommitConcurrency;
+    private final int maxConcurrentTarStreams;
+    private final int tarPipeBufferBytes;
+    private final Semaphore tarStreamSemaphore;
+    private final long tarStreamAcquireTimeoutMs;
+
+    /** Предельное время ожидания очередного чанка бандла от отправителя. */
+    private static final long CHUNK_STREAM_IDLE_TIMEOUT_MS = 120_000L;
+    private final String agentSecret;
+    private final boolean enforceTaskAttestation;
+    private final io.github.balookrd.pristan.replicator.security.TaskAttestationValidator attestationValidator;
+
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
+            int tarPipeBufferBytes,
+            long tarStreamAcquireTimeoutMs,
+            String agentSecret,
+            boolean enforceTaskAttestation
+    ) {
+        this.stagingDir = stagingDir != null ? stagingDir : "/tmp/staging";
+        this.fsManager = fsManager;
+        this.bandwidthLimiter = bandwidthLimiter;
+        this.keytabPath = keytabPath;
+        this.bundleCommitConcurrency = bundleCommitConcurrency > 0 ? bundleCommitConcurrency : 8;
+        this.maxConcurrentTarStreams = maxConcurrentTarStreams > 0 ? maxConcurrentTarStreams : 16;
+        this.tarPipeBufferBytes = tarPipeBufferBytes > 0 ? tarPipeBufferBytes : 2 * 1024 * 1024;
+        this.tarStreamAcquireTimeoutMs = tarStreamAcquireTimeoutMs > 0 ? tarStreamAcquireTimeoutMs : 60_000L;
+        this.agentSecret = agentSecret;
+        this.enforceTaskAttestation = enforceTaskAttestation;
+        this.attestationValidator = new io.github.balookrd.pristan.replicator.security.TaskAttestationValidator(this.agentSecret, this.enforceTaskAttestation);
+        this.tarStreamSemaphore = new Semaphore(this.maxConcurrentTarStreams, true);
+        this.bundleCommitExecutor = Executors.newFixedThreadPool(this.bundleCommitConcurrency, r -> {
+            Thread t = new Thread(r, "bundle-hdfs-committer");
+            t.setDaemon(true);
+            return t;
+        });
+        this.tarUnpackExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("tar-stream-unpacker-", 0).factory()
+        );
+
+        File dir = new File(this.stagingDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+    }
+
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
+            int tarPipeBufferBytes,
+            long tarStreamAcquireTimeoutMs
+    ) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, tarStreamAcquireTimeoutMs, null, false);
+    }
+
+    public DataTransferServiceImpl(
+            String stagingDir,
+            HadoopFsManager fsManager,
+            LocalBandwidthLimiter bandwidthLimiter,
+            String keytabPath,
+            int bundleCommitConcurrency,
+            int maxConcurrentTarStreams,
+            int tarPipeBufferBytes
+    ) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, maxConcurrentTarStreams, tarPipeBufferBytes, 60_000L, null, false);
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024, 60_000L, null, false);
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath, int bundleCommitConcurrency, String agentSecret, boolean enforceTaskAttestation) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, bundleCommitConcurrency, 16, 2 * 1024 * 1024, 60_000L, agentSecret, enforceTaskAttestation);
+    }
+
+    public void recordTargetDirectory(String path) {
+        if (path == null || path.isBlank()) return;
+        String dir = path;
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash > 0) {
+            dir = path.substring(0, lastSlash);
+        }
+        // Повторное добавление обновляет позицию каталога в LRU: порядок доступа освежает put,
+        // а contains() — нет, поэтому проверять перед добавлением нельзя
+        knownTargetDirectories.add(dir);
+    }
+
+    public int cleanOrphanedStaging(long ttlMillis) {
+        int totalDeleted = 0;
+        // Копия: обход идет с вызовами к NameNode, и держать замок набора на это время нельзя
+        List<String> directories;
+        synchronized (knownTargetDirectories) {
+            directories = new ArrayList<>(knownTargetDirectories);
+        }
+        for (String dir : directories) {
+            try {
+                totalDeleted += fsManager.cleanStagingFiles(dir, null, ttlMillis, null, true);
+            } catch (Exception e) {
+                logger.warn("Ошибка очистки осиротевших staging-файлов в {}: {}", dir, e.getMessage());
+            }
+        }
+        if (totalDeleted > 0) {
+            AgentMetrics.getInstance().recordStagingOrphansCleaned(totalDeleted);
+        }
+        return totalDeleted;
+    }
+
+    public Set<String> getKnownTargetDirectories() {
+        return knownTargetDirectories;
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter, String keytabPath) {
+        this(stagingDir, fsManager, bandwidthLimiter, keytabPath, 8);
+    }
+
+    public DataTransferServiceImpl(String stagingDir, HadoopFsManager fsManager, LocalBandwidthLimiter bandwidthLimiter) {
+        this(stagingDir, fsManager, bandwidthLimiter, null, 8);
+    }
+
+    public int getMaxConcurrentTarStreams() {
+        return maxConcurrentTarStreams;
+    }
+
+    public int getTarPipeBufferBytes() {
+        return tarPipeBufferBytes;
+    }
+
+    public int getAvailableTarStreamSlots() {
+        return tarStreamSemaphore.availablePermits();
+    }
+
+    public int getActiveTarStreamsCount() {
+        return maxConcurrentTarStreams - tarStreamSemaphore.availablePermits();
+    }
+
+    public String getAgentSecret() {
+        return agentSecret;
+    }
+
+    public boolean isEnforceTaskAttestation() {
+        return attestationValidator.isEnforceTaskAttestation();
+    }
+
+    private void validateTaskAttestation(FileMetadata metadata) {
+        attestationValidator.validateTaskAttestation(metadata);
+    }
+
+    private void validateTaskAttestation(TarStreamMetadata metadata) {
+        attestationValidator.validateTaskAttestation(metadata);
+    }
+
+    /**
+     * Отказ read-пробы по политике безопасности отдельным статусом.
+     *
+     * <p>Раньше отвергнутый путь выглядел для отправителя как отсутствующий файл: доступ к
+     * данным не открывался, но отказ было не отличить от пустой цели, и отправитель планировал
+     * полное копирование. Возвращаем {@code PERMISSION_DENIED} и пишем отказ в лог.
+     *
+     * @return {@code true}, если путь отвергнут и ответ уже отправлен
+     */
+    private boolean refuseUnsafePath(String rpc, String path, StreamObserver<?> responseObserver) {
+        try {
+            fsManager.validateSandboxAccess(path);
+            return false;
+        } catch (RuntimeException e) {
+            logger.warn("Отказ {} по политике безопасности для пути '{}': {}", rpc, path, e.getMessage());
+            responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                    .withDescription("Путь отвергнут политикой безопасности приемника: " + e.getMessage())
+                    .asRuntimeException());
+            return true;
+        }
+    }
+
+    @Override
+    public void checkFile(CheckFileRequest request, StreamObserver<CheckFileResponse> responseObserver) {
+        if (refuseUnsafePath("checkFile", request.getPath(), responseObserver)) {
+            return;
+        }
+        try {
+            String path = request.getPath();
+            boolean exists = fsManager.exists(path);
+            long size = 0L;
+            long mtime = 0L;
+            boolean isDir = false;
+
+            if (exists) {
+                isDir = fsManager.isDirectory(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                if (!isDir) {
+                    size = fsManager.getFileSize(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                    mtime = fsManager.getFileModificationTime(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+                }
+            }
+
+            CheckFileResponse response = CheckFileResponse.newBuilder()
+                    .setExists(exists)
+                    .setSize(size)
+                    .setModificationTime(mtime)
+                    .setIsDirectory(isDir)
+                    .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.warn("Ошибка при проверке файла {}: {}", request.getPath(), e.getMessage());
+            responseObserver.onNext(CheckFileResponse.newBuilder()
+                    .setExists(false)
+                    .setSize(0L)
+                    .setModificationTime(0L)
+                    .setIsDirectory(false)
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public void getDirectoryManifest(DirectoryManifestRequest request, StreamObserver<DirectoryManifestResponse> responseObserver) {
+        if (refuseUnsafePath("getDirectoryManifest", request.getPath(), responseObserver)) {
+            return;
+        }
+        try {
+            String path = request.getPath();
+            if (HadoopFsManager.isIgnoredDirectoryPath(path)) {
+                logger.info("Запрошенный каталог '{}' игнорируется согласно фильтру временных папок", path);
+                responseObserver.onNext(DirectoryManifestResponse.newBuilder().setExists(true).build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            boolean exists = fsManager.exists(path);
+            if (!exists) {
+                responseObserver.onNext(DirectoryManifestResponse.newBuilder()
+                        .setExists(false)
+                        .build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            List<HadoopFsManager.FileItem> items = fsManager.listFilesRecursively(
+                    path,
+                    request.getExecutionPrincipal(),
+                    request.getRunAsServiceAccount()
+            );
+
+            DirectoryManifestResponse.Builder builder = DirectoryManifestResponse.newBuilder().setExists(true);
+            for (HadoopFsManager.FileItem item : items) {
+                builder.addFiles(FileManifestEntry.newBuilder()
+                        .setRelativePath(item.relativePath())
+                        .setSize(item.size())
+                        .setModificationTime(item.modificationTime())
+                        .build());
+            }
+
+            logger.info("Сформирован манифест каталога '{}' для удаленного агента: {} файлов", path, items.size());
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.warn("Ошибка при получении манифеста каталога {}: {}", request.getPath(), e.getMessage());
+            responseObserver.onNext(DirectoryManifestResponse.newBuilder()
+                    .setExists(false)
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public StreamObserver<TransferFileRequest> transferFile(StreamObserver<TransferFileResponse> responseObserver) {
+        class TransferFileObserver implements StreamObserver<TransferFileRequest> {
+
+            private FileMetadata metadata = null;
+            private String stagingPath = null;
+            private OutputStream outputStream = null;
+            private long bytesWritten = 0;
+            private MessageDigest sha256Digest = null;
+            /** SHA-256 of the file as read by the sender, from the trailing chunk; null if not sent. */
+            private String senderChecksum = null;
+            private final java.util.concurrent.atomic.AtomicBoolean stagingTracked = new java.util.concurrent.atomic.AtomicBoolean(false);
+            private final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            {
+                try {
+                    sha256Digest = MessageDigest.getInstance("SHA-256");
+                } catch (NoSuchAlgorithmException e) {
+                    logger.error("Алгоритм SHA-256 не найден в JVM: {}", e.getMessage());
+                }
+            }
+
+            @Override
+            public void onNext(TransferFileRequest request) {
+                if (cancelled.get()) {
+                    return;
+                }
+                try {
+                    // 1. Прием метаданных файла (первое сообщение в потоке)
+                    if (request.hasMetadata()) {
+                        metadata = request.getMetadata();
+                        validateTaskAttestation(metadata);
+                        HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
+                        fsManager.validateSandboxAccess(metadata.getTargetPath());
+                        recordTargetDirectory(metadata.getTargetPath());
+                        // Прямой staging в целевой HDFS/ФС (targetPath._staging_<jobId>) без промежуточного локального диска
+                        stagingPath = metadata.getTargetPath() + "._staging_" + metadata.getJobId();
+                        // Предварительная очистка на случай оставшегося файла от предыдущей попытки
+                        fsManager.deletePath(stagingPath, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
+                        outputStream = fsManager.openOutputStreamForWrite(
+                                stagingPath,
+                                metadata.getExecutionPrincipal(),
+                                metadata.getRunAsServiceAccount()
+                        );
+                        AgentMetrics.getInstance().recordStagingFileStart();
+                        stagingTracked.set(true);
+                        logger.info("Начат прямой прием файла job_id={}: '{}' -> '{}' (staging: '{}')",
+                                metadata.getJobId(), metadata.getSourcePath(), metadata.getTargetPath(), stagingPath);
+                    }
+                    // 2. Прием бинарного чанка данных
+                    else if (request.hasChunk()) {
+                        FileChunk chunk = request.getChunk();
+                        if (outputStream == null || metadata == null) {
+                            logger.error("Чанк получен до метаданных файла для job_id={}", chunk.getJobId());
+                            responseObserver.onNext(TransferFileResponse.newBuilder()
+                                    .setJobId(chunk.getJobId())
+                                    .setSuccess(false)
+                                    .setBytesWritten(0)
+                                    .setMessage("Ошибка протокола: чанк передан до метаданных файла")
+                                    .build());
+                            responseObserver.onCompleted();
+                            return;
+                        }
+
+                        if (!chunk.getFileChecksum().isEmpty()) {
+                            senderChecksum = chunk.getFileChecksum();
+                        }
+
+                        ByteString data = chunk.getData();
+                        if (!data.isEmpty()) {
+                            byte[] rawBytes = data.toByteArray();
+                            if (bandwidthLimiter != null) {
+                                bandwidthLimiter.throttle(rawBytes.length);
+                            }
+                            byte[] bytes = WireCompressor.decompress(
+                                    rawBytes,
+                                    chunk.getCompressionCodec(),
+                                    chunk.getUncompressedSize()
+                            );
+                            outputStream.write(bytes);
+                            if (sha256Digest != null) {
+                                sha256Digest.update(bytes);
+                            }
+                            bytesWritten += bytes.length;
+                            AgentMetrics.getInstance().recordStagingBytes(bytes.length);
+                        }
+                    }
+                } catch (SecurityException se) {
+                    logger.error("Нарушение безопасности при передаче файла: {}", se.getMessage());
+                    cleanup();
+                    cancelled.set(true);
+                    responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                            .withDescription(se.getMessage())
+                            .asRuntimeException());
+                } catch (Exception e) {
+                    logger.error("Ошибка при обработке чанка репликации: {}", e.getMessage(), e);
+                    cleanup();
+                    responseObserver.onError(e);
+                }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                logger.warn("Прерван gRPC поток передачи файла: {}", t.getMessage());
+                cleanup();
+            }
+
+            @Override
+            public void onCompleted() {
+                if (cancelled.get()) {
+                    logger.warn("Передача файла job_id={} отменена, коммит пропущен", metadata != null ? metadata.getJobId() : "unknown");
+                    return;
+                }
+                if (metadata == null || outputStream == null) {
+                    responseObserver.onNext(TransferFileResponse.newBuilder()
+                            .setJobId("unknown")
+                            .setSuccess(false)
+                            .setBytesWritten(0)
+                            .setMessage("Пустой поток: метаданные не были получены")
+                            .build());
+                    responseObserver.onCompleted();
+                    return;
+                }
+
+                try {
+                    outputStream.flush();
+                    outputStream.close();
+                    outputStream = null;
+
+                    if (cancelled.get()) {
+                        logger.warn("Передача файла job_id={} отменена перед renameFile, коммит пропущен", metadata.getJobId());
+                        cleanup();
+                        return;
+                    }
+
+                    String checksum = sha256Digest != null ? bytesToHex(sha256Digest.digest()) : "";
+
+                    // Сверка с заявленным в метаданных: без нее усеченная передача коммитилась
+                    // как успешная и вставала поверх валидного файла. Отправитель объявляет
+                    // размер в метаданных, контрольную сумму — если считал ее на своей стороне.
+                    long declaredBytes = metadata.getTotalBytes();
+                    if (declaredBytes > 0 && bytesWritten != declaredBytes) {
+                        throw new IOException("Принято " + bytesWritten + " байт вместо заявленных "
+                                + declaredBytes + " для '" + metadata.getTargetPath() + "': коммит отменен");
+                    }
+                    // The sender reports its SHA-256 in the trailing chunk; metadata.checksum is the
+                    // older way and is filled only by callers that knew the digest in advance
+                    String declaredChecksum = senderChecksum != null ? senderChecksum : metadata.getChecksum();
+                    if (requireSenderChecksum && (declaredChecksum == null || declaredChecksum.isBlank())) {
+                        throw new IOException("Отправитель не передал контрольную сумму файла '"
+                                + metadata.getTargetPath() + "': коммит отменен (REPLICATOR_REQUIRE_CHECKSUM=true)");
+                    }
+                    if (declaredChecksum != null && !declaredChecksum.isBlank()
+                            && !declaredChecksum.equalsIgnoreCase(checksum)) {
+                        throw new IOException("Контрольная сумма принятого файла '" + metadata.getTargetPath()
+                                + "' не совпала с заявленной: получено " + checksum
+                                + ", ожидалось " + declaredChecksum);
+                    }
+
+                    // Атрибуты источника ставятся на staging-файл до коммита: rename их сохраняет,
+                    // а сбой прав или mtime отменяет коммит, а не оставляет файл с чужими атрибутами
+                    fsManager.applyAttributes(stagingPath, attributesFromMetadata(metadata),
+                            metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
+
+                    // Атомарный rename из staging в целевой файл в HDFS/ФС
+                    boolean renamed = fsManager.renameFile(
+                            stagingPath,
+                            metadata.getTargetPath(),
+                            metadata.getExecutionPrincipal(),
+                            metadata.getRunAsServiceAccount()
+                    );
+
+                    if (!renamed) {
+                        throw new IOException("Не удалось выполнить renameFile: " + stagingPath + " -> " + metadata.getTargetPath());
+                    }
+
+                    if (stagingTracked.compareAndSet(true, false)) {
+                        AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
+                    }
+
+                    logger.info("Файл успешно принят и закоммичен в HDFS: job_id={}, байт={}, sha256={}, path='{}'",
+                            metadata.getJobId(), bytesWritten, checksum, metadata.getTargetPath());
+
+                    TransferFileResponse response = TransferFileResponse.newBuilder()
+                            .setJobId(metadata.getJobId())
+                            .setSuccess(true)
+                            .setBytesWritten(bytesWritten)
+                            .setTargetPath(metadata.getTargetPath())
+                            .setChecksum(checksum)
+                            .setMessage("Файл успешно принят и сохранен в: " + metadata.getTargetPath())
+                            .build();
+
+                    responseObserver.onNext(response);
+                    responseObserver.onCompleted();
+                } catch (Exception e) {
+                    logger.error("Ошибка при атомарном коммите принятого файла: {}", e.getMessage(), e);
+                    cleanup();
+                    responseObserver.onNext(TransferFileResponse.newBuilder()
+                            .setJobId(metadata.getJobId())
+                            .setSuccess(false)
+                            .setBytesWritten(bytesWritten)
+                            .setMessage("Ошибка коммита файла: " + e.getMessage())
+                            .build());
+                    responseObserver.onCompleted();
+                }
+            }
+
+            void cleanup() {
+                cancelled.set(true);
+                if (stagingTracked.compareAndSet(true, false)) {
+                    AgentMetrics.getInstance().recordStagingFileComplete(bytesWritten);
+                }
+                if (outputStream != null) {
+                    try {
+                        outputStream.close();
+                    } catch (IOException ignored) {}
+                    outputStream = null;
+                }
+                if (stagingPath != null && metadata != null) {
+                    fsManager.deletePath(stagingPath, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
+                }
+            }
+        }
+
+        TransferFileObserver observer = new TransferFileObserver();
+        if (responseObserver instanceof ServerCallStreamObserver<TransferFileResponse> serverCallStreamObserver) {
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                logger.warn("Клиент прервал (CANCELLED) gRPC вызов передачи файла");
+                io.github.balookrd.pristan.replicator.metrics.AgentMetrics.getInstance().recordTransferCancelled();
+                observer.cleanup();
+            });
+        }
+        return observer;
+    }
+
+    @Override
+    public StreamObserver<TarStreamRequest> transferTarStream(StreamObserver<TarStreamResponse> responseObserver) {
+        class TarStreamObserver implements StreamObserver<TarStreamRequest> {
+
+            private TarStreamMetadata metadata = null;
+            private ChunkStreamBuffer chunkBuffer = null;
+            private CompletableFuture<TarStreamResponse> unpackFuture = null;
+            private long bytesReceived = 0;
+            private final Set<String> activeStagingPaths = ConcurrentHashMap.newKeySet();
+            private final Map<String, Long> activeStagingSizes = new ConcurrentHashMap<>();
+            private final Set<String> activeWrittenPaths = ConcurrentHashMap.newKeySet();
+            private final Set<String> verifiedDirectories = ConcurrentHashMap.newKeySet();
+            private final AtomicBoolean permitAcquired = new AtomicBoolean(false);
+            private final AtomicBoolean cancelled = new AtomicBoolean(false);
+            private final List<CompletableFuture<Void>> commitFutures = Collections.synchronizedList(new ArrayList<>());
+            /** SHA-256 of the uncompressed tar stream as received. */
+            private final MessageDigest tarDigest = newSha256();
+            /** Trailer chunk of the sender; null if the sender did not send one. */
+            private TarStreamChunk trailer = null;
+            /** Completed when the sender closed the stream: the unpacker commits only after that. */
+            private final CompletableFuture<TarStreamEnd> streamEnd = new CompletableFuture<>();
+
+            private void releasePermit() {
+                if (permitAcquired.compareAndSet(true, false)) {
+                    tarStreamSemaphore.release();
+                    logger.debug("Освобожден слот семафора TAR-распаковки (доступно: {}/{})",
+                            tarStreamSemaphore.availablePermits(), maxConcurrentTarStreams);
+                }
+            }
+
+            @Override
+            public void onNext(TarStreamRequest request) {
+                if (cancelled.get()) {
+                    return;
+                }
+                try {
+                    // 1. Метаданные бандла (первое сообщение в потоке)
+                    if (request.hasMetadata()) {
+                        metadata = request.getMetadata();
+                        validateTaskAttestation(metadata);
+                        HadoopFsManager.validatePrincipalSafety(metadata.getExecutionPrincipal());
+                        fsManager.validateSandboxAccess(metadata.getBaseTargetPath());
+                        recordTargetDirectory(metadata.getBaseTargetPath());
+
+                        // Ограничение пула памяти: захват слота семафора для TAR-распаковки
+                        boolean acquired = false;
+                        try {
+                            acquired = tarStreamSemaphore.tryAcquire(tarStreamAcquireTimeoutMs, TimeUnit.MILLISECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            logger.warn("Прервано ожидание слота памяти TAR-распаковки для task_id={}", metadata.getTaskId());
+                        }
+
+                        if (!acquired) {
+                            String errMsg = "Пул памяти TAR-распаковки перегружен: превышен лимит параллельных потоков ("
+                                    + maxConcurrentTarStreams + ") или тайм-аут ожидания слота";
+                            logger.error(errMsg + " для task_id={}", metadata.getTaskId());
+                            responseObserver.onNext(TarStreamResponse.newBuilder()
+                                    .setTaskId(metadata.getTaskId())
+                                    .setSuccess(false)
+                                    .setMessage(errMsg)
+                                    .build());
+                            responseObserver.onCompleted();
+                            return;
+                        }
+                        permitAcquired.set(true);
+
+                        chunkBuffer = new ChunkStreamBuffer(tarPipeBufferBytes, CHUNK_STREAM_IDLE_TIMEOUT_MS);
+
+                        final TarStreamMetadata meta = metadata;
+                        final InputStream inStream = chunkBuffer.inputStream();
+
+                        // Ограничение параллелизма in-flight коммитов файлов одного бандла для сдерживания памяти
+                        final int MAX_BUNDLE_BUFFER_BYTES = 16 * 1024 * 1024; // 16 МБ максимум на стрим
+                        final Semaphore memoryLimiter = new Semaphore(MAX_BUNDLE_BUFFER_BYTES);
+                        final Semaphore fileCommitLimiter = new Semaphore(Math.max(2, bundleCommitConcurrency * 2));
+
+                        // Потоковая распаковка виртуального TAR-стрима и параллельный Zero-Staging коммит в HDFS в изолированном пуле
+                        unpackFuture = CompletableFuture.supplyAsync(() -> {
+                            List<TarFileCommitResult> results = new CopyOnWriteArrayList<>();
+                            List<StagedTarFile> staged = new CopyOnWriteArrayList<>();
+                            AtomicInteger committedCount = new AtomicInteger(0);
+                            AtomicLong totalBytesWritten = new AtomicLong(0);
+
+                            try (TarArchiveInputStream tarIn = new TarArchiveInputStream(new BufferedInputStream(inStream, 64 * 1024))) {
+                                TarArchiveEntry entry;
+                                while ((entry = tarIn.getNextTarEntry()) != null) {
+                                    if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                        logger.warn("Распаковка TAR прервана из-за отмены task_id={}", meta.getTaskId());
+                                        break;
+                                    }
+                                    if (entry.isDirectory()) {
+                                        continue;
+                                    }
+                                    String relPath = entry.getName();
+                                    long entrySize = entry.getSize();
+                                    if (entrySize > 8 * 1024 * 1024L) {
+                                        throw new SecurityException("Размер файла '" + relPath + "' в TAR-бандле превышает лимит 8 МБ: " + entrySize);
+                                    }
+                                    final int estimatedBytes = (int) Math.max(32 * 1024, Math.min(entrySize > 0 ? entrySize : 64 * 1024, MAX_BUNDLE_BUFFER_BYTES));
+                                    try {
+                                        memoryLimiter.acquire(estimatedBytes);
+                                        fileCommitLimiter.acquire();
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new IOException("Прервано ожидание слота памяти для коммита файла: " + relPath, ie);
+                                    }
+
+                                    ByteArrayOutputStream baos = new ByteArrayOutputStream((int) Math.max(0, Math.min(entrySize > 0 ? entrySize : 64 * 1024, 8 * 1024 * 1024)));
+                                    byte[] readBuf = new byte[32768];
+                                    int r;
+                                    long totalRead = 0;
+                                    while ((r = tarIn.read(readBuf)) != -1) {
+                                        totalRead += r;
+                                        if (totalRead > 8 * 1024 * 1024L) {
+                                            throw new SecurityException("Превышен лимит размера (8 МБ) при чтении файла '" + relPath + "' из TAR-архива (Tar Bomb)");
+                                        }
+                                        baos.write(readBuf, 0, r);
+                                    }
+                                    byte[] fileData = baos.toByteArray();
+
+                                    String targetPath = combinePaths(meta.getBaseTargetPath(), relPath);
+                                    fsManager.validateSandboxAccess(targetPath);
+                                    String stagingPath = targetPath + "._staging_" + meta.getJobId();
+                                    activeStagingPaths.add(stagingPath);
+                                    final HadoopFsManager.FileAttributes sourceAttributes = attributesFromPax(entry);
+
+                                    CompletableFuture<Void> fut = CompletableFuture.runAsync(() -> {
+                                        if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                            activeStagingPaths.remove(stagingPath);
+                                            return;
+                                        }
+                                        try {
+                                            // 1. Потоковая запись в staging-файл (защита от мусора при kill -9 / OOM)
+                                            fsManager.writeDirect(
+                                                    stagingPath,
+                                                    fileData,
+                                                    meta.getExecutionPrincipal(),
+                                                    meta.getRunAsServiceAccount(),
+                                                    verifiedDirectories
+                                            );
+                                            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                                try {
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                } catch (Exception ignored) {}
+                                                activeStagingPaths.remove(stagingPath);
+                                                return;
+                                            }
+
+                                            // 2. Атрибуты источника ставятся на staging-файл: rename их сохраняет
+                                            fsManager.applyAttributes(stagingPath, sourceAttributes,
+                                                    meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+
+                                            // Rename откладывается до конца потока и сверки с отправителем
+                                            staged.add(new StagedTarFile(relPath, stagingPath, targetPath, fileData.length));
+                                        } catch (Exception e) {
+                                            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                                                try {
+                                                    fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                                } catch (Exception ignored) {}
+                                                activeStagingPaths.remove(stagingPath);
+                                                return;
+                                            }
+                                            logger.error("Ошибка при staging-коммите файла {} в HDFS: {}", targetPath, e.getMessage(), e);
+                                            try {
+                                                fsManager.deletePath(stagingPath, meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                            } catch (Exception ignored) {}
+                                            activeStagingPaths.remove(stagingPath);
+                                            results.add(TarFileCommitResult.newBuilder()
+                                                    .setRelativePath(relPath)
+                                                    .setTargetPath(targetPath)
+                                                    .setBytesWritten(0)
+                                                    .setSuccess(false)
+                                                    .setErrorMessage(e.getMessage() != null ? e.getMessage() : "Unknown I/O error")
+                                                    .build());
+                                        } finally {
+                                            fileCommitLimiter.release();
+                                            memoryLimiter.release(estimatedBytes);
+                                        }
+                                    }, bundleCommitExecutor);
+                                    commitFutures.add(fut);
+                                }
+
+
+                                try {
+                                    CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0])).join();
+                                } catch (Exception e) {
+                                    if (cancelled.get()) {
+                                        logger.warn("Ожидание коммитов TAR-бандла прервано отменой task_id={}", meta.getTaskId());
+                                    } else {
+                                        throw e;
+                                    }
+                                }
+
+                                if (cancelled.get()) {
+                                    return TarStreamResponse.newBuilder()
+                                            .setTaskId(meta.getTaskId())
+                                            .setSuccess(false)
+                                            .setFilesCommitted(committedCount.get())
+                                            .setBytesWritten(totalBytesWritten.get())
+                                            .setMessage("Передача TAR-бандла отменена (cancelled)")
+                                            .addAllFiles(results)
+                                            .build();
+                                }
+
+                                // Фаза 2: сверка с отправителем, затем rename всех файлов бандла из staging
+                                TarStreamEnd end = streamEnd.get(CHUNK_STREAM_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                                String mismatch = end.mismatch(staged.size() + results.size(), requireSenderChecksum);
+                                if (mismatch != null) {
+                                    throw new IOException(mismatch + ": ни один файл бандла не закоммичен");
+                                }
+                                List<CompletableFuture<Void>> renames = new ArrayList<>(staged.size());
+                                for (StagedTarFile file : staged) {
+                                    renames.add(CompletableFuture.runAsync(() -> {
+                                        try {
+                                            boolean renamed = fsManager.renameFile(file.stagingPath(), file.targetPath(),
+                                                    meta.getExecutionPrincipal(), meta.getRunAsServiceAccount());
+                                            if (!renamed) {
+                                                throw new IOException("renameFile вернул false: " + file.stagingPath()
+                                                        + " -> " + file.targetPath());
+                                            }
+                                            activeStagingPaths.remove(file.stagingPath());
+                                            activeWrittenPaths.add(file.targetPath());
+                                            committedCount.incrementAndGet();
+                                            totalBytesWritten.addAndGet(file.bytes());
+                                            results.add(TarFileCommitResult.newBuilder()
+                                                    .setRelativePath(file.relativePath())
+                                                    .setTargetPath(file.targetPath())
+                                                    .setBytesWritten(file.bytes())
+                                                    .setSuccess(true)
+                                                    .build());
+                                        } catch (Exception e) {
+                                            logger.error("Ошибка коммита файла {} из staging: {}", file.targetPath(), e.getMessage(), e);
+                                            results.add(TarFileCommitResult.newBuilder()
+                                                    .setRelativePath(file.relativePath())
+                                                    .setTargetPath(file.targetPath())
+                                                    .setBytesWritten(0)
+                                                    .setSuccess(false)
+                                                    .setErrorMessage(e.getMessage() != null ? e.getMessage() : "Unknown I/O error")
+                                                    .build());
+                                        }
+                                    }, bundleCommitExecutor));
+                                }
+                                CompletableFuture.allOf(renames.toArray(new CompletableFuture[0])).join();
+
+                                boolean allOk = results.stream().allMatch(TarFileCommitResult::getSuccess);
+                                return TarStreamResponse.newBuilder()
+                                        .setTaskId(meta.getTaskId())
+                                        .setSuccess(allOk)
+                                        .setStreamChecksum(end.receiverChecksum())
+                                        .setFilesCommitted(committedCount.get())
+                                        .setBytesWritten(totalBytesWritten.get())
+                                        .setMessage(allOk ? "Все файлы виртуального TAR-стрима успешно сохранены напрямую в HDFS" : "Часть файлов завершилась ошибкой")
+                                        .addAllFiles(results)
+                                        .build();
+                            } catch (Exception e) {
+                                logger.error("Ошибка потоковой распаковки TAR-архива task_id={}: {}", meta.getTaskId(), e.getMessage(), e);
+                                return TarStreamResponse.newBuilder()
+                                        .setTaskId(meta.getTaskId())
+                                        .setSuccess(false)
+                                        .setFilesCommitted(committedCount.get())
+                                        .setBytesWritten(totalBytesWritten.get())
+                                        .setMessage("Ошибка распаковки TAR: " + e.getMessage())
+                                        .addAllFiles(results)
+                                        .build();
+                            }
+                        }, tarUnpackExecutor);
+
+                        logger.info("Начат прием виртуального TAR-стрима task_id={}, job_id={}, файлов={}, суммарный объем={} (буфер: {} КБ, активно слотов: {}/{})",
+                                metadata.getTaskId(), metadata.getJobId(), metadata.getTotalFiles(), metadata.getTotalBytes(),
+                                tarPipeBufferBytes / 1024, maxConcurrentTarStreams - tarStreamSemaphore.availablePermits(), maxConcurrentTarStreams);
+                    }
+                    // 2. Чанк данных архива
+                    else if (request.hasChunk()) {
+                        TarStreamChunk chunk = request.getChunk();
+                        if (chunkBuffer == null || metadata == null) {
+                            logger.error("Чанк TAR получен до метаданных task_id={}", chunk.getTaskId());
+                            cleanup();
+                            responseObserver.onNext(TarStreamResponse.newBuilder()
+                                    .setTaskId(chunk.getTaskId())
+                                    .setSuccess(false)
+                                    .setMessage("Ошибка протокола: чанк передан до метаданных бандла")
+                                    .build());
+                            responseObserver.onCompleted();
+                            return;
+                        }
+                        if (!chunk.getStreamChecksum().isEmpty()) {
+                            trailer = chunk;
+                        }
+                        ByteString data = chunk.getData();
+                        if (!data.isEmpty()) {
+                            byte[] rawBytes = data.toByteArray();
+                            if (bandwidthLimiter != null) {
+                                bandwidthLimiter.throttle(rawBytes.length);
+                            }
+                            byte[] bytes = WireCompressor.decompress(
+                                    rawBytes,
+                                    chunk.getCompressionCodec(),
+                                    chunk.getUncompressedSize()
+                            );
+                            tarDigest.update(bytes);
+                            chunkBuffer.write(bytes);
+                            bytesReceived += rawBytes.length;
+                        }
+                    }
+                } catch (SecurityException se) {
+                    logger.error("Нарушение безопасности при передаче TAR-стрима: {}", se.getMessage());
+                    cleanup();
+                    cancelled.set(true);
+                    releasePermit();
+                    responseObserver.onError(io.grpc.Status.PERMISSION_DENIED
+                            .withDescription(se.getMessage())
+                            .asRuntimeException());
+                } catch (Exception e) {
+                    logger.error("Ошибка при обработке чанка TAR-стрима: {}", e.getMessage(), e);
+                    cleanup();
+                    responseObserver.onError(e);
+                }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                logger.warn("Прерван gRPC поток TAR-стрима: {}", t.getMessage());
+                cleanup();
+            }
+
+            @Override
+            public void onCompleted() {
+                if (cancelled.get()) {
+                    logger.warn("Виртуальный TAR-стрим task_id={} был отменен, финализация пропущена", metadata != null ? metadata.getTaskId() : "unknown");
+                    cleanup();
+                    return;
+                }
+                if (metadata == null || chunkBuffer == null || unpackFuture == null) {
+                    cleanup();
+                    responseObserver.onNext(TarStreamResponse.newBuilder()
+                            .setTaskId(metadata != null ? metadata.getTaskId() : "unknown")
+                            .setSuccess(false)
+                            .setMessage("Пустой поток: метаданные бандла не были получены")
+                            .build());
+                    responseObserver.onCompleted();
+                    return;
+                }
+
+                try {
+                    streamEnd.complete(new TarStreamEnd(
+                            trailer != null ? trailer.getStreamChecksum() : null,
+                            bytesToHex(tarDigest.digest()),
+                            trailer != null ? trailer.getFilesSent() : -1));
+                    chunkBuffer.complete();
+                    TarStreamResponse response = unpackFuture.get(120, TimeUnit.SECONDS);
+                    if (response.getSuccess()) {
+                        activeWrittenPaths.clear();
+                    }
+                    logger.info("Виртуальный TAR-стрим task_id={} завершен: успешно={}, файлов={}, байт={}",
+                            metadata.getTaskId(), response.getSuccess(), response.getFilesCommitted(), response.getBytesWritten());
+                    responseObserver.onNext(response);
+                    responseObserver.onCompleted();
+                } catch (CancellationException ce) {
+                    logger.warn("Распаковка TAR-стрима task_id={} была отменена", metadata.getTaskId());
+                    responseObserver.onNext(TarStreamResponse.newBuilder()
+                            .setTaskId(metadata.getTaskId())
+                            .setSuccess(false)
+                            .setMessage("Передача прервана: cancelled")
+                            .build());
+                    responseObserver.onCompleted();
+                } catch (Exception e) {
+                    logger.error("Ошибка ожидания распаковки TAR-стрима task_id={}: {}", metadata.getTaskId(), e.getMessage(), e);
+                    responseObserver.onNext(TarStreamResponse.newBuilder()
+                            .setTaskId(metadata.getTaskId())
+                            .setSuccess(false)
+                            .setMessage("Ошибка распаковки бандла: " + e.getMessage())
+                            .build());
+                    responseObserver.onCompleted();
+                } finally {
+                    cleanup();
+                }
+            }
+
+            void cleanup() {
+                cancelled.set(true);
+                streamEnd.cancel(false);
+                releasePermit();
+                if (chunkBuffer != null) {
+                    chunkBuffer.close();
+                    chunkBuffer = null;
+                }
+                if (unpackFuture != null && !unpackFuture.isDone()) {
+                    unpackFuture.cancel(true);
+                }
+                for (CompletableFuture<Void> fut : commitFutures) {
+                    if (!fut.isDone()) {
+                        fut.cancel(true);
+                    }
+                }
+                commitFutures.clear();
+                // Закоммиченные через rename файлы НЕ удаляются: они уже принадлежат целевому
+                // кластеру, а их удаление уничтожило бы и прежнюю версию пользовательских данных.
+                // Повторная передача бандла идемпотентна и перезапишет их штатным путем.
+                if (!activeWrittenPaths.isEmpty()) {
+                    logger.info("Откат бандла: {} уже закоммиченных файлов сохранены, будут перезаписаны при повторной передаче",
+                            activeWrittenPaths.size());
+                    activeWrittenPaths.clear();
+                }
+                for (String staging : activeStagingPaths) {
+                    try {
+                        if (metadata != null) {
+                            fsManager.deletePath(staging, metadata.getExecutionPrincipal(), metadata.getRunAsServiceAccount());
+                        } else {
+                            fsManager.deletePath(staging, null, true);
+                        }
+                        logger.debug("Очищен незавершенный staging-файл бандла: {}", staging);
+                    } catch (Exception ignored) {}
+                    Long sz = activeStagingSizes.remove(staging);
+                    if (sz != null) {
+                        AgentMetrics.getInstance().recordStagingFileComplete(sz);
+                    }
+                }
+                activeStagingPaths.clear();
+                activeStagingSizes.clear();
+            }
+        }
+
+        TarStreamObserver observer = new TarStreamObserver();
+        if (responseObserver instanceof ServerCallStreamObserver<TarStreamResponse> serverCallStreamObserver) {
+            serverCallStreamObserver.setOnCancelHandler(() -> {
+                logger.warn("Клиент прервал (CANCELLED) gRPC вызов виртуального TAR-стрима");
+                io.github.balookrd.pristan.replicator.metrics.AgentMetrics.getInstance().recordTransferCancelled();
+                observer.cleanup();
+            });
+        }
+        return observer;
+    }
+
+    @Override
+    public void renamePath(RenamePathRequest request, StreamObserver<RenamePathResponse> responseObserver) {
+        String src = request.getSourcePath();
+        String dst = request.getTargetPath();
+        logger.info("[gRPC Receiver] Запрос атомарного переименования: '{}' -> '{}' (job_id={})", src, dst, request.getJobId());
+
+        try {
+            fsManager.validateSandboxAccess(src);
+            fsManager.validateSandboxAccess(dst);
+            boolean success = fsManager.renameFile(src, dst, request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+            responseObserver.onNext(RenamePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(success)
+                    .setMessage(success ? "Путь успешно переименован" : "Не удалось переименовать путь в целевой ФС")
+                    .build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.error("[gRPC Receiver] Ошибка переименования '{}' -> '{}': {}", src, dst, e.getMessage(), e);
+            responseObserver.onNext(RenamePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(false)
+                    .setMessage("Ошибка переименования: " + e.getMessage())
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public void deletePath(DeletePathRequest request, StreamObserver<DeletePathResponse> responseObserver) {
+        String path = request.getPath();
+        logger.info("[gRPC Receiver] Запрос удаления пути: '{}' (recursive={}, job_id={})", path, request.getRecursive(), request.getJobId());
+
+        try {
+            if (path == null || path.trim().isEmpty() || path.trim().equals("/") || path.trim().equals("/user")
+                    || path.trim().equals("/tmp") || path.trim().equals("/etc") || path.trim().equals("/system")) {
+                throw new SecurityException("Запрещено удаление системного или корневого каталога: " + path);
+            }
+            fsManager.validateSandboxAccess(path);
+            // Удаление идемпотентно: задача удаления повторяется после сбоя и может прийти для
+            // пути, который на приемник не попадал. Сбой проверки существования — исключение, не «пути нет»
+            if (!fsManager.exists(path, request.getExecutionPrincipal(), request.getRunAsServiceAccount())) {
+                responseObserver.onNext(DeletePathResponse.newBuilder()
+                        .setJobId(request.getJobId())
+                        .setSuccess(true)
+                        .setMessage("Путь уже отсутствует")
+                        .build());
+                responseObserver.onCompleted();
+                return;
+            }
+            boolean success = fsManager.deletePath(path, request.getRecursive(), request.getExecutionPrincipal(), request.getRunAsServiceAccount());
+            responseObserver.onNext(DeletePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(success)
+                    .setMessage(success ? "Путь успешно удален" : "Путь не найден или не удален")
+                    .build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            logger.error("[gRPC Receiver] Ошибка удаления '{}': {}", path, e.getMessage(), e);
+            responseObserver.onNext(DeletePathResponse.newBuilder()
+                    .setJobId(request.getJobId())
+                    .setSuccess(false)
+                    .setMessage("Ошибка удаления: " + e.getMessage())
+                    .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    /** Refuse to commit a file or a bundle whose sender sent no checksum (a sender of an older release). */
+    private volatile boolean requireSenderChecksum = false;
+
+    public void setRequireSenderChecksum(boolean requireSenderChecksum) {
+        this.requireSenderChecksum = requireSenderChecksum;
+    }
+
+    /** A bundle file written to staging and waiting for the commit phase. */
+    private record StagedTarFile(String relativePath, String stagingPath, String targetPath, long bytes) {
+    }
+
+    /**
+     * What is known when the sender closed the tar stream.
+     *
+     * @param senderChecksum   SHA-256 from the sender trailer, null if the sender sent none
+     * @param receiverChecksum SHA-256 of the stream as received
+     * @param filesSent        entries the sender wrote, -1 if unknown
+     */
+    private record TarStreamEnd(String senderChecksum, String receiverChecksum, int filesSent) {
+        /**
+         * Reason the bundle must not be committed, or null. A sender without the trailer is
+         * refused when the checksum is required and not checked otherwise.
+         */
+        String mismatch(int filesUnpacked, boolean requireSenderChecksum) {
+            if (senderChecksum == null) {
+                return requireSenderChecksum
+                        ? "Отправитель не передал контрольную сумму TAR-потока (REPLICATOR_REQUIRE_CHECKSUM=true)"
+                        : null;
+            }
+            if (!senderChecksum.equalsIgnoreCase(receiverChecksum)) {
+                return "Контрольная сумма TAR-потока не совпала с заявленной: получено " + receiverChecksum
+                        + ", ожидалось " + senderChecksum;
+            }
+            if (filesSent >= 0 && filesUnpacked != filesSent) {
+                return "Из TAR-потока распаковано " + filesUnpacked + " файлов вместо отправленных " + filesSent;
+            }
+            return null;
+        }
+    }
+
+    private static HadoopFsManager.FileAttributes attributesFromMetadata(FileMetadata metadata) {
+        Map<String, byte[]> xattrs = new java.util.HashMap<>();
+        metadata.getXattrsMap().forEach((name, value) -> xattrs.put(name, value.toByteArray()));
+        return new HadoopFsManager.FileAttributes(metadata.getFileMode(), metadata.getModificationTime(),
+                metadata.getOwner(), metadata.getGroup(), metadata.getReplication(),
+                metadata.getAclEntriesList(), xattrs);
+    }
+
+    /** Source attributes the sender put into PAX headers; null for a sender that sends none. */
+    private static HadoopFsManager.FileAttributes attributesFromPax(TarArchiveEntry entry) {
+        Map<String, String> pax = entry.getExtraPaxHeaders();
+        String mtime = pax.get(TarStreamPipeline.PAX_MTIME_MS);
+        if (mtime == null) {
+            return null;
+        }
+        String mode = pax.get(TarStreamPipeline.PAX_MODE);
+        String replication = pax.get(TarStreamPipeline.PAX_REPLICATION);
+        String acl = pax.get(TarStreamPipeline.PAX_ACL);
+        Map<String, byte[]> xattrs = new java.util.HashMap<>();
+        pax.forEach((name, value) -> {
+            if (name.startsWith(TarStreamPipeline.PAX_XATTR_PREFIX)) {
+                xattrs.put(name.substring(TarStreamPipeline.PAX_XATTR_PREFIX.length()),
+                        java.util.Base64.getDecoder().decode(value));
+            }
+        });
+        return new HadoopFsManager.FileAttributes(
+                mode != null ? Integer.parseInt(mode) : 0,
+                Long.parseLong(mtime),
+                pax.get(TarStreamPipeline.PAX_OWNER),
+                pax.get(TarStreamPipeline.PAX_GROUP),
+                replication != null ? Integer.parseInt(replication) : 0,
+                acl != null && !acl.isBlank() ? List.of(acl.split(",")) : List.of(),
+                xattrs);
+    }
+
+    private static MessageDigest newSha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available in this JVM", e);
+        }
+    }
+
+    public static String combinePaths(String base, String rel) {
+        if (base == null || base.isEmpty()) base = "/";
+        if (rel == null || rel.isEmpty()) return base;
+
+        String uriPrefix = "";
+        String basePathStr = base;
+        int schemeIdx = base.indexOf("://");
+        if (schemeIdx != -1) {
+            int firstSlashAfterScheme = base.indexOf('/', schemeIdx + 3);
+            if (firstSlashAfterScheme != -1) {
+                uriPrefix = base.substring(0, firstSlashAfterScheme);
+                basePathStr = base.substring(firstSlashAfterScheme);
+            } else {
+                uriPrefix = base;
+                basePathStr = "/";
+            }
+        }
+
+        // Защита от Path Traversal / Zip Slip (CWE-22):
+        String cleanRel = rel.replace('\\', '/').replaceAll("^/+", "");
+        java.nio.file.Path basePath = java.nio.file.Paths.get(basePathStr).normalize();
+        java.nio.file.Path resolvedPath = basePath.resolve(cleanRel).normalize();
+
+        if (!resolvedPath.startsWith(basePath)) {
+            throw new SecurityException("Попытка Path Traversal (Zip Slip) обнаружена в TAR-записи: '"
+                    + rel + "' пытается выйти за пределы базовой директории '" + base + "'");
+        }
+
+        String result = resolvedPath.toString().replace('\\', '/');
+        if (basePathStr.startsWith("/") && !result.startsWith("/")) {
+            result = "/" + result;
+        }
+        return uriPrefix + result;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public void close() {
+        if (bundleCommitExecutor != null && !bundleCommitExecutor.isShutdown()) {
+            bundleCommitExecutor.shutdown();
+            try {
+                bundleCommitExecutor.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+        if (tarUnpackExecutor != null && !tarUnpackExecutor.isShutdown()) {
+            tarUnpackExecutor.shutdown();
+            try {
+                tarUnpackExecutor.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+    }
+}

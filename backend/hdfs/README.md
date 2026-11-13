@@ -9,7 +9,7 @@
 ### Структура проекта
 ```
 backend/hdfs/
-├── pom.xml                   # Maven-проект (org.apache.hadoop.explorer:hdfs-explorer-java:1.0.0)
+├── pom.xml                   # Maven-проект (io.github.balookrd.pristan:hdfs-explorer-java:1.0.0)
 ├── src/
 │   ├── main/
 │   │   ├── java/             # Контроллеры, Сервисы, Клиенты, Сущности, Модели

@@ -65,7 +65,7 @@ Spring Boot стартер аутентификации, сессий, CSRF-за
 
 ```xml
 <dependency>
-    <groupId>org.apache.hadoop.explorer</groupId>
+    <groupId>io.github.balookrd.pristan</groupId>
     <artifactId>common-security-starter</artifactId>
     <version>1.0.0</version>
 </dependency>

@@ -1,0 +1,317 @@
+package io.github.balookrd.pristan.replicator.orchestrator.security;
+
+import io.github.balookrd.pristan.common.model.Role;
+import io.github.balookrd.pristan.common.model.UserSession;
+import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.replicator.orchestrator.controller.JobController;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateJobRequest;
+import io.github.balookrd.pristan.replicator.orchestrator.dto.JobResponse;
+import io.github.balookrd.pristan.replicator.orchestrator.registry.AgentRegistry;
+import io.github.balookrd.pristan.replicator.orchestrator.service.JobService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@DisplayName("Orchestrator Security & Authorization P0 Tests")
+class JobSecurityAuthorizationTest {
+
+    private JobService jobService;
+    private JobController controller;
+
+    private CommonAuthenticationToken adminAuth;
+    private CommonAuthenticationToken writerAuth;
+    private CommonAuthenticationToken readerAuth;
+
+    @BeforeEach
+    void setUp() {
+        jobService = mock(JobService.class);
+        controller = new JobController(jobService);
+
+        UserSession adminSession = new UserSession(
+                "admin_user", "Admin", "admin@corp.local",
+                List.of("admins"), "KERBEROS", true, Role.ADMIN
+        );
+        adminAuth = new CommonAuthenticationToken(adminSession);
+
+        UserSession writerSession = new UserSession(
+                "engineer_bob", "Bob", "bob@corp.local",
+                List.of("engineers"), "LDAP", false, Role.WRITER
+        );
+        writerAuth = new CommonAuthenticationToken(writerSession);
+
+        UserSession readerSession = new UserSession(
+                "auditor_alice", "Alice", "alice@corp.local",
+                List.of("auditors"), "LDAP", false, Role.READER
+        );
+        readerAuth = new CommonAuthenticationToken(readerSession);
+    }
+
+    @Test
+    @DisplayName("Auth Bypass: неаутентифицированный вызов createJob отклоняется с кодом 401 UNAUTHORIZED")
+    void testUnauthenticatedCreateJobRejected() {
+        CreateJobRequest request = new CreateJobRequest(
+                "/data/src", "/data/dst", "dc1", "dc2", 100L,
+                "some_user@REALM.LOCAL", false, false, null, 20, "STANDARD", null, "MANUAL"
+        );
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.createJob(request, null);
+        });
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        verify(jobService, never()).createJob(any(), any());
+    }
+
+    @Test
+    @DisplayName("RBAC: роль READER не имеет права создавать задачи (код 403 FORBIDDEN)")
+    void testReaderCannotCreateJob() {
+        CreateJobRequest request = new CreateJobRequest(
+                "/data/src", "/data/dst", "dc1", "dc2", 100L,
+                "auditor_alice@REALM.LOCAL", false, false, null, 20, "STANDARD", null, "MANUAL"
+        );
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.createJob(request, readerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).createJob(any(), any());
+    }
+
+    @Test
+    @DisplayName("Privilege Escalation: обычный пользователь (WRITER) не может подменить executionPrincipal на чужой (hdfs)")
+    void testWriterCannotImpersonateOtherPrincipal() {
+        CreateJobRequest request = new CreateJobRequest(
+                "/data/src", "/data/dst", "dc1", "dc2", 100L,
+                "hdfs@REALM.LOCAL", true, false, null, 20, "STANDARD", null, "MANUAL"
+        );
+
+        when(jobService.createJob(any(), any())).thenReturn(mock(JobResponse.class));
+
+        controller.createJob(request, writerAuth);
+
+        ArgumentCaptor<CreateJobRequest> reqCaptor = ArgumentCaptor.forClass(CreateJobRequest.class);
+        ArgumentCaptor<String> userCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jobService).createJob(reqCaptor.capture(), userCaptor.capture());
+
+        CreateJobRequest capturedReq = reqCaptor.getValue();
+        // executionPrincipal принудительно переписан на имя аутентифицированного пользователя
+        assertEquals("engineer_bob@REALM.LOCAL", capturedReq.executionPrincipal());
+        // runAsServiceAccount для non-admin сброшен в false
+        assertFalse(capturedReq.runAsServiceAccount());
+        assertEquals("engineer_bob", userCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("Admin Impersonation: Администратор может явно указывать executionPrincipal")
+    void testAdminCanSpecifyExecutionPrincipal() {
+        CreateJobRequest request = new CreateJobRequest(
+                "/data/src", "/data/dst", "dc1", "dc2", 100L,
+                "etl_service@REALM.LOCAL", true, false, null, 20, "STANDARD", null, "MANUAL"
+        );
+
+        when(jobService.createJob(any(), any())).thenReturn(mock(JobResponse.class));
+
+        controller.createJob(request, adminAuth);
+
+        ArgumentCaptor<CreateJobRequest> reqCaptor = ArgumentCaptor.forClass(CreateJobRequest.class);
+        verify(jobService).createJob(reqCaptor.capture(), eq("admin_user"));
+
+        CreateJobRequest capturedReq = reqCaptor.getValue();
+        assertEquals("etl_service@REALM.LOCAL", capturedReq.executionPrincipal());
+        assertTrue(capturedReq.runAsServiceAccount());
+    }
+
+    @Test
+    @DisplayName("Timing Attack: AgentRegistry.verifySecret выполняет constant-time валидацию")
+    void testAgentRegistryVerifySecretConstantTime() {
+        var props = new io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties();
+        props.setAgentSecret("super-secret-cluster-token-12345");
+        AgentRegistry registry = new AgentRegistry(props, new io.github.balookrd.pristan.replicator.orchestrator.topology.TopologyRegistry(props));
+
+        assertDoesNotThrow(() -> registry.verifySecret("super-secret-cluster-token-12345"));
+        assertThrows(SecurityException.class, () -> registry.verifySecret("wrong-secret"));
+        assertThrows(SecurityException.class, () -> registry.verifySecret("super-secret-cluster-token-1234X"));
+        assertThrows(SecurityException.class, () -> registry.verifySecret(""));
+        assertThrows(SecurityException.class, () -> registry.verifySecret(null));
+    }
+
+    @Test
+    @DisplayName("Fail-Closed Security: AgentRegistry при enforceAgentSecret=true запрещает пустой секрет")
+    void testAgentRegistryEnforceSecretBlocksEmptySecret() {
+        var props = new io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties();
+        props.setEnforceAgentSecret(true);
+        props.setAgentSecret("");
+        AgentRegistry registry = new AgentRegistry(props, new io.github.balookrd.pristan.replicator.orchestrator.topology.TopologyRegistry(props));
+
+        assertThrows(IllegalStateException.class, registry::initSecurityValidation);
+        assertThrows(SecurityException.class, () -> registry.verifySecret("any-secret"));
+    }
+
+    @Test
+    @DisplayName("IDOR Protection: READER не имеет права обновлять прогресс задачи (403 FORBIDDEN)")
+    void testReaderCannotUpdateJobProgress() {
+        io.github.balookrd.pristan.replicator.model.UpdateJobRequest updateReq =
+                new io.github.balookrd.pristan.replicator.model.UpdateJobRequest("RUNNING", 100L, 500L, "progress");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.updateJobProgress("job-123", updateReq, readerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).updateJobProgress(any(), any());
+    }
+
+    @Test
+    @DisplayName("IDOR Protection: WRITER не может обновлять прогресс чужой задачи (403 FORBIDDEN)")
+    void testWriterCannotUpdateOtherUsersJobProgress() {
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity otherJob =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        otherJob.setId("job-other");
+        otherJob.setCreatedBy("stranger_external_user");
+
+        when(jobService.getJobEntity("job-other")).thenReturn(java.util.Optional.of(otherJob));
+
+        io.github.balookrd.pristan.replicator.model.UpdateJobRequest updateReq =
+                new io.github.balookrd.pristan.replicator.model.UpdateJobRequest("FAILED", 0L, 500L, "hacked");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.updateJobProgress("job-other", updateReq, writerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).updateJobProgress(any(), any());
+    }
+
+    @Test
+    @DisplayName("Agent Auth: системный агент (system_agent) может обновлять прогресс задачи")
+    void testAgentCanUpdateJobProgress() {
+        UserSession agentSession = new UserSession(
+                "system_agent", "Agent Daemon", "agent@cluster.local",
+                List.of("replicator-agents"), "SECRET", true, Role.ADMIN
+        );
+        CommonAuthenticationToken agentAuth = new CommonAuthenticationToken(agentSession);
+
+        io.github.balookrd.pristan.replicator.model.UpdateJobRequest updateReq =
+                new io.github.balookrd.pristan.replicator.model.UpdateJobRequest("RUNNING", 500L, 500L, "all chunks copied");
+
+        when(jobService.updateJobProgress(eq("job-123"), any())).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.updateJobProgress("job-123", updateReq, agentAuth);
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).updateJobProgress(eq("job-123"), eq(updateReq));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: чужой пользователь не может просматривать детали чужой задачи (403 FORBIDDEN)")
+    void testStrangerCannotReadOtherUsersJob() {
+        UserSession strangerSession = new UserSession(
+                "stranger_dave", "Dave", "dave@corp.local",
+                List.of("analytics"), "LDAP", false, Role.WRITER
+        );
+        CommonAuthenticationToken strangerAuth = new CommonAuthenticationToken(strangerSession);
+
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity job =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.getJob("job-secret-999", null, strangerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).getJob(eq("job-secret-999"));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: создатель задачи может просматривать свои задачи (200 OK)")
+    void testCreatorCanReadOwnJob() {
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity job =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJob("job-secret-999")).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.getJob("job-secret-999", null, writerAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJob("job-secret-999");
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Read Protection: администратор (ADMIN) может просматривать любые задачи (200 OK)")
+    void testAdminCanReadAnyJob() {
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity job =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJob("job-secret-999")).thenReturn(java.util.Optional.of(mock(JobResponse.class)));
+
+        var resp = controller.getJob("job-secret-999", null, adminAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJob("job-secret-999");
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Protection: чужой пользователь не может просматривать историю запусков (403 FORBIDDEN)")
+    void testStrangerCannotReadOtherUsersJobRuns() {
+        UserSession strangerSession = new UserSession(
+                "stranger_dave", "Dave", "dave@corp.local",
+                List.of("analytics"), "LDAP", false, Role.WRITER
+        );
+        CommonAuthenticationToken strangerAuth = new CommonAuthenticationToken(strangerSession);
+
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity job =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> {
+            controller.getJobRuns("job-secret-999", null, strangerAuth);
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(jobService, never()).getJobRuns(eq("job-secret-999"));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR Protection: создатель задачи может просматривать историю своих запусков (200 OK)")
+    void testCreatorCanReadOwnJobRuns() {
+        io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity job =
+                new io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity();
+        job.setId("job-secret-999");
+        job.setCreatedBy("engineer_bob");
+
+        when(jobService.getJobEntity("job-secret-999")).thenReturn(java.util.Optional.of(job));
+        when(jobService.getJobRuns("job-secret-999")).thenReturn(List.of());
+
+        var resp = controller.getJobRuns("job-secret-999", null, writerAuth);
+
+        assertNotNull(resp);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        verify(jobService).getJobRuns("job-secret-999");
+    }
+}

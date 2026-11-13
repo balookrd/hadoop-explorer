@@ -24,7 +24,7 @@ DB="${HA_DB:-hatest}"
 NODE1="http://localhost:8005"
 NODE2="http://localhost:8006"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.hms-load.yml -f docker-compose.hms31.yml -f docker-compose.ha.yml)
-TOOL=(java -Xmx512m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx512m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 SRC_LOCATION="hdfs://hdfs-cluster-1:9000/warehouse/${DB}.db/events"
 FAILED=0
 

@@ -30,7 +30,7 @@ PREFIX="${LAG_PREFIX:-lagrst}"
 TABLE="events"
 NODE="${ORCHESTRATOR_URL:-http://localhost:8005}"
 WAREHOUSE="hdfs://hdfs-cluster-1:9000/warehouse"
-TOOL=(java -Xmx512m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx512m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 SNAPSHOT=/tmp/metastore-before-load.dump
 FAILED=0
 

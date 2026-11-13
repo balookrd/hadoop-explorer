@@ -25,6 +25,6 @@ if ! command -v hadoop &> /dev/null; then
 fi
 
 echo "==> Отправка Replicator Agent в YARN ResourceManager..."
-hadoop jar "${JAR_FILE}" org.apache.hadoop.explorer.replicator.yarn.ReplicatorYarnClient \
+hadoop jar "${JAR_FILE}" io.github.balookrd.pristan.replicator.yarn.ReplicatorYarnClient \
     --jar "${JAR_FILE}" \
     "$@"

@@ -5,8 +5,8 @@
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.apache.hadoop.explorer</groupId>
-    <artifactId>hadoop-explorer-parent</artifactId>
+    <groupId>io.github.balookrd.pristan</groupId>
+    <artifactId>pristan-parent</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
 

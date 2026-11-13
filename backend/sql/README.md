@@ -8,7 +8,7 @@
 
 ```
 backend/sql/
-├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:sql-explorer-java:1.0.0)
+├── pom.xml                   # Maven проект (io.github.balookrd.pristan:sql-explorer-java:1.0.0)
 ├── src/
 │   ├── main/
 │   │   ├── java/             # Контроллеры, Сервисы, Движки (Trino, Hive), DTO

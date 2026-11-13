@@ -29,7 +29,7 @@ DB="${INOTIFY_DB:-ino31_$(date +%H%M%S)}"
 NODE="${ORCHESTRATOR_URL:-http://localhost:8005}"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.hms-load.yml -f docker-compose.hms31.yml
   -f docker-compose.ha.yml -f docker-compose.hms-pg.yml -f docker-compose.inotify.yml)
-TOOL=(java -Xmx256m -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool)
+TOOL=(java -Xmx256m -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool)
 TABLE_DIR="hdfs://hdfs-cluster-1:9000/warehouse/${DB}.db/sales"
 SRC_DIR="${TABLE_DIR}/dt=2026-10-01"
 DST_DIR="hdfs://hdfs-cluster-2:9000/warehouse/${DB}.db/sales/dt=2026-10-01"

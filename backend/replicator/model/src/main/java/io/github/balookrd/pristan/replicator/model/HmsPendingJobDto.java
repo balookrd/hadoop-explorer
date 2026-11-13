@@ -1,0 +1,113 @@
+package io.github.balookrd.pristan.replicator.model;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record HmsPendingJobDto(
+        String id,
+        String sourceClusterId,
+        String targetClusterId,
+        String sourceDbName,
+        String targetDbName,
+        String tableIncludePattern,
+        boolean dropExtraneousTables,
+        boolean dropExtraneousPartitions,
+        String targetAgentGrpcAddress,
+        String status,
+        Long lastProcessedEventId,
+        String assignedAgentId,
+        String executionPrincipal,
+        boolean enableHdfsStreaming,
+        String companionHdfsJobId,
+        String dbWarehouseLocation,
+        // Исходная позиция журнала прерванного bootstrap и его чекпоинт: продолжение идет с
+        // последней примененной порции, а изменения за перерыв переигрывает CDC с этой позиции
+        Long bootstrapEventId,
+        String bootstrapCheckpoint
+) {
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId,
+            String assignedAgentId,
+            String executionPrincipal,
+            boolean enableHdfsStreaming,
+            String companionHdfsJobId,
+            String dbWarehouseLocation
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName, tableIncludePattern,
+                dropExtraneousTables, dropExtraneousPartitions, targetAgentGrpcAddress, status, lastProcessedEventId,
+                assignedAgentId, executionPrincipal, enableHdfsStreaming, companionHdfsJobId, dbWarehouseLocation,
+                null, null);
+    }
+
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
+                tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
+                targetAgentGrpcAddress, status, lastProcessedEventId, null, null, true, null, null);
+    }
+
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId,
+            String assignedAgentId
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
+                tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
+                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, null, true, null, null);
+    }
+
+    public HmsPendingJobDto(
+            String id,
+            String sourceClusterId,
+            String targetClusterId,
+            String sourceDbName,
+            String targetDbName,
+            String tableIncludePattern,
+            boolean dropExtraneousTables,
+            boolean dropExtraneousPartitions,
+            String targetAgentGrpcAddress,
+            String status,
+            Long lastProcessedEventId,
+            String assignedAgentId,
+            String executionPrincipal
+    ) {
+        this(id, sourceClusterId, targetClusterId, sourceDbName, targetDbName,
+                tableIncludePattern, dropExtraneousTables, dropExtraneousPartitions,
+                targetAgentGrpcAddress, status, lastProcessedEventId, assignedAgentId, executionPrincipal, true, null, null);
+    }
+}

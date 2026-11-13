@@ -8,7 +8,7 @@
 
 ```
 backend/spark/
-├── pom.xml                   # Maven проект (org.apache.hadoop.explorer:spark-explorer-java:1.0.0)
+├── pom.xml                   # Maven проект (io.github.balookrd.pristan:spark-explorer-java:1.0.0)
 ├── src/
 │   ├── main/
 │   │   ├── java/             # Контроллеры, Сервисы, SparkEngine и SparkEngineRegistry, DAG Engine, DTO

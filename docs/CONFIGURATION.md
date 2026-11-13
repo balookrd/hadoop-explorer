@@ -231,7 +231,7 @@ hadoop:
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
 
-Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `org.apache.hadoop.explorer.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится. Веб-интерфейс (`BaseApiClient.request` в `frontend/common/api/client.ts`) при ответе 429 повторяет запрос один раз после паузы из `Retry-After`, если она не больше 5 с; без заголовка или при большей паузе показывает ошибку. Повтор делается для любого метода: 429 выдаётся до обработчика, запрос не выполнялся.
+Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `io.github.balookrd.pristan.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится. Веб-интерфейс (`BaseApiClient.request` в `frontend/common/api/client.ts`) при ответе 429 повторяет запрос один раз после паузы из `Retry-After`, если она не больше 5 с; без заголовка или при большей паузе показывает ошибку. Повтор делается для любого метода: 429 выдаётся до обработчика, запрос не выполнялся.
 
 | Параметр `hadoop.security.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
 |---|---|---|---|
@@ -877,7 +877,7 @@ docker секрета агента не знают, а наблюдают они
 
 ```bash
 java -cp /app/replicator-agent.jar \
-    org.apache.hadoop.explorer.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
+    io.github.balookrd.pristan.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
 ```
 
 Код возврата `0` — `SERVING`, `1` — любое другое состояние или недоступность. Третьим аргументом
@@ -1048,7 +1048,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.7 Планировщик периодических задач (Cron Scheduler)
 
-Планировщик `ReplicationScheduler` (пакет `org.apache.hadoop.explorer.replicator.orchestrator.scheduler`) встроен в оркестратор:
+Планировщик `ReplicationScheduler` (пакет `io.github.balookrd.pristan.replicator.orchestrator.scheduler`) встроен в оркестратор:
 - раз в 5 секунд (`@Scheduled(fixedDelay = 5000)`) выбирает задачи с `is_scheduled = true` и `next_run_at <= now`; при наличии `DistributedLockService` тик выполняется под блокировкой `cron_scheduler_lock`, поэтому в нескольких репликах оркестратора задачу запускает одна;
 - пропускает задачи в статусе `RUNNING`;
 - для остальных:
@@ -1099,7 +1099,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 - Агент передает свой лимит при регистрации и в каждом heartbeat (`configuredBandwidthMbS`). Физическую сеть хостов (4x25G, бонды, L3-маршруты) оркестратор не моделирует; доступная полоса репликации считается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
 - Межброкерная репликация Kafka (ISR) идет внутри ЦОД по выделенным интерфейсам кластера (например, 2x25G) и в расчет межЦОДного шейпинга не входит.
 - Для потоковой репликации Kafka оркестратор рассчитывает число потоков вычитки как $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$, но не больше 32 потоков на одну JVM агента: больше потоков упираются в число сокетов и конкуренцию за CPU. Размер микробатча — от 10 000 до 50 000 сообщений (`batch.max.bytes` до 16 МБ).
-- Алгоритм — Token Bucket (`LocalBandwidthLimiter`, пакет `org.apache.hadoop.explorer.replicator.shaper`) с burst-буфером 0,5 с. Метод `throttle(bytes)` блокирует вызывающий поток (`Thread.sleep`) на время, нужное для накопления токенов; `reserve(bytes)` только списывает токены и возвращает время ожидания (используется потоком опроса Kafka).
+- Алгоритм — Token Bucket (`LocalBandwidthLimiter`, пакет `io.github.balookrd.pristan.replicator.shaper`) с burst-буфером 0,5 с. Метод `throttle(bytes)` блокирует вызывающий поток (`Thread.sleep`) на время, нужное для накопления токенов; `reserve(bytes)` только списывает токены и возвращает время ожидания (используется потоком опроса Kafka).
 - Ограничение работает с двух сторон:
   1. Sender (`ReplicationSender`, `TarStreamPipeline`) вызывает `bandwidthLimiter.throttle(wireBytes)` перед отправкой каждого чанка в gRPC;
   2. Receiver (`DataTransferServiceImpl`) вызывает `throttle` при приеме чанков в `transferFile` и `transferTarStream`; окно TCP и flow control HTTP/2 при этом замедляют удаленного отправителя.

@@ -12,7 +12,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>org.apache.hadoop.explorer</groupId>
+    <groupId>io.github.balookrd.pristan</groupId>
     <artifactId>spark-explorer-java</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
@@ -30,7 +30,7 @@
     <dependencies>
         <!-- Общий стартер безопасности платформы Hadoop Explorer -->
         <dependency>
-            <groupId>org.apache.hadoop.explorer</groupId>
+            <groupId>io.github.balookrd.pristan</groupId>
             <artifactId>common-security-starter</artifactId>
             <version>1.0.0</version>
         </dependency>
@@ -106,7 +106,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>org.apache.hadoop.explorer.spark.SparkExplorerApplication</mainClass>
+                    <mainClass>io.github.balookrd.pristan.spark.SparkExplorerApplication</mainClass>
                 </configuration>
             </plugin>
             <plugin>

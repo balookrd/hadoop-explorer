@@ -1,0 +1,793 @@
+package io.github.balookrd.pristan.replicator.agent;
+
+import io.grpc.Server;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.github.balookrd.pristan.replicator.client.OrchestratorGrpcClient;
+import io.github.balookrd.pristan.replicator.fs.HadoopFsManager;
+import io.github.balookrd.pristan.replicator.model.*;
+import io.github.balookrd.pristan.replicator.metrics.AgentMetrics;
+import io.github.balookrd.pristan.replicator.receiver.DataTransferServiceImpl;
+import io.github.balookrd.pristan.replicator.sender.ReplicationSender;
+import io.github.balookrd.pristan.replicator.hms.client.HmsClient;
+import io.github.balookrd.pristan.replicator.hms.client.MockHmsClient;
+import io.github.balookrd.pristan.replicator.shaper.LocalBandwidthLimiter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Универсальный агент репликации Hadoop gRPC на Java (ReplicatorAgent).
+ *
+ * <p>Поддерживает режимы:
+ * <ul>
+ *   <li><b>all</b> (по умолчанию) — полный дуплекс: прием входящих файлов по gRPC (:50051)
+ *       и отправка исходящих файлов из очереди Оркестратора;</li>
+ *   <li><b>sender</b> — только отправка исходящих задач репликации;</li>
+ *   <li><b>receiver</b> — только прием входящих файлов и сохранение в HDFS/FS.</li>
+ * </ul>
+ */
+public class ReplicatorAgent {
+
+    private static final Logger logger = LoggerFactory.getLogger(ReplicatorAgent.class);
+
+    private final ReplicatorAgentConfig config;
+    private final LocalBandwidthLimiter bandwidthLimiter;
+    private final HadoopFsManager fsManager;
+    private final OrchestratorGrpcClient orchestratorClient;
+    private final ReplicationSender sender;
+    private HmsClient hmsClient;
+    private io.github.balookrd.pristan.replicator.hms.service.HmsTaskExecutor hmsTaskExecutor;
+
+    private Server grpcServer;
+    /** Статус для стандартной health-пробы gRPC: балансировщику, kubelet и docker. */
+    private final io.github.balookrd.pristan.replicator.telemetry.GrpcHealth health =
+            new io.github.balookrd.pristan.replicator.telemetry.GrpcHealth();
+    private io.github.balookrd.pristan.replicator.telemetry.AgentTelemetry telemetry;
+    private ScheduledExecutorService heartbeatExecutor;
+    private ScheduledExecutorService stagingCleanupExecutor;
+    private ExecutorService workerTaskPool;
+    private final ExecutorService hmsTaskPool;
+    /**
+     * Анализ заданий в QUEUED параллельно: подзадачи барьера данных (по одной на партицию)
+     * разбирались одним потоком, и CDC с тысячами новых партиций упирался в него. Платформенные
+     * потоки, а не виртуальные: клиент HDFS полон synchronized.
+     */
+    private final ExecutorService analyzerPool;
+    private final Set<String> analyzingJobs = ConcurrentHashMap.newKeySet();
+    private final Set<String> activeRunningHmsJobs = ConcurrentHashMap.newKeySet();
+    private Thread senderThread;
+    private Thread hmsThread;
+    private DataTransferServiceImpl receiverService;
+    private io.github.balookrd.pristan.replicator.inotify.HdfsInotifyListener inotifyListener;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicInteger activeTransfers = new AtomicInteger(0);
+    private final AtomicInteger recentHmsEventsProcessed = new AtomicInteger(0);
+
+    // Кэш gRPC адресов целевых кластеров
+    private final Map<String, String> clusterAddressCache = new ConcurrentHashMap<>();
+    private volatile long lastTopologySyncTime = 0;
+
+    public ReplicatorAgent(ReplicatorAgentConfig config) {
+        this.config = config;
+        this.bandwidthLimiter = new LocalBandwidthLimiter(config.getMaxBandwidthMbS() != null ? config.getMaxBandwidthMbS() : 0.0);
+        this.fsManager = new HadoopFsManager(config.getDefaultFsUri(), config.getKeytabPath(), config.getPrincipal(), config.getLocalSandboxDir());
+        this.hmsTaskPool = Executors.newVirtualThreadPerTaskExecutor();
+        this.analyzerPool = Executors.newFixedThreadPool(Math.max(1, config.getAnalyzerConcurrency()), r -> {
+            Thread t = new Thread(r, "job-analyzer-" + config.getAgentId());
+            t.setDaemon(true);
+            return t;
+        });
+        this.workerTaskPool = Executors.newFixedThreadPool(
+                Math.max(2, config.getBundleCommitConcurrency()),
+                r -> {
+                    Thread t = new Thread(r, "transfer-worker-" + config.getAgentId());
+                    t.setDaemon(true);
+                    return t;
+                }
+        );
+        // Предел распакованного чанка — от настроенного размера чанка: иначе защита от
+        // decompression bomb стоит на три порядка выше реального размера и ничего не ограничивает
+        io.github.balookrd.pristan.replicator.compression.WireCompressor
+                .configureMaxUncompressedChunkSize(config.getChunkSize());
+        this.orchestratorClient = new OrchestratorGrpcClient(
+                config.getOrchestratorGrpcAddress(),
+                config.getAgentSecret(),
+                config.isGrpcTlsEnabled(),
+                config.getGrpcTrustCertCollectionPath(),
+                config.isOrchestratorInsecureSkipVerify()
+        );
+        this.sender = new ReplicationSender(
+                config.getAgentId(),
+                orchestratorClient,
+                fsManager,
+                bandwidthLimiter,
+                config.getChunkSize(),
+                config.isGrpcTlsEnabled(),
+                config.getGrpcTrustCertCollectionPath(),
+                config.getGrpcCertChainPath(),
+                config.getGrpcPrivateKeyPath(),
+                config.isGrpcInsecureSkipVerify(),
+                config.getSmallFileThresholdBytes(),
+                config.getBundleTargetSizeBytes(),
+                config.getMaxBundleFiles(),
+                config.getWireCompressionCodec(),
+                config.getWireCompressionLevel(),
+                config.getAgentSecret(),
+                config.getTokenBatchMinBytes(),
+                config.getTokenBatchMaxBytes()
+        );
+        this.sender.setRequireReceiverChecksum(config.isRequireChecksum());
+
+        // The sender reads the source metastore, the receiver writes the target one
+        if ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode())
+                || "receiver".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())) {
+            this.hmsClient = createHmsClient(config);
+        }
+
+        if (hmsClient != null && ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()))) {
+            var mappings = io.github.balookrd.pristan.replicator.hms.rewriter.HmsPathRewriter.parseMappings(config.getFederationMappings());
+            var pathRewriter = new io.github.balookrd.pristan.replicator.hms.rewriter.HmsPathRewriter(mappings, config.getTargetDefaultFsUri());
+            this.hmsTaskExecutor = new io.github.balookrd.pristan.replicator.hms.service.HmsTaskExecutor(
+                    config.getAgentId(),
+                    config.getClusterId(),
+                    hmsClient,
+                    orchestratorClient,
+                    pathRewriter,
+                    config.isGrpcTlsEnabled(),
+                    config.isGrpcInsecureSkipVerify(),
+                    config.getHmsBootstrapConcurrency(),
+                    config.getHmsPartitionBatchSize(),
+                    config.getAgentSecret(),
+                    config.isHmsDataBarrierEnabled(),
+                    config.getHmsDataBarrierTimeoutSec(),
+                    3
+            );
+        }
+    }
+
+    /**
+     * HMS client by REPLICATOR_HMS_MODE. Without Thrift URIs in the default "auto" mode the agent
+     * does not replicate metadata (no client, no HMS loop) instead of silently serving a built-in
+     * metastore emulator. "mock" and "demo-http" are explicit development-only modes.
+     */
+    static HmsClient createHmsClient(ReplicatorAgentConfig config) {
+        String mode = config.getHmsMode() == null ? "auto" : config.getHmsMode().trim().toLowerCase();
+        boolean hasThriftUris = config.getHmsThriftUris() != null && !config.getHmsThriftUris().isBlank();
+        switch (mode) {
+            case "thrift" -> {
+                if (!hasThriftUris) {
+                    throw new IllegalStateException("REPLICATOR_HMS_MODE=thrift requires HMS_THRIFT_URIS "
+                            + "(thrift://<metastore_host>:9083) for agent '" + config.getAgentId() + "'");
+                }
+                return thriftClient(config);
+            }
+            case "auto" -> {
+                if (hasThriftUris) {
+                    return thriftClient(config);
+                }
+                logger.info("Агент '{}': HMS_THRIFT_URIS не задан, репликация метаданных Hive на агенте отключена",
+                        config.getAgentId());
+                return null;
+            }
+            case "demo-http" -> {
+                logger.warn("Агент '{}': REPLICATOR_HMS_MODE=demo-http, HMS берется из тестового API оркестратора "
+                        + "(replicator.hms.mock-cluster-api.enabled)", config.getAgentId());
+                return new io.github.balookrd.pristan.replicator.hms.client.HttpRemoteHmsClient(
+                        config.getOrchestratorUrl(), config.getClusterId(), config.getAgentSecret(),
+                        config.isOrchestratorInsecureSkipVerify());
+            }
+            case "mock" -> {
+                logger.warn("Агент '{}': REPLICATOR_HMS_MODE=mock, встроенный эмулятор Hive Metastore", config.getAgentId());
+                return new MockHmsClient(config.getClusterId(), config.getHiveVersion());
+            }
+            default -> throw new IllegalStateException("REPLICATOR_HMS_MODE='" + config.getHmsMode()
+                    + "' is not supported; expected auto, thrift, demo-http or mock");
+        }
+    }
+
+    private static HmsClient thriftClient(ReplicatorAgentConfig config) {
+        logger.info("Агент '{}': подключение к Hive Metastore по Thrift: {}", config.getAgentId(), config.getHmsThriftUris());
+        return new io.github.balookrd.pristan.replicator.hms.client.ThriftHmsClient(
+                config.getClusterId(),
+                config.getHmsThriftUris(),
+                config.getHmsKerberosPrincipal(),
+                config.getKeytabPath());
+    }
+
+    public HmsClient getHmsClient() { return hmsClient; }
+    public void setHmsClient(HmsClient hmsClient) { this.hmsClient = hmsClient; }
+    public io.github.balookrd.pristan.replicator.hms.service.HmsTaskExecutor getHmsTaskExecutor() { return hmsTaskExecutor; }
+    public void setHmsTaskExecutor(io.github.balookrd.pristan.replicator.hms.service.HmsTaskExecutor executor) { this.hmsTaskExecutor = executor; }
+
+
+    /**
+     * Запуск всех компонентов агента.
+     */
+    public synchronized void start() throws IOException {
+        if (running.get()) {
+            logger.warn("Агент уже запущен");
+            return;
+        }
+        running.set(true);
+
+        // Трассировка поднимается до первых вызовов, иначе начало работы агента
+        // (регистрация и первый забор задач) в трассу не попадет
+        this.telemetry = io.github.balookrd.pristan.replicator.telemetry.AgentTelemetry
+                .startIfConfigured("replicator-agent", config.getAgentId(), config.getClusterId());
+
+        logger.info("======================================================================");
+        logger.info("Старт Replicator Agent (Java 17): id='{}', cluster='{}', mode='{}'",
+                config.getAgentId(), config.getClusterId(), config.getMode());
+        logger.info("Оркестратор: {}, Advertised gRPC: {}",
+                config.getOrchestratorUrl(), config.getAdvertisedGrpcAddress());
+        if (bandwidthLimiter.isEnabled()) {
+            logger.info("Локальный лимит полосы пропускания: {} МБ/с", bandwidthLimiter.getLimitMbPerSec());
+        }
+        logger.info("======================================================================");
+
+        // 1. Регистрация и Heartbeat
+        if (config.isEnableDynamicRegistration()) {
+            startHeartbeat();
+        }
+
+        // 2. gRPC Receiver Server
+        if ("all".equalsIgnoreCase(config.getMode()) || "receiver".equalsIgnoreCase(config.getMode())) {
+            startReceiverServer();
+        }
+
+        // 3. Sender / Worker / Analyzer Loop
+        if ("all".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode())
+                || "worker".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode())) {
+            startSenderLoop();
+        }
+
+        // 4. HMS Metadata Replication Loop (Bootstrap & CDC)
+        if (hmsTaskExecutor != null && ("all".equalsIgnoreCase(config.getMode()) || "hms".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()))) {
+            startHmsLoop();
+        }
+
+        // 5. Фоновый сборщик мусора HDFS staging-файлов
+        if (config.isStagingCleanupEnabled() && !"streamer".equalsIgnoreCase(config.getMode())) {
+            startStagingCleaner();
+        }
+
+        // 5. HDFS Inotify Streamer Loop (Near-Zero RPO)
+        // Запускается только для специализированных Inotify стримеров (mode="streamer")
+        if ("streamer".equalsIgnoreCase(config.getMode())) {
+            this.inotifyListener = new io.github.balookrd.pristan.replicator.inotify.HdfsInotifyListener(
+                    config, orchestratorClient, fsManager
+            );
+            this.inotifyListener.start();
+        }
+    }
+
+    private void startReceiverServer() throws IOException {
+        this.receiverService = new DataTransferServiceImpl(
+                config.getStagingDir(),
+                fsManager,
+                bandwidthLimiter,
+                config.getKeytabPath(),
+                config.getBundleCommitConcurrency(),
+                config.getMaxConcurrentTarStreams(),
+                config.getTarPipeBufferBytes(),
+                60_000L,
+                config.getAgentSecret(),
+                config.isEnforceTaskAttestation()
+        );
+        this.receiverService.setRequireSenderChecksum(config.isRequireChecksum());
+
+        NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(new InetSocketAddress(config.getReceiverHost(), config.getReceiverPort()))
+                .executor(Executors.newVirtualThreadPerTaskExecutor())
+                .addService(receiverService)
+                .addService(health.service())
+                .maxInboundMessageSize(64 * 1024 * 1024)
+                // Агенты-отправители пингуют приемник каждые 30 с и без вызовов: без разрешения
+                // сервер рвет соединение с GOAWAY (too_many_pings)
+                .permitKeepAliveTime(20, TimeUnit.SECONDS)
+                .permitKeepAliveWithoutCalls(true);
+
+        if (hmsClient != null) {
+            serverBuilder.addService(new io.github.balookrd.pristan.replicator.hms.service.HmsTransferServiceImpl(hmsClient));
+            logger.info("gRPC сервис HmsTransferService успешно зарегистрирован на Receiver сервере");
+        }
+
+        serverBuilder.intercept(
+                io.github.balookrd.pristan.replicator.security.AgentGrpcAuthInterceptor.forServer(config.getAgentSecret()));
+        // Добавляется последним, поэтому выполняется первым: в трассу попадают и
+        // отклоненные аутентификацией вызовы
+        serverBuilder.intercept(io.github.balookrd.pristan.replicator.telemetry.GrpcTracing.serverInterceptor());
+        if (config.getAgentSecret() != null && !config.getAgentSecret().isBlank()) {
+            logger.info("Включена gRPC L7 аутентификация по X-Agent-Secret на Receiver сервере");
+        } else {
+            logger.warn("ВНИМАНИЕ: X-Agent-Secret не задан! gRPC Receiver сервер запущен в режиме Fail-Closed (все запросы будут отклоняться)");
+        }
+
+        if (config.isGrpcTlsEnabled()) {
+            SslContextBuilder sslBuilder;
+            if (config.getGrpcCertChainPath() != null && config.getGrpcPrivateKeyPath() != null) {
+                sslBuilder = SslContextBuilder.forServer(
+                        new File(config.getGrpcCertChainPath()),
+                        new File(config.getGrpcPrivateKeyPath())
+                );
+            } else {
+                logger.info("gRPC TLS включен без сертификатов: генерация SelfSignedCertificate для {}:{}",
+                        config.getReceiverHost(), config.getReceiverPort());
+                String certHost = ("0.0.0.0".equals(config.getReceiverHost()) || "*".equals(config.getReceiverHost()))
+                        ? "localhost" : config.getReceiverHost();
+                try {
+                    SelfSignedCertificate ssc = new SelfSignedCertificate(certHost);
+                    sslBuilder = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey());
+                } catch (Exception e) {
+                    throw new IOException("Не удалось сгенерировать временный сертификат для gRPC TLS: " + e.getMessage(), e);
+                }
+            }
+
+            if (config.getGrpcTrustCertCollectionPath() != null && !config.getGrpcTrustCertCollectionPath().isBlank()) {
+                sslBuilder.trustManager(new File(config.getGrpcTrustCertCollectionPath()));
+            }
+
+            String clientAuth = config.getGrpcClientAuth();
+            if ("REQUIRE".equalsIgnoreCase(clientAuth) || "REQUIRED".equalsIgnoreCase(clientAuth) || "NEED".equalsIgnoreCase(clientAuth)) {
+                sslBuilder.clientAuth(ClientAuth.REQUIRE);
+            } else if ("OPTIONAL".equalsIgnoreCase(clientAuth) || "WANT".equalsIgnoreCase(clientAuth)) {
+                sslBuilder.clientAuth(ClientAuth.OPTIONAL);
+            } else {
+                sslBuilder.clientAuth(ClientAuth.NONE);
+            }
+
+            serverBuilder.sslContext(GrpcSslContexts.configure(sslBuilder).build());
+            logger.info("gRPC TLS активирован на Receiver сервере (mTLS auth: {})", clientAuth != null ? clientAuth : "NONE");
+        }
+
+        this.grpcServer = serverBuilder.build().start();
+        health.serving();
+        health.serving("replicator.DataTransferService");
+
+        logger.info("gRPC Receiver сервер успешно запущен и слушает {}:{} (TLS={})",
+                config.getReceiverHost(), config.getReceiverPort(), config.isGrpcTlsEnabled());
+    }
+
+    private void startHeartbeat() {
+        // Первичная регистрация
+        AgentRegisterRequest regReq = new AgentRegisterRequest(
+                config.getAgentId(),
+                config.getClusterId(),
+                config.getMode(),
+                ("all".equals(config.getMode()) || "receiver".equals(config.getMode())) ? config.getAdvertisedGrpcAddress() : null,
+                null,
+                config.getMaxBandwidthMbS()
+        );
+        orchestratorClient.register(regReq);
+
+        // Периодический keepalive
+        heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "replicator-heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
+
+        long intervalMillis = (long) (Math.max(1.0, config.getPollIntervalSec()) * 1000);
+        heartbeatExecutor.scheduleAtFixedRate(() -> {
+            if (!running.get()) return;
+            try {
+                AgentHeartbeatRequest hbReq = new AgentHeartbeatRequest(
+                        config.getAgentId(),
+                        config.getClusterId(),
+                        config.getAdvertisedGrpcAddress(),
+                        activeTransfers.get(),
+                        config.getMode()
+                );
+                hbReq.setTransferredBytes(sender != null ? sender.getTotalBytesTransferred() : 0L);
+                hbReq.setTransferErrors(sender != null ? sender.getTotalTransferErrors() : 0L);
+                hbReq.setBandwidthLimitMbS(config.getMaxBandwidthMbS());
+
+                AgentMetrics metrics = AgentMetrics.getInstance();
+                hbReq.setCompressionRawBytes(metrics.getTotalRawBytes());
+                hbReq.setCompressionCompressedBytes(metrics.getTotalCompressedBytes());
+                hbReq.setCompressionRatio(metrics.getCompressionRatio());
+                hbReq.setChunkLatencyAvgMs(metrics.getChunkLatencyAvgMs());
+                hbReq.setChunkLatencyMaxMs(metrics.getChunkLatencyMaxMs());
+                hbReq.setChunkTransferCount(metrics.getChunkTransferCount());
+                hbReq.setStagingActiveFiles(metrics.getActiveStagingFiles());
+                hbReq.setStagingActiveBytes(metrics.getActiveStagingBytes());
+                hbReq.setStagingOrphansCleaned(metrics.getTotalOrphansCleaned());
+
+                orchestratorClient.heartbeat(hbReq);
+            } catch (Exception e) {
+                logger.debug("Ошибка отправки heartbeat: {}", e.getMessage());
+            }
+        }, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void startSenderLoop() {
+        senderThread = new Thread(this::runSenderLoop, "replicator-sender-loop");
+        senderThread.setUncaughtExceptionHandler((t, e) -> {
+            logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
+        });
+        senderThread.setDaemon(true);
+        senderThread.start();
+    }
+
+    private void startHmsLoop() {
+        hmsThread = new Thread(this::runHmsLoop, "replicator-hms-loop");
+        hmsThread.setUncaughtExceptionHandler((t, e) -> {
+            logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
+        });
+        hmsThread.setDaemon(true);
+        hmsThread.start();
+    }
+
+    private void runHmsLoop() {
+        double baseIntervalSec = Math.max(2.0, config.getPollIntervalSec());
+        double maxIdleIntervalSec = Math.max(baseIntervalSec, 15.0);
+        double currentIntervalSec = baseIntervalSec;
+
+        logger.info("Выделенный цикл репликации Hive Metastore (Bootstrap & CDC) запущен: cluster='{}' (базовый интервал: {}с, макс. idle: {}с)",
+                config.getClusterId(), baseIntervalSec, maxIdleIntervalSec);
+
+        while (running.get()) {
+            try {
+                if (hmsTaskExecutor != null) {
+                    List<io.github.balookrd.pristan.replicator.model.HmsPendingJobDto> hmsJobs =
+                            orchestratorClient.getPendingHmsJobs(config.getClusterId(), config.getAgentId());
+                    for (var hJob : hmsJobs) {
+                        if (!running.get()) break;
+                        String jobId = hJob.id();
+                        if (activeRunningHmsJobs.add(jobId)) {
+                            hmsTaskPool.submit(() -> {
+                                try {
+                                    if ("QUEUED".equalsIgnoreCase(hJob.status()) || "BOOTSTRAPPING".equalsIgnoreCase(hJob.status())) {
+                                        boolean ok = hmsTaskExecutor.runBootstrap(hJob);
+                                        if (ok) {
+                                            recentHmsEventsProcessed.incrementAndGet();
+                                        }
+                                    } else if ("ACTIVE".equalsIgnoreCase(hJob.status())) {
+                                        int processed = hmsTaskExecutor.pollAndSyncCdc(hJob);
+                                        if (processed > 0) {
+                                            recentHmsEventsProcessed.addAndGet(processed);
+                                        }
+                                    }
+                                } catch (Throwable t) {
+                                    logger.error("[HMS Worker] Ошибка обработки задачи {}: {}", jobId, t.getMessage(), t);
+                                } finally {
+                                    activeRunningHmsJobs.remove(jobId);
+                                }
+                            });
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                logger.error("Ошибка в цикле HMS репликации: {}", t.getMessage(), t);
+            }
+
+            int events = recentHmsEventsProcessed.getAndSet(0);
+            if (events > 0) {
+                // Если были реальные события CDC или завершился Bootstrap, сбрасываем интервал к базовому
+                currentIntervalSec = baseIntervalSec;
+                try {
+                    Thread.sleep(500L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else {
+                try {
+                    // Адаптивный Idle Backoff с Jitter ±20% для предотвращения Thundering Herd
+                    double jitter = 0.8 + (ThreadLocalRandom.current().nextDouble() * 0.4);
+                    long sleepMs = (long) (currentIntervalSec * jitter * 1000);
+                    Thread.sleep(Math.max(1000, sleepMs));
+                    currentIntervalSec = Math.min(maxIdleIntervalSec, currentIntervalSec * 1.5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
+    private void runSenderLoop() {
+        double baseIntervalSec = Math.max(1.0, config.getPollIntervalSec());
+        double maxIdleIntervalSec = Math.max(baseIntervalSec, 15.0);
+        double currentIntervalSec = baseIntervalSec;
+
+        logger.info("Цикл Sender/Worker запущен: mode='{}' (базовый интервал: {}с, макс. idle бэкофф: {}с с Jitter)",
+                config.getMode(), baseIntervalSec, maxIdleIntervalSec);
+
+        boolean canAnalyze = "all".equalsIgnoreCase(config.getMode()) || "analyzer".equalsIgnoreCase(config.getMode());
+        boolean canWork = "all".equalsIgnoreCase(config.getMode()) || "sender".equalsIgnoreCase(config.getMode()) || "worker".equalsIgnoreCase(config.getMode());
+
+        while (running.get()) {
+            boolean didWork = false;
+            try {
+                // 1. Фаза анализатора: поиск заданий в QUEUED и создание пула подзадач
+                if (canAnalyze) {
+                    int capacity = Math.max(1, config.getAnalyzerConcurrency());
+                    List<JobDto> jobs = orchestratorClient.getJobs("QUEUED", true);
+                    for (JobDto job : jobs) {
+                        if (!running.get() || analyzingJobs.size() >= capacity) break;
+
+                        if (!"QUEUED".equalsIgnoreCase(job.getStatus())) {
+                            continue;
+                        }
+
+                        if (config.getClusterId() != null && job.getSourceClusterId() != null
+                                && !matchesCluster(config.getClusterId(), job.getSourceClusterId())) {
+                            continue;
+                        }
+
+                        if (!analyzingJobs.add(job.getId())) {
+                            continue;
+                        }
+                        didWork = true;
+                        analyzerPool.submit(() -> {
+                            try {
+                                analyzeJob(job);
+                            } catch (Throwable t) {
+                                logger.error("Ошибка анализа задачи {}: {}", job.getId(), t.getMessage(), t);
+                            } finally {
+                                analyzingJobs.remove(job.getId());
+                            }
+                        });
+                    }
+                }
+
+                // 2. Фаза воркера: забор и параллельное исполнение задач из распределенного пула
+                if (canWork) {
+                    int maxConcurrency = Math.max(2, config.getBundleCommitConcurrency());
+                    int availableSlots = maxConcurrency - activeTransfers.get();
+                    if (availableSlots > 0) {
+                        int claimBatch = Math.min(5, availableSlots);
+                        List<TaskItemDto> claimedTasks = orchestratorClient.claimTasks(
+                                new ClaimTasksRequest(config.getAgentId(), config.getClusterId(), claimBatch)
+                        );
+
+                        if (!claimedTasks.isEmpty()) {
+                            didWork = true;
+                            for (TaskItemDto task : claimedTasks) {
+                                if (!running.get()) break;
+
+                                activeTransfers.incrementAndGet();
+                                CompletableFuture.runAsync(() -> {
+                                    try {
+                                        sender.transferTask(task);
+                                    } catch (Throwable t) {
+                                        logger.error("Ошибка при параллельной передаче задачи {}: {}", task.getId(), t.getMessage(), t);
+                                    } finally {
+                                        activeTransfers.decrementAndGet();
+                                    }
+                                }, workerTaskPool);
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                logger.error("Ошибка в цикле Sender/Worker: {}", t.getMessage(), t);
+            }
+
+            if (didWork) {
+                // При наличии активных задач сбрасываем интервал к базовому
+                currentIntervalSec = baseIntervalSec;
+            } else if (!analyzingJobs.isEmpty()) {
+                // Слоты анализа заняты: короткая пауза до освобождения слота, а не нарастающий
+                // простой — иначе очередь подзадач барьера ждала по 15 с при свободном пуле
+                currentIntervalSec = baseIntervalSec;
+                try {
+                    Thread.sleep(100L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else {
+                try {
+                    // Адаптивный Idle Backoff с Jitter ±20% для предотвращения Thundering Herd при сотнях агентов
+                    double jitter = 0.8 + (ThreadLocalRandom.current().nextDouble() * 0.4);
+                    long sleepMs = (long) (currentIntervalSec * jitter * 1000);
+                    Thread.sleep(Math.max(500, sleepMs));
+                    // Экспоненциальный рост до maxIdleIntervalSec (15 сек)
+                    currentIntervalSec = Math.min(maxIdleIntervalSec, currentIntervalSec * 1.5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Захват задания на анализ (CAS) и формирование пула подзадач. */
+    private void analyzeJob(JobDto job) {
+        boolean claimed = orchestratorClient.updateJobProgress(job.getId(), new UpdateJobRequest("ANALYZING", 0L, 0L,
+                "Анализ каталога и вычисление diff деревьев"));
+        if (!claimed) {
+            logger.info("Агент '{}' пропустил задачу '{}': задача уже взята на анализ другим агентом (CAS)",
+                    config.getAgentId(), job.getId());
+            return;
+        }
+        logger.info("Агент '{}' успешно захватил задачу '{}' на анализ каталога и формирование пула задач",
+                config.getAgentId(), job.getId());
+        sender.analyzeAndCreateTaskPool(job, resolveTargetAddress(job.getTargetClusterId()));
+    }
+
+    public static boolean matchesCluster(String agentCluster, String jobCluster) {
+        if (agentCluster == null || jobCluster == null) return true;
+        if (agentCluster.equalsIgnoreCase(jobCluster)) return true;
+        String aNorm = agentCluster.toLowerCase().replace("-", "").replace("_", "");
+        String jNorm = jobCluster.toLowerCase().replace("-", "").replace("_", "");
+        return aNorm.equals(jNorm);
+    }
+
+    /**
+     * Разрешение gRPC адреса целевого узла репликации.
+     */
+    public String resolveTargetAddress(String targetClusterId) {
+        if (targetClusterId == null || targetClusterId.isBlank()) {
+            return config.getFallbackTargetAddress();
+        }
+
+        // 1. Проверка системной переменной AGENT_TARGET_<CLUSTER_ID>
+        String envKey = "AGENT_TARGET_" + targetClusterId.toUpperCase().replace("-", "_");
+        String envTarget = System.getenv(envKey);
+        if (envTarget != null && !envTarget.isBlank()) {
+            return envTarget.trim();
+        }
+
+        // 2. Опрос топологии Оркестратора (/api/v1/clusters)
+        long now = System.currentTimeMillis();
+        if (now - lastTopologySyncTime > 10_000 || !clusterAddressCache.containsKey(targetClusterId)) {
+            try {
+                List<ClusterDto> clusters = orchestratorClient.getClusters();
+                for (ClusterDto c : clusters) {
+                    if (c.getId() != null && c.getGrpcAddress() != null) {
+                        clusterAddressCache.put(c.getId(), c.getGrpcAddress());
+                    }
+                }
+                lastTopologySyncTime = now;
+            } catch (Exception e) {
+                logger.debug("Ошибка обновления топологии кластеров: {}", e.getMessage());
+            }
+        }
+
+        String targetAddr = clusterAddressCache.get(targetClusterId);
+        if (targetAddr != null && !targetAddr.isBlank()) {
+            return targetAddr;
+        }
+
+        return config.getFallbackTargetAddress();
+    }
+
+    private void startStagingCleaner() {
+        this.stagingCleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "hdfs-staging-cleaner");
+            t.setDaemon(true);
+            return t;
+        });
+
+        long intervalMin = config.getStagingCleanupIntervalMinutes();
+        long ttlMillis = config.getStagingTtlMinutes() * 60 * 1000L;
+
+        stagingCleanupExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                if (receiverService != null) {
+                    int cleaned = receiverService.cleanOrphanedStaging(ttlMillis);
+                    if (cleaned > 0) {
+                        logger.info("[HdfsStagingCleaner] Периодическая очистка удалила {} осиротевших staging-файлов (TTL: {} мин)",
+                                cleaned, config.getStagingTtlMinutes());
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("[HdfsStagingCleaner] Ошибка во время периодической очистки: {}", e.getMessage());
+            }
+        }, 1, intervalMin, TimeUnit.MINUTES);
+
+        logger.info("Фоновый сборщик мусора HDFS Staging запущен (интервал: {} мин, TTL: {} мин)",
+                intervalMin, config.getStagingTtlMinutes());
+    }
+
+    /**
+     * Корректная остановка агента (Graceful Shutdown).
+     */
+    public synchronized void stop() {
+        if (!running.get()) return;
+        running.set(false);
+
+        logger.info("Остановка Replicator Agent '{}'...", config.getAgentId());
+
+        if (senderThread != null) {
+            senderThread.interrupt();
+        }
+
+        if (hmsThread != null) {
+            hmsThread.interrupt();
+        }
+
+        if (heartbeatExecutor != null) {
+            heartbeatExecutor.shutdownNow();
+        }
+
+        if (stagingCleanupExecutor != null) {
+            stagingCleanupExecutor.shutdownNow();
+        }
+
+        if (hmsTaskExecutor != null) {
+            hmsTaskExecutor.close();
+        }
+
+        if (config.isEnableDynamicRegistration()) {
+            orchestratorClient.unregister(config.getAgentId());
+        }
+
+        if (grpcServer != null) {
+            // Проба обязана узнать об остановке до закрытия порта, иначе отправители
+            // продолжат выбирать этот приемник до истечения таймаутов
+            health.shutdown();
+            grpcServer.shutdown();
+            try {
+                grpcServer.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+            logger.info("gRPC Receiver сервер остановлен");
+        }
+
+        if (telemetry != null) {
+            telemetry.close();
+        }
+
+        if (sender != null) {
+            sender.close();
+        }
+
+        if (inotifyListener != null) {
+            inotifyListener.stop();
+        }
+
+        analyzerPool.shutdownNow();
+
+        if (workerTaskPool != null) {
+            workerTaskPool.shutdown();
+            try {
+                workerTaskPool.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+
+        if (hmsTaskPool != null) {
+            hmsTaskPool.shutdown();
+            try {
+                hmsTaskPool.awaitTermination(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+        }
+
+        if (orchestratorClient != null) {
+            orchestratorClient.close();
+        }
+
+        logger.info("Replicator Agent '{}' успешно остановлен", config.getAgentId());
+    }
+
+    public OrchestratorGrpcClient getOrchestratorClient() {
+        return orchestratorClient;
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    public io.github.balookrd.pristan.replicator.inotify.HdfsInotifyListener getInotifyListener() {
+        return inotifyListener;
+    }
+
+    public ReplicatorAgentConfig getConfig() {
+        return config;
+    }
+}

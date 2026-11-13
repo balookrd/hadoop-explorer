@@ -29,7 +29,7 @@ EXPOSE 50051 50052 50053
 # остановленным приемником ее проходил.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD java -XX:TieredStopAtLevel=1 -Xshare:auto -cp /app/replicator-agent.jar \
-        org.apache.hadoop.explorer.replicator.telemetry.GrpcHealthProbeMain \
+        io.github.balookrd.pristan.replicator.telemetry.GrpcHealthProbeMain \
         127.0.0.1:${RECEIVER_PORT:-50051} || exit 1
 
 

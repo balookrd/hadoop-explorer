@@ -53,7 +53,7 @@ x-agent-extra: &agent-extra
                "-XX:G1HeapRegionSize=2m",
                "-Djava.security.krb5.conf=/shared/conf/krb5.conf",
                "-cp", "/app/replicator-agent.jar",
-               "org.apache.hadoop.explorer.replicator.kafka.agent.KafkaReplicatorAgentMain"]
+               "io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain"]
 
 services:
 EOF

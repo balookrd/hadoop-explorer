@@ -3,7 +3,7 @@ syntax = "proto3";
 package replicator;
 
 option java_multiple_files = true;
-option java_package = "org.apache.hadoop.explorer.replicator.generated";
+option java_package = "io.github.balookrd.pristan.replicator.generated";
 option java_outer_classname = "ReplicatorProto";
 
 // Сервис передачи данных между кластерами HDFS (DC1 -> DC2)

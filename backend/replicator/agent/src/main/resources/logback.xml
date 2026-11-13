@@ -5,7 +5,7 @@
         </encoder>
     </appender>
 
-    <logger name="org.apache.hadoop.explorer.replicator" level="INFO"/>
+    <logger name="io.github.balookrd.pristan.replicator" level="INFO"/>
     <logger name="org.apache.hadoop" level="WARN"/>
     <logger name="io.grpc" level="INFO"/>
 

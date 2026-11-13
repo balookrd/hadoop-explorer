@@ -127,7 +127,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 
 ### Параметры запуска Replicator Agent (CLI)
 
-Точка входа: `org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain`.
+Точка входа: `io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain`.
 
 | Параметр CLI | Переменная окружения | По умолчанию | Что делает |
 | :--- | :--- | :--- | :--- |

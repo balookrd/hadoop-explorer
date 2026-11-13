@@ -3,7 +3,7 @@ syntax = "proto3";
 package replicator.control;
 
 option java_multiple_files = true;
-option java_package = "org.apache.hadoop.explorer.replicator.generated.control";
+option java_package = "io.github.balookrd.pristan.replicator.generated.control";
 option java_outer_classname = "OrchestratorControlPlaneProto";
 
 // Сервис высокопроизводительного управления и координации агентов Оркестратором (Control Plane)

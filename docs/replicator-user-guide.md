@@ -306,7 +306,7 @@ topology:
 
 При создании задачи репликации каталога ничего включать не нужно: инкрементальная передача работает по алгоритму [7.1 In-Memory Manifest Diff](#71-рекурсивная-инкрементальная-синхронизация-каталогов-по-умолчанию-без-снэпшотов), а потоковые изменения в реальном времени передаются через HDFS Inotify CDC.
 
-Описанный ниже Snapshot Diff — низкоуровневый API: методы создания и удаления снимков (`createSnapshot` / `deleteSnapshot`) реализованы в [`HadoopFsManager`](../backend/replicator/agent/src/main/java/org/apache/hadoop/explorer/replicator/fs/HadoopFsManager.java). Он предназначен для каталогов с десятками миллионов файлов, где администратор кластера заранее разрешил снимки (`hdfs dfsadmin -allowSnapshot`).
+Описанный ниже Snapshot Diff — низкоуровневый API: методы создания и удаления снимков (`createSnapshot` / `deleteSnapshot`) реализованы в [`HadoopFsManager`](../backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/fs/HadoopFsManager.java). Он предназначен для каталогов с десятками миллионов файлов, где администратор кластера заранее разрешил снимки (`hdfs dfsadmin -allowSnapshot`).
 
 Как работает Snapshot Diff:
 1. Управление снимками агентом Replicator:

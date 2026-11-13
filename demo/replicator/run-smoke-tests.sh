@@ -80,11 +80,11 @@ hdfs2_cmd() {
 }
 
 hms1_tool() {
-    docker exec replicator-agent-dc1 java -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool "$@"
+    docker exec replicator-agent-dc1 java -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool "$@"
 }
 
 hms2_tool() {
-    docker exec replicator-agent-dc2 java -cp /app/replicator-agent.jar org.apache.hadoop.explorer.replicator.hms.tool.HmsTool "$@"
+    docker exec replicator-agent-dc2 java -cp /app/replicator-agent.jar io.github.balookrd.pristan.replicator.hms.tool.HmsTool "$@"
 }
 
 hive1_exec() {

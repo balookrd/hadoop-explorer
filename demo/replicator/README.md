@@ -216,7 +216,7 @@ PARTITIONS=5000 SWARM_AGENTS=50 SWARM_JOBS=20 SWARM_SECONDS=300 ./run-hms-scale-
 
 ```bash
 docker exec replicator-agent-dc1 java -cp /app/replicator-agent.jar \
-  org.apache.hadoop.explorer.replicator.tool.AgentSwarm orchestrator:50050 <agent-secret> 200 600
+  io.github.balookrd.pristan.replicator.tool.AgentSwarm orchestrator:50050 <agent-secret> 200 600
 ```
 
 ---

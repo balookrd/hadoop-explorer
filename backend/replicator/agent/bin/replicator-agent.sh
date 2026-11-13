@@ -37,7 +37,7 @@ echo "JAR: ${JAR_FILE}"
 echo "JAVA: ${JAVA_CMD}"
 
 if [[ -n "${HADOOP_CP}" ]]; then
-    exec "${JAVA_CMD}" ${JVM_OPTS} -cp "${JAR_FILE}:${HADOOP_CP}" org.apache.hadoop.explorer.replicator.agent.ReplicatorAgentMain "$@"
+    exec "${JAVA_CMD}" ${JVM_OPTS} -cp "${JAR_FILE}:${HADOOP_CP}" io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain "$@"
 else
     exec "${JAVA_CMD}" ${JVM_OPTS} -jar "${JAR_FILE}" "$@"
 fi
