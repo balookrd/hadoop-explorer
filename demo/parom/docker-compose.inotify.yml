@@ -6,14 +6,11 @@
 #
 # Журнал правок NameNode (getInotifyEventStream) читают только суперпользователи HDFS.
 # NameNode стенда работает от пользователя hadoop, и принципал стримера (hdfs) включается
-# в группу суперпользователей dfs.permissions.superusergroup статическим сопоставлением.
+# в группу суперпользователей dfs.permissions.superusergroup статическим сопоставлением
+# HDFS_GROUP_OVERRIDES; оно задано в docker-compose.yml для обоих кластеров.
 # =============================================================================
 
 services:
-  hdfs-cluster-1:
-    environment:
-      HDFS_GROUP_OVERRIDES: "hdfs=hadoop-admins"
-
   streamer-dc1-01:
     environment: &streamer
       ORCHESTRATOR_GRPC_ADDRESSES: "orchestrator:50050,orchestrator-2:50050"

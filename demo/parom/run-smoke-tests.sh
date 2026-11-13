@@ -46,6 +46,9 @@ if [ -n "$DOCKER_NETWORK" ] || [ "$ORCHESTRATOR_URL" = "http://orchestrator:8005
     AGENT2_PORT="50051"
 fi
 
+# Секрет агентов стенда: то же значение по умолчанию, что PAROM_AGENT_SECRET в docker-compose.yml
+AGENT_SECRET="${DEMO_AGENT_SECRET:-demo-replicator-agent-secret-0123456789}"
+
 # Человеко-понятные названия аналитических витрин (схем)
 DB_RETAIL="retail_analytics_dw"
 DB_INVENTORY="inventory_logistics_dw"
@@ -127,6 +130,19 @@ check_tcp_port() {
         printf "%b  ✓ %s доступен (%s:%s)%b\n" "$GREEN" "$SERVICE_NAME" "$TARGET_HOST" "$TARGET_PORT" "$NC"
         return 0
     fi
+}
+
+# Значение строкового поля JSON из ответа API (без jq): json_field <поле> <ответ>
+json_field() {
+    echo "$2" | grep -o "\"$1\":\"[^\"]*" | head -1 | cut -d'"' -f4
+}
+
+# Завершает тест ошибкой, если задача закончилась не успешным статусом:
+# fail_job <описание задачи> <id> <статус> <ожидаемый статус> <ответ API>
+fail_job() {
+    printf "%b❌ %s: задача %s завершилась со статусом %s (ожидался %s). Ошибка API: %s%b\n" \
+        "$RED" "$1" "$2" "${3:-<нет ответа>}" "$4" "$(json_field message "$5")" "$NC"
+    exit 1
 }
 
 # --- 0. Проверка готовности инфраструктуры стенда ---
@@ -242,11 +258,14 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
             echo "  ✓ Bootstrap sync завершен! Реплицировано таблиц: ${REPL_TABLES}"
             break
         fi
+        case "$JOB_STATUS" in
+            FAILED|STOPPED) fail_job "Bootstrap sync схемы ${DB_RETAIL}" "$JOB_ID" "$JOB_STATUS" "ACTIVE" "$STATUS_RESP" ;;
+        esac
         sleep 1
     done
 
     if [ $BOOTSTRAP_OK -ne 1 ]; then
-        printf "%b❌ Таймаут ожидания завершения Bootstrap sync%b\n" "$RED" "$NC"
+        printf "%b❌ Таймаут ожидания завершения Bootstrap sync (задача %s, статус=%s, реплицировано таблиц: %s)%b\n" "$RED" "$JOB_ID" "${JOB_STATUS:-<нет ответа>}" "${REPL_TABLES:-0}" "$NC"
         exit 1
     fi
 
@@ -307,21 +326,30 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "standard" ] || [ "$MODE" = "cdc" ]; then
     # Ожидание передачи данных агентами
     echo "  ⏳ Ожидание передачи файла агентами gRPC..."
     DATA_OK=0
-    for i in $(seq 1 30); do
+    for i in $(seq 1 60); do
         DJ_STATUS_RESP=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/jobs/${DATA_JOB_ID}")
         DJ_STATUS=$(echo "$DJ_STATUS_RESP" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
         if [ "$DJ_STATUS" = "COMPLETED" ]; then
             DATA_OK=1
             break
         fi
+        case "$DJ_STATUS" in
+            FAILED|CANCELLED|STOPPED) fail_job "Передача файла extra_transactions_delta.csv" "$DATA_JOB_ID" "$DJ_STATUS" "COMPLETED" "$DJ_STATUS_RESP" ;;
+        esac
         sleep 1
     done
+
+    if [ $DATA_OK -ne 1 ]; then
+        printf "%b❌ Таймаут ожидания передачи файла: задача %s осталась в статусе %s. Ошибка API: %s%b\n" "$RED" "$DATA_JOB_ID" "${DJ_STATUS:-<нет ответа>}" "$(json_field message "$DJ_STATUS_RESP")" "$NC"
+        exit 1
+    fi
 
     # Подтверждение наличия файла в реальном DR HDFS кластере 2
     if docker exec hdfs-cluster-2 bash -c "kinit -kt /shared/keytabs/hive.keytab hive/hive-server-2@COMPANY.LOCAL >/dev/null 2>&1 && hdfs dfs -test -e /warehouse/${DB_RETAIL}.db/sales_transactions/extra_transactions_delta.csv"; then
         printf "%b  ✓ [Дописывание в таблицу OK] Дописанный файл подтвержден в DR HDFS кластере 2!%b\n" "$GREEN" "$NC"
     else
-        printf "%b  ✓ [Дописывание в таблицу OK] Задача передачи зафиксирована Оркестратором (status=%s)%b\n" "$GREEN" "$DJ_STATUS" "$NC"
+        printf "%b❌ Файл extra_transactions_delta.csv не найден в HDFS DC2, хотя задача %s в статусе %s%b\n" "$RED" "$DATA_JOB_ID" "$DJ_STATUS" "$NC"
+        exit 1
     fi
 
     # Подтверждение чтения дописанных данных через HiveServer2 DC2
@@ -462,15 +490,25 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "cdc" ]; then
     echo "  ✓ Создана вторая задача репликации схемы: ID=${JOB_INV_ID}"
 
     # Ожидание Bootstrap второй схемы
-    for i in $(seq 1 30); do
+    INV_OK=0
+    for i in $(seq 1 90); do
         STATUS_INV=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/hms/jobs/${JOB_INV_ID}")
         INV_STATUS=$(echo "$STATUS_INV" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
         if [ "$INV_STATUS" = "ACTIVE" ]; then
+            INV_OK=1
             echo "  ✓ Bootstrap второй схемы '${DB_INVENTORY}' успешно завершен!"
             break
         fi
+        case "$INV_STATUS" in
+            FAILED|STOPPED) fail_job "Bootstrap sync схемы ${DB_INVENTORY}" "$JOB_INV_ID" "$INV_STATUS" "ACTIVE" "$STATUS_INV" ;;
+        esac
         sleep 1
     done
+
+    if [ $INV_OK -ne 1 ]; then
+        printf "%b❌ Таймаут ожидания Bootstrap схемы %s: задача %s осталась в статусе %s. Ошибка API: %s%b\n" "$RED" "$DB_INVENTORY" "$JOB_INV_ID" "${INV_STATUS:-<нет ответа>}" "$(json_field message "$STATUS_INV")" "$NC"
+        exit 1
+    fi
 
     # Даем агенту паузу 5 секунд для CDC reconciliation первой схемы (чтобы обновились партиции customer_orders_partitioned)
     echo "  ⏳ Ожидание CDC обновления метрик Оркестратором..."
@@ -487,16 +525,19 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "inotify" ]; then
     LEASE_RESP=$(curl -sf -H "$AUTH_HEADER" "${ORCHESTRATOR_URL}/api/v1/streaming/lease/all")
     echo "  ✓ Статус распределенной аренды стримеров: ${LEASE_RESP}"
 
-    # 2. Проверка изоляции: устаревший REST-эндпоинт /tasks/claim отключен (переведен на gRPC Control Plane)
+    # 2. Проверка изоляции: устаревший REST-эндпоинт /tasks/claim отключен (переведен на gRPC Control Plane).
+    # Запрос идет с настоящим секретом агентов стенда: с неверным секретом фильтр аутентификации
+    # отвечает 401 раньше, чем маршрутизация, и проверка ничего не доказывает.
     CLAIM_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${ORCHESTRATOR_URL}/api/v1/tasks/claim" \
       -H "Content-Type: application/json" \
-      -H "X-Agent-Secret: replicator-secure-agent-secret-key-12345" \
+      -H "X-Agent-Secret: ${AGENT_SECRET}" \
       -d '{"agent_id":"streamer-dc1-01","cluster_id":"dc1","limit":5}')
 
     if [ "$CLAIM_HTTP_CODE" = "404" ] || [ "$CLAIM_HTTP_CODE" = "403" ]; then
         printf "%b  ✓ [Security Isolation OK] Устаревший REST-эндпоинт tasks/claim отключен (HTTP %s, взаимодействие переведено на gRPC)%b\n" "$GREEN" "$CLAIM_HTTP_CODE" "$NC"
     else
-        printf "%b  ⚠️ Предупреждение: статус изоляции стримера: HTTP %s%b\n" "$YELLOW" "$CLAIM_HTTP_CODE" "$NC"
+        printf "%b❌ Ошибка изоляции: POST /api/v1/tasks/claim с секретом агентов вернул HTTP %s (ожидался 404 или 403)%b\n" "$RED" "$CLAIM_HTTP_CODE" "$NC"
+        exit 1
     fi
 
     # 3. Проверка распознавания коммита из staging через Rename
@@ -537,7 +578,7 @@ echo "   4. [Дописывание в партицию] Добавление 2-
 echo "   5. [Удаление партиции] Удаление партиции из временной таблицы 'staging_events_temporary' и проверка на DR кластере"
 echo "   6. [Удаление таблицы] Удаление временной таблицы 'staging_events_temporary' и согласование с DR кластером"
 echo "   7. [Схема 2] 'inventory_logistics_dw': создание таблицы 'warehouse_stock_partitioned' (2 партиции) и репликация"
-echo "   8. [Inotify Streaming HA] Распределенная аренда стримеров и изоляция 403"
+echo "   8. [Inotify Streaming HA] Распределенная аренда стримеров и отключенный REST-эндпоинт tasks/claim (HTTP 404)"
 echo "   9. [Commit Rename] Фильтрация staging-путей и фиксация по RenameEvent"
 echo "========================================================================"
 exit 0

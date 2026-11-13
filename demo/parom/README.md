@@ -256,7 +256,7 @@ Entrypoint образа 3.1.3 инициализирует схему Derby на
 |---|---|
 | `docker-compose.ha.yml` | оркестратор на PostgreSQL и второй узел (`localhost:8006`); агенты знают оба узла |
 | `docker-compose.hms-pg.yml` | метастор-источник на PostgreSQL вместо Derby |
-| `docker-compose.inotify.yml` | стримеры источника; принципал `hdfs` включается в группу суперпользователей HDFS |
+| `docker-compose.inotify.yml` | стримеры источника (журнал NameNode читают только суперпользователи HDFS: группа `hadoop-admins` для `hdfs` задана в базовом `docker-compose.yml`) |
 
 ### Отказ узла оркестратора и агента посреди bootstrap
 

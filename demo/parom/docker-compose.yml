@@ -295,6 +295,19 @@ services:
     profiles:
       - test
 
+  # 8. NameNode обоих кластеров: служебный пользователь агентов (принципал hdfs/hdfs-cluster-N,
+  # короткое имя hdfs) входит в группу суперпользователей hadoop-admins. Без этого агент DC2
+  # не пишет в каталоги /warehouse/*.db (владелец admin_user:hadoop-admins, режим 755), а HMS DC2
+  # не создает каталоги таблиц; у DC1 это же нужно стримеру inotify. Определения кластеров - в
+  # ../platform/docker-compose.hdfs.yml, здесь только слой Parom.
+  hdfs-cluster-1:
+    environment:
+      HDFS_GROUP_OVERRIDES: "hdfs=hadoop-admins"
+
+  hdfs-cluster-2:
+    environment:
+      HDFS_GROUP_OVERRIDES: "hdfs=hadoop-admins"
+
 volumes:
   parom-db-data:
   agent-staging-dc1:
