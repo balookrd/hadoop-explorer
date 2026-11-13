@@ -28,7 +28,7 @@ public class ConsumerGroupBlacklistFilter {
      * Дефолтный регулярный шаблон для исключения служебных и инфраструктурных групп.
      */
     public static final String DEFAULT_EXCLUDE_GROUPS_REGEX =
-            "^(parom-.*|kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$";
+            "^(parom-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$";
 
     private static final ConsumerGroupBlacklistFilter DEFAULT_INSTANCE =
             new ConsumerGroupBlacklistFilter(DEFAULT_EXCLUDE_GROUPS_REGEX);

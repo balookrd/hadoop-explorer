@@ -32,12 +32,12 @@ class ConsumerGroupBlacklistFilterTest {
     }
 
     @Test
-    @DisplayName("Сохранение исключения служебных групп прежних версий")
-    void keepsExcludingServiceGroupsOfPreviousVersions() {
-        // Groups created by releases before the rename still exist on clusters and must stay excluded.
-        assertTrue(filter.isExcluded("kafka-replicator-dc1-42"));
-        assertTrue(filter.isExcluded("replicator-worker-01"));
-        assertTrue(filter.isExcluded("hadoop-replicator-job-42"));
+    @DisplayName("Имена групп под прежним названием продукта не исключаются")
+    void doesNotExcludeGroupNamesOfTheOldProductName() {
+        // There are no installations to stay compatible with, so old-name groups are ordinary groups.
+        assertTrue(filter.isAllowed("kafka-replicator-dc1-42"));
+        assertTrue(filter.isAllowed("replicator-worker-01"));
+        assertTrue(filter.isAllowed("hadoop-replicator-job-42"));
     }
 
     @Test

@@ -2528,9 +2528,9 @@ java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.p
 При обнаружении и трансляции смещений консьюмер-групп (`OffsetSyncRequest`) действуют три проверки:
 1. Черный список служебных и инфраструктурных групп (consumer group blacklist gate):
    - В `ConsumerGroupBlacklistFilter` действует регулярный шаблон исключения:
-     `^(parom-.*|kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`
+     `^(parom-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`
    - Исключаются:
-     - Собственные группы Parom (`parom-kafka-*`, `parom-kafka-time-resolver-*`) и группы прежних версий (`kafka-replicator-*`, `replicator-*`, `hadoop-replicator-*`): иначе перенос перезаписывал бы локальные смещения агента, а в топологии active-active смещения ходили бы по кругу (offset feedback loop).
+     - Собственные группы Parom (`parom-kafka-*`, `parom-kafka-time-resolver-*`): иначе перенос перезаписывал бы локальные смещения агента, а в топологии active-active смещения ходили бы по кругу (offset feedback loop).
      - Системные группы брокера Kafka (`__*`, включая `__consumer_offsets`).
      - Инфраструктурные сервисы (`schema-registry-*`, `connect-*`): их смещения относятся к внутреннему состоянию кэшей схем и коннекторов конкретного кластера.
      - Временные консольные группы (`console-consumer-*`, `kafka-exporter-*`).

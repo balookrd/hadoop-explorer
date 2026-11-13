@@ -372,7 +372,7 @@
 
 ### Черный список consumer group Kafka
 
-- Служебные и инфраструктурные группы: в `ConsumerGroupBlacklistFilter` задан шаблон исключения `^(parom-.*|kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`.
+- Служебные и инфраструктурные группы: в `ConsumerGroupBlacklistFilter` задан шаблон исключения `^(parom-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`.
 - Защита на этапе сканирования (`ConsumerGroupOffsetScanner`): при синхронизации смещений служебные группы отсекаются до запроса оффсетов у Kafka AdminClient; оффсеты локальных консьюмеров агента не перезаписываются.
 - Защитный гейт на этапе коммита (`SafetyCommitManager`): при попытке применить оффсеты служебных групп в целевом ДЦ запрос отклоняется с кодом ошибки.
 - Фильтрация в Live Discovery и создании задач (`KafkaReplicationOrchestratorService`): из списков обнаружения `/api/v1/kafka/consumer-groups` и при создании заданий служебные группы отфильтровываются.
