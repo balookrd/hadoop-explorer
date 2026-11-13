@@ -14,7 +14,7 @@
 - Оба ResourceManager работают в secure-режиме: REST (`/ws/v1/cluster/*`) и веб-интерфейс защищены SPNEGO (`hadoop.http.filter.initializers` в `cluster-*/core-site.xml`), анонимный запрос получает `401`.
 - Artel читает очереди с RM по SPNEGO под учетной записью `artel@COMPANY.LOCAL` (keytab из KDC стенда) и передает пользователя через `doAs`. Учетная запись прописана как proxy user в `core-site.xml` кластеров.
 - Очереди — из `cluster-*/capacity-scheduler.xml`: `prod-yarn` — prod (spark / flink / hive), dev, default с метками GPU и HIGH_MEM; `analytics-yarn` — batch (GPU), interactive, streaming. NodeManager в стенде нет, поэтому метрики ресурсов нулевые.
-- Развертывание заявок — симуляция AWX (`yarn.awx.simulate: true`): заявка проходит согласование и «деплой», но RM не меняется.
+- Развертывание заявок — симуляция AWX (`artel.awx.simulate: true`): заявка проходит согласование и «деплой», но RM не меняется.
 
 Проверка SPNEGO вручную изнутри сети стенда:
 

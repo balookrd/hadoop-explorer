@@ -50,12 +50,12 @@ backend/artel/
 ### Команды
 ```bash
 # Запуск модульных и интеграционных тестов
-make test-yarn
+make test-artel
 # или
 mvn test -f backend/artel/pom.xml
 
 # Сборка исполняемого Spring Boot JAR
-make build-yarn
+make build-artel
 # или
 mvn clean package -DskipTests -f backend/artel/pom.xml
 

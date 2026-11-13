@@ -52,7 +52,7 @@ case "$APP" in
   frontend)
     run_frontend
     ;;
-  yarn)
+  artel)
     run_artel
     ;;
   hdfs)
@@ -80,7 +80,7 @@ case "$APP" in
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|hdfs|spark|sql|yarn|replicator]"
+    echo "Использование: $0 [all|frontend|hdfs|spark|sql|artel|replicator]"
     exit 1
     ;;
 esac

@@ -35,8 +35,8 @@ build_app() {
 TARGET="${1:-all}"
 
 case "$TARGET" in
-  yarn)
-    build_app yarn
+  artel)
+    build_app artel
     ;;
   hdfs)
     build_app hdfs
@@ -52,7 +52,7 @@ case "$TARGET" in
     build_app replicator-agent
     ;;
   all)
-    build_app yarn
+    build_app artel
     build_app hdfs
     build_app sql
     build_app spark
@@ -63,7 +63,7 @@ case "$TARGET" in
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|yarn|hdfs|sql|spark|replicator]"
+    echo "Использование: $0 [all|artel|hdfs|sql|spark|replicator]"
     exit 1
     ;;
 esac

@@ -11,7 +11,7 @@ ACTION="${1:-help}"
 SERVICE="${2:-all}"
 
 usage() {
-    echo "Использование: $0 [start|stop|restart|status|logs] [all|yarn|hdfs|sql|spark|monitoring]"
+    echo "Использование: $0 [start|stop|restart|status|logs] [all|artel|hdfs|sql|spark|monitoring]"
     echo ""
     echo "Команды:"
     echo "  start [service]    Запустить демонстрационный стенд"
@@ -20,7 +20,7 @@ usage() {
     echo "  status [service]   Показать статус контейнеров"
     echo "  logs [service]     Просмотр логов стенда"
     echo ""
-    echo "Сервисы: all (по умолчанию), yarn, hdfs, sql, spark, monitoring"
+    echo "Сервисы: all (по умолчанию), artel, hdfs, sql, spark, monitoring"
     exit 1
 }
 
@@ -29,7 +29,7 @@ get_compose_file() {
         all)
             echo "$ROOT_DIR/demo/all/docker-compose.all.yml"
             ;;
-        yarn)
+        artel)
             echo "$ROOT_DIR/demo/artel/docker-compose.yml"
             ;;
         hdfs)

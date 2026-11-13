@@ -24,7 +24,7 @@ RUN groupadd -g 10001 appuser && \
     touch /etc/krb5.conf && \
     chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
 
-ENV APP_NAME="yarn" \
+ENV APP_NAME="artel" \
     FRONTEND_DIST="/app/frontend/dist" \
     SERVER_PORT="8000"
 

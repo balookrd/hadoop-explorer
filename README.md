@@ -296,7 +296,7 @@ Workflow GitHub Actions:
 make build
 
 # Либо по отдельности:
-./scripts/build-containers.sh yarn        # pristan/yarn:latest
+./scripts/build-containers.sh artel       # pristan/artel:latest
 ./scripts/build-containers.sh hdfs        # pristan/hdfs:latest
 ./scripts/build-containers.sh sql         # pristan/sql:latest
 ./scripts/build-containers.sh spark       # pristan/spark:latest
