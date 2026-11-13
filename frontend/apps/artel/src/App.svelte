@@ -587,7 +587,7 @@
       subtitle="Аутентификация LDAP & Kerberos SSO"
       icon={Cpu}
       isModal={false}
-      app="yarn"
+      app="artel"
       initialError={authErrorMessage}
       onLogin={handleLogin}
       onKerberosSso={handleKerberosSso}

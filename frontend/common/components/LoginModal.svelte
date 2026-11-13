@@ -10,7 +10,11 @@
     badgeColor?: string;
   }
 
-  export const APP_MOCK_USERS: Record<string, MockUserOption[]> = {
+  export type AppId = 'artel' | 'sklad' | 'tolmach' | 'iskra' | 'parom';
+  // 'universal' is a demo-user tab only, never an app id
+  export type MockTabId = AppId | 'universal';
+
+  export const APP_MOCK_USERS: Record<MockTabId, MockUserOption[]> = {
     universal: [
       {
         username: 'admin_user',
@@ -34,7 +38,7 @@
         badgeColor: 'text-slate-500',
       },
     ],
-    hdfs: [
+    sklad: [
       {
         username: 'admin_user',
         password: 'password123',
@@ -57,7 +61,7 @@
         badgeColor: 'text-slate-500',
       },
     ],
-    yarn: [
+    artel: [
       {
         username: 'admin_user',
         password: 'password123',
@@ -80,7 +84,7 @@
         badgeColor: 'text-slate-500',
       },
     ],
-    replicator: [
+    parom: [
       {
         username: 'admin_user',
         password: 'password123',
@@ -103,7 +107,7 @@
         badgeColor: 'text-slate-500',
       },
     ],
-    sql: [
+    tolmach: [
       {
         username: 'admin_user',
         password: 'password123',
@@ -126,7 +130,7 @@
         badgeColor: 'text-slate-500',
       },
     ],
-    spark: [
+    iskra: [
       {
         username: 'admin_user',
         password: 'password123',
@@ -153,13 +157,13 @@
 
   export const DEFAULT_MOCK_USERS: MockUserOption[] = APP_MOCK_USERS.universal;
 
-  export const APP_TABS = [
+  export const APP_TABS: { id: MockTabId; label: string }[] = [
     { id: 'universal', label: 'Универсальные' },
-    { id: 'hdfs', label: 'HDFS' },
-    { id: 'yarn', label: 'YARN' },
-    { id: 'replicator', label: 'Replicator' },
-    { id: 'sql', label: 'SQL' },
-    { id: 'spark', label: 'Spark' },
+    { id: 'sklad', label: 'HDFS' },
+    { id: 'artel', label: 'YARN' },
+    { id: 'parom', label: 'Репликация' },
+    { id: 'tolmach', label: 'SQL' },
+    { id: 'iskra', label: 'Spark' },
   ];
 
   interface Props {
@@ -167,7 +171,7 @@
     subtitle?: string;
     icon?: any;
     isModal?: boolean;
-    app?: 'hdfs' | 'yarn' | 'replicator' | 'sql' | 'spark' | 'universal' | string;
+    app: AppId;
     mockUsers?: MockUserOption[];
     initialError?: string | null;
     onClose?: () => void;
@@ -180,7 +184,7 @@
     subtitle = 'Аутентификация LDAP & Kerberos SSO',
     icon: IconComponent = Server,
     isModal = true,
-    app = undefined,
+    app,
     mockUsers = undefined,
     initialError = null,
     onClose,
@@ -188,28 +192,14 @@
     onKerberosSso,
   }: Props = $props();
 
-  function detectApp(explicitApp?: string, titleStr?: string): string {
-    if (explicitApp && APP_MOCK_USERS[explicitApp.toLowerCase()]) {
-      return explicitApp.toLowerCase();
-    }
-    const t = (titleStr || '').toLowerCase();
-    if (t.includes('spark')) return 'spark';
-    if (t.includes('sql')) return 'sql';
-    if (t.includes('yarn')) return 'yarn';
-    if (t.includes('hdfs')) return 'hdfs';
-    if (t.includes('replicat')) return 'replicator';
-    return 'universal';
-  }
-  let currentApp = $state('universal');
-
-  $effect(() => {
-    currentApp = detectApp(app, title);
-  });
+  // Tab picked by the user; falls back to the app passed by the host page
+  let selectedTab = $state<MockTabId | null>(null);
+  let currentApp = $derived<MockTabId>(selectedTab ?? app);
 
   let activeUsers = $derived(
     mockUsers && mockUsers.length > 0
       ? mockUsers
-      : (APP_MOCK_USERS[currentApp] || DEFAULT_MOCK_USERS)
+      : APP_MOCK_USERS[currentApp]
   );
 
   let username = $state('');
@@ -272,6 +262,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div
+  data-testid="login-modal"
+  data-app={app}
   class={isModal ? "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 select-none" : "flex items-center justify-center min-h-[calc(100vh-4rem)] p-4 select-none"}
   onclick={(e) => { if (isModal && onClose && e.target === e.currentTarget) onClose(); }}
 >
@@ -376,7 +368,7 @@
             {#each APP_TABS as tab}
               <button
                 type="button"
-                onclick={() => { currentApp = tab.id; }}
+                onclick={() => { selectedTab = tab.id; }}
                 class="text-[10px] px-2 py-0.5 rounded-lg font-medium transition cursor-pointer shrink-0 {currentApp === tab.id ? 'bg-sky-600 text-white shadow-2xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}"
               >
                 {tab.label}

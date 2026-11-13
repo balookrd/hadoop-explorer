@@ -60,7 +60,7 @@ describe('Common UI Components Suite', () => {
       render(LoginModal, {
         props: {
           title: 'Вход в Iskra',
-          app: 'spark',
+          app: 'iskra',
           subtitle: 'Служба интерактивных вычислений Apache Spark',
           isModal: false,
           onLogin: handleLogin
@@ -73,6 +73,32 @@ describe('Common UI Components Suite', () => {
       expect(screen.getByText('Иван Датаинженеров')).toBeInTheDocument();
       expect(screen.getByText('Анна Аналитикова')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Войти/i })).toBeInTheDocument();
+    });
+
+    it('uses the explicit app prop and ignores the title text', () => {
+      const { container } = render(LoginModal, {
+        props: { title: 'YARN Queue Explorer', app: 'tolmach', isModal: false, onLogin: vi.fn() }
+      });
+      expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe('tolmach');
+    });
+
+    it('accepts every service id', () => {
+      for (const app of ['artel', 'sklad', 'tolmach', 'iskra', 'parom'] as const) {
+        const { container, unmount } = render(LoginModal, {
+          props: { app, isModal: false, onLogin: vi.fn() }
+        });
+        expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe(app);
+        unmount();
+      }
+    });
+
+    it('switches the demo user set through the tabs without changing the app', async () => {
+      const { container } = render(LoginModal, {
+        props: { app: 'sklad', isModal: false, onLogin: vi.fn() }
+      });
+      await fireEvent.click(screen.getByRole('button', { name: 'Универсальные' }));
+      expect(screen.getByText('Александр Админов')).toBeInTheDocument();
+      expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe('sklad');
     });
   });
 

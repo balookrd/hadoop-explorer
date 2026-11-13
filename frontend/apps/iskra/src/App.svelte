@@ -1143,7 +1143,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Flame}
     isModal={false}
-    app="spark"
+    app="iskra"
     initialError={authErrorMessage}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}
@@ -1325,7 +1325,7 @@
       subtitle="Аутентификация LDAP & Kerberos SSO"
       icon={Flame}
       isModal={true}
-      app="spark"
+      app="iskra"
       initialError={authErrorMessage}
       onClose={() => (isLoginModalOpen = false)}
       onLogin={handleLogin}

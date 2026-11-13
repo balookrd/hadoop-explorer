@@ -438,7 +438,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={ArrowLeftRight}
     isModal={false}
-    app="replicator"
+    app="parom"
     initialError={authErrorMessage}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}
@@ -461,7 +461,7 @@
         subtitle="Смена пользователя LDAP & Kerberos SSO"
         icon={ArrowLeftRight}
         isModal={true}
-        app="replicator"
+        app="parom"
         initialError={authErrorMessage}
         onClose={() => (isLoginModalOpen = false)}
         onLogin={handleLogin}

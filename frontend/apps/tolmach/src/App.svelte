@@ -624,7 +624,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Database}
     isModal={false}
-    app="sql"
+    app="tolmach"
     initialError={authErrorMessage}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}

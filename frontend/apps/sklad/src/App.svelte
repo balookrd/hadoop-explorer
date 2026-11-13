@@ -80,7 +80,7 @@
     subtitle="Аутентификация LDAP & Kerberos SSO"
     icon={Server}
     isModal={false}
-    app="hdfs"
+    app="sklad"
     initialError={authStore.error}
     onLogin={handleLogin}
     onKerberosSso={handleKerberosSso}
