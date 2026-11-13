@@ -2,6 +2,7 @@
 """Apply a token-replacement manifest to tracked text files."""
 import fnmatch
 import re
+import os
 import subprocess
 import sys
 
@@ -27,10 +28,24 @@ def parse_manifest(lines):
     return rules
 
 
+def load_denylist_keeps(lines):
+    """Turn quoted literals (one per line) into implicit keep rules."""
+    keeps = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if len(line) >= 2 and line[0] == '"' and line[-1] == '"':
+            line = line[1:-1]
+        keeps.append(("keep", line, None, None))
+    return keeps
+
+
 def apply_rules(text, path, rules):
     keeps = [r[1] for r in rules if r[0] == "keep"]
-    for i, literal in enumerate(keeps):
-        text = text.replace(literal, f"\x00K{i}\x00")
+    # Mask longer literals first so a shorter substring cannot split a longer one.
+    for i in sorted(range(len(keeps)), key=lambda k: len(keeps[k]), reverse=True):
+        text = text.replace(keeps[i], f"\x00K{i}\x00")
     counts = []
     for kind, old, new, globs in rules:
         if kind == "keep":
@@ -51,7 +66,7 @@ def apply_rules(text, path, rules):
 
 def tracked_files():
     out = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True).stdout
-    for name in out.decode().split("\0"):
+    for name in out.decode(errors="surrogateescape").split("\0"):
         if not name or name.startswith(EXCLUDED_PREFIXES) or name.endswith(EXCLUDED_SUFFIXES):
             continue
         yield name
@@ -59,9 +74,17 @@ def tracked_files():
 
 def main(argv):
     dry = "--dry-run" in argv
-    manifest = [a for a in argv[1:] if a != "--dry-run"][0]
-    with open(manifest, encoding="utf-8") as fh:
+    args = [a for a in argv[1:] if a != "--dry-run"]
+    if not args:
+        print("usage: rename_tokens.py [--dry-run] <manifest>", file=sys.stderr)
+        return 2
+    with open(args[0], encoding="utf-8") as fh:
         rules = parse_manifest(fh)
+    deny_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "denylist.txt")
+    if os.path.exists(deny_path):
+        with open(deny_path, encoding="utf-8") as fh:
+            # Denylist keeps go before the manifest's own rules.
+            rules = load_denylist_keeps(fh) + rules
     active = [r for r in rules if r[0] != "keep"]
     totals = [0] * len(active)
     changed = 0

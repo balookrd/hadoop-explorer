@@ -1,7 +1,7 @@
 import unittest
 
 from hoist_yaml_key import hoist
-from rename_tokens import apply_rules, parse_manifest
+from rename_tokens import apply_rules, load_denylist_keeps, parse_manifest
 
 
 class ApplyRulesTest(unittest.TestCase):
@@ -44,6 +44,26 @@ class ApplyRulesTest(unittest.TestCase):
         _, counts = apply_rules("aa", "f", rules)
         self.assertEqual(counts, [2, 0])
 
+    def test_overlapping_keeps_mask_longer_first(self):
+        # With the shorter literal masked first, "abc-def" would be left as K0-def
+        # and the sub would rewrite its "def" part.
+        rules = parse_manifest(["keep\tabc", "keep\tabc-def", "sub\tdef\tX"])
+        self.assertEqual(apply_rules("abc-def def", "f", rules)[0], "abc-def X")
+
+
+class DenylistTest(unittest.TestCase):
+    def test_load_denylist_keeps_strips_quotes(self):
+        keeps = load_denylist_keeps(['"some-secret"\n', "\n", '"other"'])
+        self.assertEqual(keeps, [("keep", "some-secret", None, None),
+                                 ("keep", "other", None, None)])
+
+    def test_denylisted_literal_untouched_elsewhere_replaced(self):
+        rules = load_denylist_keeps(['"yarn-explorer-secret"']) + parse_manifest(
+            ["sub\tyarn-explorer\tartel"])
+        self.assertEqual(
+            apply_rules('"yarn-explorer-secret" yarn-explorer', "f", rules)[0],
+            '"yarn-explorer-secret" artel')
+
 
 class HoistTest(unittest.TestCase):
     def test_moves_child_to_top_level(self):
@@ -74,6 +94,21 @@ class HoistTest(unittest.TestCase):
         src = "hadoop:\n  security:\n    # note\n    debug: true\n".splitlines(keepends=True)
         out, _ = hoist(src, "hadoop", "security", "zastava")
         self.assertEqual("".join(out), "zastava:\n  # note\n  debug: true\n")
+
+    def test_grandchild_is_not_hoisted(self):
+        src = "hadoop:\n  hdfs:\n    security:\n      a: 1\n".splitlines(keepends=True)
+        out, changed = hoist(src, "hadoop", "security", "zastava")
+        self.assertFalse(changed)
+        self.assertEqual(out, src)
+
+    def test_multi_document(self):
+        src = ("hadoop:\n  security:\n    a: 1\n---\n"
+               "hadoop:\n  security:\n    b: 2\n  hdfs:\n    c: 3\n").splitlines(keepends=True)
+        out, changed = hoist(src, "hadoop", "security", "zastava")
+        self.assertTrue(changed)
+        self.assertEqual("".join(out),
+                         "zastava:\n  a: 1\n---\n"
+                         "hadoop:\n  hdfs:\n    c: 3\nzastava:\n  b: 2\n")
 
 
 if __name__ == "__main__":
