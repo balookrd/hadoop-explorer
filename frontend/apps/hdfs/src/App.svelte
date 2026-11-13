@@ -3,7 +3,7 @@
   import { authStore } from './lib/stores/auth.svelte';
   import { explorerStore } from './lib/stores/explorer.svelte';
   import type { HdfsFileStatus } from './lib/types';
-  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import { Header, LoginModal } from '@pristan/common';
   import { Server } from 'lucide-svelte';
 
   import Breadcrumbs from './lib/components/Breadcrumbs.svelte';

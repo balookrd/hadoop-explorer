@@ -1,6 +1,6 @@
 # Объединенный демо-стенд платформы (demo/all)
 
-Окружение Docker Compose со всеми 5 сервисами Hadoop Explorer Platform и общей инфраструктурой: Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy, Replicator Orchestrator и агенты.
+Окружение Docker Compose со всеми 5 сервисами Pristan и общей инфраструктурой: Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy, Replicator Orchestrator и агенты.
 
 ---
 
@@ -55,7 +55,7 @@ cd demo/all && ./start-all-demo.sh
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
 5. Инициализирует демо-таблицы в Hive Metastore: `demo/sql/hive/init-demo-data.sh` через HiveServer2 (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`), затем `demo/spark/init-demo-tables.sh` через Livy в YARN создает отсутствующие `customers`, `transactions` (кластер 1) и `quarterly_reports` (кластер 2).
-6. Запускает 5 веб-сервисов Hadoop Explorer Platform, включая Replicator Orchestrator и агенты.
+6. Запускает 5 веб-сервисов Pristan, включая Replicator Orchestrator и агенты.
 
 ### Веб-интерфейсы
 - YARN Explorer: [http://localhost:8001](http://localhost:8001)

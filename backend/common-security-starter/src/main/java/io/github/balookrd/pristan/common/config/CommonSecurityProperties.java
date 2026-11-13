@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Конфигурационные свойства безопасности для сервисов Hadoop Explorer.
+ * Конфигурационные свойства безопасности для сервисов Pristan.
  */
 @ConfigurationProperties(prefix = "hadoop.security")
 public class CommonSecurityProperties {
@@ -127,7 +127,7 @@ public class CommonSecurityProperties {
 
     public static class JwtProperties {
         /** Built-in placeholder; startup is refused when it is left in place outside mock mode. */
-        public static final String DEFAULT_SECRET_KEY = "hadoop-explorer-default-secret-key-32-chars-minimum-safe-value";
+        public static final String DEFAULT_SECRET_KEY = "pristan-default-secret-key-32-chars-minimum-safe-value";
 
         private String secretKey = DEFAULT_SECRET_KEY;
         private String algorithm = "HS256";
@@ -169,7 +169,7 @@ public class CommonSecurityProperties {
     public static class CookieProperties {
         private List<String> names = new ArrayList<>(List.of(
             "access_token",
-            "hadoop_explorer_session",
+            "pristan_session",
             "session_token",
             "hdfs_explorer_session"
         ));

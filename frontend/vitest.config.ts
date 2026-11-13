@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [svelte({ compilerOptions: { dev: true } })],
   resolve: {
     alias: {
-      '@hadoop-explorer/common': path.resolve(__dirname, './common/index.ts')
+      '@pristan/common': path.resolve(__dirname, './common/index.ts')
     },
     conditions: ['browser']
   },

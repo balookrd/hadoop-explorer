@@ -1,4 +1,4 @@
-import type { UserSession } from '@hadoop-explorer/common';
+import type { UserSession } from '@pristan/common';
 
 export type JobStatus = 'SCHEDULED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STREAMING';
 

@@ -52,7 +52,7 @@ hadoop:
       names:
         - "access_token"
         - "sql_explorer_session"
-        - "hadoop_explorer_session"
+        - "pristan_session"
 
 sql:
   results-ttl-hours: 24
@@ -109,7 +109,7 @@ management:
         enabled: true
   metrics:
     tags:
-      # Label used by monitoring/grafana/dashboards/hadoop_explorer_overview.json ($app)
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
       app: sql
     distribution:
       slo:

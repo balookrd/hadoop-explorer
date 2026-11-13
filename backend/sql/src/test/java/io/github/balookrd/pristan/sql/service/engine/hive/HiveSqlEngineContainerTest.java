@@ -95,7 +95,7 @@ class HiveSqlEngineContainerTest {
         SqlEngine.ExecutionResult result = new HiveSqlEngine(cluster)
                 .execute("h-service", "SELECT current_user()", "analyst", 10, e -> { }, new AtomicBoolean());
 
-        assertEquals(List.of(List.of("hadoop-explorer")), result.rows());
+        assertEquals(List.of(List.of("pristan")), result.rows());
     }
 
     private static SqlProperties.ClusterConfig clusterWithSocketTimeout(int seconds) {

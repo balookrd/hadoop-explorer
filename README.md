@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/logo_white.png" alt="Hadoop Explorer Platform" width="380" />
+<img src="images/logo_white.png" alt="Pristan" width="380" />
 
 <p>Веб-интерфейсы для YARN, HDFS, SQL (Trino, Hive), Spark и межкластерной репликации HDFS</p>
 
@@ -10,7 +10,7 @@
 [![Maven](https://img.shields.io/badge/Maven-3.9-red.svg)](https://maven.apache.org/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%205%20%7C%20Tailwind%204-orange.svg)](https://svelte.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg)](docker/)
-[![Grafana](https://img.shields.io/badge/Grafana-Dashboards%20Ready-F46800.svg)](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
+[![Grafana](https://img.shields.io/badge/Grafana-Dashboards%20Ready-F46800.svg)](monitoring/grafana/dashboards/pristan_overview.json)
 
 </div>
 
@@ -54,7 +54,7 @@
 
 ## Состав платформы
 
-Hadoop Explorer Platform — монорепозиторий из пяти сервисов для работы с инфраструктурой Apache Hadoop:
+Pristan — монорепозиторий из пяти сервисов для работы с инфраструктурой Apache Hadoop:
 
 1. YARN Explorer — консоль мониторинга кластеров и управления иерархией очередей Apache Hadoop YARN Capacity Scheduler: моделирование весов, версионирование конфигурации, заявки на изменение (Change Requests) с согласованием по принципу Four-Eyes, доставка и применение конфигурации (`yarn rmadmin -refreshQueues`) через Ansible AWX с автоматическим откатом.
 2. HDFS Explorer — файловый менеджер HDFS через WebHDFS и HttpFS с поддержкой NameNode HA и circuit breaker. Список файлов виртуализирован: в DOM отрисовываются только видимые строки, поэтому размер директории не влияет на скорость отрисовки. Поддерживает превью Parquet, ORC, CSV и JSON, ACL, квоты директорий и имперсонацию пользователей (`doAs`).
@@ -69,7 +69,7 @@ Hadoop Explorer Platform — монорепозиторий из пяти сер
 ## Структура монорепозитория
 
 ```
-hadoop-explorer/
+pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── common-security-starter/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
 │   ├── yarn/                 # Сервис YARN Explorer (Capacity Scheduler, RM HA Failover)
@@ -164,11 +164,11 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 
 | Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ |
 |---|---|---|---|---|
-| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/yarn:latest` |
-| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/hdfs:latest` |
-| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/sql:latest` |
-| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /actuator/prometheus` | `hadoop-explorer/spark:latest` |
-| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `hadoop-explorer/replicator-orchestrator:latest`, `hadoop-explorer/replicator-agent:latest` |
+| YARN Explorer | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/yarn:latest` |
+| HDFS Explorer | `http://localhost:8002` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/hdfs:latest` |
+| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/sql:latest` |
+| Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/spark:latest` |
+| Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `pristan/replicator-orchestrator:latest`, `pristan/replicator-agent:latest` |
 
 ---
 
@@ -190,7 +190,7 @@ YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuato
 ### Дашборд Grafana
 
 Дашборд состояния всех сервисов платформы:
-- JSON-модель: [`monitoring/grafana/dashboards/hadoop_explorer_overview.json`](monitoring/grafana/dashboards/hadoop_explorer_overview.json)
+- JSON-модель: [`monitoring/grafana/dashboards/pristan_overview.json`](monitoring/grafana/dashboards/pristan_overview.json)
 - файл автопровижининга: [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](monitoring/grafana/provisioning/dashboards/dashboards.yaml)
 
 Параметры, форматы файлов и переменные окружения описаны в [руководстве по конфигурации (docs/CONFIGURATION.md)](docs/CONFIGURATION.md).
@@ -296,23 +296,23 @@ Workflow GitHub Actions:
 make build
 
 # Либо по отдельности:
-./scripts/build-containers.sh yarn        # hadoop-explorer/yarn:latest
-./scripts/build-containers.sh hdfs        # hadoop-explorer/hdfs:latest
-./scripts/build-containers.sh sql         # hadoop-explorer/sql:latest
-./scripts/build-containers.sh spark       # hadoop-explorer/spark:latest
-./scripts/build-containers.sh replicator  # hadoop-explorer/replicator-orchestrator:latest и hadoop-explorer/replicator-agent:latest
+./scripts/build-containers.sh yarn        # pristan/yarn:latest
+./scripts/build-containers.sh hdfs        # pristan/hdfs:latest
+./scripts/build-containers.sh sql         # pristan/sql:latest
+./scripts/build-containers.sh spark       # pristan/spark:latest
+./scripts/build-containers.sh replicator  # pristan/replicator-orchestrator:latest и pristan/replicator-agent:latest
 ```
 
 Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `hadoop-explorer`). Цели `make build-yarn`, `make build-hdfs`, `make build-sql`, `make build-spark`, `make build-replicator` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
 
 Прямой запуск через Docker CLI:
 ```bash
-docker build -t hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
-docker build -t hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
-docker build -t hadoop-explorer/sql:latest -f docker/Dockerfile.sql-java .
-docker build -t hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
-docker build -t hadoop-explorer/replicator-orchestrator:latest -f docker/Dockerfile.replicator-orchestrator .
-docker build -t hadoop-explorer/replicator-agent:latest -f docker/Dockerfile.replicator-agent .
+docker build -t pristan/yarn:latest -f docker/Dockerfile.yarn-java .
+docker build -t pristan/hdfs:latest -f docker/Dockerfile.hdfs-java .
+docker build -t pristan/sql:latest -f docker/Dockerfile.sql-java .
+docker build -t pristan/spark:latest -f docker/Dockerfile.spark-java .
+docker build -t pristan/replicator-orchestrator:latest -f docker/Dockerfile.replicator-orchestrator .
+docker build -t pristan/replicator-agent:latest -f docker/Dockerfile.replicator-agent .
 ```
 
 ---

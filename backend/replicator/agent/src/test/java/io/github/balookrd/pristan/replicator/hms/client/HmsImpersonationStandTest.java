@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Выключен по умолчанию: нужен поднятый стенд. Запуск:
  * <pre>
- * docker compose -p hadoop-explorer-shared-hms \
+ * docker compose -p pristan-shared-hms \
  *   -f demo/platform/docker-compose.hms.yml -f demo/platform/docker-compose.hdfs.yml \
  *   up -d kdc hdfs-cluster-1 sql-hive-metastore
  * docker cp kdc:/shared/conf/krb5.conf /tmp/krb5.conf   # kdc заменить на 127.0.0.1

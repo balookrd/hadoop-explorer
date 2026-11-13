@@ -23,13 +23,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: explorer
-          POSTGRES_PASSWORD: explorer
-          POSTGRES_DB: explorer
+          POSTGRES_USER: pristan
+          POSTGRES_PASSWORD: pristan
+          POSTGRES_DB: pristan
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U explorer"
+          --health-cmd "pg_isready -U pristan"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -49,9 +49,9 @@ jobs:
 
       - name: Run unit tests
         env:
-          TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/explorer
-          TEST_POSTGRES_USER: explorer
-          TEST_POSTGRES_PASSWORD: explorer
+          TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/pristan
+          TEST_POSTGRES_USER: pristan
+          TEST_POSTGRES_PASSWORD: pristan
         run: mvn -B test
 
       - name: Set up Node.js
@@ -98,7 +98,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: hadoop-explorer-jars
+          name: pristan-jars
           path: |
             dist/*.jar
             dist/SHA256SUMS.txt

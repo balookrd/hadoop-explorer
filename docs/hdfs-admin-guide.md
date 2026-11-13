@@ -56,7 +56,7 @@ Git, Apache Maven, Node.js и npm на целевых серверах при у
   - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat-JAR с веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/hadoop-explorer/hdfs:${VERSION}`
+  - `ghcr.io/company/pristan/hdfs:${VERSION}`
 
 ---
 
@@ -92,14 +92,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/hadoop-explorer/hdfs/releases
-sudo mkdir -p /opt/hadoop-explorer/hdfs/bin
-sudo mkdir -p /etc/hadoop-explorer/hdfs
+sudo mkdir -p /opt/pristan/hdfs/releases
+sudo mkdir -p /opt/pristan/hdfs/bin
+sudo mkdir -p /etc/pristan/hdfs
 sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/hadoop-explorer/hdfs/data
+sudo mkdir -p /var/lib/pristan/hdfs/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/hdfs
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/hdfs
 ```
 
 ### Шаг 3: получение артефакта
@@ -113,8 +113,8 @@ sudo -u appuser -i
 
 VERSION="1.0.0"
 GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/hadoop-explorer/hdfs/releases/v${VERSION}"
-BIN_DIR="/opt/hadoop-explorer/hdfs/bin"
+RELEASE_DIR="/opt/pristan/hdfs/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/hdfs/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -147,11 +147,11 @@ cd ..
 mvn clean package -DskipTests -f backend/hdfs/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/hdfs/target/hdfs-explorer-java-*.jar /opt/hadoop-explorer/hdfs/bin/hdfs-explorer.jar
+cp backend/hdfs/target/hdfs-explorer-java-*.jar /opt/pristan/hdfs/bin/hdfs-explorer.jar
 ```
 
 ### Шаг 4: конфигурационный файл
-Создайте файл `/etc/hadoop-explorer/hdfs/application.yml`:
+Создайте файл `/etc/pristan/hdfs/application.yml`:
 ```yaml
 server:
   port: 8000
@@ -160,7 +160,7 @@ spring:
   application:
     name: hadoop-hdfs-explorer
   datasource:
-    url: jdbc:h2:file:/var/lib/hadoop-explorer/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
     # Для PostgreSQL-кластера:
     # url: jdbc:postgresql://pg.company.local:5432/hdfs_explorer
     # username: hdfs_user
@@ -224,8 +224,8 @@ hadoop:
 
 Ограничьте доступ к файлу: в нем пароль LDAP и JWT-ключ.
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/hdfs/application.yml
-sudo chown appuser:appuser /etc/hadoop-explorer/hdfs/application.yml
+sudo chmod 600 /etc/pristan/hdfs/application.yml
+sudo chown appuser:appuser /etc/pristan/hdfs/application.yml
 ```
 
 ### Шаг 5: systemd-юнит
@@ -240,15 +240,15 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/hdfs
-Environment="SPRING_CONFIG_LOCATION=/etc/hadoop-explorer/hdfs/application.yml"
+WorkingDirectory=/opt/pristan/hdfs
+Environment="SPRING_CONFIG_LOCATION=/etc/pristan/hdfs/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
-    -Dspring.config.location=/etc/hadoop-explorer/hdfs/application.yml \
-    -jar /opt/hadoop-explorer/hdfs/bin/hdfs-explorer.jar
+    -Dspring.config.location=/etc/pristan/hdfs/application.yml \
+    -jar /opt/pristan/hdfs/bin/hdfs-explorer.jar
 
 Restart=always
 RestartSec=5s
@@ -278,15 +278,15 @@ curl -I http://127.0.0.1:8000/healthz
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/hadoop-explorer/hdfs/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/hdfs/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/hdfs-explorer-java-${NEW_VER}.jar"
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/hdfs-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение символической ссылки (симлинка):
-ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/hdfs/bin/hdfs-explorer.jar
+ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${NEW_VER}.jar" /opt/pristan/hdfs/bin/hdfs-explorer.jar
 
 # Перезапуск сервиса (занимает 2–3 с):
 sudo systemctl restart hdfs-explorer
@@ -304,12 +304,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/hadoop-explorer/hdfs:${VERSION}
+docker pull ghcr.io/company/pristan/hdfs:${VERSION}
 ```
 
 ### 3.2 Локальная сборка образа (для разработки)
 ```bash
-docker build -t ghcr.io/company/hadoop-explorer/hdfs:latest -f docker/Dockerfile.hdfs-java .
+docker build -t ghcr.io/company/pristan/hdfs:latest -f docker/Dockerfile.hdfs-java .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -324,7 +324,7 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v hdfs-data:/app/data \
-  ghcr.io/company/hadoop-explorer/hdfs:1.0.0
+  ghcr.io/company/pristan/hdfs:1.0.0
 ```
 
 ### 3.4 Запуск через `docker-compose.yml`
@@ -333,7 +333,7 @@ version: "3.8"
 
 services:
   hdfs-explorer:
-    image: ghcr.io/company/hadoop-explorer/hdfs:1.0.0
+    image: ghcr.io/company/pristan/hdfs:1.0.0
     container_name: hdfs-explorer
     restart: unless-stopped
     ports:
@@ -450,7 +450,7 @@ java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8001 \
   -Dhadoop.security.auth.mode=kerberos \
   -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
-  -Dhadoop.hdfs.clusters-config-path=/etc/hadoop-explorer/clusters.yaml \
+  -Dhadoop.hdfs.clusters-config-path=/etc/pristan/clusters.yaml \
   backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
 ```
 

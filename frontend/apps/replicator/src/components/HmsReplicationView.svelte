@@ -44,7 +44,7 @@
     CreateHmsJobPayload,
     HmsJobListingSummary
   } from '../types';
-  import { StatusBadge, type UserSession } from '@hadoop-explorer/common';
+  import { StatusBadge, type UserSession } from '@pristan/common';
 
   // Пропсы
   let { topology = null, user = null }: { topology?: TopologyResponse | null; user?: UserSession | null } = $props();

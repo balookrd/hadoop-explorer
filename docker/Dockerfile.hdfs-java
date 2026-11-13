@@ -1,5 +1,5 @@
 # ========================================================
-# Hadoop Explorer :: HDFS Explorer API (Java 21 / Spring Boot 3)
+# Pristan :: HDFS Explorer API (Java 21 / Spring Boot 3)
 # ========================================================
 FROM eclipse-temurin:21-jre-jammy
 

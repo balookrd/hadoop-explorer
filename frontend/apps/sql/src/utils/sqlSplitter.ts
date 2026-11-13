@@ -1,1 +1,1 @@
-export * from '@hadoop-explorer/common';
+export * from '@pristan/common';

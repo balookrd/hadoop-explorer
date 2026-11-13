@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Hadoop Explorer Platform — Spark Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Spark Explorer" width="380" />
 
 # Руководство пользователя: Spark Web Explorer
 
@@ -386,5 +386,5 @@ LIMIT 50;
 ---
 
 <div align="center">
-  <sub>Hadoop Explorer Platform</sub>
+  <sub>Pristan</sub>
 </div>

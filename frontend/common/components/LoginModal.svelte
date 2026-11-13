@@ -176,7 +176,7 @@
   }
 
   let {
-    title = 'Hadoop Explorer',
+    title = 'Pristan',
     subtitle = 'Аутентификация LDAP & Kerberos SSO',
     icon: IconComponent = Server,
     isModal = true,

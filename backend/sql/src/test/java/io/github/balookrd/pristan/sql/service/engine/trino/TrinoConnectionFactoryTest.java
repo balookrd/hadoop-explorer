@@ -75,7 +75,7 @@ class TrinoConnectionFactoryTest {
     @Test
     void impersonationSendsEndUserAsSessionUser() {
         Properties p = new TrinoConnectionFactory(cluster()).connectionProperties("analyst");
-        assertEquals("hadoop-explorer", p.getProperty("user"));
+        assertEquals("pristan", p.getProperty("user"));
         assertEquals("analyst", p.getProperty("sessionUser"));
         assertNull(p.getProperty("SSL"));
         assertNull(p.getProperty("KerberosPrincipal"));

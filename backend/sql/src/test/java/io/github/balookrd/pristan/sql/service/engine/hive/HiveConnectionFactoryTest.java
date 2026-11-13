@@ -104,7 +104,7 @@ class HiveConnectionFactoryTest {
 
     @Test
     void serviceUserIsSentAsJdbcUser() {
-        assertEquals("hadoop-explorer", new HiveConnectionFactory(cluster()).connectionProperties().getProperty("user"));
+        assertEquals("pristan", new HiveConnectionFactory(cluster()).connectionProperties().getProperty("user"));
     }
 
     @Test

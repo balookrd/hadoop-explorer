@@ -16,7 +16,7 @@ frontend/apps/hdfs/
 │   │   ├── stores/              # Реактивные состояния Svelte 5 (authStore, explorerStore)
 │   │   ├── types/               # TypeScript-интерфейсы HDFS и пользователя
 │   │   └── utils/               # Утилиты форматирования размеров файлов и дат
-│   │   (Компоненты Header с метками ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
+│   │   (Компоненты Header с метками ролей ADM/RW/RO и LoginModal подключаются из @pristan/common)
 │   ├── App.svelte               # Корневой компонент интерфейса
 │   ├── app.css                  # Подключение Tailwind CSS v4 и theme.css
 │   └── main.ts                  # Точка входа приложения

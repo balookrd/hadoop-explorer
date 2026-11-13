@@ -1,6 +1,6 @@
 # Перевод YARN, HDFS, SQL и Spark Explorer на PostgreSQL и запуск нескольких экземпляров
 
-Документ описывает перевод сервисов Hadoop Explorer (`yarn-explorer`, `hdfs-explorer`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
+Документ описывает перевод сервисов Pristan (`yarn-explorer`, `hdfs-explorer`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
 Упакованные `application.yml` сервисов используют H2:
 
@@ -77,7 +77,7 @@ docker run -d \
   -e HADOOP_SECURITY_SESSIONSTORE_TYPE="jdbc" \
   -e JWT_SECRET_KEY="<jwt_secret>" \
   -p 8003:8003 \
-  hadoop-explorer/sql:latest
+  pristan/sql:latest
 ```
 
 ---

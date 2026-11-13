@@ -11,7 +11,7 @@
 | Фреймворк | [Svelte 5](https://svelte.dev/), руны `$state`, `$derived`, `$props`, `$effect` |
 | Сборщик | [Vite](https://vitejs.dev/) / Rolldown с Hot Module Replacement (HMR) |
 | Редактор кода | [Monaco Editor](https://microsoft.github.io/monaco-editor/): подсветка Python, Scala и SQL с переключением по языку вкладки, запуск по `Ctrl+Enter` / `Cmd+Enter` |
-| Стили | [Tailwind CSS 4](https://tailwindcss.com/): общий стиль Hadoop Explorer, собственные полосы прокрутки, янтарно-оранжевая палитра Spark |
+| Стили | [Tailwind CSS 4](https://tailwindcss.com/): общий стиль Pristan, собственные полосы прокрутки, янтарно-оранжевая палитра Spark |
 | Иконки | [Lucide Svelte](https://lucide.dev/) |
 | Связь с сервером | REST API с аутентификацией по cookie; рабочее пространство сохраняется на сервере через `/api/v1/workspace` |
 
@@ -30,7 +30,7 @@ frontend/apps/spark/src/
 │   ├── Sidebar.svelte        # Дерево каталога метаданных (Hive Metastore / Iceberg: DB -> Tables -> Columns)
 │   ├── SparkEditor.svelte    # Monaco Editor с поддержкой горячих клавиш (Ctrl+Enter), сниппетов и контекстной справки
 │   └── ResultsView.svelte    # Панель вывода результатов: таблица строк с пагинацией, лог сессии, блок ошибок
-│   (Header и LoginModal подключаются из @hadoop-explorer/common)
+│   (Header и LoginModal подключаются из @pristan/common)
 ├── types.ts                  # TypeScript интерфейсы: SessionConfig, Statement, Tab, TabResultData, Catalog
 ├── tests/                    # Набор компонентных UI-тестов (Vitest, @testing-library/svelte)
 │   ├── session_bar.test.ts   # Тестирование локального тулбара вкладки: смена языка, запуск/отмена, таймер

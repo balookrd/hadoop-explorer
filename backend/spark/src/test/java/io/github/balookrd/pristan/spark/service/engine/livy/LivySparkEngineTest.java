@@ -67,7 +67,7 @@ class LivySparkEngineTest {
         assertEquals(7, handle.livySessionId());
         assertEquals("starting", handle.state());
         livy.verify(postRequestedFor(urlEqualTo("/sessions"))
-                .withHeader("X-Requested-By", equalTo("hadoop-explorer"))
+                .withHeader("X-Requested-By", equalTo("pristan"))
                 .withRequestBody(matchingJsonPath("$.proxyUser", equalTo("analyst")))
                 .withRequestBody(matchingJsonPath("$.queue", equalTo("root.analytics")))
                 .withRequestBody(matchingJsonPath("$.conf['spark.sql.shuffle.partitions']", equalTo("8"))));

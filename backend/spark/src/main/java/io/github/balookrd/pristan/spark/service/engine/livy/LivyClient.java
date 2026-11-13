@@ -179,7 +179,7 @@ public class LivyClient {
                     .timeout(readTimeout)
                     .header("Accept", "application/json")
                     // Required when livy.server.csrf-protection.enabled = true, ignored otherwise
-                    .header("X-Requested-By", "hadoop-explorer")
+                    .header("X-Requested-By", "pristan")
                     .method(method, body);
             if (jsonBody != null) {
                 builder.header("Content-Type", "application/json");

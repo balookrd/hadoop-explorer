@@ -1,6 +1,6 @@
-# Архитектура платформы Hadoop Explorer Platform
+# Архитектура платформы Pristan
 
-Hadoop Explorer Platform — веб-платформа для работы с экосистемой Apache Hadoop, ее мониторинга и администрирования. Монорепозиторий содержит пять сервисов:
+Pristan — веб-платформа для работы с экосистемой Apache Hadoop, ее мониторинга и администрирования. Монорепозиторий содержит пять сервисов:
 1. YARN Explorer — администрирование очередей Capacity Scheduler.
 2. HDFS Explorer — файловый менеджер HDFS.
 3. SQL Explorer — редактор запросов к Trino и Hive с ИИ-ассистентом (при `mock-storage: true` движки работают на встроенных демонстрационных данных, ассистент без LLM — на встроенных правилах, см. 5.3).
@@ -357,14 +357,14 @@ Hadoop Explorer Platform — веб-платформа для работы с э
 - Ленивая загрузка модальных окон (code splitting):
   - Модальные окна, мастера настроек и выдвижные панели (drawers) загружаются по требованию через `{#await import(...) then { default: Component }}`.
   - Начальный JavaScript-бандл меньше, страница становится интерактивной быстрее.
-- Общие компоненты (`@hadoop-explorer/common`):
+- Общие компоненты (`@pristan/common`):
   - `Header.svelte` — шапка всех SPA: профиль пользователя, LDAP-группы и роли, выбор кластера, кнопка выхода (`Logout`).
   - `LoginModal.svelte` — диалог входа: Kerberos SPNEGO SSO, вход по учетной записи LDAP, переключение mock-пользователей.
   - `Modal.svelte` — базовое диалоговое окно с размытием фона (backdrop-blur), закрытием по Escape или щелчку вне окна и поддержкой доступности.
   - `sqlSplitter.ts` — разбор SQL-скриптов с учетом строковых литералов и комментариев, выполнение запроса под курсором (`getStatementAtCursor`).
   - `useResizable.svelte.ts` — хелперы на рунах Svelte 5 для изменения размеров панелей перетаскиванием (сайдбары и редакторы кода).
 - Общий API-клиент (`BaseApiClient`):
-  - Клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) наследуются от `BaseApiClient` из `@hadoop-explorer/common`.
+  - Клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) наследуются от `BaseApiClient` из `@pristan/common`.
   - Клиент обрабатывает HTTP 401 повторной попыткой входа через Kerberos SSO (`/auth/sso`), добавляет заголовок `X-Requested-With` для защиты от CSRF, передает `credentials: 'include'` и поддерживает sliding sessions.
 - Типы TypeScript (`frontend/common/types/`):
   - Интерфейсы TypeScript синхронизированы с DTO Java-сервисов (`yarn`, `hdfs`, `sql`, `spark`, `replicator`), поэтому расхождение контракта между Java record/class и клиентом обнаруживается при проверке типов.
@@ -426,7 +426,7 @@ SQL и Spark Explorer отправляют обновления по Server-Sent
 YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ReplicatorMetricsService.renderReplicatorPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
 - `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
-  - `hadoop_explorer_overview.json` — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
+  - `pristan_overview.json` — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
   - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
   - `hadoop_replicator_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
   - `hadoop_replicator_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).

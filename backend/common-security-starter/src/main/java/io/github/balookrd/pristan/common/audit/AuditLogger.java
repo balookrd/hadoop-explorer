@@ -8,7 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Структурированный логгер аудита безопасности платформы Hadoop Explorer.
+ * Структурированный логгер аудита безопасности платформы Pristan.
  */
 public class AuditLogger {
 

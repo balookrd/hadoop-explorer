@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Job, JobListingSummary, TopologyData, ClusterInfo } from '../types';
-  import { StatusBadge } from '@hadoop-explorer/common';
+  import { StatusBadge } from '@pristan/common';
   import {
     ArrowLeftRight,
     RefreshCw,

@@ -52,7 +52,7 @@ hadoop:
       names:
         - "access_token"
         - "hdfs_explorer_session"
-        - "hadoop_explorer_session"
+        - "pristan_session"
 
   hdfs:
     clusters:
@@ -124,7 +124,7 @@ management:
         enabled: true
   metrics:
     tags:
-      # Label used by monitoring/grafana/dashboards/hadoop_explorer_overview.json ($app)
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
       app: hdfs
     distribution:
       slo:

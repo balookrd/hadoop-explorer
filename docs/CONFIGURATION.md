@@ -1,6 +1,6 @@
-# Руководство по конфигурации Hadoop Explorer Platform
+# Руководство по конфигурации Pristan
 
-Документ для администраторов платформы Hadoop Explorer: параметры конфигурации, форматы файлов и переменные окружения компонентов.
+Документ для администраторов платформы Pristan: параметры конфигурации, форматы файлов и переменные окружения компонентов.
 - Общий стартер безопасности (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
 - YARN Explorer (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - HDFS Explorer (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
@@ -73,7 +73,7 @@
 > - `auth.mode: ldap` задан при `ldap.enabled: false`;
 > - `auth.mode` не входит в `mock | ldap | kerberos | hybrid`.
 >
-> Вне debug (`hadoop.security.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer repository`.
+> Вне debug (`hadoop.security.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `hadoop.security.jwt.secret-key is a value published in the Pristan repository`.
 >
 > Локальная разработка без каталога включает профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
 > файл `application-mock.yml` в ресурсах сервиса). Демо-стенды `demo/*` входят через OpenLDAP стенда:
@@ -102,7 +102,7 @@ hadoop:
       algorithm: HS256
       expiration-minutes: 480
     cookie:
-      names: ["access_token", "hadoop_explorer_session", "session_token", "hdfs_explorer_session"]
+      names: ["access_token", "pristan_session", "session_token", "hdfs_explorer_session"]
       domain:                          # Не задан: cookie привязана к хосту ответа
       path: /
       secure: true                     # Передавать cookie только по HTTPS (по умолчанию false)
@@ -154,7 +154,7 @@ hadoop:
       enabled: true
       url: "ldaps://ad.company.local:636"
       base-dn: "dc=company,dc=local"
-      manager-dn: "cn=svc_hadoop_explorer,ou=Service Accounts,dc=company,dc=local"
+      manager-dn: "cn=svc_pristan,ou=Service Accounts,dc=company,dc=local"
       manager-password: ${LDAP_MANAGER_PASSWORD:}
       user-search-base: "ou=Users,dc=company,dc=local"
       user-search-filter: "(&(objectClass=user)(sAMAccountName={0}))" # для OpenLDAP: (uid={0})
@@ -1204,7 +1204,7 @@ location = /actuator/prometheus {
 |---|---|---|---|
 | `management.endpoints.web.exposure.include` | `health,prometheus` | Публикует по HTTP только health и Prometheus | Не расширять без необходимости: остальные эндпоинты открываются только ADMIN, но `env` и `configprops` показывают конфигурацию |
 | `management.prometheus.metrics.export.enabled` | `true` | Создает `PrometheusMeterRegistry`. Задан явно: `@SpringBootTest` по умолчанию отключает экспорт метрик | Не менять |
-| `management.metrics.tags.app` | `yarn`, `hdfs`, `sql`, `spark` | Лейбл `app` у всех метрик сервиса; по нему фильтрует переменная `$app` дашборда `hadoop-explorer-overview` и группируют алерты | Не менять; для нескольких инсталляций в одном Prometheus добавьте лейбл через `relabel_configs` |
+| `management.metrics.tags.app` | `yarn`, `hdfs`, `sql`, `spark` | Лейбл `app` у всех метрик сервиса; по нему фильтрует переменная `$app` дашборда `pristan-overview` и группируют алерты | Не менять; для нескольких инсталляций в одном Prometheus добавьте лейбл через `relabel_configs` |
 | `management.metrics.distribution.slo.http.server.requests` | `50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s` | Границы бакетов `http_server_requests_seconds_bucket` | Если p95 API выходит за 30 с или нужна точность лучше 50 мс. Каждая граница добавляет серию на каждую комбинацию `uri`/`method`/`status` |
 
 ### 9.2 Экспортируемые метрики
@@ -1255,7 +1255,7 @@ YARN, HDFS, SQL и Spark Explorer:
 
 ```yaml
 scrape_configs:
-  - job_name: 'hadoop-explorer'
+  - job_name: 'pristan'
     metrics_path: '/actuator/prometheus'
     scrape_interval: 15s
     static_configs:
@@ -1268,7 +1268,7 @@ scrape_configs:
 
 Готовые конфигурации: [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml) и [`demo/monitoring/prometheus/prometheus.yml`](../demo/monitoring/prometheus/prometheus.yml), правила алертов — в `alert.rules.yml` рядом.
 
-Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="hadoop-explorer"}` возвращает `1` для каждой цели.
+Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="pristan"}` возвращает `1` для каждой цели.
 
 Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `REPLICATOR_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/replicator/docker-compose.yml` и `demo/replicator/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/replicator-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
 
@@ -1298,7 +1298,7 @@ spec:
 
 В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/):
 
-1. [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
+1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
 2. [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
 3. [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — переходы заявок Change Request по статусам, p95 API YARN Explorer по URI.
 4. [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.

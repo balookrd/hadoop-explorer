@@ -1,4 +1,4 @@
-# git-cliff configuration for hadoop-explorer.
+# git-cliff configuration for pristan.
 # This file decides how commits map to release-notes sections and how each line is rendered.
 
 [changelog]

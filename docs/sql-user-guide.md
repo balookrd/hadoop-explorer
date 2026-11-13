@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Hadoop Explorer Platform — SQL Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — SQL Explorer" width="380" />
 
 # Руководство пользователя SQL Web Explorer
 

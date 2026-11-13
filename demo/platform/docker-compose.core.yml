@@ -1,4 +1,4 @@
-name: hadoop-explorer-core-platform
+name: pristan-core-platform
 
 include:
   - path: ../infra/docker-compose.infra.yml

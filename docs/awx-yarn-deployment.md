@@ -131,7 +131,7 @@ ansible/
 
 ### Шаг 3: Подключение Git-проекта (Project)
 1. Откройте **Automation Content → Projects → Add**.
-2. **Name**: `Hadoop Explorer Automation`.
+2. **Name**: `Pristan Automation`.
 3. **Execution Environment**: стандартный или собственный EE с Python 3.9+ (нужен для `apply_capacity_patch.py`).
 4. **Source Control Type**: `Git`.
 5. **Source Control URL**: URL вашего Git-репозитория.
@@ -142,7 +142,7 @@ ansible/
 2. **Name**: `YARN - Deploy Capacity Scheduler`.
 3. **Job Type**: `Run`.
 4. **Inventory**: `Hadoop Clusters Inventory`.
-5. **Project**: `Hadoop Explorer Automation`.
+5. **Project**: `Pristan Automation`.
 6. **Playbook**: `ansible/playbooks/deploy_capacity_scheduler.yml`.
 7. **Credentials**: `YARN RM Deployer Key`.
 8. **Privilege Escalation**: отметьте `Enable Privilege Escalation` (become: true).
@@ -154,7 +154,7 @@ ansible/
 ### Шаг 5: Выпуск Application Token
 1. В профиле пользователя AWX откройте вкладку **Tokens → Add**.
 2. **Application**: оставьте пустым (Personal Access Token) или выберите приложение.
-3. **Description**: `Hadoop Explorer Token`.
+3. **Description**: `Pristan Token`.
 4. **Scope**: `Write`.
 5. Скопируйте токен: AWX показывает его один раз.
 
@@ -332,8 +332,8 @@ Content-Type: application/json
 ## 8. Связанная документация
 
 - [Руководство пользователя YARN Queue Explorer](yarn-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
-- [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — архитектура, подсистемы безопасности и отказоустойчивости.
+- [Архитектура платформы Pristan](ARCHITECTURE.md) — архитектура, подсистемы безопасности и отказоустойчивости.
 - [Руководство по конфигурации платформы](CONFIGURATION.md) — секция `awx:`, переменные окружения, RBAC.
 - [README бэкенда YARN Explorer](../backend/yarn/README.md) — REST API деплоя, запуск тестов.
 - [README каталога Ansible](../ansible/README.md) — структура плейбуков и ролей.
-- [Главная страница репозитория](../README.md) — обзор монорепозитория Hadoop Explorer Platform.
+- [Главная страница репозитория](../README.md) — обзор монорепозитория Pristan.

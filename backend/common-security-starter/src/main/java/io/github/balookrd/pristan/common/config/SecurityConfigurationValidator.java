@@ -95,7 +95,7 @@ public class SecurityConfigurationValidator implements InitializingBean {
             throw new IllegalStateException("hadoop.security.jwt.secret-key must be at least 32 characters long");
         }
         if (!properties.isDebug() && PUBLISHED_SECRET_KEYS.contains(secret)) {
-            throw new IllegalStateException("hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer "
+            throw new IllegalStateException("hadoop.security.jwt.secret-key is a value published in the Pristan "
                     + "repository (mock profile, demo stand, chart default or documentation example) and lets anyone "
                     + "forge session tokens. Generate a new one, for example with: openssl rand -hex 32");
         }

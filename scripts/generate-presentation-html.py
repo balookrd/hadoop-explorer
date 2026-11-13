@@ -492,7 +492,7 @@ HTML_CONTENT = """<!DOCTYPE html>
   <!-- ВЕРХНИЙ БАР -->
   <header>
     <div class="brand">
-      <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform">
+      <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan">
       <span>gRPC Replicator</span>
       <span class="brand-tag">Tech Specs</span>
     </div>
@@ -1018,7 +1018,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             <div class="card card-accent-green">
               <div class="card-title">Интеграция с экосистемой</div>
               <ul class="card-list">
-                <li>Единая навигационная панель Hadoop Explorer Platform (YARN, HDFS, SQL, Spark).</li>
+                <li>Единая навигационная панель Pristan (YARN, HDFS, SQL, Spark).</li>
                 <li>Kerberos SPNEGO бесшовный вход без ввода пароля.</li>
               </ul>
             </div>
@@ -1123,7 +1123,7 @@ GET http://orchestrator:8005/actuator/health</div>
 
   <!-- НИЖНИЙ БАР -->
   <footer>
-    <div>Hadoop Explorer Platform • Архитектура развертывания и сетевые потоки</div>
+    <div>Pristan • Архитектура развертывания и сетевые потоки</div>
     <div>Навигация: ◄ / ► (Стрелки) &nbsp;|&nbsp; Пробел &nbsp;|&nbsp; F (На весь экран) &nbsp;|&nbsp; O (Обзор)</div>
   </footer>
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Live Smoke Verification стека мониторинга платформы Hadoop Explorer
+# Live Smoke Verification стека мониторинга платформы Pristan
 # Проверяет реальную готовность Prometheus 2.50 и Grafana 10.4,
 # статус датасорсов, валидность правил алертов и провижининг всех 8 дашбордов.
 # ==============================================================================
@@ -70,9 +70,9 @@ printf "\n${BLUE}▶ Шаг 2: Проверка конфигурации сбо�
 
 check_prometheus_config() {
     local cfg=$(curl -sf "${PROMETHEUS_URL}/api/v1/status/config")
-    echo "$cfg" | grep -q "hadoop-explorer" && echo "$cfg" | grep -q "hadoop-replicator"
+    echo "$cfg" | grep -q "pristan" && echo "$cfg" | grep -q "hadoop-replicator"
 }
-run_check "Конфигурация скрейпинга (джобы hadoop-explorer и hadoop-replicator)" check_prometheus_config
+run_check "Конфигурация скрейпинга (джобы pristan и hadoop-replicator)" check_prometheus_config
 
 check_prometheus_targets() {
     local targets=$(curl -sf "${PROMETHEUS_URL}/api/v1/targets")
@@ -138,7 +138,7 @@ run_check "Сетевой пинг Grafana к серверу Prometheus (/api/da
 # ------------------------------------------------------------------------------
 # 6. Проверка провижининга всех 8 дашбордов платформы
 # ------------------------------------------------------------------------------
-printf "\n${BLUE}▶ Шаг 6: Проверка провижининга дашбордов Hadoop Explorer Platform${NC}\n"
+printf "\n${BLUE}▶ Шаг 6: Проверка провижининга дашбордов Pristan${NC}\n"
 
 check_all_dashboards_present() {
     local search_res=$(curl -sf -u admin:admin "${GRAFANA_URL}/api/search?type=dash-db")
@@ -154,8 +154,8 @@ verify_dashboard() {
     echo "$res" | grep -q '"dashboard":' && echo "$res" | grep -qi "$title"
 }
 
-run_check "Дашборд: Сводный обзор платформы (hadoop-explorer-overview)" \
-    verify_dashboard "hadoop-explorer-overview" "Hadoop Explorer"
+run_check "Дашборд: Сводный обзор платформы (pristan-overview)" \
+    verify_dashboard "pristan-overview" "Pristan"
 
 run_check "Дашборд: Hadoop Replicator Overview (hadoop-replicator-overview)" \
     verify_dashboard "hadoop-replicator-overview" "Replicator"

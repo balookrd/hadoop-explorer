@@ -201,7 +201,7 @@ public class SqlProperties {
         private String sslVerification = "FULL"; // Trino: FULL | CA | NONE
         private String sslTruststorePath;
         private String sslTruststorePassword;
-        private String serviceUser;               // default: Kerberos principal short name, else "hadoop-explorer"
+        private String serviceUser;               // default: Kerberos principal short name, else "pristan"
         private int queryTimeoutSeconds = 1800;
         private int fetchSize = 1000;
         private int connectTimeoutSeconds = 30;   // Trino: timeout (HTTP connect/read/write); HiveServer2: connectTimeout

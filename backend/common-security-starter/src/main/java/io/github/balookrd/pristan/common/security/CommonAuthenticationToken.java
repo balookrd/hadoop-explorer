@@ -9,7 +9,7 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Аутентификационный токен Spring Security для сессий Hadoop Explorer.
+ * Аутентификационный токен Spring Security для сессий Pristan.
  */
 public class CommonAuthenticationToken implements Authentication {
 

@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Hadoop Explorer Platform — YARN Queue Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — YARN Queue Explorer" width="380" />
 
 # Руководство пользователя: YARN Queue Explorer
 
 </div>
 
-YARN Queue Explorer — веб-приложение для просмотра и изменения иерархии очередей Apache YARN Capacity Scheduler на кластерах Hadoop. Изменения проходят согласование и доставляются на ResourceManager через Ansible AWX. Руководство описывает работу в интерфейсе для ролей READER, WRITER и ADMIN и относится к Hadoop Explorer Platform v1.0.0 и новее.
+YARN Queue Explorer — веб-приложение для просмотра и изменения иерархии очередей Apache YARN Capacity Scheduler на кластерах Hadoop. Изменения проходят согласование и доставляются на ResourceManager через Ansible AWX. Руководство описывает работу в интерфейсе для ролей READER, WRITER и ADMIN и относится к Pristan v1.0.0 и новее.
 
 ## Содержание
 
@@ -399,6 +399,6 @@ Queue Mappings направляют задачи пользователей в �
 ## 14. Связанная документация
 
 - [Доставка конфигурации через Ansible AWX](awx-yarn-deployment.md) — последовательность деплоя, настройка роли и Job Template в AWX, откат.
-- [Руководство по конфигурации Hadoop Explorer Platform](CONFIGURATION.md) — параметры `application.yml`, переменные окружения, подключение к кластерам YARN, RBAC.
-- [Архитектура платформы Hadoop Explorer](ARCHITECTURE.md) — архитектура, подсистемы безопасности (Kerberos SPNEGO, LDAP, JWT) и отказоустойчивости (Circuit Breaker, Distributed Lock).
+- [Руководство по конфигурации Pristan](CONFIGURATION.md) — параметры `application.yml`, переменные окружения, подключение к кластерам YARN, RBAC.
+- [Архитектура платформы Pristan](ARCHITECTURE.md) — архитектура, подсистемы безопасности (Kerberos SPNEGO, LDAP, JWT) и отказоустойчивости (Circuit Breaker, Distributed Lock).
 - [Главная страница репозитория](../README.md) — обзор монорепозитория, запуск демо-стендов, тесты.

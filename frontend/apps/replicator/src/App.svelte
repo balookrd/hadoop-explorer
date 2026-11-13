@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import type { UserSession } from '@hadoop-explorer/common';
-  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import type { UserSession } from '@pristan/common';
+  import { Header, LoginModal } from '@pristan/common';
   import { api } from './api/client';
   import type {
     Job,

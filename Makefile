@@ -6,7 +6,7 @@
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
-REGISTRY ?= hadoop-explorer
+REGISTRY ?= pristan
 
 # Платформа проекта и CI — Java 21 LTS. Прогоны на JDK 24 и новее бессмысленны: Hadoop 3.3.6
 # теряет имперсонацию (`Subject.getSubject` бросает UnsupportedOperationException после удаления
@@ -41,7 +41,7 @@ check-jdk21:
 
 help:
 	@echo "========================================================================"
-	@echo "                   HADOOP EXPLORER PLATFORM CLI                         "
+	@echo "                   PRISTAN CLI                         "
 	@echo "========================================================================"
 	@echo "  Тестирование (Java 21 / Spring Boot 3 + UI):"
 	@echo "    make test             - Запуск всех модульных тестов платформы (Java + UI)"

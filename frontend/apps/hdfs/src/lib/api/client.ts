@@ -1,4 +1,4 @@
-import { BaseApiClient } from '@hadoop-explorer/common';
+import { BaseApiClient } from '@pristan/common';
 import type {
   UserInfo,
   ClusterPublicInfo,

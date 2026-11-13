@@ -1,4 +1,4 @@
-name: hadoop-explorer-shared-yarn
+name: pristan-shared-yarn
 
 include:
   - path: ../infra/docker-compose.infra.yml

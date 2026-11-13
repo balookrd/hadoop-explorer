@@ -64,7 +64,7 @@ java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar --spring.profiles.act
 
 # Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
 JWT_SECRET_KEY=... java -jar backend/yarn/target/yarn-explorer-java-1.0.0.jar \
-  --spring.config.additional-location=file:/etc/hadoop-explorer/yarn/application.yml
+  --spring.config.additional-location=file:/etc/pristan/yarn/application.yml
 ```
 
 Сервис слушает порт `8000` (`server.port` в `application.yml`).

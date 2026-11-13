@@ -140,7 +140,7 @@ management:
         enabled: true
   metrics:
     tags:
-      # Label used by monitoring/grafana/dashboards/hadoop_explorer_overview.json ($app)
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
       app: yarn
     distribution:
       slo:

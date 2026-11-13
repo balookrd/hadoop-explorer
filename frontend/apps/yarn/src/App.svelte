@@ -5,7 +5,7 @@
     UserSession, ClusterSummary, QueueNode, ClusterMetrics,
     BranchBalance, DraftQueueItem, DiffItem, QueueMappingsDiff,
   } from './types';
-  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import { Header, LoginModal } from '@pristan/common';
   import ClusterMetricsBar from './components/ClusterMetricsBar.svelte';
   import PartitionSelector from './components/PartitionSelector.svelte';
   import QueueTreeTable from './components/QueueTreeTable.svelte';

@@ -11,7 +11,7 @@
     TabResultData,
     HistoryItem
   } from './types';
-  import { Header, LoginModal } from '@hadoop-explorer/common';
+  import { Header, LoginModal } from '@pristan/common';
   import Sidebar from './components/Sidebar.svelte';
   import SessionBar from './components/SessionBar.svelte';
   import SparkSessionWidget from './components/SparkSessionWidget.svelte';
@@ -67,8 +67,8 @@
   let selectedMetastoreId = $state<string>('');
 
   const DEFAULT_CODES: Record<'pyspark' | 'scalaspark' | 'sql', string> = {
-    pyspark: '# PySpark скрипт в Hadoop Explorer\n# Для отображения таблицы используйте функцию display(df)\n\ndf = spark.read.table("customers")\ndisplay(df.filter("balance > 10000"))\n',
-    scalaspark: '// Scala Spark скрипт в Hadoop Explorer\nval df = spark.read.table("customers")\ndf.show(50, false)\n',
+    pyspark: '# PySpark скрипт в Pristan\n# Для отображения таблицы используйте функцию display(df)\n\ndf = spark.read.table("customers")\ndisplay(df.filter("balance > 10000"))\n',
+    scalaspark: '// Scala Spark скрипт в Pristan\nval df = spark.read.table("customers")\ndf.show(50, false)\n',
     sql: '-- Spark SQL запрос\nSELECT * FROM customers\nWHERE balance > 10000\nLIMIT 50;\n'
   };
 

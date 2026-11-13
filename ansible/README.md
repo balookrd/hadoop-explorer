@@ -1,4 +1,4 @@
-# Ansible & AWX Automation for Hadoop Explorer
+# Ansible & AWX Automation for Pristan
 
 В каталоге лежат плейбук и роль, которые доставляют `capacity-scheduler.xml` на узлы ResourceManager кластера Apache Hadoop YARN и применяют его. Плейбук запускается из Ansible AWX / Red Hat Ansible Automation Platform (Job Template) или из CLI.
 

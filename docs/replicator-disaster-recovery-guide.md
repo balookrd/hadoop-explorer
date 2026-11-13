@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Hadoop Explorer Platform — Disaster Recovery & Failover Hub" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Disaster Recovery & Failover Hub" width="380" />
 
 # Руководство по Disaster Recovery: сетевая изоляция (Fencing), защита от перезаписи данных и Failback
 

@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.common.model;
 
 /**
- * Роли пользователей в платформе Hadoop Explorer.
+ * Роли пользователей в платформе Pristan.
  */
 public enum Role {
     READER("reader"),

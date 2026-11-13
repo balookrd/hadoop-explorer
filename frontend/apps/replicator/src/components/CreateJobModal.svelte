@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TopologyData, SyncMode } from '../types';
-  import type { UserSession } from '@hadoop-explorer/common';
+  import type { UserSession } from '@pristan/common';
   import { Plus, X, AlertCircle, Shield, History } from 'lucide-svelte';
 
   interface Props {

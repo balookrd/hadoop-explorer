@@ -52,7 +52,7 @@ hadoop:
       names:
         - "access_token"
         - "spark_explorer_session"
-        - "hadoop_explorer_session"
+        - "pristan_session"
 
 spark:
   session-ttl-minutes: 120
@@ -123,7 +123,7 @@ management:
         enabled: true
   metrics:
     tags:
-      # Label used by monitoring/grafana/dashboards/hadoop_explorer_overview.json ($app)
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
       app: spark
     distribution:
       slo:

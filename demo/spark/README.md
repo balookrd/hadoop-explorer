@@ -1,6 +1,6 @@
 # Демо-стенд Spark Explorer (PySpark & Scala Spark on YARN & HDFS)
 
-Демо-стенд Spark Explorer в составе платформы Hadoop Explorer.
+Демо-стенд Spark Explorer в составе платформы Pristan.
 
 ## Компоненты стенда
 1. Spark Explorer UI и бэкенд (порт `8004`):

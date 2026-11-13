@@ -199,7 +199,7 @@ flowchart TD
 #### 1.4.1 Переменные Replicator Orchestrator
 | Переменная | Описание | Значение по умолчанию | Обязательность |
 |---|---|---|---|
-| `SPRING_CONFIG_ADDITIONAL_LOCATION` | Путь к внешнему файлу конфигурации Spring Boot | `file:/etc/hadoop-explorer/replicator/application.yml` | Опционально |
+| `SPRING_CONFIG_ADDITIONAL_LOCATION` | Путь к внешнему файлу конфигурации Spring Boot | `file:/etc/pristan/replicator/application.yml` | Опционально |
 | `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит пропускной способности WAN (байт/сек) | `104857600` (100 МБ/с) | Опционально |
 | `SPRING_DATASOURCE_URL` | JDBC URL подключения к БД (PostgreSQL / SQLite / H2) | `jdbc:h2:mem:replicator` | Опционально |
 | `SPRING_DATASOURCE_USERNAME` | Пользователь базы данных | `sa` | Опционально |
@@ -457,7 +457,7 @@ flowchart TD
 
 ### 1.7 Модель поставки и готовые дистрибутивы (distribution & no-build deployment)
 
-Hadoop Explorer поставляется собранными релизными артефактами и Docker-образами. Для развертывания в production собирать исходный код не нужно: на целевых серверах и шлюзах не устанавливаются Git, Apache Maven, Node.js, npm и компиляторы. Нужны Java 21 JRE и системные библиотеки Kerberos.
+Pristan поставляется собранными релизными артефактами и Docker-образами. Для развертывания в production собирать исходный код не нужно: на целевых серверах и шлюзах не устанавливаются Git, Apache Maven, Node.js, npm и компиляторы. Нужны Java 21 JRE и системные библиотеки Kerberos.
 
 #### Артефакты релиза (GitHub Releases)
 Для каждого релиза `v${VERSION}` (например, `v1.0.0`) в репозитории публикуются файлы:
@@ -471,8 +471,8 @@ Hadoop Explorer поставляется собранными релизными
 
 #### Готовые контейнеры (GitHub Container Registry — GHCR)
 Для сред Docker и Kubernetes в реестре контейнеров GitHub (`ghcr.io`) публикуются собранные образы на базе `eclipse-temurin:21-jre-jammy`:
-- `ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}`
-- `ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}`
+- `ghcr.io/company/pristan/replicator-orchestrator:${VERSION}`
+- `ghcr.io/company/pristan/replicator-agent:${VERSION}`
 
 > Пробы живости. Серверы gRPC отвечают по стандартному протоколу `grpc.health.v1.Health`, а проба контейнера агента выполняется тем же jar-ом, что и сам агент. Подробности и команда пробы — в разделе 5.3; настройка экспорта трасс — в разделе 7.1.2 `docs/CONFIGURATION.md`.
 
@@ -523,17 +523,17 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание иерархии рабочих каталогов
-sudo mkdir -p /opt/hadoop-explorer/replicator/releases
-sudo mkdir -p /opt/hadoop-explorer/replicator/bin
-sudo mkdir -p /etc/hadoop-explorer/replicator
-sudo mkdir -p /var/log/hadoop-explorer/replicator
-sudo mkdir -p /var/lib/hadoop-explorer/replicator/data
-sudo mkdir -p /var/lib/hadoop-explorer/replicator/staging
+sudo mkdir -p /opt/pristan/replicator/releases
+sudo mkdir -p /opt/pristan/replicator/bin
+sudo mkdir -p /etc/pristan/replicator
+sudo mkdir -p /var/log/pristan/replicator
+sudo mkdir -p /var/lib/pristan/replicator/data
+sudo mkdir -p /var/lib/pristan/replicator/staging
 sudo mkdir -p /etc/security/keytabs
 
 # Назначение прав доступа
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/replicator
-sudo chmod 750 /var/lib/hadoop-explorer/replicator/data /var/lib/hadoop-explorer/replicator/staging
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/replicator
+sudo chmod 750 /var/lib/pristan/replicator/data /var/lib/pristan/replicator/staging
 ```
 
 ---
@@ -550,7 +550,7 @@ Fat JAR скачиваются из раздела релизов GitHub. Веб
 sudo -u appuser -i
 
 VERSION="1.0.0"
-RELEASE_DIR="/opt/hadoop-explorer/replicator/releases/v${VERSION}"
+RELEASE_DIR="/opt/pristan/replicator/releases/v${VERSION}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 gh release download "v${VERSION}" --repo company/hadoop-explorer \
@@ -567,7 +567,7 @@ sudo -u appuser -i
 VERSION="1.0.0"
 GITHUB_REPO="company/hadoop-explorer"
 BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
-RELEASE_DIR="/opt/hadoop-explorer/replicator/releases/v${VERSION}"
+RELEASE_DIR="/opt/pristan/replicator/releases/v${VERSION}"
 
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
@@ -593,7 +593,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ##### 4. Создание символических ссылок
 Создайте симлинки, чтобы systemd-юниты и скрипты ссылались на пути без версии в имени файла:
 ```bash
-BIN_DIR="/opt/hadoop-explorer/replicator/bin"
+BIN_DIR="/opt/pristan/replicator/bin"
 
 # Для сервера Оркестратора:
 ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/replicator-orchestrator.jar"
@@ -603,14 +603,14 @@ ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/replica
 ```
 
 ##### 5. Скрипт развертывания `install-from-release.sh`
-Скрипт выполняет шаги 2–4 (загрузка через `curl`, проверка сумм, симлинки) одной командой. Сохраните его в `/opt/hadoop-explorer/replicator/bin/install-from-release.sh`:
+Скрипт выполняет шаги 2–4 (загрузка через `curl`, проверка сумм, симлинки) одной командой. Сохраните его в `/opt/pristan/replicator/bin/install-from-release.sh`:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 VERSION="${1:-1.0.0}"
 GITHUB_REPO="${GITHUB_REPO:-company/hadoop-explorer}"
-BASE_DIR="/opt/hadoop-explorer/replicator"
+BASE_DIR="/opt/pristan/replicator"
 RELEASE_DIR="${BASE_DIR}/releases/v${VERSION}"
 BIN_DIR="${BASE_DIR}/bin"
 BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
@@ -657,14 +657,14 @@ mvn clean package -DskipTests -f backend/replicator/pom.xml
 
 # 3. Копирование артефактов в рабочий каталог bin
 cp backend/replicator/orchestrator/target/replicator-orchestrator-*.jar \
-   /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar
+   /opt/pristan/replicator/bin/replicator-orchestrator.jar
 cp backend/replicator/agent/target/replicator-agent-*-all.jar \
-   /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+   /opt/pristan/replicator/bin/replicator-agent.jar
 ```
 
 ---
 
-#### Шаг 4: Конфигурация Оркестратора (`/etc/hadoop-explorer/replicator/application.yml`)
+#### Шаг 4: Конфигурация Оркестратора (`/etc/pristan/replicator/application.yml`)
 ```yaml
 server:
   port: 8005
@@ -672,7 +672,7 @@ server:
 spring:
   datasource:
     # Для Standalone / Тестирования:
-    url: jdbc:h2:file:/var/lib/hadoop-explorer/replicator/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:file:/var/lib/pristan/replicator/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
     # Для промышленного кластера (PostgreSQL):
     # url: jdbc:postgresql://pg.company.local:5432/replicator
     # username: replicator_user
@@ -752,11 +752,11 @@ After=network.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/replicator
-Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/replicator/application.yml"
+WorkingDirectory=/opt/pristan/replicator
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/replicator/application.yml"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar \
+    -jar /opt/pristan/replicator/bin/replicator-orchestrator.jar \
     --server.port=8005
 
 Restart=always
@@ -778,18 +778,18 @@ After=network.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/replicator
+WorkingDirectory=/opt/pristan/replicator
 Environment="AGENT_ID=agent-dc1-node-01"
 Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="AGENT_MODE=all"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
 Environment="RECEIVER_HOST=0.0.0.0"
 Environment="RECEIVER_PORT=50051"
-Environment="REPLICATOR_STAGING_DIR=/var/lib/hadoop-explorer/replicator/staging"
+Environment="REPLICATOR_STAGING_DIR=/var/lib/pristan/replicator/staging"
 Environment="POLL_INTERVAL_SEC=2.0"
 
 ExecStart=/usr/bin/java -Xms256m -Xmx1024m \
-    -jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+    -jar /opt/pristan/replicator/bin/replicator-agent.jar
 
 Restart=always
 RestartSec=5s
@@ -820,19 +820,19 @@ sudo systemctl enable --now replicator-agent
    ```bash
    sudo -u appuser -i
    NEW_VER="1.0.1"
-   NEW_DIR="/opt/hadoop-explorer/replicator/releases/v${NEW_VER}"
+   NEW_DIR="/opt/pristan/replicator/releases/v${NEW_VER}"
    mkdir -p "${NEW_DIR}" && cd "${NEW_DIR}"
 
-   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/replicator-orchestrator-${NEW_VER}.jar"
-   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/replicator-agent-${NEW_VER}-all.jar"
-   curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/replicator-orchestrator-${NEW_VER}.jar"
+   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/replicator-agent-${NEW_VER}-all.jar"
+   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
    sha256sum -c SHA256SUMS.txt --ignore-missing
    ```
 
 2. Переключите символические ссылки (`ln -sfn` заменяет ссылку атомарно):
    ```bash
-   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/hadoop-explorer/replicator/bin/replicator-orchestrator.jar
-   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/pristan/replicator/bin/replicator-orchestrator.jar
+   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/pristan/replicator/bin/replicator-agent.jar
    ```
 
 3. Перезапустите сервисы:
@@ -871,13 +871,13 @@ After=network.target
 [Service]
 Type=simple
 User=appuser
-WorkingDirectory=/opt/hadoop-explorer/replicator
+WorkingDirectory=/opt/pristan/replicator
 Environment="AGENT_ID=agent-dc1-%i"
 Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="RECEIVER_PORT=5005%i"
 Environment="AGENT_ADVERTISED_ADDRESS=node1.dc1.company.local:5005%i"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
-ExecStart=/usr/bin/java -jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+ExecStart=/usr/bin/java -jar /opt/pristan/replicator/bin/replicator-agent.jar
 Restart=always
 
 [Install]
@@ -893,7 +893,7 @@ sudo systemctl enable --now replicator-agent@2
 ```yaml
 services:
   agent-dc1-01:
-    image: hadoop-explorer/replicator:latest
+    image: pristan/replicator:latest
     environment:
       AGENT_ID: agent-dc1-01
       AGENT_CLUSTER_ID: demo-cluster
@@ -901,7 +901,7 @@ services:
       RECEIVER_PORT: 50051
 
   agent-dc1-02:
-    image: hadoop-explorer/replicator:latest
+    image: pristan/replicator:latest
     environment:
       AGENT_ID: agent-dc1-02
       AGENT_CLUSTER_ID: demo-cluster
@@ -974,8 +974,8 @@ mvn clean package -pl backend/replicator/agent -am -DskipTests
 Подходит для разовых задач, ручного тестирования и запуска из планировщиков (Airflow, Control-M, Autosys). Утилита `hadoop` сама подгружает конфигурационные файлы (`core-site.xml`, `hdfs-site.xml`, `yarn-site.xml`) из каталога `$HADOOP_CONF_DIR`.
 
 ```bash
-# 1. Запуск Shaded Fat JAR (установленного из GitHub Release в /opt/hadoop-explorer/replicator/bin):
-hadoop jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+# 1. Запуск Shaded Fat JAR (установленного из GitHub Release в /opt/pristan/replicator/bin):
+hadoop jar /opt/pristan/replicator/bin/replicator-agent.jar \
     io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
@@ -992,7 +992,7 @@ hadoop jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
 export HADOOP_CLASSPATH=$(hadoop classpath)
 
 java -Xms1g -Xmx4g \
-    -cp "/opt/hadoop-explorer/replicator/releases/v1.0.0/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
+    -cp "/opt/pristan/replicator/releases/v1.0.0/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
     io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
@@ -1006,8 +1006,8 @@ java -Xms1g -Xmx4g \
 Скрипт `replicator-agent.sh` находит JAR, проверяет наличие `hadoop classpath`, задает флаги JVM для G1GC и запускает процесс:
 
 ```bash
-JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
-/opt/hadoop-explorer/replicator/bin/replicator-agent.sh \
+JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
+/opt/pristan/replicator/bin/replicator-agent.sh \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1031,7 +1031,7 @@ Wants=hadoop-hdfs-datanode.service
 Type=simple
 User=hdfs
 Group=hadoop
-WorkingDirectory=/opt/hadoop-explorer/replicator
+WorkingDirectory=/opt/pristan/replicator
 
 # Окружение Java и Hadoop
 Environment="JAVA_HOME=/usr/lib/jvm/java-21-openjdk"
@@ -1054,7 +1054,7 @@ Environment="KRB5_KEYTAB=/etc/security/keytabs/hdfs.keytab"
 Environment="KRB5_PRINCIPAL=hdfs/_HOST@REALM.LOCAL"
 
 # Параметры запуска
-ExecStart=/opt/hadoop-explorer/replicator/backend/replicator/agent/bin/replicator-agent.sh
+ExecStart=/opt/pristan/replicator/backend/replicator/agent/bin/replicator-agent.sh
 
 Restart=always
 RestartSec=5s
@@ -1154,9 +1154,9 @@ sequenceDiagram
 ##### Способ 1: Прямой вызов через CLI `yarn jar` или `hadoop jar`
 ```bash
 # Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication (из установленного релиза):
-yarn jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+yarn jar /opt/pristan/replicator/bin/replicator-agent.jar \
     io.github.balookrd.pristan.replicator.yarn.ReplicatorYarnClient \
-    --jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+    --jar /opt/pristan/replicator/bin/replicator-agent.jar \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 4 \
@@ -1168,8 +1168,8 @@ yarn jar /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
 ##### Способ 2: Запуск через скрипт `submit-yarn.sh`
 Скрипт `submit-yarn.sh` проверяет переменные окружения и вызывает `ReplicatorYarnClient`:
 ```bash
-JAR_FILE=/opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
-/opt/hadoop-explorer/replicator/bin/submit-yarn.sh \
+JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
+/opt/pristan/replicator/bin/submit-yarn.sh \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 8 \
@@ -1427,8 +1427,8 @@ curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
 ### 3.1 Запуск из предсобранных образов GitHub Container Registry (GHCR — рекомендуется)
 
 Docker-образы публикуются в реестре контейнеров GitHub (`ghcr.io`) для каждого релиза:
-- Оркестратор: `ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}`
-- Агент: `ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}`
+- Оркестратор: `ghcr.io/company/pristan/replicator-orchestrator:${VERSION}`
+- Агент: `ghcr.io/company/pristan/replicator-agent:${VERSION}`
 
 #### 1. Авторизация в GHCR (для приватного репозитория)
 ```bash
@@ -1438,8 +1438,8 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 #### 2. Загрузка образов
 ```bash
 VERSION="1.0.0"
-docker pull ghcr.io/company/hadoop-explorer/replicator-orchestrator:${VERSION}
-docker pull ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}
+docker pull ghcr.io/company/pristan/replicator-orchestrator:${VERSION}
+docker pull ghcr.io/company/pristan/replicator-agent:${VERSION}
 ```
 
 ---
@@ -1449,11 +1449,11 @@ docker pull ghcr.io/company/hadoop-explorer/replicator-agent:${VERSION}
 Если исходный код менялся локально, соберите образы вручную:
 ```bash
 # Сборка Оркестратора:
-docker build -t ghcr.io/company/hadoop-explorer/replicator-orchestrator:latest \
+docker build -t ghcr.io/company/pristan/replicator-orchestrator:latest \
     -f docker/Dockerfile.replicator-orchestrator .
 
 # Сборка Агента:
-docker build -t ghcr.io/company/hadoop-explorer/replicator-agent:latest \
+docker build -t ghcr.io/company/pristan/replicator-agent:latest \
     -f docker/Dockerfile.replicator-agent .
 
 # Либо через общий скрипт платформы:
@@ -1470,7 +1470,7 @@ name: hadoop-replicator-demo
 services:
   # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Prometheus)
   orchestrator:
-    image: ghcr.io/company/hadoop-explorer/replicator-orchestrator:1.0.0
+    image: ghcr.io/company/pristan/replicator-orchestrator:1.0.0
     container_name: replicator-orchestrator
     hostname: orchestrator
     restart: unless-stopped
@@ -1495,7 +1495,7 @@ services:
 
   # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
   agent-dc1:
-    image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
+    image: ghcr.io/company/pristan/replicator-agent:1.0.0
     container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
@@ -1525,7 +1525,7 @@ services:
 
   # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-dc2:
-    image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
+    image: ghcr.io/company/pristan/replicator-agent:1.0.0
     container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
@@ -1684,7 +1684,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: orchestrator
-          image: ghcr.io/company/hadoop-explorer/replicator-orchestrator:1.0.0
+          image: ghcr.io/company/pristan/replicator-orchestrator:1.0.0
           imagePullPolicy: IfNotPresent
           env:
             - name: SPRING_PROFILES_ACTIVE
@@ -1813,7 +1813,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: agent
-          image: ghcr.io/company/hadoop-explorer/replicator-agent:1.0.0
+          image: ghcr.io/company/pristan/replicator-agent:1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -2063,7 +2063,7 @@ java -cp /app/replicator-agent.jar \
 | Скорость репликации зафиксирована на низком значении | Срабатывает один из уровней Token Bucket шейпера | Проверьте значения `global_limit_mb_per_sec`, `dc_limits` и `hdfs_limits` в веб-интерфейсе Оркестратора на вкладке «Топология ЦОД и Полоса». Увеличьте лимит или включите чекбокс «Без лимита» (0 МБ/с). |
 | `gRPC Unavailable: failed to connect to agent:50051` | Сетевая блокировка между ЦОД или агент не запущен | Проверьте статус пода или сервиса агента и откройте TCP-порт `50051` в межсетевом экране между ЦОД. |
 | Периодическая задача зависла в статусе `SCHEDULED` | Время следующего запуска `next_run_at` еще не наступило | `SCHEDULED` — штатное ожидание между запусками по расписанию. Чтобы запустить задачу сразу, нажмите кнопку **▶ (Старт)** в строке таблицы. |
-| Переполнение каталога Staging (`No space left on device`) | Большой поток файлов при медленной финализации в HDFS | Увеличьте размер буфера Staging или смонтируйте быстрый NVMe диск в `/var/lib/hadoop-explorer/replicator/staging`. |
+| Переполнение каталога Staging (`No space left on device`) | Большой поток файлов при медленной финализации в HDFS | Увеличьте размер буфера Staging или смонтируйте быстрый NVMe диск в `/var/lib/pristan/replicator/staging`. |
 | Рост базы данных при частых cron-запусках | Настроена слишком большая глубина истории | Уменьшите лимит `history_retention_runs` (например, до 10–20 запусков). Лишние записи планировщик удаляет после каждого запуска (см. 1.6.2). |
 
 ---
@@ -2603,13 +2603,13 @@ Kafka Replicator развертывается по одной из двух мо
 sudo useradd -r -m -d /var/lib/kafka-replicator -s /bin/bash kafka-replicator
 
 # Создание структуры каталогов
-sudo mkdir -p /opt/hadoop-explorer/replicator/{bin,conf,logs}
+sudo mkdir -p /opt/pristan/replicator/{bin,conf,logs}
 sudo mkdir -p /var/log/kafka-replicator
-sudo chown -R kafka-replicator:kafka-replicator /var/log/kafka-replicator /opt/hadoop-explorer/replicator
+sudo chown -R kafka-replicator:kafka-replicator /var/log/kafka-replicator /opt/pristan/replicator
 
 # Размещение исполняемого JAR-пакета (или создание симлинка)
-sudo ln -sfn /opt/hadoop-explorer/replicator/releases/replicator-agent-1.0.0-all.jar \
-  /opt/hadoop-explorer/replicator/bin/replicator-agent.jar
+sudo ln -sfn /opt/pristan/replicator/releases/replicator-agent-1.0.0-all.jar \
+  /opt/pristan/replicator/bin/replicator-agent.jar
 ```
 
 ---
@@ -2698,7 +2698,7 @@ Environment="JAVA_OPTS=-Xms2g -Xmx4g \
 # Приемник держит в хипе принятые и неподтвержденные батчи не больше четверти -Xmx.
 
 ExecStart=/usr/bin/java $JAVA_OPTS \
-  -cp /opt/hadoop-explorer/replicator/bin/replicator-agent.jar \
+  -cp /opt/pristan/replicator/bin/replicator-agent.jar \
   io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain \
   --port ${PORT} \
   --bootstrap-servers ${BOOTSTRAP_SERVERS} \

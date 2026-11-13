@@ -1,6 +1,6 @@
-# Hadoop Explorer :: Common Security Starter (Java 21 / Spring Boot 3)
+# Pristan :: Common Security Starter (Java 21 / Spring Boot 3)
 
-Spring Boot стартер аутентификации, сессий, CSRF-защиты, RBAC, rate limiting, circuit breaker и аудита для сервисов Hadoop Explorer Platform. Java 21 LTS, Spring Boot 3.3+.
+Spring Boot стартер аутентификации, сессий, CSRF-защиты, RBAC, rate limiting, circuit breaker и аудита для сервисов Pristan. Java 21 LTS, Spring Boot 3.3+.
 
 Стартер закрывает уязвимости из OWASP Top-10 и CWE, перечисленные ниже.
 
@@ -100,7 +100,7 @@ hadoop:
       same-site: "Lax"
       names:
         - "access_token"
-        - "hadoop_explorer_session"
+        - "pristan_session"
 
     cors:
       allowed-origins:

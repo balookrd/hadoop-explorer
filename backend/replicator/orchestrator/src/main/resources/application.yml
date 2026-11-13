@@ -114,7 +114,7 @@ hadoop:
       same-site: "Lax"
       names:
         - "access_token"
-        - "hadoop_explorer_session"
+        - "pristan_session"
 
   replicator:
     grpc:

@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
 echo "=========================================================="
-echo "    Запуск Общего Ядра Платформы Hadoop Explorer          "
+echo "    Запуск Общего Ядра Платформы Pristan          "
 echo "  Kerberos KDC + OpenLDAP + 2x HDFS + 2x YARN + HMS 4.0   "
 echo "=========================================================="
 

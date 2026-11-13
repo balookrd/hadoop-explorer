@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Hadoop Explorer Platform — Hadoop gRPC Replicator" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Hadoop gRPC Replicator" width="380" />
 
 # Руководство пользователя: Hadoop gRPC Replicator
 
@@ -10,7 +10,7 @@
 
 ---
 
-Hadoop gRPC Replicator — сервис Hadoop Explorer Platform для репликации данных HDFS между кластерами в разных ЦОД (DC1 ➔ DC2 ➔ DC3) через WAN-каналы. Руководство описывает архитектуру, ролевую модель, режимы синхронизации и работу в веб-интерфейсе; оно рассчитано на операторов, инженеров данных и администраторов платформы.
+Hadoop gRPC Replicator — сервис Pristan для репликации данных HDFS между кластерами в разных ЦОД (DC1 ➔ DC2 ➔ DC3) через WAN-каналы. Руководство описывает архитектуру, ролевую модель, режимы синхронизации и работу в веб-интерфейсе; оно рассчитано на операторов, инженеров данных и администраторов платформы.
 
 Полосу WAN ограничивает трехуровневый Hierarchical Token Bucket, поэтому репликация не занимает канал сверх заданных квот. Перед коммитом файла приемник сверяет SHA-256 и только затем атомарно переименовывает staging-файл в целевой. Задачи запускаются вручную или по расписанию (Cron Scheduler), в том числе от сервисной учетной записи.
 
@@ -486,7 +486,7 @@ topology:
 
 ## 8. Веб-интерфейс оператора
 
-Веб-консоль репликатора доступна по адресу `http://<host>:8005`, где `<host>` — хост оркестратора. Это SPA-приложение (`frontend/apps/replicator`) на Svelte 5, использующее общие компоненты платформы [`Header.svelte`](../frontend/common/components/Header.svelte) и [`LoginModal.svelte`](../frontend/common/components/LoginModal.svelte) из `@hadoop-explorer/common`.
+Веб-консоль репликатора доступна по адресу `http://<host>:8005`, где `<host>` — хост оркестратора. Это SPA-приложение (`frontend/apps/replicator`) на Svelte 5, использующее общие компоненты платформы [`Header.svelte`](../frontend/common/components/Header.svelte) и [`LoginModal.svelte`](../frontend/common/components/LoginModal.svelte) из `@pristan/common`.
 
 В верхней панели навигации четыре раздела:
 1. **«HMS Replication»** (открывается по умолчанию) — мониторинг CDC-потоков Hive Metastore, репликация схем, отставание событий (Event Lag) и вложенные задачи синхронизации метаданных.

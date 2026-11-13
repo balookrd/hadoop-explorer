@@ -55,7 +55,7 @@ Spark Explorer — веб-среда для запуска вычислений 
   - `spark-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR со встроенным веб-интерфейсом (Svelte 5 SPA), клиентом Livy/YARN, DAG-пайплайнами и драйверами БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/hadoop-explorer/spark:${VERSION}`
+  - `ghcr.io/company/pristan/spark:${VERSION}`
 
 ---
 
@@ -91,14 +91,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/hadoop-explorer/spark/releases
-sudo mkdir -p /opt/hadoop-explorer/spark/bin
-sudo mkdir -p /etc/hadoop-explorer/spark
+sudo mkdir -p /opt/pristan/spark/releases
+sudo mkdir -p /opt/pristan/spark/bin
+sudo mkdir -p /etc/pristan/spark
 sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/hadoop-explorer/spark/data
+sudo mkdir -p /var/lib/pristan/spark/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/spark
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/spark
 ```
 
 ### Шаг 3: Получение JAR
@@ -112,8 +112,8 @@ sudo -u appuser -i
 
 VERSION="1.0.0"
 GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/hadoop-explorer/spark/releases/v${VERSION}"
-BIN_DIR="/opt/hadoop-explorer/spark/bin"
+RELEASE_DIR="/opt/pristan/spark/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/spark/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -146,11 +146,11 @@ cd ..
 mvn clean package -pl backend/common-security-starter,backend/spark -am -DskipTests
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/spark/target/spark-explorer-java-*.jar /opt/hadoop-explorer/spark/bin/spark-explorer.jar
+cp backend/spark/target/spark-explorer-java-*.jar /opt/pristan/spark/bin/spark-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/spark/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/spark/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `CommonSecurityProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/spark/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/spark/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `CommonSecurityProperties` (префикс `hadoop.security`).
 
 ```yaml
 server:
@@ -159,7 +159,7 @@ server:
 spring:
   datasource:
     # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
-    url: jdbc:h2:file:/var/lib/hadoop-explorer/spark/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:file:/var/lib/pristan/spark/data/spark_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
 hadoop:
   security:
@@ -251,8 +251,8 @@ spark:
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/spark/application.yml
-sudo chown appuser:appuser /etc/hadoop-explorer/spark/application.yml
+sudo chmod 600 /etc/pristan/spark/application.yml
+sudo chown appuser:appuser /etc/pristan/spark/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
@@ -267,12 +267,12 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/spark
-Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/spark/application.yml"
+WorkingDirectory=/opt/pristan/spark
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/spark/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/spark/bin/spark-explorer.jar \
+    -jar /opt/pristan/spark/bin/spark-explorer.jar \
     --server.port=8004
 
 Restart=always
@@ -302,15 +302,15 @@ curl -I http://127.0.0.1:8004/healthz
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/hadoop-explorer/spark/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/spark/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/spark-explorer-java-${NEW_VER}.jar"
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/spark-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/spark-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/spark/bin/spark-explorer.jar
+ln -sfn "${RELEASE_DIR}/spark-explorer-java-${NEW_VER}.jar" /opt/pristan/spark/bin/spark-explorer.jar
 
 # Перезапуск сервиса (занимает 2–3 сек):
 sudo systemctl restart spark-explorer
@@ -328,12 +328,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/hadoop-explorer/spark:${VERSION}
+docker pull ghcr.io/company/pristan/spark:${VERSION}
 ```
 
 ### 3.2 Локальная сборка образа (для разработки)
 ```bash
-docker build -t ghcr.io/company/hadoop-explorer/spark:latest -f docker/Dockerfile.spark-java .
+docker build -t ghcr.io/company/pristan/spark:latest -f docker/Dockerfile.spark-java .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -352,7 +352,7 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v spark-data:/app/data \
-  ghcr.io/company/hadoop-explorer/spark:1.0.0
+  ghcr.io/company/pristan/spark:1.0.0
 ```
 
 ### 3.4 Запуск через `docker-compose.yml`
@@ -361,7 +361,7 @@ version: "3.8"
 
 services:
   spark-explorer:
-    image: ghcr.io/company/hadoop-explorer/spark:1.0.0
+    image: ghcr.io/company/pristan/spark:1.0.0
     container_name: spark-explorer
     restart: unless-stopped
     ports:

@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'Hadoop Explorer'
+  - name: 'Pristan'
     orgId: 1
-    folder: 'Hadoop Explorer'
+    folder: 'Pristan'
     type: file
     disableDeletion: false
     editable: true

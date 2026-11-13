@@ -44,5 +44,5 @@ java -jar backend/spark/target/spark-explorer-java-1.0.0.jar --spring.profiles.a
 
 # Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
 JWT_SECRET_KEY=... java -jar backend/spark/target/spark-explorer-java-1.0.0.jar \
-  --spring.config.additional-location=file:/etc/hadoop-explorer/spark/application.yml
+  --spring.config.additional-location=file:/etc/pristan/spark/application.yml
 ```

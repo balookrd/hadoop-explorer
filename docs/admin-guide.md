@@ -1,6 +1,6 @@
-# Руководство администратора платформы Hadoop Explorer
+# Руководство администратора платформы Pristan
 
-Документ для администраторов и DevOps/SRE-инженеров: общие для всех сервисов Hadoop Explorer требования к развертыванию, безопасности, портам и мониторингу, а также ссылки на руководства по каждому сервису.
+Документ для администраторов и DevOps/SRE-инженеров: общие для всех сервисов Pristan требования к развертыванию, безопасности, портам и мониторингу, а также ссылки на руководства по каждому сервису.
 
 ---
 
@@ -22,7 +22,7 @@
 
 ```
                       ┌─────────────────────────────────────────────────────────────┐
-                      │              HADOOP EXPLORER PLATFORM                       │
+                      │              PRISTAN                       │
                       └──────────────────────────────┬──────────────────────────────┘
                                                      │
          ┌───────────────────────────────────────────┼───────────────────────────────────────────┐
@@ -54,7 +54,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 
 ### 2. Секретный ключ JWT (`JWT_SECRET_KEY`)
 - При `auth.mode`, отличном от `mock`, сервис не запускается, если `JWT_SECRET_KEY` пустой, короче 32 символов или совпадает со встроенным плейсхолдером.
-- При `debug: false` сервис также не запускается с ключом, опубликованным в репозитории: значения из `application-mock.yml`, тестов, демо-стендов, удаленных Helm-чартов и примеров документации (список `SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`). В логе: `hadoop.security.jwt.secret-key is a value published in the Hadoop Explorer repository ...`.
+- При `debug: false` сервис также не запускается с ключом, опубликованным в репозитории: значения из `application-mock.yml`, тестов, демо-стендов, удаленных Helm-чартов и примеров документации (список `SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`). В логе: `hadoop.security.jwt.secret-key is a value published in the Pristan repository ...`.
 - При двух и более экземплярах сервиса задайте одинаковый `JWT_SECRET_KEY` на всех экземплярах.
 - Сгенерируйте ключ:
   ```bash
@@ -94,7 +94,7 @@ YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuato
 ### Конфигурация сбора метрик в Prometheus
 ```yaml
 scrape_configs:
-  - job_name: 'hadoop-explorer'
+  - job_name: 'pristan'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets:
@@ -106,7 +106,7 @@ scrape_configs:
 
 ### Дашборды Grafana
 Дашборды лежат в каталоге `monitoring/grafana/dashboards/`:
-- Platform Overview: [`hadoop_explorer_overview.json`](../monitoring/grafana/dashboards/hadoop_explorer_overview.json) — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
+- Platform Overview: [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
 - gRPC Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
 - HDFS Operations: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
 - YARN Explorer: [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — переходы заявок Change Request, задержка API.

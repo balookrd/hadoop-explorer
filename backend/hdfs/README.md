@@ -31,7 +31,7 @@ backend/hdfs/
    - Сам создает домашние каталоги пользователей (`/user/{username}`).
 
 3. Стартер безопасности `common-security-starter`:
-   - Аутентификация по JWT в cookie (`access_token`, `hdfs_explorer_session`, `hadoop_explorer_session`).
+   - Аутентификация по JWT в cookie (`access_token`, `hdfs_explorer_session`, `pristan_session`).
    - Режимы входа: Kerberos SPNEGO SSO, LDAP / Active Directory, mock-профили.
    - CSRF-проверка изменяющих HTTP-запросов.
    - Аудит через `@Audited`: создание каталогов, загрузка, переименование, удаление, межкластерное копирование.

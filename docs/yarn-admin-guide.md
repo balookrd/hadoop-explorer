@@ -9,7 +9,7 @@
 ## 1. Функции и требования
 
 ### 1.1 Функции сервиса
-YARN Explorer — компонент платформы Hadoop Explorer. Функции:
+YARN Explorer — компонент платформы Pristan. Функции:
 - управление очередями Capacity Scheduler через веб-интерфейс: доли гарантированных и максимальных ресурсов, дочерние очереди;
 - просмотр загрузки ресурсов кластера (vCores, RAM) и очередей;
 - переключение между активным и резервным ResourceManager при отказе (RM HA);
@@ -50,7 +50,7 @@ Git, Apache Maven, Node.js и npm для запуска готового рел�
   - `yarn-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR: веб-интерфейс (Svelte 5 SPA), REST API, интеграция с AWX, драйверы БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 файлов релиза.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/hadoop-explorer/yarn:${VERSION}`
+  - `ghcr.io/company/pristan/yarn:${VERSION}`
 
 ---
 
@@ -84,14 +84,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/hadoop-explorer/yarn/releases
-sudo mkdir -p /opt/hadoop-explorer/yarn/bin
-sudo mkdir -p /etc/hadoop-explorer/yarn
+sudo mkdir -p /opt/pristan/yarn/releases
+sudo mkdir -p /opt/pristan/yarn/bin
+sudo mkdir -p /etc/pristan/yarn
 sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/hadoop-explorer/yarn/data
+sudo mkdir -p /var/lib/pristan/yarn/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/yarn
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/yarn
 ```
 
 ### Шаг 3: Получение JAR
@@ -105,8 +105,8 @@ sudo -u appuser -i
 
 VERSION="1.0.0"
 GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/hadoop-explorer/yarn/releases/v${VERSION}"
-BIN_DIR="/opt/hadoop-explorer/yarn/bin"
+RELEASE_DIR="/opt/pristan/yarn/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/yarn/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -139,11 +139,11 @@ cd ..
 mvn clean package -DskipTests -f backend/yarn/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/yarn/target/yarn-explorer-java-*.jar /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
+cp backend/yarn/target/yarn-explorer-java-*.jar /opt/pristan/yarn/bin/yarn-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/yarn/application.yml`:
+Создайте файл `/etc/pristan/yarn/application.yml`:
 ```yaml
 server:
   port: 8000
@@ -153,7 +153,7 @@ spring:
     name: yarn-explorer-java
   datasource:
     # Для автономной работы используется embedded H2:
-    url: jdbc:h2:file:/var/lib/hadoop-explorer/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
     # Драйвер Spring Boot выбирает по URL; драйвер PostgreSQL входит в JAR.
     # url: jdbc:postgresql://pg-cluster.company.local:5432/yarn_explorer
     # username: yarn_user
@@ -253,8 +253,8 @@ Explorer не генерирует `capacity-scheduler.xml` целиком. Пр
 
 Закройте файл от других пользователей: в нем могут быть пароли и токены.
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/yarn/application.yml
-sudo chown appuser:appuser /etc/hadoop-explorer/yarn/application.yml
+sudo chmod 600 /etc/pristan/yarn/application.yml
+sudo chown appuser:appuser /etc/pristan/yarn/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
@@ -269,15 +269,15 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/yarn
-Environment="SPRING_CONFIG_LOCATION=/etc/hadoop-explorer/yarn/application.yml"
+WorkingDirectory=/opt/pristan/yarn
+Environment="SPRING_CONFIG_LOCATION=/etc/pristan/yarn/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
-    -Dspring.config.location=/etc/hadoop-explorer/yarn/application.yml \
-    -jar /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
+    -Dspring.config.location=/etc/pristan/yarn/application.yml \
+    -jar /opt/pristan/yarn/bin/yarn-explorer.jar
 
 Restart=always
 RestartSec=5s
@@ -312,15 +312,15 @@ journalctl -u yarn-explorer -f
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/hadoop-explorer/yarn/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/yarn/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/yarn-explorer-java-${NEW_VER}.jar"
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/yarn-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/yarn/bin/yarn-explorer.jar
+ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${NEW_VER}.jar" /opt/pristan/yarn/bin/yarn-explorer.jar
 
 # Перезапуск сервиса (занимает 2–3 секунды):
 sudo systemctl restart yarn-explorer
@@ -338,12 +338,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/hadoop-explorer/yarn:${VERSION}
+docker pull ghcr.io/company/pristan/yarn:${VERSION}
 ```
 
 ### 3.2 Локальная сборка образа
 ```bash
-docker build -t ghcr.io/company/hadoop-explorer/yarn:latest -f docker/Dockerfile.yarn-java .
+docker build -t ghcr.io/company/pristan/yarn:latest -f docker/Dockerfile.yarn-java .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -358,7 +358,7 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v yarn-data:/app/data \
-  ghcr.io/company/hadoop-explorer/yarn:1.0.0
+  ghcr.io/company/pristan/yarn:1.0.0
 ```
 
 ### 3.4 Запуск через Docker Compose
@@ -370,7 +370,7 @@ version: "3.8"
 
 services:
   yarn-explorer:
-    image: ghcr.io/company/hadoop-explorer/yarn:1.0.0
+    image: ghcr.io/company/pristan/yarn:1.0.0
     container_name: yarn-explorer
     restart: unless-stopped
     ports:
@@ -480,7 +480,7 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_
 - Встроенная H2 (Standalone):
   ```bash
   # Создание копии файла базы данных
-  cp /var/lib/hadoop-explorer/yarn/data/yarn_explorer.mv.db /backup/yarn_explorer_$(date +%F).mv.db
+  cp /var/lib/pristan/yarn/data/yarn_explorer.mv.db /backup/yarn_explorer_$(date +%F).mv.db
   ```
 
 ---

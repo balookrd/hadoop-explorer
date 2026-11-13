@@ -291,7 +291,7 @@ public class ReplicatorHighConcurrencyStressTest {
     @DisplayName("Stress: WireCompressor под высокой нагрузкой (10 000 чанков ZSTD / LZ4) и устойчивость к порче данных")
     void testWireCompressionThroughputStress() {
         int iterations = 10_000;
-        byte[] original = "Hadoop-Explorer-WireCompression-Stress-Payload-Test-String-1234567890".repeat(5).getBytes(StandardCharsets.UTF_8);
+        byte[] original = "Pristan-WireCompression-Stress-Payload-Test-String-1234567890".repeat(5).getBytes(StandardCharsets.UTF_8);
 
         // 1. Стресс сжатия и распаковки LZ4
         for (int i = 0; i < iterations; i++) {

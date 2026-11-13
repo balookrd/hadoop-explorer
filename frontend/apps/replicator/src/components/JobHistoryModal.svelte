@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Job, JobRun } from '../types';
-  import { StatusBadge } from '@hadoop-explorer/common';
+  import { StatusBadge } from '@pristan/common';
   import { History, X, RefreshCw, Calendar, Check, Play } from 'lucide-svelte';
 
   interface Props {

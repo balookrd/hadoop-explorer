@@ -9,7 +9,7 @@
 | Сервис | Порт | Образ | Назначение | URL интерфейса |
 |---|---|---|---|---|
 | Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов с `/actuator/prometheus` (YARN, HDFS, SQL, Spark) и `/metrics` (оркестратор Replicator), вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
-| Grafana | `3000` | `grafana/grafana:10.4.0` | Дашборды с автопровижинингом (анонимный вход с ролью admin, папка `Hadoop Explorer`) | [http://localhost:3000](http://localhost:3000) |
+| Grafana | `3000` | `grafana/grafana:10.4.0` | Дашборды с автопровижинингом (анонимный вход с ролью admin, папка `Pristan`) | [http://localhost:3000](http://localhost:3000) |
 
 ---
 
@@ -48,9 +48,9 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 
 ## Дашборды Grafana
 
-Дашборды монтируются из `monitoring/grafana/dashboards` в папку `Hadoop Explorer`:
+Дашборды монтируются из `monitoring/grafana/dashboards` в папку `Pristan`:
 
-1. `hadoop-explorer-overview` — сводка по платформе и golden signals:
+1. `pristan-overview` — сводка по платформе и golden signals:
    - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам YARN, HDFS, SQL, Spark.
    - Входы через `/api/v1/auth/login` по кодам ответа, ответы 429 ограничителя частоты по уровням `login` и `api` (`hadoop_rate_limit_blocks_total`), ответы 5xx по классу исключения.
    - Сводка Hadoop gRPC Replicator.

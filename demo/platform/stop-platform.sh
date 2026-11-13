@@ -4,5 +4,5 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
-echo "=== Остановка общего ядра платформы Hadoop Explorer ==="
+echo "=== Остановка общего ядра платформы Pristan ==="
 docker compose -f docker-compose.core.yml down -v

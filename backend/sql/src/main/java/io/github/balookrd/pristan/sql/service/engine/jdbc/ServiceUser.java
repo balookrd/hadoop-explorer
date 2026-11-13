@@ -5,7 +5,7 @@ import io.github.balookrd.pristan.sql.config.SqlProperties;
 /** The account the service itself authenticates as; end users are impersonated on top of it. */
 public final class ServiceUser {
 
-    public static final String DEFAULT = "hadoop-explorer";
+    public static final String DEFAULT = "pristan";
 
     private ServiceUser() {
     }

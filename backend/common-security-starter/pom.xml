@@ -17,7 +17,7 @@
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Hadoop Explorer :: Common Security Starter</name>
+    <name>Pristan :: Common Security Starter</name>
     <description>Единый Spring Boot 3 стартер безопасности: Kerberos SPNEGO, LDAP, JWT, SessionStore L1/L2, CSRF Guard, Circuit Breaker и Rate Limiter</description>
 
     <properties>

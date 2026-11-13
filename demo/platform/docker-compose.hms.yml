@@ -1,4 +1,4 @@
-name: hadoop-explorer-shared-hms
+name: pristan-shared-hms
 
 include:
   - path: ../infra/docker-compose.infra.yml

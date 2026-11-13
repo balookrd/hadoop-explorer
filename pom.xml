@@ -10,8 +10,8 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
 
-    <name>Hadoop Explorer :: Platform</name>
-    <description>Корневой Maven Reactor для платформы Hadoop Explorer</description>
+    <name>Pristan :: Platform</name>
+    <description>Корневой Maven Reactor для платформы Pristan</description>
 
     <modules>
         <module>backend/common-security-starter</module>

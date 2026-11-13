@@ -111,9 +111,9 @@ def main():
         # Оборачиваем титульный лист
         cover_html = f"""
         <div class="cover-page">
-          <div class="cover-badge">HADOOP EXPLORER PLATFORM • TECHNICAL SPECIFICATION</div>
+          <div class="cover-badge">PRISTAN • TECHNICAL SPECIFICATION</div>
           <div class="cover-logo">
-            <img src="file://{os.path.join(docs_dir, 'images', 'logo_white.png')}" alt="Hadoop Explorer Logo" />
+            <img src="file://{os.path.join(docs_dir, 'images', 'logo_white.png')}" alt="Pristan Logo" />
           </div>
           <h1 class="cover-title">Hadoop gRPC Replicator</h1>
           <div class="cover-subtitle">Системная архитектура, сетевые протоколы, шейпинг и Disaster Recovery</div>

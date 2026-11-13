@@ -6,7 +6,7 @@ rule_files:
   - "/etc/prometheus/alert.rules.yml"
 
 scrape_configs:
-  - job_name: 'hadoop-explorer'
+  - job_name: 'pristan'
     # Spring Boot Actuator scrape endpoint, public on the application port
     # (docs/CONFIGURATION.md, section 9). Ports: SERVER_PORT in docker/Dockerfile.*-java
     metrics_path: '/actuator/prometheus'

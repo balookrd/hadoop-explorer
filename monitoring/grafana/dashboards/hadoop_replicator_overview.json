@@ -26,12 +26,12 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "hadoop-explorer"
+        "pristan"
       ],
       "targetBlank": false,
       "title": "Сводный мониторинг платформы",
       "type": "link",
-      "url": "/d/hadoop-explorer-overview"
+      "url": "/d/pristan-overview"
     },
     {
       "asDropdown": false,
@@ -2681,7 +2681,7 @@
   "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
-    "hadoop-explorer",
+    "pristan",
     "replicator",
     "hdfs",
     "grpc",

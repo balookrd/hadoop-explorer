@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "=== Запуск объединенного демо-стенда Hadoop Explorer ==="
+echo "=== Запуск объединенного демо-стенда Pristan ==="
 docker compose -f docker-compose.all.yml up -d --build
 
 echo ""
@@ -36,7 +36,7 @@ done
 
 echo ""
 echo "========================================================="
-echo "   Hadoop Explorer Демо Стенды успешно запущены!"
+echo "   Pristan Демо Стенды успешно запущены!"
 echo "========================================================="
 echo "   🎛️ YARN Explorer:       http://localhost:8001"
 echo "   📁 HDFS Explorer:       http://localhost:8002"

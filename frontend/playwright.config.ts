@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright E2E and Visual Regression Config
- * Hadoop Explorer Platform UI Test Suite
+ * Pristan UI Test Suite
  */
 export default defineConfig({
   testDir: './e2e',

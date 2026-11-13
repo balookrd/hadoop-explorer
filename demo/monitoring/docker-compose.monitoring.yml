@@ -1,4 +1,4 @@
-name: hadoop-explorer-monitoring
+name: pristan-monitoring
 
 services:
   # ==========================================
@@ -43,7 +43,7 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=false
-      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/hadoop_explorer_overview.json
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/pristan_overview.json
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ../../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro

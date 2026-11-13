@@ -46,5 +46,5 @@ java -jar backend/sql/target/sql-explorer-java-1.0.0.jar --spring.profiles.activ
 
 # Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
 JWT_SECRET_KEY=... java -jar backend/sql/target/sql-explorer-java-1.0.0.jar \
-  --spring.config.additional-location=file:/etc/hadoop-explorer/sql/application.yml
+  --spring.config.additional-location=file:/etc/pristan/sql/application.yml
 ```

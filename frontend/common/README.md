@@ -1,6 +1,6 @@
-# Hadoop Explorer Common Frontend (`@hadoop-explorer/common`)
+# Pristan Common Frontend (`@pristan/common`)
 
-Общие компоненты интерфейса, API-клиент, утилиты и типы для фронтенд-приложений Hadoop Explorer (Svelte 5, Tailwind CSS v4).
+Общие компоненты интерфейса, API-клиент, утилиты и типы для фронтенд-приложений Pristan (Svelte 5, Tailwind CSS v4).
 
 ## Содержимое пакета
 

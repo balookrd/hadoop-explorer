@@ -20,7 +20,7 @@ frontend/apps/yarn/src/
 │   ├── ResourceBalanceCard.svelte # Карточка валидации баланса 100% емкости
 │   ├── PartitionSelector.svelte # Селектор разделов кластера (Node Labels)
 │   └── SubmitChangeRequestModal.svelte # Модальное окно создания заявки Change Request
-│   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @hadoop-explorer/common)
+│   (Header с бейджами ролей ADM/RW/RO и LoginModal подключаются из @pristan/common)
 ├── utils/                       # Утилиты форматирования и вычислений
 │   └── resourceUtils.ts         # Форматирование MB/GB/TB, ядер vCPU, пересчет квот и расчет баланса
 ├── types.ts                     # TypeScript-интерфейсы (QueueNode, Cluster, Diff, Deploy и др.)

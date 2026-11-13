@@ -53,7 +53,7 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
   - `sql-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR, в который включены веб-интерфейс (Svelte 5 SPA, Monaco Editor), коннекторы Trino и Hive, ИИ-ассистент и драйверы БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/hadoop-explorer/sql:${VERSION}`
+  - `ghcr.io/company/pristan/sql:${VERSION}`
 
 ---
 
@@ -87,14 +87,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/hadoop-explorer/sql/releases
-sudo mkdir -p /opt/hadoop-explorer/sql/bin
-sudo mkdir -p /etc/hadoop-explorer/sql
+sudo mkdir -p /opt/pristan/sql/releases
+sudo mkdir -p /opt/pristan/sql/bin
+sudo mkdir -p /etc/pristan/sql
 sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/hadoop-explorer/sql/data
+sudo mkdir -p /var/lib/pristan/sql/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/hadoop-explorer/sql
+sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/sql
 ```
 
 ### Шаг 3: Получение JAR
@@ -108,8 +108,8 @@ sudo -u appuser -i
 
 VERSION="1.0.0"
 GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/hadoop-explorer/sql/releases/v${VERSION}"
-BIN_DIR="/opt/hadoop-explorer/sql/bin"
+RELEASE_DIR="/opt/pristan/sql/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/sql/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -142,11 +142,11 @@ cd ..
 mvn clean package -pl backend/common-security-starter,backend/sql -am -DskipTests
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/sql/target/sql-explorer-java-*.jar /opt/hadoop-explorer/sql/bin/sql-explorer.jar
+cp backend/sql/target/sql-explorer-java-*.jar /opt/pristan/sql/bin/sql-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/hadoop-explorer/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/sql/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `CommonSecurityProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/sql/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `CommonSecurityProperties` (префикс `hadoop.security`).
 ```yaml
 server:
   port: 8003
@@ -154,7 +154,7 @@ server:
 spring:
   datasource:
     # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
-    url: jdbc:h2:file:/var/lib/hadoop-explorer/sql/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:file:/var/lib/pristan/sql/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
 hadoop:
   security:
@@ -224,8 +224,8 @@ sql:
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/hadoop-explorer/sql/application.yml
-sudo chown appuser:appuser /etc/hadoop-explorer/sql/application.yml
+sudo chmod 600 /etc/pristan/sql/application.yml
+sudo chown appuser:appuser /etc/pristan/sql/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
@@ -240,12 +240,12 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/hadoop-explorer/sql
-Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/hadoop-explorer/sql/application.yml"
+WorkingDirectory=/opt/pristan/sql
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/sql/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/hadoop-explorer/sql/bin/sql-explorer.jar \
+    -jar /opt/pristan/sql/bin/sql-explorer.jar \
     --server.port=8003
 
 Restart=always
@@ -275,15 +275,15 @@ curl -I http://127.0.0.1:8003/healthz
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/hadoop-explorer/sql/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/sql/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/sql-explorer-java-${NEW_VER}.jar"
-curl -fsSL -O "https://github.com/company/hadoop-explorer/releases/download/v${NEW_VER}/SHA256SUMS.txt"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/sql-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/sql-explorer-java-${NEW_VER}.jar" /opt/hadoop-explorer/sql/bin/sql-explorer.jar
+ln -sfn "${RELEASE_DIR}/sql-explorer-java-${NEW_VER}.jar" /opt/pristan/sql/bin/sql-explorer.jar
 
 # Перезапуск сервиса (занимает 2–3 сек):
 sudo systemctl restart sql-explorer
@@ -301,12 +301,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/hadoop-explorer/sql:${VERSION}
+docker pull ghcr.io/company/pristan/sql:${VERSION}
 ```
 
 ### 3.2 Локальная сборка Docker-образа
 ```bash
-docker build -t ghcr.io/company/hadoop-explorer/sql:latest -f docker/Dockerfile.sql-java .
+docker build -t ghcr.io/company/pristan/sql:latest -f docker/Dockerfile.sql-java .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -325,7 +325,7 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v sql-data:/app/data \
-  ghcr.io/company/hadoop-explorer/sql:1.0.0
+  ghcr.io/company/pristan/sql:1.0.0
 ```
 
 ### 3.4 Запуск через `docker-compose.yml`
@@ -334,7 +334,7 @@ version: "3.8"
 
 services:
   sql-explorer:
-    image: ghcr.io/company/hadoop-explorer/sql:1.0.0
+    image: ghcr.io/company/pristan/sql:1.0.0
     container_name: sql-explorer
     restart: unless-stopped
     ports:

@@ -1,5 +1,5 @@
-# Единый объединенный демо-стенд платформы Hadoop Explorer (YARN + HDFS + SQL + Spark)
-name: hadoop-explorer-demo-all
+# Единый объединенный демо-стенд платформы Pristan (YARN + HDFS + SQL + Spark)
+name: pristan-demo-all
 
 include:
   - path: ../platform/docker-compose.core.yml

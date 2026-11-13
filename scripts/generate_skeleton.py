@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AST-based Code Skeletonizer for Hadoop Explorer Platform.
+AST-based Code Skeletonizer for Pristan.
 
 Извлекает компактный синтаксический каркас (скелет) кодовой базы:
 - Классы, их базовые классы и поля моделей (Pydantic / Dataclasses).

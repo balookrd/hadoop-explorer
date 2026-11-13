@@ -22,7 +22,7 @@ public class AuditAspect {
 
     public AuditAspect(AuditLogger auditLogger, String serviceName) {
         this.auditLogger = auditLogger;
-        this.serviceName = serviceName != null ? serviceName : "hadoop-explorer-service";
+        this.serviceName = serviceName != null ? serviceName : "pristan-service";
     }
 
     @Around("@annotation(io.github.balookrd.pristan.common.audit.Audited) || @within(io.github.balookrd.pristan.common.audit.Audited)")

@@ -1,4 +1,4 @@
-import type { UserSession } from '@hadoop-explorer/common';
+import type { UserSession } from '@pristan/common';
 export type UserInfo = UserSession;
 
 export interface ClusterPublicInfo {

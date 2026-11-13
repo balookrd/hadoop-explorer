@@ -30,7 +30,7 @@ frontend/apps/sql/src/
 │   ├── QueryToolbar.svelte    # Тулбар запуска («Run», «Stop», «ИИ Генератор», «Анализ», метрики времени и строк)
 │   ├── ResultsGrid.svelte     # Таблица результатов, экспорт и кнопка «Исправить с ИИ»
 │   └── QueueView.svelte       # Фоновая очередь задач, отмена и загрузка архива результатов
-│   (Header с селектором кластеров и бейджами ролей ADM/RW/RO, LoginModal подключаются из @hadoop-explorer/common)
+│   (Header с селектором кластеров и бейджами ролей ADM/RW/RO, LoginModal подключаются из @pristan/common)
 ├── utils/
 │   └── sqlSplitter.ts         # Утилита парсинга и разбивки мульти-запросов по точкам с запятой
 ├── types.ts                   # TypeScript интерфейсы и типы данных (включая AI схемы)

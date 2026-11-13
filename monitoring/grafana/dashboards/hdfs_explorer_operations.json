@@ -25,11 +25,11 @@
       "icon": "dashboard",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["hadoop-explorer"],
+      "tags": ["pristan"],
       "targetBlank": false,
       "title": "Сводный мониторинг платформы",
       "type": "link",
-      "url": "/d/hadoop-explorer-overview"
+      "url": "/d/pristan-overview"
     },
     {
       "asDropdown": false,
@@ -490,7 +490,7 @@
   "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
-    "hadoop-explorer",
+    "pristan",
     "hdfs",
     "webhdfs",
     "storage"

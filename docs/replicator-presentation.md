@@ -2,7 +2,7 @@
 ## Для системных архитекторов, DevOps-инженеров и администраторов Data Platform
 
 <div align="center">
-  <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Hadoop Explorer Platform" width="340" />
+  <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan" width="340" />
   <p>Архитектура, сетевые протоколы, шейпинг и Disaster Recovery</p>
   <p><a href="replicator-presentation.html">Слайдовая презентация в браузере (HTML)</a> &nbsp;|&nbsp; <a href="replicator-presentation.pdf">PDF-версия</a> &nbsp;|&nbsp; <a href="#содержание-инженерных-разделов">Содержание</a></p>
 </div>

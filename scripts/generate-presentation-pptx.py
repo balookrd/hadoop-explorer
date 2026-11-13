@@ -14,7 +14,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 
-# Цветовая палитра Hadoop Explorer Platform
+# Цветовая палитра Pristan
 BG_COLOR = RGBColor(11, 15, 25)          # #0B0F19 темный глубокий фон
 CARD_BG = RGBColor(22, 30, 49)           # #161E31 фон карточек
 CARD_BORDER = RGBColor(51, 65, 85)       # #334155 границы
@@ -79,7 +79,7 @@ def create_base_slide(prs, slide_num, category, title, description):
     ftf.word_wrap = True
     ftf.margin_left = ftf.margin_top = ftf.margin_right = ftf.margin_bottom = 0
     p_foot = ftf.paragraphs[0]
-    p_foot.text = "Hadoop Explorer Platform • Архитектура развертывания и сетевой трафик"
+    p_foot.text = "Pristan • Архитектура развертывания и сетевой трафик"
     p_foot.font.size = Pt(9)
     p_foot.font.color.rgb = RGBColor(100, 116, 139)
 
@@ -214,7 +214,7 @@ def generate_presentation(output_pptx_path):
     tf1 = tb1.text_frame
     tf1.word_wrap = True
     p = tf1.paragraphs[0]
-    p.text = "HADOOP EXPLORER PLATFORM • СИСТЕМНАЯ АРХИТЕКТУРА"
+    p.text = "PRISTAN • СИСТЕМНАЯ АРХИТЕКТУРА"
     p.font.size = Pt(11)
     p.font.bold = True
     p.font.color.rgb = ACCENT_CYAN

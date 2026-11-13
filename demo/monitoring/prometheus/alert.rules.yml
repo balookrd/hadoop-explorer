@@ -1,5 +1,5 @@
 groups:
-  - name: hadoop_explorer_alerts
+  - name: pristan_alerts
     rules:
       - alert: HadoopHigh5xxErrorRate
         expr: (sum(rate(http_server_requests_seconds_count{status=~"5..", uri!~"/actuator/.*"}[1m])) by (app) / sum(rate(http_server_requests_seconds_count{uri!~"/actuator/.*"}[1m])) by (app)) > 0.05

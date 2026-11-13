@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Централизованный резолвер системных ролей пользователей платформы Hadoop Explorer.
+ * Централизованный резолвер системных ролей пользователей платформы Pristan.
  */
 public class RoleResolver {
 

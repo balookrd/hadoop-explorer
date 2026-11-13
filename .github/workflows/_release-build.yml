@@ -115,7 +115,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: hadoop-explorer-${{ inputs.tag }}
+          name: pristan-${{ inputs.tag }}
           path: |
             dist/*.jar
             dist/SHA256SUMS.txt

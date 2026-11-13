@@ -35,7 +35,7 @@ public final class TlsCertificateGenerator {
         }
 
         String pass = (password != null && !password.isBlank()) ? password : DEFAULT_PASSWORD;
-        Path tempDir = Files.createTempDirectory("hadoop-explorer-tls-");
+        Path tempDir = Files.createTempDirectory("pristan-tls-");
         File keystoreFile = tempDir.resolve("keystore.p12").toFile();
         keystoreFile.deleteOnExit();
         tempDir.toFile().deleteOnExit();
@@ -59,7 +59,7 @@ public final class TlsCertificateGenerator {
         List<String> command = new ArrayList<>(List.of(
                 keytoolPath,
                 "-genkeypair",
-                "-alias", "hadoop-explorer",
+                "-alias", "pristan",
                 "-keyalg", "RSA",
                 "-keysize", "2048",
                 "-validity", "365",
@@ -67,7 +67,7 @@ public final class TlsCertificateGenerator {
                 "-storetype", "PKCS12",
                 "-storepass", password,
                 "-keypass", password,
-                "-dname", "CN=localhost, OU=Security, O=Hadoop Explorer, C=RU",
+                "-dname", "CN=localhost, OU=Security, O=Pristan, C=RU",
                 "-ext", "SAN=dns:localhost,dns:orchestrator,dns:agent-dc1,dns:agent-dc2,ip:127.0.0.1"
         ));
 

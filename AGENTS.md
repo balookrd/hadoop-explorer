@@ -1,15 +1,15 @@
 # 🤖 Руководство и правила для ИИ-ассистентов (AGENTS.md)
 
-Данный файл содержит карту репозитория **Hadoop Explorer Platform** и регламент работы для предотвращения перерасхода контекста и токенов.
+Данный файл содержит карту репозитория **Pristan** и регламент работы для предотвращения перерасхода контекста и токенов.
 
 ---
 
 ## 1. Карта репозитория (Architecture Map)
 
-Hadoop Explorer Platform — монорепозиторий на **Java 21 LTS (Spring Boot 3)** и **TypeScript (Svelte 5)** с 5 независимыми сервисами и общим ядром безопасности.
+Pristan — монорепозиторий на **Java 21 LTS (Spring Boot 3)** и **TypeScript (Svelte 5)** с 5 независимыми сервисами и общим ядром безопасности.
 
 ```
-hadoop-explorer/
+pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── common-security-starter/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
 │   ├── yarn/                 # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)

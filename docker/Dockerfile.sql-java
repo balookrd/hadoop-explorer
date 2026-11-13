@@ -1,5 +1,5 @@
 # ========================================================
-# Hadoop Explorer :: SQL Explorer API (Java 21 / Spring Boot 3)
+# Pristan :: SQL Explorer API (Java 21 / Spring Boot 3)
 # ========================================================
 FROM eclipse-temurin:21-jre-jammy
 

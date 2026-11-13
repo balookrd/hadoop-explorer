@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Автоконфигурация Spring Boot 3 для ядра безопасности платформы Hadoop Explorer.
+ * Автоконфигурация Spring Boot 3 для ядра безопасности платформы Pristan.
  */
 @AutoConfiguration
 @EnableWebSecurity
@@ -174,7 +174,7 @@ public class CommonSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public AuditAspect auditAspect(
         AuditLogger auditLogger,
-        @Value("${spring.application.name:hadoop-explorer}") String serviceName
+        @Value("${spring.application.name:pristan}") String serviceName
     ) {
         return new AuditAspect(auditLogger, serviceName);
     }

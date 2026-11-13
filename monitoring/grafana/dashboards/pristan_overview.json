@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг платформы Hadoop Explorer: HTTP golden signals сервисов YARN, HDFS, SQL и Spark (Micrometer http_server_requests), входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Hadoop gRPC Replicator",
+  "description": "Мониторинг платформы Pristan: HTTP golden signals сервисов YARN, HDFS, SQL и Spark (Micrometer http_server_requests), входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Hadoop gRPC Replicator",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -1270,7 +1270,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "hadoop-explorer",
+    "pristan",
     "prometheus",
     "micrometer",
     "kubernetes"
@@ -1381,8 +1381,8 @@
     ]
   },
   "timezone": "browser",
-  "title": "Hadoop Explorer — Platform Overview & Golden Signals",
-  "uid": "hadoop-explorer-overview",
+  "title": "Pristan — Platform Overview & Golden Signals",
+  "uid": "pristan-overview",
   "version": 2,
   "weekStart": ""
 }

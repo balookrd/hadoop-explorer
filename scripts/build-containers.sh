@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TAG="${TAG:-latest}"
-REGISTRY="${REGISTRY:-hadoop-explorer}"
+REGISTRY="${REGISTRY:-pristan}"
 
 build_app() {
   local app="$1"
