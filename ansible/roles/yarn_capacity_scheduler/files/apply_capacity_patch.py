@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply YARN Explorer edits to capacity-scheduler.xml.
+"""Apply Artel edits to capacity-scheduler.xml.
 
 The explorer cannot read the deployed file (the ResourceManager does not expose it over REST),
 so a change request is shipped as a list of edits and applied here, to the file that is actually

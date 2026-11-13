@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Pristan — YARN Queue Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Artel (YARN)" width="380" />
 
-# Руководство пользователя: YARN Queue Explorer
+# Руководство пользователя: Artel (YARN)
 
 </div>
 
-YARN Queue Explorer — веб-приложение для просмотра и изменения иерархии очередей Apache YARN Capacity Scheduler на кластерах Hadoop. Изменения проходят согласование и доставляются на ResourceManager через Ansible AWX. Руководство описывает работу в интерфейсе для ролей READER, WRITER и ADMIN и относится к Pristan v1.0.0 и новее.
+Artel (YARN) — веб-приложение для просмотра и изменения иерархии очередей Apache YARN Capacity Scheduler на кластерах Hadoop. Изменения проходят согласование и доставляются на ResourceManager через Ansible AWX. Руководство описывает работу в интерфейсе для ролей READER, WRITER и ADMIN и относится к Pristan v1.0.0 и новее.
 
 ## Содержание
 
@@ -38,11 +38,11 @@ Apache YARN Capacity Scheduler распределяет вычислительн
 - Сложность пересчета относительных долей (%) в физические ресурсы (гигабайты памяти и количество ядер);
 - Ошибки при ручной доставке на хосты ResourceManager и отсутствие автоматического отката при сбоях.
 
-Как YARN Queue Explorer проводит изменение:
+Как Artel (YARN) проводит изменение:
 
 ```mermaid
 graph TD
-    A["YARN Resource Manager / XML"] -->|"Live State & Metrics"| B["YARN Queue Explorer"]
+    A["YARN Resource Manager / XML"] -->|"Live State & Metrics"| B["Artel (YARN)"]
     B -->|"Визуальное редактирование"| C["Локальный черновик / Draft"]
     C -->|"Автоматическая валидация"| D{"Баланс 100% соблюден?"}
     D -->|"Да"| E["Просмотр Unified Diff"]
@@ -87,7 +87,7 @@ graph TD
 При открытии приложения показывается экран входа.
 
 <div align="center">
-  <img src="images/yarn/01_login_screen.png" alt="Экран аутентификации YARN Explorer" width="850" />
+  <img src="images/yarn/01_login_screen.png" alt="Экран аутентификации Artel" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos Single Sign-On (SPNEGO)</em></p>
 </div>
 
@@ -106,7 +106,7 @@ graph TD
 После входа открывается главный экран с очередями выбранного кластера:
 
 <div align="center">
-  <img src="images/yarn/02_main_dashboard.png" alt="Главная панель YARN Explorer" width="850" />
+  <img src="images/yarn/02_main_dashboard.png" alt="Главная панель Artel" width="850" />
   <p><em>Рисунок 2: Главная панель управления очередями YARN Capacity Scheduler</em></p>
 </div>
 
@@ -311,7 +311,7 @@ Queue Mappings направляют задачи пользователей в �
   <p><em>Рисунок 10: Утвержденная заявка со статусом доставки, Job ID и встроенным просмотром логов AWX</em></p>
 </div>
 
-1. Запуск доставки: нажмите **«Применить на кластере»** в карточке одобренной заявки (после успешного деплоя кнопка называется **«Применить повторно»**). YARN Explorer передает список правок в Base64 (`capacity_scheduler_patch_b64`) и запускает Job Template в AWX через REST API.
+1. Запуск доставки: нажмите **«Применить на кластере»** в карточке одобренной заявки (после успешного деплоя кнопка называется **«Применить повторно»**). Artel передает список правок в Base64 (`capacity_scheduler_patch_b64`) и запускает Job Template в AWX через REST API.
 2. Статус доставки:
    - `AWX...` — задача выполняется в AWX. Интерфейс ждет ее завершения не дольше `yarn.awx.timeout-seconds` (по умолчанию 180 секунд).
    - `AWX ✓` (`SUCCESSFUL`) — файл разложен на все узлы ResourceManager и применен командой `yarn rmadmin -refreshQueues`. В карточке сохраняются дата и время деплоя.
@@ -324,7 +324,7 @@ Queue Mappings направляют задачи пользователей в �
 
 ## 11. Экспорт правок и ручное применение
 
-Кнопка **«Сгенерировать XML»** (роль ADMIN) открывает окно **«Правки capacity-scheduler.xml»** с перечнем свойств, которые меняет черновик. Это не полный файл: ResourceManager не отдает развернутый `capacity-scheduler.xml` по REST, поэтому YARN Explorer описывает только изменяемые свойства.
+Кнопка **«Сгенерировать XML»** (роль ADMIN) открывает окно **«Правки capacity-scheduler.xml»** с перечнем свойств, которые меняет черновик. Это не полный файл: ResourceManager не отдает развернутый `capacity-scheduler.xml` по REST, поэтому Artel описывает только изменяемые свойства.
 
 <div align="center">
   <img src="images/yarn/10_xml_export_modal.png" alt="Модальное окно экспорта правок XML" width="850" />
@@ -389,7 +389,7 @@ Queue Mappings направляют задачи пользователей в �
 Черновик очищается, таблица возвращается к состоянию, загруженному с кластера YARN (Live State).
 
 ### Q5: Как настроить интеграцию с Ansible AWX для автоматической доставки конфигурации?
-Интеграция задается в `backend/yarn/src/main/resources/application.yml`: общие параметры в секции `yarn.awx:`, параметры отдельного кластера в `yarn.clusters[].awx:`. Для кластера указывается `job-template-id`, а также токен доступа и URL сервера AWX. Настройка роли, плейбука и AWX описана в [руководстве по интеграции с Ansible AWX](awx-yarn-deployment.md).
+Интеграция задается в `backend/artel/src/main/resources/application.yml`: общие параметры в секции `yarn.awx:`, параметры отдельного кластера в `yarn.clusters[].awx:`. Для кластера указывается `job-template-id`, а также токен доступа и URL сервера AWX. Настройка роли, плейбука и AWX описана в [руководстве по интеграции с Ansible AWX](awx-yarn-deployment.md).
 
 ### Q6: Что произойдет, если YARN не примет новую конфигурацию при выполнении AWX Job?
 В роли `yarn_capacity_scheduler` есть блок `rescue`: если `yarn rmadmin -refreshQueues` завершился ошибкой, плейбук возвращает резервную копию `capacity-scheduler-<timestamp>.xml` из `backup_dir` на всех узлах ResourceManager и повторно выполняет `refreshQueues`. Очереди остаются в прежней конфигурации, в карточке заявки выводится бейдж `AWX ✕`, вывод плейбука доступен по кнопке **«Лог AWX»**.

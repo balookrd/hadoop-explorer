@@ -24,4 +24,4 @@ ansible/
         └── README.md
 ```
 
-Настройка интеграции AWX и YARN Explorer описана в [docs/awx-yarn-deployment.md](../docs/awx-yarn-deployment.md).
+Настройка интеграции AWX и Artel описана в [docs/awx-yarn-deployment.md](../docs/awx-yarn-deployment.md).

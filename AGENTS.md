@@ -12,7 +12,7 @@ Pristan — монорепозиторий на **Java 21 LTS (Spring Boot 3)** 
 pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── zastava/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
-│   ├── yarn/                 # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
+│   ├── yarn/                 # Artel API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
 │   ├── hdfs/                 # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
 │   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
@@ -78,7 +78,7 @@ pristan/
   * Все тесты Java: `make test-java` (или `mvn test`)
   * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)
   * Стартер безопасности: `make test-zastava` (сборка: `make build-zastava`)
-  * Сервис YARN: `mvn test -f backend/yarn/pom.xml` (или `make test-yarn`)
+  * Сервис YARN: `mvn test -f backend/artel/pom.xml` (или `make test-artel`)
   * Сервис HDFS: `mvn test -f backend/hdfs/pom.xml` (или `make test-hdfs`)
   * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)
   * Сервис Spark: `mvn test -f backend/spark/pom.xml` (или `make test-spark`)

@@ -1,6 +1,6 @@
-# Руководство администратора YARN Explorer
+# Руководство администратора Artel
 
-Руководство описывает установку, настройку и эксплуатацию YARN Explorer. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны два способа развертывания:
+Руководство описывает установку, настройку и эксплуатацию Artel. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны два способа развертывания:
 1. Standalone: сервер или виртуальная машина, процесс под управлением systemd.
 2. Docker и Docker Compose.
 
@@ -9,7 +9,7 @@
 ## 1. Функции и требования
 
 ### 1.1 Функции сервиса
-YARN Explorer — компонент платформы Pristan. Функции:
+Artel — компонент платформы Pristan. Функции:
 - управление очередями Capacity Scheduler через веб-интерфейс: доли гарантированных и максимальных ресурсов, дочерние очереди;
 - просмотр загрузки ресурсов кластера (vCores, RAM) и очередей;
 - переключение между активным и резервным ResourceManager при отказе (RM HA);
@@ -47,7 +47,7 @@ Git, Apache Maven, Node.js и npm для запуска готового рел�
 
 ### 1.4 Дистрибутивы
 - GitHub Releases (`v${VERSION}`):
-  - `yarn-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR: веб-интерфейс (Svelte 5 SPA), REST API, интеграция с AWX, драйверы БД;
+  - `artel-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR: веб-интерфейс (Svelte 5 SPA), REST API, интеграция с AWX, драйверы БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 файлов релиза.
 - GitHub Container Registry (GHCR):
   - `ghcr.io/company/pristan/yarn:${VERSION}`
@@ -111,14 +111,14 @@ BIN_DIR="/opt/pristan/yarn/bin"
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
 # 1. Загрузка через curl по прямой ссылке (или через `gh release download`):
-curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/yarn-explorer-java-${VERSION}.jar"
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/artel-${VERSION}.jar"
 curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/SHA256SUMS.txt"
 
 # 2. Проверка контрольной суммы:
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # 3. Создание стабильной символической ссылки:
-ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${VERSION}.jar" "${BIN_DIR}/yarn-explorer.jar"
+ln -sfn "${RELEASE_DIR}/artel-${VERSION}.jar" "${BIN_DIR}/artel.jar"
 ```
 
 #### Способ Б: сборка из исходников
@@ -130,16 +130,16 @@ cd hadoop-explorer
 
 # Сборка фронтенда (Svelte 5)
 cd frontend
-npm ci --workspace=apps/yarn --include-workspace-root
-# Бандл собирается сразу в backend/yarn/src/main/resources/static и попадает в JAR
-npm run build --workspace=apps/yarn
+npm ci --workspace=apps/artel --include-workspace-root
+# Бандл собирается сразу в backend/artel/src/main/resources/static и попадает в JAR
+npm run build --workspace=apps/artel
 cd ..
 
 # Сборка исполняемого Spring Boot fat JAR
-mvn clean package -DskipTests -f backend/yarn/pom.xml
+mvn clean package -DskipTests -f backend/artel/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/yarn/target/yarn-explorer-java-*.jar /opt/pristan/yarn/bin/yarn-explorer.jar
+cp backend/artel/target/artel-*.jar /opt/pristan/yarn/bin/artel.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
@@ -150,12 +150,12 @@ server:
 
 spring:
   application:
-    name: yarn-explorer-java
+    name: artel
   datasource:
     # Для автономной работы используется embedded H2:
-    url: jdbc:h2:file:/var/lib/pristan/yarn/data/yarn_explorer;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/yarn/data/artel;DB_CLOSE_DELAY=-1
     # Драйвер Spring Boot выбирает по URL; драйвер PostgreSQL входит в JAR.
-    # url: jdbc:postgresql://pg-cluster.company.local:5432/yarn_explorer
+    # url: jdbc:postgresql://pg-cluster.company.local:5432/artel
     # username: yarn_user
     # password: StrongPass123
   jpa:
@@ -183,7 +183,7 @@ hadoop:
     kerberos:
       # Входящий SPNEGO (SSO в браузере)
       enabled: true
-      keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+      keytab: "/etc/security/keytabs/artel.keytab"
       service-principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
 
 # Модуль управления очередями YARN
@@ -196,13 +196,13 @@ yarn:
   # Должна быть proxy user в core-site.xml кластера (hadoop.proxyuser.<user>.hosts/groups),
   # если включен impersonation-enabled.
   kerberos:
-    principal: "yarn-explorer@COMPANY.LOCAL"
-    keytab: "/etc/security/keytabs/yarn-explorer.keytab"
+    principal: "artel@COMPANY.LOCAL"
+    keytab: "/etc/security/keytabs/artel.keytab"
     krb5-conf: "/etc/krb5.conf"
   awx:
     enabled: true
     base-url: "https://awx.company.local"
-    token: "${YARN_AWX_TOKEN}"
+    token: "${ARTEL_AWX_TOKEN}"
     default-job-template-id: 42
     verify-ssl: true
     poll-interval-seconds: 2
@@ -230,7 +230,7 @@ yarn:
           admin:
             groups: ["hadoop-admins"]
           writer:
-            groups: ["yarn-operators"]
+            groups: ["artel-operators"]
           reader:
             groups: ["*"]
 ```
@@ -258,10 +258,10 @@ sudo chown appuser:appuser /etc/pristan/yarn/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
-Создайте файл `/etc/systemd/system/yarn-explorer.service`:
+Создайте файл `/etc/systemd/system/artel.service`:
 ```ini
 [Unit]
-Description=Hadoop YARN Explorer Java Service (Spring Boot 3)
+Description=Hadoop Artel Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -277,7 +277,7 @@ ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
     -Dspring.config.location=/etc/pristan/yarn/application.yml \
-    -jar /opt/pristan/yarn/bin/yarn-explorer.jar
+    -jar /opt/pristan/yarn/bin/artel.jar
 
 Restart=always
 RestartSec=5s
@@ -292,18 +292,18 @@ WantedBy=multi-user.target
 ### Шаг 6: Запуск и проверка
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable yarn-explorer
-sudo systemctl start yarn-explorer
+sudo systemctl enable artel
+sudo systemctl start artel
 
 # Проверка статуса
-sudo systemctl status yarn-explorer
+sudo systemctl status artel
 
 # Проверка healthcheck-эндпоинта
 curl -I http://127.0.0.1:8000/healthz
 # HTTP/1.1 200 OK
 
 # Просмотр логов в реальном времени
-journalctl -u yarn-explorer -f
+journalctl -u artel -f
 ```
 
 ### Шаг 7: Обновление версии
@@ -315,15 +315,15 @@ NEW_VER="1.0.1"
 RELEASE_DIR="/opt/pristan/yarn/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/yarn-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/artel-${NEW_VER}.jar"
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/yarn-explorer-java-${NEW_VER}.jar" /opt/pristan/yarn/bin/yarn-explorer.jar
+ln -sfn "${RELEASE_DIR}/artel-${NEW_VER}.jar" /opt/pristan/yarn/bin/artel.jar
 
 # Перезапуск сервиса (занимает 2–3 секунды):
-sudo systemctl restart yarn-explorer
+sudo systemctl restart artel
 ```
 
 ---
@@ -343,18 +343,18 @@ docker pull ghcr.io/company/pristan/yarn:${VERSION}
 
 ### 3.2 Локальная сборка образа
 ```bash
-docker build -t ghcr.io/company/pristan/yarn:latest -f docker/Dockerfile.yarn-java .
+docker build -t ghcr.io/company/pristan/yarn:latest -f docker/Dockerfile.artel .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
-  --name yarn-explorer \
+  --name artel \
   --restart unless-stopped \
   -p 8000:8000 \
   -e SPRING_CONFIG_LOCATION=/app/config/application.yml \
   -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/yarn-explorer/application.yml:/app/config/application.yml:ro \
+  -v /opt/artel/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v yarn-data:/app/data \
@@ -364,14 +364,14 @@ docker run -d \
 ### 3.4 Запуск через Docker Compose
 Создайте каталог `/opt/yarn-docker/` и в нем файл `docker-compose.yml`:
 
-Переменные `JWT_SECRET_KEY`, `LDAP_MANAGER_PASSWORD` и `YARN_AWX_TOKEN` подставляются в `application.yml` из шага 4 (`${JWT_SECRET_KEY}` и т. д.). Principal и keytab для запросов к ResourceManager задаются в том же файле: `yarn.kerberos.principal`, `yarn.kerberos.keytab`.
+Переменные `JWT_SECRET_KEY`, `LDAP_MANAGER_PASSWORD` и `ARTEL_AWX_TOKEN` подставляются в `application.yml` из шага 4 (`${JWT_SECRET_KEY}` и т. д.). Principal и keytab для запросов к ResourceManager задаются в том же файле: `yarn.kerberos.principal`, `yarn.kerberos.keytab`.
 ```yaml
 version: "3.8"
 
 services:
-  yarn-explorer:
+  artel:
     image: ghcr.io/company/pristan/yarn:1.0.0
-    container_name: yarn-explorer
+    container_name: artel
     restart: unless-stopped
     ports:
       - "8001:8000"
@@ -379,11 +379,11 @@ services:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - LDAP_MANAGER_PASSWORD=${LDAP_MANAGER_PASSWORD}
-      - YARN_AWX_TOKEN=${YARN_AWX_TOKEN}
+      - ARTEL_AWX_TOKEN=${ARTEL_AWX_TOKEN}
     volumes:
       - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
-      - /etc/security/keytabs/yarn-explorer.keytab:/etc/security/keytabs/yarn-explorer.keytab:ro
+      - /etc/security/keytabs/artel.keytab:/etc/security/keytabs/artel.keytab:ro
       - yarn-storage:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
@@ -416,14 +416,14 @@ networks:
 # <jwt_secret> - вывод `openssl rand -hex 32`
 JWT_SECRET_KEY=<jwt_secret>
 LDAP_MANAGER_PASSWORD=SuperSecretLdapPass
-YARN_AWX_TOKEN=VeryLongSecretAwxOAuthToken
+ARTEL_AWX_TOKEN=VeryLongSecretAwxOAuthToken
 ```
 
 Запустите сервис и проверьте состояние:
 ```bash
 docker compose up -d
 docker compose ps
-docker compose logs -f yarn-explorer
+docker compose logs -f artel
 ```
 
 ---
@@ -435,9 +435,9 @@ docker compose logs -f yarn-explorer
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
-| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="yarn"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
-| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="yarn"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
-| `yarn_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED` (создание), `APPROVED`, `REJECTED`, `CANCELLED`. Счетчик растет после коммита транзакции; переход, откаченный ошибкой, не учитывается. Развертывание через AWX в счетчик не входит |
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="artel"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="artel"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `artel_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED` (создание), `APPROVED`, `REJECTED`, `CANCELLED`. Счетчик растет после коммита транзакции; переход, откаченный ошибкой, не учитывается. Развертывание через AWX в счетчик не входит |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
 
 Кроме них публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
@@ -447,12 +447,12 @@ docker compose logs -f yarn-explorer
 Проверка на демо-стенде:
 
 ```bash
-curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_total'
+curl -s http://localhost:8001/actuator/prometheus | grep '^artel_change_requests_total'
 ```
 
-После создания заявки в выводе есть строка `yarn_change_requests_total{app="yarn",cluster="<cluster_id>",status="SUBMITTED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `yarn.clusters`.
+После создания заявки в выводе есть строка `artel_change_requests_total{app="artel",cluster="<cluster_id>",status="SUBMITTED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `yarn.clusters`.
 
-Сбор метрик Prometheus и дашборд `yarn_explorer_queues.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
+Сбор метрик Prometheus и дашборд `artel_queues.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Типичные ошибки
 
@@ -462,7 +462,7 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_
 | `GSSException: No valid credentials provided` | Истек или недоступен Kerberos keytab | Проверьте права доступа к keytab (`chmod 400`), корректность `principal` и наличие файла keytab, а также проверьте получение тикета командой `kinit -kt /path/to.keytab principal@REALM`. |
 | `LDAP InvalidCredentialsResult` | Ошибка учетных данных в `bind_password` | Проверьте пароль сервисной учетной записи (параметр `bind-password`) через `ldapsearch -H ldaps://... -D "..." -W`. |
 | Блокировка базы данных при конкурентном доступе | Несколько инстансов/подов обращаются к файловой embedded H2 | Запускайте одну реплику. Для 2 и более реплик нужен PostgreSQL в `spring.datasource.url`; драйвер PostgreSQL входит в JAR, порядок перехода — [docs/production-database.md](production-database.md). |
-| `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `YARN_AWX_TOKEN` в секретах. |
+| `AWX Job launch failed (HTTP 401/403)` | Невалидный или истекший OAuth-токен AWX | Перевыпустите токен в веб-интерфейсе AWX и обновите `ARTEL_AWX_TOKEN` в секретах. |
 
 ---
 
@@ -472,22 +472,22 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_
 - База данных PostgreSQL:
   ```bash
   # Создание резервной копии
-  pg_dump -h pg-host -U yarn_user yarn_explorer > yarn_explorer_backup_$(date +%F).sql
+  pg_dump -h pg-host -U yarn_user artel > artel_backup_$(date +%F).sql
 
   # Восстановление
-  psql -h pg-host -U yarn_user yarn_explorer < yarn_explorer_backup_2026-10-08.sql
+  psql -h pg-host -U yarn_user artel < artel_backup_2026-10-08.sql
   ```
 - Встроенная H2 (Standalone):
   ```bash
   # Создание копии файла базы данных
-  cp /var/lib/pristan/yarn/data/yarn_explorer.mv.db /backup/yarn_explorer_$(date +%F).mv.db
+  cp /var/lib/pristan/yarn/data/artel.mv.db /backup/artel_$(date +%F).mv.db
   ```
 
 ---
 
 ## 6. Сборка и запуск бэкенда из исходников
 
-Бэкенд (`backend/yarn`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует клиентские библиотеки Apache Hadoop YARN (`org.apache.hadoop:hadoop-yarn-client`).
+Бэкенд (`backend/artel`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует клиентские библиотеки Apache Hadoop YARN (`org.apache.hadoop:hadoop-yarn-client`).
 
 ### 6.1 Состав бэкенда
 1. Клиент ResourceManager и RM HA failover: запросы идут в REST API активного ResourceManager; активный узел определяется по `haState == "ACTIVE"`, при его отказе сервис переключается на standby-узел.
@@ -500,13 +500,13 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_
 
 ```bash
 # Модульное и интеграционное тестирование
-make test-yarn
+make test-artel
 # или
-mvn test -f backend/yarn/pom.xml
+mvn test -f backend/artel/pom.xml
 
 # Сборка исполняемого Spring Boot fat JAR
-make build-yarn
-# Результат: backend/yarn/target/yarn-explorer-java-1.0.0.jar
+make build-artel
+# Результат: backend/artel/target/artel-1.0.0.jar
 
 # Полная валидация всех Java-компонентов платформы
 make test-java
@@ -523,6 +523,6 @@ java -jar -Dspring.profiles.active=prod \
   -Dyarn.awx.base-url="https://awx.company.local" \
   -Dyarn.awx.token="secret-awx-token" \
   -Dyarn.awx.default-job-template-id=42 \
-  backend/yarn/target/yarn-explorer-java-1.0.0.jar
+  backend/artel/target/artel-1.0.0.jar
 ```
 

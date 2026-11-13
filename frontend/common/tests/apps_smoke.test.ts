@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import HdfsApp from '../../apps/hdfs/src/App.svelte';
 import SparkApp from '../../apps/spark/src/App.svelte';
 import SqlApp from '../../apps/sql/src/App.svelte';
-import YarnApp from '../../apps/yarn/src/App.svelte';
+import YarnApp from '../../apps/artel/src/App.svelte';
 
 // Глобальный мок для fetch API во всех SPA приложениях
 const mockUser = {
@@ -85,11 +85,11 @@ describe('All 4 SPA Applications Smoke Mounting Tests', () => {
     });
   });
 
-  it('mounts YARN Explorer App without runtime exceptions', async () => {
+  it('mounts Artel App without runtime exceptions', async () => {
     const { container } = render(YarnApp);
     expect(container).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/YARN Explorer/i)).toBeInTheDocument();
+      expect(screen.getByText(/Artel/i)).toBeInTheDocument();
     });
   });
 });

@@ -1,0 +1,820 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { api } from './api/client';
+  import type {
+    UserSession, ClusterSummary, QueueNode, ClusterMetrics,
+    BranchBalance, DraftQueueItem, DiffItem, QueueMappingsDiff,
+  } from './types';
+  import { Header, LoginModal } from '@pristan/common';
+  import ClusterMetricsBar from './components/ClusterMetricsBar.svelte';
+  import PartitionSelector from './components/PartitionSelector.svelte';
+  import QueueTreeTable from './components/QueueTreeTable.svelte';
+  import QueueEditDrawer from './components/QueueEditDrawer.svelte';
+  import ResourceBalanceCard from './components/ResourceBalanceCard.svelte';
+  import DiffPanel from './components/DiffPanel.svelte';
+  import ChangeRequestsDrawer from './components/ChangeRequestsDrawer.svelte';
+  import { GitCompareArrows, RotateCcw, FileDown, RefreshCw, Send, GitPullRequest, ArrowRightLeft, Cpu } from 'lucide-svelte';
+
+  // Auth state
+  let authLoading = $state(true);
+  let user = $state<UserSession | null>(null);
+  let authErrorMessage = $state<string | null>(null);
+  let clusters = $state<ClusterSummary[]>([]);
+  let selectedClusterId = $state('');
+
+  // Queue tree state
+  let rootQueue = $state<QueueNode | null>(null);
+  let clusterMetrics = $state<ClusterMetrics | null>(null);
+  let balances = $state<BranchBalance[]>([]);
+  let selectedPartition = $state('DEFAULT');
+  let partitions = $state<string[]>(['DEFAULT']);
+  let resourceMode = $state('percentage');
+  let displayMode = $state<'percentage' | 'absolute'>('percentage');
+  let exportMode = $state<'percentage' | 'absolute'>('percentage');
+
+  // Queue Mappings state
+  let liveQueueMappings = $state<string>('');
+  let liveQueueMappingsOverride = $state<boolean>(false);
+  let draftQueueMappings = $state<string>('');
+  let draftQueueMappingsOverride = $state<boolean>(false);
+  let queueMappingsDiff = $state<QueueMappingsDiff | null>(null);
+  let isMappingsModalOpen = $state(false);
+
+  // Draft state
+  let draftChanges = $state(new Map<string, DraftQueueItem>());
+
+  // Change Requests state
+  let showSubmitCrModal = $state(false);
+  let showCrDrawer = $state(false);
+  let pendingCrCount = $state(0);
+
+  // UI state
+  let editingQueue = $state<QueueNode | null>(null);
+  let isDrawerOpen = $state(false);
+  let showAddModal = $state(false);
+  let addParentPath = $state('root');
+  let showDiffPanel = $state(false);
+  let diffs = $state<DiffItem[]>([]);
+  let showXmlModal = $state(false);
+  let xmlContent = $state('');
+  let xmlFilename = $state('');
+  let xmlInstructions = $state('');
+  let isLoading = $state(false);
+  let loadError = $state('');
+
+  const activeCluster = $derived(clusters.find(c => c.id === selectedClusterId));
+  const canWrite = $derived(activeCluster?.can_write || false);
+  const canAdmin = $derived(activeCluster?.can_admin || false);
+  const draftCount = $derived(draftChanges.size);
+  const isMappingsModified = $derived(
+    draftQueueMappings !== liveQueueMappings || draftQueueMappingsOverride !== liveQueueMappingsOverride
+  );
+  const totalChangesCount = $derived(draftCount + (isMappingsModified ? 1 : 0));
+
+  function parseUrlState(): { clusterId?: string; partition?: string; queuePath?: string } {
+    if (typeof window === 'undefined') return {};
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const search = window.location.search.startsWith('?') ? window.location.search.slice(1) : window.location.search;
+    const params = new URLSearchParams(hash || search);
+    return {
+      clusterId: params.get('cluster') || undefined,
+      partition: params.get('partition') || undefined,
+      queuePath: params.get('queue') || undefined
+    };
+  }
+
+  function updateUrl(push: boolean = false) {
+    if (typeof window === 'undefined' || !selectedClusterId) return;
+    const params = new URLSearchParams();
+    params.set('cluster', selectedClusterId);
+    if (selectedPartition && selectedPartition !== 'DEFAULT') {
+      params.set('partition', selectedPartition);
+    }
+    if (editingQueue && isDrawerOpen) {
+      params.set('queue', editingQueue.path);
+    }
+    const newHash = `#${params.toString()}`;
+    if (window.location.hash !== newHash) {
+      if (push) {
+        window.history.pushState(null, '', newHash);
+      } else {
+        window.history.replaceState(null, '', newHash);
+      }
+    }
+  }
+
+  onMount(async () => {
+    // Подписка на истечение сессии / 401 Unauthorized
+    api.onUnauthorized((msg) => {
+      user = null;
+      clusters = [];
+      rootQueue = null;
+      clusterMetrics = null;
+      authErrorMessage = msg;
+    });
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('hashchange', () => {
+        const { clusterId, partition, queuePath } = parseUrlState();
+        if (clusterId && clusterId !== selectedClusterId) {
+          selectedClusterId = clusterId;
+        }
+        if (partition && partition !== selectedPartition) {
+          selectedPartition = partition;
+        }
+        if (queuePath && rootQueue) {
+          const target = findNodeInTree(rootQueue, queuePath);
+          if (target) {
+            editingQueue = target;
+            isDrawerOpen = true;
+          }
+        }
+      });
+    }
+
+    try {
+      user = await api.getMe();
+      await loadClusters();
+    } catch {
+      try {
+        const autoUser = await api.tryAutoLogin();
+        if (autoUser) {
+          user = autoUser;
+          await loadClusters();
+        }
+      } catch {}
+    } finally {
+      authLoading = false;
+    }
+  });
+
+  // Загрузка дерева при смене кластера
+  $effect(() => {
+    if (selectedClusterId && user) {
+      loadQueueTree();
+    }
+  });
+
+  // Синхронизация URL при изменении состояния
+  $effect(() => {
+    if (selectedClusterId) {
+      updateUrl(false);
+    }
+  });
+
+  async function loadClusters() {
+    clusters = await api.getClusters();
+    if (clusters.length > 0 && !selectedClusterId) {
+      const { clusterId } = parseUrlState();
+      const target = clusters.find(c => c.id === clusterId);
+      selectedClusterId = target ? target.id : clusters[0].id;
+    }
+  }
+
+  async function loadQueueTree() {
+    if (!selectedClusterId) return;
+    isLoading = true;
+    loadError = '';
+    try {
+      const resp = await api.getQueueTree(selectedClusterId);
+      rootQueue = resp.root_queue;
+      clusterMetrics = resp.cluster_metrics;
+      balances = resp.balances;
+      partitions = resp.partitions;
+      resourceMode = resp.resource_mode;
+      
+      const { partition, queuePath } = parseUrlState();
+      selectedPartition = partition && resp.partitions.includes(partition) ? partition : resp.default_partition;
+
+      if (queuePath && rootQueue) {
+        const target = findNodeInTree(rootQueue, queuePath);
+        if (target) {
+          editingQueue = target;
+          isDrawerOpen = true;
+        }
+      }
+
+      liveQueueMappings = resp.queue_mappings || '';
+      liveQueueMappingsOverride = resp.queue_mappings_override || false;
+      draftQueueMappings = liveQueueMappings;
+      draftQueueMappingsOverride = liveQueueMappingsOverride;
+      queueMappingsDiff = null;
+      // Сбрасываем черновик при смене кластера
+      draftChanges = new Map();
+      await loadPendingCrCount();
+    } catch (err: any) {
+      loadError = err.message || 'Ошибка загрузки очередей';
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  async function handleLogin(username: string, password: string) {
+    const res = await api.login(username, password);
+    user = res.user || (await api.getMe());
+    authErrorMessage = null;
+    await loadClusters();
+  }
+
+  async function handleKerberosSso() {
+    const res = await api.kerberosNegotiate();
+    user = res.user || (await api.getMe());
+    authErrorMessage = null;
+    await loadClusters();
+  }
+
+  async function handleLogout() {
+    await api.logout();
+    user = null;
+    clusters = [];
+    rootQueue = null;
+    clusterMetrics = null;
+    authErrorMessage = null;
+  }
+
+  function handleEditQueue(queue: QueueNode) {
+    editingQueue = queue;
+    isDrawerOpen = true;
+  }
+
+  function handleSaveDraft(draft: DraftQueueItem) {
+    const newMap = new Map(draftChanges);
+    newMap.set(draft.path, draft);
+    draftChanges = newMap;
+    recalcBalances();
+  }
+
+  function handleAddChild(parentPath: string) {
+    addParentPath = parentPath;
+    showAddModal = true;
+  }
+
+  function handleConfirmAdd(draft: DraftQueueItem) {
+    const newMap = new Map(draftChanges);
+    newMap.set(draft.path, draft);
+    draftChanges = newMap;
+
+    // Добавляем в дерево для мгновенного отображения
+    if (rootQueue) {
+      addNodeToTree(rootQueue, draft);
+      rootQueue = { ...rootQueue }; // trigger reactivity
+    }
+    recalcBalances();
+  }
+
+  function addNodeToTree(node: QueueNode, draft: DraftQueueItem) {
+    if (node.path === draft.parent_path) {
+      const part = draft.partitions[selectedPartition] || Object.values(draft.partitions)[0];
+      const newNode: QueueNode = {
+        name: draft.name,
+        path: draft.path,
+        parent_path: draft.parent_path,
+        is_leaf: true,
+        state: draft.state,
+        partitions: draft.partitions,
+        current_used_resources: { memory_mb: 0, vcores: 0 },
+        allocated_resources: { memory_mb: 0, vcores: 0 },
+        current_used_percent: 0,
+        num_applications: 0,
+        num_active_applications: 0,
+        num_pending_applications: 0,
+        children: [],
+      };
+      node.children = [...node.children, newNode];
+      node.is_leaf = false;
+      return;
+    }
+    for (const child of node.children) {
+      addNodeToTree(child, draft);
+    }
+  }
+
+  function findNodeInTree(node: QueueNode, targetPath: string): QueueNode | null {
+    if (node.path === targetPath) return node;
+    for (const child of node.children) {
+      const found = findNodeInTree(child, targetPath);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function handleDelete(path: string) {
+    if (path === 'root') return;
+    const newMap = new Map(draftChanges);
+
+    // Находим все дочерние пути
+    function collectPaths(node: QueueNode): string[] {
+      const paths = [node.path];
+      for (const child of node.children) {
+        paths.push(...collectPaths(child));
+      }
+      return paths;
+    }
+
+    if (rootQueue) {
+      const target = findNodeInTree(rootQueue, path);
+      if (target) {
+        const allPaths = collectPaths(target);
+        for (const p of allPaths) {
+          newMap.set(p, {
+            path: p,
+            name: p.split('.').pop() || p,
+            parent_path: p.includes('.') ? p.substring(0, p.lastIndexOf('.')) : undefined,
+            action: 'delete',
+            is_leaf: true,
+            state: 'STOPPED',
+            partitions: {},
+          });
+        }
+      }
+    }
+
+    draftChanges = newMap;
+    recalcBalances();
+  }
+
+  function resetDraft() {
+    draftChanges = new Map();
+    draftQueueMappings = liveQueueMappings;
+    draftQueueMappingsOverride = liveQueueMappingsOverride;
+    queueMappingsDiff = null;
+    loadQueueTree();
+  }
+
+  function handleSaveMappings(mappings: string, override: boolean) {
+    draftQueueMappings = mappings;
+    draftQueueMappingsOverride = override;
+  }
+
+  function recalcBalances() {
+    // Локальный расчёт балансов с учётом draft
+    if (!rootQueue) return;
+
+    const newBalances: BranchBalance[] = [];
+    const totalMem = activeCluster?.total_resources.memory_mb || 2097152;
+    const totalCores = activeCluster?.total_resources.vcores || 1024;
+
+    function recurse(node: QueueNode) {
+      if (node.children.length > 0) {
+        let totalCap = 0;
+        let totalMemAlloc = 0;
+        let totalCoresAlloc = 0;
+
+        for (const child of node.children) {
+          const draft = draftChanges.get(child.path);
+          if (draft?.action === 'delete') continue;
+          const part = draft
+            ? (draft.partitions[selectedPartition] || Object.values(draft.partitions)[0])
+            : (child.partitions[selectedPartition] || child.partitions['DEFAULT']);
+          if (part) {
+            const cap = part.memory_percent ?? part.capacity;
+            totalCap += cap;
+            totalMemAlloc += part.memory_mb ?? Math.round(totalMem * (cap / 100));
+            totalCoresAlloc += part.vcores ?? Math.round(totalCores * (cap / 100));
+          }
+        }
+
+        const unallocated = 100 - totalCap;
+        const isBalanced = Math.abs(unallocated) < 0.01;
+
+        newBalances.push({
+          parent_path: node.path,
+          partition: selectedPartition,
+          total_children_capacity: Math.round(totalCap * 100) / 100,
+          unallocated_capacity: Math.round(unallocated * 100) / 100,
+          is_balanced: isBalanced,
+          status: isBalanced ? 'ok' : unallocated > 0 ? 'underallocated' : 'overallocated',
+          message: '',
+          total_children_memory_mb: totalMemAlloc,
+          total_children_vcores: totalCoresAlloc,
+          ram_is_balanced: isBalanced,
+          vcpu_is_balanced: isBalanced,
+        });
+
+        for (const child of node.children) {
+          recurse(child);
+        }
+      }
+    }
+
+    recurse(rootQueue);
+    balances = newBalances;
+  }
+
+  async function handleShowDiff() {
+    if (!selectedClusterId) return;
+    try {
+      const draftList = Array.from(draftChanges.values());
+      const resp = await api.getDiff(
+        selectedClusterId,
+        draftList,
+        selectedPartition,
+        draftQueueMappings,
+        draftQueueMappingsOverride
+      );
+      diffs = resp.diffs;
+      queueMappingsDiff = resp.queue_mappings_diff || null;
+      showDiffPanel = true;
+    } catch (err: any) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGenerateXml(mode?: 'percentage' | 'absolute') {
+    if (!selectedClusterId || !canAdmin) return;
+    try {
+      const targetMode = mode || exportMode;
+      exportMode = targetMode;
+      const allQueues = collectAllQueues();
+      const resp = await api.generateXml(
+        selectedClusterId,
+        allQueues,
+        undefined,
+        targetMode,
+        draftQueueMappings,
+        draftQueueMappingsOverride
+      );
+      xmlContent = resp.xml_content;
+      xmlFilename = resp.filename;
+      xmlInstructions = resp.instructions;
+      showXmlModal = true;
+    } catch (err: any) {
+      alert(err.message);
+    }
+  }
+
+  function collectAllQueues(): DraftQueueItem[] {
+    if (!rootQueue) return [];
+    const result: DraftQueueItem[] = [];
+
+    function recurse(node: QueueNode) {
+      const draft = draftChanges.get(node.path);
+      result.push({
+        path: node.path,
+        name: node.name,
+        parent_path: node.parent_path || undefined,
+        action: draft?.action || 'modify',
+        is_leaf: node.is_leaf,
+        state: draft?.state || node.state,
+        partitions: draft?.partitions || node.partitions,
+        user_limit_factor: draft?.user_limit_factor ?? node.user_limit_factor,
+        ordering_policy: draft?.ordering_policy ?? node.ordering_policy,
+        max_applications: draft?.max_applications ?? node.max_applications,
+        max_am_resource_percent: draft?.max_am_resource_percent ?? node.max_am_resource_percent,
+        max_parallel_apps: draft?.max_parallel_apps ?? node.max_parallel_apps,
+        max_application_lifetime: draft?.max_application_lifetime ?? node.max_application_lifetime,
+      });
+      for (const child of node.children) {
+        recurse(child);
+      }
+    }
+
+    recurse(rootQueue);
+    return result;
+  }
+
+  async function loadPendingCrCount() {
+    if (!selectedClusterId) return;
+    try {
+      const resp = await api.getPendingCount(selectedClusterId);
+      pendingCrCount = resp.pending_count;
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSubmitChangeRequest(title: string, description: string) {
+    if (!selectedClusterId) return;
+    const changes = Array.from(draftChanges.values());
+    await api.createChangeRequest({
+      cluster_id: selectedClusterId,
+      title,
+      description,
+      changes,
+      // Mapping edits used to be dropped here: only the direct XML export carried them
+      ...(isMappingsModified
+        ? { queue_mappings: draftQueueMappings, queue_mappings_override: draftQueueMappingsOverride }
+        : {}),
+    });
+    draftChanges = new Map();
+    draftQueueMappings = liveQueueMappings;
+    draftQueueMappingsOverride = liveQueueMappingsOverride;
+    recalcBalances();
+    await loadPendingCrCount();
+    showCrDrawer = true;
+  }
+
+
+  function handleApplyCrToDraft(changes: DraftQueueItem[], targetQueuePath?: string) {
+    const newMap = new Map(draftChanges);
+    for (const c of changes) {
+      newMap.set(c.path, c);
+    }
+    draftChanges = newMap;
+
+    // Если есть созданные очереди, гарантируем их присутствие в rootQueue
+    if (rootQueue) {
+      for (const c of changes) {
+        if (c.action === 'create') {
+          const existing = findNodeInTree(rootQueue, c.path);
+          if (!existing) {
+            addNodeToTree(rootQueue, c);
+          }
+        }
+      }
+      rootQueue = { ...rootQueue };
+    }
+
+    recalcBalances();
+
+    // Открываем редактор для выбранной очереди или первой измененной очереди
+    const path = targetQueuePath || (changes.length > 0 ? changes[0].path : null);
+    if (path && rootQueue) {
+      const node = findNodeInTree(rootQueue, path);
+      if (node) {
+        editingQueue = node;
+        isDrawerOpen = true;
+      }
+    }
+  }
+
+  function handleViewCrXml(xml: string, title: string) {
+    xmlContent = xml;
+    xmlFilename = `capacity-scheduler-${selectedClusterId}.xml`;
+    xmlInstructions = `XML сгенерирован для заявки: ${title}\n1. Скопируйте файл в /etc/hadoop/conf/capacity-scheduler.xml\n2. Выполните: yarn rmadmin -refreshQueues`;
+    showXmlModal = true;
+  }
+
+  // Периодическое автообновление счетчика заявок для администратора
+  $effect(() => {
+    if (user && selectedClusterId) {
+      loadPendingCrCount();
+      const interval = setInterval(loadPendingCrCount, 10000);
+      return () => clearInterval(interval);
+    }
+  });
+</script>
+
+  {#snippet extraHeaderActions()}
+    {#if canAdmin}
+      <button
+        onclick={() => showCrDrawer = true}
+        class="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition cursor-pointer shadow-2xs"
+      >
+        <GitPullRequest class="w-3.5 h-3.5" />
+        <span>Заявки на изменение</span>
+        {#if pendingCrCount > 0}
+          <span class="flex h-2 w-2 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
+          </span>
+          <span class="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-bold font-mono">
+            {pendingCrCount}
+          </span>
+        {/if}
+      </button>
+    {/if}
+  {/snippet}
+
+  {#if authLoading}
+    <div class="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center text-slate-800 dark:text-slate-100 gap-3">
+      <div class="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Проверка сессии...</span>
+    </div>
+  {:else if !user}
+    <LoginModal
+      title="Artel"
+      subtitle="Аутентификация LDAP & Kerberos SSO"
+      icon={Cpu}
+      isModal={false}
+      app="artel"
+      initialError={authErrorMessage}
+      onLogin={handleLogin}
+      onKerberosSso={handleKerberosSso}
+    />
+  {:else}
+    <div class="min-h-screen flex flex-col w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
+      <Header
+      title="Artel"
+      subtitle="Capacity Scheduler"
+      {user}
+      {clusters}
+      bind:selectedClusterId
+      extraActions={extraHeaderActions}
+      onLogout={handleLogout}
+    />
+
+    <ClusterMetricsBar metrics={clusterMetrics} />
+
+    <!-- Toolbar: Partitions, Queue Balances, Queue Mappings & Display Mode -->
+    <div class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div class="flex items-center gap-3 flex-wrap">
+        <PartitionSelector {partitions} bind:selectedPartition />
+
+        <ResourceBalanceCard {balances} {resourceMode} {displayMode} inline={true} />
+
+        <button
+          onclick={() => isMappingsModalOpen = true}
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer shadow-xs"
+        >
+          <ArrowRightLeft class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>Queue Mappings</span>
+          {#if isMappingsModified}
+            <span class="w-2 h-2 rounded-full bg-amber-500" title="Есть несохраненные изменения в правилах маппинга"></span>
+          {/if}
+        </button>
+      </div>
+
+      <!-- Mode Selector -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-500 dark:text-slate-400 font-medium">Режим отображения:</span>
+        <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+          <button
+            onclick={() => displayMode = 'percentage'}
+            class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition {
+              displayMode === 'percentage' ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }"
+          >
+            % Проценты
+          </button>
+          <button
+            onclick={() => displayMode = 'absolute'}
+            class="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition {
+              displayMode === 'absolute' ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }"
+          >
+            Абсолютные (RAM/CPU)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {#if isLoading}
+      <div class="flex-1 flex items-center justify-center">
+        <div class="text-center">
+          <div class="w-8 h-8 border-3 border-sky-200 border-t-sky-600 rounded-full animate-spin mx-auto mb-3"></div>
+          <p class="text-sm text-slate-500 dark:text-slate-400">Loading queues...</p>
+        </div>
+      </div>
+    {:else if loadError}
+      <div class="flex-1 flex items-center justify-center">
+        <div class="text-center max-w-md">
+          <p class="text-sm text-red-600 dark:text-red-400 mb-3">{loadError}</p>
+          <button onclick={loadQueueTree}
+            class="px-4 py-2 rounded-lg bg-sky-600 text-white text-xs font-medium cursor-pointer">
+            Retry
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <QueueTreeTable
+          {rootQueue}
+          {resourceMode}
+          {displayMode}
+          clusterResources={activeCluster?.total_resources}
+          {selectedPartition}
+          {canWrite}
+          {draftChanges}
+          onAddChild={handleAddChild}
+          onDelete={handleDelete}
+          onEditQueue={handleEditQueue}
+        />
+      </div>
+    {/if}
+
+    <!-- Footer Actions Bar -->
+    {#if canWrite}
+      <div class="h-12 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 shrink-0">
+        <div class="flex items-center gap-2">
+          <button onclick={loadQueueTree}
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
+            <RefreshCw class="w-3.5 h-3.5" />
+            Обновить
+          </button>
+          {#if totalChangesCount > 0}
+            <button onclick={resetDraft}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer">
+              <RotateCcw class="w-3.5 h-3.5" />
+              Сбросить все ({totalChangesCount})
+            </button>
+          {/if}
+        </div>
+
+        <div class="flex items-center gap-2">
+          {#if totalChangesCount > 0}
+            <span class="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-2 py-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg">
+              {totalChangesCount} изм. в черновике
+            </span>
+
+            <button onclick={handleShowDiff}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-medium hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer">
+              <GitCompareArrows class="w-3.5 h-3.5" />
+              Просмотр изменений
+            </button>
+
+            <button onclick={() => showSubmitCrModal = true}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 text-xs font-semibold transition cursor-pointer">
+              <Send class="w-3.5 h-3.5" />
+              Отправить на согласование
+            </button>
+
+            {#if canAdmin}
+              <button onclick={() => handleGenerateXml()}
+                class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white text-xs font-semibold shadow-md shadow-sky-500/20 hover:shadow-lg transition cursor-pointer">
+                <FileDown class="w-3.5 h-3.5" />
+                Сгенерировать XML
+              </button>
+            {/if}
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Modals & Drawers -->
+    <QueueEditDrawer
+      queue={editingQueue}
+      draftItem={editingQueue ? draftChanges.get(editingQueue.path) || null : null}
+      {resourceMode}
+      clusterResources={activeCluster?.total_resources}
+      {selectedPartition}
+      {partitions}
+      bind:isOpen={isDrawerOpen}
+      onSave={handleSaveDraft}
+    />
+
+    {#if showAddModal}
+      {#await import('./components/AddQueueModal.svelte') then { default: AddQueueModal }}
+        <AddQueueModal
+          parentPath={addParentPath}
+          bind:isOpen={showAddModal}
+          {resourceMode}
+          clusterResources={activeCluster?.total_resources}
+          {selectedPartition}
+          {partitions}
+          onConfirm={handleConfirmAdd}
+        />
+      {/await}
+    {/if}
+
+    <DiffPanel
+      {diffs}
+      {queueMappingsDiff}
+      {canAdmin}
+      bind:isOpen={showDiffPanel}
+      onGenerateXml={() => handleGenerateXml()}
+      onSubmitCr={() => showSubmitCrModal = true}
+    />
+
+    {#if isMappingsModalOpen}
+      {#await import('./components/QueueMappingsModal.svelte') then { default: QueueMappingsModal }}
+        <QueueMappingsModal
+          rootQueue={rootQueue}
+          draftMappings={draftQueueMappings}
+          draftOverride={draftQueueMappingsOverride}
+          liveMappings={liveQueueMappings}
+          liveOverride={liveQueueMappingsOverride}
+          {canWrite}
+          bind:isOpen={isMappingsModalOpen}
+          onSave={handleSaveMappings}
+        />
+      {/await}
+    {/if}
+
+    {#if showXmlModal}
+      {#await import('./components/XmlExportModal.svelte') then { default: XmlExportModal }}
+        <XmlExportModal
+          {xmlContent}
+          filename={xmlFilename}
+          instructions={xmlInstructions}
+          currentMode={exportMode}
+          clusterId={selectedClusterId}
+          {canAdmin}
+          bind:isOpen={showXmlModal}
+          onModeChange={(newMode) => handleGenerateXml(newMode)}
+        />
+      {/await}
+    {/if}
+
+    {#if showSubmitCrModal}
+      {#await import('./components/SubmitChangeRequestModal.svelte') then { default: SubmitChangeRequestModal }}
+        <SubmitChangeRequestModal
+          clusterId={selectedClusterId}
+          changes={Array.from(draftChanges.values())}
+          bind:isOpen={showSubmitCrModal}
+          onSubmit={handleSubmitChangeRequest}
+        />
+      {/await}
+    {/if}
+
+    <ChangeRequestsDrawer
+      clusterId={selectedClusterId}
+      {canAdmin}
+      currentUsername={user?.username || ''}
+      bind:isOpen={showCrDrawer}
+      onApplyToDraft={handleApplyCrToDraft}
+      onViewXml={handleViewCrXml}
+      onStatusChange={loadPendingCrCount}
+    />
+    </div>
+  {/if}

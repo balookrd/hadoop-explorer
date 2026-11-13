@@ -30,7 +30,7 @@ get_compose_file() {
             echo "$ROOT_DIR/demo/all/docker-compose.all.yml"
             ;;
         yarn)
-            echo "$ROOT_DIR/demo/yarn/docker-compose.yml"
+            echo "$ROOT_DIR/demo/artel/docker-compose.yml"
             ;;
         hdfs)
             echo "$ROOT_DIR/demo/hdfs/docker-compose.yml"

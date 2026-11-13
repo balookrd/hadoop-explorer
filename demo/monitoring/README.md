@@ -70,9 +70,9 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 6. `hdfs-explorer-operations` — файловые операции HDFS Explorer:
    - Темп операций клиента HDFS по методам и кластерам, доля неуспешных операций (`hdfs_operations_total`).
    - Трафик upload/download по кластерам (`hdfs_bytes_transferred_total`).
-7. `yarn_explorer_queues` — YARN Explorer:
-   - Переходы заявок Change Request по статусам (`yarn_change_requests_total`).
-   - Задержка p95 API YARN Explorer по URI.
+7. `artel_queues` — Artel:
+   - Переходы заявок Change Request по статусам (`artel_change_requests_total`).
+   - Задержка p95 API Artel по URI.
 8. `spark_sql_explorer_analytics` — Spark и SQL Explorer:
    - Активные Livy-сессии и p95 длительности Spark-инструкций.
    - Темп и p95 длительности SQL-запросов по движкам Trino и Hive.

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # PostgreSQL for PostgresTextColumnsTest (backend/sql, backend/spark, backend/yarn); the tests are skipped
+    # PostgreSQL for PostgresTextColumnsTest (backend/sql, backend/spark, backend/artel); the tests are skipped
     # without TEST_POSTGRES_URL
     services:
       postgres:

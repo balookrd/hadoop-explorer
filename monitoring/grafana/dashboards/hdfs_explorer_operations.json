@@ -51,7 +51,7 @@
       "targetBlank": false,
       "title": "YARN Queues",
       "type": "link",
-      "url": "/d/yarn_explorer_queues"
+      "url": "/d/artel_queues"
     }
   ],
   "liveNow": false,

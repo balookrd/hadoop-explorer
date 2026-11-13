@@ -28,7 +28,7 @@
 | `agent-dc2` | Replicator gRPC Data Worker (DC2 Sender/Receiver) | `50051` | `50052` |
 | `prometheus` | Prometheus Server (метрики всех 5 сервисов) | `9090` | `9090` |
 | `grafana` | Grafana (дашборды платформы) | `3000` | `3000` |
-| `yarn-explorer` | YARN Explorer (UI и бэкенд) | `8000` | `8001` |
+| `artel` | Artel (UI и бэкенд) | `8000` | `8001` |
 | `hdfs-explorer` | HDFS Explorer (UI и бэкенд) | `8000` | `8002` |
 | `sql-explorer` | SQL Explorer (UI и бэкенд) | `8003` | `8003` |
 | `spark-explorer` | Spark Explorer (UI и бэкенд) | `8004` | `8004` |
@@ -58,7 +58,7 @@ cd demo/all && ./start-all-demo.sh
 6. Запускает 5 веб-сервисов Pristan, включая Replicator Orchestrator и агенты.
 
 ### Веб-интерфейсы
-- YARN Explorer: [http://localhost:8001](http://localhost:8001)
+- Artel: [http://localhost:8001](http://localhost:8001)
 - HDFS Explorer: [http://localhost:8002](http://localhost:8002)
 - SQL Explorer: [http://localhost:8003](http://localhost:8003)
 - Spark Explorer: [http://localhost:8004](http://localhost:8004)
@@ -94,14 +94,14 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 | Логин | Роль (бейдж в UI) | Группы LDAP | Права в YARN | Права в HDFS | Права в SQL | Права в Spark |
 |---|---|---|---|---|---|---|
 | `admin` / `admin_user` | `ADMIN` (`ADM`) | `hadoop-admins`, `data-platform-admins`, `platform-admins` | Утверждение Change Requests | Полный доступ (R/W, квоты, ACL) | Все кластеры и каталоги | Все очереди и кластеры |
-| `engineer` / `writer_user` / `de_user` | `WRITER` (`RW`) | `data-engineers`, `yarn-operators` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
+| `engineer` / `writer_user` / `de_user` | `WRITER` (`RW`) | `data-engineers`, `artel-operators` | Создание Change Requests | Запись в `/data`, `/tmp` | Выполнение DDL и DML | Очереди `root.etl`, `root.adhoc` |
 | `analyst` / `analyst_user` / `reader_user` | `READER` (`RO`) | `bi-analysts`, `analytics` | Только просмотр очередей | Чтение `/data` | Только SELECT запросы | Очередь `root.analytics` |
 
 ---
 
 ## Сценарии сквозной проверки
 
-### YARN Explorer (`:8001`)
+### Artel (`:8001`)
 - Войдите как `engineer` и создайте заявку на перераспределение весов очередей `root.etl` и `root.analytics`.
 - Войдите как `admin` и согласуйте заявку кнопкой **Одобрить и сгенерировать XML**.
 

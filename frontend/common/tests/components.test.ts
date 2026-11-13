@@ -44,12 +44,12 @@ describe('Common UI Components Suite', () => {
     it('renders login button when user is null', () => {
       render(Header, {
         props: {
-          title: 'YARN Explorer',
+          title: 'Artel',
           user: null
         }
       });
 
-      expect(screen.getByText('YARN Explorer')).toBeInTheDocument();
+      expect(screen.getByText('Artel')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Войти в систему/i })).toBeInTheDocument();
     });
   });

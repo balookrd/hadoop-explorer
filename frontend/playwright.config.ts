@@ -27,7 +27,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'npm run dev:yarn -- --port 5173 --host',
+      command: 'npm run dev:artel -- --port 5173 --host',
       port: 5173,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

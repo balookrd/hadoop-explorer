@@ -84,7 +84,7 @@
       target="_blank"
       rel="noopener noreferrer"
       class="hidden lg:flex items-center gap-1 text-[11px] font-mono font-medium text-slate-600 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded transition"
-      title="Открыть Application в YARN Explorer"
+      title="Открыть Application в Artel"
     >
       <span class="truncate max-w-[110px]">{session.yarn_application_id}</span>
       <ExternalLink class="w-3 h-3 text-slate-400" />

@@ -1,0 +1,37 @@
+name: artel-demo
+
+include:
+  - path: ../platform/docker-compose.yarn.yml
+
+services:
+  artel:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.artel
+    container_name: artel
+    hostname: artel
+    networks:
+      demo-platform-net:
+        aliases:
+          - artel.yarn-demo-net
+          - artel
+    ports:
+      - "8001:8000"
+    environment:
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+    volumes:
+      - ./application-demo.yml:/app/config/application.yml:ro
+      - demo-shared-krb5:/shared-krb5:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - yarn-demo-data:/app/data
+    depends_on:
+      kdc:
+        condition: service_healthy
+      ldap:
+        condition: service_healthy
+      yarn-demo-rm-1:
+        condition: service_started
+      yarn-demo-rm-2:
+        condition: service_started
+    restart: unless-stopped

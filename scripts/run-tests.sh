@@ -6,11 +6,11 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 APP="${1:-all}"
 
-run_yarn() {
+run_artel() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: YARN Explorer (Java 21 / Spring Boot 3)"
+  echo "🧪 Запуск тестов: Artel (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/yarn/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/artel/pom.xml"
 }
 
 run_hdfs() {
@@ -53,7 +53,7 @@ case "$APP" in
     run_frontend
     ;;
   yarn)
-    run_yarn
+    run_artel
     ;;
   hdfs)
     run_hdfs
@@ -69,7 +69,7 @@ case "$APP" in
     ;;
   all)
     run_frontend
-    run_yarn
+    run_artel
     run_hdfs
     run_sql
     run_spark

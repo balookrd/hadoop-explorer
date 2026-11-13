@@ -1,5 +1,5 @@
 ---
-# Применение правок YARN Explorer к развернутому capacity-scheduler.xml.
+# Применение правок Artel к развернутому capacity-scheduler.xml.
 # Файл должен быть одинаковым на всех RM: иначе непонятно, к какому из них применять правки,
 # и после деплоя RM разошлись бы по конфигурации.
 
@@ -20,7 +20,7 @@
     msg: >-
       capacity-scheduler.xml differs between ResourceManagers
       ({{ ansible_play_hosts | map('extract', hostvars, ['deployed_xml_stat', 'stat', 'checksum']) | list }}).
-      Align the files manually before deploying changes from YARN Explorer.
+      Align the files manually before deploying changes from Artel.
   when: >-
     ansible_play_hosts | map('extract', hostvars, ['deployed_xml_stat', 'stat', 'checksum'])
     | unique | list | length > 1

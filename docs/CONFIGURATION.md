@@ -2,7 +2,7 @@
 
 Документ для администраторов платформы Pristan: параметры конфигурации, форматы файлов и переменные окружения компонентов.
 - Общий стартер безопасности (`backend/zastava` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
-- YARN Explorer (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
+- Artel (`backend/artel` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - HDFS Explorer (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
@@ -20,7 +20,7 @@
    - [Хранилище сессий, токенов и Rate Limiting (SessionStore & Tri-Storage)](#25-хранилище-сессий-токенов-и-rate-limiting-sessionstore--tri-storage)
    - [Отказоустойчивость: Circuit Breaker, Distributed Lock и Graceful Shutdown](#26-отказоустойчивость-circuit-breaker-retry-global-exception-handlers-distributed-lock-и-graceful-shutdown)
    - [Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов](#27-сквозное-шифрование-tlshttps-и-mtls-для-rest-и-grpc-каналов)
-3. [Настройка YARN Explorer](#3-настройка-yarn-explorer)
+3. [Настройка Artel](#3-настройка-artel)
    - [YARN-кластеры и партиции](#31-yarn-кластеры-и-партиции)
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
    - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
@@ -188,12 +188,12 @@ hadoop:
       admin-users: ["admin", "superadmin"]
       admin-groups: ["hadoop-admins", "platform-admins", "domain admins"]
       writer-users: []
-      writer-groups: ["data-engineers", "yarn-operators", "etl-developers"]
+      writer-groups: ["data-engineers", "artel-operators", "etl-developers"]
 ```
 
 Имена пользователей и групп сравниваются без учета регистра. Группы из конфигурации добавляются к встроенным спискам, а не заменяют их:
 - встроенные группы администраторов: `hadoop-admins`, `admins`, `data-platform-admins`, `platform-admins`, `superusers`;
-- встроенные группы writer: `data-engineers`, `engineers`, `spark-users`, `etl-developers`, `yarn-operators`, `operators`, `replicator-operators`, `dev-leads`.
+- встроенные группы writer: `data-engineers`, `engineers`, `spark-users`, `etl-developers`, `artel-operators`, `operators`, `replicator-operators`, `dev-leads`.
 
 Роли:
 - Пользователи из `admin-users` или из любой группы администраторов получают роль `ADMIN` (бейдж в UI — `ADM`).
@@ -292,9 +292,9 @@ hadoop:
 ---
 
 
-## 3. Настройка YARN Explorer
+## 3. Настройка Artel
 
-Файл конфигурации: `backend/yarn/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
+Файл конфигурации: `backend/artel/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
 ### 3.1 YARN-кластеры и партиции
 
@@ -323,7 +323,7 @@ yarn:
 
 ### 3.2 Ролевая модель и Change Requests
 
-В YARN Explorer три роли: `ADMIN`, `WRITER`, `READER`. При `enforce-four-eyes: true` действует принцип четырех глаз: автор заявки не может сам ее согласовать.
+В Artel три роли: `ADMIN`, `WRITER`, `READER`. При `enforce-four-eyes: true` действует принцип четырех глаз: автор заявки не может сам ее согласовать.
 
 ```yaml
 yarn:
@@ -339,7 +339,7 @@ yarn:
             groups: ["hadoop-admins", "platform-admins"]
             users: ["admin_user"]
           writer:
-            groups: ["yarn-operators", "data-engineers"]
+            groups: ["artel-operators", "data-engineers"]
             users: ["writer_user"]
           reader:
             groups: ["*"]
@@ -348,7 +348,7 @@ yarn:
 
 ### 3.3 Интеграция с Ansible AWX (доставка и применение конфигурации)
 
-YARN Explorer доставляет сгенерированную XML-конфигурацию на кластер и применяет ее без перезапуска, запуская Job Template в Ansible AWX / Red Hat Ansible Automation Platform:
+Artel доставляет сгенерированную XML-конфигурацию на кластер и применяет ее без перезапуска, запуская Job Template в Ansible AWX / Red Hat Ansible Automation Platform:
 
 ```yaml
 yarn:
@@ -375,12 +375,12 @@ yarn:
 #### Соответствующие переменные окружения:
 | Переменная (Spring Boot Relaxed Binding) | Пример значения | Описание |
 |---|---|---|
-| `YARN_AWX_ENABLED` | `true` | Активация модуля автоматизации AWX |
-| `YARN_AWX_BASE_URL` | `https://awx.company.local` | Базовый URL сервера AWX |
-| `YARN_AWX_TOKEN` | `BearerSecretToken...` | Токен доступа к REST API AWX |
-| `YARN_AWX_VERIFY_SSL` | `true` | Проверка TLS сертификата сервера AWX |
-| `YARN_AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
-| `YARN_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
+| `ARTEL_AWX_ENABLED` | `true` | Активация модуля автоматизации AWX |
+| `ARTEL_AWX_BASE_URL` | `https://awx.company.local` | Базовый URL сервера AWX |
+| `ARTEL_AWX_TOKEN` | `BearerSecretToken...` | Токен доступа к REST API AWX |
+| `ARTEL_AWX_VERIFY_SSL` | `true` | Проверка TLS сертификата сервера AWX |
+| `ARTEL_AWX_DEFAULT_JOB_TEMPLATE_ID` | `101` | Числовой идентификатор Job Template |
+| `ARTEL_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
 
 Развертывание роли Ansible, настройка шаблона AWX и откат: [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).
 Применение изменений из интерфейса Change Requests: [docs/yarn-user-guide.md](yarn-user-guide.md).
@@ -1159,9 +1159,9 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `LDAP_URL` | `zastava.ldap.url` | `ldaps://ldap.company.local:636` |
 | `LDAP_MANAGER_DN` / `LDAP_MANAGER_PASSWORD` | Учетная запись для поиска пользователей в LDAP | — |
 | `LDAP_USER_SEARCH_BASE` | `zastava.ldap.user-search-base` | `ou=users,dc=company,dc=local` |
-| `YARN_DB_URL` / `YARN_DB_DRIVER` / `YARN_DB_USER` / `YARN_DB_PASSWORD` | БД YARN Explorer (Change Requests, аудит) | `jdbc:h2:file:./data/yarn_explorer` / пусто (драйвер по URL) / `sa` / пусто |
-| `YARN_KERBEROS_PRINCIPAL` / `YARN_KERBEROS_KEYTAB` | Учетная запись YARN Explorer для SPNEGO-запросов к ResourceManager | — |
-| `YARN_AWX_BASE_URL` / `YARN_AWX_TOKEN` / `YARN_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
+| `ARTEL_DB_URL` / `ARTEL_DB_DRIVER` / `ARTEL_DB_USER` / `ARTEL_DB_PASSWORD` | БД Artel (Change Requests, аудит) | `jdbc:h2:file:./data/artel` / пусто (драйвер по URL) / `sa` / пусто |
+| `ARTEL_KERBEROS_PRINCIPAL` / `ARTEL_KERBEROS_KEYTAB` | Учетная запись Artel для SPNEGO-запросов к ResourceManager | — |
+| `ARTEL_AWX_BASE_URL` / `ARTEL_AWX_TOKEN` / `ARTEL_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
 
 Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `SQL_RESULTS_TTL_HOURS=48` или `ZASTAVA_COOKIE_SECURE=true`.
 
@@ -1173,7 +1173,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 | Сервис | Эндпоинт | Порт в контейнере | Доступ | Содержимое |
 |---|---|---|---|---|
-| YARN Explorer | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `yarn_change_requests_total` |
+| Artel | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `artel_change_requests_total` |
 | HDFS Explorer | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
 | SQL Explorer | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `sql_query_duration_seconds` |
 | Spark Explorer | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
@@ -1218,7 +1218,7 @@ YARN, HDFS, SQL и Spark Explorer:
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы `/api/*`, отклоненные `RateLimitFilter` ответом 429. `tier`: `login` (пути `/api/v1/auth/login` и `/api/v1/auth/sso`) или `api` (остальные пути `/api/*`). Серия появляется после первого отказа на уровне. Алерты: `HadoopLoginRateLimitSpike` (`login`, больше 0,2 отказа/с за 5 мин) и `HadoopApiRateLimitSpike` (`api`, больше 1 отказа/с) |
 | `hdfs_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS (`list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`), `status`: `success`, `failed` |
 | `hdfs_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
-| `yarn_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
+| `artel_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
 | `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
 | `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
 | `spark_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
@@ -1260,7 +1260,7 @@ scrape_configs:
     scrape_interval: 15s
     static_configs:
       - targets:
-          - 'yarn-explorer:8000'
+          - 'artel:8000'
           - 'hdfs-explorer:8000'
           - 'sql-explorer:8003'
           - 'spark-explorer:8004'
@@ -1300,7 +1300,7 @@ spec:
 
 1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
 2. [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
-3. [`yarn_explorer_queues.json`](../monitoring/grafana/dashboards/yarn_explorer_queues.json) — переходы заявок Change Request по статусам, p95 API YARN Explorer по URI.
+3. [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request по статусам, p95 API Artel по URI.
 4. [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
 5. Дашборды Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json), [`hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json), [`hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json), [`hadoop_replicator_kafka.json`](../monitoring/grafana/dashboards/hadoop_replicator_kafka.json).
 
@@ -1351,7 +1351,7 @@ spec:
 Руководства по развертыванию каждого компонента в режимах Standalone (systemd) и Docker / Docker Compose:
 
 - [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
-- [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
+- [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
 - [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)

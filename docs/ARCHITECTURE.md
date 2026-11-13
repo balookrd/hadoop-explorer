@@ -1,7 +1,7 @@
 # Архитектура платформы Pristan
 
 Pristan — веб-платформа для работы с экосистемой Apache Hadoop, ее мониторинга и администрирования. Монорепозиторий содержит пять сервисов:
-1. YARN Explorer — администрирование очередей Capacity Scheduler.
+1. Artel — администрирование очередей Capacity Scheduler.
 2. HDFS Explorer — файловый менеджер HDFS.
 3. SQL Explorer — редактор запросов к Trino и Hive с ИИ-ассистентом (при `mock-storage: true` движки работают на встроенных демонстрационных данных, ассистент без LLM — на встроенных правилах, см. 5.3).
 4. Spark Explorer — интерактивные вычисления на PySpark, Scala Spark и Spark SQL.
@@ -17,7 +17,7 @@ Pristan — веб-платформа для работы с экосистем�
 - Общий код безопасности (`backend/zastava`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF и аудит через AOP. Фильтр `RateLimitFilter` (Bucket4j) ограничивает частоту запросов к `/api/*` во всех сервисах, подключающих стартер (раздел 3.4). Класс `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
 - Токены только в cookie: токены авторизации передаются в cookie с флагами `HttpOnly`, `SameSite=Lax`, `Secure`. JWT и учетные данные не пишутся в `localStorage` браузера (защита от XSS, CWE-312).
 - Изоляция пользовательских данных (`User Workspace`): вкладки, код и результаты выполнения хранятся отдельно для каждого пользователя в БД (H2 / PostgreSQL).
-- Высокая доступность внешних служб: YARN Explorer выбирает активный ResourceManager по `haState`, HDFS Explorer работает с HA NameNode через `ConfiguredFailoverProxyProvider` (раздел 4.2).
+- Высокая доступность внешних служб: Artel выбирает активный ResourceManager по `haState`, HDFS Explorer работает с HA NameNode через `ConfiguredFailoverProxyProvider` (раздел 4.2).
 
 ---
 
@@ -38,7 +38,7 @@ Pristan — веб-платформа для работы с экосистем�
          ┌───────────────────┘          │          │          │          └───────────────────┐
          ▼                              ▼          ▼          ▼                              ▼
 ┌──────────────────┐           ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────────┐
-│  YARN Explorer   │           │  HDFS Explorer   │  │   SQL Explorer   │  │  Spark Explorer  │  │  gRPC Replicator      │
+│  Artel   │           │  HDFS Explorer   │  │   SQL Explorer   │  │  Spark Explorer  │  │  gRPC Replicator      │
 │ (Java 21: 8001)  │           │ (Java 21: 8002)  │  │ (Java 21: 8003)  │  │ (Java 21: 8004)  │  │ (Orchestrator: 8005)  │
 └────────┬─────────┘           └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  └───────────┬───────────┘
          │                              │                     │                     │                        │
@@ -73,7 +73,7 @@ Pristan — веб-платформа для работы с экосистем�
    - Продлевает сессию при активности пользователя (sliding session), выставляет cookie с `HttpOnly`, поддерживает mock-пользователей и вход через LDAP/Kerberos.
 2. `KerberosSpnegoService` (`io.github.balookrd.pristan.zastava.auth`):
    - Проверяет SPNEGO-билет браузера из заголовка `Authorization: Negotiate ...` через Java GSS-API (`org.ietf.jgss`) и извлекает principal пользователя (`user@REALM`).
-   - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (YARN Explorer — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
+   - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (Artel — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
 3. LDAPS / Active Directory: проверка пароля через `LdapAuthService` с экранированием фильтров (`escapeLdapFilter`, защита от LDAP Injection, CWE-90) и чтением групп из атрибута `memberOf`.
 4. Mock-режим (`zastava.auth.mode: mock`) — только для локальной разработки; демо-стенды входят через OpenLDAP. При `debug: false` mock-провайдер не запускается.
 5. Общая проверка токена: `CommonAuthFilter` во всех сервисах берет токен из `Authorization: Bearer` или cookie (`SecurityTokenExtractor`), отклоняет отозванные токены (`SessionStore.isTokenRevoked`), ищет сессию в `SessionStore`, а если ее нет — проверяет подпись JWT (`JwtTokenService`), повторно проверяет отзыв по `jti` и строит `UserSession`.
@@ -97,7 +97,7 @@ Pristan — веб-платформа для работы с экосистем�
 
 ### 3.4 Ограничение частоты запросов и аудит
 - Фильтр `RateLimitFilter` стартера ограничивает частоту запросов к `/api/*` (`RateLimiterService`, Token Bucket на `Bucket4j`). `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` считаются по IP клиента (по умолчанию 10 подряд, 30 в минуту), остальные запросы к API — по имени пользователя, анонимные — по IP (100 подряд, 600 в минуту). Сверх лимита — HTTP 429 с `Retry-After`. `X-Forwarded-For` учитывается только от адресов из `zastava.rate-limiter.trusted-proxies`. Фильтр зарегистрирован после `springSecurityFilterChain` и действует и в собственной цепочке оркестратора. Запросы, отклонённые цепочкой (401/403), токены не тратят. Параметры — `docs/CONFIGURATION.md`, раздел 2.5.
-- Аудит: `AuditAspect` перехватывает методы с аннотацией `@Audited` и через `AuditLogger` пишет в логгер `AUDIT_LOGGER` строку `AUDIT_EVENT: {...}` с JSON-записью `AuditRecord` (`timestamp`, `service`, `username`, `client_ip`, `action`, `resource`, `status`, `duration_ms`, `details`). Имя события — значение `action` из аннотации, например `APPROVE_CHANGE_REQUEST` в YARN Explorer или `FILE_UPLOAD` в HDFS Explorer. Поле `client_ip` всегда равно `internal`. Вход, выход и отклонения CSRF через `@Audited` не проходят и в журнал аудита не попадают.
+- Аудит: `AuditAspect` перехватывает методы с аннотацией `@Audited` и через `AuditLogger` пишет в логгер `AUDIT_LOGGER` строку `AUDIT_EVENT: {...}` с JSON-записью `AuditRecord` (`timestamp`, `service`, `username`, `client_ip`, `action`, `resource`, `status`, `duration_ms`, `details`). Имя события — значение `action` из аннотации, например `APPROVE_CHANGE_REQUEST` в Artel или `FILE_UPLOAD` в HDFS Explorer. Поле `client_ip` всегда равно `internal`. Вход, выход и отклонения CSRF через `@Audited` не проходят и в журнал аудита не попадают.
 
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
 - Content-Security-Policy бэкенд не выставляет. CSP задана тегом `<meta http-equiv="Content-Security-Policy">` в `frontend/apps/<app>/index.html`:
@@ -149,18 +149,18 @@ Pristan — веб-платформа для работы с экосистем�
 - В стартере есть класс `SimpleCircuitBreaker` (`io.github.balookrd.pristan.zastava.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
 - Ни один сервис `SimpleCircuitBreaker` не создает: вызовы NameNode, ResourceManager и Livy им не защищены, при недоступности кластера запрос ждет сетевого таймаута клиента.
 - HA failover реализован в клиентах сервисов:
-  - YARN Explorer (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.
+  - Artel (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.
   - HDFS Explorer (`NativeHdfsClient`) настраивает `dfs.nameservices` и `ConfiguredFailoverProxyProvider`, переключение выполняет клиент Hadoop.
 - Readiness-проба `/actuator/health/readiness` доступность кластеров не учитывает: она отвечает 200, даже если все кластеры недоступны.
 
 ### 4.3 Обработчики исключений (`@ControllerAdvice`)
 Общего обработчика в стартере нет; ошибки 401 и 403 стартер отдает JSON-ом `{"detail", "status"}` через `ZastavaErrorHandlers`. Свои `@RestControllerAdvice` есть в двух сервисах:
-- YARN Explorer, `ApiExceptionHandler`: `ResponseStatusException` → статус и причина из исключения; `YarnRmException` → HTTP 502; ошибки валидации тела → HTTP 400 со списком полей. Остальные исключения обрабатывает стандартный `/error` Spring Boot.
+- Artel, `ApiExceptionHandler`: `ResponseStatusException` → статус и причина из исключения; `YarnRmException` → HTTP 502; ошибки валидации тела → HTTP 400 со списком полей. Остальные исключения обрабатывает стандартный `/error` Spring Boot.
 - HDFS Explorer, `GlobalHdfsExceptionHandler`: `HdfsLocalizedException` → статус из исключения; любое другое исключение пишется в лог со стеком, а `HdfsErrorTranslator` превращает его в `{"detail", "error_class", "status"}` (например, `StandbyException` → HTTP 503, остальное → HTTP 500 с текстом исключения).
 - В SQL и Spark Explorer собственных обработчиков нет.
 
 ### 4.4 Блокировки при согласовании заявок YARN
-Отдельного механизма распределенных блокировок в стартере нет. YARN Explorer защищает заявки (Change Requests) от двойной обработки атомарным `UPDATE` в БД: `ChangeRequestRepository.claimForDeployment` переводит одобренную заявку в `DEPLOYING` только при условии `status = APPROVED` и `deploymentStatus IS NULL OR 'FAILED'`; если обновлено 0 строк, повторный запуск развертывания отклоняется. Согласование (`approveChangeRequest`) выполняется в транзакции с проверкой статуса `SUBMITTED`.
+Отдельного механизма распределенных блокировок в стартере нет. Artel защищает заявки (Change Requests) от двойной обработки атомарным `UPDATE` в БД: `ChangeRequestRepository.claimForDeployment` переводит одобренную заявку в `DEPLOYING` только при условии `status = APPROVED` и `deploymentStatus IS NULL OR 'FAILED'`; если обновлено 0 строк, повторный запуск развертывания отклоняется. Согласование (`approveChangeRequest`) выполняется в транзакции с проверкой статуса `SUBMITTED`.
 
 В Replicator есть собственная аренда с fencing-токенами (`DistributedLockService`, см. 5.5).
 
@@ -172,8 +172,8 @@ Pristan — веб-платформа для работы с экосистем�
 
 ## 5. Сервисы платформы
 
-### 5.1 YARN Explorer
-- Бэкенд на Java 21 LTS / Spring Boot 3 (`backend/yarn/`):
+### 5.1 Artel
+- Бэкенд на Java 21 LTS / Spring Boot 3 (`backend/artel/`):
   - Использует библиотеки Apache Hadoop YARN Client (`hadoop-yarn-client:3.3.6`, `hadoop-yarn-common:3.3.6`).
   - RM HA failover: запросы идут на ResourceManager с `haState == "ACTIVE"`.
   - Разбор и проверка дерева очередей (сумма емкостей дочерних очередей — 100%), расчет diff изменений RAM/vCPU и node labels.
@@ -373,7 +373,7 @@ Pristan — веб-платформа для работы с экосистем�
 
 ## 6. Производительность и потоковая передача данных
 
-### 6.1 HTTP-клиенты YARN Explorer
+### 6.1 HTTP-клиенты Artel
 `NativeYarnClient` (ResourceManager REST API) и `AwxClientService` (Ansible AWX) используют `java.net.http.HttpClient` из Java 21, созданный один раз на клиент:
 - Версия протокола не задается, поэтому действует значение `HttpClient` по умолчанию: HTTP/2 с переходом на HTTP/1.1, если сервер HTTP/2 не поддерживает.
 - Таймауты: подключение — 5 с в обоих клиентах (`CONNECT_TIMEOUT_MS` в `NativeYarnClient`); запрос — 10 с в `NativeYarnClient` (`READ_TIMEOUT_MS`) и 15 с в `AwxClientService`.
@@ -431,7 +431,7 @@ YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actua
   - `hadoop_replicator_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
   - `hadoop_replicator_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
   - `hdfs_explorer_operations.json` — файловые операции WebHDFS, сетевой обмен и отказы.
-  - `yarn_explorer_queues.json` — переходы заявок Change Request и задержка API YARN Explorer.
+  - `artel_queues.json` — переходы заявок Change Request и задержка API Artel.
   - `spark_sql_explorer_analytics.json` — интерактивная аналитика Livy Spark и запросы Trino/Hive.
   - `hadoop_replicator_kafka.json` — репликация топиков Kafka.
 
@@ -443,18 +443,18 @@ YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actua
 
 | Сервис | `spring.datasource.url` по умолчанию | Драйверы JDBC в сборке | Схема |
 |---|---|---|---|
-| YARN Explorer | `${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}` | H2, PostgreSQL | JPA, `ddl-auto: update` (таблица `change_requests`) |
+| Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` | H2, PostgreSQL | JPA, `ddl-auto: update` (таблица `change_requests`) |
 | HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite, PostgreSQL | JPA-сущностей нет; только таблицы `SessionStore` |
 | SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
 | Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
 | Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
-- Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `zastava` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В YARN Explorer вместо `SPRING_DATASOURCE_*` можно задать `YARN_DB_URL`, `YARN_DB_USER` и `YARN_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `zastava.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и HDFS Explorer: [production-database.md](production-database.md).
+- Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `zastava` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В Artel вместо `SPRING_DATASOURCE_*` можно задать `ARTEL_DB_URL`, `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `zastava.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и HDFS Explorer: [production-database.md](production-database.md).
 - In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
 
 ### 8.1 Инициализация схемы БД
 - `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Spark Explorer создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
-- Длинные строковые поля сущностей SQL и Spark Explorer объявлены как `@Column(length = Length.LONG32)`, а не `@Lob`: Hibernate 6.5 создает для них `text` в PostgreSQL и `CHARACTER LARGE OBJECT` в H2 (тот же тип, что давал `@Lob`, поэтому существующие файлы H2 подходят без миграции). В YARN Explorer (`change_requests`) убран `@Lob`, а `columnDefinition = "TEXT"` оставлен: это `text` в PostgreSQL и неограниченный `CHARACTER VARYING` в H2, как и раньше. `@Lob` в PostgreSQL дает `oid`: чтение вне транзакции падает с `Unable to access lob stream`.
+- Длинные строковые поля сущностей SQL и Spark Explorer объявлены как `@Column(length = Length.LONG32)`, а не `@Lob`: Hibernate 6.5 создает для них `text` в PostgreSQL и `CHARACTER LARGE OBJECT` в H2 (тот же тип, что давал `@Lob`, поэтому существующие файлы H2 подходят без миграции). В Artel (`change_requests`) убран `@Lob`, а `columnDefinition = "TEXT"` оставлен: это `text` в PostgreSQL и неограниченный `CHARACTER VARYING` в H2, как и раньше. `@Lob` в PostgreSQL дает `oid`: чтение вне транзакции падает с `Unable to access lob stream`.
 - Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `zastava.session-store.type` не `memory`.
 - Схему Replicator Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
 
@@ -515,7 +515,7 @@ YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actua
 | Сервис / уровень | Число тестов и стек | Что покрыто |
 |---|---|---|
 | Common Security Starter | 20 тестов (Java 21) | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC H2/Postgres), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
-| YARN Explorer | 13 тестов (Java 21) | Валидация Capacity Scheduler, сумма долей веток 100%, Draft Diff, генерация и санитизация XML, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (принцип четырех глаз), REST-клиент AWX, аудит, L1-кэш токенов, Circuit Breaker |
+| Artel | 13 тестов (Java 21) | Валидация Capacity Scheduler, сумма долей веток 100%, Draft Diff, генерация и санитизация XML, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (принцип четырех глаз), REST-клиент AWX, аудит, L1-кэш токенов, Circuit Breaker |
 | HDFS Explorer | 16 тестов (Java 21) | NameNode HA failover при `StandbyException`, Kerberos proxy user doAs, API операций, предпросмотр Parquet/ORC с чтением схемы из footer, MockHdfsClient, Circuit Breaker, Rate Limiter |
 | SQL Explorer | 128 тестов (Java 21) | MockMvc API (каталог, запросы, воркспейс, ИИ-ассистент), ИИ-ассистент с LLM на WireMock (ответ модели, откат на правила при HTTP-ошибке, не-JSON, таймауте, зависшем и слишком большом теле ответа и превышении лимита одновременных вызовов, маскирование ключа, проверка конфигурации при старте), `JdbcQueryRunner` на H2 (пакеты строк, усечение, отмена, таймаут), `QueryEventHub` (повтор событий), `TrinoConnectionFactory`, Trino 484 в Testcontainers (метаданные, `sessionUser`, отмена на координаторе), `HiveConnectionFactory`, HiveServer2 4.0.0 в Testcontainers (`hive.server2.proxy.user`, метаданные, отмена, запрос дольше `socketTimeout`), `LoggingBindingTest` |
 | Spark Explorer | 168 тестов по отчету surefire (Java 21; 128 методов `@Test`, остальное — случаи параметризованных тестов; 2 выполняются только при заданной `TEST_POSTGRES_URL`) | MockMvc API (кластеры, сессии, statements, пайплайны, воркспейс), статусы `FAILED`/`CANCELLED`, условная отмена в `spark_execution_history`, метрики Prometheus, клиент Livy на WireMock (сессии, `proxyUser`, ожидание `idle`, statements `pyspark`/`spark`/`sql`, отмена, ошибки), разбор вывода Livy, SPNEGO-токен против KDC Kerby, жизненный цикл сессий (состояние из Livy, остановка, TTL, выход, `dead` по 409/404), каталог через сессию |
@@ -551,7 +551,7 @@ YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actua
 Для каждого сервиса есть руководство администратора по установке в режимах Standalone (systemd), Docker и Docker Compose:
 
 - [Общее руководство администратора платформы (admin-guide.md)](admin-guide.md)
-- [Руководство администратора YARN Explorer (yarn-admin-guide.md)](yarn-admin-guide.md)
+- [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
 - [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)

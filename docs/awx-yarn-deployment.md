@@ -1,6 +1,6 @@
 # Доставка и применение конфигурации YARN через Ansible AWX
 
-Документ описывает, как YARN Explorer доставляет изменения `capacity-scheduler.xml` на кластеры Apache Hadoop YARN через Ansible AWX / Red Hat Ansible Automation Platform и применяет их командой `yarn rmadmin -refreshQueues` без перезапуска ResourceManager. Здесь же — настройка AWX, узлов ResourceManager и YARN Explorer.
+Документ описывает, как Artel доставляет изменения `capacity-scheduler.xml` на кластеры Apache Hadoop YARN через Ansible AWX / Red Hat Ansible Automation Platform и применяет их командой `yarn rmadmin -refreshQueues` без перезапуска ResourceManager. Здесь же — настройка AWX, узлов ResourceManager и Artel.
 
 ---
 
@@ -12,7 +12,7 @@
 sequenceDiagram
     autonumber
     actor Admin as "Администратор YARN"
-    participant UI as "YARN Explorer UI / API"
+    participant UI as "Artel UI / API"
     participant AWX as "Ansible AWX (API)"
     participant Runner as "AWX Execution Node"
     participant ActiveRM as "Active ResourceManager"
@@ -88,7 +88,7 @@ ansible/
 ```
 
 ### Поведение роли `yarn_capacity_scheduler`
-1. Правки вместо полного файла. YARN Explorer передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
+1. Правки вместо полного файла. Artel передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
    Полная замена файла по-прежнему доступна через `capacity_scheduler_xml_b64`.
 2. Pre-flight-проверка. Синтаксис итогового XML проверяется на Runner до изменения файлов на кластере.
 3. Откат (rollback). Если `yarn rmadmin -refreshQueues` завершился ошибкой, блок `rescue` возвращает файл из резервной копии на всех узлах RM, повторно вызывает `refreshQueues` и завершает задачу со статусом failed.
@@ -148,7 +148,7 @@ ansible/
 8. **Privilege Escalation**: отметьте `Enable Privilege Escalation` (become: true).
 9. **Variables (Extra Variables)**: отметьте чекбокс **Prompt on launch** напротив поля **Variables**.
 
-   **Внимание**: без **Prompt on launch** AWX отбрасывает `extra_vars`, которые передает YARN Explorer, и задача падает с ошибкой `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'` (см. раздел 7).
+   **Внимание**: без **Prompt on launch** AWX отбрасывает `extra_vars`, которые передает Artel, и задача падает с ошибкой `Provide exactly one of 'capacity_scheduler_patch_b64' or 'capacity_scheduler_xml_b64'` (см. раздел 7).
 10. Нажмите **Save**. Запишите ID шаблона из адресной строки браузера (например, `/templates/job_template/101`): он нужен для `default-job-template-id`.
 
 ### Шаг 5: Выпуск Application Token
@@ -183,9 +183,9 @@ deployer ALL=(yarn) NOPASSWD: ALL
 
 ---
 
-## 5. Конфигурация YARN Explorer (`application.yml`)
+## 5. Конфигурация Artel (`application.yml`)
 
-Параметры AWX в конфигурации бэкенда YARN Explorer (`backend/yarn/src/main/resources/application.yml`):
+Параметры AWX в конфигурации бэкенда Artel (`backend/artel/src/main/resources/application.yml`):
 
 ```yaml
 yarn:
@@ -230,9 +230,9 @@ yarn:
 ### Переменные окружения
 
 В `application.yml` параметры AWX читаются из переменных окружения:
-- `YARN_AWX_BASE_URL=https://awx.prod.company.local`
-- `YARN_AWX_TOKEN=xxxxxx`
-- `YARN_AWX_JOB_TEMPLATE_ID=101`
+- `ARTEL_AWX_BASE_URL=https://awx.prod.company.local`
+- `ARTEL_AWX_TOKEN=xxxxxx`
+- `ARTEL_AWX_JOB_TEMPLATE_ID=101`
 
 ### Контракт `extra_vars`
 
@@ -331,9 +331,9 @@ Content-Type: application/json
 
 ## 8. Связанная документация
 
-- [Руководство пользователя YARN Queue Explorer](yarn-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
+- [Руководство пользователя Artel (YARN)](yarn-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
 - [Архитектура платформы Pristan](ARCHITECTURE.md) — архитектура, подсистемы безопасности и отказоустойчивости.
 - [Руководство по конфигурации платформы](CONFIGURATION.md) — секция `awx:`, переменные окружения, RBAC.
-- [README бэкенда YARN Explorer](../backend/yarn/README.md) — REST API деплоя, запуск тестов.
+- [README бэкенда Artel](../backend/artel/README.md) — REST API деплоя, запуск тестов.
 - [README каталога Ansible](../ansible/README.md) — структура плейбуков и ролей.
 - [Главная страница репозитория](../README.md) — обзор монорепозитория Pristan.

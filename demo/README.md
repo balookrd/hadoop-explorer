@@ -2,7 +2,7 @@
 
 Каталог содержит локальные стенды на Docker Compose для демонстрации и интеграционного тестирования сервисов платформы:
 - `demo/infra` — общая инфраструктура безопасности: MIT Kerberos KDC и OpenLDAP с заранее созданными пользователями и группами, генерация keytab-файлов.
-- `demo/yarn` — стенд YARN Explorer (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
+- `demo/artel` — стенд Artel (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
 - `demo/hdfs` — стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
 - `demo/sql` — стенд SQL Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - `demo/spark` — стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
@@ -21,7 +21,7 @@ make demo-all
 ```
 
 Сервисы доступны по адресам:
-- YARN Explorer: [http://localhost:8001](http://localhost:8001)
+- Artel: [http://localhost:8001](http://localhost:8001)
 - HDFS Explorer: [http://localhost:8002](http://localhost:8002)
 - SQL Explorer: [http://localhost:8003](http://localhost:8003)
 - Spark Explorer: [http://localhost:8004](http://localhost:8004)
@@ -35,7 +35,7 @@ make demo-all-stop
 ```
 
 ### Отдельные стенды
-- YARN Explorer: `make demo-yarn` (остановка: `make demo-yarn-stop`)
+- Artel: `make demo-artel` (остановка: `make demo-artel-stop`)
 - HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
 - SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
 - Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
@@ -54,12 +54,12 @@ make demo-all-stop
 
 | Пользователь | Отображаемое имя | Группы LDAP | Роль |
 |---|---|---|---|
-| `admin` | Главный Администратор | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `data-engineers`, `yarn-operators`, `bi-analysts`, `analytics` | `ADMIN` |
+| `admin` | Главный Администратор | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `data-engineers`, `artel-operators`, `bi-analysts`, `analytics` | `ADMIN` |
 | `admin_user` | Александр Админов | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `platform-team` | `ADMIN` |
 | `hdfs` | Hadoop Superuser | `hadoop-admins` | `ADMIN` |
-| `writer_user` | Владимир Инженеров | `data-engineers`, `yarn-operators`, `dev-leads`, `etl-developers` | `WRITER` |
-| `de_user` | Иван Датаинженеров | `data-engineers`, `yarn-operators`, `bi-analysts`, `spark-users` | `WRITER` |
-| `engineer` | Data Engineer | `data-engineers`, `yarn-operators`, `bi-analysts`, `developers` | `WRITER` |
+| `writer_user` | Владимир Инженеров | `data-engineers`, `artel-operators`, `dev-leads`, `etl-developers` | `WRITER` |
+| `de_user` | Иван Датаинженеров | `data-engineers`, `artel-operators`, `bi-analysts`, `spark-users` | `WRITER` |
+| `engineer` | Data Engineer | `data-engineers`, `artel-operators`, `bi-analysts`, `developers` | `WRITER` |
 | `analyst_user` | Анна Аналитикова | `bi-analysts`, `analytics` | `READER` |
 | `analyst` | BI Data Analyst | `bi-analysts`, `analytics` | `READER` |
 | `reader_user` | Екатерина Наблюдателева | `bi-analysts`, `analytics`, `junior-devs` | `READER` |

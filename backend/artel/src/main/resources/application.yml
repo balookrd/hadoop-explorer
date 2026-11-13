@@ -1,0 +1,89 @@
+# Базовая конфигурация Artel, упакованная в JAR.
+#
+# Значения по умолчанию безопасны для продакшена: без внешнего конфига
+# (SPRING_CONFIG_ADDITIONAL_LOCATION) сервис не стартует — нужен собственный
+# JWT-секрет, LDAP/Kerberos и список кластеров. Демо-режим (mock) включается
+# только явно, см. demo/artel/application-demo.yml.
+
+server:
+  port: 8000
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: artel
+  datasource:
+    url: ${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}
+    # Empty: Spring Boot picks the driver from the URL (H2, PostgreSQL)
+    driverClassName: ${ARTEL_DB_DRIVER:}
+    username: ${ARTEL_DB_USER:sa}
+    password: ${ARTEL_DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
+
+artel:
+  # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)
+  client-mode: native
+  acl:
+    enforce-four-eyes: true
+  # Учетная запись Explorer для SPNEGO-запросов к кластерам с kerberos-enabled: true
+  kerberos:
+    principal: ${ARTEL_KERBEROS_PRINCIPAL:}
+    keytab: ${ARTEL_KERBEROS_KEYTAB:}
+  awx:
+    enabled: true
+    base-url: ${ARTEL_AWX_BASE_URL:}
+    token: ${ARTEL_AWX_TOKEN:}
+    verify-ssl: true
+    default-job-template-id: ${ARTEL_AWX_JOB_TEMPLATE_ID:101}
+    poll-interval-seconds: 2
+    timeout-seconds: 180
+    simulate: false
+  clusters: []
+
+# Kubernetes probes. Spring Boot enables the liveness/readiness health groups on its own
+# only when it detects Kubernetes (KUBERNETES_SERVICE_HOST); enabling them explicitly keeps
+# /actuator/health/readiness available everywhere, including local runs and tests. Readiness
+# is OUT_OF_SERVICE (HTTP 503) until ApplicationReadyEvent and again once the application
+# context starts closing.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        # /actuator/prometheus is public (zastava); nothing else beyond health
+        include: health,prometheus
+  prometheus:
+    metrics:
+      export:
+        # Explicit: @SpringBootTest switches metric exporters off unless they are enabled by name
+        enabled: true
+  metrics:
+    tags:
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
+      app: artel
+    distribution:
+      slo:
+        http.server.requests: 50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s

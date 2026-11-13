@@ -46,7 +46,7 @@ cat <<EOF > /etc/krb5.conf
     kdc = ${REALM}
     hdfs-explorer = ${REALM}
     sql-explorer = ${REALM}
-    yarn-explorer = ${REALM}
+    artel = ${REALM}
     spark-explorer = ${REALM}
     hdfs-cluster-1 = ${REALM}
     hdfs-cluster-2 = ${REALM}
@@ -118,8 +118,8 @@ add_principal "hdfs-explorer@${REALM}" "password123"
 add_principal "hdfs-explorer/hdfs-explorer@${REALM}" ""
 add_principal "HTTP/hdfs-explorer@${REALM}" ""
 add_principal "HTTP/sql-explorer@${REALM}" ""
-add_principal "HTTP/yarn-explorer@${REALM}" ""
-add_principal "HTTP/yarn-explorer.yarn-demo-net@${REALM}" ""
+add_principal "HTTP/artel@${REALM}" ""
+add_principal "HTTP/artel.yarn-demo-net@${REALM}" ""
 add_principal "HTTP/localhost@${REALM}" ""
 
 # 2. HDFS принципалы (Кластер 1 и 2)
@@ -165,7 +165,7 @@ add_principal "yarn/yarn-rm-2@${REALM}" ""
 add_principal "rm/yarn-rm-1@${REALM}" ""
 add_principal "rm/yarn-rm-2@${REALM}" ""
 add_principal "yarn/localhost@${REALM}" ""
-add_principal "yarn-explorer@${REALM}" "password123"
+add_principal "artel@${REALM}" "password123"
 add_principal "yarn@${REALM}" "password123"
 
 # 5. Kafka & Schema Registry принципалы
@@ -219,8 +219,8 @@ add_to_keytab "$KEYTAB_DIR/sql-explorer.keytab" svc_sql_explorer@${REALM} HTTP/s
 add_to_keytab "$KEYTAB_DIR/hive.keytab" hive/hive-server@${REALM} hive/hive-server.demo-platform-net@${REALM} hive/hive-server-1@${REALM} hive/hive-server-1.demo-platform-net@${REALM} hive/hive-server-2@${REALM} hive/hive-server-2.demo-platform-net@${REALM} hive/hive-metastore@${REALM} hive/hive-metastore.demo-platform-net@${REALM} hive/hive-metastore-1@${REALM} hive/hive-metastore-1.demo-platform-net@${REALM} hive/hive-metastore-2@${REALM} hive/hive-metastore-2.demo-platform-net@${REALM} hive/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/trino.keytab" trino/trino-coordinator@${REALM} trino/localhost@${REALM}
 
-# YARN Explorer & Clusters
-kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/yarn-explorer.keytab yarn-explorer@${REALM} HTTP/yarn-explorer@${REALM} HTTP/yarn-explorer.yarn-demo-net@${REALM} HTTP/localhost@${REALM}"
+# Artel & Clusters
+kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/artel.keytab artel@${REALM} HTTP/artel@${REALM} HTTP/artel.yarn-demo-net@${REALM} HTTP/localhost@${REALM}"
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/yarn-rm-1.keytab yarn/yarn-rm-1.yarn-demo-net@${REALM} HTTP/yarn-rm-1.yarn-demo-net@${REALM} yarn/yarn-rm-1@${REALM} rm/yarn-rm-1@${REALM} yarn/localhost@${REALM}"
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/yarn-cluster-1.keytab yarn/yarn-rm-1.yarn-demo-net@${REALM} HTTP/yarn-rm-1.yarn-demo-net@${REALM} yarn/yarn-rm-1@${REALM} rm/yarn-rm-1@${REALM} yarn/localhost@${REALM}"
 kadmin.local -q "ktadd -norandkey -k $KEYTAB_DIR/yarn-rm-2.keytab yarn/yarn-rm-2.yarn-demo-net@${REALM} HTTP/yarn-rm-2.yarn-demo-net@${REALM} yarn/yarn-rm-2@${REALM} rm/yarn-rm-2@${REALM} yarn/localhost@${REALM}"

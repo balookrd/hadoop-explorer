@@ -172,8 +172,8 @@ run_check "Дашборд: gRPC Агенты и воркеры (hadoop-replicato
 run_check "Дашборд: Операции с файлами HDFS (hdfs-explorer-operations)" \
     verify_dashboard "hdfs-explorer-operations" "HDFS"
 
-run_check "Дашборд: Очереди YARN Capacity Scheduler (yarn_explorer_queues)" \
-    verify_dashboard "yarn_explorer_queues" "YARN"
+run_check "Дашборд: Очереди YARN Capacity Scheduler (artel_queues)" \
+    verify_dashboard "artel_queues" "YARN"
 
 run_check "Дашборд: Аналитика Spark и SQL (spark_sql_explorer_analytics)" \
     verify_dashboard "spark_sql_explorer_analytics" "Spark"

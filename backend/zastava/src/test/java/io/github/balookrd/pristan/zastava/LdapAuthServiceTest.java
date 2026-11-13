@@ -42,7 +42,7 @@ class LdapAuthServiceTest {
         addUser("writer_user", "Владимир Инженеров");
         addUser("analyst_user", "Анна Аналитикова");
         addGroup("data-engineers", "writer_user");
-        addGroup("yarn-operators", "writer_user");
+        addGroup("artel-operators", "writer_user");
         addGroup("bi-analysts", "analyst_user");
         server.startListening();
 
@@ -69,7 +69,7 @@ class LdapAuthServiceTest {
         Optional<UserSession> session = service().authenticate("writer_user", "password123");
 
         assertThat(session).isPresent();
-        assertThat(session.get().groups()).containsExactlyInAnyOrder("data-engineers", "yarn-operators");
+        assertThat(session.get().groups()).containsExactlyInAnyOrder("data-engineers", "artel-operators");
         assertThat(session.get().systemRole()).isEqualTo(Role.WRITER);
         assertThat(session.get().authMethod()).isEqualTo("ldap");
     }

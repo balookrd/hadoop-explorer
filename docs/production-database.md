@@ -1,12 +1,12 @@
 # Перевод YARN, HDFS, SQL и Spark Explorer на PostgreSQL и запуск нескольких экземпляров
 
-Документ описывает перевод сервисов Pristan (`yarn-explorer`, `hdfs-explorer`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
+Документ описывает перевод сервисов Pristan (`artel`, `hdfs-explorer`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
 Упакованные `application.yml` сервисов используют H2:
 
 | Сервис | `spring.datasource.url` по умолчанию | Что хранится в БД |
 |---|---|---|
-| YARN Explorer | `${YARN_DB_URL:jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
+| Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
 | HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
 | SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
 | Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
@@ -34,10 +34,10 @@ CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
 CREATE DATABASE hdfs_explorer OWNER hadoop_explorer;
 CREATE DATABASE sql_explorer OWNER hadoop_explorer;
 CREATE DATABASE spark_explorer OWNER hadoop_explorer;
-CREATE DATABASE yarn_explorer OWNER hadoop_explorer;
+CREATE DATABASE artel OWNER hadoop_explorer;
 ```
 
-Длинные тексты SQL, Spark и YARN Explorer (текст запросов, код, логи, JSON и XML заявок) хранятся в колонках `text`. Large Object (`oid`) эти сервисы не используют, поэтому не нужны `vacuumlo` и права на `pg_largeobject`.
+Длинные тексты SQL, Spark и Artel (текст запросов, код, логи, JSON и XML заявок) хранятся в колонках `text`. Large Object (`oid`) эти сервисы не используют, поэтому не нужны `vacuumlo` и права на `pg_largeobject`.
 
 Поддерживается развертывание на пустой базе: таблицы создают Hibernate (`spring.jpa.hibernate.ddl-auto: update`) и `DefaultSessionStore`. `ddl-auto: update` не меняет типы существующих колонок: таблица, созданная прежней версией с колонкой `oid`, останется с `oid`, а не перейдет на `text`.
 
@@ -55,16 +55,16 @@ CREATE DATABASE yarn_explorer OWNER hadoop_explorer;
 
 `<pg_host>` — адрес сервера PostgreSQL, `<database>` — база сервиса из раздела 1.
 
-Переменные `SPRING_DATASOURCE_*` действуют во всех четырех сервисах, включая YARN Explorer: переменные окружения переопределяют значения `spring.datasource.*` из упакованного `application.yml`. В YARN Explorer те же параметры можно задать через переменные, на которые ссылается его `application.yml`:
+Переменные `SPRING_DATASOURCE_*` действуют во всех четырех сервисах, включая Artel: переменные окружения переопределяют значения `spring.datasource.*` из упакованного `application.yml`. В Artel те же параметры можно задать через переменные, на которые ссылается его `application.yml`:
 
-| Переменная YARN Explorer | Свойство | Упакованное значение |
+| Переменная Artel | Свойство | Упакованное значение |
 |---|---|---|
-| `YARN_DB_URL` | `spring.datasource.url` | `jdbc:h2:file:./data/yarn_explorer;DB_CLOSE_DELAY=-1` |
-| `YARN_DB_USER` | `spring.datasource.username` | `sa` |
-| `YARN_DB_PASSWORD` | `spring.datasource.password` | пусто |
-| `YARN_DB_DRIVER` | `spring.datasource.driverClassName` | пусто (драйвер выбирается по URL) |
+| `ARTEL_DB_URL` | `spring.datasource.url` | `jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1` |
+| `ARTEL_DB_USER` | `spring.datasource.username` | `sa` |
+| `ARTEL_DB_PASSWORD` | `spring.datasource.password` | пусто |
+| `ARTEL_DB_DRIVER` | `spring.datasource.driverClassName` | пусто (драйвер выбирается по URL) |
 
-Если заданы и `SPRING_DATASOURCE_URL`, и `YARN_DB_URL`, действует `SPRING_DATASOURCE_URL`.
+Если заданы и `SPRING_DATASOURCE_URL`, и `ARTEL_DB_URL`, действует `SPRING_DATASOURCE_URL`.
 
 Пример запуска контейнера SQL Explorer:
 
@@ -123,7 +123,7 @@ hadoop:
 
 Записи о сессиях Spark (`spark_sessions`) хранятся в БД и видны всем экземплярам. Статус сессии из Livy обновляет фоновая синхронизация каждого экземпляра (один `GET /sessions` на кластер раз в `spark.session-sync-interval-ms`; при N экземплярах — N запросов за интервал, записи меняются условными `UPDATE`). Остановку, закрытие по `spark.session-ttl-minutes` (задача `cleanupIdleSessions` запускается на каждом экземпляре, но `DELETE` в Livy отправляет только тот, чей условный `UPDATE` `markKilledIfIdleBefore` перевел запись из `idle` в `killed`; остальные экземпляры получают 0 измененных строк и `DELETE` не отправляют; сам `DELETE` выполняется в пуле потоков `SparkSessionManager`, а не в потоке планировщика) и закрытие при выходе (обрабатывает экземпляр, принявший `POST /api/v1/auth/logout`) может выполнить любой экземпляр: Livy-идентификатор сессии берется из БД. Остановка и закрытие при выходе так же переводят запись условным `UPDATE` (`markKilledIfActive`), поэтому одну сессию в Livy удаляет один экземпляр. Если Livy уже забыл сессию (перезапуск без восстановления), `DELETE` получает 404 и считается успешным. Если в закрытой сессии выполнялся код на другом экземпляре, это выполнение завершается `FAILED`, запись сессии остается `killed`.
 
-В YARN Explorer пользовательского состояния в памяти нет: заявки хранятся в БД, в памяти только кэш клиентов YARN (`YarnClientFactory.clientCache`). HDFS Explorer, кроме загрузки по частям, тоже не хранит пользовательского состояния в памяти.
+В Artel пользовательского состояния в памяти нет: заявки хранятся в БД, в памяти только кэш клиентов YARN (`YarnClientFactory.clientCache`). HDFS Explorer, кроме загрузки по частям, тоже не хранит пользовательского состояния в памяти.
 
 Для SQL, Spark и HDFS Explorer выберите один из вариантов:
 
@@ -150,8 +150,8 @@ upstream sql_explorer {
 
 ## 4. Проверка перед запуском в production
 
-- [ ] `SPRING_DATASOURCE_URL` (для YARN Explorer — `SPRING_DATASOURCE_URL` или `YARN_DB_URL`) указывает на `jdbc:postgresql://...`.
-- [ ] Заданы `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD` (для YARN Explorer допустимы `YARN_DB_USER` и `YARN_DB_PASSWORD`).
+- [ ] `SPRING_DATASOURCE_URL` (для Artel — `SPRING_DATASOURCE_URL` или `ARTEL_DB_URL`) указывает на `jdbc:postgresql://...`.
+- [ ] Заданы `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD` (для Artel допустимы `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`).
 - [ ] При двух и более экземплярах задан `ZASTAVA_SESSIONSTORE_TYPE=jdbc` (раздел 3.1).
 - [ ] `JWT_SECRET_KEY` одинаковый на всех экземплярах сервиса (раздел 3.2).
 - [ ] Для SQL, Spark и HDFS Explorer с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Spark Explorer запущены в одном экземпляре (раздел 3.3).

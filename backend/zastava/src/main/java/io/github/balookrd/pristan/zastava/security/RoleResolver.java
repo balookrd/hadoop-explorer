@@ -26,7 +26,7 @@ public class RoleResolver {
         "engineers",
         "spark-users",
         "etl-developers",
-        "yarn-operators",
+        "artel-operators",
         "operators",
         "replicator-operators",
         "dev-leads"

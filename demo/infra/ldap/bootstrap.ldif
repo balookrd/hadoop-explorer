@@ -40,14 +40,14 @@ sn: Service
 displayName: SQL Explorer Service
 userPassword: password123
 
-dn: cn=svc_yarn_explorer,ou=services,dc=company,dc=local
+dn: cn=svc_artel,ou=services,dc=company,dc=local
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
 objectClass: inetOrgPerson
-cn: svc_yarn_explorer
+cn: svc_artel
 sn: Service
-displayName: YARN Explorer Service
+displayName: Artel Service
 userPassword: password123
 
 dn: cn=svc_hdfs_explorer,ou=services,dc=company,dc=local
@@ -204,10 +204,10 @@ member: uid=engineer,ou=users,dc=company,dc=local
 member: uid=de_user,ou=users,dc=company,dc=local
 member: uid=writer_user,ou=users,dc=company,dc=local
 
-dn: cn=yarn-operators,ou=groups,dc=company,dc=local
+dn: cn=artel-operators,ou=groups,dc=company,dc=local
 objectClass: top
 objectClass: groupOfNames
-cn: yarn-operators
+cn: artel-operators
 description: Операторы управления очередями YARN
 member: uid=admin,ou=users,dc=company,dc=local
 member: uid=engineer,ou=users,dc=company,dc=local

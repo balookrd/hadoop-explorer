@@ -14,7 +14,7 @@ scrape_configs:
     honor_labels: true
     static_configs:
       - targets:
-          - 'yarn-explorer:8000'
+          - 'artel:8000'
           - 'hdfs-explorer:8000'
           - 'sql-explorer:8003'
           - 'spark-explorer:8004'
