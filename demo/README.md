@@ -5,7 +5,7 @@
 - `demo/artel` — стенд Artel (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
 - `demo/sklad` — стенд Sklad (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
 - `demo/tolmach` — стенд Tolmach (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
-- `demo/spark` — стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
+- `demo/iskra` — стенд Iskra (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
 - `demo/replicator` — стенд Hadoop gRPC Replicator (:8005) с межкластерной репликацией HDFS и Hive Metastore (2 HMS, 2 HDFS, 2 агента, KDC).
 - `demo/monitoring` — Prometheus (:9090) и Grafana (:3000) с подключенным дашбордом.
 - `demo/all` — все 5 сервисов, KDC, LDAP, Prometheus и Grafana в одном Compose-проекте; общие контейнеры запускаются один раз.
@@ -24,7 +24,7 @@ make demo-all
 - Artel: [http://localhost:8001](http://localhost:8001)
 - Sklad: [http://localhost:8002](http://localhost:8002)
 - Tolmach: [http://localhost:8003](http://localhost:8003)
-- Spark Explorer: [http://localhost:8004](http://localhost:8004)
+- Iskra: [http://localhost:8004](http://localhost:8004)
 - Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
 - Grafana: [http://localhost:3000](http://localhost:3000) (анонимный вход с ролью admin)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
@@ -38,7 +38,7 @@ make demo-all-stop
 - Artel: `make demo-artel` (остановка: `make demo-artel-stop`)
 - Sklad: `make demo-sklad` (остановка: `make demo-sklad-stop`)
 - Tolmach: `make demo-tolmach` (остановка: `make demo-tolmach-stop`)
-- Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
+- Iskra: `make demo-iskra` (остановка: `make demo-iskra-stop`)
 - Replicator: `make demo-replicator` (остановка: `make demo-replicator-stop`)
 - Стек мониторинга: `make demo-monitoring` (остановка: `make demo-monitoring-stop`)
 
@@ -58,7 +58,7 @@ make demo-all-stop
 | `admin_user` | Александр Админов | `hadoop-admins`, `data-platform-admins`, `platform-admins`, `superusers`, `platform-team` | `ADMIN` |
 | `hdfs` | Hadoop Superuser | `hadoop-admins` | `ADMIN` |
 | `writer_user` | Владимир Инженеров | `data-engineers`, `artel-operators`, `dev-leads`, `etl-developers` | `WRITER` |
-| `de_user` | Иван Датаинженеров | `data-engineers`, `artel-operators`, `bi-analysts`, `spark-users` | `WRITER` |
+| `de_user` | Иван Датаинженеров | `data-engineers`, `artel-operators`, `bi-analysts`, `iskra-users` | `WRITER` |
 | `engineer` | Data Engineer | `data-engineers`, `artel-operators`, `bi-analysts`, `developers` | `WRITER` |
 | `analyst_user` | Анна Аналитикова | `bi-analysts`, `analytics` | `READER` |
 | `analyst` | BI Data Analyst | `bi-analysts`, `analytics` | `READER` |

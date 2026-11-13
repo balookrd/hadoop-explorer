@@ -47,7 +47,7 @@ cat <<EOF > /etc/krb5.conf
     sklad = ${REALM}
     tolmach = ${REALM}
     artel = ${REALM}
-    spark-explorer = ${REALM}
+    iskra = ${REALM}
     hdfs-cluster-1 = ${REALM}
     hdfs-cluster-2 = ${REALM}
     hive-server = ${REALM}

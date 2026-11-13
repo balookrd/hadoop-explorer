@@ -1,0 +1,106 @@
+# Frontend: Spark Web Explorer
+
+Веб-интерфейс Iskra для работы с Apache Spark (PySpark, Scala Spark, Spark SQL) через Apache Livy. Стек: Svelte 5 (Runes), TypeScript, Monaco Editor, Tailwind CSS 4.
+
+---
+
+## Технологический стек
+
+| Компонент | Что используется |
+|---|---|
+| Фреймворк | [Svelte 5](https://svelte.dev/), руны `$state`, `$derived`, `$props`, `$effect` |
+| Сборщик | [Vite](https://vitejs.dev/) / Rolldown с Hot Module Replacement (HMR) |
+| Редактор кода | [Monaco Editor](https://microsoft.github.io/monaco-editor/): подсветка Python, Scala и SQL с переключением по языку вкладки, запуск по `Ctrl+Enter` / `Cmd+Enter` |
+| Стили | [Tailwind CSS 4](https://tailwindcss.com/): общий стиль Pristan, собственные полосы прокрутки, янтарно-оранжевая палитра Spark |
+| Иконки | [Lucide Svelte](https://lucide.dev/) |
+| Связь с сервером | REST API с аутентификацией по cookie; рабочее пространство сохраняется на сервере через `/api/v1/workspace` |
+
+---
+
+## Структура компонентов (`src/`)
+
+```
+frontend/apps/iskra/src/
+├── api/
+│   └── client.ts             # Типизированный клиент API: сессии Livy, statements, метаданные, workspace, auth
+├── components/
+│   ├── SparkSessionWidget.svelte # Виджет сессии Livy в панели вкладок (статус, кластер, рестарт, кнопка Configure)
+│   ├── SessionBar.svelte     # Локальный тулбар активной вкладки: запуск Run, Cancel, выбор языка (PySpark/Scala/SQL), таймер, бейдж строк
+│   ├── SessionConfigModal.svelte # Модальное окно конфигурации сессии (версии Spark/Python, очереди YARN, JARs, PyFiles)
+│   ├── Sidebar.svelte        # Дерево каталога метаданных (Hive Metastore / Iceberg: DB -> Tables -> Columns)
+│   ├── SparkEditor.svelte    # Monaco Editor с поддержкой горячих клавиш (Ctrl+Enter), сниппетов и контекстной справки
+│   └── ResultsView.svelte    # Панель вывода результатов: таблица строк с пагинацией, лог сессии, блок ошибок
+│   (Header и LoginModal подключаются из @pristan/common)
+├── types.ts                  # TypeScript интерфейсы: SessionConfig, Statement, Tab, TabResultData, Catalog
+├── tests/                    # Набор компонентных UI-тестов (Vitest, @testing-library/svelte)
+│   ├── session_bar.test.ts   # Тестирование локального тулбара вкладки: смена языка, запуск/отмена, таймер
+│   ├── results_view.test.ts  # Тестирование панели вывода результатов: пагинация, ошибки, лог сессии
+│   └── session_config_modal.test.ts # Тестирование модального окна конфигурации сессий Livy
+├── app.css                   # Глобальные стили Tailwind 4, тема theme.css и шрифты Inter
+├── App.svelte                # Главный контейнер приложения, верхние табы скриптов со SparkSessionWidget, буферы языков и синхронизация с БД
+└── main.ts                   # Точка входа в SPA
+```
+
+---
+
+## Функции интерфейса
+
+### 1. Компоновка (общая с Tolmach)
+- `SparkSessionWidget` справа от вкладок скриптов показывает состояние Livy-сессии (как в Databricks и JupyterLab): статус `idle`/`busy`/`dead`, целевой кластер, кнопки перезапуска и остановки, вызов модального окна настроек.
+- Вкладки скриптов и ноутбуков расположены в верхней панели, как в IDE и Tolmach.
+- Тулбар вкладки (`SessionBar`) под вкладками: селектор языка активного скрипта (PySpark, Scala, SQL), кнопки Run и Cancel, таймер выполнения и зелёный бейдж количества строк.
+- Бейдж эффективных прав пользователя (`ADM`, `RW`, `RO`) на кнопке профиля.
+
+### 2. Три языка и изоляция результатов в одной вкладке
+- Каждая вкладка (`Tab`) переключается между тремя языками:
+  - PySpark (Python API)
+  - Scala Spark (JVM Shell)
+  - Spark SQL (ANSI SQL-запросы к каталогу)
+- Изолированные буферы:
+  - `codeBuffers`: отдельный текст скрипта для каждого языка.
+  - `resultBuffers`: отдельный снимок результатов (строки, столбцы, лог, ошибки, время выполнения) для каждого языка. При переключении языка результаты не смешиваются и восстанавливаются.
+
+### 3. Рабочее пространство пользователя (`User Workspace`)
+- Вкладки, открытый код, настройки сессий и последние результаты сохраняются на сервере в базе данных (`/api/v1/workspace`).
+- Каждый пользователь после входа получает своё рабочее пространство; вкладки и история других пользователей ему не загружаются.
+
+### 4. Настройка сессии Livy
+- Выбор целевой очереди YARN Capacity Scheduler с фильтрацией по правам доступа пользователя.
+- Выбор версий Apache Spark (2.4, 3.2, 3.5) и Python-окружений (Conda / Venv в HDFS).
+- Добавление сторонних зависимостей:
+  - Пути к JAR-файлам в HDFS.
+  - Координаты пакетов Maven (например, `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0`).
+  - Python-архивы (`.whl`, `.egg`, `.zip`).
+- Подключение каталогов Hive Metastore и Apache Iceberg.
+
+### 5. Навигатор метаданных (Catalog Sidebar)
+- Просмотр доступных баз данных и таблиц Hive Metastore.
+- Вставка сниппетов кода в редактор по клику на таблицу с автоматической адаптацией под выбранный язык:
+  - PySpark: `df = spark.table("db.table")`
+  - Scala: `val df = spark.table("db.table")`
+  - SQL: `SELECT * FROM db.table LIMIT 50;`
+
+---
+
+## Команды разработки
+
+```bash
+# Установка зависимостей (из корня frontend)
+npm install
+
+# Запуск dev-сервера с HMR
+cd apps/iskra && npm run dev
+# Откроется http://localhost:5174 (прокси на бэкенд :8004)
+
+# Продакшн-сборка
+npm run build
+
+# Проверка типов
+npm run check
+
+# Запуск UI и компонентных тестов
+npx vitest run apps/iskra/tests
+
+# Запуск тестов в режиме наблюдения (watch-режим)
+npx vitest apps/iskra/tests
+```

@@ -22,7 +22,7 @@ zastava:
       password: "password123"
       displayName: "Иван Датаинженеров"
       email: "de@company.local"
-      groups: ["data-engineers", "spark-users"]
+      groups: ["data-engineers", "iskra-users"]
     - username: "reader_user"
       password: "password123"
       displayName: "Екатерина Наблюдателева"

@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Records SQL query execution time for Prometheus (tolmach_query_duration_seconds).
- * Metric names match monitoring/grafana/dashboards/spark_sql_explorer_analytics.json.
+ * Metric names match monitoring/grafana/dashboards/iskra_tolmach_analytics.json.
  */
 @Component
 public class SqlQueryMetrics {

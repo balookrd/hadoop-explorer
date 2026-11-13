@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import HdfsApp from '../../apps/sklad/src/App.svelte';
-import SparkApp from '../../apps/spark/src/App.svelte';
+import SparkApp from '../../apps/iskra/src/App.svelte';
 import SqlApp from '../../apps/tolmach/src/App.svelte';
 import YarnApp from '../../apps/artel/src/App.svelte';
 
@@ -69,11 +69,11 @@ describe('All 4 SPA Applications Smoke Mounting Tests', () => {
     });
   });
 
-  it('mounts Spark Explorer App without runtime exceptions', async () => {
+  it('mounts Iskra App without runtime exceptions', async () => {
     const { container } = render(SparkApp);
     expect(container).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/Spark Explorer/i)).toBeInTheDocument();
+      expect(screen.getByText(/Iskra/i)).toBeInTheDocument();
     });
   });
 

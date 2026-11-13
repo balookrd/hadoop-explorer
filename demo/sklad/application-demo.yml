@@ -45,7 +45,7 @@ zastava:
     writer-groups:
       - "data-engineers"
       - "dev-leads"
-      - "spark-users"
+      - "iskra-users"
   jwt:
     secret-key: "hdfs-explorer-demo-stand-super-secret-key-2026"
     expiration-minutes: 480

@@ -399,7 +399,7 @@ curl -s http://localhost:8003/actuator/prometheus | grep '^tolmach_query_duratio
 
 После выполнения запроса в выводе есть строка вида `tolmach_query_duration_seconds_count{app="sql",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `tolmach.clusters`.
 
-Сбор метрик Prometheus и дашборд `spark_sql_explorer_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
+Сбор метрик Prometheus и дашборд `iskra_tolmach_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Типовые ошибки
 

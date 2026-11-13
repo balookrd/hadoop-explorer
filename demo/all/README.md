@@ -31,13 +31,13 @@
 | `artel` | Artel (UI и бэкенд) | `8000` | `8001` |
 | `sklad` | Sklad (UI и бэкенд) | `8000` | `8002` |
 | `tolmach` | Tolmach (UI и бэкенд) | `8003` | `8003` |
-| `spark-explorer` | Spark Explorer (UI и бэкенд) | `8004` | `8004` |
+| `iskra` | Iskra (UI и бэкенд) | `8004` | `8004` |
 
 ---
 
 ## Требования к памяти Docker
 
-На Docker Desktop с 11,67 ГБ памяти (6 CPU, arm64) стенд в простое занимает около 10,3 ГБ по `docker stats`, из них около 0,6 ГБ — NodeManager'ы `spark-yarn-nm-1` и `spark-yarn-nm-2`. Каждая сессия Spark профиля `small` добавляет JVM драйвера и executor'а в контейнере NodeManager (около 1,4 ГБ). При нехватке памяти OOM-killer ядра VM Docker убивает процессы контейнеров: `trino-coordinator` и `yarn-rm-1` перезапускаются (`RestartCount` в `docker inspect`), сессии Livy уходят в `dead`. Проверка: `docker run --rm --privileged alpine:3.20 dmesg | grep "Killed process"`. На 11,67 ГБ это происходило еще до запуска первой сессии Spark. Для `demo/all` выделите Docker не меньше 16 ГБ [проверить: минимальный объем, при котором стенд с сессией Spark работает без OOM]; для проверки одного сервиса используйте его стенд (`demo/spark`, `demo/tolmach` и т. д.).
+На Docker Desktop с 11,67 ГБ памяти (6 CPU, arm64) стенд в простое занимает около 10,3 ГБ по `docker stats`, из них около 0,6 ГБ — NodeManager'ы `spark-yarn-nm-1` и `spark-yarn-nm-2`. Каждая сессия Spark профиля `small` добавляет JVM драйвера и executor'а в контейнере NodeManager (около 1,4 ГБ). При нехватке памяти OOM-killer ядра VM Docker убивает процессы контейнеров: `trino-coordinator` и `yarn-rm-1` перезапускаются (`RestartCount` в `docker inspect`), сессии Livy уходят в `dead`. Проверка: `docker run --rm --privileged alpine:3.20 dmesg | grep "Killed process"`. На 11,67 ГБ это происходило еще до запуска первой сессии Spark. Для `demo/all` выделите Docker не меньше 16 ГБ [проверить: минимальный объем, при котором стенд с сессией Spark работает без OOM]; для проверки одного сервиса используйте его стенд (`demo/iskra`, `demo/tolmach` и т. д.).
 
 ## Запуск стенда
 
@@ -54,14 +54,14 @@ cd demo/all && ./start-all-demo.sh
 2. Поднимает инфраструктурные контейнеры (`kdc`, `ldap`).
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
-5. Инициализирует демо-таблицы в Hive Metastore: `demo/tolmach/hive/init-demo-data.sh` через HiveServer2 (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`), затем `demo/spark/init-demo-tables.sh` через Livy в YARN создает отсутствующие `customers`, `transactions` (кластер 1) и `quarterly_reports` (кластер 2).
+5. Инициализирует демо-таблицы в Hive Metastore: `demo/tolmach/hive/init-demo-data.sh` через HiveServer2 (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`), затем `demo/iskra/init-demo-tables.sh` через Livy в YARN создает отсутствующие `customers`, `transactions` (кластер 1) и `quarterly_reports` (кластер 2).
 6. Запускает 5 веб-сервисов Pristan, включая Replicator Orchestrator и агенты.
 
 ### Веб-интерфейсы
 - Artel: [http://localhost:8001](http://localhost:8001)
 - Sklad: [http://localhost:8002](http://localhost:8002)
 - Tolmach: [http://localhost:8003](http://localhost:8003)
-- Spark Explorer: [http://localhost:8004](http://localhost:8004)
+- Iskra: [http://localhost:8004](http://localhost:8004)
 - Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
 - Grafana: [http://localhost:3000](http://localhost:3000) (Дашборды YARN, HDFS, Replicator, Kafka, HMS DR)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
@@ -122,9 +122,9 @@ docker compose -f demo/all/docker-compose.all.yml down -v
   ```
 - Убедитесь, что вкладки и история запросов сохраняются в БД при обновлении страницы.
 
-### Spark Explorer (`:8004`)
+### Iskra (`:8004`)
 - Войдите как `engineer` (`password123`).
-- Создайте интерактивную сессию PySpark в очереди `root.prod.spark`. Сессия запускается в YARN cluster mode и переходит в `idle` через 30–90 секунд (подробности — `demo/spark/README.md`, раздел «Запуск сессий в YARN»).
+- Создайте интерактивную сессию PySpark в очереди `root.prod.spark`. Сессия запускается в YARN cluster mode и переходит в `idle` через 30–90 секунд (подробности — `demo/iskra/README.md`, раздел «Запуск сессий в YARN»).
 - Выполните код:
   ```python
   df = spark.table("customers")

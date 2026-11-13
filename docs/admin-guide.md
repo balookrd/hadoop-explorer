@@ -13,7 +13,7 @@
 | Artel | `8001` (или `8000`) | Управление очередями Capacity Scheduler, мониторинг YARN RM HA, Change Requests, доставка и применение через Ansible AWX | [docs/yarn-admin-guide.md](yarn-admin-guide.md) |
 | Sklad | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
 | Tolmach | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
-| Spark Explorer | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
+| Iskra | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
 | Hadoop gRPC Replicator | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
 
 ---
@@ -62,7 +62,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
   ```
 
 ### 3. База данных и хранилище сессий: H2 или PostgreSQL
-- По умолчанию сервисы используют H2: Artel — файл `./data/artel`, HDFS, SQL и Spark Explorer — in-memory H2, данные которой теряются при перезапуске (таблица по сервисам — в [ARCHITECTURE.md, раздел 8](ARCHITECTURE.md#8-хранение-данных-storage-layer)). Сессии и отозванные токены по умолчанию хранятся в памяти процесса (`zastava.session-store.type: memory`). Такая конфигурация подходит для одного экземпляра сервиса.
+- По умолчанию сервисы используют H2: Artel — файл `./data/artel`, HDFS, SQL и Iskra — in-memory H2, данные которой теряются при перезапуске (таблица по сервисам — в [ARCHITECTURE.md, раздел 8](ARCHITECTURE.md#8-хранение-данных-storage-layer)). Сессии и отозванные токены по умолчанию хранятся в памяти процесса (`zastava.session-store.type: memory`). Такая конфигурация подходит для одного экземпляра сервиса.
 - При двух и более экземплярах сервиса подключите PostgreSQL и перенесите туда хранилище сессий:
   ```bash
   SPRING_DATASOURCE_URL=jdbc:postgresql://<pg_host>:5432/<database>
@@ -81,7 +81,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 | Artel | `8000` | `8001` | `https://yarn.company.local` |
 | Sklad | `8000` | `8002` | `https://hdfs.company.local` |
 | Tolmach | `8003` | `8003` | `https://sql.company.local` |
-| Spark Explorer | `8004` | `8004` | `https://spark.company.local` |
+| Iskra | `8004` | `8004` | `https://spark.company.local` |
 | Replicator Orchestrator | `8005` | `8005` | `https://replicator.company.local` |
 | Replicator Agent (gRPC) | `50051` | `50051` | `grpc://replicator-dc2.company.local:50051` |
 
@@ -89,7 +89,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 
 ## Мониторинг Prometheus и дашборды Grafana
 
-YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuator/prometheus` без аутентификации; оркестратор Replicator — на `GET /metrics` (требует аутентификации) и `GET /actuator/prometheus` (только Micrometer). Состав метрик и доступ описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
+YARN, HDFS, SQL и Iskra отдают метрики на `GET /actuator/prometheus` без аутентификации; оркестратор Replicator — на `GET /metrics` (требует аутентификации) и `GET /actuator/prometheus` (только Micrometer). Состав метрик и доступ описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### Конфигурация сбора метрик в Prometheus
 ```yaml
@@ -106,11 +106,11 @@ scrape_configs:
 
 ### Дашборды Grafana
 Дашборды лежат в каталоге `monitoring/grafana/dashboards/`:
-- Platform Overview: [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
+- Platform Overview: [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — HTTP golden signals YARN, HDFS, SQL и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
 - gRPC Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
 - HDFS Operations: [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
 - Artel: [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request, задержка API.
-- Spark & SQL Analytics: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, длительность инструкций, темп и длительность SQL-запросов.
+- Spark & SQL Analytics: [`iskra_tolmach_analytics.json`](../monitoring/grafana/dashboards/iskra_tolmach_analytics.json) — активные сессии Spark, длительность инструкций, темп и длительность SQL-запросов.
 
 ---
 

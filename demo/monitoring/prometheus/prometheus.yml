@@ -17,7 +17,7 @@ scrape_configs:
           - 'artel:8000'
           - 'sklad:8000'
           - 'tolmach:8003'
-          - 'spark-explorer:8004'
+          - 'iskra:8004'
         labels:
           env: 'demo'
 

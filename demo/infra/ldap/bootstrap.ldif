@@ -270,7 +270,7 @@ dn: cn=developers,ou=groups,dc=company,dc=local
 objectClass: top
 objectClass: groupOfNames
 cn: developers
-description: Разработчики (запись в Spark Explorer)
+description: Разработчики (запись в Iskra)
 member: uid=engineer,ou=users,dc=company,dc=local
 
 dn: cn=etl-developers,ou=groups,dc=company,dc=local
@@ -280,10 +280,10 @@ cn: etl-developers
 description: Разработчики ETL (задачи репликации)
 member: uid=writer_user,ou=users,dc=company,dc=local
 
-dn: cn=spark-users,ou=groups,dc=company,dc=local
+dn: cn=iskra-users,ou=groups,dc=company,dc=local
 objectClass: top
 objectClass: groupOfNames
-cn: spark-users
+cn: iskra-users
 description: Пользователи Spark (сессии Livy)
 member: uid=de_user,ou=users,dc=company,dc=local
 

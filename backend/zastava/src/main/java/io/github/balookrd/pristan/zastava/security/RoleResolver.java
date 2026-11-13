@@ -24,7 +24,7 @@ public class RoleResolver {
     public static final Set<String> DEFAULT_WRITER_GROUPS = Set.of(
         "data-engineers",
         "engineers",
-        "spark-users",
+        "iskra-users",
         "etl-developers",
         "artel-operators",
         "operators",

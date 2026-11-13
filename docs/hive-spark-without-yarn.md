@@ -48,7 +48,7 @@
 ### 2.2 Интеграция с Apache Livy
 
 Apache Livy предоставляет REST API для интерактивного создания сессий и отправки пакетных заданий (PySpark, Spark SQL, Scala Spark):
-1. Веб-клиент (*Spark Explorer*) отправляет POST-запрос на создание сессии в Livy.
+1. Веб-клиент (*Iskra*) отправляет POST-запрос на создание сессии в Livy.
 2. Livy стартует локальный процесс `spark-submit` в режиме `deploy-mode = client` с параметром `master = local[*]`.
 3. Сессия сразу переходит в статус `idle` и готова принимать код на исполнение, не ожидая аллокации ресурсов от YARN.
 4. Ограничение ресурсов регулируется напрямую параметрами JVM: `spark.driver.memory` и `spark.executor.memory`.
@@ -81,7 +81,7 @@ HiveServer2 принимает SQL-запросы по протоколу JDBC/O
 
 На стендах задачи MapReduce/Tez заменяют запросами к MPP-движку Trino или к Spark SQL:
 - Trino Coordinator получает из Hive Metastore только схему и метаданные каталога, затем параллельно читает Parquet/ORC-файлы из HDFS и обрабатывает их в памяти своих worker-узлов.
-- Spark Explorer использует `spark.hadoop.hive.metastore.uris` и обращается к метастору напрямую через `HiveContext` / `SparkSession.builder().enableHiveSupport()`.
+- Iskra использует `spark.hadoop.hive.metastore.uris` и обращается к метастору напрямую через `HiveContext` / `SparkSession.builder().enableHiveSupport()`.
 
 ---
 
@@ -91,7 +91,7 @@ HiveServer2 принимает SQL-запросы по протоколу JDBC/O
 flowchart TD
     subgraph Clients["Клиенты и Web UI"]
         UI_SQL["Tolmach\n(:8003)"]
-        UI_SPARK["Spark Explorer\n(:8004)"]
+        UI_SPARK["Iskra\n(:8004)"]
         Beeline["Beeline / JDBC Client"]
     end
 
@@ -141,7 +141,7 @@ livy.repl.enable-hive-context = true
 livy.impersonation.enabled = true
 ```
 
-С `livy.impersonation.enabled = true` сессия работает от имени `proxyUser`. В режиме `local[*]` при Hive Metastore с Kerberos такая сессия не подключается к метастору: `SHOW DATABASES` и `spark.read.table(...)` завершаются ошибкой `Unable to instantiate org.apache.hadoop.hive.ql.metadata.SessionHiveMetaStoreClient`, в логе сессии (`curl -s 'http://<livy_host>:8998/sessions/<id>/log?size=3000'`) — `TTransportException: GSS initiate failed`. Spark получает делегационные токены HDFS и Hive Metastore для `proxyUser` только при отправке приложения в YARN, а в `local[*]` у пользователя нет ни токена, ни своего билета Kerberos. HDFS при этом работает: Hadoop RPC входит от principal Livy и действует от имени пользователя (`de_user (auth:PROXY) via hive/hive-server@COMPANY.LOCAL`). Поэтому демо-стенд `demo/spark` запускает сессии в YARN cluster mode, конфигурация описана в `demo/spark/README.md`, раздел «Запуск сессий в YARN».
+С `livy.impersonation.enabled = true` сессия работает от имени `proxyUser`. В режиме `local[*]` при Hive Metastore с Kerberos такая сессия не подключается к метастору: `SHOW DATABASES` и `spark.read.table(...)` завершаются ошибкой `Unable to instantiate org.apache.hadoop.hive.ql.metadata.SessionHiveMetaStoreClient`, в логе сессии (`curl -s 'http://<livy_host>:8998/sessions/<id>/log?size=3000'`) — `TTransportException: GSS initiate failed`. Spark получает делегационные токены HDFS и Hive Metastore для `proxyUser` только при отправке приложения в YARN, а в `local[*]` у пользователя нет ни токена, ни своего билета Kerberos. HDFS при этом работает: Hadoop RPC входит от principal Livy и действует от имени пользователя (`de_user (auth:PROXY) via hive/hive-server@COMPANY.LOCAL`). Поэтому демо-стенд `demo/iskra` запускает сессии в YARN cluster mode, конфигурация описана в `demo/iskra/README.md`, раздел «Запуск сессий в YARN».
 
 **Внимание.** В этом режиме `livy.impersonation.enabled = true` не изолирует пользователей. При `livy.spark.master = local[*]` и `livy.spark.deploy-mode = client` драйвер и код каждого пользователя выполняются на хосте Livy под ОС-учеткой `livy`, а `proxyUser` меняет только имя, от которого идут обращения к HDFS и Hive. Код пользователя может прочитать keytab Livy; эта учетка входит в `livy.superusers` и `hadoop.proxyuser.livy.*`, поэтому с ее keytab можно имперсонировать любого пользователя. Признак режима — `"appId": null` у сессий в ответе `curl -s http://<livy_host>:8998/sessions`. Конфигурация из этого раздела подходит для однопользовательского стенда или стенда, где все пользователи доверенные; для разграничения прав нужен Livy с `livy.spark.master = yarn` и `livy.spark.deploy-mode = cluster`.
 

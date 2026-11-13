@@ -5,7 +5,7 @@
 - Artel (`backend/artel` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - Sklad (`backend/sklad` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - Tolmach (`backend/tolmach` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
-- Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
+- Iskra (`backend/iskra` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
 - Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 
 ---
@@ -29,7 +29,7 @@
    - [Аналитические кластеры](#51-аналитические-кластеры)
    - [Параметры выполнения запросов и сохранение воркспейса](#52-параметры-выполнения-запросов-и-сохранение-воркспейса)
    - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#53-ии-ассистент-on-premise-llm--ollama--vllm)
-6. [Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)](#6-настройка-spark-explorer-livy-pyspark-scala-metastore)
+6. [Настройка Iskra (Livy, PySpark, Scala, Metastore)](#6-настройка-iskra-livy-pyspark-scala-metastore)
    - [Кластеры и интеграция с Apache Livy](#61-кластеры-и-интеграция-с-apache-livy)
    - [Версии Spark и среды Python (HDFS Archives)](#62-версии-spark-и-среды-python-hdfs-archives)
    - [Интеграция с YARN и разграничение очередей](#63-интеграция-с-yarn-и-разграничение-очередей)
@@ -193,7 +193,7 @@ hadoop:
 
 Имена пользователей и групп сравниваются без учета регистра. Группы из конфигурации добавляются к встроенным спискам, а не заменяют их:
 - встроенные группы администраторов: `hadoop-admins`, `admins`, `data-platform-admins`, `platform-admins`, `superusers`;
-- встроенные группы writer: `data-engineers`, `engineers`, `spark-users`, `etl-developers`, `artel-operators`, `operators`, `replicator-operators`, `dev-leads`.
+- встроенные группы writer: `data-engineers`, `engineers`, `iskra-users`, `etl-developers`, `artel-operators`, `operators`, `replicator-operators`, `dev-leads`.
 
 Роли:
 - Пользователи из `admin-users` или из любой группы администраторов получают роль `ADMIN` (бейдж в UI — `ADM`).
@@ -589,13 +589,13 @@ sql:
 
 ---
 
-## 6. Настройка Spark Explorer (Livy, PySpark, Scala, Metastore)
+## 6. Настройка Iskra (Livy, PySpark, Scala, Metastore)
 
-Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "spark")`). Базовые значения — в `backend/spark/src/main/resources/application.yml`.
+Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "spark")`). Базовые значения — в `backend/iskra/src/main/resources/application.yml`.
 
-**Внимание.** При `mock-storage: true` (или `type`, отличном от `livy`) сессии и код обслуживает встроенный `MockSparkEngine`. При `mock-storage: false` Spark Explorer создает интерактивные сессии Apache Livy с `proxyUser` — Livy должен работать с `livy.impersonation.enabled = true`, а его principal должен быть разрешен как `hadoop.proxyuser.<livy>.*` в `core-site.xml` кластера. Значение `mock-storage` по умолчанию — `false`: кластер без этого ключа идет в Livy.
+**Внимание.** При `mock-storage: true` (или `type`, отличном от `livy`) сессии и код обслуживает встроенный `MockSparkEngine`. При `mock-storage: false` Iskra создает интерактивные сессии Apache Livy с `proxyUser` — Livy должен работать с `livy.impersonation.enabled = true`, а его principal должен быть разрешен как `hadoop.proxyuser.<livy>.*` в `core-site.xml` кластера. Значение `mock-storage` по умолчанию — `false`: кластер без этого ключа идет в Livy.
 
-**Внимание.** При `livy.impersonation.enabled = false` Livy не отклоняет запрос с `proxyUser`, а молча его игнорирует: сессия, ее приложение YARN и доступ к HDFS и Hive работают от учетки Livy, права вошедшего пользователя не проверяются. Как увидеть: в ответе Livy `GET /sessions/<livy_session_id>` поле `proxyUser` равно `null`, в ResourceManager владелец приложения (`User`) — учетка Livy, а не пользователь платформы. На демо-стенде `demo/spark` имперсонация включена; ограничения стенда описаны в `demo/spark/README.md`. Откат: остановить сессии, включить `livy.impersonation.enabled = true` в `livy.conf` и перезапустить Livy.
+**Внимание.** При `livy.impersonation.enabled = false` Livy не отклоняет запрос с `proxyUser`, а молча его игнорирует: сессия, ее приложение YARN и доступ к HDFS и Hive работают от учетки Livy, права вошедшего пользователя не проверяются. Как увидеть: в ответе Livy `GET /sessions/<livy_session_id>` поле `proxyUser` равно `null`, в ResourceManager владелец приложения (`User`) — учетка Livy, а не пользователь платформы. На демо-стенде `demo/iskra` имперсонация включена; ограничения стенда описаны в `demo/iskra/README.md`. Откат: остановить сессии, включить `livy.impersonation.enabled = true` в `livy.conf` и перезапустить Livy.
 
 **Внимание.** `proxyUser` изолирует пользователей друг от друга только при `livy.spark.master = yarn` и `livy.spark.deploy-mode = cluster` в `livy.conf`: тогда драйвер каждой сессии запускается в контейнере YARN от имени пользователя. ОС-учетка процессов контейнера совпадает с пользователем только при `yarn.nodemanager.container-executor.class = org.apache.hadoop.yarn.server.nodemanager.LinuxContainerExecutor` на NodeManager; с `DefaultContainerExecutor` контейнеры всех пользователей работают под ОС-учеткой NodeManager (`yarn`) и читают ее keytab. Проверка: `import subprocess; print(subprocess.check_output(["id"]).decode())` в сессии выводит `uid=...(<пользователь>)`; `getpass.getuser()` для проверки не подходит, он берет `$USER`, который YARN выставляет по владельцу приложения. При `livy.spark.master = local[*]` или `livy.spark.deploy-mode = client` драйвер и код пользователя выполняются на хосте Livy под ОС-учеткой `livy`. Код любого пользователя может прочитать keytab Livy, а эта учетка входит в `livy.superusers` и `hadoop.proxyuser.livy.*`, то есть с ее keytab можно имперсонировать любого пользователя в HDFS, Hive и YARN. Как увидеть такой режим: в ответе `curl -s http://<livy_host>:8998/sessions` у сессий `"appId": null` после перехода в `idle`. Для многопользовательского стенда переведите Livy на `yarn` + `cluster`; `spark.master` и `spark.submit.deployMode` в `spark_conf` пользователь переопределить не может (см. таблицу всегда запрещенных префиксов ниже).
 
@@ -631,8 +631,8 @@ spark:
 | `livy.session-start-timeout-seconds` | `300` | Сколько statement ждет перехода сессии из `starting` в `idle` | YARN долго выделяет контейнер драйвера |
 | `livy.statement-timeout-seconds` | `3600` | По истечении сервис отменяет statement (`POST .../cancel`) и отмечает выполнение `FAILED` | Длинные задания |
 | `livy.poll-interval-ms` | `500` | Период опроса состояния сессии и statement | — |
-| `spark.denied-spark-conf-prefixes` | `spark.master`, `spark.submit.deployMode`, `spark.yarn.queue`, `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.`, `spark.jars.packages` | Префиксы ключей `spark_conf`, которые пользователь не может задать (сравнение без учета регистра); запрос сессии с ними получает HTTP 400 | Расширить список под политику кластера; убрать `spark.jars.packages`, если пользователям разрешено подключать пакеты через `spark_conf` (последствия — как у поля `packages`, см. ниже) |
-| `spark.allowed-remote-schemes` | `hdfs`, `viewfs`, `s3a`, `abfs`, `abfss` | Схемы, допустимые в путях `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и в полях запроса `jars`, `py_files`, `custom_python_archive` (сравнение без учета регистра) | Добавить `http`/`https` только с учетом предупреждения ниже |
+| `iskra.denied-spark-conf-prefixes` | `spark.master`, `spark.submit.deployMode`, `spark.yarn.queue`, `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.`, `spark.jars.packages` | Префиксы ключей `spark_conf`, которые пользователь не может задать (сравнение без учета регистра); запрос сессии с ними получает HTTP 400 | Расширить список под политику кластера; убрать `spark.jars.packages`, если пользователям разрешено подключать пакеты через `spark_conf` (последствия — как у поля `packages`, см. ниже) |
+| `iskra.allowed-remote-schemes` | `hdfs`, `viewfs`, `s3a`, `abfs`, `abfss` | Схемы, допустимые в путях `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и в полях запроса `jars`, `py_files`, `custom_python_archive` (сравнение без учета регистра) | Добавить `http`/`https` только с учетом предупреждения ниже |
 
 При `livy.auth: spnego` сервис входит в KDC по keytab при первом запросе к Livy и использует полученный TGT до следующего входа (см. `livy.relogin-interval-minutes`). Пока один запрос выполняет повторный вход, остальные продолжают работать с прежним TGT, если его срок не истек. Если повторный вход не удался (KDC недоступен, keytab не читается), а прежний TGT еще действует, сервис пишет в лог `WARN Повторный Kerberos-вход <principal> не выполнен, используется прежний TGT ...` и повторяет попытку через 1 минуту (или раньше, если TGT истекает раньше). Ошибку (HTTP 502) запрос получает, только если действующего TGT нет: первый вход или TGT уже истек. Для каждого запроса к Livy строится новый SPNEGO-токен из билета `HTTP/<хост из livy-url>`; сам билет JDK получает у KDC один раз и хранит до следующего входа. Хост берется из `livy-url` в нижнем регистре; JDK 21 заменяет его по DNS только на более длинную форму того же имени (`livy01` → `livy01.company.local`), алиас (CNAME) в имя целевого хоста не превращается. Если в `livy-url` алиас, а principal Livy выписан на имя хоста, KDC не найдет principal. IP-адрес (IPv4 или IPv6) в `livy-url` при `livy.auth: spnego` не принимается при старте. Служебный principal должен входить в `livy.superusers` Livy: иначе Livy отклонит `proxyUser`, отличный от аутентифицированного пользователя [проверить на стенде: текст ответа Livy].
 
@@ -643,20 +643,20 @@ spark:
 | `livy.` | Livy копирует `conf` сессии в настройки своего launcher: `livy.rsc.proxy-user` превратился бы в `--proxy-user` для `spark-submit` |
 | `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.` | Учетные данные учетки Livy |
 | `spark.master`, `spark.submit.deployMode` | Режим `local` или `client` запускает код пользователя на хосте Livy от учетки Livy |
-| `spark.yarn.queue` | Очередь задает сервис из поля `queue` после проверки по `yarn-queues`; ключ в `spark_conf` обошел бы эту проверку, даже если администратор убрал его из `spark.denied-spark-conf-prefixes` |
+| `spark.yarn.queue` | Очередь задает сервис из поля `queue` после проверки по `yarn-queues`; ключ в `spark_conf` обошел бы эту проверку, даже если администратор убрал его из `iskra.denied-spark-conf-prefixes` |
 | `spark.yarn.dist.`, `spark.yarn.jars`, `spark.yarn.archive` | `spark-submit` работает на хосте Livy от учетки Livy и загружает эти локальные файлы в контейнер пользователя: `"spark.yarn.dist.files": "file:///etc/security/keytabs/livy.service.keytab"` отдал бы keytab Livy |
 | `spark.jars.ivy`, `spark.jars.ivySettings`, `spark.jars.repositories` | Ivy работает на хосте Livy от учетки Livy: ключи задали бы локальный файл настроек, каталог кэша или произвольный репозиторий |
 
-Ключи `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и поля запроса `jars`, `py_files`, `custom_python_archive` принимаются только с путями в схемах из `spark.allowed-remote-schemes`; путь `file:`, `local:`, без схемы или со схемой не из списка получает HTTP 400 (локальный путь указывает на хост Livy). Список разделяется только запятыми: значение через пробел — один некорректный путь, тоже HTTP 400.
+Ключи `spark.files`, `spark.jars`, `spark.submit.pyFiles`, `spark.archives` и поля запроса `jars`, `py_files`, `custom_python_archive` принимаются только с путями в схемах из `iskra.allowed-remote-schemes`; путь `file:`, `local:`, без схемы или со схемой не из списка получает HTTP 400 (локальный путь указывает на хост Livy). Список разделяется только запятыми: значение через пробел — один некорректный путь, тоже HTTP 400.
 
-**Внимание.** `http` и `https` в `spark.allowed-remote-schemes` по умолчанию не входят. Если их добавить, файл по URL читает `spark-submit` на хосте Livy, а не контейнер YARN: при схеме из `spark.yarn.dist.forceDownloadSchemes` или без класса `FileSystem` для этой схемы в Hadoop файл скачивается при отправке (`SparkSubmit`), а иначе YARN-клиент Spark копирует файл с файловой системы, отличной от staging-каталога, в staging через `HttpFileSystem` Hadoop. В обоих случаях запрос уходит с хоста Livy. Тогда пользователь может отправлять с хоста Livy запросы во внутреннюю сеть (SSRF), доступную этому хосту. Как заметить: обращения от адреса хоста Livy в журналах внутренних HTTP-сервисов. Откат: убрать `http`/`https` из списка и перезапустить сервис.
+**Внимание.** `http` и `https` в `iskra.allowed-remote-schemes` по умолчанию не входят. Если их добавить, файл по URL читает `spark-submit` на хосте Livy, а не контейнер YARN: при схеме из `spark.yarn.dist.forceDownloadSchemes` или без класса `FileSystem` для этой схемы в Hadoop файл скачивается при отправке (`SparkSubmit`), а иначе YARN-клиент Spark копирует файл с файловой системы, отличной от staging-каталога, в staging через `HttpFileSystem` Hadoop. В обоих случаях запрос уходит с хоста Livy. Тогда пользователь может отправлять с хоста Livy запросы во внутреннюю сеть (SSRF), доступную этому хосту. Как заметить: обращения от адреса хоста Livy в журналах внутренних HTTP-сервисов. Откат: убрать `http`/`https` из списка и перезапустить сервис.
 
 Поле запроса `packages` (Maven-координаты) передается в `spark.jars.packages`. Пакеты разрешает Ivy внутри `spark-submit` на хосте Livy от учетки Livy, из репозиториев, настроенных на этом хосте: загрузка идет через сеть хоста Livy, кэш (`~/.ivy2` учетки Livy) занимает его диск, а при подмене зеркала репозитория в сессию попадет подмененный jar. Ключ с пробелами или управляющими символами и пустой ключ тоже получают HTTP 400. `spark-conf` версий, окружений и метастора задает администратор, эти значения не проверяются; перекрыть их пользователь может только ключами, не попадающими под запреты. `proxyUser` берется только из имени вошедшего пользователя.
 
 Настройки Livy каждого кластера с `mock-storage: false` и `type: livy` проверяются при старте. Сервис не стартует (`IllegalStateException` в логе), если `livy-url` не задан, не является URL `http(s)://<livy_host>:<port>` или содержит учетные данные (`user:password@`), если `livy.auth` имеет неизвестное значение или таймаут не больше нуля, а при `livy.auth: spnego` — если не задан `livy.principal` или `livy.keytab`, `livy.keytab` не является абсолютным путем, `livy.relogin-interval-minutes` не больше нуля или хост в `livy-url` задан IP-адресом. Сам keytab при старте не читается: ошибка чтения проявится на первом запросе к Livy (HTTP 502). Пример сообщения:
 
 ```text
-spark.clusters[prod-hadoop].livy-url не задан: кластер с mock-storage: false работает через Apache Livy. Укажите URL Livy (http://<livy_host>:8998) или mock-storage: true
+iskra.clusters[prod-hadoop].livy-url не задан: кластер с mock-storage: false работает через Apache Livy. Укажите URL Livy (http://<livy_host>:8998) или mock-storage: true
 ```
 
 `spark-versions[].spark-conf`, `spark-versions[].python-versions[].spark-conf` и `metastores[].spark-conf` задают параметры Spark, которые добавляются в `conf` сессии при выборе соответствующего элемента. Ключи с точками в YAML пишутся в квадратных скобках, иначе Spring Boot разберет их как вложенные:
@@ -750,7 +750,7 @@ spark:
 
 ### 6.5 Персистентность рабочих пространств пользователя
 
-Spark Explorer сохраняет в базу данных состояние сессий, активные вкладки, буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов (`SparkUserWorkspace`, `/api/v1/workspace`):
+Iskra сохраняет в базу данных состояние сессий, активные вкладки, буферы кода (`pyspark`, `scalaspark`, `sql`) и буферы результатов (`SparkUserWorkspace`, `/api/v1/workspace`):
 - У каждого языка (PySpark, Scala, SQL) свой буфер результатов: переключение языка не затирает результаты другого.
 - При входе другого пользователя загружается его рабочее пространство.
 
@@ -1176,15 +1176,15 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Artel | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `artel_change_requests_total` |
 | Sklad | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
 | Tolmach | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `tolmach_query_duration_seconds` |
-| Spark Explorer | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
+| Iskra | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
 | Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
 | Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `replicator_*`, `kafka_*` |
 
 `<scrape_token>` — значение `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
 
-Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Spark Explorer возвращает 404.
+Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Iskra возвращает 404.
 
-Доступ к Actuator в YARN, HDFS, SQL и Spark Explorer задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
+Доступ к Actuator в YARN, HDFS, SQL и Iskra задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
 
 Внимание: `/actuator/prometheus` отдается без аутентификации. Метрики не содержат имен пользователей, путей HDFS и текстов запросов, но раскрывают идентификаторы кластеров, шаблоны URI API и объем трафика. Если сервис опубликован наружу через обратный прокси или балансировщик, закройте на нем этот путь или разрешите его только адресу Prometheus. Пример для nginx:
 
@@ -1209,7 +1209,7 @@ location = /actuator/prometheus {
 
 ### 9.2 Экспортируемые метрики
 
-YARN, HDFS, SQL и Spark Explorer:
+YARN, HDFS, SQL и Iskra:
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
@@ -1220,8 +1220,8 @@ YARN, HDFS, SQL и Spark Explorer:
 | `sklad_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
 | `artel_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
 | `tolmach_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
-| `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
-| `spark_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
+| `iskra_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
+| `iskra_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
 
 Плюс стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.). Подробности по каждому сервису — в разделе 4.1 руководств администратора: [YARN](yarn-admin-guide.md), [HDFS](hdfs-admin-guide.md), [SQL](sql-admin-guide.md), [Spark](spark-admin-guide.md).
 
@@ -1263,7 +1263,7 @@ scrape_configs:
           - 'artel:8000'
           - 'sklad:8000'
           - 'tolmach:8003'
-          - 'spark-explorer:8004'
+          - 'iskra:8004'
 ```
 
 Готовые конфигурации: [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml) и [`demo/monitoring/prometheus/prometheus.yml`](../demo/monitoring/prometheus/prometheus.yml), правила алертов — в `alert.rules.yml` рядом.
@@ -1301,7 +1301,7 @@ spec:
 1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
 2. [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
 3. [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request по статусам, p95 API Artel по URI.
-4. [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
+4. [`iskra_tolmach_analytics.json`](../monitoring/grafana/dashboards/iskra_tolmach_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
 5. Дашборды Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json), [`hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json), [`hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json), [`hadoop_replicator_kafka.json`](../monitoring/grafana/dashboards/hadoop_replicator_kafka.json).
 
 #### Импорт дашбордов в Grafana
@@ -1337,7 +1337,7 @@ spec:
   ```
 - Активные сессии Spark по кластерам:
   ```promql
-  max by (cluster) (sum by (instance, cluster) (spark_sessions_active))
+  max by (cluster) (sum by (instance, cluster) (iskra_sessions_active))
   ```
 - Доля ошибок операций HDFS по кластерам:
   ```promql
@@ -1354,6 +1354,6 @@ spec:
 - [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
-- [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
+- [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
 - [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
 

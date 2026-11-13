@@ -45,7 +45,7 @@ export default defineConfig({
       timeout: 120000,
     },
     {
-      command: 'npm run dev:spark -- --port 5176 --host',
+      command: 'npm run dev:iskra -- --port 5176 --host',
       port: 5176,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

@@ -2,7 +2,7 @@ package io.github.balookrd.pristan.zastava.auth;
 
 /**
  * Published after POST /api/v1/auth/logout for the user whose token was revoked.
- * Services release per-user resources on it (Spark Explorer closes Livy sessions).
+ * Services release per-user resources on it (Iskra closes Livy sessions).
  *
  * <p>The event is published through the local {@code ApplicationEventPublisher} only, so with
  * {@code session-store.type: jdbc} and several service instances it reaches listeners of the

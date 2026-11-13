@@ -1,6 +1,6 @@
-# Перевод YARN, HDFS, SQL и Spark Explorer на PostgreSQL и запуск нескольких экземпляров
+# Перевод YARN, HDFS, SQL и Iskra на PostgreSQL и запуск нескольких экземпляров
 
-Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `tolmach`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
+Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `tolmach`, `iskra`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
 Упакованные `application.yml` сервисов используют H2:
 
@@ -9,7 +9,7 @@
 | Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
 | Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
 | Tolmach | `jdbc:h2:mem:tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
-| Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
+| Iskra | `jdbc:h2:mem:iskra;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
 
 В Sklad в сборку входит драйвер SQLite (`org.xerial:sqlite-jdbc` в `backend/sklad/pom.xml`), но упакованная конфигурация его не использует.
 
@@ -33,7 +33,7 @@ CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
 
 CREATE DATABASE sklad OWNER hadoop_explorer;
 CREATE DATABASE tolmach OWNER hadoop_explorer;
-CREATE DATABASE spark_explorer OWNER hadoop_explorer;
+CREATE DATABASE iskra OWNER hadoop_explorer;
 CREATE DATABASE artel OWNER hadoop_explorer;
 ```
 
@@ -108,29 +108,29 @@ hadoop:
 
 ### 3.3 Привязка клиента к экземпляру
 
-Часть состояния SQL и Spark Explorer хранится в памяти экземпляра, который выполняет запрос, и в PostgreSQL не попадает:
+Часть состояния SQL и Iskra хранится в памяти экземпляра, который выполняет запрос, и в PostgreSQL не попадает:
 
 | Сервис | Состояние в памяти | Что видит пользователь, если запрос попал на другой экземпляр |
 |---|---|---|
 | Tolmach | Строки результата (`resultCache` в `QueryManagerService`) | `GET /api/v1/queries/{queryId}/result` возвращает колонки и `total` из БД, но пустой список строк: результат выглядит пустым при `total > 0` |
 | Tolmach | Признаки отмены выполняющихся запросов (`activeQueries`) | `POST /api/v1/queries/{queryId}/cancel` ставит в БД статус `CANCELLED`, но запрос продолжает выполняться на исходном экземпляре; по завершении тот перезаписывает статус на `FINISHED` |
 | Tolmach | События запросов (`QueryEventHub`) и подписки на уведомления (`userEmitters`) | `GET /api/v1/queries/{queryId}/stream` на другом экземпляре не получает событий о ходе запроса; если запрос уже завершен, приходит только терминальное событие из `query_history`, без строк. `GET /api/v1/queries/notifications/stream` на другом экземпляре не получает уведомлений о завершении |
-| Spark Explorer | Строки результата (`resultCache` в `SparkSessionManager`) | `GET /api/v1/statements/{executionId}/result` возвращает статус, колонки и `total` из БД, но пустой список строк |
-| Spark Explorer | Признаки отмены (`activeExecutions`) | `POST /api/v1/statements/{executionId}/cancel` ставит в БД `CANCELLED`, но код продолжает выполняться; по завершении статус перезаписывается результатом выполнения |
-| Spark Explorer | SSE-подписки (`executionEmitters`) | `GET /api/v1/statements/{executionId}/stream` на другом экземпляре не получает событий |
-| Spark Explorer | Пайплайны и их запуски (`PipelineService`) | Пайплайн, созданный на одном экземпляре, не виден в `/api/v1/pipelines` на другом; после перезапуска экземпляра пайплайны пропадают |
+| Iskra | Строки результата (`resultCache` в `SparkSessionManager`) | `GET /api/v1/statements/{executionId}/result` возвращает статус, колонки и `total` из БД, но пустой список строк |
+| Iskra | Признаки отмены (`activeExecutions`) | `POST /api/v1/statements/{executionId}/cancel` ставит в БД `CANCELLED`, но код продолжает выполняться; по завершении статус перезаписывается результатом выполнения |
+| Iskra | SSE-подписки (`executionEmitters`) | `GET /api/v1/statements/{executionId}/stream` на другом экземпляре не получает событий |
+| Iskra | Пайплайны и их запуски (`PipelineService`) | Пайплайн, созданный на одном экземпляре, не виден в `/api/v1/pipelines` на другом; после перезапуска экземпляра пайплайны пропадают |
 | Sklad | Части загружаемого по частям файла: каталог `${java.io.tmpdir}/hdfs-uploads/<upload_id>` и счетчик `chunkTracker` в `HdfsFileOperationService` | Части одной загрузки (`POST /api/v1/clusters/{clusterId}/files/upload-chunk`), попавшие на разные экземпляры, ни один экземпляр не собирает целиком: файл в HDFS не появляется, `upload-chunk/status` показывает не все части |
 
-Записи о сессиях Spark (`spark_sessions`) хранятся в БД и видны всем экземплярам. Статус сессии из Livy обновляет фоновая синхронизация каждого экземпляра (один `GET /sessions` на кластер раз в `spark.session-sync-interval-ms`; при N экземплярах — N запросов за интервал, записи меняются условными `UPDATE`). Остановку, закрытие по `spark.session-ttl-minutes` (задача `cleanupIdleSessions` запускается на каждом экземпляре, но `DELETE` в Livy отправляет только тот, чей условный `UPDATE` `markKilledIfIdleBefore` перевел запись из `idle` в `killed`; остальные экземпляры получают 0 измененных строк и `DELETE` не отправляют; сам `DELETE` выполняется в пуле потоков `SparkSessionManager`, а не в потоке планировщика) и закрытие при выходе (обрабатывает экземпляр, принявший `POST /api/v1/auth/logout`) может выполнить любой экземпляр: Livy-идентификатор сессии берется из БД. Остановка и закрытие при выходе так же переводят запись условным `UPDATE` (`markKilledIfActive`), поэтому одну сессию в Livy удаляет один экземпляр. Если Livy уже забыл сессию (перезапуск без восстановления), `DELETE` получает 404 и считается успешным. Если в закрытой сессии выполнялся код на другом экземпляре, это выполнение завершается `FAILED`, запись сессии остается `killed`.
+Записи о сессиях Spark (`spark_sessions`) хранятся в БД и видны всем экземплярам. Статус сессии из Livy обновляет фоновая синхронизация каждого экземпляра (один `GET /sessions` на кластер раз в `iskra.session-sync-interval-ms`; при N экземплярах — N запросов за интервал, записи меняются условными `UPDATE`). Остановку, закрытие по `iskra.session-ttl-minutes` (задача `cleanupIdleSessions` запускается на каждом экземпляре, но `DELETE` в Livy отправляет только тот, чей условный `UPDATE` `markKilledIfIdleBefore` перевел запись из `idle` в `killed`; остальные экземпляры получают 0 измененных строк и `DELETE` не отправляют; сам `DELETE` выполняется в пуле потоков `SparkSessionManager`, а не в потоке планировщика) и закрытие при выходе (обрабатывает экземпляр, принявший `POST /api/v1/auth/logout`) может выполнить любой экземпляр: Livy-идентификатор сессии берется из БД. Остановка и закрытие при выходе так же переводят запись условным `UPDATE` (`markKilledIfActive`), поэтому одну сессию в Livy удаляет один экземпляр. Если Livy уже забыл сессию (перезапуск без восстановления), `DELETE` получает 404 и считается успешным. Если в закрытой сессии выполнялся код на другом экземпляре, это выполнение завершается `FAILED`, запись сессии остается `killed`.
 
 В Artel пользовательского состояния в памяти нет: заявки хранятся в БД, в памяти только кэш клиентов YARN (`YarnClientFactory.clientCache`). Sklad, кроме загрузки по частям, тоже не хранит пользовательского состояния в памяти.
 
 Для SQL, Spark и Sklad выберите один из вариантов:
 
 - Настройте на балансировщике привязку клиента к экземпляру (sticky sessions).
-- Запускайте SQL и Spark Explorer в одном экземпляре. Для Sklad без привязки не работает только загрузка по частям.
+- Запускайте SQL и Iskra в одном экземпляре. Для Sklad без привязки не работает только загрузка по частям.
 
-Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `zastava.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Spark Explorer:
+Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `zastava.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Iskra:
 
 ```nginx
 upstream tolmach {
@@ -154,7 +154,7 @@ upstream tolmach {
 - [ ] Заданы `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD` (для Artel допустимы `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`).
 - [ ] При двух и более экземплярах задан `ZASTAVA_SESSIONSTORE_TYPE=jdbc` (раздел 3.1).
 - [ ] `JWT_SECRET_KEY` одинаковый на всех экземплярах сервиса (раздел 3.2).
-- [ ] Для SQL, Spark и Sklad с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Spark Explorer запущены в одном экземпляре (раздел 3.3).
+- [ ] Для SQL, Spark и Sklad с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Iskra запущены в одном экземпляре (раздел 3.3).
 - [ ] Пароль базы данных не хранится в открытом виде в `application.yml` или `docker-compose.yml`, а передается через переменную окружения из хранилища секретов (например, HashiCorp Vault).
 - [ ] Проверка доступности на балансировщике смотрит на `/actuator/health/readiness`. По умолчанию группа readiness проверяет только состояние приложения, не PostgreSQL. Чтобы экземпляр выводился из балансировки при недоступной базе, добавьте в конфигурацию сервиса `management.endpoint.health.group.readiness.include: readinessState,db`; при сбое PostgreSQL из балансировки тогда выйдут все экземпляры сразу.
 

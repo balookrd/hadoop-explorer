@@ -19,6 +19,6 @@
         <module>backend/artel</module>
         <module>backend/sklad</module>
         <module>backend/tolmach</module>
-        <module>backend/spark</module>
+        <module>backend/iskra</module>
     </modules>
 </project>

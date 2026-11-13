@@ -27,11 +27,11 @@ run_tolmach() {
   mvn test -f "$ROOT_DIR/backend/tolmach/pom.xml"
 }
 
-run_spark() {
+run_iskra() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Spark Explorer (Java 21 / Spring Boot 3)"
+  echo "🧪 Запуск тестов: Iskra (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/spark/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/iskra/pom.xml"
 }
 
 run_replicator() {
@@ -61,8 +61,8 @@ case "$APP" in
   tolmach)
     run_tolmach
     ;;
-  spark)
-    run_spark
+  iskra)
+    run_iskra
     ;;
   replicator)
     run_replicator
@@ -72,7 +72,7 @@ case "$APP" in
     run_artel
     run_sklad
     run_tolmach
-    run_spark
+    run_iskra
     run_replicator
     echo ""
     echo "========================================================"
@@ -80,7 +80,7 @@ case "$APP" in
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|sklad|spark|tolmach|artel|replicator]"
+    echo "Использование: $0 [all|frontend|sklad|iskra|tolmach|artel|replicator]"
     exit 1
     ;;
 esac

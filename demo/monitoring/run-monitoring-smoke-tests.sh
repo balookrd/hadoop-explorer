@@ -175,8 +175,8 @@ run_check "Дашборд: Операции с файлами HDFS (sklad-operat
 run_check "Дашборд: Очереди YARN Capacity Scheduler (artel_queues)" \
     verify_dashboard "artel_queues" "YARN"
 
-run_check "Дашборд: Аналитика Spark и SQL (spark_sql_explorer_analytics)" \
-    verify_dashboard "spark_sql_explorer_analytics" "Spark"
+run_check "Дашборд: Iskra и Tolmach, интерактивная аналитика (iskra_tolmach_analytics)" \
+    verify_dashboard "iskra_tolmach_analytics" "Iskra"
 
 # ------------------------------------------------------------------------------
 # 7. Итоговый отчет

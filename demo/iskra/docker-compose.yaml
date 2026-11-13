@@ -1,0 +1,182 @@
+name: iskra-demo
+
+include:
+  - path: ../platform/docker-compose.core.yml
+
+volumes:
+  spark-demo-data:
+    name: spark-demo-data
+
+services:
+  # ==========================================
+  # 1. Apache Livy Server + Apache Spark 3.5
+  # ==========================================
+  spark-livy:
+    build:
+      context: ./livy
+    container_name: spark-livy-1
+    hostname: spark-livy
+    restart: unless-stopped
+    environment:
+      # Sessions run in YARN (RM yarn-rm-1, NodeManager spark-yarn-nm-1): the driver gets HDFS and
+      # Hive Metastore delegation tokens for proxyUser and runs outside the Livy host
+      SPARK_MASTER: "yarn"
+      SPARK_DEPLOY_MODE: "cluster"
+      YARN_RM_HOST: "yarn-rm-1.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL"
+      HIVE_SERVER_PRINCIPAL: "hive/hive-server@COMPANY.LOCAL"
+      HIVE_METASTORE_URIS: "thrift://hive-metastore-1:9083"
+      HIVE_METASTORE_PRINCIPAL: "hive/hive-metastore@COMPANY.LOCAL"
+    ports:
+      - "8998:8998"
+    volumes:
+      - ./livy/entrypoint.sh:/entrypoint.sh
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-livy
+          - spark-livy-1
+    depends_on:
+      hdfs-cluster-1:
+        condition: service_started
+      yarn-demo-rm-1:
+        condition: service_started
+      spark-yarn-nm-1:
+        condition: service_started
+      sql-hive-metastore:
+        condition: service_started
+
+  # ==========================================
+  # 1a. YARN NodeManager, cluster 1 (driver and executor containers of Livy sessions)
+  # ==========================================
+  spark-yarn-nm-1:
+    build:
+      context: ./yarn-nm
+    container_name: spark-yarn-nm-1
+    hostname: spark-yarn-nm-1
+    restart: unless-stopped
+    environment:
+      YARN_RM_HOST: "yarn-rm-1.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+      NM_PRINCIPAL: "yarn/yarn-rm-1.yarn-demo-net@COMPANY.LOCAL"
+      NM_KEYTAB: "/root/shared-keytabs/yarn-cluster-1.keytab"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-1:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-1.demo-platform-net@COMPANY.LOCAL"
+    volumes:
+      - ./yarn-nm/entrypoint.sh:/entrypoint.sh:ro
+      - demo-shared-krb5:/shared/conf:ro
+      # Under /root (700): YARN container processes running as users cannot read the keytabs
+      - demo-shared-keytabs:/root/shared-keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-yarn-nm-1
+    depends_on:
+      yarn-demo-rm-1:
+        condition: service_started
+
+  # ==========================================
+  # 1b. Apache Livy Server 2 (Cluster 2 - Archive)
+  # ==========================================
+  spark-livy-2:
+    build:
+      context: ./livy
+    container_name: spark-livy-2
+    hostname: spark-livy-2
+    restart: unless-stopped
+    environment:
+      SPARK_MASTER: "yarn"
+      SPARK_DEPLOY_MODE: "cluster"
+      YARN_RM_HOST: "yarn-rm-2.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+      LIVY_PORT: "8999"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL"
+      HIVE_SERVER_PRINCIPAL: "hive/hive-server-2.demo-platform-net@COMPANY.LOCAL"
+      HIVE_METASTORE_URIS: "thrift://hive-metastore-2:9083"
+      HIVE_METASTORE_PRINCIPAL: "hive/hive-metastore-2.demo-platform-net@COMPANY.LOCAL"
+    ports:
+      - "8999:8999"
+    volumes:
+      - ./livy/entrypoint.sh:/entrypoint.sh
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-livy-2
+    depends_on:
+      hdfs-cluster-2:
+        condition: service_started
+      yarn-demo-rm-2:
+        condition: service_started
+      spark-yarn-nm-2:
+        condition: service_started
+      sql-hive-metastore-2:
+        condition: service_started
+
+  # ==========================================
+  # 1c. YARN NodeManager, cluster 2
+  # ==========================================
+  spark-yarn-nm-2:
+    build:
+      context: ./yarn-nm
+    container_name: spark-yarn-nm-2
+    hostname: spark-yarn-nm-2
+    restart: unless-stopped
+    environment:
+      YARN_RM_HOST: "yarn-rm-2.yarn-demo-net"
+      YARN_RM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+      NM_PRINCIPAL: "yarn/yarn-rm-2.yarn-demo-net@COMPANY.LOCAL"
+      NM_KEYTAB: "/root/shared-keytabs/yarn-cluster-2.keytab"
+      HDFS_DEFAULT_FS: "hdfs://hdfs-cluster-2:9000"
+      HDFS_NN_PRINCIPAL: "nn/hdfs-cluster-2.demo-platform-net@COMPANY.LOCAL"
+    volumes:
+      - ./yarn-nm/entrypoint.sh:/entrypoint.sh:ro
+      - demo-shared-krb5:/shared/conf:ro
+      - demo-shared-keytabs:/root/shared-keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - spark-yarn-nm-2
+    depends_on:
+      yarn-demo-rm-2:
+        condition: service_started
+
+  # ==========================================
+  # 2. Iskra (Java 21 / Spring Boot 3 + Web UI)
+  # ==========================================
+  iskra:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.iskra
+    container_name: iskra
+    hostname: iskra
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+      - KRB5_CONFIG=/etc/krb5_shared/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/krb5_shared/krb5.conf
+    volumes:
+      - ./application-demo.yml:/app/config/application.yml:ro
+      - spark-demo-data:/app/data
+      - demo-shared-krb5:/etc/krb5_shared:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+    networks:
+      demo-platform-net:
+        aliases:
+          - iskra
+    depends_on:
+      spark-livy:
+        condition: service_started
+      spark-livy-2:
+        condition: service_started
+      ldap:
+        condition: service_healthy

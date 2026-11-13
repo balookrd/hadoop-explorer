@@ -1,8 +1,8 @@
-.PHONY: help test test-artel test-sklad test-tolmach test-spark test-replicator \
+.PHONY: help test test-artel test-sklad test-tolmach test-iskra test-replicator \
         test-zastava test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-java build-zastava build-artel build-sklad build-tolmach build-spark build-replicator \
-        frontend-build frontend-install demo-artel demo-sklad demo-tolmach demo-spark demo-all \
-        demo-artel-stop demo-sklad-stop demo-tolmach-stop demo-spark-stop demo-all-stop \
+        build build-java build-zastava build-artel build-sklad build-tolmach build-iskra build-replicator \
+        frontend-build frontend-install demo-artel demo-sklad demo-tolmach demo-iskra demo-all \
+        demo-artel-stop demo-sklad-stop demo-tolmach-stop demo-iskra-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
@@ -48,7 +48,7 @@ help:
 	@echo "    make test-artel       - Тесты сервиса Artel (Java 21)"
 	@echo "    make test-sklad        - Тесты сервиса Sklad (Java 21)"
 	@echo "    make test-tolmach         - Тесты сервиса Tolmach (Java 21)"
-	@echo "    make test-spark       - Тесты сервиса Spark Explorer (Java 21)"
+	@echo "    make test-iskra       - Тесты сервиса Iskra (Java 21)"
 	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
 	@echo "    make test-zastava - Тесты Java 21 zastava"
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
@@ -62,7 +62,7 @@ help:
 	@echo "    make build-artel      - Сборка образа Artel"
 	@echo "    make build-sklad       - Сборка образа Sklad"
 	@echo "    make build-tolmach        - Сборка образа Tolmach"
-	@echo "    make build-spark      - Сборка образа Spark Explorer"
+	@echo "    make build-iskra      - Сборка образа Iskra"
 	@echo "    make build-replicator - Сборка образа Replicator Orchestrator"
 	@echo ""
 	@echo "  Фронтенд:"
@@ -76,8 +76,8 @@ help:
 	@echo "    make demo-sklad-stop   - Остановка стенда HDFS"
 	@echo "    make demo-tolmach         - Запуск стенда SQL (Trino, Hive, Postgres, LDAP) -> :8003"
 	@echo "    make demo-tolmach-stop    - Остановка стенда SQL"
-	@echo "    make demo-spark       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore) -> :8004"
-	@echo "    make demo-spark-stop  - Остановка стенда Spark"
+	@echo "    make demo-iskra       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore) -> :8004"
+	@echo "    make demo-iskra-stop  - Остановка стенда Spark"
 	@echo "    make demo-monitoring  - Запуск стека мониторинга (Prometheus :9090 + Grafana :3000)"
 	@echo "    make demo-monitoring-stop - Остановка стека мониторинга"
 	@echo "    make demo-all         - Запуск объединенного демо-стенда (все сервисы + мониторинг)"
@@ -100,8 +100,8 @@ test-sklad: check-jdk21
 test-tolmach: check-jdk21
 	$(JAVA21) mvn test -f backend/tolmach/pom.xml
 
-test-spark: check-jdk21
-	$(JAVA21) mvn test -f backend/spark/pom.xml
+test-iskra: check-jdk21
+	$(JAVA21) mvn test -f backend/iskra/pom.xml
 
 test-replicator: check-jdk21
 	$(JAVA21) mvn test -f backend/replicator/pom.xml
@@ -122,9 +122,9 @@ test-zastava: check-jdk21
 test-sklad-java: test-sklad
 test-artel-java: test-artel
 test-tolmach-java: test-tolmach
-test-spark-java: test-spark
+test-iskra-java: test-iskra
 
-test-java: test-zastava test-replicator test-sklad test-artel test-tolmach test-spark
+test-java: test-zastava test-replicator test-sklad test-artel test-tolmach test-iskra
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -147,8 +147,8 @@ build-sklad: frontend-build-sklad
 build-tolmach: frontend-build-tolmach
 	$(JAVA21) mvn clean package -DskipTests -f backend/tolmach/pom.xml
 
-build-spark: frontend-build-spark
-	$(JAVA21) mvn clean package -DskipTests -f backend/spark/pom.xml
+build-iskra: frontend-build-iskra
+	$(JAVA21) mvn clean package -DskipTests -f backend/iskra/pom.xml
 
 build-replicator: frontend-build-replicator
 	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml
@@ -166,7 +166,7 @@ build-replicator-java: build-replicator
 build-sklad-java: build-sklad
 build-artel-java: build-artel
 build-tolmach-java: build-tolmach
-build-spark-java: build-spark
+build-iskra-java: build-iskra
 
 frontend-install:
 	cd frontend && npm install
@@ -221,11 +221,11 @@ demo-tolmach:
 demo-tolmach-stop:
 	cd demo/tolmach && ./stop-demo.sh
 
-demo-spark:
-	cd demo/spark && ./start-demo.sh
+demo-iskra:
+	cd demo/iskra && ./start-demo.sh
 
-demo-spark-stop:
-	cd demo/spark && ./stop-demo.sh
+demo-iskra-stop:
+	cd demo/iskra && ./stop-demo.sh
 
 demo-replicator:
 	cd demo/replicator && ./start-demo.sh

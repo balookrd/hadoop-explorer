@@ -4,7 +4,7 @@
 # DDL runs through beeline inside the HiveServer2 containers (hive-server-1,
 # hive-server-2) with the hive service keytab, so the script does not depend on
 # the tolmach image. Tables that already exist are left untouched
-# (demo/spark/init-demo-tables.sh may have created customers/transactions in the
+# (demo/iskra/init-demo-tables.sh may have created customers/transactions in the
 # shared metastore), only missing ones are created and loaded.
 #
 # Readiness of each cluster: hdfs-cluster-N logged its "ready" line, the

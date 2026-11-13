@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # PostgreSQL for PostgresTextColumnsTest (backend/tolmach, backend/spark, backend/artel); the tests are skipped
+    # PostgreSQL for PostgresTextColumnsTest (backend/tolmach, backend/iskra, backend/artel); the tests are skipped
     # without TEST_POSTGRES_URL
     services:
       postgres:
@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           npm ci
           npm run build:all
-          for svc in sklad artel tolmach spark replicator/orchestrator; do
+          for svc in sklad artel tolmach iskra replicator/orchestrator; do
             test -f "../backend/$svc/src/main/resources/static/index.html" \
               || { echo "UI bundle missing for $svc" >&2; exit 1; }
           done

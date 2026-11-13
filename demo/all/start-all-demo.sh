@@ -23,7 +23,7 @@ echo "=== Инициализация демонстрационных табли
 
 echo ""
 echo "=== Инициализация демо-таблиц Spark через Livy в YARN (создает только отсутствующие) ==="
-"$ROOT_DIR/demo/spark/init-demo-tables.sh" || true
+"$ROOT_DIR/demo/iskra/init-demo-tables.sh" || true
 
 echo ""
 echo "=== Ожидание готовности Hadoop Replicator Orchestrator ==="
@@ -41,7 +41,7 @@ echo "========================================================="
 echo "   🎛️ Artel:       http://localhost:8001"
 echo "   📁 Sklad:       http://localhost:8002"
 echo "   📊 Tolmach:        http://localhost:8003"
-echo "   ⚡ Spark Explorer:      http://localhost:8004"
+echo "   ⚡ Iskra:      http://localhost:8004"
 echo "   🔄 Replicator Explorer: http://localhost:8005"
 echo "---------------------------------------------------------"
 echo "   ⚡ Control Plane gRPC:  localhost:50050"

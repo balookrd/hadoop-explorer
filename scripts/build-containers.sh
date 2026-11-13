@@ -44,8 +44,8 @@ case "$TARGET" in
   tolmach)
     build_app tolmach
     ;;
-  spark)
-    build_app spark
+  iskra)
+    build_app iskra
     ;;
   replicator)
     build_app replicator-orchestrator
@@ -55,7 +55,7 @@ case "$TARGET" in
     build_app artel
     build_app sklad
     build_app tolmach
-    build_app spark
+    build_app iskra
     build_app replicator-orchestrator
     build_app replicator-agent
     echo "=========================================="
@@ -63,7 +63,7 @@ case "$TARGET" in
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|artel|sklad|tolmach|spark|replicator]"
+    echo "Использование: $0 [all|artel|sklad|tolmach|iskra|replicator]"
     exit 1
     ;;
 esac

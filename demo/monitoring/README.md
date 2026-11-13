@@ -73,7 +73,7 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 7. `artel_queues` — Artel:
    - Переходы заявок Change Request по статусам (`artel_change_requests_total`).
    - Задержка p95 API Artel по URI.
-8. `spark_sql_explorer_analytics` — Spark и Tolmach:
+8. `iskra_tolmach_analytics` — Spark и Tolmach:
    - Активные Livy-сессии и p95 длительности Spark-инструкций.
    - Темп и p95 длительности SQL-запросов по движкам Trino и Hive.
 

@@ -59,14 +59,15 @@ describe('Common UI Components Suite', () => {
       const handleLogin = vi.fn().mockResolvedValue(undefined);
       render(LoginModal, {
         props: {
-          title: 'Вход в Spark Explorer',
+          title: 'Вход в Iskra',
+          app: 'spark',
           subtitle: 'Служба интерактивных вычислений Apache Spark',
           isModal: false,
           onLogin: handleLogin
         }
       });
 
-      expect(screen.getByText('Вход в Spark Explorer')).toBeInTheDocument();
+      expect(screen.getByText('Вход в Iskra')).toBeInTheDocument();
       expect(screen.getByText('Служба интерактивных вычислений Apache Spark')).toBeInTheDocument();
       expect(screen.getByText('Александр Админов')).toBeInTheDocument();
       expect(screen.getByText('Иван Датаинженеров')).toBeInTheDocument();

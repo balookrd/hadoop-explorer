@@ -88,7 +88,7 @@ hadoop:
         - "platform-admins"
       writer-groups:
         - "data-engineers"
-        - "spark-users"
+        - "iskra-users"
 
     jwt:
       secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов

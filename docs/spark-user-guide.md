@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Pristan — Spark Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Iskra" width="380" />
 
 # Руководство пользователя: Spark Web Explorer
 
@@ -44,7 +44,7 @@
 ```mermaid
 graph TD
     User(["Дата-инженер / ML-исследователь"]) -->|"HTTPS / Kerberos SSO"| UI["Spark Web Explorer Studio\nSvelte 5 + Tailwind v4 + Monaco"]
-    UI -->|"REST API + SSE Logs"| Gateway["Spark Explorer API\nJava 21 / Spring Boot 3"]
+    UI -->|"REST API + SSE Logs"| Gateway["Iskra API\nJava 21 / Spring Boot 3"]
     Gateway -->|"Livy REST + Impersonation doAs"| Livy["Apache Livy Server"]
     Livy -->|"YARN Client / Cluster Mode"| RM["YARN ResourceManager"]
     RM -->|"Containers: Driver & Executors"| SparkApp["Spark Application\nDriver & Executors"]
@@ -67,14 +67,14 @@ graph TD
 
 ## 2. Архитектура и интеграция компонентов
 
-Бэкенд Spark Web Explorer — сервис Spark Explorer API (Java 21 / Spring Boot 3). Запросы к Apache Livy он отправляет через Circuit Breaker. Последовательность выполнения кода:
+Бэкенд Spark Web Explorer — сервис Iskra API (Java 21 / Spring Boot 3). Запросы к Apache Livy он отправляет через Circuit Breaker. Последовательность выполнения кода:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Dev as "Дата-инженер"
     participant UI as "Spark Studio (Monaco)"
-    participant GW as "Spark Explorer API (Java 21)"
+    participant GW as "Iskra API (Java 21)"
     participant DB as "SQLite / PostgreSQL"
     participant Livy as "Apache Livy Service"
     participant YARN as "YARN RM / Spark Driver"
@@ -109,7 +109,7 @@ sequenceDiagram
 Вход выполняется на экране аутентификации. Поддерживаются Active Directory / OpenLDAP и вход по Kerberos SPNEGO SSO.
 
 <div align="center">
-  <img src="images/spark/01_login_screen.png" alt="Экран входа Spark Web Explorer" width="850" />
+  <img src="images/iskra/01_login_screen.png" alt="Экран входа Spark Web Explorer" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SSO</em></p>
 </div>
 
@@ -125,7 +125,7 @@ sequenceDiagram
 
 Код, отправленный через шлюз, выполняется на узлах YARN от имени вошедшего пользователя (в примерах — `de_user`). Поэтому к нему применяются права HDFS POSIX и политики Ranger/Sentry этого пользователя, а не сервисной учётной записи.
 
-Дерево каталога (базы, таблицы, колонки) на реальном кластере строится запросами `SHOW DATABASES`, `SHOW TABLES` и `DESCRIBE` в вашей активной сессии: без запущенной сессии вместо дерева показывается сообщение «Для просмотра каталога запустите сессию Spark на кластере …» и кнопка **Обновить**. После выхода из Spark Explorer ваши сессии закрываются, в том числе открытые в других вкладках.
+Дерево каталога (базы, таблицы, колонки) на реальном кластере строится запросами `SHOW DATABASES`, `SHOW TABLES` и `DESCRIBE` в вашей активной сессии: без запущенной сессии вместо дерева показывается сообщение «Для просмотра каталога запустите сессию Spark на кластере …» и кнопка **Обновить**. После выхода из Iskra ваши сессии закрываются, в том числе открытые в других вкладках.
 
 ---
 
@@ -134,14 +134,14 @@ sequenceDiagram
 После входа открывается главный экран Spark Web Explorer.
 
 <div align="center">
-  <img src="images/spark/02_main_workspace.png" alt="Главный экран Spark Explorer" width="850" />
+  <img src="images/iskra/02_main_workspace.png" alt="Главный экран Iskra" width="850" />
   <p><em>Рисунок 2: Главный экран рабочей студии Spark Web Explorer</em></p>
 </div>
 
 ### Элементы интерфейса
 
 1. Верхняя панель (Header Bar):
-   - Логотип и бейдж платформы (`Spark Explorer PySpark & Scala`).
+   - Логотип и бейдж платформы (`Iskra PySpark & Scala`).
    - Селектор активного кластера Hadoop (например, `Development Sandbox` или `Production Hadoop`).
    - Индикатор текущего контекста имперсонации (`doAs: de_user`).
    - Профиль пользователя с бейджами ролей (`RW` — чтение/запись, `RO` — только чтение).
@@ -167,7 +167,7 @@ sequenceDiagram
 В боковой панели отображаются метаданные озера данных: схему таблицы можно посмотреть до написания кода и запуска задачи на кластере.
 
 <div align="center">
-  <img src="images/spark/03_catalog_tree.png" alt="Дерево каталога метаданных" width="850" />
+  <img src="images/iskra/03_catalog_tree.png" alt="Дерево каталога метаданных" width="850" />
   <p><em>Рисунок 3: Дерево каталога метаданных и инспекция структуры таблицы customers</em></p>
 </div>
 
@@ -207,7 +207,7 @@ Spark Web Explorer поддерживает три языка. Язык пере
 После выполнения кода результат отображается в виде таблицы:
 
 <div align="center">
-  <img src="images/spark/04_pyspark_execution_results.png" alt="Результаты выполнения PySpark" width="850" />
+  <img src="images/iskra/04_pyspark_execution_results.png" alt="Результаты выполнения PySpark" width="850" />
   <p><em>Рисунок 4: Таблица DataFrame с результатами выполнения PySpark-скрипта</em></p>
 </div>
 
@@ -220,7 +220,7 @@ Spark Web Explorer поддерживает три языка. Язык пере
 Вкладка **«Консоль и логи Spark»** показывает ход выполнения задачи:
 
 <div align="center">
-  <img src="images/spark/08_execution_logs.png" alt="Консоль и логи выполнения Spark" width="850" />
+  <img src="images/iskra/08_execution_logs.png" alt="Консоль и логи выполнения Spark" width="850" />
   <p><em>Рисунок 5: Консоль выполнения, сборщик логов и физический план выполнения Catalyst</em></p>
 </div>
 
@@ -233,7 +233,7 @@ Spark Web Explorer поддерживает три языка. Язык пере
 
 #### Scala Spark
 <div align="center">
-  <img src="images/spark/05_scala_spark_editor.png" alt="Редактор Scala Spark" width="850" />
+  <img src="images/iskra/05_scala_spark_editor.png" alt="Редактор Scala Spark" width="850" />
   <p><em>Рисунок 6: Разработка и отладка аналитического скрипта на Scala Spark</em></p>
 </div>
 
@@ -246,7 +246,7 @@ res.show(50, false)
 
 #### Spark SQL
 <div align="center">
-  <img src="images/spark/06_spark_sql_query.png" alt="Интерактивный запрос Spark SQL" width="850" />
+  <img src="images/iskra/06_spark_sql_query.png" alt="Интерактивный запрос Spark SQL" width="850" />
   <p><em>Рисунок 7: Выполнение интерактивного запроса Spark SQL</em></p>
 </div>
 
@@ -266,7 +266,7 @@ LIMIT 50;
 Параметры сессии Livy задаются в модальном окне **«Параметры сессии Spark»**.
 
 <div align="center">
-  <img src="images/spark/07_session_config_modal.png" alt="Модальное окно параметров сессии" width="850" />
+  <img src="images/iskra/07_session_config_modal.png" alt="Модальное окно параметров сессии" width="850" />
   <p><em>Рисунок 8: Конфигурация параметров сессии Spark, профилей ресурсов и очередей YARN</em></p>
 </div>
 
@@ -335,7 +335,7 @@ LIMIT 50;
 Каждый скрипт открывается в отдельной вкладке:
 
 <div align="center">
-  <img src="images/spark/09_multitab_workspace.png" alt="Многовкладочный режим" width="850" />
+  <img src="images/iskra/09_multitab_workspace.png" alt="Многовкладочный режим" width="850" />
   <p><em>Рисунок 9: Многовкладочный режим со смешанными языковыми сессиями</em></p>
 </div>
 
@@ -368,7 +368,7 @@ LIMIT 50;
 ---
 
 ### В: Что делать, если сессия перешла в статус `dead` или завершилась по таймауту?
-> О: Explorer раз в минуту переводит в статус `killed` сессии, которые находятся в статусе `idle` дольше `spark.session-ttl-minutes` (по умолчанию 120 минут, задает администратор). Чтобы продолжить работу, нажмите **«Выполнить»**: шлюз создаст новую сессию в YARN с сохранёнными параметрами.
+> О: Explorer раз в минуту переводит в статус `killed` сессии, которые находятся в статусе `idle` дольше `iskra.session-ttl-minutes` (по умолчанию 120 минут, задает администратор). Чтобы продолжить работу, нажмите **«Выполнить»**: шлюз создаст новую сессию в YARN с сохранёнными параметрами.
 
 ---
 
