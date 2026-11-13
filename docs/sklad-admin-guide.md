@@ -385,8 +385,8 @@ docker compose logs -f sklad
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
-| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="hdfs"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
-| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="hdfs"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="sklad"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="sklad"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
 | `sklad_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS. `operation`: `list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`. `status`: `success` или `failed` (вызов завершился исключением) |
 | `sklad_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | `download` — байты, прочитанные из HDFS (скачивание, предпросмотр, источник межкластерного копирования); `upload` — байты, записанные в HDFS (загрузка, распаковка архива, приемник копирования) |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
@@ -401,7 +401,7 @@ docker compose logs -f sklad
 curl -s http://localhost:8002/actuator/prometheus | grep '^sklad_operations_total'
 ```
 
-После открытия каталога в интерфейсе в выводе есть строка вида `sklad_operations_total{app="hdfs",cluster="<cluster_id>",operation="list_status",status="success"} 1.0`, где `<cluster_id>` — идентификатор кластера из `sklad.clusters`.
+После открытия каталога в интерфейсе в выводе есть строка вида `sklad_operations_total{app="sklad",cluster="<cluster_id>",operation="list_status",status="success"} 1.0`, где `<cluster_id>` — идентификатор кластера из `sklad.clusters`.
 
 Сбор метрик Prometheus и дашборд `sklad_operations.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 

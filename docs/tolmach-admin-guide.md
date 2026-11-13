@@ -383,8 +383,8 @@ networks:
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
-| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="sql"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
-| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="sql"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
+| `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="tolmach"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
+| `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="tolmach"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
 | `tolmach_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время выполнения SQL-запроса от старта задачи до конечного статуса (без времени ожидания в очереди до старта задачи). `cluster` — `id` кластера; `engine` — `type` кластера (`trino`, `hive`) в нижнем регистре, в том числе для кластера с `mock-storage: true`. `status`: `FINISHED`, `CANCELLED`, `FAILED`. Бакеты 0,1 с – 5 мин |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
 
@@ -396,7 +396,7 @@ networks:
 curl -s http://localhost:8003/actuator/prometheus | grep '^tolmach_query_duration_seconds_count'
 ```
 
-После выполнения запроса в выводе есть строка вида `tolmach_query_duration_seconds_count{app="sql",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `tolmach.clusters`.
+После выполнения запроса в выводе есть строка вида `tolmach_query_duration_seconds_count{app="tolmach",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `tolmach.clusters`.
 
 Сбор метрик Prometheus и дашборд `iskra_tolmach_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 

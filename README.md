@@ -332,8 +332,8 @@ docker build -t pristan/parom-agent:latest -f docker/Dockerfile.parom-agent .
 
 ## Запуск тестов
 
-Число тестов на 2026-11-06: 943 тестовых метода Java (аннотации `@Test` и `@ParameterizedTest`; параметризованные методы при прогоне дают больше запусков) и 115 тестов Vitest:
-- Frontend: 115 тестов Vitest (из них 28 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Parom, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
+Число тестов на 2026-11-06: 943 тестовых метода Java (аннотации `@Test` и `@ParameterizedTest`; параметризованные методы при прогоне дают больше запусков) и 128 тестов Vitest:
+- Frontend: 128 тестов Vitest (из них 41 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Parom, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
 - Artel: 49 тестов (34 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
 - Sklad: 45 тестов (17 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
 - Tolmach: 19 тестов (7 Java 21 + 12 Frontend UI: Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
@@ -346,9 +346,9 @@ docker build -t pristan/parom-agent:latest -f docker/Dockerfile.parom-agent .
 make test
 
 # Тестирование интерфейса фронтенда:
-make test-ui        # svelte-check по 5 SPA + 115 тестов Vitest
+make test-ui        # svelte-check по 5 SPA + 128 тестов Vitest
 make frontend-check # проверка типов svelte-check
-make frontend-test  # юнит и компонентные тесты Vitest (115 тестов)
+make frontend-test  # юнит и компонентные тесты Vitest (128 тестов)
 make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Тестирование бэкенда (Java 21 / Spring Boot 3):

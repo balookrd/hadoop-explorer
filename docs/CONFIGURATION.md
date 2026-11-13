@@ -1146,7 +1146,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `PAROM_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
 | `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для локальной разработки, `demo` для демо-стендов и `prod` для оркестратора репликатора) | — |
-| `HADOOP_AUTH_MODE` | `zastava.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
+| `HADOOP_AUTH_MODE` | `zastava.auth.mode` в сервисах `artel`, `sklad`, `tolmach`, `iskra` | `ldap` |
 | `JWT_SECRET_KEY` | `zastava.jwt.secret-key`: ключ подписи JWT, не короче 32 символов | — (без него сервис не стартует вне mock-режима) |
 | `LDAP_URL` | `zastava.ldap.url` | `ldaps://ldap.company.local:636` |
 | `LDAP_MANAGER_DN` / `LDAP_MANAGER_PASSWORD` | Учетная запись для поиска пользователей в LDAP | — |
@@ -1196,7 +1196,7 @@ location = /actuator/prometheus {
 |---|---|---|---|
 | `management.endpoints.web.exposure.include` | `health,prometheus` | Публикует по HTTP только health и Prometheus | Не расширять без необходимости: остальные эндпоинты открываются только ADMIN, но `env` и `configprops` показывают конфигурацию |
 | `management.prometheus.metrics.export.enabled` | `true` | Создает `PrometheusMeterRegistry`. Задан явно: `@SpringBootTest` по умолчанию отключает экспорт метрик | Не менять |
-| `management.metrics.tags.app` | `yarn`, `hdfs`, `sql`, `spark` | Лейбл `app` у всех метрик сервиса; по нему фильтрует переменная `$app` дашборда `pristan-overview` и группируют алерты | Не менять; для нескольких инсталляций в одном Prometheus добавьте лейбл через `relabel_configs` |
+| `management.metrics.tags.app` | `artel`, `sklad`, `tolmach`, `iskra` | Лейбл `app` у всех метрик сервиса; по нему фильтрует переменная `$app` дашборда `pristan-overview` и группируют алерты | Не менять; для нескольких инсталляций в одном Prometheus добавьте лейбл через `relabel_configs` |
 | `management.metrics.distribution.slo.http.server.requests` | `50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s` | Границы бакетов `http_server_requests_seconds_bucket` | Если p95 API выходит за 30 с или нужна точность лучше 50 мс. Каждая граница добавляет серию на каждую комбинацию `uri`/`method`/`status` |
 
 ### 9.2 Экспортируемые метрики
