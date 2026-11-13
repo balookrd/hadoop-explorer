@@ -1,3 +1,0 @@
-sub	org.apache.hadoop.explorer	io.github.balookrd.pristan
-sub	org/apache/hadoop/explorer	io/github/balookrd/pristan
-sub	<artifactId>hadoop-explorer-parent</artifactId>	<artifactId>pristan-parent</artifactId>
