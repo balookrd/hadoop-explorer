@@ -67,9 +67,11 @@ class SecurityConfigurationValidatorTest {
     @Test
     @DisplayName("Опубликованные в репозитории JWT-секреты отклоняются вне debug")
     void publishedSecretsAreRejectedOutsideDebug() {
-        // default of the removed Helm charts, and the sql mock-profile secret
+        // default of the removed Helm charts, the sql mock-profile secret, and the built-in default
+        // that was public before the Pristan rename
         for (String published : List.of("replace-with-a-very-long-random-string-in-production",
-                "sql-explorer-super-secret-jwt-token-key-32-chars-min!")) {
+                "sql-explorer-super-secret-jwt-token-key-32-chars-min!",
+                "hadoop-explorer-default-secret-key-32-chars-minimum-safe-value")) {
             IllegalStateException error = assertThrows(IllegalStateException.class, () -> SecurityConfigurationValidator.validate(bind(Map.of(
                     "hadoop.security.auth.mode", "kerberos",
                     "hadoop.security.jwt.secret-key", published))));

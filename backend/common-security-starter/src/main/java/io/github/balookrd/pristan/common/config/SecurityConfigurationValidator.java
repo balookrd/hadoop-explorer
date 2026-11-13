@@ -31,6 +31,8 @@ public class SecurityConfigurationValidator implements InitializingBean {
             // defaults of the removed Helm charts (helm/, deleted in af69592a)
             "replace-with-a-very-long-random-string-in-production",
             "yarn-explorer-super-secret-key-change-in-production-random-hash",
+            // built-in default before the Pristan rename (CommonSecurityProperties.JwtProperties.DEFAULT_SECRET_KEY)
+            "hadoop-explorer-default-secret-key-32-chars-minimum-safe-value",
             // application-mock.yml of the services and test resources
             "hdfs-explorer-super-secret-jwt-token-key-32-chars-min!",
             "sql-explorer-super-secret-jwt-token-key-32-chars-min!",
