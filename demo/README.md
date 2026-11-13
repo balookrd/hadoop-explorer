@@ -3,7 +3,7 @@
 Каталог содержит локальные стенды на Docker Compose для демонстрации и интеграционного тестирования сервисов платформы:
 - `demo/infra` — общая инфраструктура безопасности: MIT Kerberos KDC и OpenLDAP с заранее созданными пользователями и группами, генерация keytab-файлов.
 - `demo/artel` — стенд Artel (:8001) с двумя кластерами YARN ResourceManager и Capacity Scheduler.
-- `demo/hdfs` — стенд HDFS Explorer (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
+- `demo/sklad` — стенд Sklad (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
 - `demo/sql` — стенд SQL Explorer (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - `demo/spark` — стенд Spark Explorer (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
 - `demo/replicator` — стенд Hadoop gRPC Replicator (:8005) с межкластерной репликацией HDFS и Hive Metastore (2 HMS, 2 HDFS, 2 агента, KDC).
@@ -22,7 +22,7 @@ make demo-all
 
 Сервисы доступны по адресам:
 - Artel: [http://localhost:8001](http://localhost:8001)
-- HDFS Explorer: [http://localhost:8002](http://localhost:8002)
+- Sklad: [http://localhost:8002](http://localhost:8002)
 - SQL Explorer: [http://localhost:8003](http://localhost:8003)
 - Spark Explorer: [http://localhost:8004](http://localhost:8004)
 - Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
@@ -36,7 +36,7 @@ make demo-all-stop
 
 ### Отдельные стенды
 - Artel: `make demo-artel` (остановка: `make demo-artel-stop`)
-- HDFS Explorer: `make demo-hdfs` (остановка: `make demo-hdfs-stop`)
+- Sklad: `make demo-sklad` (остановка: `make demo-sklad-stop`)
 - SQL Explorer: `make demo-sql` (остановка: `make demo-sql-stop`)
 - Spark Explorer: `make demo-spark` (остановка: `make demo-spark-stop`)
 - Replicator: `make demo-replicator` (остановка: `make demo-replicator-stop`)

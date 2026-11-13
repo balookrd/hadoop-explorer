@@ -29,7 +29,7 @@
 | `prometheus` | Prometheus Server (метрики всех 5 сервисов) | `9090` | `9090` |
 | `grafana` | Grafana (дашборды платформы) | `3000` | `3000` |
 | `artel` | Artel (UI и бэкенд) | `8000` | `8001` |
-| `hdfs-explorer` | HDFS Explorer (UI и бэкенд) | `8000` | `8002` |
+| `sklad` | Sklad (UI и бэкенд) | `8000` | `8002` |
 | `sql-explorer` | SQL Explorer (UI и бэкенд) | `8003` | `8003` |
 | `spark-explorer` | Spark Explorer (UI и бэкенд) | `8004` | `8004` |
 
@@ -59,7 +59,7 @@ cd demo/all && ./start-all-demo.sh
 
 ### Веб-интерфейсы
 - Artel: [http://localhost:8001](http://localhost:8001)
-- HDFS Explorer: [http://localhost:8002](http://localhost:8002)
+- Sklad: [http://localhost:8002](http://localhost:8002)
 - SQL Explorer: [http://localhost:8003](http://localhost:8003)
 - Spark Explorer: [http://localhost:8004](http://localhost:8004)
 - Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
@@ -105,7 +105,7 @@ docker compose -f demo/all/docker-compose.all.yml down -v
 - Войдите как `engineer` и создайте заявку на перераспределение весов очередей `root.etl` и `root.analytics`.
 - Войдите как `admin` и согласуйте заявку кнопкой **Одобрить и сгенерировать XML**.
 
-### HDFS Explorer (`:8002`)
+### Sklad (`:8002`)
 - Войдите как `engineer` (`password123`).
 - Перейдите в `/data` и просмотрите директории таблиц Hive.
 - Откройте предпросмотр файлов Parquet или текстовых логов.

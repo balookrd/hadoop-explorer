@@ -10,7 +10,7 @@ volumes:
 services:
   hdfs-cluster-1:
     build:
-      context: ../hdfs/hadoop
+      context: ../sklad/hadoop
     container_name: hdfs-cluster-1
     hostname: hdfs-cluster-1
     restart: unless-stopped
@@ -18,7 +18,7 @@ services:
       CLUSTER_ID: "hdfs-cluster-1"
       CLUSTER_NAME: "Production DataLake"
     volumes:
-      - ../hdfs/hadoop/entrypoint.sh:/entrypoint.sh:ro
+      - ../sklad/hadoop/entrypoint.sh:/entrypoint.sh:ro
       - demo-shared-keytabs:/shared/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     ports:
@@ -34,7 +34,7 @@ services:
 
   hdfs-cluster-2:
     build:
-      context: ../hdfs/hadoop
+      context: ../sklad/hadoop
     container_name: hdfs-cluster-2
     hostname: hdfs-cluster-2
     restart: unless-stopped
@@ -42,7 +42,7 @@ services:
       CLUSTER_ID: "hdfs-cluster-2"
       CLUSTER_NAME: "Archive & Analytics DataLake"
     volumes:
-      - ../hdfs/hadoop/entrypoint.sh:/entrypoint.sh:ro
+      - ../sklad/hadoop/entrypoint.sh:/entrypoint.sh:ro
       - demo-shared-keytabs:/shared/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     ports:

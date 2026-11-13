@@ -11,7 +11,7 @@
 | Сервис | Порт по умолчанию | Назначение | Руководство администратора |
 |---|---|---|---|
 | Artel | `8001` (или `8000`) | Управление очередями Capacity Scheduler, мониторинг YARN RM HA, Change Requests, доставка и применение через Ansible AWX | [docs/yarn-admin-guide.md](yarn-admin-guide.md) |
-| HDFS Explorer | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
+| Sklad | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
 | SQL Explorer | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
 | Spark Explorer | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
 | Hadoop gRPC Replicator | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
@@ -70,7 +70,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
   SPRING_DATASOURCE_PASSWORD=<db_password>
   ZASTAVA_SESSIONSTORE_TYPE=jdbc
   ```
-  `<pg_host>` — адрес PostgreSQL, `<database>` — база сервиса, `<db_user>` и `<db_password>` — учетная запись с правами владельца базы. Порядок перехода, привязка клиента к экземпляру для SQL, Spark и HDFS Explorer и проверочный список — в [production-database.md](production-database.md).
+  `<pg_host>` — адрес PostgreSQL, `<database>` — база сервиса, `<db_user>` и `<db_password>` — учетная запись с правами владельца базы. Порядок перехода, привязка клиента к экземпляру для SQL, Spark и Sklad и проверочный список — в [production-database.md](production-database.md).
 
 ---
 
@@ -79,7 +79,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 | Сервис | Внутренний порт контейнера | Внешний порт (Demo) | Рекомендуемый Host Ingress |
 |---|---|---|---|
 | Artel | `8000` | `8001` | `https://yarn.company.local` |
-| HDFS Explorer | `8000` | `8002` | `https://hdfs.company.local` |
+| Sklad | `8000` | `8002` | `https://hdfs.company.local` |
 | SQL Explorer | `8003` | `8003` | `https://sql.company.local` |
 | Spark Explorer | `8004` | `8004` | `https://spark.company.local` |
 | Replicator Orchestrator | `8005` | `8005` | `https://replicator.company.local` |
@@ -108,7 +108,7 @@ scrape_configs:
 Дашборды лежат в каталоге `monitoring/grafana/dashboards/`:
 - Platform Overview: [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — HTTP golden signals YARN, HDFS, SQL и Spark Explorer, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
 - gRPC Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
-- HDFS Operations: [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
+- HDFS Operations: [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
 - Artel: [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request, задержка API.
 - Spark & SQL Analytics: [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, длительность инструкций, темп и длительность SQL-запросов.
 

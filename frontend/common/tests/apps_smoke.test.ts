@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
-import HdfsApp from '../../apps/hdfs/src/App.svelte';
+import HdfsApp from '../../apps/sklad/src/App.svelte';
 import SparkApp from '../../apps/spark/src/App.svelte';
 import SqlApp from '../../apps/sql/src/App.svelte';
 import YarnApp from '../../apps/artel/src/App.svelte';
@@ -61,11 +61,11 @@ describe('All 4 SPA Applications Smoke Mounting Tests', () => {
     );
   });
 
-  it('mounts HDFS Explorer App without runtime exceptions', async () => {
+  it('mounts Sklad App without runtime exceptions', async () => {
     const { container } = render(HdfsApp);
     expect(container).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/HDFS Explorer/i)).toBeInTheDocument();
+      expect(screen.getByText(/Sklad/i)).toBeInTheDocument();
     });
   });
 

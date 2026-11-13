@@ -1,6 +1,6 @@
-# Руководство администратора: HDFS Explorer
+# Руководство администратора: Sklad
 
-Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация HDFS Explorer в двух режимах:
+Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация Sklad в двух режимах:
 1. Standalone: bare-metal или виртуальная машина под управлением systemd.
 2. Docker и Docker Compose.
 
@@ -9,7 +9,7 @@
 ## 1. Архитектура и требования
 
 ### 1.1 Функции сервиса
-HDFS Explorer — веб-менеджер файлов Apache Hadoop HDFS:
+Sklad — веб-менеджер файлов Apache Hadoop HDFS:
 - Навигация по каталогам, загрузка, скачивание, удаление и перемещение файлов через нативный клиент Hadoop FileSystem (RPC); WebHDFS используется как резервный канал (fallback).
 - Переключение на другую NameNode в HA-конфигурации при получении `StandbyException`.
 - Вход через Kerberos SPNEGO SSO и выполнение операций от имени пользователя (`doAs`).
@@ -53,10 +53,10 @@ Git, Apache Maven, Node.js и npm на целевых серверах при у
 
 ### 1.4 Дистрибутивы (GitHub Releases и GHCR)
 - GitHub Releases (`v${VERSION}`):
-  - `hdfs-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat-JAR с веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
+  - `sklad-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat-JAR с веб-интерфейсом Svelte 5 SPA, WebHDFS-клиентом, просмотрщиком Parquet/ORC и драйверами БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/pristan/hdfs:${VERSION}`
+  - `ghcr.io/company/pristan/sklad:${VERSION}`
 
 ---
 
@@ -119,14 +119,14 @@ BIN_DIR="/opt/pristan/hdfs/bin"
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
 # 1. Загрузка через curl по прямой ссылке (или через `gh release download`):
-curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/hdfs-explorer-java-${VERSION}.jar"
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/sklad-${VERSION}.jar"
 curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/SHA256SUMS.txt"
 
 # 2. Проверка контрольной суммы:
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # 3. Создание стабильной символической ссылки:
-ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${VERSION}.jar" "${BIN_DIR}/hdfs-explorer.jar"
+ln -sfn "${RELEASE_DIR}/sklad-${VERSION}.jar" "${BIN_DIR}/sklad.jar"
 ```
 
 #### Способ Б: сборка из исходников (для разработчиков)
@@ -138,16 +138,16 @@ cd hadoop-explorer
 
 # Сборка фронтенда HDFS (Svelte 5)
 cd frontend
-npm ci --workspace=apps/hdfs --include-workspace-root
-# Бандл собирается сразу в backend/hdfs/src/main/resources/static и попадает в JAR
-npm run build --workspace=apps/hdfs
+npm ci --workspace=apps/sklad --include-workspace-root
+# Бандл собирается сразу в backend/sklad/src/main/resources/static и попадает в JAR
+npm run build --workspace=apps/sklad
 cd ..
 
 # Сборка исполняемого Spring Boot fat-JAR
-mvn clean package -DskipTests -f backend/hdfs/pom.xml
+mvn clean package -DskipTests -f backend/sklad/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/hdfs/target/hdfs-explorer-java-*.jar /opt/pristan/hdfs/bin/hdfs-explorer.jar
+cp backend/sklad/target/sklad-*.jar /opt/pristan/hdfs/bin/sklad.jar
 ```
 
 ### Шаг 4: конфигурационный файл
@@ -158,11 +158,11 @@ server:
 
 spring:
   application:
-    name: hadoop-hdfs-explorer
+    name: sklad
   datasource:
-    url: jdbc:h2:file:/var/lib/pristan/hdfs/data/hdfs_explorer;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/hdfs/data/sklad;DB_CLOSE_DELAY=-1
     # Для PostgreSQL-кластера:
-    # url: jdbc:postgresql://pg.company.local:5432/hdfs_explorer
+    # url: jdbc:postgresql://pg.company.local:5432/sklad
     # username: hdfs_user
     # password: DbPassword123
 
@@ -191,7 +191,7 @@ hadoop:
       group-search-filter: "(member={0})"
     kerberos:
       enabled: true
-      keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
       principal: "HTTP/hdfs.company.local@COMPANY.LOCAL"
 
   # Настройка подключения к кластерам HDFS
@@ -229,10 +229,10 @@ sudo chown appuser:appuser /etc/pristan/hdfs/application.yml
 ```
 
 ### Шаг 5: systemd-юнит
-Создайте файл `/etc/systemd/system/hdfs-explorer.service`:
+Создайте файл `/etc/systemd/system/sklad.service`:
 ```ini
 [Unit]
-Description=Hadoop HDFS Explorer Java Service (Spring Boot 3)
+Description=Hadoop Sklad Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -248,7 +248,7 @@ ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
     -Dspring.config.location=/etc/pristan/hdfs/application.yml \
-    -jar /opt/pristan/hdfs/bin/hdfs-explorer.jar
+    -jar /opt/pristan/hdfs/bin/sklad.jar
 
 Restart=always
 RestartSec=5s
@@ -263,11 +263,11 @@ WantedBy=multi-user.target
 ### Шаг 6: запуск и проверка
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable hdfs-explorer
-sudo systemctl start hdfs-explorer
+sudo systemctl enable sklad
+sudo systemctl start sklad
 
 # Проверка статуса
-sudo systemctl status hdfs-explorer
+sudo systemctl status sklad
 curl -I http://127.0.0.1:8000/healthz
 # HTTP/1.1 200 OK
 ```
@@ -281,15 +281,15 @@ NEW_VER="1.0.1"
 RELEASE_DIR="/opt/pristan/hdfs/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/hdfs-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/sklad-${NEW_VER}.jar"
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение символической ссылки (симлинка):
-ln -sfn "${RELEASE_DIR}/hdfs-explorer-java-${NEW_VER}.jar" /opt/pristan/hdfs/bin/hdfs-explorer.jar
+ln -sfn "${RELEASE_DIR}/sklad-${NEW_VER}.jar" /opt/pristan/hdfs/bin/sklad.jar
 
 # Перезапуск сервиса (занимает 2–3 с):
-sudo systemctl restart hdfs-explorer
+sudo systemctl restart sklad
 ```
 
 ---
@@ -304,27 +304,27 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/pristan/hdfs:${VERSION}
+docker pull ghcr.io/company/pristan/sklad:${VERSION}
 ```
 
 ### 3.2 Локальная сборка образа (для разработки)
 ```bash
-docker build -t ghcr.io/company/pristan/hdfs:latest -f docker/Dockerfile.hdfs-java .
+docker build -t ghcr.io/company/pristan/sklad:latest -f docker/Dockerfile.sklad .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
 ```bash
 docker run -d \
-  --name hdfs-explorer \
+  --name sklad \
   --restart unless-stopped \
   -p 8000:8000 \
   -e SPRING_CONFIG_LOCATION=/app/config/application.yml \
   -e KRB5_CONFIG=/etc/krb5.conf \
-  -v /opt/hdfs-explorer/application.yml:/app/config/application.yml:ro \
+  -v /opt/sklad/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v hdfs-data:/app/data \
-  ghcr.io/company/pristan/hdfs:1.0.0
+  ghcr.io/company/pristan/sklad:1.0.0
 ```
 
 ### 3.4 Запуск через `docker-compose.yml`
@@ -332,9 +332,9 @@ docker run -d \
 version: "3.8"
 
 services:
-  hdfs-explorer:
-    image: ghcr.io/company/pristan/hdfs:1.0.0
-    container_name: hdfs-explorer
+  sklad:
+    image: ghcr.io/company/pristan/sklad:1.0.0
+    container_name: sklad
     restart: unless-stopped
     ports:
       - "8002:8000"
@@ -376,7 +376,7 @@ networks:
 Запуск:
 ```bash
 docker compose up -d
-docker compose logs -f hdfs-explorer
+docker compose logs -f sklad
 ```
 
 ---
@@ -390,23 +390,23 @@ docker compose logs -f hdfs-explorer
 |---|---|---|---|
 | `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="hdfs"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
 | `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="hdfs"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
-| `hdfs_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS. `operation`: `list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`. `status`: `success` или `failed` (вызов завершился исключением) |
-| `hdfs_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | `download` — байты, прочитанные из HDFS (скачивание, предпросмотр, источник межкластерного копирования); `upload` — байты, записанные в HDFS (загрузка, распаковка архива, приемник копирования) |
+| `sklad_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS. `operation`: `list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`. `status`: `success` или `failed` (вызов завершился исключением) |
+| `sklad_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | `download` — байты, прочитанные из HDFS (скачивание, предпросмотр, источник межкластерного копирования); `upload` — байты, записанные в HDFS (загрузка, распаковка архива, приемник копирования) |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
 
 Кроме них публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
 
-Ограничение: предпросмотр ORC и Parquet на кластере с `NativeHdfsClient` читает файл через `FileSystem` напрямую (`FilePreviewService.preview`) и в `hdfs_operations_total` и `hdfs_bytes_transferred_total` не попадает.
+Ограничение: предпросмотр ORC и Parquet на кластере с `NativeHdfsClient` читает файл через `FileSystem` напрямую (`FilePreviewService.preview`) и в `sklad_operations_total` и `sklad_bytes_transferred_total` не попадает.
 
 Проверка на демо-стенде:
 
 ```bash
-curl -s http://localhost:8002/actuator/prometheus | grep '^hdfs_operations_total'
+curl -s http://localhost:8002/actuator/prometheus | grep '^sklad_operations_total'
 ```
 
-После открытия каталога в интерфейсе в выводе есть строка вида `hdfs_operations_total{app="hdfs",cluster="<cluster_id>",operation="list_status",status="success"} 1.0`, где `<cluster_id>` — идентификатор кластера из `hadoop.hdfs.clusters`.
+После открытия каталога в интерфейсе в выводе есть строка вида `sklad_operations_total{app="hdfs",cluster="<cluster_id>",operation="list_status",status="success"} 1.0`, где `<cluster_id>` — идентификатор кластера из `sklad.clusters`.
 
-Сбор метрик Prometheus и дашборд `hdfs_explorer_operations.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
+Сбор метрик Prometheus и дашборд `sklad_operations.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Известные проблемы
 
@@ -418,7 +418,7 @@ curl -s http://localhost:8002/actuator/prometheus | grep '^hdfs_operations_total
 
 ## 5. Бэкенд на Java 21 / Spring Boot 3
 
-Бэкенд (`backend/hdfs`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует библиотеку Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
+Бэкенд (`backend/sklad`) написан на Java 21 LTS и Spring Boot 3.3.4 и использует библиотеку Apache Hadoop Client (`org.apache.hadoop:hadoop-hdfs-client`).
 
 ### 5.1 Компоненты бэкенда
 1. Клиент Hadoop FileSystem: обращается к NameNode напрямую по RPC (`hdfs://`) или HTTP (`webhdfs://`), без промежуточных шлюзов.
@@ -430,13 +430,13 @@ curl -s http://localhost:8002/actuator/prometheus | grep '^hdfs_operations_total
 
 ```bash
 # Модульное и интеграционное тестирование
-make test-hdfs
+make test-sklad
 # или
-mvn test -f backend/hdfs/pom.xml
+mvn test -f backend/sklad/pom.xml
 
 # Сборка исполняемого fat-JAR
-make build-hdfs
-# Результат: backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
+make build-sklad
+# Результат: backend/sklad/target/sklad-1.0.0.jar
 
 # Полная валидация всех Java-компонентов платформы
 make test-java
@@ -450,7 +450,7 @@ java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8001 \
   -Dhadoop.security.auth.mode=kerberos \
   -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
-  -Dhadoop.hdfs.clusters-config-path=/etc/pristan/clusters.yaml \
-  backend/hdfs/target/hdfs-explorer-java-1.0.0.jar
+  -Dsklad.clusters-config-path=/etc/pristan/clusters.yaml \
+  backend/sklad/target/sklad-1.0.0.jar
 ```
 

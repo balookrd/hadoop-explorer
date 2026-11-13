@@ -12,7 +12,7 @@ describe('Common UI Components Suite', () => {
       const handleLogout = vi.fn();
       render(Header, {
         props: {
-          title: 'HDFS Explorer',
+          title: 'Sklad',
           subtitle: 'Файловая система',
           user: {
             username: 'alice',
@@ -26,7 +26,7 @@ describe('Common UI Components Suite', () => {
         }
       });
 
-      expect(screen.getByText('HDFS Explorer')).toBeInTheDocument();
+      expect(screen.getByText('Sklad')).toBeInTheDocument();
       expect(screen.getByText('Файловая система')).toBeInTheDocument();
       expect(screen.getByText('Alice Cooper')).toBeInTheDocument();
       expect(screen.getByText('@alice')).toBeInTheDocument();

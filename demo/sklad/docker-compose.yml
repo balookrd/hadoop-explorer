@@ -1,0 +1,36 @@
+name: sklad-demo
+
+include:
+  - path: ../platform/docker-compose.hdfs.yml
+
+services:
+  sklad:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.sklad
+    container_name: sklad
+    hostname: sklad
+    restart: unless-stopped
+    environment:
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
+      - FRONTEND_DIST=/app/frontend/dist
+      - KRB5_CONFIG=/etc/krb5_shared/krb5.conf
+      - JAVA_TOOL_OPTIONS=-Djava.security.krb5.conf=/etc/krb5_shared/krb5.conf
+    volumes:
+      - ./application-demo.yml:/app/config/application.yml:ro
+      - demo-shared-keytabs:/etc/security/keytabs:ro
+      - demo-shared-krb5:/etc/krb5_shared:ro
+      - hdfs-demo-data:/app/data
+    ports:
+      - "8002:8000"
+    depends_on:
+      kdc:
+        condition: service_healthy
+      ldap:
+        condition: service_healthy
+      hdfs-cluster-1:
+        condition: service_started
+      hdfs-cluster-2:
+        condition: service_started
+    networks:
+      - demo-platform-net

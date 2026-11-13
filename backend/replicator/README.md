@@ -1,6 +1,6 @@
 # Hadoop gRPC Replicator
 
-Сервис межкластерной репликации данных HDFS (DC1 → DC2 → DC3) через WAN с многоуровневым контролем полосы пропускания (Hierarchical Token Bucket), gRPC-транспортом, изоляцией Kerberos-контекстов и веб-интерфейсом в дизайн-системе HDFS Explorer.
+Сервис межкластерной репликации данных HDFS (DC1 → DC2 → DC3) через WAN с многоуровневым контролем полосы пропускания (Hierarchical Token Bucket), gRPC-транспортом, изоляцией Kerberos-контекстов и веб-интерфейсом в дизайн-системе Sklad.
 
 ---
 
@@ -39,7 +39,7 @@
   - При репликации HMS схем указанный пользователь передается во все вложенные HDFS-подзадачи переноса данных (`HMS_SUBJOB`).
 - Политики Apache Ranger применяются к инициатору задачи, в Ranger Audit Log операция записывается как `ugi: user (auth:PROXY via hdfs-replicator)`.
 
-### Веб-консоль в стиле HDFS Explorer
+### Веб-консоль в стиле Sklad
 
 - Единая палитра `bg-slate-950` / `bg-slate-900` / `border-slate-800` / `text-slate-100`.
 - Окно входа повторяет `LoginModal.svelte`.

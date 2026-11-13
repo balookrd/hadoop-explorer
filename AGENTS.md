@@ -13,7 +13,7 @@ pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
 │   ├── zastava/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
 │   ├── yarn/                 # Artel API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
-│   ├── hdfs/                 # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
+│   ├── hdfs/                 # Sklad API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
 │   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons
@@ -79,7 +79,7 @@ pristan/
   * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)
   * Стартер безопасности: `make test-zastava` (сборка: `make build-zastava`)
   * Сервис YARN: `mvn test -f backend/artel/pom.xml` (или `make test-artel`)
-  * Сервис HDFS: `mvn test -f backend/hdfs/pom.xml` (или `make test-hdfs`)
+  * Сервис HDFS: `mvn test -f backend/sklad/pom.xml` (или `make test-sklad`)
   * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)
   * Сервис Spark: `mvn test -f backend/spark/pom.xml` (или `make test-spark`)
   * Сервис Replicator: `mvn test -f backend/replicator/pom.xml`

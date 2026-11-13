@@ -54,7 +54,7 @@ Livy запускает каждую сессию через `spark-submit --mas
 
 - `demo/artel/cluster-1/core-site.xml`, `demo/artel/cluster-2/core-site.xml`: `hadoop.proxyuser.hive.*`. Livy входит в KDC как `hive/hive-server` (`hive/hive-server-2.demo-platform-net` для кластера 2), и RM без этого отклоняет отправку от имени пользователя.
 - `demo/artel/cluster-1/hdfs-site.xml`, `demo/artel/cluster-2/hdfs-site.xml` (подключены в `demo/platform/docker-compose.yarn.yml`): principal NameNode. RM продлевает токен HDFS приложения при отправке и без principal отклоняет приложение с `Failed to specify server's Kerberos principal name`.
-- `hadoop.proxyuser.hive.*` в HDFS (`demo/hdfs/hadoop/entrypoint.sh`) и в Hive Metastore (`demo/sql/hive/core-site*.xml`) уже были.
+- `hadoop.proxyuser.hive.*` в HDFS (`demo/sklad/hadoop/entrypoint.sh`) и в Hive Metastore (`demo/sql/hive/core-site*.xml`) уже были.
 
 Принципалы и keytab'ы `demo/infra` не менялись. NodeManager входит под principal RM своего кластера (`yarn/yarn-rm-N.yarn-demo-net` из `yarn-cluster-N.keytab`).
 
@@ -112,6 +112,6 @@ docker exec yarn-rm-1 bash -c 'kinit -kt /etc/security/keytabs/yarn-cluster-1.ke
 
 ## Известные проблемы
 
-- Первый `start-demo.sh` после `stop-demo.sh` занимает 5–8 минут (замеры на arm64: 5 мин 21 с, 6 мин 10 с, 7 мин 50 с). Большая часть уходит на инициализацию `hdfs-cluster-1` и `hdfs-cluster-2`: образ `apache/hadoop:3.3.6` только для amd64, каждая команда `hdfs dfs` в `demo/hdfs/hadoop/entrypoint.sh` запускает JVM под эмуляцией. До появления строки `HDFS кластер hdfs-cluster-N готов к работе` в `docker logs hdfs-cluster-N` каталоги `/tmp`, `/tmp/hive` и `/user` еще не получили права `1777`/`777`, и сессия, созданная из UI в это время, падает с `Permission denied` на `/tmp/hive` или `/user`.
+- Первый `start-demo.sh` после `stop-demo.sh` занимает 5–8 минут (замеры на arm64: 5 мин 21 с, 6 мин 10 с, 7 мин 50 с). Большая часть уходит на инициализацию `hdfs-cluster-1` и `hdfs-cluster-2`: образ `apache/hadoop:3.3.6` только для amd64, каждая команда `hdfs dfs` в `demo/sklad/hadoop/entrypoint.sh` запускает JVM под эмуляцией. До появления строки `HDFS кластер hdfs-cluster-N готов к работе` в `docker logs hdfs-cluster-N` каталоги `/tmp`, `/tmp/hive` и `/user` еще не получили права `1777`/`777`, и сессия, созданная из UI в это время, падает с `Permission denied` на `/tmp/hive` или `/user`.
 - ResourceManager (`apache/hadoop:3.4.0`, amd64 под эмуляцией `qemu-x86_64` на arm64) изредка зависает при старте: в `docker logs yarn-rm-N` после `Starting YARN ResourceManager` нет ни одной строки, процессы java в контейнере не потребляют CPU, порт `8032` отказывает в соединении. `init-demo-tables.sh` ждет регистрации `spark-yarn-nm-N` в RM 300 секунд и затем выводит подсказку. Восстановление: `docker restart yarn-rm-N`, затем повторный запуск `./init-demo-tables.sh`. Livy ждет появления приложения в YARN 600 секунд (`livy.server.yarn.app-lookup-timeout`, по умолчанию `120s`), поэтому сессии, созданные во время медленного старта RM, не удаляются.
 

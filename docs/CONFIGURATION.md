@@ -3,7 +3,7 @@
 Документ для администраторов платформы Pristan: параметры конфигурации, форматы файлов и переменные окружения компонентов.
 - Общий стартер безопасности (`backend/zastava` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
 - Artel (`backend/artel` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
-- HDFS Explorer (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
+- Sklad (`backend/sklad` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
 - Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
@@ -24,7 +24,7 @@
    - [YARN-кластеры и партиции](#31-yarn-кластеры-и-партиции)
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
    - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
-4. [Настройка HDFS Explorer](#4-настройка-hdfs-explorer)
+4. [Настройка Sklad](#4-настройка-sklad)
 5. [Настройка SQL Explorer (Trino & Hive)](#5-настройка-sql-explorer-trino--hive)
    - [Аналитические кластеры](#51-аналитические-кластеры)
    - [Параметры выполнения запросов и сохранение воркспейса](#52-параметры-выполнения-запросов-и-сохранение-воркспейса)
@@ -60,7 +60,7 @@
 2. Внешний файл `application.yml`, указанный в `SPRING_CONFIG_ADDITIONAL_LOCATION` (или `--spring.config.additional-location`).
 3. `application.yml` (и `application-<profile>.yml` для профилей из `SPRING_PROFILES_ACTIVE`), упакованные в JAR из `backend/<service>/src/main/resources/`.
 
-Переменные `CONFIG_PATH`, `HDFS_CONFIG_PATH`, `YARN_CONFIG_PATH`, `SQL_CONFIG_PATH`, `SPARK_CONFIG_PATH` и файлы `config/config.yaml` Java-сервисы не читают. Исключение — HDFS Explorer: список кластеров можно вынести в отдельный YAML и указать путь в `hadoop.hdfs.clusters-config-path`.
+Переменные `CONFIG_PATH`, `HDFS_CONFIG_PATH`, `YARN_CONFIG_PATH`, `SQL_CONFIG_PATH`, `SPARK_CONFIG_PATH` и файлы `config/config.yaml` Java-сервисы не читают. Исключение — Sklad: список кластеров можно вынести в отдельный YAML и указать путь в `sklad.clusters-config-path`.
 
 > [!IMPORTANT]
 > Значения по умолчанию и проверки на старте (все Java-сервисы).
@@ -102,7 +102,7 @@ hadoop:
       algorithm: HS256
       expiration-minutes: 480
     cookie:
-      names: ["access_token", "pristan_session", "session_token", "hdfs_explorer_session"]
+      names: ["access_token", "pristan_session", "session_token", "sklad_session"]
       domain:                          # Не задан: cookie привязана к хосту ответа
       path: /
       secure: true                     # Передавать cookie только по HTTPS (по умолчанию false)
@@ -387,11 +387,11 @@ yarn:
 
 ---
 
-## 4. Настройка HDFS Explorer
+## 4. Настройка Sklad
 
-Файл конфигурации: `backend/hdfs/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
+Файл конфигурации: `backend/sklad/src/main/resources/application.yml` (или внешний файл `application.yml` / переменные окружения).
 
-### Пример секции `hadoop.hdfs.clusters`:
+### Пример секции `sklad.clusters`:
 
 ```yaml
 hadoop:
@@ -408,7 +408,7 @@ hadoop:
           - "hdfs://nn2.prod.company.local:8020"
         auth-type: "kerberos"       # kerberos | simple
         service-principal: "hdfs/nn1.prod.company.local@COMPANY.LOCAL"
-        keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+        keytab-path: "/etc/security/keytabs/sklad.keytab"
         timeout-seconds: 30
         preview-max-bytes: 10485760 # Лимит чтения файлов для превью (10 MB)
         default-path: "/user/{username}"
@@ -1174,7 +1174,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Сервис | Эндпоинт | Порт в контейнере | Доступ | Содержимое |
 |---|---|---|---|---|
 | Artel | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `artel_change_requests_total` |
-| HDFS Explorer | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
+| Sklad | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
 | SQL Explorer | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `sql_query_duration_seconds` |
 | Spark Explorer | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
 | Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
@@ -1216,8 +1216,8 @@ YARN, HDFS, SQL и Spark Explorer:
 | `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC, для неизвестных путей `UNKNOWN` |
 | `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`) и смысла не несут | Запросы в обработке на момент опроса: `_count` — их число, включая сам запрос к `/actuator/prometheus`; `_sum` и `_max` — сколько секунд они уже выполняются |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы `/api/*`, отклоненные `RateLimitFilter` ответом 429. `tier`: `login` (пути `/api/v1/auth/login` и `/api/v1/auth/sso`) или `api` (остальные пути `/api/*`). Серия появляется после первого отказа на уровне. Алерты: `HadoopLoginRateLimitSpike` (`login`, больше 0,2 отказа/с за 5 мин) и `HadoopApiRateLimitSpike` (`api`, больше 1 отказа/с) |
-| `hdfs_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS (`list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`), `status`: `success`, `failed` |
-| `hdfs_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
+| `sklad_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS (`list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`), `status`: `success`, `failed` |
+| `sklad_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
 | `artel_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
 | `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
 | `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
@@ -1261,7 +1261,7 @@ scrape_configs:
     static_configs:
       - targets:
           - 'artel:8000'
-          - 'hdfs-explorer:8000'
+          - 'sklad:8000'
           - 'sql-explorer:8003'
           - 'spark-explorer:8004'
 ```
@@ -1280,26 +1280,26 @@ scrape_configs:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: hdfs-explorer
+  name: sklad
   namespace: hadoop-explorer
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: hdfs-explorer
+      app.kubernetes.io/name: sklad
   endpoints:
     - port: http
       path: /actuator/prometheus
       interval: 30s
 ```
 
-`selector.matchLabels` должен совпадать с лейблами вашего Service, а `port` — с именем его порта, который ведет на порт приложения (`8000` для HDFS Explorer). Если в неймспейсе действует NetworkPolicy, разрешите входящие соединения на этот порт из неймспейса Prometheus, иначе цель будет в статусе `DOWN` с ошибкой `context deadline exceeded`.
+`selector.matchLabels` должен совпадать с лейблами вашего Service, а `port` — с именем его порта, который ведет на порт приложения (`8000` для Sklad). Если в неймспейсе действует NetworkPolicy, разрешите входящие соединения на этот порт из неймспейса Prometheus, иначе цель будет в статусе `DOWN` с ошибкой `context deadline exceeded`.
 
 ### 9.5 Готовые дашборды Grafana
 
 В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/):
 
 1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
-2. [`hdfs_explorer_operations.json`](../monitoring/grafana/dashboards/hdfs_explorer_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
+2. [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
 3. [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request по статусам, p95 API Artel по URI.
 4. [`spark_sql_explorer_analytics.json`](../monitoring/grafana/dashboards/spark_sql_explorer_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
 5. Дашборды Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json), [`hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json), [`hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json), [`hadoop_replicator_kafka.json`](../monitoring/grafana/dashboards/hadoop_replicator_kafka.json).
@@ -1341,7 +1341,7 @@ spec:
   ```
 - Доля ошибок операций HDFS по кластерам:
   ```promql
-  sum(rate(hdfs_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(hdfs_operations_total[5m])) by (cluster)
+  sum(rate(sklad_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(sklad_operations_total[5m])) by (cluster)
   ```
 
 ---
@@ -1352,7 +1352,7 @@ spec:
 
 - [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
 - [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
-- [Руководство администратора HDFS Explorer (hdfs-admin-guide.md)](hdfs-admin-guide.md)
+- [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
 - [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)

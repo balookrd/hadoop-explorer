@@ -42,7 +42,7 @@ groups:
           description: "Ответов 429 на запросы к API в {{ $labels.app }} больше 1 в секунду (среднее за 5 минут) в течение 2 минут."
 
       - alert: HdfsOperationsHighFailureRate
-        expr: (sum(rate(hdfs_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(hdfs_operations_total[5m])) by (cluster)) > 0.10
+        expr: (sum(rate(sklad_operations_total{status="failed"}[5m])) by (cluster) / sum(rate(sklad_operations_total[5m])) by (cluster)) > 0.10
         for: 2m
         labels:
           severity: warning

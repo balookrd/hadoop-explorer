@@ -171,7 +171,7 @@ public class ZastavaProperties {
             "access_token",
             "pristan_session",
             "session_token",
-            "hdfs_explorer_session"
+            "sklad_session"
         ));
         private String domain;
         private String path = "/";

@@ -1,20 +1,20 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Pristan — HDFS Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Sklad" width="380" />
 
-# Руководство пользователя: HDFS Explorer
+# Руководство пользователя: Sklad
 
 </div>
 
 ---
 
-HDFS Explorer — веб-интерфейс для работы с файлами в Apache Hadoop HDFS: навигация по каталогам, предпросмотр файлов аналитических форматов, пакетная загрузка, распаковка архивов и копирование данных между кластерами. Руководство описывает работу в интерфейсе для пользователей с ролями администратора, инженера данных и аналитика.
+Sklad — веб-интерфейс для работы с файлами в Apache Hadoop HDFS: навигация по каталогам, предпросмотр файлов аналитических форматов, пакетная загрузка, распаковка архивов и копирование данных между кластерами. Руководство описывает работу в интерфейсе для пользователей с ролями администратора, инженера данных и аналитика.
 
 ---
 
 ## Содержание
 
-1. [Возможности HDFS Explorer](#1-возможности-hdfs-explorer)
+1. [Возможности Sklad](#1-возможности-sklad)
 2. [Архитектура и потоки данных](#2-архитектура-и-потоки-данных)
 3. [Аутентификация и роли](#3-аутентификация-и-роли)
 4. [Главный экран и навигация](#4-главный-экран-и-навигация)
@@ -38,13 +38,13 @@ HDFS Explorer — веб-интерфейс для работы с файлам�
 
 ---
 
-## 1. Возможности HDFS Explorer
+## 1. Возможности Sklad
 
-Без HDFS Explorer с файлами в HDFS работают через командную строку (`hdfs dfs -ls`, `hdfs dfs -cat`, `hdfs dfs -put`) или веб-интерфейс NameNode (порт 9870). Веб-интерфейс NameNode не показывает содержимое Parquet и ORC и требует сетевого доступа к узлам кластера. HDFS Explorer работает через серверный шлюз:
+Без Sklad с файлами в HDFS работают через командную строку (`hdfs dfs -ls`, `hdfs dfs -cat`, `hdfs dfs -put`) или веб-интерфейс NameNode (порт 9870). Веб-интерфейс NameNode не показывает содержимое Parquet и ORC и требует сетевого доступа к узлам кластера. Sklad работает через серверный шлюз:
 
 ```mermaid
 graph LR
-    User(["Пользователь / Аналитик"]) -->|"HTTPS / SSO"| Frontend["HDFS Explorer UI\nSvelte 5 + TailwindCSS"]
+    User(["Пользователь / Аналитик"]) -->|"HTTPS / SSO"| Frontend["Sklad UI\nSvelte 5 + TailwindCSS"]
     Frontend -->|"REST API + JWT / Kerberos"| Gateway["HDFS Backend Gateway\nJava 21 / Spring Boot 3"]
     Gateway -->|"HDFS RPC + doAs impersonation"| NameNodeActive["NameNode Active"]
     Gateway -.->|"HA Failover Switch"| NameNodeStandby["NameNode Standby"]
@@ -65,13 +65,13 @@ graph LR
 
 ## 2. Архитектура и потоки данных
 
-HDFS Explorer состоит из веб-интерфейса (SPA) и серверного шлюза на Java 21. Шлюз обращается к NameNode и DataNode напрямую. Последовательность вызовов при открытии каталога и предпросмотре файла:
+Sklad состоит из веб-интерфейса (SPA) и серверного шлюза на Java 21. Шлюз обращается к NameNode и DataNode напрямую. Последовательность вызовов при открытии каталога и предпросмотре файла:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor U as "Пользователь"
-    participant UI as "HDFS Explorer UI"
+    participant UI as "Sklad UI"
     participant BE as "HDFS Backend Gateway (Java 21)"
     participant NN as "HDFS NameNode (RPC 8020/9000)"
     participant DN as "HDFS DataNodes (DataTransfer 9866)"
@@ -100,12 +100,12 @@ sequenceDiagram
 
 ## 3. Аутентификация и роли
 
-HDFS Explorer поддерживает два способа входа:
+Sklad поддерживает два способа входа:
 - Kerberos SPNEGO SSO: вход без пароля по билету Kerberos рабочей станции в домене Active Directory / FreeIPA.
 - LDAP / Active Directory: вход по имени пользователя и паролю; роли определяются по группам каталога.
 
 <div align="center">
-  <img src="images/hdfs/01_login_screen.png" alt="Экран входа HDFS Explorer" width="850" />
+  <img src="images/hdfs/01_login_screen.png" alt="Экран входа Sklad" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SSO</em></p>
 </div>
 
@@ -131,7 +131,7 @@ HDFS Explorer поддерживает два способа входа:
 | Data Analysts (`analytics`) | Да, только чтение | Нет | Нет | Нет |
 | Domain Users (`domain users`) | Да, базовый доступ | Ограниченно: по квоте / домашняя папка | Ограниченно: только в `/user/{username}` | Нет |
 
-Операции с файлами выполняются от имени вошедшего пользователя (Hadoop UGI `doAs`), а не от имени сервисной учетной записи HDFS Explorer. NameNode проверяет POSIX-права (`rwxr-xr-x`) и HDFS ACL этого пользователя: роль в HDFS Explorer не дает доступа к каталогам, закрытым для пользователя в HDFS.
+Операции с файлами выполняются от имени вошедшего пользователя (Hadoop UGI `doAs`), а не от имени сервисной учетной записи Sklad. NameNode проверяет POSIX-права (`rwxr-xr-x`) и HDFS ACL этого пользователя: роль в Sklad не дает доступа к каталогам, закрытым для пользователя в HDFS.
 
 ---
 
@@ -140,7 +140,7 @@ HDFS Explorer поддерживает два способа входа:
 После входа открывается главный экран файлового менеджера с домашним каталогом пользователя (`/user/{username}`) или корнем кластера (`/`).
 
 <div align="center">
-  <img src="images/hdfs/02_main_file_browser.png" alt="Главный экран HDFS Explorer — Корневой каталог" width="850" />
+  <img src="images/hdfs/02_main_file_browser.png" alt="Главный экран Sklad — Корневой каталог" width="850" />
   <p><em>Рисунок 2: Главный экран файлового менеджера HDFS (корневой каталог кластера)</em></p>
 </div>
 
@@ -193,7 +193,7 @@ HDFS Explorer поддерживает два способа входа:
 - Apache ORC: читаются метаданные страйпов (`orc-core`, `hive-storage-api`) и схема типов (`struct<txn_id:string, amount:double, ...>`), первые 100 строк — векторизованным чтением (`VectorizedRowBatch`).
 
 <div align="center">
-  <img src="images/hdfs/04_preview_csv_table.png" alt="Предпросмотр CSV-таблицы в HDFS Explorer" width="850" />
+  <img src="images/hdfs/04_preview_csv_table.png" alt="Предпросмотр CSV-таблицы в Sklad" width="850" />
   <p><em>Рисунок 4: Табличный предпросмотр файла metrics.csv</em></p>
 </div>
 
@@ -224,7 +224,7 @@ HDFS Explorer поддерживает два способа входа:
 2. Чтобы заменить файлы с совпадающими именами, отметьте **Перезаписывать существующие файлы при совпадении имен**.
 
 ### 6.2. Загрузка папок целиком с сохранением иерархии
-Выберите локальный каталог. Браузер передаст все вложенные каталоги и файлы, и HDFS Explorer повторит ту же структуру папок в текущем каталоге HDFS.
+Выберите локальный каталог. Браузер передаст все вложенные каталоги и файлы, и Sklad повторит ту же структуру папок в текущем каталоге HDFS.
 
 ### 6.3. Распаковка ZIP-архивов на сервере
 Перетащите `.zip`-архив. Шлюз распакует его потоком прямо в текущий каталог кластера, без промежуточной записи на диск. Этот режим подходит для загрузки большого числа мелких файлов, логов или датасетов одним архивом.
@@ -296,7 +296,7 @@ HDFS Explorer поддерживает два способа входа:
 Когда выбран хотя бы один объект, внизу экрана появляется панель пакетных действий (Batch Action Bar):
 
 <div align="center">
-  <img src="images/hdfs/11_batch_action_bar.png" alt="Панель пакетных действий HDFS Explorer" width="850" />
+  <img src="images/hdfs/11_batch_action_bar.png" alt="Панель пакетных действий Sklad" width="850" />
   <p><em>Рисунок 10: Плавающая панель пакетных действий со счетчиком выбранных объектов и суммарным объемом</em></p>
 </div>
 
@@ -357,13 +357,13 @@ HDFS Explorer поддерживает два способа входа:
 ## 10. Диагностика ошибок
 
 ### Q: Почему при попытке загрузки или удаления возникает ошибка «Permission Denied»?
-> О: HDFS Explorer выполняет операции от вашего имени через `doAs`. Если у вас в HDFS нет права на запись (`w`) в каталог или права на выполнение (`x`) в родительских каталогах, NameNode отклонит операцию. Попросите администраторов кластера выдать POSIX-права или HDFS ACL.
+> О: Sklad выполняет операции от вашего имени через `doAs`. Если у вас в HDFS нет права на запись (`w`) в каталог или права на выполнение (`x`) в родительских каталогах, NameNode отклонит операцию. Попросите администраторов кластера выдать POSIX-права или HDFS ACL.
 
 ---
 
 ### Q: Что делать, если при входе через Kerberos SSO возникает ошибка «SPNEGO ticket not provided»?
 > О: Проверьте:
-> 1. Домен HDFS Explorer добавлен в доверенные для Negotiate: параметр `network.negotiate-auth.trusted-uris` в Firefox или групповая политика `AuthServerAllowlist` в Chrome/Edge.
+> 1. Домен Sklad добавлен в доверенные для Negotiate: параметр `network.negotiate-auth.trusted-uris` в Firefox или групповая политика `AuthServerAllowlist` в Chrome/Edge.
 > 2. На рабочей станции есть действующий билет Kerberos TGT: `klist` в терминале.
 >
 > Пока SSO не работает, войдите по логину и паролю LDAP.

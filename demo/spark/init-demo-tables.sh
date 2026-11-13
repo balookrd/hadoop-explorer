@@ -24,7 +24,7 @@ init_cluster() {
         return 1
     fi
 
-    # Spark needs /tmp and /tmp/hive with mode 1777; demo/hdfs/hadoop/entrypoint.sh sets them after the NameNode
+    # Spark needs /tmp and /tmp/hive with mode 1777; demo/sklad/hadoop/entrypoint.sh sets them after the NameNode
     # leaves safe mode and then prints the ready line
     for _ in $(seq 1 100); do
         docker logs "$hdfs" 2>&1 | grep -q "кластер ${hdfs} готов к работе" && break

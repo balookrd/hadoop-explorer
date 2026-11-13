@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Cross-Application Header & Navigation Integrity Suite', () => {
   const apps = [
     { name: 'Artel', port: 5173, url: 'http://localhost:5173' },
-    { name: 'HDFS Explorer', port: 5174, url: 'http://localhost:5174' },
+    { name: 'Sklad', port: 5174, url: 'http://localhost:5174' },
     { name: 'SQL Explorer', port: 5175, url: 'http://localhost:5175' },
     { name: 'Spark Explorer', port: 5176, url: 'http://localhost:5176' },
   ];

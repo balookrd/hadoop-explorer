@@ -169,8 +169,8 @@ run_check "Дашборд: Hive Metastore DR Синхронизация (hadoop-
 run_check "Дашборд: gRPC Агенты и воркеры (hadoop-replicator-agents)" \
     verify_dashboard "hadoop-replicator-agents" "Агенты"
 
-run_check "Дашборд: Операции с файлами HDFS (hdfs-explorer-operations)" \
-    verify_dashboard "hdfs-explorer-operations" "HDFS"
+run_check "Дашборд: Операции с файлами HDFS (sklad-operations)" \
+    verify_dashboard "sklad-operations" "HDFS"
 
 run_check "Дашборд: Очереди YARN Capacity Scheduler (artel_queues)" \
     verify_dashboard "artel_queues" "YARN"

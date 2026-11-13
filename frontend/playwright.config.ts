@@ -33,7 +33,7 @@ export default defineConfig({
       timeout: 120000,
     },
     {
-      command: 'npm run dev:hdfs -- --port 5174 --host',
+      command: 'npm run dev:sklad -- --port 5174 --host',
       port: 5174,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

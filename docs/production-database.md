@@ -1,17 +1,17 @@
 # Перевод YARN, HDFS, SQL и Spark Explorer на PostgreSQL и запуск нескольких экземпляров
 
-Документ описывает перевод сервисов Pristan (`artel`, `hdfs-explorer`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
+Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
 Упакованные `application.yml` сервисов используют H2:
 
 | Сервис | `spring.datasource.url` по умолчанию | Что хранится в БД |
 |---|---|---|
 | Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
-| HDFS Explorer | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
+| Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
 | SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
 | Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
 
-В HDFS Explorer в сборку входит драйвер SQLite (`org.xerial:sqlite-jdbc` в `backend/hdfs/pom.xml`), но упакованная конфигурация его не использует.
+В Sklad в сборку входит драйвер SQLite (`org.xerial:sqlite-jdbc` в `backend/sklad/pom.xml`), но упакованная конфигурация его не использует.
 
 Независимо от БД в памяти процесса по умолчанию хранятся:
 
@@ -31,7 +31,7 @@
 ```sql
 CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
 
-CREATE DATABASE hdfs_explorer OWNER hadoop_explorer;
+CREATE DATABASE sklad OWNER hadoop_explorer;
 CREATE DATABASE sql_explorer OWNER hadoop_explorer;
 CREATE DATABASE spark_explorer OWNER hadoop_explorer;
 CREATE DATABASE artel OWNER hadoop_explorer;
@@ -119,16 +119,16 @@ hadoop:
 | Spark Explorer | Признаки отмены (`activeExecutions`) | `POST /api/v1/statements/{executionId}/cancel` ставит в БД `CANCELLED`, но код продолжает выполняться; по завершении статус перезаписывается результатом выполнения |
 | Spark Explorer | SSE-подписки (`executionEmitters`) | `GET /api/v1/statements/{executionId}/stream` на другом экземпляре не получает событий |
 | Spark Explorer | Пайплайны и их запуски (`PipelineService`) | Пайплайн, созданный на одном экземпляре, не виден в `/api/v1/pipelines` на другом; после перезапуска экземпляра пайплайны пропадают |
-| HDFS Explorer | Части загружаемого по частям файла: каталог `${java.io.tmpdir}/hdfs-uploads/<upload_id>` и счетчик `chunkTracker` в `HdfsFileOperationService` | Части одной загрузки (`POST /api/v1/clusters/{clusterId}/files/upload-chunk`), попавшие на разные экземпляры, ни один экземпляр не собирает целиком: файл в HDFS не появляется, `upload-chunk/status` показывает не все части |
+| Sklad | Части загружаемого по частям файла: каталог `${java.io.tmpdir}/hdfs-uploads/<upload_id>` и счетчик `chunkTracker` в `HdfsFileOperationService` | Части одной загрузки (`POST /api/v1/clusters/{clusterId}/files/upload-chunk`), попавшие на разные экземпляры, ни один экземпляр не собирает целиком: файл в HDFS не появляется, `upload-chunk/status` показывает не все части |
 
 Записи о сессиях Spark (`spark_sessions`) хранятся в БД и видны всем экземплярам. Статус сессии из Livy обновляет фоновая синхронизация каждого экземпляра (один `GET /sessions` на кластер раз в `spark.session-sync-interval-ms`; при N экземплярах — N запросов за интервал, записи меняются условными `UPDATE`). Остановку, закрытие по `spark.session-ttl-minutes` (задача `cleanupIdleSessions` запускается на каждом экземпляре, но `DELETE` в Livy отправляет только тот, чей условный `UPDATE` `markKilledIfIdleBefore` перевел запись из `idle` в `killed`; остальные экземпляры получают 0 измененных строк и `DELETE` не отправляют; сам `DELETE` выполняется в пуле потоков `SparkSessionManager`, а не в потоке планировщика) и закрытие при выходе (обрабатывает экземпляр, принявший `POST /api/v1/auth/logout`) может выполнить любой экземпляр: Livy-идентификатор сессии берется из БД. Остановка и закрытие при выходе так же переводят запись условным `UPDATE` (`markKilledIfActive`), поэтому одну сессию в Livy удаляет один экземпляр. Если Livy уже забыл сессию (перезапуск без восстановления), `DELETE` получает 404 и считается успешным. Если в закрытой сессии выполнялся код на другом экземпляре, это выполнение завершается `FAILED`, запись сессии остается `killed`.
 
-В Artel пользовательского состояния в памяти нет: заявки хранятся в БД, в памяти только кэш клиентов YARN (`YarnClientFactory.clientCache`). HDFS Explorer, кроме загрузки по частям, тоже не хранит пользовательского состояния в памяти.
+В Artel пользовательского состояния в памяти нет: заявки хранятся в БД, в памяти только кэш клиентов YARN (`YarnClientFactory.clientCache`). Sklad, кроме загрузки по частям, тоже не хранит пользовательского состояния в памяти.
 
-Для SQL, Spark и HDFS Explorer выберите один из вариантов:
+Для SQL, Spark и Sklad выберите один из вариантов:
 
 - Настройте на балансировщике привязку клиента к экземпляру (sticky sessions).
-- Запускайте SQL и Spark Explorer в одном экземпляре. Для HDFS Explorer без привязки не работает только загрузка по частям.
+- Запускайте SQL и Spark Explorer в одном экземпляре. Для Sklad без привязки не работает только загрузка по частям.
 
 Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `zastava.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Spark Explorer:
 
@@ -154,7 +154,7 @@ upstream sql_explorer {
 - [ ] Заданы `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD` (для Artel допустимы `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`).
 - [ ] При двух и более экземплярах задан `ZASTAVA_SESSIONSTORE_TYPE=jdbc` (раздел 3.1).
 - [ ] `JWT_SECRET_KEY` одинаковый на всех экземплярах сервиса (раздел 3.2).
-- [ ] Для SQL, Spark и HDFS Explorer с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Spark Explorer запущены в одном экземпляре (раздел 3.3).
+- [ ] Для SQL, Spark и Sklad с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Spark Explorer запущены в одном экземпляре (раздел 3.3).
 - [ ] Пароль базы данных не хранится в открытом виде в `application.yml` или `docker-compose.yml`, а передается через переменную окружения из хранилища секретов (например, HashiCorp Vault).
 - [ ] Проверка доступности на балансировщике смотрит на `/actuator/health/readiness`. По умолчанию группа readiness проверяет только состояние приложения, не PostgreSQL. Чтобы экземпляр выводился из балансировки при недоступной базе, добавьте в конфигурацию сервиса `management.endpoint.health.group.readiness.include: readinessState,db`; при сбое PostgreSQL из балансировки тогда выйдут все экземпляры сразу.
 

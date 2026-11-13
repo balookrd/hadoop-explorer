@@ -67,9 +67,9 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
    - Онлайн-статус воркеров (основной DC1, резервный DC2).
    - Гистограмма задержек передачи gRPC чанков (SLA-бакеты 1 мс – 5 с).
    - Объем staging-буферов и очистка временных файлов.
-6. `hdfs-explorer-operations` — файловые операции HDFS Explorer:
-   - Темп операций клиента HDFS по методам и кластерам, доля неуспешных операций (`hdfs_operations_total`).
-   - Трафик upload/download по кластерам (`hdfs_bytes_transferred_total`).
+6. `sklad-operations` — файловые операции Sklad:
+   - Темп операций клиента HDFS по методам и кластерам, доля неуспешных операций (`sklad_operations_total`).
+   - Трафик upload/download по кластерам (`sklad_bytes_transferred_total`).
 7. `artel_queues` — Artel:
    - Переходы заявок Change Request по статусам (`artel_change_requests_total`).
    - Задержка p95 API Artel по URI.

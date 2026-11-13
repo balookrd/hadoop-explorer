@@ -17,7 +17,7 @@
         <module>backend/zastava</module>
         <module>backend/replicator</module>
         <module>backend/artel</module>
-        <module>backend/hdfs</module>
+        <module>backend/sklad</module>
         <module>backend/sql</module>
         <module>backend/spark</module>
     </modules>

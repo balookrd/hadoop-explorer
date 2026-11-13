@@ -4,7 +4,7 @@ name: pristan-demo-all
 include:
   - path: ../platform/docker-compose.core.yml
   - path: ../artel/docker-compose.yml
-  - path: ../hdfs/docker-compose.yml
+  - path: ../sklad/docker-compose.yml
   - path: ../sql/docker-compose.yaml
   - path: ../spark/docker-compose.yaml
   - path: ../replicator/docker-compose.yml

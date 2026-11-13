@@ -44,7 +44,7 @@ cat <<EOF > /etc/krb5.conf
     .example.com = ${REALM}
     example.com = ${REALM}
     kdc = ${REALM}
-    hdfs-explorer = ${REALM}
+    sklad = ${REALM}
     sql-explorer = ${REALM}
     artel = ${REALM}
     spark-explorer = ${REALM}
@@ -114,9 +114,9 @@ echo "[kdc] Создание учетных записей и принципал
 # 1. Сервисные принципалы платформы
 add_principal "admin/admin@${REALM}" "adminpass"
 add_principal "svc_sql_explorer@${REALM}" "password123"
-add_principal "hdfs-explorer@${REALM}" "password123"
-add_principal "hdfs-explorer/hdfs-explorer@${REALM}" ""
-add_principal "HTTP/hdfs-explorer@${REALM}" ""
+add_principal "sklad@${REALM}" "password123"
+add_principal "sklad/sklad@${REALM}" ""
+add_principal "HTTP/sklad@${REALM}" ""
 add_principal "HTTP/sql-explorer@${REALM}" ""
 add_principal "HTTP/artel@${REALM}" ""
 add_principal "HTTP/artel.yarn-demo-net@${REALM}" ""
@@ -209,8 +209,8 @@ add_to_keytab "$KEYTAB_DIR/schema-registry-1.keytab" HTTP/schema-registry-1@${RE
 add_to_keytab "$KEYTAB_DIR/schema-registry-2.keytab" HTTP/schema-registry-2@${REALM} HTTP/schema-registry-2.demo-platform-net@${REALM} HTTP/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/kafka-replicator.keytab" kafka-replicator@${REALM}
 
-# HDFS Explorer & Clusters
-add_to_keytab "$KEYTAB_DIR/hdfs-explorer.keytab" hdfs-explorer/hdfs-explorer@${REALM} hdfs-explorer@${REALM} HTTP/hdfs-explorer@${REALM} HTTP/localhost@${REALM}
+# Sklad & Clusters
+add_to_keytab "$KEYTAB_DIR/sklad.keytab" sklad/sklad@${REALM} sklad@${REALM} HTTP/sklad@${REALM} HTTP/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/hdfs-cluster-1.keytab" nn/hdfs-cluster-1@${REALM} nn/hdfs-cluster-1.demo-platform-net@${REALM} dn/hdfs-cluster-1@${REALM} dn/hdfs-cluster-1.demo-platform-net@${REALM} HTTP/hdfs-cluster-1@${REALM} HTTP/hdfs-cluster-1.demo-platform-net@${REALM} hdfs/hdfs-cluster-1@${REALM}
 add_to_keytab "$KEYTAB_DIR/hdfs-cluster-2.keytab" nn/hdfs-cluster-2@${REALM} nn/hdfs-cluster-2.demo-platform-net@${REALM} dn/hdfs-cluster-2@${REALM} dn/hdfs-cluster-2.demo-platform-net@${REALM} HTTP/hdfs-cluster-2@${REALM} HTTP/hdfs-cluster-2.demo-platform-net@${REALM} hdfs/hdfs-cluster-2@${REALM}
 

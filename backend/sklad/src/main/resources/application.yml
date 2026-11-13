@@ -1,0 +1,129 @@
+# Значения по умолчанию безопасны для продакшена: без внешнего конфига сервис не стартует
+# (нужны JWT_SECRET_KEY и LDAP/Kerberos). Локальная разработка и демо-стенды включают
+# профиль mock явно: SPRING_PROFILES_ACTIVE=mock (см. application-mock.yml).
+server:
+  port: 8001
+
+spring:
+  application:
+    name: sklad
+  datasource:
+    url: jdbc:h2:mem:sklad;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password: ""
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 550MB
+
+sklad:
+  clusters:
+    - id: "prod-datalake"
+      name: "Production DataLake"
+      description: "Основной аналитический кластер HDFS"
+      webhdfs-urls:
+        - "http://nn01.prod.example.com:9870/webhdfs/v1"
+        - "http://nn02.prod.example.com:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://nn01.prod.example.com:8020"
+        - "hdfs://nn02.prod.example.com:8020"
+      auth-type: "kerberos"
+      service-principal: "sklad/sklad.prod.example.com@EXAMPLE.COM"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
+      timeout-seconds: 30
+      preview-max-bytes: 1048576
+      default-path: "/user/{username}"
+      mock-storage: true
+      acl:
+        allowed-groups:
+          - "data-engineers"
+          - "analytics"
+          - "hadoop-admins"
+        read-only-groups:
+          - "analytics"
+        admin-groups:
+          - "hadoop-admins"
+
+    - id: "dev-cluster"
+      name: "Development Cluster"
+      description: "Кластер для разработки и тестирования пайплайнов"
+      webhdfs-urls:
+        - "http://nn01.dev.example.com:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://nn01.dev.example.com:8020"
+      auth-type: "simple"
+      timeout-seconds: 20
+      preview-max-bytes: 2097152
+      default-path: "/tmp"
+      mock-storage: true
+      acl:
+        allowed-groups:
+          - "domain users"
+          - "developers"
+          - "hadoop-admins"
+        admin-groups:
+          - "hadoop-admins"
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+      - "superusers"
+    writer-groups:
+      - "data-engineers"
+      - "developers"
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+      - "http://localhost:5173"
+      - "http://localhost:8001"
+  cookie:
+    secure: false
+    same-site: "Lax"
+    names:
+      - "access_token"
+      - "sklad_session"
+      - "pristan_session"
+
+# Kubernetes probes. Spring Boot enables the liveness/readiness health groups on its own
+# only when it detects Kubernetes (KUBERNETES_SERVICE_HOST); enabling them explicitly keeps
+# /actuator/health/readiness available everywhere, including local runs and tests. Readiness
+# is OUT_OF_SERVICE (HTTP 503) until ApplicationReadyEvent and again once the application
+# context starts closing.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        # /actuator/prometheus is public (zastava); nothing else beyond health
+        include: health,prometheus
+  prometheus:
+    metrics:
+      export:
+        # Explicit: @SpringBootTest switches metric exporters off unless they are enabled by name
+        enabled: true
+  metrics:
+    tags:
+      # Label used by monitoring/grafana/dashboards/pristan_overview.json ($app)
+      app: sklad
+    distribution:
+      slo:
+        http.server.requests: 50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s

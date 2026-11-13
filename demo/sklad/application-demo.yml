@@ -1,0 +1,66 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: sklad-demo
+  datasource:
+    url: jdbc:h2:file:/app/data/sklad;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+sklad:
+  clusters:
+    - id: "hdfs-cluster-1"
+      name: "Production DataLake"
+      description: "Основной аналитический кластер HDFS"
+      webhdfs-urls:
+        - "http://hdfs-cluster-1:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://hdfs-cluster-1:9000"
+      auth-type: "kerberos"
+      service-principal: "sklad/sklad@COMPANY.LOCAL"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
+
+    - id: "hdfs-cluster-2"
+      name: "Archive & Analytics DataLake"
+      description: "Резервный архивный кластер HDFS"
+      webhdfs-urls:
+        - "http://hdfs-cluster-2:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://hdfs-cluster-2:9000"
+      auth-type: "kerberos"
+      service-principal: "sklad/sklad@COMPANY.LOCAL"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
+zastava:
+  debug: true
+  auth:
+    mode: ldap
+    writer-groups:
+      - "data-engineers"
+      - "dev-leads"
+      - "spark-users"
+  jwt:
+    secret-key: "hdfs-explorer-demo-stand-super-secret-key-2026"
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    server-uri: "ldap://ldap:389"
+    bind-dn: "cn=admin,dc=company,dc=local"
+    bind-password: "adminpassword"
+    user-base-dn: "ou=users,dc=company,dc=local"
+    user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
+    group-base-dn: "ou=groups,dc=company,dc=local"
+    group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+  kerberos:
+    enabled: false
+  rate-limit:
+    enabled: false
+  audit:
+    enabled: true

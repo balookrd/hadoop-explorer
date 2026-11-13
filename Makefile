@@ -1,8 +1,8 @@
-.PHONY: help test test-artel test-hdfs test-sql test-spark test-replicator \
+.PHONY: help test test-artel test-sklad test-sql test-spark test-replicator \
         test-zastava test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-java build-zastava build-artel build-hdfs build-sql build-spark build-replicator \
-        frontend-build frontend-install demo-artel demo-hdfs demo-sql demo-spark demo-all \
-        demo-artel-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop \
+        build build-java build-zastava build-artel build-sklad build-sql build-spark build-replicator \
+        frontend-build frontend-install demo-artel demo-sklad demo-sql demo-spark demo-all \
+        demo-artel-stop demo-sklad-stop demo-sql-stop demo-spark-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
@@ -46,7 +46,7 @@ help:
 	@echo "  Тестирование (Java 21 / Spring Boot 3 + UI):"
 	@echo "    make test             - Запуск всех модульных тестов платформы (Java + UI)"
 	@echo "    make test-artel       - Тесты сервиса Artel (Java 21)"
-	@echo "    make test-hdfs        - Тесты сервиса HDFS Explorer (Java 21)"
+	@echo "    make test-sklad        - Тесты сервиса Sklad (Java 21)"
 	@echo "    make test-sql         - Тесты сервиса SQL Explorer (Java 21)"
 	@echo "    make test-spark       - Тесты сервиса Spark Explorer (Java 21)"
 	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
@@ -60,7 +60,7 @@ help:
 	@echo "    make build-zastava - Сборка zastava JAR"
 	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark, replicator)"
 	@echo "    make build-artel      - Сборка образа Artel"
-	@echo "    make build-hdfs       - Сборка образа HDFS Explorer"
+	@echo "    make build-sklad       - Сборка образа Sklad"
 	@echo "    make build-sql        - Сборка образа SQL Explorer"
 	@echo "    make build-spark      - Сборка образа Spark Explorer"
 	@echo "    make build-replicator - Сборка образа Replicator Orchestrator"
@@ -72,8 +72,8 @@ help:
 	@echo "  Раздельные демо стенды (Docker Compose):"
 	@echo "    make demo-artel       - Запуск стенда YARN (2 RM кластера, Kerberos, LDAP) -> :8001"
 	@echo "    make demo-artel-stop  - Остановка стенда YARN"
-	@echo "    make demo-hdfs        - Запуск стенда HDFS (WebHDFS, Kerberos, OpenLDAP) -> :8002"
-	@echo "    make demo-hdfs-stop   - Остановка стенда HDFS"
+	@echo "    make demo-sklad        - Запуск стенда HDFS (WebHDFS, Kerberos, OpenLDAP) -> :8002"
+	@echo "    make demo-sklad-stop   - Остановка стенда HDFS"
 	@echo "    make demo-sql         - Запуск стенда SQL (Trino, Hive, Postgres, LDAP) -> :8003"
 	@echo "    make demo-sql-stop    - Остановка стенда SQL"
 	@echo "    make demo-spark       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore) -> :8004"
@@ -94,8 +94,8 @@ test:
 test-artel: check-jdk21
 	$(JAVA21) mvn test -f backend/artel/pom.xml
 
-test-hdfs: check-jdk21
-	$(JAVA21) mvn test -f backend/hdfs/pom.xml
+test-sklad: check-jdk21
+	$(JAVA21) mvn test -f backend/sklad/pom.xml
 
 test-sql: check-jdk21
 	$(JAVA21) mvn test -f backend/sql/pom.xml
@@ -119,12 +119,12 @@ test-replicator-java: test-replicator
 test-zastava: check-jdk21
 	$(JAVA21) mvn test -f backend/zastava/pom.xml
 
-test-hdfs-java: test-hdfs
+test-sklad-java: test-sklad
 test-artel-java: test-artel
 test-sql-java: test-sql
 test-spark-java: test-spark
 
-test-java: test-zastava test-replicator test-hdfs test-artel test-sql test-spark
+test-java: test-zastava test-replicator test-sklad test-artel test-sql test-spark
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -141,8 +141,8 @@ build-java: check-jdk21 frontend-build
 build-artel: frontend-build-artel
 	$(JAVA21) mvn clean package -DskipTests -f backend/artel/pom.xml
 
-build-hdfs: frontend-build-hdfs
-	$(JAVA21) mvn clean package -DskipTests -f backend/hdfs/pom.xml
+build-sklad: frontend-build-sklad
+	$(JAVA21) mvn clean package -DskipTests -f backend/sklad/pom.xml
 
 build-sql: frontend-build-sql
 	$(JAVA21) mvn clean package -DskipTests -f backend/sql/pom.xml
@@ -163,7 +163,7 @@ build-replicator-agent-java: build-replicator-agent
 build-replicator-orchestrator-java: build-replicator-orchestrator
 build-replicator-java: build-replicator
 
-build-hdfs-java: build-hdfs
+build-sklad-java: build-sklad
 build-artel-java: build-artel
 build-sql-java: build-sql
 build-spark-java: build-spark
@@ -209,11 +209,11 @@ demo-artel:
 demo-artel-stop:
 	cd demo/artel && ./stop-demo.sh
 
-demo-hdfs:
-	cd demo/hdfs && ./start-demo.sh
+demo-sklad:
+	cd demo/sklad && ./start-demo.sh
 
-demo-hdfs-stop:
-	cd demo/hdfs && ./stop-demo.sh
+demo-sklad-stop:
+	cd demo/sklad && ./stop-demo.sh
 
 demo-sql:
 	cd demo/sql && ./start-demo.sh

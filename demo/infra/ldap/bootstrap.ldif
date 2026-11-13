@@ -50,14 +50,14 @@ sn: Service
 displayName: Artel Service
 userPassword: password123
 
-dn: cn=svc_hdfs_explorer,ou=services,dc=company,dc=local
+dn: cn=svc_sklad,ou=services,dc=company,dc=local
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
 objectClass: inetOrgPerson
-cn: svc_hdfs_explorer
+cn: svc_sklad
 sn: Service
-displayName: HDFS Explorer Service
+displayName: Sklad Service
 userPassword: password123
 
 # ==========================================

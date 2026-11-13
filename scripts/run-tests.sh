@@ -13,11 +13,11 @@ run_artel() {
   mvn test -f "$ROOT_DIR/backend/artel/pom.xml"
 }
 
-run_hdfs() {
+run_sklad() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: HDFS Explorer (Java 21 / Spring Boot 3)"
+  echo "🧪 Запуск тестов: Sklad (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/hdfs/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/sklad/pom.xml"
 }
 
 run_sql() {
@@ -55,8 +55,8 @@ case "$APP" in
   artel)
     run_artel
     ;;
-  hdfs)
-    run_hdfs
+  sklad)
+    run_sklad
     ;;
   sql)
     run_sql
@@ -70,7 +70,7 @@ case "$APP" in
   all)
     run_frontend
     run_artel
-    run_hdfs
+    run_sklad
     run_sql
     run_spark
     run_replicator
@@ -80,7 +80,7 @@ case "$APP" in
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|hdfs|spark|sql|artel|replicator]"
+    echo "Использование: $0 [all|frontend|sklad|spark|sql|artel|replicator]"
     exit 1
     ;;
 esac

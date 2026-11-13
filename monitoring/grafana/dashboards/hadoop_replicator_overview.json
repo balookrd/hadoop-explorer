@@ -42,9 +42,9 @@
         "hdfs"
       ],
       "targetBlank": false,
-      "title": "HDFS Explorer",
+      "title": "Sklad",
       "type": "link",
-      "url": "/d/hdfs-explorer-operations"
+      "url": "/d/sklad-operations"
     },
     {
       "asDropdown": false,

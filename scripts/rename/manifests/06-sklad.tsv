@@ -1,0 +1,43 @@
+keep	hdfs-explorer-super-secret-jwt-token-key
+keep	hdfs-explorer-demo-stand-super-secret-key
+sub	io.github.balookrd.pristan.hdfs	io.github.balookrd.pristan.sklad
+sub	io/github/balookrd/pristan/hdfs	io/github/balookrd/pristan/sklad
+sub	HdfsExplorerApplication	SkladApplication
+sub	backend/hdfs	backend/sklad
+sub	frontend/apps/hdfs	frontend/apps/sklad
+sub	apps/hdfs	apps/sklad
+sub	demo/hdfs	demo/sklad
+sub	docs/images/hdfs	docs/images/sklad
+sub	Dockerfile.hdfs-java	Dockerfile.sklad
+sub	hdfs-explorer-java	sklad
+sub	hdfs-explorer-frontend	@pristan/sklad
+sub	hdfs-explorer.jar	sklad.jar
+sub	hdfs-explorer-demo	sklad-demo
+sub	hdfs-explorer-operations	sklad-operations
+sub	hdfs_explorer_operations	sklad_operations
+sub	hadoop-hdfs-explorer	sklad
+sub	hdfs-explorer.keytab	sklad.keytab
+sub	hadoop.proxyuser.hdfs-explorer	hadoop.proxyuser.sklad
+sub	hdfs-explorer/hdfs-explorer	sklad/sklad
+sub	svc_hdfs_explorer	svc_sklad
+sub	hdfs_explorer_session	sklad_session
+sub	hdfs_explorer	sklad
+sub	hdfs-explorer	sklad
+sub	jdbc:h2:mem:hdfs	jdbc:h2:mem:sklad	backend/sklad/*,demo/sklad/*
+sub	"hdfs.operations"	"sklad.operations"
+sub	"hdfs.bytes.transferred"	"sklad.bytes.transferred"
+sub	hdfs_operations	sklad_operations
+sub	hdfs_bytes_transferred	sklad_bytes_transferred
+sub	app="hdfs"	app="sklad"	monitoring/*,demo/monitoring/*,backend/*
+sub	app=\"hdfs\"	app=\"sklad\"	monitoring/*,demo/monitoring/*,backend/*
+re	(test|build|demo)-hdfs(?![a-z-]*-(cluster|site|namenode|datanode))	\1-sklad	Makefile,scripts/*,.github/*,AGENTS.md,README.md,docs/*,demo/*,backend/sklad/*
+re	(build|dev):hdfs	\1:sklad	frontend/*
+sub	run_hdfs	run_sklad	scripts/*
+sub	e2e/hdfs.spec.ts	e2e/sklad.spec.ts
+sub	capture_hdfs	capture_sklad
+sub	prefix = "hadoop.hdfs"	prefix = "sklad"	backend/sklad/*
+re	(?<![.\w])hadoop\.hdfs\.(clusters-config-path|clusters)	sklad.\1
+re	(^\s+app:\s*)hdfs\s*$	\1sklad	backend/sklad/*
+sub	HDFS Web Explorer	Sklad (HDFS)
+sub	HDFS Explorer API	Sklad API
+sub	HDFS Explorer	Sklad
