@@ -156,7 +156,7 @@ async function run() {
   await page.screenshot({ path: path.join(imagesDir, '09_multitab_workspace.png'), fullPage: false });
   console.log('   ✅ 09_multitab_workspace.png сохранен');
 
-  console.log('🎉 ВСЕ 9 СКРИНШОТОВ SPARK EXPLORER УСПЕШНО СОЗДАНЫ!');
+  console.log('🎉 ВСЕ 9 СКРИНШОТОВ ISKRA УСПЕШНО СОЗДАНЫ!');
   await browser.close();
 }
 

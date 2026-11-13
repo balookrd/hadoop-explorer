@@ -350,6 +350,11 @@ proxyuser в `core-site.xml` и скрипт `demo/infra/kdc/entrypoint.sh` ме
   `docs/superpowers/plans/`.
 - Данные движков в тестовых фикстурах, например
   `backend/artel/src/test/resources/rm/*.json`.
+- Метрика стартера `hadoop.rate.limit.blocks` (Prometheus
+  `hadoop_rate_limit_blocks_total`): имя указывает на платформу Hadoop, к
+  которой идёт доступ, а не на продукт.
+- Переменная окружения `HADOOP_AUTH_MODE` (`zastava.auth.mode` в `application.yml`
+  сервисов): то же основание.
 
 ## Изменение поведения: определение приложения в LoginModal
 

@@ -536,7 +536,7 @@ tolmach:
     provider: "openai_compatible"   # mock-builtin | openai_compatible
     url: "http://llm-server.company.local:11434/v1"
     model: "qwen2.5-coder-32b"
-    api-key: "${SQL_AI_API_KEY:}"   # ключ берется из переменной окружения
+    api-key: "${TOLMACH_AI_API_KEY:}"   # ключ берется из переменной окружения
     timeout-seconds: 30
     status-timeout-seconds: 5
     max-concurrent-requests: 8
@@ -562,7 +562,7 @@ tolmach:
 `GET /api/v1/ai/status` проверяет `GET {url}/models` (веб-интерфейс вызывает его при каждом открытии окна ассистента): `available: true` и имя модели — только если LLM отвечает. При `mock-builtin` и при недоступной LLM — `available: false`, `provider: mock-builtin`, `model: builtin-rules`. В `message` — только краткая причина (`HTTP 401`, `таймаут 5 с`, тип исключения вроде `ConnectException`); подробности с текстом ответа сервера — в логе (`Проверка LLM для /api/v1/ai/status не прошла: ...`).
 
 Ключ `api-key`:
-- задавайте через переменную окружения (`SQL_AI_API_KEY` в примере выше) или в `application.yml` с правами `600`, не в образе и не в репозитории;
+- задавайте через переменную окружения (`TOLMACH_AI_API_KEY` в примере выше) или в `application.yml` с правами `600`, не в образе и не в репозитории;
 - в журнал и ответы API ключ не попадает: в строках лога `LLM недоступна ...` и `Проверка LLM ...` вхождения ключа и токены `Bearer`/`Basic` заменяются на `***`, текст ответа сервера обрезается до 200 символов; `message` статуса текста сервера не содержит.
 
 Что уходит в LLM. При `openai_compatible` содержимое запросов пользователя передается на сервер из `url`; если это внешний сервис (например, OpenAI), это передача данных за пределы кластера. Каждый запрос содержит системный промпт с JSON-схемой ответа, диалект (`trino`/`hive`) и:
@@ -1155,7 +1155,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `ARTEL_KERBEROS_PRINCIPAL` / `ARTEL_KERBEROS_KEYTAB` | Учетная запись Artel для SPNEGO-запросов к ResourceManager | — |
 | `ARTEL_AWX_BASE_URL` / `ARTEL_AWX_TOKEN` / `ARTEL_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
 
-Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `SQL_RESULTS_TTL_HOURS=48` или `ZASTAVA_COOKIE_SECURE=true`.
+Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `TOLMACH_RESULTS_TTL_HOURS=48` или `ZASTAVA_COOKIE_SECURE=true`.
 
 ---
 

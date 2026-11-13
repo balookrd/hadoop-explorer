@@ -891,7 +891,7 @@ sudo systemctl enable --now parom-agent@2
 ```yaml
 services:
   agent-dc1-01:
-    image: pristan/parom:latest
+    image: pristan/parom-agent:latest
     environment:
       AGENT_ID: agent-dc1-01
       AGENT_CLUSTER_ID: demo-cluster
@@ -899,7 +899,7 @@ services:
       RECEIVER_PORT: 50051
 
   agent-dc1-02:
-    image: pristan/parom:latest
+    image: pristan/parom-agent:latest
     environment:
       AGENT_ID: agent-dc1-02
       AGENT_CLUSTER_ID: demo-cluster

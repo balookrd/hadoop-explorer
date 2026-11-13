@@ -519,9 +519,9 @@ java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8000 \
   -Dzastava.auth.mode=kerberos \
   -Dzastava.jwt.secret-key="<jwt_secret>" \
-  -Dyarn.awx.base-url="https://awx.company.local" \
-  -Dyarn.awx.token="secret-awx-token" \
-  -Dyarn.awx.default-job-template-id=42 \
+  -Dartel.awx.base-url="https://awx.company.local" \
+  -Dartel.awx.token="secret-awx-token" \
+  -Dartel.awx.default-job-template-id=42 \
   backend/artel/target/artel-1.0.0.jar
 ```
 

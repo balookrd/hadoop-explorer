@@ -8,7 +8,7 @@ rule_files:
 scrape_configs:
   - job_name: 'pristan'
     # Spring Boot Actuator scrape endpoint, public on the application port
-    # (docs/CONFIGURATION.md, section 9). Ports: SERVER_PORT in docker/Dockerfile.*-java
+    # (docs/CONFIGURATION.md, section 9). Ports: SERVER_PORT in docker/Dockerfile.*
     metrics_path: '/actuator/prometheus'
     scrape_interval: 5s
     honor_labels: true

@@ -47,11 +47,17 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # MigrationsApplyOnPostgresTest and RepositoriesOnPostgresTest (backend/parom/orchestrator) call
+      # flyway.clean(), so they get a database of their own instead of the one other tests use
+      - name: Create database for Parom PostgreSQL tests
+        run: PGPASSWORD=pristan psql -h localhost -U pristan -d pristan -c 'CREATE DATABASE parom_migr'
+
       - name: Run unit tests
         env:
           TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/pristan
           TEST_POSTGRES_USER: pristan
           TEST_POSTGRES_PASSWORD: pristan
+          PAROM_PG_TEST_URL: jdbc:postgresql://localhost:5432/parom_migr?user=pristan&password=pristan
         run: mvn -B test
 
       - name: Set up Node.js

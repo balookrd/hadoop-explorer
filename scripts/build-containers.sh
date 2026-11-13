@@ -9,10 +9,7 @@ REGISTRY="${REGISTRY:-pristan}"
 
 build_app() {
   local app="$1"
-  local dockerfile="$ROOT_DIR/docker/Dockerfile.${app}-java"
-  if [ ! -f "$dockerfile" ]; then
-    dockerfile="$ROOT_DIR/docker/Dockerfile.$app"
-  fi
+  local dockerfile="$ROOT_DIR/docker/Dockerfile.$app"
   echo "=========================================="
   echo "🐳 Сборка Docker-образа: $REGISTRY/$app:$TAG (Dockerfile: $(basename "$dockerfile"))"
   echo "=========================================="

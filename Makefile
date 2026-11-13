@@ -195,7 +195,7 @@ frontend-build-%: frontend/node_modules
 	cd frontend && npm run build:$*
 
 generate-proto:
-	$(JAVA21) mvn compile -DskipTests -f backend/parom/agent/pom.xml
+	$(JAVA21) mvn compile -DskipTests -f backend/parom/pom.xml -pl proto -am
 
 proto: generate-proto
 

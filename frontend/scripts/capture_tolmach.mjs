@@ -133,7 +133,7 @@ async function run() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
 
-  console.log('🎉 ВСЕ 10 СКРИНШОТОВ SQL EXPLORER УСПЕШНО СОЗДАНЫ!');
+  console.log('🎉 ВСЕ 10 СКРИНШОТОВ TOLMACH УСПЕШНО СОЗДАНЫ!');
   await browser.close();
 }
 
