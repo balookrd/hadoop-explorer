@@ -31,7 +31,6 @@
   - [Администрирование Parom (docs/parom-admin-guide.md)](docs/parom-admin-guide.md)
   - [Регламент Disaster Recovery и защита от split-brain (docs/parom-disaster-recovery-guide.md)](docs/parom-disaster-recovery-guide.md)
   - [Отказоустойчивость и распределенный лизинг Parom (docs/parom-fault-tolerance.md)](docs/parom-fault-tolerance.md)
-  - [Презентация Parom для команды (docs/parom-presentation.md)](docs/parom-presentation.md) ([HTML](docs/parom-presentation.html), [PPTX](docs/parom-presentation.pptx))
 - Руководства пользователя:
   - [Руководство пользователя Artel (docs/artel-user-guide.md)](docs/artel-user-guide.md)
   - [Доставка и применение конфигурации очередей через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
