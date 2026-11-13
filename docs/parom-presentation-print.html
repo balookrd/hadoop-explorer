@@ -460,7 +460,7 @@
 <h1>Техническая спецификация и архитектура: Parom</h1>
 <h2>Для системных архитекторов, DevOps-инженеров и администраторов Data Platform</h2>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan" width="340" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan" width="340" />
   <p>Архитектура, сетевые протоколы, шейпинг и Disaster Recovery</p>
   <p><a href="parom-presentation.html">Слайдовая презентация в браузере (HTML)</a> &nbsp;|&nbsp; <a href="parom-presentation.pdf">PDF-версия</a> &nbsp;|&nbsp; <a href="#содержание-инженерных-разделов">Содержание</a></p>
 </div><hr>
@@ -485,7 +485,7 @@
 <div class="page-break"></div>
 <div class="slide-header-block"><div class="slide-section-badge">СЕКЦИЯ 1 / 13 • ТЕХНИЧЕСКИЙ РЕГЛАМЕНТ</div><h2 class="slide-h2">Слайд 1: Генеральная схема развертывания: что где располагается (топология и сетевые потоки)</h2></div>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Parom" width="100%" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Parom" width="100%" />
   <p><em>Генеральная архитектура: порты Control Plane (TCP :8005 / :50050), межЦОДного WAN Data Plane (TCP :50051 / :50052) и кластерного LAN</em></p>
 </div><h3>Физические контуры и направления трафика</h3>
 <ol>
@@ -1255,17 +1255,17 @@ sequenceDiagram
 <h3>Экраны администратора и инженера данных</h3>
 <div class="screen-card"><h4>1. Топология ЦОД и шейпер полосы</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
 </div>
 *Глобальные лимиты WAN, лимиты каналов между ЦОД и приоритетные очереди; изменения применяются без перезапуска демонов.*</div><hr>
 <div class="screen-card"><h4>2. Панель задач и мониторинг передачи</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
 </div>
 *Активные потоки данных, текущая утилизация сети в МБ/с, переданные байты и прогноз времени завершения (ETA).*</div><hr>
 <div class="screen-card"><h4>3. Консоль CDC-репликации Hive Metastore</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
 </div>
 *Отставание событий (lag), статус распределенной аренды Inotify Lease HA и журнал трансляции DDL.*</div><hr>
 <h4>4. Консоль репликации Apache Kafka</h4>
@@ -1273,12 +1273,12 @@ sequenceDiagram
 <hr>
 <div class="screen-card"><h4>5. DR Hub в режиме изоляции Kill-Switch</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
 </div>
 *Индикация сетевого барьера (0 МБ/с), замороженные прямые задачи, защита кластера от split-brain.*</div><hr>
 <div class="screen-card"><h4>6. Снятие изоляции и мастер 1-Click Reverse Replication</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/pristan/docs/images/parom/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
 </div>
 *Unfence без автоматического старта прямых задач и запуск обратного потока DC2 ➔ DC1 для догона дельты.*</div><hr>
 <div class="page-break"></div>
