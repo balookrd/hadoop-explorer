@@ -4,7 +4,7 @@
 <div align="center">
   <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan" width="340" />
   <p>Архитектура, сетевые протоколы, шейпинг и Disaster Recovery</p>
-  <p><a href="replicator-presentation.html">Слайдовая презентация в браузере (HTML)</a> &nbsp;|&nbsp; <a href="replicator-presentation.pdf">PDF-версия</a> &nbsp;|&nbsp; <a href="#содержание-инженерных-разделов">Содержание</a></p>
+  <p><a href="parom-presentation.html">Слайдовая презентация в браузере (HTML)</a> &nbsp;|&nbsp; <a href="parom-presentation.pdf">PDF-версия</a> &nbsp;|&nbsp; <a href="#содержание-инженерных-разделов">Содержание</a></p>
 </div>
 
 ---
@@ -113,7 +113,7 @@
 
 ## Слайд 3: Модель развертывания, параметры CLI и конфигурация процессов
 
-### Параметры запуска Replicator Orchestrator
+### Параметры запуска Parom Orchestrator
 
 ```bash
 # Запуск Orchestrator как systemd-сервиса или в Docker-контейнере
@@ -125,7 +125,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
   -jar parom-orchestrator.jar
 ```
 
-### Параметры запуска Replicator Agent (CLI)
+### Параметры запуска Parom Agent (CLI)
 
 Точка входа: `io.github.balookrd.pristan.parom.agent.ParomAgentMain`.
 
@@ -403,10 +403,10 @@ sequenceDiagram
 [Пользователь / ETL Job: ivan_de]
         │
         ▼ (Создание задачи в UI / REST API с JWT-токеном)
-[Replicator Orchestrator]
+[Parom Orchestrator]
         │
         ▼ (Выдача задания агенту: author="ivan_de", run_as_service=false)
-[Replicator Agent (DC1)]
+[Parom Agent (DC1)]
         │ 1. Авторизация агента по системному keytab: parom@REALM
         │ 2. Создание прокси-пользователя: UGI.createProxyUser("ivan_de", systemUGI)
         │ 3. Вызов блочного чтения: proxyUGI.doAs(() -> hdfs.open(path))
@@ -416,7 +416,7 @@ sequenceDiagram
                                       ▼
                         Логирование в Ranger Audit:
                         • User: "ivan_de" (реальный автор задачи)
-                        • Proxy: "hdfs-replicator" (техучетка агента)
+                        • Proxy: "parom" (техучетка агента)
                         • Action: "READ"
                         • Resource: "/data/raw/transactions"
                         • Result: ALLOWED / DENIED
@@ -425,7 +425,7 @@ sequenceDiagram
 ### Механизмы безопасности
 
 1. Kerberos Impersonation (`UserGroupInformation.doAs`):
-   - агент запускается под системным принципалом (например, `hdfs-replicator/node01@REALM`), прописанным в `core-site.xml` в параметрах `hadoop.proxyuser.hdfs-replicator.hosts` и `hadoop.proxyuser.hdfs-replicator.groups`;
+   - агент запускается под системным принципалом (например, `parom/node01@REALM`), прописанным в `core-site.xml` в параметрах `hadoop.proxyuser.parom.hosts` и `hadoop.proxyuser.parom.groups`;
    - каждое обращение к файловой системе выполняется под логином инициатора задачи через proxy user. Если у пользователя `ivan_de` нет прав на чтение директории, NameNode отклонит операцию с `AccessControlException`.
 2. Сохранение POSIX-атрибутов:
    - в `FileMetadata` передаются исходный режим доступа (`file_mode`), владелец (`owner`) и группа (`group`);
@@ -607,7 +607,7 @@ groups:
         annotations:
           summary: "Высокое отставание репликации Hive Metastore в БД {{ $labels.db_name }} (> 10000)"
 
-      - alert: ReplicatorThroughputZeroOnActiveJobs
+      - alert: ParomThroughputZeroOnActiveJobs
         expr: parom_throughput_bytes_per_second == 0 and parom_active_streams_count > 0
         for: 3m
         labels:
@@ -631,7 +631,7 @@ groups:
 | Kafka Agent Dedicated | 8–16 vCPU | 16–32 GB RAM | 25 Gbps / 40 Gbps / 100 Gbps+ | До 1M+ msg/s throughput (Virtual Threads) |
 
 > [!TIP]
-> Размещение Kafka Replicator Agent:
+> Размещение Parom Kafka Agent:
 > - Colocated (на узлах брокеров Kafka): вычитка идет локально по `localhost:9092` и не нагружает внутреннюю сеть ЦОД. Буферизация в памяти на виртуальных потоках Java 21 не требует отдельного staging-диска; при скорости до 400k msg/s агент занимает 2–4 vCPU.
 > - Dedicated (выделенные Edge Gateway): выбирайте, если ИБ требует изоляции брокеров или суммарный поток реплицируемых топиков доходит до 1M+ msg/s.
 > - Трафик ISR брокеров: внутрикластерная синхронизация реплик (ISR) идет по локальным интерфейсам (например, 2x25G) и не делит полосу с WAN-трафиком репликации.

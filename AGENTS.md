@@ -11,22 +11,22 @@ Pristan — монорепозиторий на **Java 21 LTS (Spring Boot 3)** 
 ```
 pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
-│   ├── zastava/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
-│   ├── yarn/                 # Artel API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
-│   ├── hdfs/                 # Sklad API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
-│   ├── sql/                  # Tolmach API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
-│   ├── spark/                # Iskra API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
-│   └── replicator/           # Parom API & Daemons
+│   ├── zastava/              # Zastava: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
+│   ├── artel/                # Artel: YARN API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
+│   ├── sklad/                # Sklad: HDFS API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
+│   ├── tolmach/              # Tolmach: SQL API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
+│   ├── iskra/                # Iskra: Spark API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
+│   └── parom/                # Parom: межкластерная репликация (API и демоны)
 │       ├── proto/            # Общие wire-контракты: схемы .proto и сгенерированные gRPC-стабы
 │       ├── model/            # Общие DTO, HMS-модель, аттестация задач (без Hadoop / Hive / Kafka)
-│       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
-│       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21, Kerberos doAs)
+│       ├── orchestrator/     # Parom Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
+│       └── agent/            # Нативный Parom gRPC Worker Daemon (Java 21, Kerberos doAs)
 ├── frontend/                 # TypeScript (Svelte 5, Tailwind CSS, Vite)
 │   ├── common/               # Общие типы (types/auth.ts), API клиенты, UI компоненты
-│   └── apps/                 # SPA приложения: yarn, hdfs, sql, spark, replicator
+│   └── apps/                 # SPA приложения: artel, sklad, tolmach, iskra, parom
 ├── data/                     # ⚠️ ВНИМАНИЕ: Локальные SQLite / H2 БД (*.db, *.mv.db). Чтение запрещено!
 ├── scripts/                  # Утилиты автоматизации (build-containers.sh, run-tests.sh, java AST index)
-├── demo/                     # Docker Compose демо-стенды (all, yarn, hdfs, sql, spark, replicator, monitoring)
+├── demo/                     # Docker Compose демо-стенды (all, artel, sklad, tolmach, iskra, parom, monitoring, infra, platform)
 └── docs/                     # Архитектурная и административная документация (ARCHITECTURE.md, guides)
 ```
 
@@ -35,7 +35,7 @@ pristan/
 ## 2. Правила экономии токенов и контекста (Token Efficiency)
 
 1. **Строгая изоляция сервисов**:
-   - При работе над задачей для конкретного сервиса (например, YARN) **никогда не исследовать** директории других сервисов (`hdfs/`, `spark/`, `sql/`).
+   - При работе над задачей для конкретного сервиса (например, Artel) **никогда не исследовать** директории других сервисов (`sklad/`, `iskra/`, `tolmach/`).
    - Использовать только связку `backend/<service>` + `frontend/apps/<service>` + `backend/zastava`.
 
 2. **Запретные для сканирования и чтения директории**:
@@ -78,12 +78,12 @@ pristan/
   * Все тесты Java: `make test-java` (или `mvn test`)
   * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)
   * Стартер безопасности: `make test-zastava` (сборка: `make build-zastava`)
-  * Сервис YARN: `mvn test -f backend/artel/pom.xml` (или `make test-artel`)
-  * Сервис HDFS: `mvn test -f backend/sklad/pom.xml` (или `make test-sklad`)
-  * Сервис SQL: `mvn test -f backend/tolmach/pom.xml` (или `make test-tolmach`)
-  * Сервис Spark: `mvn test -f backend/iskra/pom.xml` (или `make test-iskra`)
-  * Сервис Replicator: `mvn test -f backend/parom/pom.xml`
-  * Отдельный модуль Replicator — только через реактор родителя, иначе общие
+  * Сервис Artel (YARN): `mvn test -f backend/artel/pom.xml` (или `make test-artel`)
+  * Сервис Sklad (HDFS): `mvn test -f backend/sklad/pom.xml` (или `make test-sklad`)
+  * Сервис Tolmach (SQL): `mvn test -f backend/tolmach/pom.xml` (или `make test-tolmach`)
+  * Сервис Iskra (Spark): `mvn test -f backend/iskra/pom.xml` (или `make test-iskra`)
+  * Сервис Parom: `mvn test -f backend/parom/pom.xml` (или `make test-parom`)
+  * Отдельный модуль Parom — только через реактор родителя, иначе общие
     `proto`/`model` берутся из локального репозитория устаревшими:
     `mvn test -f backend/parom/pom.xml -pl agent -am`
 * **Фронтенд тесты (Svelte 5 / Vitest)**:

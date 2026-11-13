@@ -55,7 +55,7 @@
   - `Modal`: рендеринг заголовка, тела и слота подвала, проверка вызова `onClose` при клике на крестик, фон (backdrop) и при нажатии клавиши `Escape`.
   - `StatusBadge`: цвет и текст для каждого статуса выполнения.
   - `NotificationToast`: отображение текста тостов и авто-скрытие.
-- `tests/apps_smoke.test.ts` — smoke-тест монтирования корневых контейнеров `App.svelte` всех четырёх SPA-приложений платформы (YARN, HDFS, SQL, Spark) в среде jsdom.
+- `tests/apps_smoke.test.ts` — smoke-тест монтирования корневых контейнеров `App.svelte` всех четырёх SPA-приложений платформы (Artel, Sklad, Tolmach, Iskra) в среде jsdom.
 - `tests/auth_flow.test.ts` — жизненный цикл авторизации, обновления токенов и смены учетных записей.
 - `tests/client.test.ts` — тесты `BaseApiClient`:
   - Отправка запросов с `credentials: 'include'` и заголовком `X-Requested-With`.

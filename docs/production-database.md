@@ -1,4 +1,4 @@
-# Перевод YARN, HDFS, SQL и Iskra на PostgreSQL и запуск нескольких экземпляров
+# Перевод Artel, Sklad, Tolmach и Iskra на PostgreSQL и запуск нескольких экземпляров
 
 Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `tolmach`, `iskra`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
@@ -7,7 +7,7 @@
 | Сервис | `spring.datasource.url` по умолчанию | Что хранится в БД |
 |---|---|---|
 | Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
-| Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
+| Sklad | `jdbc:h2:mem:sklad;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
 | Tolmach | `jdbc:h2:mem:tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
 | Iskra | `jdbc:h2:mem:iskra;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
 
@@ -29,12 +29,12 @@
 Создайте пользователя и по базе данных на каждый сервис (или одну базу с отдельными схемами и пользователями):
 
 ```sql
-CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
+CREATE USER pristan WITH PASSWORD 'your_strong_password';
 
-CREATE DATABASE sklad OWNER hadoop_explorer;
-CREATE DATABASE tolmach OWNER hadoop_explorer;
-CREATE DATABASE iskra OWNER hadoop_explorer;
-CREATE DATABASE artel OWNER hadoop_explorer;
+CREATE DATABASE sklad OWNER pristan;
+CREATE DATABASE tolmach OWNER pristan;
+CREATE DATABASE iskra OWNER pristan;
+CREATE DATABASE artel OWNER pristan;
 ```
 
 Длинные тексты SQL, Spark и Artel (текст запросов, код, логи, JSON и XML заявок) хранятся в колонках `text`. Large Object (`oid`) эти сервисы не используют, поэтому не нужны `vacuumlo` и права на `pg_largeobject`.
@@ -50,7 +50,7 @@ CREATE DATABASE artel OWNER hadoop_explorer;
 | Переменная | Пример значения | Что делает |
 |---|---|---|
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://<pg_host>:5432/<database>` | Строка подключения JDBC (HikariCP). Драйвер Spring Boot выбирает по URL |
-| `SPRING_DATASOURCE_USERNAME` | `hadoop_explorer` | Пользователь БД. Обязательна: упакованное значение `sa` предназначено для H2 |
+| `SPRING_DATASOURCE_USERNAME` | `pristan` | Пользователь БД. Обязательна: упакованное значение `sa` предназначено для H2 |
 | `SPRING_DATASOURCE_PASSWORD` | `your_strong_password` | Пароль пользователя БД. Обязательна: упакованное значение пустое |
 
 `<pg_host>` — адрес сервера PostgreSQL, `<database>` — база сервиса из раздела 1.
@@ -72,7 +72,7 @@ CREATE DATABASE artel OWNER hadoop_explorer;
 # <jwt_secret> - вывод `openssl rand -hex 32`, одинаковый на всех экземплярах сервиса
 docker run -d \
   -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/tolmach" \
-  -e SPRING_DATASOURCE_USERNAME="hadoop_explorer" \
+  -e SPRING_DATASOURCE_USERNAME="pristan" \
   -e SPRING_DATASOURCE_PASSWORD="secret" \
   -e ZASTAVA_SESSIONSTORE_TYPE="jdbc" \
   -e JWT_SECRET_KEY="<jwt_secret>" \
@@ -89,10 +89,9 @@ docker run -d \
 Для двух и более экземпляров сервиса задайте `zastava.session-store.type: jdbc` (переменная окружения `ZASTAVA_SESSIONSTORE_TYPE=jdbc`):
 
 ```yaml
-hadoop:
-  security:
-    session-store:
-      type: jdbc   # по умолчанию memory
+zastava:
+  session-store:
+    type: jdbc   # по умолчанию memory
 ```
 
 При `jdbc` и настроенном `spring.datasource` `DefaultSessionStore` создает при старте таблицы `active_sessions` и `revoked_tokens` (`CREATE TABLE IF NOT EXISTS`) и хранит в них сессии и отозванные токены. Остальные параметры хранилища описаны в [CONFIGURATION.md, раздел 2.5](CONFIGURATION.md#25-хранилище-сессий-токенов-и-rate-limiting-sessionstore--tri-storage).

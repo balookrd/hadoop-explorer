@@ -30,10 +30,10 @@ docker compose -f demo/parom/docker-compose.yml down -v
 
 | Сервис | Порт | Технология | Назначение | URL / адрес |
 |---|---|---|---|---|
-| Replicator Orchestrator (Web / REST) | `8005` | Java 21 LTS (Spring Boot 3 + Svelte 5) | Веб-интерфейс, REST API для UI, аутентификация | [http://localhost:8005](http://localhost:8005) |
+| Parom Orchestrator (Web / REST) | `8005` | Java 21 LTS (Spring Boot 3 + Svelte 5) | Веб-интерфейс, REST API для UI, аутентификация | [http://localhost:8005](http://localhost:8005) |
 | Orchestrator Control Plane (gRPC) | `50050` | Java 21 LTS (gRPC Netty HTTP/2) | Control Plane для агентов | `localhost:50050` |
-| Prometheus Metrics | `8005` | Replicator Metrics Engine | Метрики Prometheus (`/metrics`) | [http://localhost:8005/metrics](http://localhost:8005/metrics) |
-| Grafana Dashboards | `3000` | Grafana 10.4 | Дашборды Replicator (Overview, Kafka, HMS, Agents) | [http://localhost:3000](http://localhost:3000) |
+| Prometheus Metrics | `8005` | Parom Metrics Engine | Метрики Prometheus (`/metrics`) | [http://localhost:8005/metrics](http://localhost:8005/metrics) |
+| Grafana Dashboards | `3000` | Grafana 10.4 | Дашборды Parom (Overview, Kafka, HMS, Agents) | [http://localhost:3000](http://localhost:3000) |
 | Agent DC1 (Primary ЦОД) | `50051` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc1` (HDFS 1 Kerberos) | `localhost:50051` |
 | Agent DC2 (DR ЦОД) | `50052` | Java 21 LTS (gRPC) | Дуплексный агент кластера `dc2` (HDFS 2 Kerberos) | `localhost:50052` |
 | Primary HDFS (Cluster 1) | `9870` | Apache Hadoop 3.3 (WebHDFS) | Исходный DataLake кластер (DC1) | [http://localhost:9870](http://localhost:9870) |
@@ -101,7 +101,7 @@ Smoke-тест проходит жизненный цикл репликации
 docker compose -f demo/parom/docker-compose.yml --profile test run --rm smoke-test
 ```
 
-### Smoke-тесты Kafka Replicator (Kerberos SASL, SPNEGO для Schema Registry)
+### Smoke-тесты Kafka Replication (Kerberos SASL, SPNEGO для Schema Registry)
 ```bash
 # 1. Запуск керберизованных кластеров Kafka и Schema Registry (DC1 и DC2)
 docker compose -f demo/infra/docker-compose.infra.yml up -d kdc ldap
@@ -127,7 +127,7 @@ Smoke-тест Kafka проверяет:
 прогонов убираются в начале следующего. Чтобы оставить задачи и топики прогона для разбора,
 задайте `KEEP_SMOKE_TOPICS=1`; номер прогона можно задать через `SMOKE_RUN_ID`.
 
-### Масштабный прогон Kafka Replicator (128 партиций, несколько агентов на ДЦ)
+### Масштабный прогон Kafka Replication (128 партиций, несколько агентов на ДЦ)
 ```bash
 # 1. KDC и LDAP (LDAP нужен health-проверке оркестратора)
 docker compose -f demo/infra/docker-compose.infra.yml up -d kdc ldap
@@ -349,6 +349,6 @@ DBS=50 THREADS=16 LOAD_SECONDS=600 PARTITIONS_PER_EVENT=20 ./run-hms-cdc-load-te
 ---
 
 ## Связанная документация
-- Руководство пользователя: [docs/replicator-user-guide.md](../../docs/replicator-user-guide.md)
+- Руководство пользователя: [docs/parom-user-guide.md](../../docs/parom-user-guide.md)
 - Руководство по конфигурации: [docs/CONFIGURATION.md](../../docs/CONFIGURATION.md)
 - Архитектура: [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)

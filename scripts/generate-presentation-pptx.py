@@ -633,7 +633,7 @@ def generate_presentation(output_pptx_path):
     print(f"✅ Презентация успешно сохранена: {output_pptx_path} ({os.path.getsize(output_pptx_path) / 1024:.1f} KB)")
 
 if __name__ == "__main__":
-    out_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "replicator-presentation.pptx")
+    out_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "parom-presentation.pptx")
     if len(sys.argv) > 1:
         out_path = sys.argv[1]
     generate_presentation(out_path)

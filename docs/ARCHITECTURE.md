@@ -27,7 +27,7 @@ Pristan — веб-платформа для работы с экосистем�
                       ┌──────────────────────────────────────────────┐
                       │             Веб-браузер клиента              │
                       │  (YARN :8001 / HDFS :8002 / SQL :8003 /      │
-                      │        Spark :8004 / Replicator :8005)       │
+                      │        Spark :8004 / Parom :8005)       │
                       └──────────────────────┬───────────────────────┘
                                              │ HTTP / SPNEGO / Cookies
                                              ▼
@@ -38,7 +38,7 @@ Pristan — веб-платформа для работы с экосистем�
          ┌───────────────────┘          │          │          │          └───────────────────┐
          ▼                              ▼          ▼          ▼                              ▼
 ┌──────────────────┐           ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────────┐
-│  Artel   │           │  Sklad   │  │   Tolmach   │  │  Iskra  │  │  gRPC Replicator      │
+│  Artel   │           │  Sklad   │  │   Tolmach   │  │  Iskra  │  │  Parom      │
 │ (Java 21: 8001)  │           │ (Java 21: 8002)  │  │ (Java 21: 8003)  │  │ (Java 21: 8004)  │  │ (Orchestrator: 8005)  │
 └────────┬─────────┘           └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  └───────────┬───────────┘
          │                              │                     │                     │                        │
@@ -127,7 +127,7 @@ Pristan — веб-платформа для работы с экосистем�
 
 ### 3.7 TLS / mTLS для REST и gRPC
 1. REST / HTTP:
-   - Веб-серверы Spring Boot (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) включают HTTPS параметром `zastava.tls.enabled=true`.
+   - Веб-серверы Spring Boot (`artel`, `sklad`, `tolmach`, `iskra`, `parom/orchestrator`) включают HTTPS параметром `zastava.tls.enabled=true`.
    - Протоколы TLSv1.3 и TLSv1.2, настраиваемый список шифров, взаимная аутентификация (mTLS) через `client-auth: REQUIRE`.
    - Исходящие HTTP-клиенты (`HttpClient` в `NativeYarnClient`, `AwxClientService`, `OrchestratorClient`) получают TLS-контекст из `TlsContextFactory`: доверенные CA и флаг `insecureSkipVerify` для тестовых стендов.
 2. gRPC-каналы репликации:
@@ -140,9 +140,9 @@ Pristan — веб-платформа для работы с экосистем�
 ## 4. Отказоустойчивость (Resilience Core)
 
 ### 4.1 Метрики Prometheus
-- YARN, HDFS, SQL и Iskra подключают `micrometer-registry-prometheus` и публикуют `/actuator/prometheus` (`management.endpoints.web.exposure.include: health,prometheus`); у всех метрик есть лейбл `app` (`management.metrics.tags.app`). Бизнес-метрики: `MeteredHdfsClient` (HDFS), `ChangeRequestMetrics` (YARN), `SqlQueryMetrics` (SQL), `SparkMetrics` (Spark). Стартер считает ответы 429 `RateLimitFilter` в `hadoop_rate_limit_blocks_total{tier}` (`login`, `api`).
-- `zastava` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Replicator.
-- Оркестратор Replicator отдает `/actuator/prometheus` и `/metrics` (`ParomMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ParomMetricsService`, см. 7.2). `/metrics` требует аутентификации.
+- Artel, Sklad, Tolmach и Iskra подключают `micrometer-registry-prometheus` и публикуют `/actuator/prometheus` (`management.endpoints.web.exposure.include: health,prometheus`); у всех метрик есть лейбл `app` (`management.metrics.tags.app`). Бизнес-метрики: `MeteredHdfsClient` (HDFS), `ChangeRequestMetrics` (YARN), `SqlQueryMetrics` (SQL), `SparkMetrics` (Spark). Стартер считает ответы 429 `RateLimitFilter` в `hadoop_rate_limit_blocks_total{tier}` (`login`, `api`).
+- `zastava` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Parom.
+- Оркестратор Parom отдает `/actuator/prometheus` и `/metrics` (`ParomMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ParomMetricsService`, см. 7.2). `/metrics` требует аутентификации.
 - Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml), описание метрик — в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Circuit Breaker
@@ -162,11 +162,11 @@ Pristan — веб-платформа для работы с экосистем�
 ### 4.4 Блокировки при согласовании заявок YARN
 Отдельного механизма распределенных блокировок в стартере нет. Artel защищает заявки (Change Requests) от двойной обработки атомарным `UPDATE` в БД: `ChangeRequestRepository.claimForDeployment` переводит одобренную заявку в `DEPLOYING` только при условии `status = APPROVED` и `deploymentStatus IS NULL OR 'FAILED'`; если обновлено 0 строк, повторный запуск развертывания отклоняется. Согласование (`approveChangeRequest`) выполняется в транзакции с проверкой статуса `SUBMITTED`.
 
-В Replicator есть собственная аренда с fencing-токенами (`DistributedLockService`, см. 5.5).
+В Parom есть собственная аренда с fencing-токенами (`DistributedLockService`, см. 5.5).
 
 ### 4.5 Остановка сервисов
 - Сервисы собраны на Spring Boot 3.3.4, где `server.shutdown` по умолчанию `immediate`; `application.yml` сервисов `server.shutdown: graceful` не задают. По SIGTERM контекст Spring закрывается без ожидания выполняющихся HTTP-запросов.
-- При закрытии контекста оркестратор Replicator сбрасывает в БД остаточный буфер прогресса задач (`TaskService.shutdown()`, `@PreDestroy`, в явной транзакции через `TransactionTemplate`), до закрытия пула соединений HikariCP.
+- При закрытии контекста оркестратор Parom сбрасывает в БД остаточный буфер прогресса задач (`TaskService.shutdown()`, `@PreDestroy`, в явной транзакции через `TransactionTemplate`), до закрытия пула соединений HikariCP.
 
 ---
 
@@ -236,7 +236,7 @@ Pristan — веб-платформа для работы с экосистем�
 ### 5.5 Parom
 - Назначение: репликация данных между HDFS-кластерами в разных ЦОД (DC1 → DC2 → DC3) с защитой сетевого периметра и ограничением полосы на нескольких уровнях.
 - Топология ЦОД и кластеров HDFS:
-  - Площадки и привязка каждого HDFS-кластера к ЦОД задаются в конфигурации (на стенде 2 ЦОД — Москва и Санкт-Петербург; в DC1 два кластера, в DC2 один). Подробнее — в [руководстве по конфигурации](CONFIGURATION.md#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling).
+  - Площадки и привязка каждого HDFS-кластера к ЦОД задаются в конфигурации (на стенде 2 ЦОД — Москва и Санкт-Петербург; в DC1 два кластера, в DC2 один). Подробнее — в [руководстве по конфигурации](CONFIGURATION.md#7-настройка-parom-dc-dc-wan-sync--throttling).
   - Сетевые лимиты на трех уровнях:
     1. DC-DC WAN: канал между ЦОД (`DC1 ➔ DC2`: 100 МБ/с).
     2. HDFS-HDFS: квоты между парами кластеров (`demo ➔ backup`: 60 МБ/с, `analytics ➔ backup`: 40 МБ/с, внутри DC1: 80 МБ/с).
@@ -278,7 +278,7 @@ Pristan — веб-платформа для работы с экосистем�
 - Безопасность, Kerberos-изоляция и имперсонация (Apache Ranger):
   - `HadoopFsManager` аутентифицирует сервисную учетную запись по keytab (`parom@REALM.LOCAL`).
   - Kerberos Data Transfer Protection: SASL-защита канала передачи блоков DataNode (`dfs.data.transfer.protection = integrity/privacy`) настраивается автоматически; без нее передача между Kerberized-узлами обрывалась с `SocketException: Connection reset`.
-  - Hadoop proxy user и doAs: агент подключается под доверенной сервисной учетной записью и выполняет операции с HDFS под UGI пользователя (`UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)`). Apache Ranger проверяет политики для пользователя и пишет в Ranger Audit Log `ugi: user (auth:PROXY via hdfs-replicator)`.
+  - Hadoop proxy user и doAs: агент подключается под доверенной сервисной учетной записью и выполняет операции с HDFS под UGI пользователя (`UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)`). Apache Ranger проверяет политики для пользователя и пишет в Ranger Audit Log `ugi: user (auth:PROXY via parom)`.
   - HiveServer2: протестирована работа с Apache Hive 4.0.0 через Beeline по Kerberos/JDBC (создание баз, таблиц, партиций, выборка данных).
 - Мониторинг, веб-интерфейс и управление задачами:
   - Метрики Prometheus (`/actuator/prometheus`) на порту `:8005`.
@@ -292,7 +292,7 @@ Pristan — веб-платформа для работы с экосистем�
     - Stateless Active-Active Orchestration и Persistent Agent Registry: реестр агентов хранится в БД (`replication_agents`, `AgentEntity`), поэтому реплики оркестратора работают без общего состояния в памяти. Любой экземпляр видит heartbeat и состояние всех агентов кластера.
     - Распределенный Token Bucket и масштабирование оркестратора: таблица `bandwidth_limits` и координатор `OrchestratorClusterCoordinator` учитывают активные узлы (`orchestrator_nodes`) и делят токены между репликами оркестратора.
     - Монотонные Fencing Tokens против split-brain: `DistributedLockService` выдает монотонно растущие токены (`ClusterLockEntity.epoch`, не сбрасывается при снятии аренды), поэтому бывший лидер с устаревшим токеном не может выполнять операции в сценариях Disaster Recovery.
-    - Replicator Agent (Data и Metadata Plane): агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по Thrift (порт 9083) в LAN, Target Agent применяет DDL в целевом HMS по Thrift в своей LAN, а между собой агенты обмениваются по WAN через gRPC-контракт `HmsTransferService` (порт 50051) с TLS.
+    - Parom Agent (Data и Metadata Plane): агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по Thrift (порт 9083) в LAN, Target Agent применяет DDL в целевом HMS по Thrift в своей LAN, а между собой агенты обмениваются по WAN через gRPC-контракт `HmsTransferService` (порт 50051) с TLS.
     - Виртуальные потоки Java 21 и Netty: gRPC-приемник агента работает на виртуальных потоках (`Executors.newVirtualThreadPerTaskExecutor()`), распаковка входящих TAR-пакетов мелких файлов вынесена в отдельный пул виртуальных потоков (`tarUnpackExecutor`), чтобы не блокировать потоки EventLoop.
     - Аттестация задач (HMAC-SHA256 Task Attestation): `TaskAttestationService` подписывает параметры задачи при назначении (`v1|taskId|jobId|targetPath|executionPrincipal|runAsServiceAccount|expiresAt`), агент проверяет подпись через `TaskAttestationValidator` перед открытием HDFS OutputStream. Подменить целевой путь или Kerberos-principal без ключа нельзя.
     - Chroot-песочница и защита системных путей ОС: локальные файловые операции ограничены каталогом `localSandboxDir` (`PAROM_LOCAL_SANDBOX`); пути приводятся к каноническому виду через `File.getCanonicalFile()`; блокируются symlink traversal, null byte injection, системные каталоги (`FORBIDDEN_OS_PREFIXES`) и конфиденциальные файлы хоста (`SENSITIVE_PATH_PATTERNS`). Проверки не зависят от формы URI (`scheme://host/path`, `scheme:/path`, `scheme:path`), а явная схема `file:` считается локальной ФС независимо от `fs.defaultFS`; read-пробы `checkFile` и `getDirectoryManifest` отвечают на запрещенный путь статусом `PERMISSION_DENIED`.
@@ -314,7 +314,7 @@ Pristan — веб-платформа для работы с экосистем�
     - Если агент перешел в `OFFLINE` или аренда истекла, фоновый планировщик оркестратора (`checkAndFailoverOrphanedHmsJobs`) снимает привязку задачи, и другой агент пула продолжает CDC-поток с сохраненного `lastProcessedEventId`.
     - При сбое целевого агента (Target Agent) оркестратор выдает адрес резервного приемника из `AgentRegistry`, и Source-агент переключает gRPC-канал, не прерывая репликацию.
 - Потоковая репликация Apache Kafka (Kafka Streaming Data Plane & Mirroring):
-  - Отдельный раздел интерфейса «Kafka Replicator» синхронизирует топики Apache Kafka 2.8+ / 3.x между кластерами через gRPC-канал в WAN с TLS, пропускной способностью от 1M msg/s и ограничением полосы (Hierarchical Token Bucket).
+  - Отдельный раздел интерфейса «Kafka Replication» синхронизирует топики Apache Kafka 2.8+ / 3.x между кластерами через gRPC-канал в WAN с TLS, пропускной способностью от 1M msg/s и ограничением полосы (Hierarchical Token Bucket).
   - Data Plane (`KafkaDataTransferService`, порт TCP 50052):
     - Двунаправленный поток `StreamKafkaBatches` поверх HTTP/2 с взаимной TLS-аутентификацией (mTLS, TLS 1.3).
     - Отдельный процесс `parom-kafka-agent` отделяет потоковую нагрузку Kafka от пакетного I/O файлов HDFS и метаданных Hive.
@@ -367,7 +367,7 @@ Pristan — веб-платформа для работы с экосистем�
   - Клиенты приложений (`YarnApiClient`, `hdfs/client.ts`, `ApiClient` в SQL, `SparkApiClient`) наследуются от `BaseApiClient` из `@pristan/common`.
   - Клиент обрабатывает HTTP 401 повторной попыткой входа через Kerberos SSO (`/auth/sso`), добавляет заголовок `X-Requested-With` для защиты от CSRF, передает `credentials: 'include'` и поддерживает sliding sessions.
 - Типы TypeScript (`frontend/common/types/`):
-  - Интерфейсы TypeScript синхронизированы с DTO Java-сервисов (`yarn`, `hdfs`, `sql`, `spark`, `replicator`), поэтому расхождение контракта между Java record/class и клиентом обнаруживается при проверке типов.
+  - Интерфейсы TypeScript синхронизированы с DTO Java-сервисов (`artel`, `sklad`, `tolmach`, `iskra`, `parom`), поэтому расхождение контракта между Java record/class и клиентом обнаруживается при проверке типов.
 
 ---
 
@@ -415,18 +415,18 @@ SQL и Iskra отправляют обновления по Server-Sent Events (
 ## 7. Наблюдаемость и мониторинг (observability)
 
 ### 7.1 Распределенная трассировка
-Трассировка есть только в Replicator (7.1.1). В YARN, HDFS, SQL и Iskra и в `zastava` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
+Трассировка есть только в Parom (7.1.1). В Artel, Sklad, Tolmach и Iskra и в `zastava` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
 
-#### 7.1.1 Трассировка и health-пробы Replicator (оркестратор и агенты)
+#### 7.1.1 Трассировка и health-пробы Parom (оркестратор и агенты)
 - Сквозной trace через gRPC (`GrpcTracing` в `parom-model`): клиентский перехватчик кладет в метаданные вызова W3C `traceparent`, серверный поднимает его и продолжает тот же trace, выставляя `trace_id`/`span_id` в MDC. Перехватчики стоят на всех вызовах: агент → оркестратор (`OrchestratorGrpcClient`), агент → агент для файлов (`ReplicationSender`), схем Hive (`HmsPipelineSender`) и батчей Kafka (`KafkaReplicationClient`), а на серверной стороне — в Control Plane, приемнике агента и приемнике Kafka-батчей. Серверный перехватчик добавляется последним, поэтому выполняется первым: в трассу попадают и вызовы, отклоненные аутентификацией.
 - Экспорт по OTLP включается отдельно: оркестратор использует micrometer-tracing на OpenTelemetry и начинает экспортировать спаны при заданном `MANAGEMENT_OTLP_TRACING_ENDPOINT`; агент (обычный Java-процесс без Spring) собирает SDK сам в `AgentTelemetry` при заданном `OTEL_EXPORTER_OTLP_ENDPOINT`. Пока адрес не задан, API работает как no-op: накладных расходов нет, но корреляция по `trace_id` в логах сохраняется.
 - Стандартный health-протокол (`grpc.health.v1.Health`): статус выставляется по серверу в целом и по подсистемам отдельно, а при остановке переводится в терминальное состояние до закрытия порта. Проба освобождена от `x-agent-secret` (оркестратор контейнеров секрета агента не знает), остальные вызовы остаются закрытыми. HEALTHCHECK контейнера агента выполняется классом `GrpcHealthProbeMain` из того же jar-а и заменил прежнюю проверку открытого TCP-порта, которую проходил агент с остановленным приемником.
 
 ### 7.2 Метрики Prometheus по сервисам и дашборды Grafana
-YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ParomMetricsService.renderParomPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
+Artel, Sklad, Tolmach и Iskra публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Parom отдает оркестратор на `/metrics`: `ParomMetricsService.renderParomPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
 - `parom_bytes_total`, `parom_jobs_total`, `parom_tasks_total`, `parom_active_workers`, `parom_active_agents`, `parom_throttling_delay_seconds_total`, `parom_file_size_bytes`, `parom_hms_jobs_total`, `parom_hms_tables_total`, `parom_hms_partitions_total`, `parom_hms_speed_bytes_per_second`, `parom_dr_cluster_fenced`, `parom_dr_reverse_jobs_total`, `parom_agent_status`, `parom_agent_active_transfers`, `parom_agent_transferred_bytes_total`, `parom_agent_errors_total`, `parom_agent_heartbeat_age_seconds`, `parom_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
-  - `pristan_overview.json` — HTTP golden signals YARN, HDFS, SQL и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
+  - `pristan_overview.json` — HTTP golden signals Artel, Sklad, Tolmach и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Parom.
   - `parom_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
   - `parom_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
   - `parom_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
@@ -444,10 +444,10 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 | Сервис | `spring.datasource.url` по умолчанию | Драйверы JDBC в сборке | Схема |
 |---|---|---|---|
 | Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` | H2, PostgreSQL | JPA, `ddl-auto: update` (таблица `change_requests`) |
-| Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite, PostgreSQL | JPA-сущностей нет; только таблицы `SessionStore` |
+| Sklad | `jdbc:h2:mem:sklad;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite, PostgreSQL | JPA-сущностей нет; только таблицы `SessionStore` |
 | Tolmach | `jdbc:h2:mem:tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
 | Iskra | `jdbc:h2:mem:iskra;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
-| Replicator Orchestrator | `jdbc:h2:mem:parom;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
+| Parom Orchestrator | `jdbc:h2:mem:parom;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
 - Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `zastava` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В Artel вместо `SPRING_DATASOURCE_*` можно задать `ARTEL_DB_URL`, `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `zastava.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и Sklad: [production-database.md](production-database.md).
 - In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
@@ -456,7 +456,7 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 - `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Iskra создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
 - Длинные строковые поля сущностей SQL и Iskra объявлены как `@Column(length = Length.LONG32)`, а не `@Lob`: Hibernate 6.5 создает для них `text` в PostgreSQL и `CHARACTER LARGE OBJECT` в H2 (тот же тип, что давал `@Lob`, поэтому существующие файлы H2 подходят без миграции). В Artel (`change_requests`) убран `@Lob`, а `columnDefinition = "TEXT"` оставлен: это `text` в PostgreSQL и неограниченный `CHARACTER VARYING` в H2, как и раньше. `@Lob` в PostgreSQL дает `oid`: чтение вне транзакции падает с `Unable to access lob stream`.
 - Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `zastava.session-store.type` не `memory`.
-- Схему Replicator Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
+- Схему Parom Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
 
 ---
 
@@ -468,11 +468,11 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
    - Процесс запускается под непривилегированным пользователем `appuser (UID 10001)`.
    - Параметры памяти JVM: `-Xms256m -Xmx1024m`.
 2. Логирование:
-   - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в YARN, HDFS, SQL, Iskra и оркестраторе нет. Агент Replicator использует `backend/parom/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
+   - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в Artel, Sklad, Tolmach, Iskra и оркестраторе нет. Агент Parom использует `backend/parom/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
    - JSON в логах есть только у записей аудита (`AUDIT_EVENT: {...}`, см. 3.4).
 3. Пробы, метрики и остановка:
    - Liveness-проба `/healthz` (`HealthController`, ответ 200 без проверки зависимостей) и readiness-проба `/actuator/health/readiness` (группа readiness Spring Boot Actuator: 503 до `ApplicationReadyEvent` и с начала остановки контекста). Доступность БД и хранилища сессий пробы не проверяют.
-   - Метрики Prometheus: `/actuator/prometheus` у YARN, HDFS, SQL и Iskra, `/metrics` и `/actuator/prometheus` у оркестратора Replicator (см. 4.1).
+   - Метрики Prometheus: `/actuator/prometheus` у Artel, Sklad, Tolmach и Iskra, `/metrics` и `/actuator/prometheus` у оркестратора Parom (см. 4.1).
    - Graceful shutdown не настроен (см. 4.5): по SIGTERM выполняющиеся HTTP-запросы обрываются.
 4. Демо-стенды (`demo/`):
    - Отдельный стенд на каждый сервис и общий стенд `demo/all` с общими контейнерами OpenLDAP, MIT Kerberos KDC, Prometheus и Grafana.
@@ -514,13 +514,13 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 
 | Сервис / уровень | Число тестов и стек | Что покрыто |
 |---|---|---|
-| Common Security Starter | 20 тестов (Java 21) | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC H2/Postgres), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
+| Zastava | 20 тестов (Java 21) | Spring Boot 3 AutoConfiguration, SPNEGO Kerberos GSS-API, LDAP(S) аутентификация, SessionStore L1 (Caffeine) / L2 (JDBC H2/Postgres), CSRF Guard, Bucket4j Rate Limiter, SimpleCircuitBreaker, AOP JSON-аудит |
 | Artel | 13 тестов (Java 21) | Валидация Capacity Scheduler, сумма долей веток 100%, Draft Diff, генерация и санитизация XML, RM HA failover (`STANDBY` → `ACTIVE`), метрики кластера, Change Requests (принцип четырех глаз), REST-клиент AWX, аудит, L1-кэш токенов, Circuit Breaker |
 | Sklad | 16 тестов (Java 21) | NameNode HA failover при `StandbyException`, Kerberos proxy user doAs, API операций, предпросмотр Parquet/ORC с чтением схемы из footer, MockHdfsClient, Circuit Breaker, Rate Limiter |
 | Tolmach | 128 тестов (Java 21) | MockMvc API (каталог, запросы, воркспейс, ИИ-ассистент), ИИ-ассистент с LLM на WireMock (ответ модели, откат на правила при HTTP-ошибке, не-JSON, таймауте, зависшем и слишком большом теле ответа и превышении лимита одновременных вызовов, маскирование ключа, проверка конфигурации при старте), `JdbcQueryRunner` на H2 (пакеты строк, усечение, отмена, таймаут), `QueryEventHub` (повтор событий), `TrinoConnectionFactory`, Trino 484 в Testcontainers (метаданные, `sessionUser`, отмена на координаторе), `HiveConnectionFactory`, HiveServer2 4.0.0 в Testcontainers (`hive.server2.proxy.user`, метаданные, отмена, запрос дольше `socketTimeout`), `LoggingBindingTest` |
 | Iskra | 168 тестов по отчету surefire (Java 21; 128 методов `@Test`, остальное — случаи параметризованных тестов; 2 выполняются только при заданной `TEST_POSTGRES_URL`) | MockMvc API (кластеры, сессии, statements, пайплайны, воркспейс), статусы `FAILED`/`CANCELLED`, условная отмена в `spark_execution_history`, метрики Prometheus, клиент Livy на WireMock (сессии, `proxyUser`, ожидание `idle`, statements `pyspark`/`spark`/`sql`, отмена, ошибки), разбор вывода Livy, SPNEGO-токен против KDC Kerby, жизненный цикл сессий (состояние из Livy, остановка, TTL, выход, `dead` по 409/404), каталог через сессию |
 | Parom | 78+ тестов (Java 21) | Hierarchical Token Bucket, Stateless Active-Active Orchestration, Persistent Agent Registry, Fencing Tokens, Task Attestation HMAC, Chroot Sandbox, DataTransfer и HmsTransfer gRPC, Direct TAR commit и Directory Cache, Schema Registry Single-Flight, smoke-тесты Prometheus и Kafka Active-Active Mirroring |
-| Frontend UI | 95 тестов (Vitest) | Компонентные тесты Svelte 5 на Vitest и `@testing-library/svelte` во всех 5 SPA и общем пакете: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast); проверка типов `svelte-check` |
+| Frontend UI | 95 тестов (Vitest) | Компонентные тесты Svelte 5 на Vitest и `@testing-library/svelte` во всех 5 SPA и общем пакете: Sklad, Artel, Tolmach, Iskra, Parom, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast); проверка типов `svelte-check` |
 
 ### 11.2 Тесты отказоустойчивости
 1. Circuit Breaker:
@@ -551,10 +551,10 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 Для каждого сервиса есть руководство администратора по установке в режимах Standalone (systemd), Docker и Docker Compose:
 
 - [Общее руководство администратора платформы (admin-guide.md)](admin-guide.md)
-- [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
-- [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
-- [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
-- [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
+- [Руководство администратора Artel (artel-admin-guide.md)](artel-admin-guide.md)
+- [Руководство администратора Sklad (sklad-admin-guide.md)](sklad-admin-guide.md)
+- [Руководство администратора Tolmach (tolmach-admin-guide.md)](tolmach-admin-guide.md)
+- [Руководство администратора Iskra (iskra-admin-guide.md)](iskra-admin-guide.md)
 - [Руководство администратора Parom (parom-admin-guide.md)](parom-admin-guide.md)
 - [Руководство по Disaster Recovery и защите от split-brain (parom-disaster-recovery-guide.md)](parom-disaster-recovery-guide.md)
-- [Руководство по отказоустойчивости Replicator (parom-fault-tolerance.md)](parom-fault-tolerance.md)
+- [Руководство по отказоустойчивости Parom (parom-fault-tolerance.md)](parom-fault-tolerance.md)

@@ -1,4 +1,4 @@
-# Руководство администратора Iskra
+# Руководство администратора Iskra (Spark)
 
 Руководство для инженеров DevOps/SRE и системных администраторов: установка, настройка и эксплуатация Iskra в двух режимах:
 1. Standalone: bare-metal или ВМ под управлением systemd.
@@ -93,12 +93,12 @@ sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 # Создание каталогов сервиса
 sudo mkdir -p /opt/pristan/iskra/releases
 sudo mkdir -p /opt/pristan/iskra/bin
-sudo mkdir -p /etc/pristan/spark
-sudo mkdir -p /var/log/hadoop-explorer
+sudo mkdir -p /etc/pristan/iskra
+sudo mkdir -p /var/log/pristan
 sudo mkdir -p /var/lib/pristan/iskra/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/spark
+sudo chown -R appuser:appuser /opt/pristan /etc/pristan /var/log/pristan /var/lib/pristan/iskra
 ```
 
 ### Шаг 3: Получение JAR
@@ -111,7 +111,7 @@ sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log
 sudo -u appuser -i
 
 VERSION="1.0.0"
-GITHUB_REPO="company/hadoop-explorer"
+GITHUB_REPO="company/pristan"
 RELEASE_DIR="/opt/pristan/iskra/releases/v${VERSION}"
 BIN_DIR="/opt/pristan/iskra/bin"
 
@@ -132,8 +132,8 @@ ln -sfn "${RELEASE_DIR}/iskra-${VERSION}.jar" "${BIN_DIR}/iskra.jar"
 ```bash
 sudo -u appuser -i
 cd /tmp
-git clone https://github.com/company/hadoop-explorer.git
-cd hadoop-explorer
+git clone https://github.com/company/pristan.git
+cd pristan
 
 # Сборка фронтенда Iskra
 cd frontend
@@ -150,7 +150,7 @@ cp backend/iskra/target/iskra-*.jar /opt/pristan/iskra/bin/iskra.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/pristan/iskra/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/iskra/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `ZastavaProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/iskra/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/iskra/src/main/resources/application.yml`, `SparkProperties` (префикс `iskra`) и `ZastavaProperties` (префикс `zastava`).
 
 ```yaml
 server:
@@ -161,37 +161,36 @@ spring:
     # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
     url: jdbc:h2:file:/var/lib/pristan/iskra/data/iskra;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
-hadoop:
-  security:
-    auth:
-      mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
-      admin-groups: ["hadoop-admins"]
-      writer-groups: ["data-engineers"]
-    jwt:
-      # Случайная строка не короче 32 символов; без нее сервис не стартует
-      secret-key: "${JWT_SECRET_KEY}"
-      expiration-minutes: 480
-    cors:
-      allowed-origins:
-        - "https://spark.company.local"
-    cookie:
-      secure: true
-    ldap:
-      enabled: true
-      url: "ldaps://ldap.company.local:636"
-      manager-dn: "cn=svc_spark,ou=services,dc=company,dc=local"
-      manager-password: "${LDAP_MANAGER_PASSWORD}"
-      user-search-base: "ou=users,dc=company,dc=local"
-      user-search-filter: "(sAMAccountName={0})"
-      group-search-base: "ou=groups,dc=company,dc=local"
-      group-search-filter: "(member={0})"
-    kerberos:
-      # Входящий SPNEGO (SSO в браузере)
-      enabled: true
-      keytab: "/etc/security/keytabs/iskra.keytab"
-      service-principal: "HTTP/spark.company.local@COMPANY.LOCAL"
+zastava:
+  auth:
+    mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
+    admin-groups: ["hadoop-admins"]
+    writer-groups: ["data-engineers"]
+  jwt:
+    # Случайная строка не короче 32 символов; без нее сервис не стартует
+    secret-key: "${JWT_SECRET_KEY}"
+    expiration-minutes: 480
+  cors:
+    allowed-origins:
+      - "https://spark.company.local"
+  cookie:
+    secure: true
+  ldap:
+    enabled: true
+    url: "ldaps://ldap.company.local:636"
+    manager-dn: "cn=svc_iskra,ou=services,dc=company,dc=local"
+    manager-password: "${LDAP_MANAGER_PASSWORD}"
+    user-search-base: "ou=users,dc=company,dc=local"
+    user-search-filter: "(sAMAccountName={0})"
+    group-search-base: "ou=groups,dc=company,dc=local"
+    group-search-filter: "(member={0})"
+  kerberos:
+    # Входящий SPNEGO (SSO в браузере)
+    enabled: true
+    keytab: "/etc/security/keytabs/iskra.keytab"
+    service-principal: "HTTP/spark.company.local@COMPANY.LOCAL"
 
-spark:
+iskra:
   # Сессии в статусе idle, простаивающие дольше этого срока, переводятся в killed (проверка раз в минуту)
   session-ttl-minutes: 120
   results-ttl-hours: 24
@@ -259,7 +258,7 @@ sudo chown appuser:appuser /etc/pristan/iskra/application.yml
 Создайте файл `/etc/systemd/system/iskra.service`:
 ```ini
 [Unit]
-Description=Hadoop Iskra Web Service
+Description=Iskra Web Service
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -267,7 +266,7 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/pristan/spark
+WorkingDirectory=/opt/pristan/iskra
 Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/iskra/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 

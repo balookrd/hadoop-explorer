@@ -1,4 +1,4 @@
-# Руководство администратора: Sklad
+# Руководство администратора Sklad (HDFS)
 
 Руководство для DevOps-инженеров, SRE и системных администраторов: установка, настройка и эксплуатация Sklad в двух режимах:
 1. Standalone: bare-metal или виртуальная машина под управлением systemd.
@@ -92,14 +92,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/pristan/hdfs/releases
-sudo mkdir -p /opt/pristan/hdfs/bin
-sudo mkdir -p /etc/pristan/hdfs
-sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/pristan/hdfs/data
+sudo mkdir -p /opt/pristan/sklad/releases
+sudo mkdir -p /opt/pristan/sklad/bin
+sudo mkdir -p /etc/pristan/sklad
+sudo mkdir -p /var/log/pristan
+sudo mkdir -p /var/lib/pristan/sklad/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/hdfs
+sudo chown -R appuser:appuser /opt/pristan /etc/pristan /var/log/pristan /var/lib/pristan/sklad
 ```
 
 ### Шаг 3: получение артефакта
@@ -112,9 +112,9 @@ JAR из релиза уже содержит собранный веб-инте
 sudo -u appuser -i
 
 VERSION="1.0.0"
-GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/pristan/hdfs/releases/v${VERSION}"
-BIN_DIR="/opt/pristan/hdfs/bin"
+GITHUB_REPO="company/pristan"
+RELEASE_DIR="/opt/pristan/sklad/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/sklad/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -133,8 +133,8 @@ ln -sfn "${RELEASE_DIR}/sklad-${VERSION}.jar" "${BIN_DIR}/sklad.jar"
 ```bash
 sudo -u appuser -i
 cd /tmp
-git clone https://github.com/company/hadoop-explorer.git
-cd hadoop-explorer
+git clone https://github.com/company/pristan.git
+cd pristan
 
 # Сборка фронтенда HDFS (Svelte 5)
 cd frontend
@@ -147,11 +147,11 @@ cd ..
 mvn clean package -DskipTests -f backend/sklad/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/sklad/target/sklad-*.jar /opt/pristan/hdfs/bin/sklad.jar
+cp backend/sklad/target/sklad-*.jar /opt/pristan/sklad/bin/sklad.jar
 ```
 
 ### Шаг 4: конфигурационный файл
-Создайте файл `/etc/pristan/hdfs/application.yml`:
+Создайте файл `/etc/pristan/sklad/application.yml`:
 ```yaml
 server:
   port: 8000
@@ -160,79 +160,76 @@ spring:
   application:
     name: sklad
   datasource:
-    url: jdbc:h2:file:/var/lib/pristan/hdfs/data/sklad;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/sklad/data/sklad;DB_CLOSE_DELAY=-1
     # Для PostgreSQL-кластера:
     # url: jdbc:postgresql://pg.company.local:5432/sklad
     # username: hdfs_user
     # password: DbPassword123
 
 # Общие параметры безопасности платформы
-hadoop:
-  security:
-    auth:
-      mode: ldap # mock | ldap | kerberos
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-      writer-groups:
-        - "data-engineers"
-        - "developers"
-    jwt:
-      secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      server-uri: "ldaps://ldap.company.local:636"
-      bind-dn: "cn=svc_hdfs,ou=services,dc=company,dc=local"
-      bind-password: "ServiceLdapPassword"
-      user-search-base: "ou=users,dc=company,dc=local"
-      user-search-filter: "(sAMAccountName={0})"
-      group-search-base: "ou=groups,dc=company,dc=local"
-      group-search-filter: "(member={0})"
-    kerberos:
-      enabled: true
-      keytab-path: "/etc/security/keytabs/sklad.keytab"
-      principal: "HTTP/hdfs.company.local@COMPANY.LOCAL"
-
-  # Настройка подключения к кластерам HDFS
-  hdfs:
-    clusters:
-      - id: "prod-datalake"
-        name: "Production DataLake"
-        description: "Основной аналитический кластер HDFS"
-        webhdfs-urls:
-          - "http://nn01.prod.company.local:9870/webhdfs/v1"
-          - "http://nn02.prod.company.local:9870/webhdfs/v1"
-        hdfs-rpc-urls:
-          - "hdfs://nn01.prod.company.local:8020"
-          - "hdfs://nn02.prod.company.local:8020"
-        auth-type: "kerberos"
-        service-principal: "hdfs-client@COMPANY.LOCAL"
-        keytab-path: "/etc/security/keytabs/hdfs-client.keytab"
-        timeout-seconds: 15
-        preview-max-bytes: 10485760
-        default-path: "/user/{username}"
-        mock-storage: false
-        acl:
-          allowed-groups:
-            - "data-engineers"
-            - "analytics"
-            - "hadoop-admins"
-          admin-groups:
-            - "hadoop-admins"
+sklad:
+  clusters:
+    - id: "prod-datalake"
+      name: "Production DataLake"
+      description: "Основной аналитический кластер HDFS"
+      webhdfs-urls:
+        - "http://nn01.prod.company.local:9870/webhdfs/v1"
+        - "http://nn02.prod.company.local:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://nn01.prod.company.local:8020"
+        - "hdfs://nn02.prod.company.local:8020"
+      auth-type: "kerberos"
+      service-principal: "hdfs-client@COMPANY.LOCAL"
+      keytab-path: "/etc/security/keytabs/hdfs-client.keytab"
+      timeout-seconds: 15
+      preview-max-bytes: 10485760
+      default-path: "/user/{username}"
+      mock-storage: false
+      acl:
+        allowed-groups:
+          - "data-engineers"
+          - "analytics"
+          - "hadoop-admins"
+        admin-groups:
+          - "hadoop-admins"
+zastava:
+  auth:
+    mode: ldap # mock | ldap | kerberos
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+    writer-groups:
+      - "data-engineers"
+      - "developers"
+  jwt:
+    secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    server-uri: "ldaps://ldap.company.local:636"
+    bind-dn: "cn=svc_sklad,ou=services,dc=company,dc=local"
+    bind-password: "ServiceLdapPassword"
+    user-search-base: "ou=users,dc=company,dc=local"
+    user-search-filter: "(sAMAccountName={0})"
+    group-search-base: "ou=groups,dc=company,dc=local"
+    group-search-filter: "(member={0})"
+  kerberos:
+    enabled: true
+    keytab-path: "/etc/security/keytabs/sklad.keytab"
+    principal: "HTTP/hdfs.company.local@COMPANY.LOCAL"
 ```
 
 Ограничьте доступ к файлу: в нем пароль LDAP и JWT-ключ.
 ```bash
-sudo chmod 600 /etc/pristan/hdfs/application.yml
-sudo chown appuser:appuser /etc/pristan/hdfs/application.yml
+sudo chmod 600 /etc/pristan/sklad/application.yml
+sudo chown appuser:appuser /etc/pristan/sklad/application.yml
 ```
 
 ### Шаг 5: systemd-юнит
 Создайте файл `/etc/systemd/system/sklad.service`:
 ```ini
 [Unit]
-Description=Hadoop Sklad Java Service (Spring Boot 3)
+Description=Sklad Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -240,15 +237,15 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/pristan/hdfs
-Environment="SPRING_CONFIG_LOCATION=/etc/pristan/hdfs/application.yml"
+WorkingDirectory=/opt/pristan/sklad
+Environment="SPRING_CONFIG_LOCATION=/etc/pristan/sklad/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
-    -Dspring.config.location=/etc/pristan/hdfs/application.yml \
-    -jar /opt/pristan/hdfs/bin/sklad.jar
+    -Dspring.config.location=/etc/pristan/sklad/application.yml \
+    -jar /opt/pristan/sklad/bin/sklad.jar
 
 Restart=always
 RestartSec=5s
@@ -278,7 +275,7 @@ curl -I http://127.0.0.1:8000/healthz
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/pristan/hdfs/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/sklad/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/sklad-${NEW_VER}.jar"
@@ -286,7 +283,7 @@ curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение символической ссылки (симлинка):
-ln -sfn "${RELEASE_DIR}/sklad-${NEW_VER}.jar" /opt/pristan/hdfs/bin/sklad.jar
+ln -sfn "${RELEASE_DIR}/sklad-${NEW_VER}.jar" /opt/pristan/sklad/bin/sklad.jar
 
 # Перезапуск сервиса (занимает 2–3 с):
 sudo systemctl restart sklad
@@ -448,8 +445,8 @@ make test-java
 # <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех экземплярах сервиса
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8001 \
-  -Dhadoop.security.auth.mode=kerberos \
-  -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
+  -Dzastava.auth.mode=kerberos \
+  -Dzastava.jwt.secret-key="<jwt_secret>" \
   -Dsklad.clusters-config-path=/etc/pristan/clusters.yaml \
   backend/sklad/target/sklad-1.0.0.jar
 ```

@@ -155,7 +155,7 @@ add_principal "hive/localhost@${REALM}" ""
 add_principal "trino/trino-coordinator@${REALM}" ""
 add_principal "trino/localhost@${REALM}" ""
 
-# 4. YARN принципалы (RM & NM & Explorer)
+# 4. YARN принципалы (RM & NM & Artel)
 add_principal "yarn/yarn-rm-1.yarn-demo-net@${REALM}" ""
 add_principal "HTTP/yarn-rm-1.yarn-demo-net@${REALM}" ""
 add_principal "yarn/yarn-rm-2.yarn-demo-net@${REALM}" ""

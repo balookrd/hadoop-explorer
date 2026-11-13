@@ -5,7 +5,7 @@
 
 Метод: AST-индекс (`scripts/java-index-query.sh`) для навигации без чтения файлов целиком, точечное чтение
 горячих участков, прогон тестов, `ast-grep scan`, разбор конфигурации и развёртывания. Предыдущие аудиты
-из памяти Gemini (`~/.gemini/antigravity/brain/*`, 28 документов по replicator) использованы как список
+из памяти Gemini (`~/.gemini/antigravity/brain/*`, 28 документов по Parom) использованы как список
 гипотез для перепроверки, а не как факты: часть заявленных там исправлений не подтвердилась (раздел 7).
 
 ---
@@ -420,7 +420,7 @@ fail-closed — поведение несогласованно между ко�
   Первая — мёртвый код, вводящий в заблуждение.
 - Схема БД разошлась с JPA-моделью: `schema-postgresql.sql` создаёт `dr_emergency_snapshots`,
   `parom_streaming_lease`, `parom_cluster_locks`, тогда как сущности объявляют
-  `replicator_dr_snapshots`, `replicator_streaming_leases`, `cluster_locks`; таблиц `hms_event_logs`
+  `parom_dr_snapshots`, `parom_streaming_leases`, `cluster_locks`; таблиц `hms_event_logs`
   и `hms_dead_letter_events` в скрипте нет вовсе. Скрипт нигде не подключён, миграций нет,
   партиции заданы статически только до `2027_01` без автосоздания.
 - Трассировки нет совсем (ни OpenTelemetry, ни micrometer-tracing) — для системы «оркестратор + N агентов

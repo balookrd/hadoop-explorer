@@ -78,82 +78,81 @@ Spring Boot стартер аутентификации, сессий, CSRF-за
 ## Конфигурация (`application.yml`)
 
 ```yaml
-hadoop:
-  security:
-    debug: false # в production mock-аутентификация категорически заблокирована
-    auth:
-      mode: ldap # варианты: ldap | kerberos | mock
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-      writer-groups:
-        - "data-engineers"
-        - "iskra-users"
+zastava:
+  debug: false # в production mock-аутентификация категорически заблокирована
+  auth:
+    mode: ldap # варианты: ldap | kerberos | mock
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+    writer-groups:
+      - "data-engineers"
+      - "iskra-users"
 
-    jwt:
-      secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
-      algorithm: "HS256"
-      expiration-minutes: 480
+  jwt:
+    secret-key: "${JWT_SECRET_KEY}"   # вывод `openssl rand -hex 32`, не короче 32 символов
+    algorithm: "HS256"
+    expiration-minutes: 480
 
-    cookie:
-      secure: true
-      same-site: "Lax"
-      names:
-        - "access_token"
-        - "pristan_session"
+  cookie:
+    secure: true
+    same-site: "Lax"
+    names:
+      - "access_token"
+      - "pristan_session"
 
-    cors:
-      allowed-origins:
-        - "https://hadoop.corp.internal"
-        - "https://yarn.corp.internal"
+  cors:
+    allowed-origins:
+      - "https://hadoop.corp.internal"
+      - "https://yarn.corp.internal"
 
-    ldap:
-      enabled: true
-      url: "ldaps://ldap.corp.internal:636"
-      base-dn: "dc=corp,dc=internal"
-      user-search-base: "ou=users"
-      user-search-filter: "(&(objectClass=person)(uid={0}))"
-      group-search-base: "ou=groups"
-      group-search-filter: "(&(objectClass=groupOfNames)(member={0}))"
-      manager-dn: "cn=service-account,ou=services,dc=corp,dc=internal"
-      manager-password: "${LDAP_SERVICE_PASSWORD}"
+  ldap:
+    enabled: true
+    url: "ldaps://ldap.corp.internal:636"
+    base-dn: "dc=corp,dc=internal"
+    user-search-base: "ou=users"
+    user-search-filter: "(&(objectClass=person)(uid={0}))"
+    group-search-base: "ou=groups"
+    group-search-filter: "(&(objectClass=groupOfNames)(member={0}))"
+    manager-dn: "cn=service-account,ou=services,dc=corp,dc=internal"
+    manager-password: "${LDAP_SERVICE_PASSWORD}"
 
-    kerberos:
-      enabled: false
-      krb5-config: "/etc/krb5.conf"
-      keytab: "/etc/security/keytabs/spnego.service.keytab"
-      service-principal: "HTTP/hadoop.corp.internal@CORP.INTERNAL"
+  kerberos:
+    enabled: false
+    krb5-config: "/etc/krb5.conf"
+    keytab: "/etc/security/keytabs/spnego.service.keytab"
+    service-principal: "HTTP/hadoop.corp.internal@CORP.INTERNAL"
 
-    session-store:
-      type: jdbc # memory | jdbc | redis
-      fail-closed: true
-      l1-capacity: 10000
-      l1-ttl-seconds: 3600
+  session-store:
+    type: jdbc # memory | jdbc | redis
+    fail-closed: true
+    l1-capacity: 10000
+    l1-ttl-seconds: 3600
 
-    rate-limiter:
-      enabled: true
-      requests-per-minute: 600
-      burst-capacity: 100
-      login:
-        requests-per-minute: 30
-        burst-capacity: 10
-      trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
-      max-tracked-keys: 100000
+  rate-limiter:
+    enabled: true
+    requests-per-minute: 600
+    burst-capacity: 100
+    login:
+      requests-per-minute: 30
+      burst-capacity: 10
+    trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
+    max-tracked-keys: 100000
 
-    tls:
-      enabled: true
-      key-store-path: "/etc/security/tls/keystore.p12"
-      key-store-password: "${TLS_KEYSTORE_PASSWORD}"
-      key-store-type: "PKCS12"
-      trust-store-path: "/etc/security/tls/truststore.p12"
-      trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
-      trust-store-type: "PKCS12"
-      client-auth: "NONE" # NONE | OPTIONAL | REQUIRE (mTLS)
-      insecure-skip-verify: false # true для локальных демо-стендов
-      auto-generate-self-signed: true # автогенерация при отсутствии файла keystore
-      enabled-protocols:
-        - "TLSv1.3"
-        - "TLSv1.2"
+  tls:
+    enabled: true
+    key-store-path: "/etc/security/tls/keystore.p12"
+    key-store-password: "${TLS_KEYSTORE_PASSWORD}"
+    key-store-type: "PKCS12"
+    trust-store-path: "/etc/security/tls/truststore.p12"
+    trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
+    trust-store-type: "PKCS12"
+    client-auth: "NONE" # NONE | OPTIONAL | REQUIRE (mTLS)
+    insecure-skip-verify: false # true для локальных демо-стендов
+    auto-generate-self-signed: true # автогенерация при отсутствии файла keystore
+    enabled-protocols:
+      - "TLSv1.3"
+      - "TLSv1.2"
 ```
 
 ---

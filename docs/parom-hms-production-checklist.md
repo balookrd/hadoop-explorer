@@ -4,7 +4,7 @@
 
 Обозначения:
 
-- учетка агента — Kerberos-принципал из keytab агента (`KRB5_PRINCIPAL`, например `replicator/host@REALM`), в Hadoop — короткое имя после `auth_to_local` (например `replicator`);
+- учетка агента — Kerberos-принципал из keytab агента (`KRB5_PRINCIPAL`, например `parom/host@REALM`), в Hadoop — короткое имя после `auth_to_local` (например `parom`);
 - пользователь задачи — `execution_principal` задачи: от его имени метастор создает базы, таблицы и каталоги, и от его же имени пишутся данные на приемнике.
 
 ---

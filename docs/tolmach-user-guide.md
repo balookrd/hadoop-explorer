@@ -16,7 +16,7 @@
 
 ## Содержание
 
-1. [Функции Tolmach (SQL)](#1-функции-sql-web-explorer)
+1. [Функции Tolmach (SQL)](#1-функции-tolmach-sql)
 2. [Архитектура и потоки данных](#2-архитектура-и-потоки-данных)
 3. [Аутентификация и ролевая модель безопасности](#3-аутентификация-и-ролевая-модель-безопасности)
 4. [Главный экран](#4-главный-экран)
@@ -98,13 +98,13 @@ sequenceDiagram
 Tolmach (SQL) проверяет пользователей через Active Directory / OpenLDAP и поддерживает Kerberos SPNEGO SSO.
 
 <div align="center">
-  <img src="images/sql/01_login_screen.png" alt="Экран входа Tolmach (SQL)" width="850" />
+  <img src="images/tolmach/01_login_screen.png" alt="Экран входа Tolmach (SQL)" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SPNEGO SSO</em></p>
 </div>
 
 ### Ролевые группы и доступ к кластерам
 
-Доступ к кластерам задает администратор в секции `tolmach.clusters` файла `application.yml` (см. [руководство администратора](sql-admin-guide.md), раздел 2, шаг 4): у каждого кластера есть списки `allowed-users` и `allowed-groups`. Кластер доступен пользователю, если его имя или одна из его групп есть в этих списках, если оба списка пусты или если пользователь входит в группу администраторов (`zastava.auth.admin-groups`). Ограничения по типу операций (только SELECT, запрет DDL/DML) Explorer не проверяет: в таблице ниже это пример политик на стороне кластера.
+Доступ к кластерам задает администратор в секции `tolmach.clusters` файла `application.yml` (см. [руководство администратора](tolmach-admin-guide.md), раздел 2, шаг 4): у каждого кластера есть списки `allowed-users` и `allowed-groups`. Кластер доступен пользователю, если его имя или одна из его групп есть в этих списках, если оба списка пусты или если пользователь входит в группу администраторов (`zastava.auth.admin-groups`). Ограничения по типу операций (только SELECT, запрет DDL/DML) Tolmach не проверяет: в таблице ниже это пример политик на стороне кластера.
 
 | Группа пользователей | Trino Analytics (Prod) | Hive HDP Cluster | Apache HiveServer2 | DDL/DML (DROP, ALTER) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -119,7 +119,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 ## 4. Главный экран
 
 <div align="center">
-  <img src="images/sql/02_main_workspace.png" alt="Главный экран Tolmach (SQL)" width="850" />
+  <img src="images/tolmach/02_main_workspace.png" alt="Главный экран Tolmach (SQL)" width="850" />
   <p><em>Рисунок 2: Главный экран рабочей студии Tolmach (SQL)</em></p>
 </div>
 
@@ -152,7 +152,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Вкладка **«Схема»** показывает структуру данных; метаданные кэшируются на сервере.
 
 <div align="center">
-  <img src="images/sql/03_catalog_schema_tree.png" alt="Дерево каталогов, схем и колонок" width="850" />
+  <img src="images/tolmach/03_catalog_schema_tree.png" alt="Дерево каталогов, схем и колонок" width="850" />
   <p><em>Рисунок 3: Раскрытое дерево каталогов tpch → sf1 → таблица customer с типами данных</em></p>
 </div>
 
@@ -175,7 +175,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 После запуска запроса интерфейс подключается к SSE-потоку. Панель инструментов показывает статус («Постановка в очередь...», «Исполнение на кластере...»), время выполнения и число полученных строк.
 
 <div align="center">
-  <img src="images/sql/04_query_results_grid.png" alt="Таблица результатов выполнения SQL-запроса" width="850" />
+  <img src="images/tolmach/04_query_results_grid.png" alt="Таблица результатов выполнения SQL-запроса" width="850" />
   <p><em>Рисунок 4: Таблица результатов выборки из таблицы customer (время исполнения 0.44 с, 50 строк)</em></p>
 </div>
 
@@ -190,7 +190,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 ## 7. Вкладки и сохранение сессий
 
 <div align="center">
-  <img src="images/sql/05_multi_tab_editor.png" alt="Многовкладочный режим редактора" width="850" />
+  <img src="images/tolmach/05_multi_tab_editor.png" alt="Многовкладочный режим редактора" width="850" />
   <p><em>Рисунок 5: Работа с несколькими независимыми вкладками запросов</em></p>
 </div>
 
@@ -204,7 +204,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Вкладка **«История»** содержит все запросы, выполненные текущим пользователем.
 
 <div align="center">
-  <img src="images/sql/06_query_history.png" alt="История выполненных SQL-запросов" width="850" />
+  <img src="images/tolmach/06_query_history.png" alt="История выполненных SQL-запросов" width="850" />
   <p><em>Рисунок 6: Панель истории запросов с цветовой индикацией статусов и длительности</em></p>
 </div>
 
@@ -219,7 +219,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Вкладка **«Очередь»** показывает фоновые и выполняющиеся запросы пользователя на кластере.
 
 <div align="center">
-  <img src="images/sql/07_cluster_queue_monitor.png" alt="Мониторинг очереди задач на кластере" width="850" />
+  <img src="images/tolmach/07_cluster_queue_monitor.png" alt="Мониторинг очереди задач на кластере" width="850" />
   <p><em>Рисунок 7: Мониторинг очереди запросов с возможностью отмены</em></p>
 </div>
 
@@ -237,7 +237,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Опишите задачу на русском или английском языке — ассистент вернет SQL-запрос.
 
 <div align="center">
-  <img src="images/sql/08_ai_generator.png" alt="ИИ-генератор SQL-запросов" width="850" />
+  <img src="images/tolmach/08_ai_generator.png" alt="ИИ-генератор SQL-запросов" width="850" />
   <p><em>Рисунок 8: Генерация аналитического SQL с учетом отсечения партиций HDFS и защиты OOM</em></p>
 </div>
 
@@ -253,7 +253,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Вкладка **«Анализ и замечания»** выполняет статическую проверку текста запроса.
 
 <div align="center">
-  <img src="images/sql/09_ai_analysis_check.png" alt="ИИ Анализ безопасности и качества SQL" width="850" />
+  <img src="images/tolmach/09_ai_analysis_check.png" alt="ИИ Анализ безопасности и качества SQL" width="850" />
   <p><em>Рисунок 9: Анализ запроса на деструктивные операции, антипаттерны и декартовы произведения</em></p>
 </div>
 
@@ -267,7 +267,7 @@ Tolmach (SQL) проверяет пользователей через Active Di
 Вкладка **«Объяснение запроса»** разбивает запрос (с CTE, оконными функциями и джойнами) на пошаговые блоки с описанием на русском языке.
 
 <div align="center">
-  <img src="images/sql/10_ai_explain_optimize.png" alt="ИИ-объяснение и оптимизация запроса" width="850" />
+  <img src="images/tolmach/10_ai_explain_optimize.png" alt="ИИ-объяснение и оптимизация запроса" width="850" />
   <p><em>Рисунок 10: Пошаговый разбор логики выполнения аналитического запроса</em></p>
 </div>
 

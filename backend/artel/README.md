@@ -64,7 +64,7 @@ java -jar backend/artel/target/artel-1.0.0.jar --spring.profiles.active=mock
 
 # Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
 JWT_SECRET_KEY=... java -jar backend/artel/target/artel-1.0.0.jar \
-  --spring.config.additional-location=file:/etc/pristan/yarn/application.yml
+  --spring.config.additional-location=file:/etc/pristan/artel/application.yml
 ```
 
 Сервис слушает порт `8000` (`server.port` в `application.yml`).

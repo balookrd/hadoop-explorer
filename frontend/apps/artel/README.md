@@ -60,7 +60,7 @@ frontend/apps/artel/tests/        # Модульные и компонентны
    - Селектор разделов в `QueueEditDrawer`: статус раздела на кнопке (`●` настроен, `○` нет квот), подсказки, кнопки добавления (`+ Настроить раздел`) и удаления квот раздела.
    - Окно «Changes Review» (`DiffPanel`) показывает изменения ресурсов по всем разделам, разрешенных меток (`accessible-node-labels`) и метки по умолчанию (`default-node-label-expression`).
 
-Руководство пользователя: [docs/yarn-user-guide.md](../../../docs/yarn-user-guide.md). Доставка конфигурации через AWX: [docs/awx-yarn-deployment.md](../../../docs/awx-yarn-deployment.md).
+Руководство пользователя: [docs/artel-user-guide.md](../../../docs/artel-user-guide.md). Доставка конфигурации через AWX: [docs/awx-yarn-deployment.md](../../../docs/awx-yarn-deployment.md).
 
 ## Разработка и сборка
 

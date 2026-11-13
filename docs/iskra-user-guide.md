@@ -2,7 +2,7 @@
 
 <img src="../images/logo_white.png" alt="Pristan — Iskra" width="380" />
 
-# Руководство пользователя: Spark Web Explorer
+# Руководство пользователя Iskra (Spark)
 
 <p>Веб-студия для разработки, отладки и запуска аналитических задач и ETL на Apache Spark (PySpark, Scala Spark, Spark SQL) с управлением сессиями Apache Livy и ресурсами YARN</p>
 
@@ -10,13 +10,13 @@
 
 ---
 
-Руководство для дата-инженеров, ML-специалистов и аналитиков данных, работающих в Spark Web Explorer. Spark Web Explorer — веб-среда в стиле notebook-IDE для работы с кластерами Apache Spark через шлюз Apache Livy. В ней можно переключаться между PySpark, Scala Spark и Spark SQL, просматривать метаданные таблиц Hive Metastore и Apache Iceberg, задавать ресурсы драйвера и executor'ов и очередь YARN. Вход выполняется через LDAP или Kerberos SSO, доступ ограничивается ролевой моделью.
+Руководство для дата-инженеров, ML-специалистов и аналитиков данных, работающих в Iskra (Spark). Iskra — веб-среда в стиле notebook-IDE для работы с кластерами Apache Spark через шлюз Apache Livy. В ней можно переключаться между PySpark, Scala Spark и Spark SQL, просматривать метаданные таблиц Hive Metastore и Apache Iceberg, задавать ресурсы драйвера и executor'ов и очередь YARN. Вход выполняется через LDAP или Kerberos SSO, доступ ограничивается ролевой моделью.
 
 ---
 
 ## Содержание
 
-1. [Функции Spark Web Explorer](#1-функции-spark-web-explorer)
+1. [Функции Iskra (Spark)](#1-функции-iskra-spark)
 2. [Архитектура и интеграция компонентов](#2-архитектура-и-интеграция-компонентов)
 3. [Аутентификация, безопасность и имперсонация](#3-аутентификация-безопасность-и-имперсонация)
 4. [Главный экран и организация рабочей студии](#4-главный-экран-и-организация-рабочей-студии)
@@ -37,13 +37,13 @@
 
 ---
 
-## 1. Функции Spark Web Explorer
+## 1. Функции Iskra (Spark)
 
 Схема компонентов:
 
 ```mermaid
 graph TD
-    User(["Дата-инженер / ML-исследователь"]) -->|"HTTPS / Kerberos SSO"| UI["Spark Web Explorer Studio\nSvelte 5 + Tailwind v4 + Monaco"]
+    User(["Дата-инженер / ML-исследователь"]) -->|"HTTPS / Kerberos SSO"| UI["Iskra (Spark) UI\nSvelte 5 + Tailwind v4 + Monaco"]
     UI -->|"REST API + SSE Logs"| Gateway["Iskra API\nJava 21 / Spring Boot 3"]
     Gateway -->|"Livy REST + Impersonation doAs"| Livy["Apache Livy Server"]
     Livy -->|"YARN Client / Cluster Mode"| RM["YARN ResourceManager"]
@@ -67,7 +67,7 @@ graph TD
 
 ## 2. Архитектура и интеграция компонентов
 
-Бэкенд Spark Web Explorer — сервис Iskra API (Java 21 / Spring Boot 3). Запросы к Apache Livy он отправляет через Circuit Breaker. Последовательность выполнения кода:
+Бэкенд Iskra — сервис на Java 21 / Spring Boot 3. Запросы к Apache Livy он отправляет через Circuit Breaker. Последовательность выполнения кода:
 
 ```mermaid
 sequenceDiagram
@@ -109,7 +109,7 @@ sequenceDiagram
 Вход выполняется на экране аутентификации. Поддерживаются Active Directory / OpenLDAP и вход по Kerberos SPNEGO SSO.
 
 <div align="center">
-  <img src="images/iskra/01_login_screen.png" alt="Экран входа Spark Web Explorer" width="850" />
+  <img src="images/iskra/01_login_screen.png" alt="Экран входа Iskra" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SSO</em></p>
 </div>
 
@@ -131,11 +131,11 @@ sequenceDiagram
 
 ## 4. Главный экран и организация рабочей студии
 
-После входа открывается главный экран Spark Web Explorer.
+После входа открывается главный экран Iskra.
 
 <div align="center">
   <img src="images/iskra/02_main_workspace.png" alt="Главный экран Iskra" width="850" />
-  <p><em>Рисунок 2: Главный экран рабочей студии Spark Web Explorer</em></p>
+  <p><em>Рисунок 2: Главный экран рабочей студии Iskra</em></p>
 </div>
 
 ### Элементы интерфейса
@@ -186,7 +186,7 @@ sequenceDiagram
 
 ### 6.1. Поддержка языков: PySpark, Scala Spark и Spark SQL
 
-Spark Web Explorer поддерживает три языка. Язык переключается на панели инструментов:
+Iskra поддерживает три языка. Язык переключается на панели инструментов:
 
 ```
 [ PySpark ]  [ Scala Spark ]  [ Spark SQL ]
@@ -309,7 +309,7 @@ LIMIT 50;
    hdfs dfs -put my_project_env.tar.gz /user/$USER/envs/
    ```
 
-3. Подключите окружение в интерфейсе Spark Web Explorer:
+3. Подключите окружение в интерфейсе Iskra:
    - Нажмите значок шестерёнки **«Параметры сессии Spark»** в верхней панели.
    - В выпадающем списке **«Окружение Python (Runtime)»** выберите пункт **«Кастомный venv (HDFS archive)...»**.
    - В появившемся блоке укажите:

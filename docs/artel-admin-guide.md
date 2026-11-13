@@ -1,4 +1,4 @@
-# Руководство администратора Artel
+# Руководство администратора Artel (YARN)
 
 Руководство описывает установку, настройку и эксплуатацию Artel. Оно рассчитано на DevOps- и SRE-инженеров и системных администраторов. Описаны два способа развертывания:
 1. Standalone: сервер или виртуальная машина, процесс под управлением systemd.
@@ -50,7 +50,7 @@ Git, Apache Maven, Node.js и npm для запуска готового рел�
   - `artel-${VERSION}.jar` (~50 МБ) — Spring Boot 3 Fat JAR: веб-интерфейс (Svelte 5 SPA), REST API, интеграция с AWX, драйверы БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 файлов релиза.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/pristan/yarn:${VERSION}`
+  - `ghcr.io/company/pristan/artel:${VERSION}`
 
 ---
 
@@ -84,14 +84,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/pristan/yarn/releases
-sudo mkdir -p /opt/pristan/yarn/bin
-sudo mkdir -p /etc/pristan/yarn
-sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/pristan/yarn/data
+sudo mkdir -p /opt/pristan/artel/releases
+sudo mkdir -p /opt/pristan/artel/bin
+sudo mkdir -p /etc/pristan/artel
+sudo mkdir -p /var/log/pristan
+sudo mkdir -p /var/lib/pristan/artel/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/yarn
+sudo chown -R appuser:appuser /opt/pristan /etc/pristan /var/log/pristan /var/lib/pristan/artel
 ```
 
 ### Шаг 3: Получение JAR
@@ -104,9 +104,9 @@ sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log
 sudo -u appuser -i
 
 VERSION="1.0.0"
-GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/pristan/yarn/releases/v${VERSION}"
-BIN_DIR="/opt/pristan/yarn/bin"
+GITHUB_REPO="company/pristan"
+RELEASE_DIR="/opt/pristan/artel/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/artel/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -125,8 +125,8 @@ ln -sfn "${RELEASE_DIR}/artel-${VERSION}.jar" "${BIN_DIR}/artel.jar"
 ```bash
 sudo -u appuser -i
 cd /tmp
-git clone https://github.com/company/hadoop-explorer.git
-cd hadoop-explorer
+git clone https://github.com/company/pristan.git
+cd pristan
 
 # Сборка фронтенда (Svelte 5)
 cd frontend
@@ -139,11 +139,11 @@ cd ..
 mvn clean package -DskipTests -f backend/artel/pom.xml
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/artel/target/artel-*.jar /opt/pristan/yarn/bin/artel.jar
+cp backend/artel/target/artel-*.jar /opt/pristan/artel/bin/artel.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/pristan/yarn/application.yml`:
+Создайте файл `/etc/pristan/artel/application.yml`:
 ```yaml
 server:
   port: 8000
@@ -153,7 +153,7 @@ spring:
     name: artel
   datasource:
     # Для автономной работы используется embedded H2:
-    url: jdbc:h2:file:/var/lib/pristan/yarn/data/artel;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:/var/lib/pristan/artel/data/artel;DB_CLOSE_DELAY=-1
     # Драйвер Spring Boot выбирает по URL; драйвер PostgreSQL входит в JAR.
     # url: jdbc:postgresql://pg-cluster.company.local:5432/artel
     # username: yarn_user
@@ -163,36 +163,35 @@ spring:
       ddl-auto: update
 
 # Общие параметры безопасности платформы
-hadoop:
-  security:
-    auth:
-      mode: ldap # ldap | kerberos (mock — только для стендов, требует debug: true)
-    jwt:
-      # Случайная строка не короче 32 символов; без нее сервис не стартует
-      secret-key: "${JWT_SECRET_KEY}"
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      url: "ldaps://ldap.company.local:636"
-      manager-dn: "cn=svc_hadoop,ou=services,dc=company,dc=local"
-      manager-password: "${LDAP_MANAGER_PASSWORD}"
-      user-search-base: "ou=users,dc=company,dc=local"
-      user-search-filter: "(sAMAccountName={0})"
-      group-search-base: "ou=groups,dc=company,dc=local"
-      group-search-filter: "(member={0})"
-    kerberos:
-      # Входящий SPNEGO (SSO в браузере)
-      enabled: true
-      keytab: "/etc/security/keytabs/artel.keytab"
-      service-principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
+zastava:
+  auth:
+    mode: ldap # ldap | kerberos (mock — только для стендов, требует debug: true)
+  jwt:
+    # Случайная строка не короче 32 символов; без нее сервис не стартует
+    secret-key: "${JWT_SECRET_KEY}"
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: "ldaps://ldap.company.local:636"
+    manager-dn: "cn=svc_artel,ou=services,dc=company,dc=local"
+    manager-password: "${LDAP_MANAGER_PASSWORD}"
+    user-search-base: "ou=users,dc=company,dc=local"
+    user-search-filter: "(sAMAccountName={0})"
+    group-search-base: "ou=groups,dc=company,dc=local"
+    group-search-filter: "(member={0})"
+  kerberos:
+    # Входящий SPNEGO (SSO в браузере)
+    enabled: true
+    keytab: "/etc/security/keytabs/artel.keytab"
+    service-principal: "HTTP/yarn.company.local@COMPANY.LOCAL"
 
 # Модуль управления очередями YARN
-yarn:
+artel:
   # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)
   client-mode: native
   acl:
     enforce-four-eyes: true
-  # Учетная запись Explorer для исходящих SPNEGO-запросов к RM с kerberos-enabled: true.
+  # Учетная запись Artel для исходящих SPNEGO-запросов к RM с kerberos-enabled: true.
   # Должна быть proxy user в core-site.xml кластера (hadoop.proxyuser.<user>.hosts/groups),
   # если включен impersonation-enabled.
   kerberos:
@@ -247,21 +246,21 @@ yarn:
 
 #### Как применяются изменения очередей
 
-Explorer не генерирует `capacity-scheduler.xml` целиком. При файловом хранилище конфигурации ResourceManager не отдает этот файл по REST: `/conf` возвращает конфигурацию демона без единого ключа `yarn.scheduler.capacity.*`. Поэтому заявка превращается в список правок только тех свойств, которые она меняет. AWX-роль `yarn_capacity_scheduler` применяет эти правки к файлу на RM, выполняет `yarn rmadmin -refreshQueues` и при ошибке откатывает изменения. ACL очередей, глобальные лимиты, `resource-calculator` и прочие свойства, которых заявка не касается, остаются как есть. Подробности — в [awx-yarn-deployment.md](awx-yarn-deployment.md).
+Artel не генерирует `capacity-scheduler.xml` целиком. При файловом хранилище конфигурации ResourceManager не отдает этот файл по REST: `/conf` возвращает конфигурацию демона без единого ключа `yarn.scheduler.capacity.*`. Поэтому заявка превращается в список правок только тех свойств, которые она меняет. AWX-роль `yarn_capacity_scheduler` применяет эти правки к файлу на RM, выполняет `yarn rmadmin -refreshQueues` и при ошибке откатывает изменения. ACL очередей, глобальные лимиты, `resource-calculator` и прочие свойства, которых заявка не касается, остаются как есть. Подробности — в [awx-yarn-deployment.md](awx-yarn-deployment.md).
 
 Заявка проверяется при создании и повторно при согласовании, уже против текущего состояния кластера. Проверяются: сумма емкостей дочерних очередей (100% для каждого раздела), существование родителя, удаление только остановленных (`STOPPED`) очередей, допустимость `ordering-policy` для листовых и родительских очередей.
 
 Закройте файл от других пользователей: в нем могут быть пароли и токены.
 ```bash
-sudo chmod 600 /etc/pristan/yarn/application.yml
-sudo chown appuser:appuser /etc/pristan/yarn/application.yml
+sudo chmod 600 /etc/pristan/artel/application.yml
+sudo chown appuser:appuser /etc/pristan/artel/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/artel.service`:
 ```ini
 [Unit]
-Description=Hadoop Artel Java Service (Spring Boot 3)
+Description=Artel Java Service (Spring Boot 3)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -269,15 +268,15 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/pristan/yarn
-Environment="SPRING_CONFIG_LOCATION=/etc/pristan/yarn/application.yml"
+WorkingDirectory=/opt/pristan/artel
+Environment="SPRING_CONFIG_LOCATION=/etc/pristan/artel/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java \
     -Xms512m \
     -Xmx2048m \
-    -Dspring.config.location=/etc/pristan/yarn/application.yml \
-    -jar /opt/pristan/yarn/bin/artel.jar
+    -Dspring.config.location=/etc/pristan/artel/application.yml \
+    -jar /opt/pristan/artel/bin/artel.jar
 
 Restart=always
 RestartSec=5s
@@ -312,7 +311,7 @@ journalctl -u artel -f
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/pristan/yarn/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/artel/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/artel-${NEW_VER}.jar"
@@ -320,7 +319,7 @@ curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/artel-${NEW_VER}.jar" /opt/pristan/yarn/bin/artel.jar
+ln -sfn "${RELEASE_DIR}/artel-${NEW_VER}.jar" /opt/pristan/artel/bin/artel.jar
 
 # Перезапуск сервиса (занимает 2–3 секунды):
 sudo systemctl restart artel
@@ -338,12 +337,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/pristan/yarn:${VERSION}
+docker pull ghcr.io/company/pristan/artel:${VERSION}
 ```
 
 ### 3.2 Локальная сборка образа
 ```bash
-docker build -t ghcr.io/company/pristan/yarn:latest -f docker/Dockerfile.artel .
+docker build -t ghcr.io/company/pristan/artel:latest -f docker/Dockerfile.artel .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -358,19 +357,19 @@ docker run -d \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v yarn-data:/app/data \
-  ghcr.io/company/pristan/yarn:1.0.0
+  ghcr.io/company/pristan/artel:1.0.0
 ```
 
 ### 3.4 Запуск через Docker Compose
 Создайте каталог `/opt/yarn-docker/` и в нем файл `docker-compose.yml`:
 
-Переменные `JWT_SECRET_KEY`, `LDAP_MANAGER_PASSWORD` и `ARTEL_AWX_TOKEN` подставляются в `application.yml` из шага 4 (`${JWT_SECRET_KEY}` и т. д.). Principal и keytab для запросов к ResourceManager задаются в том же файле: `yarn.kerberos.principal`, `yarn.kerberos.keytab`.
+Переменные `JWT_SECRET_KEY`, `LDAP_MANAGER_PASSWORD` и `ARTEL_AWX_TOKEN` подставляются в `application.yml` из шага 4 (`${JWT_SECRET_KEY}` и т. д.). Principal и keytab для запросов к ResourceManager задаются в том же файле: `artel.kerberos.principal`, `artel.kerberos.keytab`.
 ```yaml
 version: "3.8"
 
 services:
   artel:
-    image: ghcr.io/company/pristan/yarn:1.0.0
+    image: ghcr.io/company/pristan/artel:1.0.0
     container_name: artel
     restart: unless-stopped
     ports:
@@ -450,7 +449,7 @@ docker compose logs -f artel
 curl -s http://localhost:8001/actuator/prometheus | grep '^artel_change_requests_total'
 ```
 
-После создания заявки в выводе есть строка `artel_change_requests_total{app="artel",cluster="<cluster_id>",status="SUBMITTED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `yarn.clusters`.
+После создания заявки в выводе есть строка `artel_change_requests_total{app="artel",cluster="<cluster_id>",status="SUBMITTED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `artel.clusters`.
 
 Сбор метрик Prometheus и дашборд `artel_queues.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
@@ -480,7 +479,7 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^artel_change_requests
 - Встроенная H2 (Standalone):
   ```bash
   # Создание копии файла базы данных
-  cp /var/lib/pristan/yarn/data/artel.mv.db /backup/artel_$(date +%F).mv.db
+  cp /var/lib/pristan/artel/data/artel.mv.db /backup/artel_$(date +%F).mv.db
   ```
 
 ---
@@ -518,8 +517,8 @@ make test-java
 # <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех экземплярах сервиса
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8000 \
-  -Dhadoop.security.auth.mode=kerberos \
-  -Dhadoop.security.jwt.secret-key="<jwt_secret>" \
+  -Dzastava.auth.mode=kerberos \
+  -Dzastava.jwt.secret-key="<jwt_secret>" \
   -Dyarn.awx.base-url="https://awx.company.local" \
   -Dyarn.awx.token="secret-awx-token" \
   -Dyarn.awx.default-job-template-id=42 \

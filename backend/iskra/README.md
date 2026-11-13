@@ -1,4 +1,4 @@
-# Iskra API (Java 21 / Spring Boot 3)
+# Iskra (Spark) API (Java 21 / Spring Boot 3)
 
 Бэкенд Iskra: интерактивные сессии PySpark, Scala и Spark SQL на Hadoop-кластерах. Java 21 LTS, Spring Boot 3.3.4.
 

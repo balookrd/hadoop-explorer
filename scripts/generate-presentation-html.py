@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт генерации строго технической интерактивной презентации docs/replicator-presentation.html
+Скрипт генерации строго технической интерактивной презентации docs/parom-presentation.html
 на 14 слайдов для DevOps-инженеров, Архитекторов и Data Platform команд.
 """
 
@@ -498,7 +498,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     </div>
 
     <div class="header-controls">
-      <a href="replicator-presentation.pdf" class="btn" download title="Скачать PDF документ спецификации" style="text-decoration: none; color: inherit;">
+      <a href="parom-presentation.pdf" class="btn" download title="Скачать PDF документ спецификации" style="text-decoration: none; color: inherit;">
         <span>📥 PDF</span>
       </a>
       <button class="btn" onclick="toggleOverview()" title="Сетка слайдов (Клавиша O)">
@@ -1024,7 +1024,7 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
             </div>
           </div>
           <div class="ui-screenshot-card" onclick="openLightbox('images/parom/04_topology_bandwidth.png')">
-            <img src="images/parom/04_topology_bandwidth.png" onerror="this.src='images/parom/replicator_topology_screen.png'" alt="Управление топологией дата-центров">
+            <img src="images/parom/04_topology_bandwidth.png" onerror="this.src='images/parom/parom_topology_screen.png'" alt="Управление топологией дата-центров">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -1300,7 +1300,7 @@ GET http://orchestrator:8005/actuator/health</div>
 
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    target_path = os.path.join(base_dir, "docs", "replicator-presentation.html")
+    target_path = os.path.join(base_dir, "docs", "parom-presentation.html")
     with open(target_path, "w", encoding="utf-8") as f:
         f.write(HTML_CONTENT)
     print(f"✅ Успешно сгенерирован технический HTML слайд-дек: {target_path}")

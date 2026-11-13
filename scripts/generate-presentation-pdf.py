@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт генерации строго технического PDF-документа из docs/replicator-presentation.md
+Скрипт генерации строго технического PDF-документа из docs/parom-presentation.md
 для DevOps-инженеров, Архитекторов и Data Platform команд.
 Использует marked для чистого GFM парсинга, клиентский Mermaid.js для векторных диаграмм
 и Google Chrome headless для высокоточной печати в векторный PDF без сдвигов и искажений.
@@ -16,9 +16,9 @@ import subprocess
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     docs_dir = os.path.join(base_dir, "docs")
-    md_path = os.path.join(docs_dir, "replicator-presentation.md")
-    temp_html_path = os.path.join(docs_dir, "replicator-presentation-print.html")
-    target_pdf_path = os.path.join(docs_dir, "replicator-presentation.pdf")
+    md_path = os.path.join(docs_dir, "parom-presentation.md")
+    temp_html_path = os.path.join(docs_dir, "parom-presentation-print.html")
+    target_pdf_path = os.path.join(docs_dir, "parom-presentation.pdf")
 
     if not os.path.exists(md_path):
         print(f"❌ Ошибка: Файл {md_path} не найден!")

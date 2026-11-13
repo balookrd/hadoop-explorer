@@ -155,7 +155,7 @@ public class QueueController {
                 .withZone(ZoneOffset.UTC)
                 .format(Instant.now());
 
-        String instructions = "Это перечень правок capacity-scheduler.xml, а не файл целиком: Explorer не может "
+        String instructions = "Это перечень правок capacity-scheduler.xml, а не файл целиком: Artel не может "
                 + "прочитать развернутый файл, поэтому меняет только затронутые свойства.\n"
                 + "Рекомендуемый путь — оформить заявку на изменение: после согласования AWX применит правки "
                 + "к файлу на всех RM и выполнит yarn rmadmin -refreshQueues с автоматическим откатом.\n"

@@ -14,7 +14,7 @@ Parom — сервис Pristan для репликации данных HDFS м�
 
 Полосу WAN ограничивает трехуровневый Hierarchical Token Bucket, поэтому репликация не занимает канал сверх заданных квот. Перед коммитом файла приемник сверяет SHA-256 и только затем атомарно переименовывает staging-файл в целевой. Задачи запускаются вручную или по расписанию (Cron Scheduler), в том числе от сервисной учетной записи.
 
-Материалы для доклада о Replicator: [презентация со скриншотами и архитектурой](replicator-presentation.md), [HTML-слайддек для браузера](replicator-presentation.html) и [файл PowerPoint PPTX](replicator-presentation.pptx).
+Материалы для доклада о Parom: [презентация со скриншотами и архитектурой](parom-presentation.md), [HTML-слайддек для браузера](parom-presentation.html) и [файл PowerPoint PPTX](parom-presentation.pptx).
 
 ---
 
@@ -46,7 +46,7 @@ Parom — сервис Pristan для репликации данных HDFS м�
    - [История запусков задачи и статистика](#85-история-запусков-задачи-и-статистика-job-runs-history--retention)
    - [Репликация Hive Metastore (раздел «HMS Replication»)](#86-репликация-hive-metastore-раздел-hms-replication)
    - [Консоль аварийного переключения (Disaster Recovery & Failover Hub)](#87-консоль-аварийного-переключения-disaster-recovery--failover-hub)
-   - [Репликация Kafka (раздел «Kafka Replicator»)](#88-репликация-kafka-раздел-kafka-replicator)
+   - [Репликация Kafka (раздел «Kafka Replication»)](#88-репликация-kafka-раздел-kafka-replication)
 9. [Мониторинг и метрики Prometheus](#9-мониторинг-и-метрики-prometheus)
    - [Дашборды Grafana](#91-дашборды-grafana)
 10. [Диагностика неполадок](#10-диагностика-неполадок)
@@ -61,19 +61,19 @@ Parom состоит из трех компонентов:
 flowchart TD
     subgraph DC1["Дата-Центр 1 (Москва / Primary)"]
         HDFS1[("HDFS Primary\n(demo-cluster)")]
-        Worker["gRPC Replicator Worker\n(daemon)"]
+        Worker["Parom Worker\n(daemon)"]
         Krb1["Kerberos KDC / Keytab\n(parom@REALM)"]
     end
 
     subgraph DC_MGMT["Контур управления"]
-        Orchestrator["Replicator Orchestrator\n(Java 21 / Spring Boot 3 :8005)"]
+        Orchestrator["Parom Orchestrator\n(Java 21 / Spring Boot 3 :8005)"]
         TB["Hierarchical Token Bucket\n(Global + DC-DC + HDFS-HDFS)"]
         DB[("Реляционная БД\n(SQLite / PostgreSQL)")]
         Sched["Cron Scheduler Daemon"]
     end
 
     subgraph DC2["Дата-Центр 2 (Санкт-Петербург / DR)"]
-        Receiver["gRPC Replicator Receiver\n(:50051)"]
+        Receiver["Parom Receiver\n(:50051)"]
         Staging["Staging Buffer\n(/tmp/staging)"]
         HDFS2[("HDFS DR\n(backup-cluster)")]
     end
@@ -206,7 +206,7 @@ topology:
 
 - Kerberos SSO (SPNEGO) — вход по билету Kerberos без ввода пароля.
 - LDAP / Active Directory — вход по корпоративному логину и паролю.
-- Демо-профили — кнопки быстрого входа под `admin_user` (ADM), `writer_user` (RW) и `reader_user` (RO) и вкладки фильтрации профилей по сервисам платформы («Универсальные», «Replicator», «HDFS», «YARN», «SQL», «Spark») для проверки разграничения ролей.
+- Демо-профили — кнопки быстрого входа под `admin_user` (ADM), `writer_user` (RW) и `reader_user` (RO) и вкладки фильтрации профилей по сервисам платформы («Универсальные», «HDFS», «YARN», «Репликация», «SQL», «Spark») для проверки разграничения ролей.
 
 <div align="center">
   <img src="images/parom/01_login_screen.png" alt="Экран аутентификации Parom" width="850" />
@@ -309,7 +309,7 @@ topology:
 Описанный ниже Snapshot Diff — низкоуровневый API: методы создания и удаления снимков (`createSnapshot` / `deleteSnapshot`) реализованы в [`HadoopFsManager`](../backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/fs/HadoopFsManager.java). Он предназначен для каталогов с десятками миллионов файлов, где администратор кластера заранее разрешил снимки (`hdfs dfsadmin -allowSnapshot`).
 
 Как работает Snapshot Diff:
-1. Управление снимками агентом Replicator:
+1. Управление снимками агентом Parom:
    - Создание снимка на источнике: агент выполняет `HadoopFsManager.createSnapshot(dir, snapName)` под сервисной или прокси-учетной записью.
    - Вычисление разницы между снимками: агент запрашивает у NameNode `dfs.getSnapshotDiffReport(dir, snap1, snap2)`.
 2. Типы операций в Snapshot Diff:
@@ -345,7 +345,7 @@ topology:
 │   ┌────────────────────┐   claimTasks (N=5)   ┌────────────────────────────────────┐   │
 │   │ Agent Worker DC1-1 │ ◄─────────────────── │                                    │   │
 │   └─────────┬──────────┘                      │                                    │   │
-│             │                                 │      Оркестратор Replicator        │   │
+│             │                                 │      Оркестратор Parom        │   │
 │   ┌─────────▼──────────┐   claimTasks (N=5)   │      Distributed Task Queue        │   │
 │   │ Agent Worker DC1-2 │ ◄─────────────────── │      (/api/v1/tasks/claim)         │   │
 │   └─────────┬──────────┘                      │                                    │   │
@@ -738,9 +738,9 @@ topology:
      - **«Отозвать ↩»** удаляет зеркальную задачу, снимает блокировку прямого маршрута и возвращает кнопку **«Развернуть ⇄»**;
      - при ошибке передачи (например, NameNode `dc1` временно недоступен) рядом со статусом `FAILED` выводится подсказка с текстом ошибки агента.
 
-### 8.8 Репликация Kafka (раздел «Kafka Replicator»)
+### 8.8 Репликация Kafka (раздел «Kafka Replication»)
 
-Раздел **Kafka Replicator** реплицирует топики Apache Kafka между ЦОД через gRPC WAN-канал с ограничением полосы (Hierarchical Token Bucket).
+Раздел **Kafka Replication** реплицирует топики Apache Kafka между ЦОД через gRPC WAN-канал с ограничением полосы (Hierarchical Token Bucket).
 
 1. Двунаправленная репликация (Active-Active) с одинаковыми именами топиков:
    - Запись в топик с одним и тем же именем (например, `orders-v1`) возможна одновременно в обоих ЦОД.
@@ -779,7 +779,7 @@ topology:
    - Роль демона задается в CLI: `--role=receiver` (gRPC-сервер приема и продюсер), `--role=sender` (пул консьюмеров и потоковый gRPC-клиент), `--role=dual` (двунаправленный узел).
    - Для очередей от 128 партиций и до 1 000 000 msg/s рекомендуется запускать 4–8 инстансов демона с пулом 8–16 потоков консьюмеров на инстанс и выделять полосу WAN 2,5–5 Гбит/с.
 11. Распределение трафика по нескольким агентам и автоматическое обнаружение пула (Auto Multi-Agent Ingress/Egress):
-   - Масштабирование на источнике (Sender Fleet): процессы-отправители с одинаковым `group.id` (`kafka-replicator-{jobId}`) делят партиции топиков через координатор Consumer Group Kafka. Нагрузка распределяется по физическим узлам, поэтому не упирается в CPU и сетевую карту одного хоста.
+   - Масштабирование на источнике (Sender Fleet): процессы-отправители с одинаковым `group.id` (`parom-kafka-{jobId}`) делят партиции топиков через координатор Consumer Group Kafka. Нагрузка распределяется по физическим узлам, поэтому не упирается в CPU и сетевую карту одного хоста.
    - Масштабирование на приемнике (Receiver Fleet): агенты-приемники в целевом ЦОД держат независимые gRPC-сокеты Data Plane и параллельно пишут данные в целевую Kafka асинхронными батч-продюсерами.
    - Автоматическое наполнение пулов (Zero-Touch Discovery): при включенной опции распределения по агентам оркестратор опрашивает `AgentRegistry` и связывает задачу с доступными отправителями (`getLiveKafkaSendersForCluster`) и приемниками (`getLiveKafkaReceiversForCluster`). Адреса вручную не вводятся; веб-интерфейс показывает онлайн-статус агентов.
    - Обновление эндпоинтов без перезапуска: демоны-отправители в фоновом цикле `pollActiveJobs` отслеживают изменения пула приемников и обновляют список соединений через `KafkaReplicationClient.updateEndpoints()`.

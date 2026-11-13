@@ -17,8 +17,8 @@
 | Data Worker (отправитель) | Падение воркера во время передачи файла | Нет heartbeat воркера / таймаут задачи | Оркестратор возвращает задачу в `QUEUED`, другой воркер пула берет ее на повтор. | По таймауту задачи (60 сек) | 0 (повторная передача файла) |
 | Data Receiver | Отмена передачи клиентом (`CANCELLED`) / сбой узла | Срабатывание `onCancelHandler` / обрыв сети | Принудительная отмена пула коммиттеров (`commitFutures.cancel(true)`), немедленное удаление staging-файлов; `rename` не выполняется параллельно с очисткой. | Сразу | 0 (атомарный commit из staging) |
 | HDFS NameNode (источник/приемник) | Падение Active NameNode | Hadoop-клиент `ConfiguredFailoverProxyProvider` | Клиент переключается на Standby NameNode по виртуальному URI `hdfs://nameservice1`. | 1–3 сек | 0 (кворум JournalNodes) |
-| HMS Replicator | Падение агента синхронизации схемы | Истечение распределенной аренды в `HmsCoordinatorService` | Задача переходит на резервный агент кластера. Чтение CDC продолжается с `last_event_id`. | 5–10 сек | 0 (at-least-once журнал DDL) |
-| Kafka Replicator (Data Plane) | Деградация локального брокера Kafka / переполнение буфера | Задержка подтверждения ack, таймаут продюсера | Запись вынесена в пул виртуальных потоков Java 21, координация in-flight батчей и `onCancelHandler`; Netty EventLoop не блокируется | 0 сек (неблокирующая обработка) | 0 (retry/backpressure) |
+| HMS Parom | Падение агента синхронизации схемы | Истечение распределенной аренды в `HmsCoordinatorService` | Задача переходит на резервный агент кластера. Чтение CDC продолжается с `last_event_id`. | 5–10 сек | 0 (at-least-once журнал DDL) |
+| Kafka Replication (Data Plane) | Деградация локального брокера Kafka / переполнение буфера | Задержка подтверждения ack, таймаут продюсера | Запись вынесена в пул виртуальных потоков Java 21, координация in-flight батчей и `onCancelHandler`; Netty EventLoop не блокируется | 0 сек (неблокирующая обработка) | 0 (retry/backpressure) |
 | gRPC Sender (исходящий Data Plane) | Деградация канала WAN / переполнение исходящего буфера Netty | `clientCallStreamObserver.isReady() == false` | Чтение с HDFS приостанавливается (`awaitStreamReady`), чанки не отправляются, пока буфер TCP/Netty не опустеет; heap не переполняется | 0 сек (реактивный backpressure) | 0 |
 | Token Throttler (Orchestrator) | Сотни параллельных воркеров одновременно исчерпали токены маршрута | Конкурентные вызовы RPC `RequestTokens` | Локальная порция токенов маршрута (`tokenBatchLease`, 2–16 МБ): чанки списываются из нее без RPC, `RequestTokens` уходит только при исчерпании порции; дедупликации одновременных запросов нет (см. 13.4) | 0 сек | 0 |
 
@@ -43,8 +43,8 @@ flowchart TD
     end
 
     subgraph Orchestrators["Пул экземпляров оркестратора (Active-Active Control Plane)"]
-        Orch1["Replicator Orchestrator #1<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [X] ShedLock Leader (Cron & Lease)"]
-        Orch2["Replicator Orchestrator #2<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [ ] ShedLock Standby"]
+        Orch1["Parom Orchestrator #1<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [X] ShedLock Leader (Cron & Lease)"]
+        Orch2["Parom Orchestrator #2<br/>• REST API (:8005)<br/>• gRPC Control Plane (:50050)<br/>• [ ] ShedLock Standby"]
     end
 
     subgraph DataPlane["Data Plane между ЦОД (прямой транспорт без участия оркестратора)"]
@@ -74,7 +74,7 @@ flowchart TD
 ### 2.1. Разделение сетевых плоскостей и балансировка запросов
 
 1. Control Plane (управление и координация):
-   - REST API (порт `:8005`) обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, административный CRUD задач репликации и DR-сценарии. Точка входа — Keepalived VIP `https://replicator.company.local:8005`.
+   - REST API (порт `:8005`) обслуживает Web UI Console (Svelte 5), эндпоинты Actuator/Prometheus, административный CRUD задач репликации и DR-сценарии. Точка входа — Keepalived VIP `https://parom.company.local:8005`.
    - gRPC Control Plane (порт `:50050`) — сервис `OrchestratorControlPlaneService` (`orchestrator_control_plane.proto`). Через него распределенные агенты (HDFS, HMS, Kafka) регистрируются, шлют heartbeat, забирают задачи из очереди (`claimTasks`), подтверждают финализацию (`completeTask`), запрашивают квоты Token Bucket (`requestTokens`) и продлевают аренду стримеров, без накладных расходов JSON/HTTP.
 2. Data Plane (передача данных между ЦОД):
    - Файлы HDFS, виртуальные TAR-архивы и батчи Kafka идут напрямую между агентами (`Agent Sender ➔ Agent Receiver`) через выделенные порты gRPC:
@@ -288,9 +288,9 @@ flowchart TB
         end
     end
 
-    subgraph OrchestratorService ["Оркестратор Replicator & БД"]
+    subgraph OrchestratorService ["Оркестратор Parom & БД"]
         Orch["Оркестратор HA"]
-        DB[(Таблица лизингов<br/>replicator_streaming_leases)]
+        DB[(Таблица лизингов<br/>parom_streaming_leases)]
         Orch --- DB
     end
 
@@ -316,7 +316,7 @@ flowchart TB
      - кластер `prod-core`: `CLUSTER_ID=prod-core`, `HADOOP_NAMENODE_RPC_ADDRESS=hdfs://nn-core:8020`;
      - кластер `analytics`: `CLUSTER_ID=analytics`, `HADOOP_NAMENODE_RPC_ADDRESS=hdfs://nn-analytics:8020`.
 2. Аренда — отдельная на каждый кластер:
-   - в таблице `replicator_streaming_leases` первичный ключ — `cluster_id`;
+   - в таблице `parom_streaming_leases` первичный ключ — `cluster_id`;
    - пул кластера `prod-core` соревнуется за запись `cluster_id='prod-core'`, пул `analytics` — за запись `cluster_id='analytics'`;
    - стримеры разных кластеров не блокируют друг друга и не конкурируют за одну запись.
 3. Маршрутизация и фильтрация событий:
@@ -415,7 +415,7 @@ stateDiagram-v2
 groups:
   - name: parom-ha-alerts
     rules:
-      - alert: ReplicatorStreamerNoStandby
+      - alert: ParomStreamerNoStandby
         expr: parom_streamer_standby_count{cluster="dc1"} < 1
         for: 2m
         labels:
@@ -424,7 +424,7 @@ groups:
           summary: "Отсутствует резервный Streamer инстанс для кластера {{ $labels.cluster }}"
           description: "В кластере работает только 1 стример. При его падении Near-Zero RPO будет нарушен."
 
-      - alert: ReplicatorStreamerSplitBrainRisk
+      - alert: ParomStreamerSplitBrainRisk
         expr: parom_streamer_active_count{cluster="dc1"} > 1
         for: 10s
         labels:
@@ -433,7 +433,7 @@ groups:
           summary: "Обнаружен Split-Brain стримеров в кластере {{ $labels.cluster }}"
           description: "Более одного активного стримера читают EditLog одновременно!"
 
-      - alert: ReplicatorStreamerHighLag
+      - alert: ParomStreamerHighLag
         expr: parom_streamer_txid_lag > 50000
         for: 3m
         labels:
@@ -506,7 +506,7 @@ flowchart TB
 ### Стример DC2 в штатном режиме (warm standby)
 
 1. Аренда — отдельная на каждый ЦОД:
-   - в таблице `replicator_streaming_leases` записи разделены по ключу `cluster_id` (`dc1` и `dc2`);
+   - в таблице `parom_streaming_leases` записи разделены по ключу `cluster_id` (`dc1` и `dc2`);
    - стримеры DC2 соревнуются за лидерство только по ключу `cluster_id="dc2"`. Один становится `ACTIVE` для `dc2`, второй — `STANDBY`.
 2. Фильтрация задач по кластеру:
    - `HdfsInotifyListener` сопоставляет задачи репликации с идентификатором своего кластера:
@@ -526,7 +526,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor Admin as Администратор / DR Automation
-    participant O as Replicator Orchestrator
+    participant O as Parom Orchestrator
     participant S2 as Streamer DC2 (Active)
     participant NN2 as NameNode DC2
     participant W2 as Workers Pool DC2
@@ -591,9 +591,9 @@ java -jar /opt/parom-agent/parom-agent.jar
 
 ---
 
-## 11. Kafka Replicator: доставка at-least-once и backpressure
+## 11. Kafka Replication: доставка at-least-once и backpressure
 
-Kafka Replicator доставляет записи без потерь (`RPO = 0`) и ограничивает потребление памяти при сбоях сети или брокеров.
+Kafka Replication доставляет записи без потерь (`RPO = 0`) и ограничивает потребление памяти при сбоях сети или брокеров.
 
 ### 11.1 Доставка at-least-once
 
@@ -963,7 +963,7 @@ DDL, которые целевой кластер не может примени
 
 ---
 
-## 16. Kafka Replicator: отказоустойчивость и безопасность
+## 16. Kafka Replication: отказоустойчивость и безопасность
 
 Подсистема репликации Apache Kafka (`parom-kafka-agent`) рассчитана на работу 24/7 с пиковой нагрузкой до 1 000 000 сообщений в секунду и переживает сетевые сбои, перегрузку брокеров и отказы отдельных воркеров.
 

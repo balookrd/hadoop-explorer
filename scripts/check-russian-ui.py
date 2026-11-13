@@ -16,7 +16,8 @@ import time
 import sys
 
 TECH_WHITELIST = {
-    'yarn', 'hdfs', 'sql', 'spark', 'parom', 'hadoop', 'trino', 'hive', 'livy',
+    'yarn', 'hdfs', 'sql', 'spark', 'pristan', 'artel', 'sklad', 'tolmach', 'iskra',
+    'parom', 'zastava', 'hadoop', 'trino', 'hive', 'livy',
     'pyspark', 'scala', 'netty', 'grpc', 'spring', 'boot', 'svelte', 'tailwind',
     'kerberos', 'spnego', 'ldap', 'jwt', 'namenode', 'datanode', 'metastore',
     'webhdfs', 'keytab', 'doas', 'staging', 'snapshot', 'diff', 'fencing', 'unfence',
@@ -147,7 +148,7 @@ def check_yandex_speller(text_chunk):
         'lang': 'ru',
         'options': 0
     }).encode('utf-8')
-    req = urllib.request.Request(url, data=data, headers={'User-Agent': 'HadoopExplorerUIChecker/1.0'})
+    req = urllib.request.Request(url, data=data, headers={'User-Agent': 'PristanUIChecker/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode('utf-8'))

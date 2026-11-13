@@ -6,7 +6,7 @@
 
 Роли передается ровно одна из переменных:
 
-- `capacity_scheduler_patch_b64` — так работает Artel. Это JSON-список правок (`set`, `remove`, `remove_prefix`, `list_add`, `list_remove`) только для свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки скриптом [`files/apply_capacity_patch.py`](files/apply_capacity_patch.py) и раскладывает результат. Остальные свойства (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.) не трогаются. Explorer не может прочитать развернутый файл: ResourceManager не отдает его по REST. Поэтому полный файл он не генерирует.
+- `capacity_scheduler_patch_b64` — так работает Artel. Это JSON-список правок (`set`, `remove`, `remove_prefix`, `list_add`, `list_remove`) только для свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки скриптом [`files/apply_capacity_patch.py`](files/apply_capacity_patch.py) и раскладывает результат. Остальные свойства (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.) не трогаются. Artel не может прочитать развернутый файл: ResourceManager не отдает его по REST. Поэтому полный файл он не генерирует.
 - `capacity_scheduler_xml_b64` — полная замена файла (ручной или аварийный путь).
 
 В режиме патча роль останавливается, если `capacity-scheduler.xml` различается на узлах RM: неясно, к какому файлу применять правки.

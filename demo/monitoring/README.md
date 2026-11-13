@@ -8,7 +8,7 @@
 
 | Сервис | Порт | Образ | Назначение | URL интерфейса |
 |---|---|---|---|---|
-| Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов с `/actuator/prometheus` (YARN, HDFS, SQL, Spark) и `/metrics` (оркестратор Replicator), вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
+| Prometheus | `9090` | `prom/prometheus:v2.50.0` | Сбор временных рядов с `/actuator/prometheus` (Artel, Sklad, Tolmach, Iskra) и `/metrics` (оркестратор Parom), вычисление правил алертов | [http://localhost:9090](http://localhost:9090) |
 | Grafana | `3000` | `grafana/grafana:10.4.0` | Дашборды с автопровижинингом (анонимный вход с ролью admin, папка `Pristan`) | [http://localhost:3000](http://localhost:3000) |
 
 ---
@@ -38,7 +38,7 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 
 Скрипт проверяет:
 - Готовность Prometheus (`/-/healthy`, `/-/ready`).
-- Конфигурацию скрейпинга (`hadoop-explorer`, `hadoop-replicator`).
+- Конфигурацию скрейпинга (`pristan`, `parom`).
 - Загрузку правил алертов и выполнение тестовых PromQL-запросов.
 - Доступность Grafana API (`/api/health`).
 - Доступность источника данных Prometheus из Grafana (`/api/datasources/uid/prometheus/health`).
@@ -51,7 +51,7 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 Дашборды монтируются из `monitoring/grafana/dashboards` в папку `Pristan`:
 
 1. `pristan-overview` — сводка по платформе и golden signals:
-   - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам YARN, HDFS, SQL, Spark.
+   - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам Artel, Sklad, Tolmach, Iskra.
    - Входы через `/api/v1/auth/login` по кодам ответа, ответы 429 ограничителя частоты по уровням `login` и `api` (`hadoop_rate_limit_blocks_total`), ответы 5xx по классу исключения.
    - Сводка Parom.
 2. `parom-overview` — межкластерная репликация и шейпинг полосы:
@@ -93,4 +93,4 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 - `KafkaReplicationHighLag` и `KafkaReplicationCriticalLag` — `kafka_current_lag_ms` больше 1000 мс в течение 1 минуты и больше 5000 мс в течение 2 минут.
 - `KafkaReplicationJobPaused` — задача репликации Kafka в статусе `PAUSED` дольше 5 минут.
 
-Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic `prometheus:<токен>`; токен в `prometheus/prometheus.yml` совпадает с `PAROM_METRICS_SCRAPE_TOKEN` в `demo/parom/docker-compose.yml` и `docker-compose.kafka.yml`. При расхождении цель `hadoop-replicator` в статусе `DOWN` с `server returned HTTP status 401`.
+Задание `parom` опрашивает `GET /metrics` оркестратора с HTTP Basic `prometheus:<токен>`; токен в `prometheus/prometheus.yml` совпадает с `PAROM_METRICS_SCRAPE_TOKEN` в `demo/parom/docker-compose.yml` и `docker-compose.kafka.yml`. При расхождении цель `parom` в статусе `DOWN` с `server returned HTTP status 401`.

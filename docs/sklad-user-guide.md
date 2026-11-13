@@ -2,7 +2,7 @@
 
 <img src="../images/logo_white.png" alt="Pristan — Sklad" width="380" />
 
-# Руководство пользователя: Sklad
+# Руководство пользователя Sklad (HDFS)
 
 </div>
 
@@ -105,7 +105,7 @@ Sklad поддерживает два способа входа:
 - LDAP / Active Directory: вход по имени пользователя и паролю; роли определяются по группам каталога.
 
 <div align="center">
-  <img src="images/hdfs/01_login_screen.png" alt="Экран входа Sklad" width="850" />
+  <img src="images/sklad/01_login_screen.png" alt="Экран входа Sklad" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SSO</em></p>
 </div>
 
@@ -118,7 +118,7 @@ Sklad поддерживает два способа входа:
 | Владимир Инженеров | `writer_user` | `password123` | Инженер данных, запись и загрузка файлов (`RW`) |
 | Екатерина Наблюдателева | `reader_user` | `password123` | Аналитик данных, чтение и скачивание (`RO`) |
 
-Над списком учетных записей расположены вкладки приложений платформы (**Универсальные**, **HDFS**, **YARN**, **Replicator**, **SQL**, **Spark**); вкладка переключает набор тестовых пользователей и описания их ролей.
+Над списком учетных записей расположены вкладки приложений платформы (**Универсальные**, **HDFS**, **YARN**, **Репликация**, **SQL**, **Spark**); вкладка переключает набор тестовых пользователей и описания их ролей.
 
 ### Роли и права доступа (RBAC)
 
@@ -140,7 +140,7 @@ Sklad поддерживает два способа входа:
 После входа открывается главный экран файлового менеджера с домашним каталогом пользователя (`/user/{username}`) или корнем кластера (`/`).
 
 <div align="center">
-  <img src="images/hdfs/02_main_file_browser.png" alt="Главный экран Sklad — Корневой каталог" width="850" />
+  <img src="images/sklad/02_main_file_browser.png" alt="Главный экран Sklad — Корневой каталог" width="850" />
   <p><em>Рисунок 2: Главный экран файлового менеджера HDFS (корневой каталог кластера)</em></p>
 </div>
 
@@ -164,7 +164,7 @@ Sklad поддерживает два способа входа:
   - счетчики — число каталогов, файлов и суммарный объем в текущем каталоге.
 
 <div align="center">
-  <img src="images/hdfs/03_directory_view.png" alt="Просмотр содержимого директории /data" width="850" />
+  <img src="images/sklad/03_directory_view.png" alt="Просмотр содержимого директории /data" width="850" />
   <p><em>Рисунок 3: Просмотр содержимого директории /data с аналитическими файлами</em></p>
 </div>
 
@@ -193,7 +193,7 @@ Sklad поддерживает два способа входа:
 - Apache ORC: читаются метаданные страйпов (`orc-core`, `hive-storage-api`) и схема типов (`struct<txn_id:string, amount:double, ...>`), первые 100 строк — векторизованным чтением (`VectorizedRowBatch`).
 
 <div align="center">
-  <img src="images/hdfs/04_preview_csv_table.png" alt="Предпросмотр CSV-таблицы в Sklad" width="850" />
+  <img src="images/sklad/04_preview_csv_table.png" alt="Предпросмотр CSV-таблицы в Sklad" width="850" />
   <p><em>Рисунок 4: Табличный предпросмотр файла metrics.csv</em></p>
 </div>
 
@@ -204,7 +204,7 @@ Sklad поддерживает два способа входа:
 Текстовые файлы (JSON, XML, YAML, SQL, скрипты Python, `.properties` и логи) выводятся моноширинным шрифтом с исходным форматированием.
 
 <div align="center">
-  <img src="images/hdfs/05_preview_json_code.png" alt="Предпросмотр JSON-файла" width="850" />
+  <img src="images/sklad/05_preview_json_code.png" alt="Предпросмотр JSON-файла" width="850" />
   <p><em>Рисунок 5: Просмотр структурированного JSON-файла events.json</em></p>
 </div>
 
@@ -215,7 +215,7 @@ Sklad поддерживает два способа входа:
 Окно загрузки открывается кнопкой **Загрузить** и имеет три режима, которые переключаются вкладками:
 
 <div align="center">
-  <img src="images/hdfs/06_upload_modal.png" alt="Модальное окно загрузки данных в HDFS" width="850" />
+  <img src="images/sklad/06_upload_modal.png" alt="Модальное окно загрузки данных в HDFS" width="850" />
   <p><em>Рисунок 6: Окно загрузки файлов, каталогов и ZIP-архивов</em></p>
 </div>
 
@@ -244,7 +244,7 @@ Sklad поддерживает два способа входа:
 Нажмите **Новая папка** на панели действий, введите имя каталога и нажмите **Создать** или `Enter`.
 
 <div align="center">
-  <img src="images/hdfs/07_mkdir_modal.png" alt="Диалог создания директории" width="850" />
+  <img src="images/sklad/07_mkdir_modal.png" alt="Диалог создания директории" width="850" />
   <p><em>Рисунок 7: Создание новой директории в HDFS</em></p>
 </div>
 
@@ -257,7 +257,7 @@ Sklad поддерживает два способа входа:
 - чтобы переместить, введите полный путь от корня, например `/archive/2026/events.json`.
 
 <div align="center">
-  <img src="images/hdfs/08_rename_modal.png" alt="Диалог переименования и перемещения" width="850" />
+  <img src="images/sklad/08_rename_modal.png" alt="Диалог переименования и перемещения" width="850" />
   <p><em>Рисунок 8: Переименование и перемещение файла events.json</em></p>
 </div>
 
@@ -275,7 +275,7 @@ Sklad поддерживает два способа входа:
 Нажмите **Удалить** в строке файла или папки и подтвердите удаление в открывшемся окне:
 
 <div align="center">
-  <img src="images/hdfs/10_delete_modal.png" alt="Подтверждение удаления объекта в HDFS" width="850" />
+  <img src="images/sklad/10_delete_modal.png" alt="Подтверждение удаления объекта в HDFS" width="850" />
   <p><em>Рисунок 9: Окно подтверждения удаления файла или каталога</em></p>
 </div>
 
@@ -296,7 +296,7 @@ Sklad поддерживает два способа входа:
 Когда выбран хотя бы один объект, внизу экрана появляется панель пакетных действий (Batch Action Bar):
 
 <div align="center">
-  <img src="images/hdfs/11_batch_action_bar.png" alt="Панель пакетных действий Sklad" width="850" />
+  <img src="images/sklad/11_batch_action_bar.png" alt="Панель пакетных действий Sklad" width="850" />
   <p><em>Рисунок 10: Плавающая панель пакетных действий со счетчиком выбранных объектов и суммарным объемом</em></p>
 </div>
 
@@ -311,7 +311,7 @@ Sklad поддерживает два способа входа:
   - после выполнения окно показывает удаленные пути и причины ошибок по остальным (например, нехватка POSIX-прав в HDFS).
 
 <div align="center">
-  <img src="images/hdfs/12_batch_delete_modal.png" alt="Окно подтверждения пакетного удаления" width="850" />
+  <img src="images/sklad/12_batch_delete_modal.png" alt="Окно подтверждения пакетного удаления" width="850" />
   <p><em>Рисунок 11: Модальное окно пакетного удаления объектов HDFS</em></p>
 </div>
 
@@ -322,7 +322,7 @@ Sklad поддерживает два способа входа:
 Межкластерное копирование передает файлы и каталоги между независимыми Hadoop-кластерами без ручного запуска `hadoop distcp`.
 
 <div align="center">
-  <img src="images/hdfs/09_cross_cluster_copy_modal.png" alt="Межкластерное копирование данных" width="850" />
+  <img src="images/sklad/09_cross_cluster_copy_modal.png" alt="Межкластерное копирование данных" width="850" />
   <p><em>Рисунок 12: Копирование датасета metrics.csv в целевой HDFS-кластер</em></p>
 </div>
 

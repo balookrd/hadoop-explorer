@@ -73,56 +73,54 @@
 server:
   port: 8005
 
-hadoop:
-  security:
-    auth:
-      mode: mock # mock, ldap, kerberos
-      admin-groups:
-        - "hadoop-admins"
-        - "superusers"
-    jwt:
-      secret-key: "replicator-orchestrator-secret-key-32-chars-minimum!"
-      expiration-minutes: 480
-
-  replicator:
-    grpc:
-      port: 50050 # gRPC Control Plane порт
-      enabled: true
-      tls-enabled: false
-    global-limit-bytes-per-sec: 104857600 # 100 MB/s
-    agent-secret: "replicator-secure-agent-secret-key-12345"
-    agent-heartbeat-timeout-seconds: 15
-    agent-offline-timeout-seconds: 45
-    seed-demo-data: false # Сидирование демонстрационных задач при старте (по умолчанию false)
-    small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
-    bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
-    max-bundle-files: 500 # макс. файлов в одном бандле
-    bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
-    streaming:
-      enabled: true
-      max-pending-tasks-threshold: 5000 # порог неразобранных задач для Backpressure
-      inotify-queue-capacity: 10000 # емкость очереди Inotify-задач
-      inotify-high-watermark: 0.8 # верхний порог гистерезиса (80%)
-      inotify-low-watermark: 0.3 # нижний порог гистерезиса (30%)
-      inotify-max-batch-size: 500 # макс. размер микробатча
-      inotify-flush-interval-ms: 1000 # интервал периодического сброса (мс)
-      inotify-backpressure-max-delay-ms: 5000 # макс. задержка опроса при Backpressure (мс)
-    datacenters:
-      - id: "dc1"
-        name: "Дата-Центр 1 (Primary DC)"
-        network-zone: "zone-a"
-      - id: "dc2"
-        name: "Дата-Центр 2 (Disaster Recovery)"
-        network-zone: "zone-b"
-    clusters:
-      - id: "dc1"
-        name: "HDFS DC1 Production"
-        dc-id: "dc1"
-        hdfs-rpc-address: "hdfs://namenode-dc1:8020"
-      - id: "dc2"
-        name: "HDFS DC2 Standby"
-        dc-id: "dc2"
-        hdfs-rpc-address: "hdfs://namenode-dc2:8020"
+parom:
+  grpc:
+    port: 50050 # gRPC Control Plane порт
+    enabled: true
+    tls-enabled: false
+  global-limit-bytes-per-sec: 104857600 # 100 MB/s
+  agent-secret: "replicator-secure-agent-secret-key-12345"
+  agent-heartbeat-timeout-seconds: 15
+  agent-offline-timeout-seconds: 45
+  seed-demo-data: false # Сидирование демонстрационных задач при старте (по умолчанию false)
+  small-file-threshold-bytes: 1048576 # 1 MB: порог мелких файлов
+  bundle-target-size-bytes: 16777216 # 16 MB: целевой размер бандла
+  max-bundle-files: 500 # макс. файлов в одном бандле
+  bundle-commit-concurrency: 8 # параллельные потоки записи в HDFS
+  streaming:
+    enabled: true
+    max-pending-tasks-threshold: 5000 # порог неразобранных задач для Backpressure
+    inotify-queue-capacity: 10000 # емкость очереди Inotify-задач
+    inotify-high-watermark: 0.8 # верхний порог гистерезиса (80%)
+    inotify-low-watermark: 0.3 # нижний порог гистерезиса (30%)
+    inotify-max-batch-size: 500 # макс. размер микробатча
+    inotify-flush-interval-ms: 1000 # интервал периодического сброса (мс)
+    inotify-backpressure-max-delay-ms: 5000 # макс. задержка опроса при Backpressure (мс)
+  datacenters:
+    - id: "dc1"
+      name: "Дата-Центр 1 (Primary DC)"
+      network-zone: "zone-a"
+    - id: "dc2"
+      name: "Дата-Центр 2 (Disaster Recovery)"
+      network-zone: "zone-b"
+  clusters:
+    - id: "dc1"
+      name: "HDFS DC1 Production"
+      dc-id: "dc1"
+      hdfs-rpc-address: "hdfs://namenode-dc1:8020"
+    - id: "dc2"
+      name: "HDFS DC2 Standby"
+      dc-id: "dc2"
+      hdfs-rpc-address: "hdfs://namenode-dc2:8020"
+zastava:
+  auth:
+    mode: mock # mock, ldap, kerberos
+    admin-groups:
+      - "hadoop-admins"
+      - "superusers"
+  jwt:
+    secret-key: "replicator-orchestrator-secret-key-32-chars-minimum!"
+    expiration-minutes: 480
 ```
 
 ---
@@ -149,7 +147,7 @@ mvn clean package -DskipTests -f backend/parom/pom.xml -pl orchestrator -am
 # Тесты только оркестратора
 make test-parom-orchestrator
 
-# Тесты всего Replicator (Agent + Orchestrator)
+# Тесты всего Parom (Agent + Orchestrator)
 make test-parom
 
 # Полный прогон всех Java тестов платформы
@@ -188,7 +186,7 @@ make test-java
 |---|---|---|---|
 | `GET` | `/health`, `/healthz` | Проверка жизнеспособности сервиса | Публичный |
 | `GET` | `/api/v1/health` | То же, что `/health` | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`) |
-| `GET` | `/metrics` | Метрики Prometheus (Replicator + Micrometer) | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`); либо HTTP Basic `prometheus:<token>`, если задан `parom.metrics-scrape-token` (`PAROM_METRICS_SCRAPE_TOKEN`; пусто — Basic выключен) |
+| `GET` | `/metrics` | Метрики Prometheus (Parom + Micrometer) | Любой аутентифицированный пользователь или агент (`X-Agent-Secret`); либо HTTP Basic `prometheus:<token>`, если задан `parom.metrics-scrape-token` (`PAROM_METRICS_SCRAPE_TOKEN`; пусто — Basic выключен) |
 | `GET` | `/actuator/prometheus`, `/actuator/health`, `/actuator/info` | Эндпоинты Spring Boot Actuator | Публичный |
 | `GET` | `/actuator/metrics` | Системные метрики Spring Boot Actuator. В профиле `prod` не публикуется (`management.endpoints.web.exposure.include: health,info,prometheus`) | Роль `ADMIN` |
 | `POST` | `/api/v1/auth/login` | Аутентификация пользователя (JWT Cookie) | Публичный |

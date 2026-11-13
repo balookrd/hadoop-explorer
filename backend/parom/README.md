@@ -37,7 +37,7 @@
   - В разделе HDFS (создание и редактирование задач) и в разделе HMS (создание репликации схем) администраторам доступно редактирование имени пользователя (`username` или Kerberos principal).
   - Для непривилегированных пользователей поле заблокировано (read-only) и всегда показывает автора задачи (`session.username()`); сервер отклоняет запрос с подмененным значением.
   - При репликации HMS схем указанный пользователь передается во все вложенные HDFS-подзадачи переноса данных (`HMS_SUBJOB`).
-- Политики Apache Ranger применяются к инициатору задачи, в Ranger Audit Log операция записывается как `ugi: user (auth:PROXY via hdfs-replicator)`.
+- Политики Apache Ranger применяются к инициатору задачи, в Ranger Audit Log операция записывается как `ugi: user (auth:PROXY via parom)`.
 
 ### Веб-консоль в стиле Sklad
 
@@ -114,7 +114,7 @@
 - Персистентный реестр агентов в БД (`replication_agents`): синхронизация регистрации, heartbeat и дерегистрации агентов с базой данных через JPA-сущность `AgentEntity` и репозиторий `AgentRepository`. При старте инстанс оркестратора восстанавливает реестр из БД (`loadAgentsFromDatabase`), поэтому все узлы Active-Active пула видят одинаковое состояние агентов.
 - Потоковый слушатель HDFS Inotify (Active-Standby пул с распределенным лизингом и Fencing).
 - Изоляция привилегий (`AGENT_MODE=streamer` без прав исполнения задач).
-- Подробная документация и схемы: [`docs/replicator-fault-tolerance.md`](../../docs/replicator-fault-tolerance.md).
+- Подробная документация и схемы: [`docs/parom-fault-tolerance.md`](../../docs/parom-fault-tolerance.md).
 
 ### Backpressure при всплеске событий Inotify
 
@@ -149,7 +149,7 @@
 
 ### Производительность и конкурентность (P1)
 
-- Неблокирующий Data Plane в Kafka Replicator: в `KafkaBatchProducer` отправка записей в локальный брокер вынесена в виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`). потоки Netty EventLoop gRPC не блокируются при переполнении буфера продюсера или сбоях сети Kafka.
+- Неблокирующий Data Plane в Kafka Replication: в `KafkaBatchProducer` отправка записей в локальный брокер вынесена в виртуальные потоки Java 21 (`Executors.newVirtualThreadPerTaskExecutor()`). потоки Netty EventLoop gRPC не блокируются при переполнении буфера продюсера или сбоях сети Kafka.
 - Координация in-flight пакетов и перехват отмен gRPC в Kafka Transfer: в `KafkaDataTransferServiceImpl.streamBatches` ведется учет активных батчей (`AtomicInteger inFlightBatches`) и обработка `setOnCancelHandler`. Завершение `responseObserver.onCompleted()` вызывается только после подтверждения всех батчей клиенту.
 - Шардированный Token Bucket без глобального contention: в `TokenBucketThrottler` убрана глобальная блокировка `throttlerLock` на весь оркестратор. В `SingleBucket` добавлен потокобезопасный метод `calculateWaitAndConsume`, выполняющий расчет интервала задержки и списание сетевых токенов под изолированным `ReentrantLock` конкретного бакета. Потоки передачи между разными кластерами масштабируются независимо без ожидания в общей очереди.
 - Кэширование потоковых задач в Inotify Streamer: в `HdfsInotifyListener` добавлен кэш активных задач `cachedStreamingJobs` с интервалом инвалидации 5 секунд. До этого стример отправлял сотни синхронных HTTP GET запросов к оркестратору при чтении каждого батча EditLog NameNode.
@@ -184,7 +184,7 @@
 ### Остановка gRPC-каналов, метрики отмен и разграничение Actuator (P3)
 
 - Graceful-остановка каналов gRPC-пула: `ParomAgent.stop()` вызывает `sender.close()`, который закрывает все каналы пула `channelPool` и освобождает сокеты до остановки демона.
-- Мониторинг отмен и обрывов gRPC-стримов: в `AgentMetrics` добавлен счетчик Micrometer `replicator.grpc.transfers.cancelled` (`cancelledTransfersCounter`). Счетчик увеличивается в обработчиках клиентской отмены (`serverCallStreamObserver.setOnCancelHandler(...)`) при передаче одиночных файлов (`transferFile`) и потоковых TAR-архивов (`transferTarStream`).
+- Мониторинг отмен и обрывов gRPC-стримов: в `AgentMetrics` добавлен счетчик Micrometer `parom.grpc.transfers.cancelled` (`cancelledTransfersCounter`). Счетчик увеличивается в обработчиках клиентской отмены (`serverCallStreamObserver.setOnCancelHandler(...)`) при передаче одиночных файлов (`transferFile`) и потоковых TAR-архивов (`transferTarStream`).
 - Сегментация Spring Boot Actuator: эндпоинты Actuator оркестратора разделены по уровню доступа:
   - Публичные (`permitAll()`): эндпоинты проверки жизнеспособности (`/actuator/health/**`), базовой информации (`/actuator/info`) и Prometheus-скрейпинга метрик (`/actuator/prometheus`).
   - Защищенные (`hasRole("ADMIN")`): административные и диагностические эндпоинты (`/actuator/metrics/**`, `/actuator/env`, `/actuator/beans`, `/actuator/mappings` и др.).
@@ -227,7 +227,7 @@
 - Защита от MITM при gRPC TLS (SEC-2): в `OrchestratorGrpcClient` убран безусловный `InsecureTrustManagerFactory`. По умолчанию сертификаты оркестратора валидируются через доверенные корневые CA системы (TrustManager JVM).
 - Распределенная блокировка на failover осиротевших задач: в `TaskService.checkAndFailoverOrphanedTasks` вызывается `DistributedLockService.runWithLock("orphan_task_failover_lock", ...)`, чтобы одни и те же задачи не переносили несколько узлов оркестратора одновременно.
 
-### HMS Replicator: пул соединений, перенос схемы, CDC
+### HMS Parom: пул соединений, перенос схемы, CDC
 
 - Пул соединений Hive Metastore (Apache Commons-Pool2): в `ThriftHmsClient` используется `GenericObjectPool<IMetaStoreClient>`, потому что `HiveMetaStoreClient` не потокобезопасен. При `MetaException` соединение инвалидируется, а операция повторяется.
 - Полный перенос схемы таблиц Hive: расширены Protobuf-контракты (`HmsFieldSchemaProto`), DTO и конвертеры (`HmsConversionHelper`). Колонки больше не захардкожены (`id`/`data`): переносятся поля таблицы, типы колонок, комментарии, `partition_key_fields` и параметры сериализации/десериализации (`serde_parameters`).
@@ -256,7 +256,7 @@
 - Предотвращение захвата кластеров (Cluster Hijacking Prevention): в `AgentRegistry` добавлен метод `validateClusterAssignment`. Зарегистрированному агенту запрещена динамическая смена идентификатора кластера (`clusterId`) как при повторной регистрации, так и в периодических heartbeat без предварительной дерегистрации.
 - Принудительное соблюдение белого списка кластеров (`enforce-cluster-whitelist`): при включении политики агенты могут регистрироваться только в кластерах, заданных в топологии `TopologyRegistry`.
 
-### Control Plane и flow control конвейера Kafka Replicator (P1)
+### Control Plane и flow control конвейера Kafka Replication (P1)
 
 - Устранение Stop-and-Wait задержек в gRPC Data Plane (P1-1): в `KafkaDataTransferServiceImpl` используется скользящее окно упреждающих запросов пакетов (`pipelineWindow = 16`, `serverCallStreamObserver.request(N)`). По завершении обработки каждого входящего пакета вызывается `request(1)`; канал не простаивает в ожидании RTT.
 - Динамический Control Plane диспетчер задач Kafka на агентах (P1-2): в `orchestrator_control_plane.proto` и `OrchestratorControlPlaneService` реализован контракт `GetActiveKafkaJobs(dc_id)`. Агент (`ParomKafkaAgentMain`) в цикле heartbeat опрашивает оркестратор и получает новые задачи.
@@ -353,7 +353,7 @@
 ### Масштабирование выше 40 Гбит/с и модель полосы агента
 
 - Динамический параллелизм Kafka Consumer Pool: число потоков вычитки считается по формуле $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$ с масштабированием микробатчей от 10k до 50k сообщений (до 16 МБ) для сетей 100G/200G/400G+. В одной JVM агента не больше 32 потоков, чтобы не исчерпать сокеты и не перегрузить CPU.
-- Модель полосы как в HDFS Replicator: оркестратор не моделирует сетевую конфигурацию хостов (4x25G, L3-бондинг, маршрутизацию интерфейсов), а согласует WAN HTB квоту и явно заданный оператором лимит процесса `--max-bandwidth-mb-s` (`AGENT_MAX_BANDWIDTH_MB_S`). Доступная полоса пула агентов рассчитывается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
+- Модель полосы как в HDFS Parom: оркестратор не моделирует сетевую конфигурацию хостов (4x25G, L3-бондинг, маршрутизацию интерфейсов), а согласует WAN HTB квоту и явно заданный оператором лимит процесса `--max-bandwidth-mb-s` (`AGENT_MAX_BANDWIDTH_MB_S`). Доступная полоса пула агентов рассчитывается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
 - Изоляция брокерного ISR-трафика: репликация ISR между брокерами Kafka внутри дата-центра идет через локальные сетевые интерфейсы (2x25G) и не учитывается в расчете межЦОДного WAN HTB шейпинга.
 - Без констант по умолчанию в API и фронтенде: убран хардкод `defaultValue = "DC1"/"DC2"`, параметр `clusterId` стал обязательным с валидацией 400 Bad Request, адреса брокеров Kafka динамически разрешаются через `TopologyRegistry`. В UI снят потолок 5000 МБ/с и обновлена терминология («Суммарный лимит подключенных агентов» и «Лимит процесса агента»).
 
@@ -372,7 +372,7 @@
 
 ### Черный список consumer group Kafka
 
-- Служебные и инфраструктурные группы: в `ConsumerGroupBlacklistFilter` задан шаблон исключения `^(kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`.
+- Служебные и инфраструктурные группы: в `ConsumerGroupBlacklistFilter` задан шаблон исключения `^(parom-.*|kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`.
 - Защита на этапе сканирования (`ConsumerGroupOffsetScanner`): при синхронизации смещений служебные группы отсекаются до запроса оффсетов у Kafka AdminClient; оффсеты локальных консьюмеров агента не перезаписываются.
 - Защитный гейт на этапе коммита (`SafetyCommitManager`): при попытке применить оффсеты служебных групп в целевом ДЦ запрос отклоняется с кодом ошибки.
 - Фильтрация в Live Discovery и создании задач (`KafkaReplicationOrchestratorService`): из списков обнаружения `/api/v1/kafka/consumer-groups` и при создании заданий служебные группы отфильтровываются.
@@ -394,7 +394,7 @@ make demo-parom
 # Открыть веб-интерфейс
 open http://localhost:8005
 
-# Сборка и тесты Java Replicator (Agent + Orchestrator)
+# Сборка и тесты Java Parom (Agent + Orchestrator)
 make build-parom
 make test-parom
 

@@ -39,7 +39,7 @@ make demo-all-stop
 - Sklad: `make demo-sklad` (остановка: `make demo-sklad-stop`)
 - Tolmach: `make demo-tolmach` (остановка: `make demo-tolmach-stop`)
 - Iskra: `make demo-iskra` (остановка: `make demo-iskra-stop`)
-- Replicator: `make demo-parom` (остановка: `make demo-parom-stop`)
+- Parom: `make demo-parom` (остановка: `make demo-parom-stop`)
 - Стек мониторинга: `make demo-monitoring` (остановка: `make demo-monitoring-stop`)
 
 ---

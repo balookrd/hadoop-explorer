@@ -25,7 +25,7 @@
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
    - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
 4. [Настройка Sklad](#4-настройка-sklad)
-5. [Настройка Tolmach (Trino и Hive)](#5-настройка-tolmach-trino--hive)
+5. [Настройка Tolmach (Trino и Hive)](#5-настройка-tolmach-trino-и-hive)
    - [Аналитические кластеры](#51-аналитические-кластеры)
    - [Параметры выполнения запросов и сохранение воркспейса](#52-параметры-выполнения-запросов-и-сохранение-воркспейса)
    - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#53-ии-ассистент-on-premise-llm--ollama--vllm)
@@ -35,14 +35,14 @@
    - [Интеграция с YARN и разграничение очередей](#63-интеграция-с-yarn-и-разграничение-очередей)
    - [Hive Metastore, Iceberg и профили ресурсов](#64-hive-metastore-iceberg-и-профили-ресурсов)
    - [Персистентность рабочих пространств пользователя](#65-персистентность-рабочих-пространств-пользователя)
-7. [Настройка Parom (DC-DC WAN Sync & Throttling)](#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling)
+7. [Настройка Parom (DC-DC WAN Sync & Throttling)](#7-настройка-parom-dc-dc-wan-sync--throttling)
    - [Архитектура и компоненты (Orchestrator, Agent)](#71-архитектура-и-компоненты-orchestrator-agent)
    - [Безопасные значения по умолчанию и продуктивный профиль](#711-безопасные-значения-по-умолчанию-и-продуктивный-профиль)
    - [Трассировка и health-пробы gRPC](#712-трассировка-и-health-пробы-grpc)
    - [Топология дата-центров и кластеров](#72-топология-дата-центров-и-кластеров)
    - [Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)](#73-многоуровневые-лимиты-полосы-dc-dc-и-hdfs-hdfs)
    - [Безопасность, RBAC и системная техучетка Kerberos](#74-безопасность-rbac-и-системная-техучетка-kerberos)
-   - [Настройка Replicator Agent (Full-Duplex) и буфера Staging](#75-настройка-parom-agent-full-duplex-и-буфера-staging)
+   - [Настройка Parom Agent (Full-Duplex) и буфера Staging](#75-настройка-parom-agent-full-duplex-и-буфера-staging)
    - [Разрешение целевых адресов (Service Discovery, AGENT_TARGET_* и Fallback)](#76-разрешение-целевых-адресов-service-discovery-agent_target_-и-fallback)
    - [Планировщик периодических задач (Cron Scheduler)](#77-планировщик-периодических-задач-cron-scheduler)
    - [Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)](#78-локальное-ограничение-пропускной-способности-агента-agent_max_bandwidth_mb_s-и-модель-согласования-wan)
@@ -77,8 +77,8 @@
 >
 > Локальная разработка без каталога включает профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
 > файл `application-mock.yml` в ресурсах сервиса). Демо-стенды `demo/*` входят через OpenLDAP стенда:
-> Explorer-сервисы задают `auth.mode: ldap`/`hybrid` и `debug: true` в `application-demo.yml`, оркестратор
-> Replicator — профилем `demo` (`SPRING_PROFILES_ACTIVE=demo`, `application-demo.yml`).
+> Сервисы Artel, Sklad, Tolmach и Iskra задают `auth.mode: ldap`/`hybrid` и `debug: true` в `application-demo.yml`, оркестратор
+> Parom — профилем `demo` (`SPRING_PROFILES_ACTIVE=demo`, `application-demo.yml`).
 > Ключи из старых руководств (`auth-mode`, `ldap.server-uri`, `bind-dn`, `bind-password`, `user-base-dn`,
 > `user-filter`, `kerberos.keytab-path`, `kerberos.principal`) принимаются как синонимы.
 
@@ -86,7 +86,7 @@
 
 ## 2. Общий стартер безопасности (zastava)
 
-Параметры раздела читает `ZastavaProperties` (`@ConfigurationProperties(prefix = "zastava")`) из `backend/zastava`. Стартер подключают сервисы `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator`, поэтому ключи одинаковы для всех.
+Параметры раздела читает `ZastavaProperties` (`@ConfigurationProperties(prefix = "zastava")`) из `backend/zastava`. Стартер подключают сервисы `artel`, `sklad`, `tolmach`, `iskra` и `parom/orchestrator`, поэтому ключи одинаковы для всех.
 
 ### 2.1 Сервер и безопасность (CORS, CSRF, Cookies, JWT)
 
@@ -94,24 +94,23 @@
 server:
   port: 8000
 
-hadoop:
-  security:
-    debug: false
-    jwt:
-      secret-key: ${JWT_SECRET_KEY:}   # Обязателен: не короче 32 символов
-      algorithm: HS256
-      expiration-minutes: 480
-    cookie:
-      names: ["access_token", "pristan_session", "session_token", "sklad_session"]
-      domain:                          # Не задан: cookie привязана к хосту ответа
-      path: /
-      secure: true                     # Передавать cookie только по HTTPS (по умолчанию false)
-      same-site: Lax
-      http-only: true
-    cors:
-      allowed-origins:
-        - "https://hadoop.company.local"
-        - "https://hdfs.company.local"
+zastava:
+  debug: false
+  jwt:
+    secret-key: ${JWT_SECRET_KEY:}   # Обязателен: не короче 32 символов
+    algorithm: HS256
+    expiration-minutes: 480
+  cookie:
+    names: ["access_token", "pristan_session", "session_token", "sklad_session"]
+    domain:                          # Не задан: cookie привязана к хосту ответа
+    path: /
+    secure: true                     # Передавать cookie только по HTTPS (по умолчанию false)
+    same-site: Lax
+    http-only: true
+  cors:
+    allowed-origins:
+      - "https://hadoop.company.local"
+      - "https://hdfs.company.local"
 ```
 
 | Параметр | По умолчанию | Что делает |
@@ -146,18 +145,17 @@ hadoop:
 Ключи `group-search-base` и `group-search-filter` есть в `ZastavaProperties`, но `LdapAuthService` их не использует: группы берутся только из `memberOf`. Для `ldaps://` сертификат сервера проверяется по truststore JVM.
 
 ```yaml
-hadoop:
-  security:
-    auth:
-      mode: ldap                # mock | ldap | kerberos | hybrid
-    ldap:
-      enabled: true
-      url: "ldaps://ad.company.local:636"
-      base-dn: "dc=company,dc=local"
-      manager-dn: "cn=svc_pristan,ou=Service Accounts,dc=company,dc=local"
-      manager-password: ${LDAP_MANAGER_PASSWORD:}
-      user-search-base: "ou=Users,dc=company,dc=local"
-      user-search-filter: "(&(objectClass=user)(sAMAccountName={0}))" # для OpenLDAP: (uid={0})
+zastava:
+  auth:
+    mode: ldap                # mock | ldap | kerberos | hybrid
+  ldap:
+    enabled: true
+    url: "ldaps://ad.company.local:636"
+    base-dn: "dc=company,dc=local"
+    manager-dn: "cn=svc_pristan,ou=Service Accounts,dc=company,dc=local"
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: "ou=Users,dc=company,dc=local"
+    user-search-filter: "(&(objectClass=user)(sAMAccountName={0}))" # для OpenLDAP: (uid={0})
 ```
 
 Значения по умолчанию: `url: ldap://localhost:389`, `base-dn: dc=example,dc=com`, `user-search-base: ou=users`, `user-search-filter: (&(objectClass=person)(uid={0}))`. Упакованный `application.yml` сервисов задает `url`, `manager-dn`, `manager-password` и `user-search-base` через переменные `LDAP_URL`, `LDAP_MANAGER_DN`, `LDAP_MANAGER_PASSWORD`, `LDAP_USER_SEARCH_BASE`.
@@ -167,12 +165,11 @@ hadoop:
 Пользователь входит в веб-интерфейс по Kerberos-тикету из своей системной сессии, без ввода пароля: браузер передает заголовок `Authorization: Negotiate <ticket>`.
 
 ```yaml
-hadoop:
-  security:
-    auth:
-      mode: kerberos      # или hybrid: LDAP-форма и SPNEGO одновременно
-    kerberos:
-      enabled: true
+zastava:
+  auth:
+    mode: kerberos      # или hybrid: LDAP-форма и SPNEGO одновременно
+  kerberos:
+    enabled: true
 ```
 
 `KerberosSpnegoService` проверяет тикет через Java GSS-API и создает контекст с учетными данными acceptor по умолчанию (`GSSManager.createContext((GSSCredential) null)`). Ключи `zastava.kerberos.keytab`, `service-principal` и `krb5-config` объявлены в `ZastavaProperties`, но сервис их не читает: изменение этих ключей на проверку тикета не влияет. Principal `HTTP/<host>@<REALM>` и его keytab JVM берет из JAAS-конфигурации: задайте их в секции `com.sun.security.jgss.accept` файла, переданного через `-Djava.security.auth.login.config=<путь>`, вместе с `-Djavax.security.auth.useSubjectCredsOnly=false` и `-Djava.security.krb5.conf=<путь к krb5.conf>`. Без этого JVM не находит ключ acceptor, и проверка тикета завершается ошибкой GSS.
@@ -182,13 +179,12 @@ hadoop:
 Все сервисы платформы вычисляют роль пользователя одним классом `RoleResolver` (метод `resolve`) из стартера безопасности:
 
 ```yaml
-hadoop:
-  security:
-    auth:
-      admin-users: ["admin", "superadmin"]
-      admin-groups: ["hadoop-admins", "platform-admins", "domain admins"]
-      writer-users: []
-      writer-groups: ["data-engineers", "artel-operators", "etl-developers"]
+zastava:
+  auth:
+    admin-users: ["admin", "superadmin"]
+    admin-groups: ["hadoop-admins", "platform-admins", "domain admins"]
+    writer-users: []
+    writer-groups: ["data-engineers", "artel-operators", "etl-developers"]
 ```
 
 Имена пользователей и групп сравниваются без учета регистра. Группы из конфигурации добавляются к встроенным спискам, а не заменяют их:
@@ -211,22 +207,21 @@ hadoop:
 L2 включается, только если `session-store.type` не равен `memory` и в контексте есть `DataSource` (`spring.datasource` сервиса). Таблицы создаются при старте (`CREATE TABLE IF NOT EXISTS`). При `type: memory` (значение по умолчанию) сессии и отзывы хранятся в памяти процесса: после перезапуска сервиса пользователю нужно войти заново, а реплики сервиса не видят сессий друг друга. Реализации на Redis в коде нет, хотя комментарий к `type` упоминает `redis`.
 
 ```yaml
-hadoop:
-  security:
-    session-store:
-      type: jdbc            # memory (по умолчанию) | jdbc
-      fail-closed: false    # true: ошибка L2 при проверке отзыва считается отзывом, ошибка записи сессии — исключением
-      l1-capacity: 10000
-      l1-ttl-seconds: 3600
-    rate-limiter:
-      enabled: true
-      requests-per-minute: 600
-      burst-capacity: 100
-      login:
-        requests-per-minute: 30
-        burst-capacity: 10
-      trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
-      max-tracked-keys: 100000
+zastava:
+  session-store:
+    type: jdbc            # memory (по умолчанию) | jdbc
+    fail-closed: false    # true: ошибка L2 при проверке отзыва считается отзывом, ошибка записи сессии — исключением
+    l1-capacity: 10000
+    l1-ttl-seconds: 3600
+  rate-limiter:
+    enabled: true
+    requests-per-minute: 600
+    burst-capacity: 100
+    login:
+      requests-per-minute: 30
+      burst-capacity: 10
+    trusted-proxies: []     # IP или CIDR обратных прокси, например ["10.0.0.0/8"]
+    max-tracked-keys: 100000
 ```
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
@@ -259,26 +254,25 @@ hadoop:
 
 ### 2.7 Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов
 
-TLS для встроенного веб-сервера и исходящих REST-клиентов сервисов `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator` настраивается в одном месте — в секции `zastava.tls` стартера `zastava`:
+TLS для встроенного веб-сервера и исходящих REST-клиентов сервисов `artel`, `sklad`, `tolmach`, `iskra` и `parom/orchestrator` настраивается в одном месте — в секции `zastava.tls` стартера `zastava`:
 
 ```yaml
-hadoop:
-  security:
-    tls:
-      enabled: true                     # Активация TLS для встроенного Tomcat веб-сервера
-      key-store-path: "/etc/security/tls/keystore.p12" # Путь к PKCS12 / JKS Keystore
-      key-store-password: "${TLS_KEYSTORE_PASSWORD}"
-      key-store-type: "PKCS12"
-      trust-store-path: "/etc/security/tls/truststore.p12" # Хранилище доверенных CA
-      trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
-      trust-store-type: "PKCS12"
-      client-auth: "NONE"               # Режим mTLS: NONE | OPTIONAL | REQUIRE
-      auto-generate-self-signed: true   # Автогенерация временного Keystore при отсутствии файла
-      insecure-skip-verify: false       # Отключение проверки сертификатов для dev-стендов
-      enabled-protocols:
-        - "TLSv1.3"
-        - "TLSv1.2"
-      ciphers: []                       # Список допустимых шифронаборов (по умолчанию все безопасные)
+zastava:
+  tls:
+    enabled: true                     # Активация TLS для встроенного Tomcat веб-сервера
+    key-store-path: "/etc/security/tls/keystore.p12" # Путь к PKCS12 / JKS Keystore
+    key-store-password: "${TLS_KEYSTORE_PASSWORD}"
+    key-store-type: "PKCS12"
+    trust-store-path: "/etc/security/tls/truststore.p12" # Хранилище доверенных CA
+    trust-store-password: "${TLS_TRUSTSTORE_PASSWORD}"
+    trust-store-type: "PKCS12"
+    client-auth: "NONE"               # Режим mTLS: NONE | OPTIONAL | REQUIRE
+    auto-generate-self-signed: true   # Автогенерация временного Keystore при отсутствии файла
+    insecure-skip-verify: false       # Отключение проверки сертификатов для dev-стендов
+    enabled-protocols:
+      - "TLSv1.3"
+      - "TLSv1.2"
+    ciphers: []                       # Список допустимых шифронаборов (по умолчанию все безопасные)
 ```
 
 Те же параметры через переменные окружения:
@@ -299,7 +293,7 @@ hadoop:
 ### 3.1 YARN-кластеры и партиции
 
 ```yaml
-yarn:
+artel:
   clusters:
     - id: "prod-yarn"
       name: "Production Hadoop Cluster"
@@ -326,7 +320,7 @@ yarn:
 В Artel три роли: `ADMIN`, `WRITER`, `READER`. При `enforce-four-eyes: true` действует принцип четырех глаз: автор заявки не может сам ее согласовать.
 
 ```yaml
-yarn:
+artel:
   acl:
     enforce-four-eyes: true
   clusters:
@@ -351,7 +345,7 @@ yarn:
 Artel доставляет сгенерированную XML-конфигурацию на кластер и применяет ее без перезапуска, запуская Job Template в Ansible AWX / Red Hat Ansible Automation Platform:
 
 ```yaml
-yarn:
+artel:
   awx:
     # Глобальные параметры подключения к AWX
     enabled: true                          # Включение интеграции с AWX
@@ -383,7 +377,7 @@ yarn:
 | `ARTEL_AWX_TIMEOUT_SECONDS` | `180` | Таймаут ожидания завершения задачи (сек) |
 
 Развертывание роли Ansible, настройка шаблона AWX и откат: [docs/awx-yarn-deployment.md](awx-yarn-deployment.md).
-Применение изменений из интерфейса Change Requests: [docs/yarn-user-guide.md](yarn-user-guide.md).
+Применение изменений из интерфейса Change Requests: [docs/artel-user-guide.md](artel-user-guide.md).
 
 ---
 
@@ -394,58 +388,57 @@ yarn:
 ### Пример секции `sklad.clusters`:
 
 ```yaml
-hadoop:
-  hdfs:
-    clusters:
-      - id: "datalake-prod"
-        name: "Production DataLake"
-        description: "Основной аналитический кластер HDFS"
-        webhdfs-urls:
-          - "http://nn1.prod.company.local:9870/webhdfs/v1"
-          - "http://nn2.prod.company.local:9870/webhdfs/v1"
-        hdfs-rpc-urls:
-          - "hdfs://nn1.prod.company.local:8020"
-          - "hdfs://nn2.prod.company.local:8020"
-        auth-type: "kerberos"       # kerberos | simple
-        service-principal: "hdfs/nn1.prod.company.local@COMPANY.LOCAL"
-        keytab-path: "/etc/security/keytabs/sklad.keytab"
-        timeout-seconds: 30
-        preview-max-bytes: 10485760 # Лимит чтения файлов для превью (10 MB)
-        default-path: "/user/{username}"
-        mock-storage: false
-        acl:
-          allowed-groups:
-            - "hadoop-users"
-            - "data-engineers"
-            - "analytics"
-          admin-groups:
-            - "hadoop-admins"
-            - "domain admins"
+sklad:
+  clusters:
+    - id: "datalake-prod"
+      name: "Production DataLake"
+      description: "Основной аналитический кластер HDFS"
+      webhdfs-urls:
+        - "http://nn1.prod.company.local:9870/webhdfs/v1"
+        - "http://nn2.prod.company.local:9870/webhdfs/v1"
+      hdfs-rpc-urls:
+        - "hdfs://nn1.prod.company.local:8020"
+        - "hdfs://nn2.prod.company.local:8020"
+      auth-type: "kerberos"       # kerberos | simple
+      service-principal: "hdfs/nn1.prod.company.local@COMPANY.LOCAL"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
+      timeout-seconds: 30
+      preview-max-bytes: 10485760 # Лимит чтения файлов для превью (10 MB)
+      default-path: "/user/{username}"
+      mock-storage: false
+      acl:
+        allowed-groups:
+          - "hadoop-users"
+          - "data-engineers"
+          - "analytics"
+        admin-groups:
+          - "hadoop-admins"
+          - "domain admins"
 
-      - id: "datalake-archive"
-        name: "Cold Storage Archive"
-        webhdfs-urls:
-          - "http://archive-httpfs.company.local:14000/webhdfs/v1"
-        auth-type: "simple"
-        default-path: "/archive"
-        mock-storage: false
-        acl:
-          allowed-groups:
-            - "domain users"
+    - id: "datalake-archive"
+      name: "Cold Storage Archive"
+      webhdfs-urls:
+        - "http://archive-httpfs.company.local:14000/webhdfs/v1"
+      auth-type: "simple"
+      default-path: "/archive"
+      mock-storage: false
+      acl:
+        allowed-groups:
+          - "domain users"
 ```
 
 ---
 
 ## 5. Настройка Tolmach (Trino и Hive)
 
-Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "sql")`). Базовые значения — в `backend/tolmach/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
+Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "tolmach")`). Базовые значения — в `backend/tolmach/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
 
 **Внимание.** При `mock-storage: false` кластер обслуживает реальный движок: `type: trino` — `TrinoSqlEngine` (`io.trino:trino-jdbc` 484), `type: hive` — `HiveSqlEngine` (`org.apache.kyuubi:kyuubi-hive-jdbc-shaded` 1.12.0, протокол HiveServer2). При `mock-storage: true` или другом `type` кластер обслуживает `MockSqlEngine` с демо-каталогами `tpch` и `analytics`.
 
 ### 5.1 Аналитические кластеры
 
 ```yaml
-sql:
+tolmach:
   clusters:
     - id: "trino-prod"
       name: "Trino Production Cluster"
@@ -486,7 +479,7 @@ sql:
 | `jdbc.ssl` | `false` | TLS к координатору (`SSL=true`) | Координатор слушает HTTPS; обязателен при `kerberos.enabled: true` |
 | `jdbc.ssl-verification` | `FULL` | `FULL` — проверка цепочки и имени хоста, `CA` — только цепочки, `NONE` — без проверки | `CA`, если сертификат выпущен не на имя из `host` |
 | `jdbc.ssl-truststore-path`, `jdbc.ssl-truststore-password` | — | Хранилище доверенных сертификатов (JKS или PKCS12) | Самоподписанный или корпоративный CA |
-| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `hadoop-explorer` | Служебный пользователь (`user`) | Имя служебной учетки в Trino отличается от principal |
+| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `pristan` | Служебный пользователь (`user`) | Имя служебной учетки в Trino отличается от principal |
 | `jdbc.connect-timeout-seconds` | `30` | Свойство драйвера `timeout`: таймаут установления соединения, чтения и записи каждого HTTP-запроса к координатору | Медленная сеть до координатора |
 | `jdbc.query-timeout-seconds` | `1800` | По истечении сервис вызывает `Statement.cancel()`, запрос получает статус `FAILED` с текстом «Превышен лимит времени выполнения запроса» | Длинные отчеты |
 | `jdbc.fetch-size` | `1000` | Размер пакета строк из драйвера и SSE-события `rows` | — |
@@ -509,7 +502,7 @@ sql:
 | `jdbc.ssl` | `false` | Для `type: hive` не поддерживается | `true` — ошибка при старте сервиса |
 | `jdbc.connect-timeout-seconds` | `30` | `connectTimeout` драйвера: таймаут TCP-подключения к HiveServer2 | Медленная сеть до HiveServer2 |
 | `jdbc.socket-timeout-seconds` | `300` | `socketTimeout` драйвера: предел ожидания каждого ответа HiveServer2 по Thrift (SASL-рукопожатие, `OpenSession`, опрос статуса, `FetchResults`, запросы каталога). `0` — без ограничения | Медленные `FetchResults` или метаданные на большом Metastore дольше предела |
-| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `hadoop-explorer` | Пользователь подключения при аутентификации `NONE` | — |
+| `jdbc.service-user` | короткое имя `kerberos.principal`, иначе `pristan` | Пользователь подключения при аутентификации `NONE` | — |
 | `jdbc.query-timeout-seconds`, `jdbc.fetch-size` | `1800`, `1000` | Как для Trino | — |
 | `impersonation.enabled` | `true` | Передает `hive.server2.proxy.user` | `false` — все запросы от служебного пользователя |
 
@@ -522,7 +515,7 @@ sql:
 ### 5.2 Параметры выполнения запросов и сохранение воркспейса
 
 ```yaml
-sql:
+tolmach:
   max-rows-per-query: 10000     # Предел строк результата, передается движку
   default-page-size: 500        # Объявлен в SqlProperties, в коде не используется
   results-ttl-hours: 24         # Срок хранения результатов в памяти
@@ -537,7 +530,7 @@ Tolmach сохраняет в БД (`spring.datasource`) открытые вкл
 ### 5.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
 ```yaml
-sql:
+tolmach:
   ai:
     enabled: true
     provider: "openai_compatible"   # mock-builtin | openai_compatible
@@ -591,7 +584,7 @@ sql:
 
 ## 6. Настройка Iskra (Livy, PySpark, Scala, Metastore)
 
-Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "spark")`). Базовые значения — в `backend/iskra/src/main/resources/application.yml`.
+Параметры читает `SparkProperties` (`@ConfigurationProperties(prefix = "iskra")`). Базовые значения — в `backend/iskra/src/main/resources/application.yml`.
 
 **Внимание.** При `mock-storage: true` (или `type`, отличном от `livy`) сессии и код обслуживает встроенный `MockSparkEngine`. При `mock-storage: false` Iskra создает интерактивные сессии Apache Livy с `proxyUser` — Livy должен работать с `livy.impersonation.enabled = true`, а его principal должен быть разрешен как `hadoop.proxyuser.<livy>.*` в `core-site.xml` кластера. Значение `mock-storage` по умолчанию — `false`: кластер без этого ключа идет в Livy.
 
@@ -602,7 +595,7 @@ sql:
 ### 6.1 Кластеры и интеграция с Apache Livy
 
 ```yaml
-spark:
+iskra:
   session-ttl-minutes: 120      # Сессии idle без активности дольше этого срока удаляются в Livy и получают статус killed
   results-ttl-hours: 24         # Объявлен в SparkProperties, в коде не используется
   close-sessions-on-logout: true # Выход пользователя закрывает его сессии в Livy
@@ -680,7 +673,7 @@ iskra.clusters[prod-hadoop].livy-url не задан: кластер с mock-sto
 Пользователь выбирает версию Spark и окружение Python из списка в конфигурации. Пути к архивам Spark и интерпретаторам Python задаются через `spark-conf` версии и окружения (раздел 6.1).
 
 ```yaml
-spark:
+iskra:
   clusters:
     - id: "prod-hadoop"
       spark-versions:
@@ -709,7 +702,7 @@ spark:
 ### 6.3 Интеграция с YARN и разграничение очередей
 
 ```yaml
-spark:
+iskra:
   clusters:
     - id: "prod-hadoop"
       yarn-cluster-id: "prod-yarn"
@@ -722,7 +715,7 @@ spark:
 ### 6.4 Hive Metastore, Iceberg и профили ресурсов
 
 ```yaml
-spark:
+iskra:
   clusters:
     - id: "prod-hadoop"
       metastores:
@@ -763,13 +756,13 @@ Iskra сохраняет в базу данных состояние сесси�
 ### 7.1 Архитектура и компоненты (Orchestrator, Agent)
 
 Сервис состоит из двух компонентов:
-1. Replicator Orchestrator (Java 21 / Spring Boot 3, порт `8005`):
+1. Parom Orchestrator (Java 21 / Spring Boot 3, порт `8005`):
    - хранит задачи репликации (`Job` / `JobRun`) и их состояние в реляционной БД (H2 / PostgreSQL);
    - отдает REST API и Web UI (Svelte 5 SPA);
    - выдает агентам сетевые квоты через многоуровневый Token Bucket;
    - запускает периодические задачи по расписанию (Cron Scheduler);
    - экспортирует метрики Prometheus (`/actuator/prometheus`).
-2. Replicator Agent (Java 21, gRPC, порт `50051`):
+2. Parom Agent (Java 21, gRPC, порт `50051`):
    - разворачивается в каждом ЦОД (например, DC1 и DC2) и работает в обе стороны;
    - Receiver принимает данные по gRPC streaming (HTTP/2), сверяет SHA-256 и атомарно фиксирует файл в HDFS; Sender опрашивает задачи в статусе `QUEUED`, запрашивает токены у оркестратора и передает данные потоком;
    - работает с HDFS через `HadoopFsManager`: Kerberos UGI и doAs-имперсонация, чтобы политики Apache Ranger применялись к пользователю задачи.
@@ -892,31 +885,30 @@ java -cp /app/parom-agent.jar \
 На демо-стенде два ЦОД (`dc1`, `dc2`) и по одному кластеру в каждом.
 
 ```yaml
-hadoop:
-  replicator:
-    datacenters:
-      - id: "dc1"
-        name: "ЦОД 1 (Primary DC)"
-        network-zone: "zone-a"
-      - id: "dc2"
-        name: "ЦОД 2 (Disaster Recovery)"
-        network-zone: "zone-b"
-    clusters:
-      - id: "prod-cluster"
-        name: "HDFS Primary"
-        dc-id: "dc1"
-        hdfs-rpc-address: "hdfs://namenode-dc1:8020"
-        grpc-host: "agent-dc1"        # Адрес агента-приемника для этого кластера
-        grpc-port: 50051
-        kerberos-enabled: true
-        principal: "parom@COMPANY.LOCAL"
-        keytab-path: "/etc/security/keytabs/replicator.keytab"
-      - id: "backup-cluster"
-        name: "HDFS DR"
-        dc-id: "dc2"
-        hdfs-rpc-address: "hdfs://namenode-dc2:8020"
-        grpc-host: "agent-dc2"
-        grpc-port: 50051
+parom:
+  datacenters:
+    - id: "dc1"
+      name: "ЦОД 1 (Primary DC)"
+      network-zone: "zone-a"
+    - id: "dc2"
+      name: "ЦОД 2 (Disaster Recovery)"
+      network-zone: "zone-b"
+  clusters:
+    - id: "prod-cluster"
+      name: "HDFS Primary"
+      dc-id: "dc1"
+      hdfs-rpc-address: "hdfs://namenode-dc1:8020"
+      grpc-host: "agent-dc1"        # Адрес агента-приемника для этого кластера
+      grpc-port: 50051
+      kerberos-enabled: true
+      principal: "parom@COMPANY.LOCAL"
+      keytab-path: "/etc/security/keytabs/parom.keytab"
+    - id: "backup-cluster"
+      name: "HDFS DR"
+      dc-id: "dc2"
+      hdfs-rpc-address: "hdfs://namenode-dc2:8020"
+      grpc-host: "agent-dc2"
+      grpc-port: 50051
 ```
 
 Для Kafka-репликации у кластера задаются `kafka-bootstrap-servers`, `schema-registry-url`, `schema-registry-type` (`CONFLUENT` | `HORTONWORKS`) и при TLS — `kafka-security-protocol`, `kafka-service-name`, `kafka-truststore-location`, `kafka-truststore-password`, `kafka-truststore-type` (пример — в `backend/parom/orchestrator/src/main/resources/application.yml`).
@@ -956,7 +948,7 @@ curl -X POST http://<orchestrator_host>:8005/api/v1/limits/dc-dc \
 
 ---
 
-### 7.5 Настройка Replicator Agent (Full-Duplex) и буфера Staging
+### 7.5 Настройка Parom Agent (Full-Duplex) и буфера Staging
 
 Агент репликации `io.github.balookrd.pristan.parom.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи (`Sender`), поэтому один агент реплицирует в обе стороны (`DC1 ⇄ DC2`).
 
@@ -1089,7 +1081,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.8 Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`) и модель согласования WAN
 
-Если Replicator Agent стоит на узлах Hadoop (рядом с DataNode) или на общих edge-узлах, ограничьте его полосу локально, чтобы репликация не отнимала сеть и диски у DataNode:
+Если Parom Agent стоит на узлах Hadoop (рядом с DataNode) или на общих edge-узлах, ограничьте его полосу локально, чтобы репликация не отнимала сеть и диски у DataNode:
 
 | Параметр | По умолчанию | Что делает |
 |---|---|---|
@@ -1109,7 +1101,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.9 Эталонный фрагмент конфигурации топологии (application.yml)
 
-Эталоном является секция `hadoop.replicator` в `backend/parom/orchestrator/src/main/resources/application.yml`; ключи топологии описаны в разделе 7.2, лимиты — в разделе 7.3. Продуктивные переопределения (PostgreSQL, TLS gRPC) — в `application-prod.yml` того же каталога.
+Эталоном является секция `parom` в `backend/parom/orchestrator/src/main/resources/application.yml`; ключи топологии описаны в разделе 7.2, лимиты — в разделе 7.3. Продуктивные переопределения (PostgreSQL, TLS gRPC) — в `application-prod.yml` того же каталога.
 
 ---
 
@@ -1129,19 +1121,19 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `PAROM_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `false` |
 | `PAROM_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` |
 | `PAROM_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` |
-| `PAROM_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` |
+| `PAROM_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/parom/sandbox` |
 | `PAROM_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry | `false` |
 | `PAROM_ENFORCE_CLUSTER_WHITELIST` | Запрет регистрации агентов в кластерах, которых нет в топологии | `true` (`application.yml`) |
 | `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-<uuid>` |
 | `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `null` |
-| `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`, `streamer`) | `all` |
+| `AGENT_MODE` | Режим работы Parom Agent (`all`, `sender`, `receiver`, `streamer`) | `all` |
 | `AGENT_ENABLE_REGISTRATION` | Включение динамической авторегистрации агента на Оркестраторе | `true` |
 | `AGENT_ADVERTISED_ADDRESS` | Сетевой gRPC адрес, анонсируемый агентом удаленным узлам | `$HOSTNAME:$RECEIVER_PORT` |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач в Оркестраторе и отправки heartbeat (секунды) | `3.0` |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит скорости агента (Token Bucket), МБ/с | `0.0` (без ограничений) |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
-| `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |
+| `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Parom Agent | `0.0.0.0:50051` |
 | `PAROM_STAGING_DIR` | Буферная директория Staging для локального коммита (для HDFS используется прямой Zero-Staging) | `/tmp/staging` |
 | `PAROM_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) |
 | `PAROM_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) |
@@ -1177,14 +1169,14 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Sklad | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
 | Tolmach | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `tolmach_query_duration_seconds` |
 | Iskra | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
-| Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
-| Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `parom_*`, `kafka_*` |
+| Оркестратор Parom | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
+| Оркестратор Parom | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `parom_*`, `kafka_*` |
 
 `<scrape_token>` — значение `PAROM_METRICS_SCRAPE_TOKEN` (`parom.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
 
-Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Iskra возвращает 404.
+Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>`. `GET /metrics` у Artel, Sklad, Tolmach и Iskra возвращает 404.
 
-Доступ к Actuator в YARN, HDFS, SQL и Iskra задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ParomOrchestratorApplication`).
+Доступ к Actuator в Artel, Sklad, Tolmach и Iskra задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ParomOrchestratorApplication`).
 
 Внимание: `/actuator/prometheus` отдается без аутентификации. Метрики не содержат имен пользователей, путей HDFS и текстов запросов, но раскрывают идентификаторы кластеров, шаблоны URI API и объем трафика. Если сервис опубликован наружу через обратный прокси или балансировщик, закройте на нем этот путь или разрешите его только адресу Prometheus. Пример для nginx:
 
@@ -1209,7 +1201,7 @@ location = /actuator/prometheus {
 
 ### 9.2 Экспортируемые метрики
 
-YARN, HDFS, SQL и Iskra:
+Artel, Sklad, Tolmach и Iskra:
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
@@ -1223,11 +1215,11 @@ YARN, HDFS, SQL и Iskra:
 | `iskra_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
 | `iskra_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
 
-Плюс стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.). Подробности по каждому сервису — в разделе 4.1 руководств администратора: [YARN](yarn-admin-guide.md), [HDFS](hdfs-admin-guide.md), [SQL](sql-admin-guide.md), [Spark](spark-admin-guide.md).
+Плюс стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.). Подробности по каждому сервису — в разделе 4.1 руководств администратора: [YARN](artel-admin-guide.md), [HDFS](sklad-admin-guide.md), [SQL](tolmach-admin-guide.md), [Spark](iskra-admin-guide.md).
 
 Метрик `hadoop_circuit_breaker_*`, `hadoop_retry_attempts_total`, `hadoop_auth_attempts_total` и `hadoop_exceptions_total` нет: `SimpleCircuitBreaker` из `zastava` сервисы не вызывают, повторы, попытки входа и исключения отдельными счетчиками не считаются. Входы и ответы 5xx считаются по `http_server_requests_seconds_count` (см. 9.6).
 
-Оркестратор Replicator (`GET /metrics`):
+Оркестратор Parom (`GET /metrics`):
 
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
@@ -1268,9 +1260,9 @@ scrape_configs:
 
 Готовые конфигурации: [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml) и [`demo/monitoring/prometheus/prometheus.yml`](../demo/monitoring/prometheus/prometheus.yml), правила алертов — в `alert.rules.yml` рядом.
 
-Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="pristan"}` возвращает `1` для каждой цели.
+Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `pristan` статус `UP`; запрос `up{job="pristan"}` возвращает `1` для каждой цели.
 
-Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `PAROM_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/parom/docker-compose.yml` и `demo/parom/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/parom-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
+Задание `parom` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `PAROM_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/parom/docker-compose.yml` и `demo/parom/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/parom-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
 
 ### 9.4 Сбор метрик в Kubernetes
 
@@ -1281,7 +1273,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: sklad
-  namespace: hadoop-explorer
+  namespace: pristan
 spec:
   selector:
     matchLabels:
@@ -1298,11 +1290,11 @@ spec:
 
 В каталоге [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/):
 
-1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Replicator.
+1. [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — RPS, доля 5xx, p50/p90/p95/p99, запросы в обработке по сервисам, топ-5 медленных URI, входы по кодам ответа, ответы 429 ограничителя частоты по уровням, ответы 5xx по исключению (фильтр `$app`), сводка Parom.
 2. [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
 3. [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request по статусам, p95 API Artel по URI.
 4. [`iskra_tolmach_analytics.json`](../monitoring/grafana/dashboards/iskra_tolmach_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
-5. Дашборды Replicator: [`parom_overview.json`](../monitoring/grafana/dashboards/parom_overview.json), [`parom_agents.json`](../monitoring/grafana/dashboards/parom_agents.json), [`parom_hms_dr.json`](../monitoring/grafana/dashboards/parom_hms_dr.json), [`parom_kafka.json`](../monitoring/grafana/dashboards/parom_kafka.json).
+5. Дашборды Parom: [`parom_overview.json`](../monitoring/grafana/dashboards/parom_overview.json), [`parom_agents.json`](../monitoring/grafana/dashboards/parom_agents.json), [`parom_hms_dr.json`](../monitoring/grafana/dashboards/parom_hms_dr.json), [`parom_kafka.json`](../monitoring/grafana/dashboards/parom_kafka.json).
 
 #### Импорт дашбордов в Grafana
 1. В веб-интерфейсе Grafana перейдите в **Dashboards** → **New** → **Import**.
@@ -1351,9 +1343,9 @@ spec:
 Руководства по развертыванию каждого компонента в режимах Standalone (systemd) и Docker / Docker Compose:
 
 - [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
-- [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
-- [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
-- [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
-- [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
+- [Руководство администратора Artel (artel-admin-guide.md)](artel-admin-guide.md)
+- [Руководство администратора Sklad (sklad-admin-guide.md)](sklad-admin-guide.md)
+- [Руководство администратора Tolmach (tolmach-admin-guide.md)](tolmach-admin-guide.md)
+- [Руководство администратора Iskra (iskra-admin-guide.md)](iskra-admin-guide.md)
 - [Руководство администратора Parom (parom-admin-guide.md)](parom-admin-guide.md)
 

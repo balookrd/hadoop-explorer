@@ -88,7 +88,7 @@ ansible/
 ```
 
 ### Поведение роли `yarn_capacity_scheduler`
-1. Правки вместо полного файла. Artel передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Explorer не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
+1. Правки вместо полного файла. Artel передает в `capacity_scheduler_patch_b64` (Base64) JSON-список правок только тех свойств, которые меняет заявка. Роль читает файл, развернутый на RM, применяет к нему правки и раскладывает результат. Свойства, которых заявка не касается (ACL очередей, глобальные лимиты, `resource-calculator` и т. п.), не меняются. Полный файл Artel не генерирует: при файловом хранилище RM не отдает его по REST. Если файл на разных RM различается, роль останавливается до любых изменений.
    Полная замена файла по-прежнему доступна через `capacity_scheduler_xml_b64`.
 2. Pre-flight-проверка. Синтаксис итогового XML проверяется на Runner до изменения файлов на кластере.
 3. Откат (rollback). Если `yarn rmadmin -refreshQueues` завершился ошибкой, блок `rescue` возвращает файл из резервной копии на всех узлах RM, повторно вызывает `refreshQueues` и завершает задачу со статусом failed.
@@ -188,7 +188,7 @@ deployer ALL=(yarn) NOPASSWD: ALL
 Параметры AWX в конфигурации бэкенда Artel (`backend/artel/src/main/resources/application.yml`):
 
 ```yaml
-yarn:
+artel:
   awx:
     # Включение интеграции с AWX
     enabled: true
@@ -240,7 +240,7 @@ yarn:
 |---|---|
 | `capacity_scheduler_patch_b64` | Base64 от JSON-списка правок: `[{"op": "set", "name": "...", "value": "..."}, ...]`. Операции: `set`, `remove`, `remove_prefix`, `list_add`, `list_remove` |
 | `capacity_scheduler_xml_b64` | Base64 от полного `capacity-scheduler.xml` (только прямой деплой) |
-| `cluster_id` | Идентификатор кластера в Explorer |
+| `cluster_id` | Идентификатор кластера в Artel |
 | `change_request_id` | Номер заявки или `direct` |
 | `applied_by` | Пользователь, запустивший деплой |
 | `deploy_comment` | Комментарий |
@@ -298,7 +298,7 @@ yarn:
 
 ### Вариант 2: Прямой деплой XML администратором (Direct Deploy)
 
-Прямой деплой обходит согласование, поэтому при `yarn.acl.enforce-four-eyes: true` (значение по умолчанию) он запрещен (`403`). Если принцип «четырех глаз» отключен, администратор может применить полный файл. Explorer проверяет, что это корректный XML с корнем `<configuration>`, только со свойствами `yarn.scheduler.capacity.*` и с заданным `yarn.scheduler.capacity.root.queues`:
+Прямой деплой обходит согласование, поэтому при `artel.acl.enforce-four-eyes: true` (значение по умолчанию) он запрещен (`403`). Если принцип «четырех глаз» отключен, администратор может применить полный файл. Artel проверяет, что это корректный XML с корнем `<configuration>`, только со свойствами `yarn.scheduler.capacity.*` и с заданным `yarn.scheduler.capacity.root.queues`:
 
 ```http
 POST /api/v1/clusters/prod-yarn/deploy-xml
@@ -331,7 +331,7 @@ Content-Type: application/json
 
 ## 8. Связанная документация
 
-- [Руководство пользователя Artel (YARN)](yarn-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
+- [Руководство пользователя Artel (YARN)](artel-user-guide.md) — интерфейс, согласование Change Requests, окно экспорта XML.
 - [Архитектура платформы Pristan](ARCHITECTURE.md) — архитектура, подсистемы безопасности и отказоустойчивости.
 - [Руководство по конфигурации платформы](CONFIGURATION.md) — секция `awx:`, переменные окружения, RBAC.
 - [README бэкенда Artel](../backend/artel/README.md) — REST API деплоя, запуск тестов.

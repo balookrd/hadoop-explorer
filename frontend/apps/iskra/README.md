@@ -1,4 +1,4 @@
-# Frontend: Spark Web Explorer
+# Frontend: Iskra (Spark)
 
 Веб-интерфейс Iskra для работы с Apache Spark (PySpark, Scala Spark, Spark SQL) через Apache Livy. Стек: Svelte 5 (Runes), TypeScript, Monaco Editor, Tailwind CSS 4.
 

@@ -1,4 +1,4 @@
-# Tolmach API (Java 21 / Spring Boot 3)
+# Tolmach (SQL) API (Java 21 / Spring Boot 3)
 
 Бэкенд-сервис для аналитических запросов к кластерам Trino и Apache Hive на Java 21 LTS и Spring Boot 3.3.4.
 
@@ -46,5 +46,5 @@ java -jar backend/tolmach/target/tolmach-1.0.0.jar --spring.profiles.active=mock
 
 # Боевой запуск: без JWT_SECRET_KEY и LDAP/Kerberos сервис не стартует
 JWT_SECRET_KEY=... java -jar backend/tolmach/target/tolmach-1.0.0.jar \
-  --spring.config.additional-location=file:/etc/pristan/sql/application.yml
+  --spring.config.additional-location=file:/etc/pristan/tolmach/application.yml
 ```

@@ -1,6 +1,6 @@
 # Объединенный демо-стенд платформы (demo/all)
 
-Окружение Docker Compose со всеми 5 сервисами Pristan и общей инфраструктурой: Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy, Replicator Orchestrator и агенты.
+Окружение Docker Compose со всеми 5 сервисами Pristan и общей инфраструктурой: Kerberos KDC, OpenLDAP, HDFS, Hive Metastore, YARN, Trino, Livy, Parom Orchestrator и агенты.
 
 ---
 
@@ -23,9 +23,9 @@
 | `spark-livy-2` | Apache Livy Server 2 REST API для Spark (Cluster 2) | `8999` | `8999` |
 | `spark-yarn-nm-1` | YARN NodeManager для сессий Livy 1 (RM `yarn-rm-1`) | `45454`, `8042` | — |
 | `spark-yarn-nm-2` | YARN NodeManager для сессий Livy 2 (RM `yarn-rm-2`) | `45454`, `8042` | — |
-| `orchestrator` | Replicator Orchestrator и веб-интерфейс (Control Plane) | `8005`, `50050` | `8005`, `50050` |
-| `agent-dc1` | Replicator gRPC Data Worker (DC1 Sender/Receiver) | `50051` | `50051` |
-| `agent-dc2` | Replicator gRPC Data Worker (DC2 Sender/Receiver) | `50051` | `50052` |
+| `orchestrator` | Parom Orchestrator и веб-интерфейс (Control Plane) | `8005`, `50050` | `8005`, `50050` |
+| `agent-dc1` | Parom gRPC Data Worker (DC1 Sender/Receiver) | `50051` | `50051` |
+| `agent-dc2` | Parom gRPC Data Worker (DC2 Sender/Receiver) | `50051` | `50052` |
 | `prometheus` | Prometheus Server (метрики всех 5 сервисов) | `9090` | `9090` |
 | `grafana` | Grafana (дашборды платформы) | `3000` | `3000` |
 | `artel` | Artel (UI и бэкенд) | `8000` | `8001` |
@@ -55,7 +55,7 @@ cd demo/all && ./start-all-demo.sh
 3. Генерирует Kerberos keytab-файлы и инициализирует пользователей OpenLDAP.
 4. Запускает кластерные службы HDFS, YARN, Hive Metastore, HiveServer2, Trino и Livy.
 5. Инициализирует демо-таблицы в Hive Metastore: `demo/tolmach/hive/init-demo-data.sh` через HiveServer2 (`customers`, `transactions`, `orders`, `events_log`, `daily_metrics`), затем `demo/iskra/init-demo-tables.sh` через Livy в YARN создает отсутствующие `customers`, `transactions` (кластер 1) и `quarterly_reports` (кластер 2).
-6. Запускает 5 веб-сервисов Pristan, включая Replicator Orchestrator и агенты.
+6. Запускает 5 веб-сервисов Pristan, включая Parom Orchestrator и агенты.
 
 ### Веб-интерфейсы
 - Artel: [http://localhost:8001](http://localhost:8001)
@@ -63,7 +63,7 @@ cd demo/all && ./start-all-demo.sh
 - Tolmach: [http://localhost:8003](http://localhost:8003)
 - Iskra: [http://localhost:8004](http://localhost:8004)
 - Parom: [http://localhost:8005](http://localhost:8005)
-- Grafana: [http://localhost:3000](http://localhost:3000) (Дашборды YARN, HDFS, Replicator, Kafka, HMS DR)
+- Grafana: [http://localhost:3000](http://localhost:3000) (Дашборды YARN, HDFS, Parom, Kafka, HMS DR)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 
 ---

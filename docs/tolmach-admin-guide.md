@@ -1,4 +1,4 @@
-# Руководство администратора Tolmach
+# Руководство администратора Tolmach (SQL)
 
 Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса Tolmach в двух режимах:
 1. Standalone — сервер или ВМ под управлением systemd.
@@ -87,14 +87,14 @@ sudo groupadd -g 10001 appuser
 sudo useradd -u 10001 -g appuser -m -s /bin/bash appuser
 
 # Создание каталогов сервиса
-sudo mkdir -p /opt/pristan/sql/releases
-sudo mkdir -p /opt/pristan/sql/bin
-sudo mkdir -p /etc/pristan/sql
-sudo mkdir -p /var/log/hadoop-explorer
-sudo mkdir -p /var/lib/pristan/sql/data
+sudo mkdir -p /opt/pristan/tolmach/releases
+sudo mkdir -p /opt/pristan/tolmach/bin
+sudo mkdir -p /etc/pristan/tolmach
+sudo mkdir -p /var/log/pristan
+sudo mkdir -p /var/lib/pristan/tolmach/data
 sudo mkdir -p /etc/security/keytabs
 
-sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log/hadoop-explorer /var/lib/pristan/sql
+sudo chown -R appuser:appuser /opt/pristan /etc/pristan /var/log/pristan /var/lib/pristan/tolmach
 ```
 
 ### Шаг 3: Получение JAR
@@ -107,9 +107,9 @@ sudo chown -R appuser:appuser /opt/hadoop-explorer /etc/hadoop-explorer /var/log
 sudo -u appuser -i
 
 VERSION="1.0.0"
-GITHUB_REPO="company/hadoop-explorer"
-RELEASE_DIR="/opt/pristan/sql/releases/v${VERSION}"
-BIN_DIR="/opt/pristan/sql/bin"
+GITHUB_REPO="company/pristan"
+RELEASE_DIR="/opt/pristan/tolmach/releases/v${VERSION}"
+BIN_DIR="/opt/pristan/tolmach/bin"
 
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
@@ -128,8 +128,8 @@ ln -sfn "${RELEASE_DIR}/tolmach-${VERSION}.jar" "${BIN_DIR}/tolmach.jar"
 ```bash
 sudo -u appuser -i
 cd /tmp
-git clone https://github.com/company/hadoop-explorer.git
-cd hadoop-explorer
+git clone https://github.com/company/pristan.git
+cd pristan
 
 # Сборка фронтенда Tolmach (Monaco Editor)
 cd frontend
@@ -142,11 +142,11 @@ cd ..
 mvn clean package -pl backend/zastava,backend/tolmach -am -DskipTests
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/tolmach/target/tolmach-*.jar /opt/pristan/sql/bin/tolmach.jar
+cp backend/tolmach/target/tolmach-*.jar /opt/pristan/tolmach/bin/tolmach.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/pristan/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/tolmach/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `ZastavaProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/tolmach/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/tolmach/src/main/resources/application.yml`, `SqlProperties` (префикс `tolmach`) и `ZastavaProperties` (префикс `zastava`).
 ```yaml
 server:
   port: 8003
@@ -154,39 +154,38 @@ server:
 spring:
   datasource:
     # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
-    url: jdbc:h2:file:/var/lib/pristan/sql/data/tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:file:/var/lib/pristan/tolmach/data/tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
-hadoop:
-  security:
-    auth:
-      mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
-      admin-groups: ["hadoop-admins"]
-      writer-groups: ["data-engineers"]
-    jwt:
-      # Случайная строка не короче 32 символов; без нее сервис не стартует
-      secret-key: "${JWT_SECRET_KEY}"
-      expiration-minutes: 480
-    cors:
-      allowed-origins:
-        - "https://sql.company.local"
-    cookie:
-      secure: true
-    ldap:
-      enabled: true
-      url: "ldaps://ldap.company.local:636"
-      manager-dn: "cn=svc_sql,ou=services,dc=company,dc=local"
-      manager-password: "${LDAP_MANAGER_PASSWORD}"
-      user-search-base: "ou=users,dc=company,dc=local"
-      user-search-filter: "(sAMAccountName={0})"
-      group-search-base: "ou=groups,dc=company,dc=local"
-      group-search-filter: "(member={0})"
-    kerberos:
-      # Входящий SPNEGO (SSO в браузере)
-      enabled: true
-      keytab: "/etc/security/keytabs/tolmach.keytab"
-      service-principal: "HTTP/sql.company.local@COMPANY.LOCAL"
+zastava:
+  auth:
+    mode: ldap # ldap | kerberos | hybrid (mock — только для стендов, требует debug: true)
+    admin-groups: ["hadoop-admins"]
+    writer-groups: ["data-engineers"]
+  jwt:
+    # Случайная строка не короче 32 символов; без нее сервис не стартует
+    secret-key: "${JWT_SECRET_KEY}"
+    expiration-minutes: 480
+  cors:
+    allowed-origins:
+      - "https://sql.company.local"
+  cookie:
+    secure: true
+  ldap:
+    enabled: true
+    url: "ldaps://ldap.company.local:636"
+    manager-dn: "cn=svc_tolmach,ou=services,dc=company,dc=local"
+    manager-password: "${LDAP_MANAGER_PASSWORD}"
+    user-search-base: "ou=users,dc=company,dc=local"
+    user-search-filter: "(sAMAccountName={0})"
+    group-search-base: "ou=groups,dc=company,dc=local"
+    group-search-filter: "(member={0})"
+  kerberos:
+    # Входящий SPNEGO (SSO в браузере)
+    enabled: true
+    keytab: "/etc/security/keytabs/tolmach.keytab"
+    service-principal: "HTTP/sql.company.local@COMPANY.LOCAL"
 
-sql:
+tolmach:
   results-ttl-hours: 24
   max-rows-per-query: 10000
   default-page-size: 500
@@ -224,15 +223,15 @@ sql:
 
 Установите права доступа:
 ```bash
-sudo chmod 600 /etc/pristan/sql/application.yml
-sudo chown appuser:appuser /etc/pristan/sql/application.yml
+sudo chmod 600 /etc/pristan/tolmach/application.yml
+sudo chown appuser:appuser /etc/pristan/tolmach/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
 Создайте файл `/etc/systemd/system/tolmach.service`:
 ```ini
 [Unit]
-Description=Hadoop Tolmach Web Service
+Description=Tolmach Web Service
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -240,12 +239,12 @@ Wants=network-online.target
 Type=simple
 User=appuser
 Group=appuser
-WorkingDirectory=/opt/pristan/sql
-Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/sql/application.yml"
+WorkingDirectory=/opt/pristan/tolmach
+Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/tolmach/application.yml"
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/pristan/sql/bin/tolmach.jar \
+    -jar /opt/pristan/tolmach/bin/tolmach.jar \
     --server.port=8003
 
 Restart=always
@@ -275,7 +274,7 @@ curl -I http://127.0.0.1:8003/healthz
 ```bash
 sudo -u appuser -i
 NEW_VER="1.0.1"
-RELEASE_DIR="/opt/pristan/sql/releases/v${NEW_VER}"
+RELEASE_DIR="/opt/pristan/tolmach/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/tolmach-${NEW_VER}.jar"
@@ -283,7 +282,7 @@ curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/tolmach-${NEW_VER}.jar" /opt/pristan/sql/bin/tolmach.jar
+ln -sfn "${RELEASE_DIR}/tolmach-${NEW_VER}.jar" /opt/pristan/tolmach/bin/tolmach.jar
 
 # Перезапуск сервиса (занимает 2–3 сек):
 sudo systemctl restart tolmach

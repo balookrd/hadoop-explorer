@@ -76,7 +76,7 @@ graph TD
 | :--- | :---: | :--- |
 | `READER` (наблюдатель) | `RO` | Просмотр дерева очередей, мониторинг утилизации ресурсов и метрик кластера, просмотр согласованных заявок. Редактирование заблокировано. |
 | `WRITER` (оператор, инженер) | `RW` | Создание локальных черновиков, редактирование параметров очередей, добавление и удаление очередей, создание заявок на изменение (Change Requests) с обоснованием. |
-| `ADMIN` (администратор) | `ADM` | Права `WRITER`, а также: согласование и отклонение заявок других пользователей, запуск деплоя через AWX, экспорт правок `capacity-scheduler.xml`, полная замена файла через API (`deploy-xml`), если отключен `yarn.acl.enforce-four-eyes`. |
+| `ADMIN` (администратор) | `ADM` | Права `WRITER`, а также: согласование и отклонение заявок других пользователей, запуск деплоя через AWX, экспорт правок `capacity-scheduler.xml`, полная замена файла через API (`deploy-xml`), если отключен `artel.acl.enforce-four-eyes`. |
 
 Принцип четырех глаз: администратор не может утвердить собственную заявку, ее утверждает другой администратор кластера.
 
@@ -87,7 +87,7 @@ graph TD
 При открытии приложения показывается экран входа.
 
 <div align="center">
-  <img src="images/yarn/01_login_screen.png" alt="Экран аутентификации Artel" width="850" />
+  <img src="images/artel/01_login_screen.png" alt="Экран аутентификации Artel" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos Single Sign-On (SPNEGO)</em></p>
 </div>
 
@@ -106,7 +106,7 @@ graph TD
 После входа открывается главный экран с очередями выбранного кластера:
 
 <div align="center">
-  <img src="images/yarn/02_main_dashboard.png" alt="Главная панель Artel" width="850" />
+  <img src="images/artel/02_main_dashboard.png" alt="Главная панель Artel" width="850" />
   <p><em>Рисунок 2: Главная панель управления очередями YARN Capacity Scheduler</em></p>
 </div>
 
@@ -158,7 +158,7 @@ graph TD
 Квоты показываются в процентах или в абсолютных величинах (RAM и vCPU). Переключатель находится в правой части тулбара: **«% Проценты»** и **«Абсолютные (RAM/CPU)»**.
 
 <div align="center">
-  <img src="images/yarn/03_absolute_resources_mode.png" alt="Режим абсолютных физических ресурсов RAM и vCPU" width="850" />
+  <img src="images/artel/03_absolute_resources_mode.png" alt="Режим абсолютных физических ресурсов RAM и vCPU" width="850" />
   <p><em>Рисунок 3: Просмотр абсолютных физических ресурсов кластера (RAM и vCPU)</em></p>
 </div>
 
@@ -174,7 +174,7 @@ graph TD
 Чтобы изменить параметры очереди, нажмите иконку карандаша (**Pencil**) в столбце **Actions** строки очереди или кликните по бейджу политики или режима. Справа откроется панель редактирования:
 
 <div align="center">
-  <img src="images/yarn/04_queue_edit_drawer.png" alt="Боковая панель детального редактирования очереди" width="850" />
+  <img src="images/artel/04_queue_edit_drawer.png" alt="Боковая панель детального редактирования очереди" width="850" />
   <p><em>Рисунок 4: Боковая панель детального редактирования параметров очереди</em></p>
 </div>
 
@@ -216,7 +216,7 @@ graph TD
 Чтобы создать очередь, нажмите иконку **Plus** («+») в строке родительской очереди (например, `root.dev`):
 
 <div align="center">
-  <img src="images/yarn/05_add_queue_modal.png" alt="Модальное окно создания дочерней очереди" width="850" />
+  <img src="images/artel/05_add_queue_modal.png" alt="Модальное окно создания дочерней очереди" width="850" />
   <p><em>Рисунок 5: Модальное окно добавления новой дочерней очереди</em></p>
 </div>
 
@@ -237,7 +237,7 @@ graph TD
 Queue Mappings направляют задачи пользователей в очереди, когда очередь не указана явно (`-Dmapreduce.job.queuename`). Чтобы открыть конструктор, нажмите **«Queue Mappings»** на панели инструментов:
 
 <div align="center">
-  <img src="images/yarn/06_queue_mappings_modal.png" alt="Конструктор правил Queue Mappings" width="850" />
+  <img src="images/artel/06_queue_mappings_modal.png" alt="Конструктор правил Queue Mappings" width="850" />
   <p><em>Рисунок 6: Конструктор правил сопоставления очередей (Queue Mappings & Overrides)</em></p>
 </div>
 
@@ -257,7 +257,7 @@ Queue Mappings направляют задачи пользователей в �
 Когда в черновике есть изменения, в нижнем тулбаре выводится счетчик (например, `1 изм. в черновике`). Нажмите **«Просмотр изменений»**, чтобы открыть панель Unified Diff:
 
 <div align="center">
-  <img src="images/yarn/07_diff_panel.png" alt="Панель сравнения изменений Live vs Draft" width="850" />
+  <img src="images/artel/07_diff_panel.png" alt="Панель сравнения изменений Live vs Draft" width="850" />
   <p><em>Рисунок 7: Панель сравнения параметров конфигурации Live vs Draft</em></p>
 </div>
 
@@ -275,7 +275,7 @@ Queue Mappings направляют задачи пользователей в �
 Из панели Diff или нижнего тулбара нажмите **«Отправить на согласование»**:
 
 <div align="center">
-  <img src="images/yarn/08_change_request_modal.png" alt="Модальное окно подачи заявки на изменение" width="850" />
+  <img src="images/artel/08_change_request_modal.png" alt="Модальное окно подачи заявки на изменение" width="850" />
   <p><em>Рисунок 8: Модальное окно подачи заявки на изменение (Change Request)</em></p>
 </div>
 
@@ -287,7 +287,7 @@ Queue Mappings направляют задачи пользователей в �
 В шапке приложения выводится мигающий индикатор и счетчик заявок на согласовании; счетчик обновляется раз в 10 секунд. Кнопка **«Заявки на изменение»** открывает центр согласования:
 
 <div align="center">
-  <img src="images/yarn/09_change_requests_drawer.png" alt="Центр согласования заявок Change Requests" width="850" />
+  <img src="images/artel/09_change_requests_drawer.png" alt="Центр согласования заявок Change Requests" width="850" />
   <p><em>Рисунок 9: Центр согласования и аудита заявок на изменение</em></p>
 </div>
 
@@ -307,13 +307,13 @@ Queue Mappings направляют задачи пользователей в �
 После утверждения (статус `APPROVED`) в карточке заявки появляется блок доставки через AWX:
 
 <div align="center">
-  <img src="images/yarn/09_change_requests_drawer.png" alt="Блок доставки заявки через Ansible AWX" width="850" />
+  <img src="images/artel/09_change_requests_drawer.png" alt="Блок доставки заявки через Ansible AWX" width="850" />
   <p><em>Рисунок 10: Утвержденная заявка со статусом доставки, Job ID и встроенным просмотром логов AWX</em></p>
 </div>
 
 1. Запуск доставки: нажмите **«Применить на кластере»** в карточке одобренной заявки (после успешного деплоя кнопка называется **«Применить повторно»**). Artel передает список правок в Base64 (`capacity_scheduler_patch_b64`) и запускает Job Template в AWX через REST API.
 2. Статус доставки:
-   - `AWX...` — задача выполняется в AWX. Интерфейс ждет ее завершения не дольше `yarn.awx.timeout-seconds` (по умолчанию 180 секунд).
+   - `AWX...` — задача выполняется в AWX. Интерфейс ждет ее завершения не дольше `artel.awx.timeout-seconds` (по умолчанию 180 секунд).
    - `AWX ✓` (`SUCCESSFUL`) — файл разложен на все узлы ResourceManager и применен командой `yarn rmadmin -refreshQueues`. В карточке сохраняются дата и время деплоя.
    - `AWX ✕` (`FAILED`) — задача завершилась ошибкой (например, кластер отклонил параметры очереди).
 3. Номер задачи: в карточке заявки выводится номер задачи (например, `AWX Job #1042`) со ссылкой на нее в AWX.
@@ -327,7 +327,7 @@ Queue Mappings направляют задачи пользователей в �
 Кнопка **«Сгенерировать XML»** (роль ADMIN) открывает окно **«Правки capacity-scheduler.xml»** с перечнем свойств, которые меняет черновик. Это не полный файл: ResourceManager не отдает развернутый `capacity-scheduler.xml` по REST, поэтому Artel описывает только изменяемые свойства.
 
 <div align="center">
-  <img src="images/yarn/10_xml_export_modal.png" alt="Модальное окно экспорта правок XML" width="850" />
+  <img src="images/artel/10_xml_export_modal.png" alt="Модальное окно экспорта правок XML" width="850" />
   <p><em>Рисунок 11: Окно экспорта правок capacity-scheduler.xml</em></p>
 </div>
 
@@ -337,7 +337,7 @@ Queue Mappings направляют задачи пользователей в �
 3. **«Скачать»** сохраняет перечень в файл `capacity-scheduler-patch-<cluster_id>-<timestamp>.xml`.
 4. Под перечнем выводится инструкция по применению на кластере.
 
-Запуска AWX в этом окне нет. Чтобы применить изменения через AWX, оформите заявку (раздел 10). API-метод `deploy-xml`, заменяющий файл целиком, запрещен при `yarn.acl.enforce-four-eyes: true` (значение по умолчанию), см. [awx-yarn-deployment.md](awx-yarn-deployment.md).
+Запуска AWX в этом окне нет. Чтобы применить изменения через AWX, оформите заявку (раздел 10). API-метод `deploy-xml`, заменяющий файл целиком, запрещен при `artel.acl.enforce-four-eyes: true` (значение по умолчанию), см. [awx-yarn-deployment.md](awx-yarn-deployment.md).
 
 ### Применение правок на кластере
 
@@ -389,7 +389,7 @@ Queue Mappings направляют задачи пользователей в �
 Черновик очищается, таблица возвращается к состоянию, загруженному с кластера YARN (Live State).
 
 ### Q5: Как настроить интеграцию с Ansible AWX для автоматической доставки конфигурации?
-Интеграция задается в `backend/artel/src/main/resources/application.yml`: общие параметры в секции `yarn.awx:`, параметры отдельного кластера в `yarn.clusters[].awx:`. Для кластера указывается `job-template-id`, а также токен доступа и URL сервера AWX. Настройка роли, плейбука и AWX описана в [руководстве по интеграции с Ansible AWX](awx-yarn-deployment.md).
+Интеграция задается в `backend/artel/src/main/resources/application.yml`: общие параметры в секции `artel.awx:`, параметры отдельного кластера в `artel.clusters[].awx:`. Для кластера указывается `job-template-id`, а также токен доступа и URL сервера AWX. Настройка роли, плейбука и AWX описана в [руководстве по интеграции с Ansible AWX](awx-yarn-deployment.md).
 
 ### Q6: Что произойдет, если YARN не примет новую конфигурацию при выполнении AWX Job?
 В роли `yarn_capacity_scheduler` есть блок `rescue`: если `yarn rmadmin -refreshQueues` завершился ошибкой, плейбук возвращает резервную копию `capacity-scheduler-<timestamp>.xml` из `backup_dir` на всех узлах ResourceManager и повторно выполняет `refreshQueues`. Очереди остаются в прежней конфигурации, в карточке заявки выводится бейдж `AWX ✕`, вывод плейбука доступен по кнопке **«Лог AWX»**.

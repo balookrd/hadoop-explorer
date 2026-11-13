@@ -45,7 +45,7 @@ artel:
   client-mode: native
   acl:
     enforce-four-eyes: true
-  # Учетная запись Explorer для SPNEGO-запросов к кластерам с kerberos-enabled: true
+  # Учетная запись Artel для SPNEGO-запросов к кластерам с kerberos-enabled: true
   kerberos:
     principal: ${ARTEL_KERBEROS_PRINCIPAL:}
     keytab: ${ARTEL_KERBEROS_KEYTAB:}

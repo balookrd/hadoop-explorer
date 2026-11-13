@@ -2,7 +2,7 @@
 
 <img src="images/logo_white.png" alt="Pristan" width="380" />
 
-<p>Веб-интерфейсы для YARN, HDFS, SQL (Trino, Hive), Spark и межкластерной репликации HDFS</p>
+<p>Pristan — платформа для работы с Hadoop</p>
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#запуск-тестов)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://adoptium.net/)
@@ -24,21 +24,21 @@
 - [Руководство по конфигурации компонентов (docs/CONFIGURATION.md)](docs/CONFIGURATION.md)
 - Руководства администратора и DevOps (standalone, Docker):
   - [Общее руководство администратора платформы (docs/admin-guide.md)](docs/admin-guide.md)
-  - [Администрирование Artel (docs/yarn-admin-guide.md)](docs/yarn-admin-guide.md)
-  - [Администрирование Sklad (docs/hdfs-admin-guide.md)](docs/hdfs-admin-guide.md)
-  - [Администрирование Tolmach (docs/sql-admin-guide.md)](docs/sql-admin-guide.md)
-  - [Администрирование Iskra (docs/spark-admin-guide.md)](docs/spark-admin-guide.md)
-  - [Администрирование Parom (docs/replicator-admin-guide.md)](docs/replicator-admin-guide.md)
-  - [Регламент Disaster Recovery и защита от split-brain (docs/replicator-disaster-recovery-guide.md)](docs/replicator-disaster-recovery-guide.md)
-  - [Отказоустойчивость и распределенный лизинг Replicator (docs/replicator-fault-tolerance.md)](docs/replicator-fault-tolerance.md)
-  - [Презентация Replicator для команды (docs/replicator-presentation.md)](docs/replicator-presentation.md) ([HTML](docs/replicator-presentation.html), [PPTX](docs/replicator-presentation.pptx))
+  - [Администрирование Artel (docs/artel-admin-guide.md)](docs/artel-admin-guide.md)
+  - [Администрирование Sklad (docs/sklad-admin-guide.md)](docs/sklad-admin-guide.md)
+  - [Администрирование Tolmach (docs/tolmach-admin-guide.md)](docs/tolmach-admin-guide.md)
+  - [Администрирование Iskra (docs/iskra-admin-guide.md)](docs/iskra-admin-guide.md)
+  - [Администрирование Parom (docs/parom-admin-guide.md)](docs/parom-admin-guide.md)
+  - [Регламент Disaster Recovery и защита от split-brain (docs/parom-disaster-recovery-guide.md)](docs/parom-disaster-recovery-guide.md)
+  - [Отказоустойчивость и распределенный лизинг Parom (docs/parom-fault-tolerance.md)](docs/parom-fault-tolerance.md)
+  - [Презентация Parom для команды (docs/parom-presentation.md)](docs/parom-presentation.md) ([HTML](docs/parom-presentation.html), [PPTX](docs/parom-presentation.pptx))
 - Руководства пользователя:
-  - [Руководство пользователя Artel (docs/yarn-user-guide.md)](docs/yarn-user-guide.md)
+  - [Руководство пользователя Artel (docs/artel-user-guide.md)](docs/artel-user-guide.md)
   - [Доставка и применение конфигурации очередей через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
-  - [Руководство пользователя Sklad (docs/hdfs-user-guide.md)](docs/hdfs-user-guide.md)
-  - [Руководство пользователя Tolmach (docs/sql-user-guide.md)](docs/sql-user-guide.md)
-  - [Руководство пользователя Iskra (docs/spark-user-guide.md)](docs/spark-user-guide.md)
-  - [Руководство пользователя Parom (docs/replicator-user-guide.md)](docs/replicator-user-guide.md)
+  - [Руководство пользователя Sklad (docs/sklad-user-guide.md)](docs/sklad-user-guide.md)
+  - [Руководство пользователя Tolmach (docs/tolmach-user-guide.md)](docs/tolmach-user-guide.md)
+  - [Руководство пользователя Iskra (docs/iskra-user-guide.md)](docs/iskra-user-guide.md)
+  - [Руководство пользователя Parom (docs/parom-user-guide.md)](docs/parom-user-guide.md)
   - [Работа Hive и Spark без кластера YARN (docs/hive-spark-without-yarn.md)](docs/hive-spark-without-yarn.md)
 - [Общие модули](#общие-модули)
 - [Адреса, health-check и образы сервисов](#адреса-health-check-и-образы-сервисов)
@@ -54,7 +54,18 @@
 
 ## Состав платформы
 
-Pristan — монорепозиторий из пяти сервисов для работы с инфраструктурой Apache Hadoop:
+Pristan — монорепозиторий из пяти сервисов для работы с инфраструктурой Apache Hadoop и общего стартера безопасности.
+
+| Имя | Идентификатор | Движок | Назначение | Смысл имени |
+|---|---|---|---|---|
+| Artel (Артель) | `artel` | YARN | очереди Capacity Scheduler, заявки на изменение, RM HA | артель: делит работу и ресурсы между участниками |
+| Sklad (Склад) | `sklad` | HDFS | файловый менеджер через WebHDFS и HttpFS, предпросмотр Parquet, ORC, CSV и JSON | склад |
+| Tolmach (Толмач) | `tolmach` | Trino, Hive | редактор запросов к Trino и Hive (HiveServer2), AI-помощник | толмач: переводит вопрос в запрос |
+| Iskra (Искра) | `iskra` | Spark | сессии Livy (PySpark, Scala Spark, Spark SQL), конструктор DAG/ETL | искра |
+| Parom (Паром) | `parom` | HDFS, Hive Metastore, Kafka | межкластерная репликация: orchestrator и agent по gRPC | паром между дата-центрами |
+| Zastava (Застава) | `zastava` | — | общий стартер безопасности: SPNEGO, LDAP, JWT, ограничение частоты запросов | застава: проверяет каждого входящего |
+
+Возможности сервисов:
 
 1. Artel — консоль мониторинга кластеров и управления иерархией очередей Apache Hadoop YARN Capacity Scheduler: моделирование весов, версионирование конфигурации, заявки на изменение (Change Requests) с согласованием по принципу Four-Eyes, доставка и применение конфигурации (`yarn rmadmin -refreshQueues`) через Ansible AWX с автоматическим откатом.
 2. Sklad — файловый менеджер HDFS через WebHDFS и HttpFS с поддержкой NameNode HA и circuit breaker. Список файлов виртуализирован: в DOM отрисовываются только видимые строки, поэтому размер директории не влияет на скорость отрисовки. Поддерживает превью Parquet, ORC, CSV и JSON, ACL, квоты директорий и имперсонацию пользователей (`doAs`).
@@ -71,14 +82,16 @@ Pristan — монорепозиторий из пяти сервисов для
 ```
 pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
-│   ├── zastava/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
-│   ├── yarn/                 # Сервис Artel (Capacity Scheduler, RM HA Failover)
-│   ├── hdfs/                 # Сервис Sklad (HA NameNode, Parquet/ORC Preview)
-│   ├── sql/                  # Сервис Tolmach (Trino, Hive, AI Assistant)
-│   ├── spark/                # Сервис Iskra (Livy, PySpark, Scala, DAG Pipelines)
-│   └── replicator/           # Сервис Parom
-│       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3)
-│       └── agent/            # Нативный Replicator gRPC Worker Daemon (Java 21)
+│   ├── zastava/              # Zastava: ядро безопасности (SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2)
+│   ├── artel/                # Сервис Artel, YARN (Capacity Scheduler, RM HA Failover)
+│   ├── sklad/                # Сервис Sklad, HDFS (HA NameNode, Parquet/ORC Preview)
+│   ├── tolmach/              # Сервис Tolmach, SQL (Trino, Hive, AI Assistant)
+│   ├── iskra/                # Сервис Iskra, Spark (Livy, PySpark, Scala, DAG Pipelines)
+│   └── parom/                # Сервис Parom, межкластерная репликация
+│       ├── proto/            # Общие wire-контракты: схемы .proto и gRPC-стабы
+│       ├── model/            # Общие DTO, HMS-модель, аттестация задач
+│       ├── orchestrator/     # Parom Orchestrator API (Java 21 / Spring Boot 3)
+│       └── agent/            # Нативный Parom gRPC Worker Daemon (Java 21)
 │
 ├── ansible/                  # ─── Автоматизация деплоя и применения (AWX) ───
 │   ├── playbooks/            # deploy_capacity_scheduler.yml (Job Template)
@@ -88,11 +101,11 @@ pristan/
 ├── frontend/                 # ─── Клиентские SPA приложения (Svelte 5) ───
 │   ├── common/               # Общие UI-компоненты, API-клиенты, типы авторизации (types/auth.ts)
 │   ├── apps/
-│   │   ├── yarn/             # Frontend Artel (Svelte 5 + Tailwind 4)
-│   │   ├── hdfs/             # Frontend Sklad (Svelte 5 + Tailwind 4 + виртуализация)
-│   │   ├── sql/              # Frontend Tolmach (Svelte 5 + Tailwind 4 + Monaco Editor)
-│   │   ├── spark/            # Frontend Iskra (Svelte 5 + Tailwind 4 + Monaco + DAG)
-│   │   └── replicator/       # Frontend Replicator (Svelte 5 + Tailwind 4)
+│   │   ├── artel/            # Frontend Artel (Svelte 5 + Tailwind 4)
+│   │   ├── sklad/            # Frontend Sklad (Svelte 5 + Tailwind 4 + виртуализация)
+│   │   ├── tolmach/          # Frontend Tolmach (Svelte 5 + Tailwind 4 + Monaco Editor)
+│   │   ├── iskra/            # Frontend Iskra (Svelte 5 + Tailwind 4 + Monaco + DAG)
+│   │   └── parom/            # Frontend Parom (Svelte 5 + Tailwind 4)
 │   └── package.json          # NPM Workspaces монорепозитория
 │
 ├── monitoring/               # ─── Мониторинг и наблюдаемость (Observability) ───
@@ -110,11 +123,11 @@ pristan/
 │
 ├── demo/                     # ─── Изолированные демонстрационные стенды ───
 │   ├── infra/                # MIT Kerberos KDC + OpenLDAP
-│   ├── yarn/                 # Стенд YARN (2 кластера YARN RM) -> :8001
-│   ├── hdfs/                 # Стенд HDFS (2 кластера WebHDFS) -> :8002
-│   ├── sql/                  # Стенд SQL (Postgres, Hive, Trino) -> :8003
-│   ├── spark/                # Стенд Spark (Livy + Hive Metastore + YARN + HDFS) -> :8004
-│   ├── replicator/           # Стенд Replicator (DC1 + DC2 + Orchestrator) -> :8005
+│   ├── artel/                # Стенд Artel (2 кластера YARN RM) -> :8001
+│   ├── sklad/                # Стенд Sklad (2 кластера WebHDFS) -> :8002
+│   ├── tolmach/              # Стенд Tolmach (Postgres, Hive, Trino) -> :8003
+│   ├── iskra/                # Стенд Iskra (Livy + Hive Metastore + YARN + HDFS) -> :8004
+│   ├── parom/                # Стенд Parom (DC1 + DC2 + Orchestrator) -> :8005
 │   └── all/                  # Единый запуск всех стендов платформы
 │
 ├── scripts/                  # Скрипты сборки, тестов и AST-индексации
@@ -164,7 +177,7 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 
 | Сервис | Веб-интерфейс | Health-check | Метрики Prometheus | Образ |
 |---|---|---|---|---|
-| Artel | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/yarn:latest` |
+| Artel | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/artel:latest` |
 | Sklad | `http://localhost:8002` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/sklad:latest` |
 | Tolmach | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/tolmach:latest` |
 | Iskra | `http://localhost:8004` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/iskra:latest` |
@@ -174,16 +187,16 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 
 ## Метрики Prometheus и дашборды Grafana
 
-YARN, HDFS, SQL и Iskra отдают метрики на `GET /actuator/prometheus` без аутентификации, оркестратор Replicator — на `GET /metrics` (с аутентификацией).
+Artel, Sklad, Tolmach и Iskra отдают метрики на `GET /actuator/prometheus` без аутентификации, оркестратор Parom — на `GET /metrics` (с аутентификацией).
 
 ### Экспортируемые метрики
 
 - HTTP (все четыре сервиса): `http_server_requests_seconds_count|_bucket{app, method, uri, status, outcome, exception}`, `http_server_requests_active_seconds_count{app}` (запросы в обработке).
 - Ограничитель частоты (все четыре сервиса): `hadoop_rate_limit_blocks_total{app, tier}` — ответы 429, `tier`: `login` или `api`.
-- HDFS: `sklad_operations_total{cluster, operation, status}`, `sklad_bytes_transferred_total{cluster, direction}`.
-- YARN: `artel_change_requests_total{cluster, status}`.
-- SQL: `tolmach_query_duration_seconds_count|_bucket{cluster, engine, status}`.
-- Spark: `iskra_statement_duration_seconds_count|_bucket{cluster, language, status}`, `iskra_sessions_active{cluster, kind}`.
+- Sklad (HDFS): `sklad_operations_total{cluster, operation, status}`, `sklad_bytes_transferred_total{cluster, direction}`.
+- Artel (YARN): `artel_change_requests_total{cluster, status}`.
+- Tolmach (SQL): `tolmach_query_duration_seconds_count|_bucket{cluster, engine, status}`.
+- Iskra (Spark): `iskra_statement_duration_seconds_count|_bucket{cluster, language, status}`, `iskra_sessions_active{cluster, kind}`.
 
 Лейблы, бакеты и доступ описаны в [docs/CONFIGURATION.md, раздел 9](docs/CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
@@ -201,7 +214,7 @@ YARN, HDFS, SQL и Iskra отдают метрики на `GET /actuator/prometh
 
 У каждого сервиса есть отдельный демо-стенд на Docker Compose с тестовым KDC (Kerberos), OpenLDAP и окружением сервиса.
 
-### Демо-стенд Artel
+### Демо-стенд Artel (YARN)
 Включает: KDC, OpenLDAP, 2 кластера YARN ResourceManager с иерархией очередей Capacity Scheduler и Artel:
 ```bash
 make demo-artel
@@ -209,7 +222,7 @@ make demo-artel
 # Остановка: make demo-artel-stop
 ```
 
-### Демо-стенд Sklad
+### Демо-стенд Sklad (HDFS)
 Включает: KDC, OpenLDAP, 2 кластера DataLake с WebHDFS под Kerberos и сервис Sklad:
 ```bash
 make demo-sklad
@@ -217,7 +230,7 @@ make demo-sklad
 # Остановка: make demo-sklad-stop
 ```
 
-### Демо-стенд Tolmach
+### Демо-стенд Tolmach (SQL)
 Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и Tolmach:
 ```bash
 make demo-tolmach
@@ -225,7 +238,7 @@ make demo-tolmach
 # Остановка: make demo-tolmach-stop
 ```
 
-### Демо-стенд Iskra
+### Демо-стенд Iskra (Spark)
 Включает: KDC, OpenLDAP, Apache Livy, PostgreSQL Hive Metastore, Hadoop HDFS, YARN ResourceManager и сервис Iskra:
 ```bash
 make demo-iskra
@@ -296,18 +309,18 @@ Workflow GitHub Actions:
 make build
 
 # Либо по отдельности:
-./scripts/build-containers.sh artel       # pristan/artel:latest
-./scripts/build-containers.sh sklad       # pristan/sklad:latest
-./scripts/build-containers.sh tolmach     # pristan/tolmach:latest
-./scripts/build-containers.sh iskra       # pristan/iskra:latest
-./scripts/build-containers.sh replicator  # pristan/parom-orchestrator:latest и pristan/parom-agent:latest
+./scripts/build-containers.sh artel   # pristan/artel:latest
+./scripts/build-containers.sh sklad   # pristan/sklad:latest
+./scripts/build-containers.sh tolmach # pristan/tolmach:latest
+./scripts/build-containers.sh iskra   # pristan/iskra:latest
+./scripts/build-containers.sh parom   # pristan/parom-orchestrator:latest и pristan/parom-agent:latest
 ```
 
-Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `hadoop-explorer`). Цели `make build-artel`, `make build-sklad`, `make build-tolmach`, `make build-iskra`, `make build-parom` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
+Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `pristan`). Цели `make build-artel`, `make build-sklad`, `make build-tolmach`, `make build-iskra`, `make build-parom` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
 
 Прямой запуск через Docker CLI:
 ```bash
-docker build -t pristan/yarn:latest -f docker/Dockerfile.artel .
+docker build -t pristan/artel:latest -f docker/Dockerfile.artel .
 docker build -t pristan/sklad:latest -f docker/Dockerfile.sklad .
 docker build -t pristan/tolmach:latest -f docker/Dockerfile.tolmach .
 docker build -t pristan/iskra:latest -f docker/Dockerfile.iskra .
@@ -320,13 +333,13 @@ docker build -t pristan/parom-agent:latest -f docker/Dockerfile.parom-agent .
 ## Запуск тестов
 
 Число тестов на 2026-11-06: 943 тестовых метода Java (аннотации `@Test` и `@ParameterizedTest`; параметризованные методы при прогоне дают больше запусков) и 115 тестов Vitest:
-- Frontend: 115 тестов Vitest (из них 28 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
+- Frontend: 115 тестов Vitest (из них 28 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Parom, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
 - Artel: 49 тестов (34 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
 - Sklad: 45 тестов (17 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
 - Tolmach: 19 тестов (7 Java 21 + 12 Frontend UI: Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - Iskra: 15 тестов (6 Java 21 + 9 Frontend UI: Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 - Parom: 871 тест (848 Java 21 + 23 Frontend UI: Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
-- Common Security Starter: 31 тест Java 21.
+- Zastava: 31 тест Java 21.
 
 ```bash
 # Запуск всех тестов платформы (Backend + Frontend UI)
@@ -340,12 +353,12 @@ make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Тестирование бэкенда (Java 21 / Spring Boot 3):
 make test-java        # Все Java тесты платформы
-make test-zastava # Тесты стартера безопасности (zastava)
-make test-artel        # Тесты сервиса Artel (Java 21)
-make test-sklad        # Тесты сервиса Sklad (Java 21)
-make test-tolmach         # Тесты сервиса Tolmach (Java 21)
+make test-zastava     # Тесты стартера безопасности (zastava)
+make test-artel       # Тесты сервиса Artel (Java 21)
+make test-sklad       # Тесты сервиса Sklad (Java 21)
+make test-tolmach     # Тесты сервиса Tolmach (Java 21)
 make test-iskra       # Тесты сервиса Iskra (Java 21)
-make test-parom  # Тесты сервиса Replicator (Java 21)
+make test-parom       # Тесты сервиса Parom (Java 21)
 ```
 
 ---
@@ -384,6 +397,8 @@ make test-parom  # Тесты сервиса Replicator (Java 21)
 | `make demo-tolmach-stop` | Остановка демо-стенда Tolmach |
 | `make demo-iskra` | Запуск демо-стенда Iskra (`:8004`) |
 | `make demo-iskra-stop` | Остановка демо-стенда Iskra |
+| `make demo-parom` | Запуск демо-стенда Parom (`:8005`) |
+| `make demo-parom-stop` | Остановка демо-стенда Parom |
 | `make demo-all` | Запуск объединенного демо-стенда платформы |
 | `make demo-all-stop` | Остановка объединенного демо-стенда |
 | `make java-index` | Построение автономного AST-индекса Java для поиска символов |

@@ -1,4 +1,4 @@
-# Sklad API (Java 21 / Spring Boot 3)
+# Sklad (HDFS) API (Java 21 / Spring Boot 3)
 
 Бэкенд Sklad на Java 21 LTS и Spring Boot 3.3.4. Работает с HDFS через нативный клиент Apache Hadoop (`hadoop-client`), переключается между NameNode в HA-конфигурации, выполняет операции от имени пользователя через Kerberos doAs и использует стартер безопасности `zastava`.
 
@@ -58,32 +58,30 @@ backend/sklad/
 server:
   port: 8001
 
-hadoop:
-  security:
-    auth:
-      mode: mock # mock, ldap, kerberos
-      admin-groups:
-        - "hadoop-admins"
-        - "superusers"
-
-  hdfs:
-    clusters:
-      - id: "prod-datalake"
-        name: "Production DataLake"
-        hdfs-rpc-urls:
-          - "hdfs://nn01.prod.example.com:8020"
-          - "hdfs://nn02.prod.example.com:8020"
-        auth-type: "kerberos"
-        service-principal: "sklad/sklad.prod.example.com@EXAMPLE.COM"
-        keytab-path: "/etc/security/keytabs/sklad.keytab"
-        timeout-seconds: 30
-        preview-max-bytes: 1048576
-        default-path: "/user/{username}"
-        mock-storage: false
-        acl:
-          allowed-groups: ["data-engineers", "analytics", "hadoop-admins"]
-          read-only-groups: ["analytics"]
-          admin-groups: ["hadoop-admins"]
+sklad:
+  clusters:
+    - id: "prod-datalake"
+      name: "Production DataLake"
+      hdfs-rpc-urls:
+        - "hdfs://nn01.prod.example.com:8020"
+        - "hdfs://nn02.prod.example.com:8020"
+      auth-type: "kerberos"
+      service-principal: "sklad/sklad.prod.example.com@EXAMPLE.COM"
+      keytab-path: "/etc/security/keytabs/sklad.keytab"
+      timeout-seconds: 30
+      preview-max-bytes: 1048576
+      default-path: "/user/{username}"
+      mock-storage: false
+      acl:
+        allowed-groups: ["data-engineers", "analytics", "hadoop-admins"]
+        read-only-groups: ["analytics"]
+        admin-groups: ["hadoop-admins"]
+zastava:
+  auth:
+    mode: mock # mock, ldap, kerberos
+    admin-groups:
+      - "hadoop-admins"
+      - "superusers"
 ```
 
 ---

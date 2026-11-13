@@ -30,7 +30,7 @@ public class KerberosClientLogin {
         if (ugi == null) {
             if (isBlank(config.getPrincipal()) || isBlank(config.getKeytab())) {
                 throw new IOException("Кластер помечен kerberos-enabled, но не заданы artel.kerberos.principal "
-                        + "и artel.kerberos.keytab — учетная запись Explorer для обращения к ResourceManager");
+                        + "и artel.kerberos.keytab — учетная запись Artel для обращения к ResourceManager");
             }
             if (!isBlank(config.getKrb5Conf())) {
                 System.setProperty("java.security.krb5.conf", config.getKrb5Conf());
