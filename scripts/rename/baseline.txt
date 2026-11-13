@@ -1,0 +1,7 @@
+ast-grep matches: 0
+java files: 698
+tracked files: 1211
+name availability (curl HTTP codes):
+npm https://registry.npmjs.org/@pristan%2fartel: 404 (free)
+docker hub https://hub.docker.com/v2/namespaces/pristan/: 405 (inconclusive; neither 404 nor 200)
+maven central io/github/balookrd: skipped by owner decision
