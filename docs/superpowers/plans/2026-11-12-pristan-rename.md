@@ -23,7 +23,7 @@
 - Замена по подстроке запрещена: слова `yarn`, `hdfs`, `sql`, `spark` обозначают и продукт, и движок. Все замены — точными токенами из манифестов этого плана.
 - Не менять: denylist секретов в `SecurityConfigurationValidator` и `LEGACY_DEFAULT_AGENT_SECRET`; ветки `kafka-replicator-.*`, `replicator-.*`, `hadoop-replicator-.*` в `ConsumerGroupBlacklistFilter`; `V1__baseline_schema.sql`; `CHANGELOG*`; `docs/superpowers/`; классы и таблицы `Replication*`/`replication_*`; имена классов и ключей движков.
 - Новые идентификаторы: платформа `pristan`, groupId и корневой пакет `io.github.balookrd.pristan`, сервисы `artel`, `sklad`, `tolmach`, `iskra`, `parom`, стартер `zastava`.
-- Отображаемые имена: при первом упоминании на странице или экране — «Artel (YARN)», «Sklad (HDFS)», «Tolmach (SQL)», «Iskra (Spark)», «Parom»; платформа — «Pristan — веб-консоль для кластеров Hadoop».
+- Отображаемые имена: при первом упоминании на странице или экране — «Artel (YARN)», «Sklad (HDFS)», «Tolmach (SQL)», «Iskra (Spark)», «Parom»; платформа — «Pristan — платформа для работы с Hadoop».
 - В регулярных выражениях для `git grep -E` не использовать `\b`: в этой сборке git он не срабатывает. Границы слова задавать классами символов.
 
 ## Структура файлов
@@ -1627,7 +1627,7 @@ Run: `python3 scripts/rename/rename_tokens.py scripts/rename/manifests/11-docs.t
 
 В `README.md`:
 
-1. В шапке: `alt="Pristan"` у логотипа; строку под логотипом заменить на «Pristan — веб-консоль для кластеров Hadoop: YARN, HDFS, SQL (Trino, Hive), Spark и межкластерная репликация».
+1. В шапке: `alt="Pristan"` у логотипа; строку под логотипом заменить на «Pristan — платформа для работы с Hadoop: YARN, HDFS, SQL (Trino, Hive), Spark и межкластерная репликация».
 2. Раздел «Состав платформы» заменить таблицей:
 
    ```markdown

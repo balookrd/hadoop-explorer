@@ -41,7 +41,7 @@
 
 | Было | Стало |
 |---|---|
-| отображаемое имя «Hadoop Explorer», «Hadoop Explorer Platform» | «Pristan»; при первом упоминании — «Pristan — веб-консоль для кластеров Hadoop» |
+| отображаемое имя «Hadoop Explorer», «Hadoop Explorer Platform» | «Pristan»; при первом упоминании — «Pristan — платформа для работы с Hadoop» |
 | artifactId `hadoop-explorer-parent` | `pristan-parent` |
 | groupId `org.apache.hadoop.explorer` | `io.github.balookrd.pristan` |
 | корневой Java-пакет `org.apache.hadoop.explorer`, каталоги `org/apache/hadoop/explorer` | `io.github.balookrd.pristan`, `io/github/balookrd/pristan` |
@@ -151,7 +151,7 @@ Zastava переименовывается вместе с платформой,
 
 | Где | Что меняется |
 |---|---|
-| `README.md`, шапка | имя «Pristan», строка «Pristan — веб-консоль для кластеров Hadoop», `alt` логотипа |
+| `README.md`, шапка | имя «Pristan», строка «Pristan — платформа для работы с Hadoop», `alt` логотипа |
 | `README.md`, раздел «Состав платформы» | таблица: имя, идентификатор, движок, назначение, смысл имени — для Artel, Sklad, Tolmach, Iskra, Parom и Zastava |
 | `README.md`, разделы «Структура монорепозитория», «Общие модули», «Адреса, health-check и образы сервисов», «Метрики Prometheus и дашборды Grafana», «Запуск демо-стендов» | пути, имена образов, метрик, целей `make` и заголовки стендов |
 | `AGENTS.md` | карта репозитория, правило изоляции сервисов, команды сборки и тестов |
